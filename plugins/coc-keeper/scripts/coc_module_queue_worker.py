@@ -1095,6 +1095,7 @@ def _target_source_scope(
     target_id: str,
     *,
     job_kind: str,
+    work_level: str,
 ) -> dict[str, Any]:
     collection_and_key = {
         "location": ("locations", "location_id"),
@@ -1109,11 +1110,22 @@ def _target_source_scope(
     # Appendix/chapter-end locators are the authoritative source for authored
     # parameters; profile/appearance/body pages must not inflate a blocking
     # mechanics request merely because they describe the same person or item.
+    current_body_dependency = (
+        work_level == "current_dependency" and not mechanics_job
+    )
     if collection_and_key is not None and not mechanics_job:
         collection, key = collection_and_key
         for row in skeleton.get(collection) or []:
             if isinstance(row, dict) and str(row.get(key) or "") == target_id:
-                scopes.append(row)
+                # named_only/toc_only scopes establish source authorization and
+                # identity, but do not prove that the selected pages contain
+                # the target body needed to settle an immediate player action.
+                if (
+                    not current_body_dependency
+                    or str(row.get("parse_state") or "")
+                    not in {"named_only", "toc_only"}
+                ):
+                    scopes.append(row)
                 break
     if mechanics_job:
         for locator in skeleton.get("mechanics_index") or []:
@@ -1134,7 +1146,16 @@ def _target_source_scope(
             workspace, asset_root_id, entity_kind, target_id,
         )
         if isinstance(target_pack, dict):
-            scopes.append(target_pack)
+            if (
+                current_body_dependency
+                and str(target_pack.get("parse_state") or "")
+                in {"named_only", "toc_only"}
+            ):
+                body_indices = target_pack.get("body_source_page_indices")
+                if isinstance(body_indices, list) and body_indices:
+                    scopes.append({"source_page_indices": body_indices})
+            else:
+                scopes.append(target_pack)
 
     requested_indices: set[int] = set()
     for position, scope in enumerate(scopes):
@@ -1240,6 +1261,10 @@ def _write_host_work_request(
             entity_kind,
             target_id,
             job_kind=job_kind,
+            work_level=str(
+                job.get("work_level")
+                or coc_module_assets._default_host_work_level(job_kind)
+            ),
         )
         requested_indices = (
             coc_module_assets._source_indices(
@@ -1362,8 +1387,9 @@ def _write_host_work_request(
         "instruction": (
             "Source scope is unknown. Do not open or scan the PDF and do not "
             "scan unrelated cached pages. Leave this request unresolved until "
-            "a structured skeleton, mention, or entity update supplies exact "
-            "pdf_indices; then enqueue the target again."
+            "the source-scope locator supplies an exact target-aspect window or "
+            "a body-parsed entity update supplies exact pdf_indices; then "
+            "enqueue the target again."
             if not requested_indices
             else
             "Host source worker: review exactly cached_page_refs for this "

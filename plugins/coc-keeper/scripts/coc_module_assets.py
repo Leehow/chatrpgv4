@@ -994,6 +994,30 @@ def _validate_entity_pack(
     entity_id: str | None = None,
 ) -> None:
     """Validate meaning-bearing structures before a host pack becomes durable."""
+    body_source_page_indices = doc.get("body_source_page_indices")
+    if body_source_page_indices is not None:
+        if str(doc.get("parse_state") or "") != "named_only":
+            raise ModuleAssetsError(
+                "body_source_page_indices is valid only on a named_only locator stub"
+            )
+        if (
+            not isinstance(body_source_page_indices, list)
+            or not body_source_page_indices
+            or any(
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
+                for index in body_source_page_indices
+            )
+            or body_source_page_indices != sorted(set(body_source_page_indices))
+        ):
+            raise ModuleAssetsError(
+                "body_source_page_indices must contain unique ascending "
+                "non-negative integers"
+            )
+        entity_source_indices = set(_source_indices(doc, field=kind))
+        if not set(body_source_page_indices).issubset(entity_source_indices):
+            raise ModuleAssetsError(
+                "body_source_page_indices must be contained in the entity source scope"
+            )
     if doc.get("mechanics") is not None:
         mechanics_mod = _load_sibling(
             "coc_mechanics_module_assets", "coc_mechanics.py",
@@ -6109,6 +6133,7 @@ def ensure_stub(
     title: str | None = None,
     reason: str | None = None,
     source_scope: dict[str, Any] | None = None,
+    body_source_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create named_only entity if missing; never overwrite deeper packs."""
     skeleton_scope = _skeleton_entity_source_scope(
@@ -6118,19 +6143,34 @@ def ensure_stub(
     for label, scope in (
         (f"{kind} skeleton scope", skeleton_scope),
         (f"{kind} mention scope", source_scope),
+        (f"{kind} body locator scope", body_source_scope),
     ):
         if scope:
             inherited_indices.update(_source_indices(scope, field=label))
+    body_source_indices = (
+        _source_indices(body_source_scope, field=f"{kind} body locator scope")
+        if body_source_scope
+        else []
+    )
     existing = get_entity(workspace, asset_root_id, kind, entity_id)
     if existing is not None:
         scope_updated = False
-        if inherited_indices and str(existing.get("parse_state") or "") == "named_only":
+        if str(existing.get("parse_state") or "") == "named_only":
             current_indices = set(_source_indices(existing, field=f"{kind} stub"))
             combined_indices = sorted(current_indices | inherited_indices)
-            if combined_indices != sorted(current_indices):
+            current_body_indices = list(
+                existing.get("body_source_page_indices") or []
+            )
+            body_scope_changed = (
+                bool(body_source_scope)
+                and body_source_indices != current_body_indices
+            )
+            if combined_indices != sorted(current_indices) or body_scope_changed:
                 enriched = json.loads(json.dumps(existing))
                 # Let the cache rebuild canonical refs for the exact union.
                 enriched["source_page_indices"] = combined_indices
+                if body_source_scope:
+                    enriched["body_source_page_indices"] = body_source_indices
                 enriched.pop("source_refs", None)
                 enriched.pop("source_span", None)
                 enriched.pop("page_text_sha256", None)
@@ -6163,6 +6203,8 @@ def ensure_stub(
         ):
             if source_scope.get(field) is not None:
                 payload[field] = json.loads(json.dumps(source_scope[field]))
+    if body_source_scope:
+        payload["body_source_page_indices"] = body_source_indices
     if kind == "location" and title:
         payload["title"] = title
     elif kind == "npc":

@@ -12153,6 +12153,7 @@ def test_request_deepen_marks_only_explicit_current_dependency_blocking_micro(
         "snowbound-destination",
         title="Snowbound Destination",
         source_scope={"source_page_indices": [0, 1, 2]},
+        body_source_scope={"source_page_indices": [0, 1, 2]},
     )
 
     requested = _run(ws, "progressive.request_deepen", {
@@ -12322,6 +12323,7 @@ def test_current_dependency_wait_survives_awaiting_cache_registration(
         "uncached-destination",
         title="Uncached Destination",
         source_scope={"source_page_indices": [1]},
+        body_source_scope={"source_page_indices": [1]},
     )
 
     requested = _run(ws, "progressive.request_deepen", {
@@ -12402,6 +12404,7 @@ def test_pi_current_dependency_dispatch_is_exact_and_separate_from_ordinary(
             target_id,
             title=target_id.title(),
             source_scope={"source_page_indices": [pdf_index]},
+            body_source_scope={"source_page_indices": [pdf_index]},
         )
     ordinary = _run(ws, "progressive.request_deepen", {
         "kind": "location",
@@ -12486,6 +12489,7 @@ def test_current_dependency_wait_projection_is_not_truncated_with_ready_preview(
             target_id,
             title=target_id,
             source_scope={"source_page_indices": [1]},
+            body_source_scope={"source_page_indices": [1]},
         )
         result = _run(ws, "progressive.request_deepen", {
             "kind": "location",

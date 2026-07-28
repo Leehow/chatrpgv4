@@ -5051,6 +5051,7 @@ def resolve_source_scope(
         target_id,
         reason="source_scope_locator",
         source_scope={"source_page_indices": pdf_indices},
+        body_source_scope={"source_page_indices": pdf_indices},
     )
     enqueue = coc_module_assets.enqueue_job(
         workspace,
