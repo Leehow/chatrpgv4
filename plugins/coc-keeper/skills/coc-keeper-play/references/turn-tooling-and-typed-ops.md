@@ -563,7 +563,13 @@ opening packet may become a current `blocking_micro` dependency only after
 final character confirmation; otherwise a `blocking_micro` packet may delay
 only when the current action cannot be resolved honestly without that exact
 authored parameter, handout, or secret. Do not expand its page group while
-waiting.
+waiting. Ordinary `progressive.request_deepen` omits `current_dependency`, so
+nondependent play continues. If the action truly depends, pass exactly
+`current_dependency={operation,decision_id}`; the tool binds the subject and
+reuses `work_level=current_dependency` / `deadline_class=blocking_micro`.
+Release no dependent travel, weather, snow, location, handout, or secret claim
+until the one host terminal notice. Never poll, retrieve child output, or gate
+unrelated play.
 
 On Grok, the source child submits the complete outer result itself through its
 named submit-only MCP, whose server validates and merges without the main KP.

@@ -11562,7 +11562,8 @@ def _source_host_work_projection(
     host_work_fields = (
         "job_id", "kind", "target_id", "priority",
         "requested_pdf_indices", "source_aspect", "deadline_class",
-        "work_group_id", "dispatch_state", "dispatch_attempts",
+        "work_level", "dependency_ref", "work_group_id",
+        "dispatch_state", "dispatch_attempts",
         "cached_scope_complete",
     )
     compact_host_work = [
@@ -11592,6 +11593,12 @@ def _source_host_work_projection(
     ready_background = [
         row for row in ready_candidates
         if row not in retry_exhausted
+    ]
+    blocking_micro_dependencies = [
+        deepcopy(row.get("dependency_ref"))
+        for row in ready_background
+        if row.get("deadline_class") == "blocking_micro"
+        and isinstance(row.get("dependency_ref"), dict)
     ]
     operational_classes = [
         assets_mod.host_work_operational_class(row) for row in open_rows
@@ -11820,6 +11827,15 @@ def _source_host_work_projection(
             "output_gate": False,
             "nondependent_play_may_continue": True,
             "blocking_micro_applies_only_to_current_dependent_settlement": True,
+            **({
+                "current_dependent_settlement_waits_for_terminal": True,
+                "current_dependencies": blocking_micro_dependencies[:4],
+                "terminal_consumption": (
+                    "passively await one host terminal notice without polling "
+                    "or output retrieval, then consume through the next "
+                    "naturally needed canonical query"
+                ),
+            } if blocking_micro_dependencies else {}),
         },
     }
     projection["background_takeover"] = takeover
@@ -14891,11 +14907,59 @@ def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "why dig was requested (logged on the queue job)",
         },
+        "current_dependency": {
+            "type": "object",
+            "desc": (
+                "omit for ordinary nonblocking player dig; include only when "
+                "the current natural action cannot be resolved honestly without "
+                "this unpublished authored body. operation names the exact "
+                "consumer and decision_id names that one pending settlement"
+            ),
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "required": True,
+                    "desc": "exact canonical consumer operation",
+                },
+                "decision_id": {
+                    "type": "string",
+                    "required": True,
+                    "desc": "stable identity of this current dependent settlement",
+                },
+            },
+            "additionalProperties": False,
+        },
     },
 )
 def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
     if ctx.campaign_dir is None:
         raise ToolError("invalid_param", "campaign required")
+    current_dependency = args.get("current_dependency")
+    dependency_ref = None
+    if current_dependency is not None:
+        if (
+            not isinstance(current_dependency, dict)
+            or set(current_dependency) != {"operation", "decision_id"}
+        ):
+            raise ToolError(
+                "invalid_param",
+                "current_dependency must contain exactly operation and decision_id",
+            )
+        operation = str(current_dependency.get("operation") or "").strip()
+        decision_id = str(current_dependency.get("decision_id") or "").strip()
+        if not operation or not decision_id:
+            raise ToolError(
+                "invalid_param",
+                "current_dependency operation and decision_id must be non-empty",
+            )
+        dependency_ref = {
+            "operation": operation,
+            "subject": {
+                "kind": str(args["kind"]),
+                "id": str(args["target_id"]),
+            },
+            "decision_id": decision_id,
+        }
     try:
         result = coc_module_project.request_deepen(
             ctx.root,
@@ -14904,6 +14968,7 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
             target_id=str(args["target_id"]),
             title=str(args["title"]) if args.get("title") else None,
             reason=str(args.get("reason") or "player_dig"),
+            dependency_ref=dependency_ref,
         )
     except coc_module_project.ModuleProjectError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
@@ -14975,6 +15040,10 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
                 result["source_lifecycle"] = {
                     "status": "leased",
                     "job_id": job_id,
+                    **(
+                        {"dispatch_key": open_request.get("lease_id")}
+                        if open_request.get("lease_id") else {}
+                    ),
                     "idempotent": True,
                     "retry_required": False,
                     "owner": "existing_host_source_coordinator",
@@ -14990,10 +15059,19 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
             f"{args['kind']}:{args['target_id']} already deep — merge/process if not yet in IR"
         )
     elif not result.get("skipped"):
-        hints.append(
-            "play may continue with skeleton/stub; do not fabricate handout/secret bodies "
-            "while evidence_gap or dig_pending is set"
-        )
+        if result.get("current_dependency"):
+            hints.append(
+                "the current natural action depends on this exact blocking_micro "
+                "source result: do not release source-dependent facts before the "
+                "host terminal notice; do not poll, wait actively, or retrieve "
+                "child output; after terminal consume it through the next natural "
+                "canonical query"
+            )
+        else:
+            hints.append(
+                "nondependent play may continue with skeleton/stub; do not fabricate "
+                "handout/secret bodies while evidence_gap or dig_pending is set"
+            )
     return result, [], hints
 
 
@@ -22945,9 +23023,49 @@ def _opening_text_with_public_rolls(text: str, rendered_lines: list[str]) -> str
     return prefix + mechanics_block + "\n" + after
 
 
+def _current_opening_time_anchor(ctx: Ctx) -> dict[str, Any]:
+    stamp = coc_time.current_stamp(ctx.campaign_dir)
+    player_time = (
+        deepcopy(stamp.get("player_time"))
+        if isinstance(stamp.get("player_time"), dict) else {}
+    )
+    display = str(stamp.get("display") or "").strip()
+    if not display:
+        display = coc_language.player_time_label(
+            player_time,
+            _campaign_play_language(ctx),
+        )
+    language = _campaign_play_language(ctx)
+    label = "开场时间" if language.startswith("zh") else "Opening time"
+    return {
+        "schema_version": 1,
+        "display": display,
+        "player_time": player_time,
+        "source_ref": player_time.get("source_ref"),
+        "rendered_line": f"【{label}】{display}",
+    }
+
+
+def _opening_text_with_time_anchor(
+    text: str,
+    anchor: dict[str, Any],
+) -> str:
+    rendered = str(anchor.get("rendered_line") or "").strip()
+    if not rendered:
+        return text
+    opening_marker = "[in_game]"
+    marker_index = text.find(opening_marker)
+    if marker_index < 0:
+        return rendered + "\n\n" + text.lstrip()
+    insert_at = marker_index + len(opening_marker)
+    before = text[:insert_at].rstrip()
+    after = text[insert_at:].lstrip("\n")
+    return before + "\n" + rendered + ("\n\n" + after if after else "")
+
+
 @tool(
     "evidence.table_opening",
-    "Record the exact player-visible Keeper opening before the first player message, canonical-render its explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix.",
+    "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix.",
     {
         "text": {"type": "string", "required": True, "desc": "Keeper-authored opening narrative; deterministic first-impression lines are inserted by the tool before a final [/in_game] marker when present, otherwise appended"},
         "run_id": {"type": "string", "required": True, "desc": "current play/report segment id"},
@@ -22971,15 +23089,32 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
     run_id = raw_run_id.strip()
     if not run_id or run_id != raw_run_id:
         raise ToolError("invalid_param", "evidence.table_opening requires a stable run_id")
+    prior = ctx.ledger_lookup("evidence.table_opening", decision_id)
     presented_roll_ids, rendered_lines = _opening_first_impression_lines(
         ctx,
         run_id=run_id,
         presented_roll_ids=args.get("presented_roll_ids"),
     )
-    exact_text = _opening_text_with_public_rolls(
-        str(args.get("text") or ""), rendered_lines
+    prior_data = (
+        prior.get("data")
+        if isinstance(prior, dict) and isinstance(prior.get("data"), dict)
+        else None
     )
-    prior = ctx.ledger_lookup("evidence.table_opening", decision_id)
+    prior_anchor = (
+        prior_data.get("authoritative_time_anchor")
+        if isinstance(prior_data, dict) else None
+    )
+    time_anchor = (
+        deepcopy(prior_anchor)
+        if isinstance(prior_anchor, dict)
+        else _current_opening_time_anchor(ctx)
+    )
+    exact_text = _opening_text_with_time_anchor(
+        _opening_text_with_public_rolls(
+            str(args.get("text") or ""), rendered_lines
+        ),
+        time_anchor,
+    )
     if prior is not None:
         entry = _record_table_transcript_entry(
             ctx,
@@ -22993,6 +23128,7 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
             speaker=str(args.get("speaker") or "KP"),
             presented_roll_ids=presented_roll_ids,
         )
+        entry["authoritative_time_anchor"] = time_anchor
         return entry, ["duplicate decision_id: returning the immutable opening transcript row"], []
     if _table_transcript_rows(ctx):
         raise ToolError(
@@ -23011,9 +23147,12 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
         speaker=str(args.get("speaker") or "KP"),
         presented_roll_ids=presented_roll_ids,
     )
+    entry["authoritative_time_anchor"] = time_anchor
     ctx.ledger_record(decision_id, "evidence.table_opening", entry)
     return entry, [], [
-        "deliver data.text exactly; its deterministic public first-impression block is canonical and must not be recomputed, rewritten, or duplicated"
+        "deliver data.text exactly; its authoritative opening-time anchor and "
+        "deterministic public first-impression block are canonical and must not "
+        "be contradicted, recomputed, rewritten, or duplicated"
     ]
 
 

@@ -72,6 +72,24 @@ function directTakeoverResult(task) {
   };
 }
 
+function blockingMicroTakeoverResult(task) {
+  const value = directTakeoverResult(task);
+  value.data.background_takeover.play_boundary = {
+    player_action_gate: false,
+    narrative_gate: false,
+    output_gate: false,
+    nondependent_play_may_continue: true,
+    blocking_micro_applies_only_to_current_dependent_settlement: true,
+    current_dependent_settlement_waits_for_terminal: true,
+    current_dependencies: [{
+      operation: "scene.context",
+      subject: { kind: "location", id: "later-location" },
+      decision_id: "current-arrival-details",
+    }],
+  };
+  return value;
+}
+
 function openingBootstrapResult(task) {
   return {
     ok: true, tool: "progressive.opening_bootstrap",
@@ -1270,6 +1288,31 @@ async function exerciseFailureDrain(mode) {
         },
       };
     }
+    if (params.operation === "evidence.table_opening") {
+      const text = [
+        "[in_game]",
+        "【开场时间】圣诞季约两周后",
+        "",
+        "来源约束下的准确开场。",
+        "[/in_game]",
+      ].join("\n");
+      return {
+        ok: true,
+        tool: "evidence.table_opening",
+        data: {
+          turn: 0,
+          text,
+          text_sha256: `sha256:${createHash("sha256").update(
+            JSON.stringify(text),
+          ).digest("hex")}`,
+          authoritative_time_anchor: {
+            schema_version: 1,
+            display: "圣诞季约两周后",
+            rendered_line: "【开场时间】圣诞季约两周后",
+          },
+        },
+      };
+    }
     if (params.operation === "progressive.prepare_opening") {
       return {
         ok: true,
@@ -1611,15 +1654,6 @@ async function exerciseFailureDrain(mode) {
         investigator_ids: ["route-investigator"],
       },
     },
-    {
-      kind: "investigator.render_card",
-      payload: {
-        campaign_id: "auto-dispatch-fixture",
-        investigator_id: "route-investigator",
-        language: "zh-Hans",
-        html_mode: "never",
-      },
-    },
   ];
   for (const setup of canonicalSetupCalls) {
     await harness.registered.get("coc_invoke").execute(
@@ -1646,14 +1680,73 @@ async function exerciseFailureDrain(mode) {
         && part.text === `setup-visible:${setup.kind}`
       )));
   }
+  let wrongOpeningFinalizationRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-wrong-opening-finalizer",
+      {
+        operation: "turn.finalize",
+        campaign: "auto-dispatch-fixture",
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { wrongOpeningFinalizationRejected = true; }
+  const openingResult = await harness.registered.get("coc_invoke").execute(
+    "invoke-source-table-opening",
+    {
+      operation: "evidence.table_opening",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
+        run_id: "source-opening-run",
+        presented_roll_ids: [],
+        decision_id: "source-opening-evidence",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const exactOpening = JSON.parse(openingResult.content[0].text).data.text;
+  const replacedOpening = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "圣诞季刚过约两周。" }],
+  });
+  check("source opening rejects ordinary finalization and delivers table evidence exactly",
+    wrongOpeningFinalizationRejected
+    && replacedOpening.content.some((part) => (
+      part.type === "text" && part.text === exactOpening
+    ))
+    && exactOpening.includes("圣诞季约两周后")
+    && !exactOpening.includes("圣诞季刚过"));
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-post-opening-render",
+    {
+      operation: "setup.invoke",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "investigator.render_card",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          investigator_id: "route-investigator",
+          language: "zh-Hans",
+          html_mode: "never",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const afterCurrent = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "来源开场已物化。" }],
   });
-  check("current opening releases only after exact canonical link receipt",
-    afterCurrent.content.some((part) => (
-      part.type === "text" && part.text === "来源开场已物化。"
-    )));
+  check("post-opening tool-free chatter stays suppressed after exact evidence",
+    afterCurrent.content.every((part) => part.type !== "text"));
   await harness.shutdown();
 }
 
@@ -1911,14 +2004,16 @@ async function exerciseFailureDrain(mode) {
       ["current-before-link-investigator"],
     ),
   );
-  check("exact link receipt is visible before immediate-current release",
+  check("exact link receipt is visible before retained table-opening evidence",
     linked === undefined
     && gate.acceptVisibleAssistantFinal("调查员已正式加入。") === true
     && gate.openingSetupToolError("coc_invoke", {
       operation: "scene.context",
       campaign: "current-before-link",
       arguments: {},
-    }, "current-before-link-released") === null);
+    }, "current-before-link-still-gated")?.includes(
+      '"operation":"evidence.table_opening"',
+    ));
 }
 
 // Terminal fulfillment before link is append-only. Projection remains
@@ -4623,15 +4718,19 @@ async function exerciseFailureDrain(mode) {
     role: "assistant",
     content: [{ type: "text", text: "来源投影完成后的唯一开场。" }],
   });
-  check("exact current projection releases one opening without duplicate wake",
+  const tableOpeningRoute = harness.sent.findLast((entry) => (
+    entry.message?.customType === "coc-opening-setup-route"
+    && entry.message?.details?.next_operation?.operation
+      === "evidence.table_opening"
+  ));
+  check("exact current projection retains table-opening evidence without duplicate wake",
     projected.ok === true
     && projected.data.status === "current"
     && harness.calls.filter((call) => (
       call.params.operation === "progressive.project_opening"
     )).length === 1
-    && openingVisible.content.some((part) => (
-      part.type === "text" && part.text === "来源投影完成后的唯一开场。"
-    ))
+    && openingVisible.content.every((part) => part.type !== "text")
+    && tableOpeningRoute?.options?.triggerTurn === true
     && harness.sent.filter((entry) => (
       entry.message?.customType
         === "coc-source-coordinator-terminal-continuation"
@@ -4849,6 +4948,68 @@ async function exerciseFailureDrain(mode) {
 
 // Noncritical source deepening remains fire-and-forget and does not inherit
 // the opening hard wait.
+{
+  const task = coordinatorTask("coord-current-dependent-deepen");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return blockingMicroTakeoverResult(task);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-current-dependent-deepen",
+    {
+      operation: "progressive.request_deepen",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "location",
+        target_id: "later-location",
+        title: "Later location",
+        current_dependency: {
+          operation: "scene.context",
+          decision_id: "current-arrival-details",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const premature = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{
+      type: "text",
+      text: "旅程恰好两小时，天气晴冷，积雪两英尺。",
+    }],
+  });
+  check("blocking_micro suppresses only its premature source-dependent reply",
+    premature.content.every((part) => part.type !== "text")
+    && harness.launches.join(",") === task.packet.packet_id);
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  for (const handler of harness.handlers.get("agent_end") || []) {
+    await handler({ reason: "blocking-micro-await" }, harness.ctx);
+  }
+  await nextTurn();
+  await nextTurn();
+  const terminal = harness.sent.find((entry) => (
+    entry.message?.customType
+      === "coc-source-coordinator-terminal-continuation"
+  ));
+  check("blocking_micro resumes once from terminal without polling",
+    terminal?.message?.details?.continuation_class === "blocking_micro"
+    && terminal.message.details.dispatch_class === "blocking_micro"
+    && terminal.options?.triggerTurn === true
+    && harness.calls.filter((call) => (
+      call.params.operation === "progressive.status"
+    )).length === 0);
+  await harness.shutdown();
+}
+
+// Noncritical source deepening remains fire-and-forget and does not inherit
+// the current-dependent terminal wait.
 {
   const task = coordinatorTask("coord-main-deepen-background");
   const harness = mainExtensionHarness((_name, params) => {

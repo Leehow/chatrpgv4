@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:491526e0b2d701232f8b1f6f87eff70a2ab653188d10e83e4f359fa4483d68b3",
+  "content_sha256": "sha256:50da4790da43fda0c3723f362d963c4e2df50aeda209482e405de1f1e1146241",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -551,7 +551,7 @@
     },
     "evidence.table_opening": {
       "canonical_operation": "evidence.table_opening",
-      "description": "Record the exact player-visible Keeper opening before the first player message, canonical-render its explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix. Canonical operation `evidence.table_opening`; the result envelope is authoritative.",
+      "description": "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix. Canonical operation `evidence.table_opening`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -598,7 +598,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Record the exact player-visible Keeper opening before the first player message, canonical-render its explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix."
+      "summary": "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix."
     },
     "mechanics.ensure": {
       "canonical_operation": "mechanics.ensure",
@@ -1411,6 +1411,21 @@
           "campaign": {
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
+          },
+          "current_dependency": {
+            "additionalProperties": false,
+            "description": "omit for ordinary nonblocking player dig; include only when the current natural action cannot be resolved honestly without this unpublished authored body. operation names the exact consumer and decision_id names that one pending settlement",
+            "properties": {
+              "decision_id": {
+                "description": "stable identity of this current dependent settlement",
+                "type": "string"
+              },
+              "operation": {
+                "description": "exact canonical consumer operation",
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "kind": {
             "description": "location | npc | clue | handout | threat",

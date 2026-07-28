@@ -187,6 +187,7 @@ type OpeningSetupState = {
     | "retry"
     | "projection"
     | "ready"
+    | "opening_evidence"
     | "contract_invalid";
   dispatchIdentity: string | null;
   characterSetupComplete: boolean;
@@ -222,7 +223,7 @@ export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
   private readonly dispatchClasses = new Map<
     string,
-    "blocking_opening" | "nonblocking_background"
+    "blocking_opening" | "blocking_micro" | "nonblocking_background"
   >();
   private readonly pending = new Map<string, {
     promise: Promise<boolean>;
@@ -580,6 +581,60 @@ export class OpeningTerminalContinuationGate {
       canonicalJsonValueSha256(args[key])
       === canonicalJsonValueSha256(value)
     ));
+  }
+
+  private openingEvidenceCard(): JsonObject {
+    return {
+      schema_version: 1,
+      operation: "evidence.table_opening",
+      invoke_via: "coc_invoke",
+      prefilled_arguments: {},
+      missing_arguments: [
+        "text",
+        "run_id",
+        "presented_roll_ids",
+        "decision_id",
+      ],
+      hard_gate: true,
+      authority: "canonical_setup",
+      reason: (
+        "Record and return the exact source-backed pre-turn opening, including "
+        + "the canonical current opening-time anchor."
+      ),
+    };
+  }
+
+  private armOpeningEvidenceRoute(state: OpeningSetupState): void {
+    state.phase = "opening_evidence";
+    state.route = {
+      ...state.route,
+      phase: "opening_table_evidence_required",
+      next_operation: this.openingEvidenceCard(),
+      instruction: (
+        "draft the source-backed opening without restating or reversing the "
+        + "authoritative scene.context.time anchor; invoke this exact retained "
+        + "evidence.table_opening card, then deliver only its returned data.text"
+      ),
+    };
+    state.continuationReleaseOwner = null;
+    this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+  }
+
+  private exactTableOpeningReceipt(
+    envelope: JsonObject | null,
+  ): boolean {
+    const data = objectOrNull(envelope?.data);
+    return (
+      envelope?.ok === true
+      && envelope.tool === "evidence.table_opening"
+      && data !== null
+      && data.turn === 0
+      && typeof data.text === "string"
+      && data.text.length > 0
+      && typeof data.text_sha256 === "string"
+      && data.text_sha256 === canonicalJsonValueSha256(data.text)
+      && objectOrNull(data.authoritative_time_anchor) !== null
+    );
   }
 
   private routeFromGate(gate: JsonObject): OpeningSetupRoute | null {
@@ -1294,6 +1349,9 @@ export class OpeningTerminalContinuationGate {
         : envelope?.ok === true;
       if (linkAttempt && acceptedCharacterResult) {
         state.characterSetupComplete = true;
+        if (state.phase === "ready") {
+          this.armOpeningEvidenceRoute(state);
+        }
         this.recordOpeningSetupAudit({
           status: "transitioned",
           transition: "character_setup_complete",
@@ -1339,6 +1397,31 @@ export class OpeningTerminalContinuationGate {
         accepted: true,
         dispatchAllowed: false,
         reason: "non_route_result",
+      };
+    }
+    if (operation === "evidence.table_opening") {
+      this.finalizeOpeningSetupAttempt(invocationId);
+      if (this.exactTableOpeningReceipt(envelope)) {
+        this.clearOpeningSetupRoute(
+          attempt.campaignId,
+          state.generation,
+        );
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "opening_table_evidence_current",
+        };
+      }
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "opening_table_evidence_invalid",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "opening_table_evidence_invalid",
       };
     }
     if (operation === "progressive.prepare_opening") {
@@ -1428,7 +1511,7 @@ export class OpeningTerminalContinuationGate {
       ) {
         this.finalizeOpeningSetupAttempt(invocationId);
         if (state.characterSetupComplete) {
-          this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
+          this.armOpeningEvidenceRoute(state);
         } else {
           state.phase = "ready";
           state.route = {
@@ -1472,7 +1555,7 @@ export class OpeningTerminalContinuationGate {
         && (data?.status === "complete" || data?.status === "current")
       ) {
         if (state.characterSetupComplete) {
-          this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
+          this.armOpeningEvidenceRoute(state);
         } else {
           state.phase = "ready";
           state.route = {
@@ -2001,6 +2084,25 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
+  trackBlockingMicroDispatch(dispatchKey: string): void {
+    if (!dispatchKey) return;
+    this.states.set(dispatchKey, "awaiting");
+    this.dispatchClasses.set(dispatchKey, "blocking_micro");
+    this.queueVisibleAssistantDisposition("operational_wait", dispatchKey);
+  }
+
+  releaseBlockingMicroDispatch(dispatchKey: string): void {
+    if (this.dispatchClasses.get(dispatchKey) !== "blocking_micro") return;
+    this.states.delete(dispatchKey);
+    this.dispatchClasses.delete(dispatchKey);
+    this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
+      (queued) => !(
+        queued.disposition === "operational_wait"
+        && queued.dispatchKey === dispatchKey
+      ),
+    );
+  }
+
   queueVisibleAssistantDisposition(
     disposition: VisibleAssistantDisposition,
     dispatchKey?: string,
@@ -2311,6 +2413,7 @@ export class OpeningTerminalContinuationGate {
       decision.resolve(shouldWake);
       this.pending.delete(key);
       this.states.delete(key);
+      this.dispatchClasses.delete(key);
     }
   }
 
@@ -2338,6 +2441,7 @@ export class OpeningTerminalContinuationGate {
     const state = this.states.get(dispatchKey);
     if (state === "published") {
       this.states.delete(dispatchKey);
+      this.dispatchClasses.delete(dispatchKey);
       return false;
     }
     if (
@@ -2345,6 +2449,7 @@ export class OpeningTerminalContinuationGate {
       || !this.agentActive
     ) {
       this.states.delete(dispatchKey);
+      this.dispatchClasses.delete(dispatchKey);
       if (
         openingState !== undefined
         && !this.claimOpeningContinuationRelease(
@@ -2459,7 +2564,11 @@ export async function publishCoordinatorTerminal(
         context?.dispatch_class === "blocking_opening"
         && context?.continuation_class === "blocking_opening"
       );
-      if (!structuredBlockingOpening) {
+      const structuredBlockingMicro = (
+        context?.dispatch_class === "blocking_micro"
+        && context?.continuation_class === "blocking_micro"
+      );
+      if (!structuredBlockingOpening && !structuredBlockingMicro) {
         continuedDispatches.add(dispatchKey);
         continuationStatus = structuredNonblocking
           ? "suppressed_nonblocking"
@@ -2484,9 +2593,10 @@ export async function publishCoordinatorTerminal(
               automatic_retry_remaining: false,
               ...(context ?? {}),
             };
-            // Only a structured blocking opening creates a model turn.
-            // Ordinary background and unclassified terminals remain durable
-            // audit entries for the next natural turn.
+            // Only an exact blocking opening or an explicitly marked current
+            // blocking_micro dependency creates a model turn. Ordinary
+            // background and unclassified terminals remain durable audit
+            // entries for the next natural turn.
             pi.sendMessage({
               customType: "coc-source-coordinator-terminal-continuation",
               content: JSON.stringify(notice),
@@ -2532,7 +2642,7 @@ function objectOrNull(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : null;
 }
 
-function findAutoDispatchTask(value: unknown): JsonObject | null {
+function findAutoDispatchTakeover(value: unknown): JsonObject | null {
   const envelope = objectOrNull(value);
   if (envelope?.ok !== true) return null;
   const data = objectOrNull(envelope?.data);
@@ -2555,12 +2665,28 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
   // otherwise valid task. Validation and dispatch-key dedupe remain downstream.
   const present = candidates.filter((candidate) => candidate.takeover !== null);
   if (present.length !== 1 || !present[0].allowed) return null;
-  const action = objectOrNull(present[0].takeover?.next_host_action);
+  return present[0].takeover;
+}
+
+function findAutoDispatchTask(value: unknown): JsonObject | null {
+  const takeover = findAutoDispatchTakeover(value);
+  const action = objectOrNull(takeover?.next_host_action);
   const task = objectOrNull(action?.task);
   return action?.action === "invoke_coc_dispatch_source_work"
     && task?.contract_id === "coc.pi-source-coordinator-task.v1"
     ? task
     : null;
+}
+
+function blockingMicroAutoDispatchTask(value: unknown): JsonObject | null {
+  const takeover = findAutoDispatchTakeover(value);
+  const boundary = objectOrNull(takeover?.play_boundary);
+  if (
+    boundary?.current_dependent_settlement_waits_for_terminal !== true
+  ) {
+    return null;
+  }
+  return findAutoDispatchTask(value);
 }
 
 interface AutoDispatchDeps {
@@ -3319,6 +3445,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         );
       }
       if (
+        operation === "evidence.table_opening"
+        && envelope?.ok === true
+        && typeof data?.text === "string"
+        && data.text.length > 0
+        && typeof data?.text_sha256 === "string"
+      ) {
+        openingContinuationGate.markFinalizedOutputReady(
+          data.text,
+          data.text_sha256,
+        );
+      }
+      if (
         envelope?.ok === true
         && (operation.startsWith("setup.") || operation.startsWith("character."))
       ) {
@@ -3334,7 +3472,28 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && objectOrNull(params.arguments)?.defer_initial_progressive_on_enter === true
       );
       if (projectedOpening) openingContinuationGate.markOpeningProjected();
-      void autoDispatchCoordinator(autoDispatchDeps(ctx, epoch), name, value).catch(() => {});
+      const blockingMicroTask = blockingMicroAutoDispatchTask(value);
+      if (blockingMicroTask !== null) {
+        const packet = objectOrNull(blockingMicroTask.packet);
+        const dispatchKey = typeof packet?.packet_id === "string"
+          ? packet.packet_id.trim()
+          : "";
+        openingContinuationGate.trackBlockingMicroDispatch(dispatchKey);
+        const submission = await autoDispatchCoordinator(
+          autoDispatchDeps(ctx, epoch),
+          name,
+          value,
+        );
+        if (submission?.status !== "submitted") {
+          openingContinuationGate.releaseBlockingMicroDispatch(dispatchKey);
+        }
+      } else {
+        void autoDispatchCoordinator(
+          autoDispatchDeps(ctx, epoch),
+          name,
+          value,
+        ).catch(() => {});
+      }
     }
     return result(value);
   };

@@ -10310,8 +10310,62 @@ def test_table_opening_accepts_empty_presented_roll_ids(campaign_ws):
     )
 
     assert opening["ok"] is True, opening
-    assert opening["data"]["text"] == narrative
+    assert opening["data"]["text"] == (
+        "[in_game]\n"
+        "【开场时间】1920-10-12 10:00\n\n"
+        "没有初见 NPC 的自由开场。\n"
+        "[/in_game]"
+    )
+    assert opening["data"]["authoritative_time_anchor"] == {
+        "schema_version": 1,
+        "display": "1920-10-12 10:00",
+        "player_time": {
+            "phase": "morning",
+            "appearance_mode": "normal",
+            "display_label": None,
+            "source_ref": None,
+        },
+        "source_ref": None,
+        "rendered_line": "【开场时间】1920-10-12 10:00",
+    }
     assert opening["data"]["presented_roll_ids"] == []
+
+
+@pytest.mark.parametrize(
+    "authoritative_display",
+    [
+        "约1080年前后的12月一个清晨，圣诞季约两周后",
+        "约1080年前后的12月一个清晨，圣诞季约两周前",
+    ],
+)
+def test_table_opening_preserves_authoritative_christmas_direction(
+    campaign_ws,
+    authoritative_display: str,
+):
+    time_path = campaign_ws["campaign_dir"] / "save" / "time-state.json"
+    time_state = json.loads(time_path.read_text(encoding="utf-8"))
+    time_state["clock"]["display"] = authoritative_display
+    _write_json(time_path, time_state)
+    args = {
+        "text": "[in_game]\n马车停在风雪中的庄园门前。\n[/in_game]",
+        "run_id": "christmas-direction-opening",
+        "presented_roll_ids": [],
+        "decision_id": "christmas-direction-opening-evidence",
+    }
+
+    opening = _run(campaign_ws, "evidence.table_opening", args)
+
+    assert opening["ok"] is True, opening
+    assert opening["data"]["authoritative_time_anchor"]["display"] == (
+        authoritative_display
+    )
+    assert f"【开场时间】{authoritative_display}" in opening["data"]["text"]
+
+    time_state["clock"]["display"] = "一个会导致重放漂移的错误时间"
+    _write_json(time_path, time_state)
+    replay = _run(campaign_ws, "evidence.table_opening", args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == opening["data"]
 
 
 def test_table_opening_boundary_recovers_earliest_logged_row_after_interruption(
@@ -12045,6 +12099,12 @@ def test_request_deepen_returns_pi_auto_dispatch_takeover_after_local_materializ
     )
     assert request["dispatch_state"] == "ready"
     assert request["dispatch_attempts"] == 0
+    assert request["work_level"] == "near_term"
+    assert request["deadline_class"] == "next_turn_hot"
+    assert (
+        "current_dependent_settlement_waits_for_terminal"
+        not in data["background_takeover"]["play_boundary"]
+    )
     claimed = assets.claim_host_work_requests(
         ws["workspace"],
         ws["asset_root_id"],
@@ -12064,10 +12124,79 @@ def test_request_deepen_returns_pi_auto_dispatch_takeover_after_local_materializ
     assert repeated["data"]["source_lifecycle"] == {
         "status": "leased",
         "job_id": request["job_id"],
+        "dispatch_key": claimed["packets"][0]["packet_id"],
         "idempotent": True,
         "retry_required": False,
         "owner": "existing_host_source_coordinator",
     }
+
+
+def test_request_deepen_marks_only_explicit_current_dependency_blocking_micro(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.delenv("COC_DISABLE_QUEUE_WORKER", raising=False)
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(
+        tmp_path,
+        extra_pdf_indices=(1, 2),
+    )
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.ensure_stub(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "snowbound-destination",
+        title="Snowbound Destination",
+        source_scope={"source_page_indices": [0, 1, 2]},
+    )
+
+    requested = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "snowbound-destination",
+        "title": "Snowbound Destination",
+        "reason": (
+            "the current arrival needs exact source-authored travel, weather, "
+            "snow, and location facts"
+        ),
+        "current_dependency": {
+            "operation": "scene.context",
+            "decision_id": "settle-snowbound-arrival",
+        },
+    })
+
+    assert requested["ok"] is True, requested
+    data = requested["data"]
+    assert data["current_dependency"] is True
+    assert data["dependency_ref"] == {
+        "operation": "scene.context",
+        "subject": {
+            "kind": "location",
+            "id": "snowbound-destination",
+        },
+        "decision_id": "settle-snowbound-arrival",
+    }
+    request = next(
+        row for row in data["host_work"]["ready_background_requests"]
+        if row["target_id"] == "snowbound-destination"
+    )
+    assert request["work_level"] == "current_dependency"
+    assert request["deadline_class"] == "blocking_micro"
+    assert request["dependency_ref"] == data["dependency_ref"]
+    boundary = data["background_takeover"]["play_boundary"]
+    assert boundary["nondependent_play_may_continue"] is True
+    assert boundary[
+        "current_dependent_settlement_waits_for_terminal"
+    ] is True
+    assert boundary["current_dependencies"] == [data["dependency_ref"]]
+    assert "without polling" in boundary["terminal_consumption"]
+    task = data["background_takeover"]["next_host_action"]["task"]
+    assert task["packet"]["claim_operation"]["prefilled_arguments"][
+        "max_dispatch_attempts"
+    ] == 2
 
 
 def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(

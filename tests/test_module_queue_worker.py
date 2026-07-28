@@ -2202,6 +2202,7 @@ def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
         "requested_pdf_indices": [2],
         "source_aspect": "mechanics",
         "deadline_class": "next_turn_hot",
+        "work_level": "near_term",
         "work_group_id": request["work_group_id"],
         "dispatch_state": "ready",
         "dispatch_attempts": 0,

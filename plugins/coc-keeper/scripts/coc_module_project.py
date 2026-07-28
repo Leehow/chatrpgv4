@@ -4538,6 +4538,8 @@ def follow_structured_mentions(
     asset_root_id: str | None = None,
     reason: str = "structured_mention",
     priority: int = 60,
+    work_level: str | None = None,
+    dependency_ref: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Stub + enqueue deepen jobs for structured mention rows only.
 
@@ -4688,6 +4690,8 @@ def follow_structured_mentions(
                 target_id=ref,
                 priority=priority,
                 reason=reason,
+                work_level=work_level,
+                dependency_ref=dependency_ref,
                 consumer_refs=_campaign_consumer_refs(
                     workspace, campaign_id, root_id, intent_kind="player_dig",
                 ),
@@ -4883,6 +4887,7 @@ def request_deepen(
     reason: str = "player_dig",
     asset_root_id: str | None = None,
     priority: int = 80,
+    dependency_ref: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Player-dig path: deepen one structured entity without requiring scene enter.
 
@@ -4898,6 +4903,23 @@ def request_deepen(
         )
     if not target_id:
         raise ModuleProjectError("target_id required")
+    canonical_dependency_ref = None
+    if dependency_ref is not None:
+        try:
+            canonical_dependency_ref = (
+                coc_module_assets.validate_host_work_dependency_ref(
+                    dependency_ref
+                )
+            )
+        except coc_module_assets.ModuleAssetsError as exc:
+            raise ModuleProjectError(str(exc)) from exc
+        if canonical_dependency_ref["subject"] != {
+            "kind": kind,
+            "id": target_id,
+        }:
+            raise ModuleProjectError(
+                "dependency_ref.subject must equal the requested deepen target"
+            )
     result = follow_structured_mentions(
         workspace,
         campaign_id,
@@ -4905,11 +4927,19 @@ def request_deepen(
         asset_root_id=asset_root_id,
         reason=reason,
         priority=priority,
+        work_level=(
+            "current_dependency"
+            if canonical_dependency_ref is not None else None
+        ),
+        dependency_ref=canonical_dependency_ref,
     )
     result["kind"] = kind
     result["target_id"] = target_id
     if result.get("followed"):
         result["status"] = result["followed"][0].get("status")
+    result["current_dependency"] = canonical_dependency_ref is not None
+    if canonical_dependency_ref is not None:
+        result["dependency_ref"] = canonical_dependency_ref
     return result
 
 

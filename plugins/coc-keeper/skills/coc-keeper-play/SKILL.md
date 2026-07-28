@@ -58,7 +58,7 @@ each turn. Prefer a known tool, then describe only it if parameters are unclear.
 
 `scene.context.action_routes` is the scene-local progressive index. Interpret intent semantically, then pass selected route IDs and reason to `actions.advise`; do not rediscover the catalog or assets. `direct_delivery` earns its fact without a roll via prefilled `state.*` cards; `authored_roll_advice` supplies `rules.roll`. All are advisory (`hard_gate: false`).
 
-**Ordinary-turn hot path:** use typed cards, not host `Read`/search over scenario assets, files, logs, or old calls. Travel uses the exit card—or tight resume's `exit_operation_template` plus selected `exits[].to`—then returned context once; never preview an inactive scene. A full `scene.context` with `working_set.mode=full` and needed `covered_domains` is enough: stop extra reads. Drill down only for a named missing field that materially affects current adjudication—never for reassurance via domain discovery, continuation pagination, `session.delivery_text`, or empty clue/secret reads. After `progressive.request_deepen`, do not confirm in the same player turn with `scene.map`/`progressive.status`; background continues and the player reply comes first. This is advisory KP judgment, not a fixed call count/order.
+**Ordinary-turn hot path:** use typed cards, not host `Read`/search over scenario assets, files, logs, or old calls. Travel uses the exit card—or tight resume's `exit_operation_template` plus selected `exits[].to`—then returned context once; never preview an inactive scene. A full `scene.context` with `working_set.mode=full` and needed `covered_domains` is enough: stop extra reads. Drill down only for a named missing field that materially affects current adjudication—never for reassurance via domain discovery, continuation pagination, `session.delivery_text`, or empty clue/secret reads. After `progressive.request_deepen`, do not confirm in the same player turn with `scene.map`/`progressive.status`; background continues and the player reply comes first. Only typed `current_dependency` blocks; never poll. This is not a fixed call count/order.
 
 ## Context Recovery (Always Active)
 
@@ -160,9 +160,9 @@ output evidence boundary, not a replacement prose engine:
    first-contact context lines. Never recompute, omit, duplicate, prepend to,
    append to, or rewrite those deterministic segments.
 
-Before a run's opening, draft narrative but not deterministic first impressions.
-Batch `npc.reaction`, then engagement writes, and call
-`evidence.table_opening`; deliver its returned `text` unchanged. This closes
+Before play, batch opening `npc.reaction` and engagement writes, then call
+`evidence.table_opening` and deliver its returned time-anchored `text`
+unchanged. This closes
 the pre-turn evidence prefix, not an ordinary turn. Full first-contact and
 opening procedure is normative in
 `references/investigators-horror-npc.md`.
