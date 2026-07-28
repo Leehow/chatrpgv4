@@ -118,6 +118,10 @@ const MAX_CANONICAL_SETUP_VISIBLE_BYTES = 64 * 1024;
 const SAFE_CHARACTER_SETUP_PROMPT = (
   "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
 );
+const CURRENT_DEPENDENCY_PROJECTION_BLOCKER_TEXT = (
+  "当前来源依赖的精确任务超过安全传输上限，无法安全提交。"
+  + "本回合已停止；请重试同一来源请求。"
+);
 
 /**
  * Resolve exact player-safe briefing bytes only from a successful canonical
@@ -340,6 +344,8 @@ type CurrentDependencyWait = {
   terminalReceipt: JsonObject | null;
   terminalDelivered: boolean;
   projectionConfirmed: boolean;
+  projectionBlocked: boolean;
+  projectionBlockerDelivered: boolean;
 };
 type CurrentDependencySuppression = {
   epoch: number;
@@ -2514,6 +2520,7 @@ export class OpeningTerminalContinuationGate {
     campaignId: string,
     waits: JsonObject[],
     snapshotScope: JsonObject | null = null,
+    projectionBlocked = false,
   ): void {
     const retained = new Set<string>();
     const scopedDependencyRef = objectOrNull(
@@ -2576,6 +2583,14 @@ export class OpeningTerminalContinuationGate {
           : false,
         projectionConfirmed: existing?.jobId === jobId
           ? existing.projectionConfirmed
+          : false,
+        projectionBlocked,
+        projectionBlockerDelivered: (
+          projectionBlocked
+          && existing?.jobId === jobId
+          && existing.projectionBlocked
+        )
+          ? existing.projectionBlockerDelivered
           : false,
       });
     }
@@ -2739,6 +2754,38 @@ export class OpeningTerminalContinuationGate {
     this.currentVisibleCampaignId = campaignId;
   }
 
+  private exactDependencyRefMatches(
+    wait: CurrentDependencyWait,
+    campaignId: string,
+    operation: unknown,
+    identity: JsonObject,
+    subjectKind?: unknown,
+    subjectId?: unknown,
+  ): boolean {
+    const identityFields = [
+      "decision_id", "settlement_id", "source_scope_signature",
+    ].filter((field) => (
+      typeof wait.dependencyRef[field] === "string"
+      && String(wait.dependencyRef[field]).trim()
+    ));
+    if (
+      campaignId !== wait.campaignId
+      || operation !== wait.dependencyRef.operation
+      || identityFields.length !== 1
+      || identity[identityFields[0]] !== wait.dependencyRef[identityFields[0]]
+    ) {
+      return false;
+    }
+    if (subjectKind === undefined && subjectId === undefined) return true;
+    const subject = objectOrNull(wait.dependencyRef.subject);
+    return (
+      subjectKind !== undefined
+      && subjectId !== undefined
+      && subjectKind === subject?.kind
+      && subjectId === subject?.id
+    );
+  }
+
   currentDependencyToolError(params: JsonObject): string | null {
     const campaignId = typeof params.campaign === "string"
       ? params.campaign.trim()
@@ -2747,11 +2794,39 @@ export class OpeningTerminalContinuationGate {
       ? params.operation.trim()
       : "";
     if (!campaignId || !operation) return null;
+    const args = objectOrNull(params.arguments) ?? {};
+    const blocked = [...this.currentDependencyWaits.values()].filter(
+      (wait) => wait.campaignId === campaignId && wait.projectionBlocked,
+    );
+    if (blocked.length > 0) {
+      const exactRetry = (
+        operation === "progressive.request_deepen"
+        && blocked.some((wait) => {
+          const declared = objectOrNull(args.current_dependency);
+          return (
+            declared !== null
+            && this.exactDependencyRefMatches(
+              wait,
+              campaignId,
+              declared.operation,
+              declared,
+              args.kind,
+              args.target_id,
+            )
+          );
+        })
+      );
+      if (exactRetry) return null;
+      return (
+        `${operation} is blocked because the exact current-dependency `
+        + "projection exceeded the safe transport budget; retry only the "
+        + "same structured progressive.request_deepen request"
+      );
+    }
     const active = [...this.currentDependencyWaits.values()].filter(
       (wait) => wait.campaignId === campaignId && wait.terminalDelivered,
     );
     if (active.length === 0) return null;
-    const args = objectOrNull(params.arguments) ?? {};
     const exactRecovery = active.some((wait) => {
       const subject = objectOrNull(wait.dependencyRef.subject);
       return (
@@ -2763,15 +2838,29 @@ export class OpeningTerminalContinuationGate {
         )
         || (
           operation === "progressive.request_deepen"
-          && args.kind === subject?.kind
-          && args.target_id === subject?.id
+          && objectOrNull(args.current_dependency) !== null
+          && this.exactDependencyRefMatches(
+            wait,
+            campaignId,
+            objectOrNull(args.current_dependency)?.operation,
+            objectOrNull(args.current_dependency) ?? {},
+            args.kind,
+            args.target_id,
+          )
         )
       );
     });
     if (exactRecovery) return null;
     const exactConsumerReady = active.some((wait) => (
       wait.projectionConfirmed
-      && wait.dependencyRef.operation === operation
+      && this.exactDependencyRefMatches(
+        wait,
+        campaignId,
+        operation,
+        args,
+        args.kind,
+        args.target_id,
+      )
     ));
     if (exactConsumerReady) return null;
     return (
@@ -2806,6 +2895,15 @@ export class OpeningTerminalContinuationGate {
         operation === "progressive.request_deepen"
         && args.kind === subjectKind
         && args.target_id === subjectId
+        && objectOrNull(args.current_dependency) !== null
+        && this.exactDependencyRefMatches(
+          wait,
+          campaignId,
+          objectOrNull(args.current_dependency)?.operation,
+          objectOrNull(args.current_dependency) ?? {},
+          args.kind,
+          args.target_id,
+        )
       ) {
         const status = objectOrNull(data?.status);
         const merged = Array.isArray(data?.merged_location_ids)
@@ -2831,7 +2929,14 @@ export class OpeningTerminalContinuationGate {
       }
       if (
         wait.projectionConfirmed
-        && wait.dependencyRef.operation === operation
+        && this.exactDependencyRefMatches(
+          wait,
+          campaignId,
+          operation,
+          args,
+          args.kind,
+          args.target_id,
+        )
       ) {
         this.removeCurrentDependency(dependencyId);
       }
@@ -2924,7 +3029,15 @@ export class OpeningTerminalContinuationGate {
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
     this.currentDependencySuppression = null;
-    this.currentVisibleCampaignId = null;
+    if (
+      this.currentVisibleCampaignId === null
+      || ![...this.currentDependencyWaits.values()].some((wait) => (
+        wait.campaignId === this.currentVisibleCampaignId
+        && wait.projectionBlocked
+      ))
+    ) {
+      this.currentVisibleCampaignId = null;
+    }
   }
 
   coordinatorContinuationContext(
@@ -3140,6 +3253,22 @@ export class OpeningTerminalContinuationGate {
       return false;
     }
     const currentSuppression = this.currentDependencySuppression;
+    const projectionBlocker = this.currentVisibleCampaignId === null
+      ? undefined
+      : [...this.currentDependencyWaits.values()].find((wait) => (
+        wait.campaignId === this.currentVisibleCampaignId
+        && wait.projectionBlocked
+      ));
+    if (projectionBlocker !== undefined) {
+      this.nonblockingContinuation = null;
+      if (!projectionBlocker.projectionBlockerDelivered) {
+        projectionBlocker.projectionBlockerDelivered = true;
+        return {
+          replacementText: CURRENT_DEPENDENCY_PROJECTION_BLOCKER_TEXT,
+        };
+      }
+      return false;
+    }
     const terminalConsumptionPending = (
       this.currentVisibleCampaignId !== null
       && [...this.currentDependencyWaits.values()].some((wait) => (
@@ -4544,10 +4673,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       const dependencyLifecycle = findCurrentDependencyLifecycle(value);
       if (dependencyLifecycle !== null) {
+        const dependencyProjectionBlocked = (
+          currentDependencyProjectionBlocked(value)
+        );
         openingContinuationGate.observeCurrentDependencySnapshot(
           dependencyLifecycle.campaignId,
           dependencyLifecycle.waits,
           dependencyLifecycle.snapshotScope,
+          dependencyProjectionBlocked,
         );
         if (currentDependencyInvocationConsumes(
           params,

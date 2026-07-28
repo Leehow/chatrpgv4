@@ -91,7 +91,7 @@ function currentDependencyFixture(packetId, {
   operationalClass = "runnable",
 } = {}) {
   const dependencyRef = {
-    operation: "scene.context",
+    operation: "turn.finalize",
     subject: { kind: "location", id: targetId },
     decision_id: decisionId,
   };
@@ -102,7 +102,7 @@ function currentDependencyFixture(packetId, {
       campaign_id: campaignId,
       dependency_ref: {
         decision_id: decisionId,
-        operation: "scene.context",
+        operation: "turn.finalize",
         subject: { id: targetId, kind: "location" },
       },
     }),
@@ -177,6 +177,55 @@ function currentDependencyResult(fixtures, ordinaryTask = null) {
   };
 }
 
+function blockedCurrentDependencyWireResult(fixture) {
+  const raw = currentDependencyResult(fixture);
+  raw.data = {
+    ...raw.data,
+    asset_root_id: "asset-auto",
+    kind: "location",
+    target_id: fixture.wait.dependency_ref.subject.id,
+    current_dependency: true,
+    dependency_ref: fixture.wait.dependency_ref,
+  };
+  raw.data.host_work.current_dependency_dispatches[0]
+    .next_host_action.task.packet.oversized_exact_control = "x".repeat(20_000);
+  const script = [
+    "import importlib.util, json, sys",
+    "spec = importlib.util.spec_from_file_location('wire', sys.argv[1])",
+    "wire = importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(wire)",
+    "value = json.load(sys.stdin)",
+    "print(json.dumps(wire.project_envelope(",
+    "  'progressive.request_deepen', value,",
+    "  contract_digest='a' * 64, argument_schemas={},",
+    ")))",
+  ].join("\n");
+  const projected = spawnSync(
+    "uv",
+    [
+      "run",
+      "--frozen",
+      "python",
+      "-c",
+      script,
+      path.join(
+        root,
+        "plugins/coc-keeper/scripts/coc_mcp_wire.py",
+      ),
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      input: JSON.stringify(raw),
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    },
+  );
+  if (projected.status !== 0) {
+    throw new Error(`blocked wire projection failed: ${projected.stderr}`);
+  }
+  return JSON.parse(projected.stdout);
+}
+
 function invokeCurrentDependency(
   harness,
   invocationId,
@@ -191,7 +240,7 @@ function invokeCurrentDependency(
         kind: "location",
         target_id: "later-location",
         current_dependency: {
-          operation: "scene.context",
+          operation: "turn.finalize",
           decision_id: "current-arrival-details",
         },
       },
@@ -5366,6 +5415,106 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
+// A real oversized wire projection records a durable exact blocker. It emits
+// one fixed operational notice, then remains fail-closed until the same
+// structured request returns a normal exact wait/dispatch.
+{
+  const current = currentDependencyFixture("coord-current-wire-blocked");
+  const blockedWire = blockedCurrentDependencyWireResult(current);
+  let exactRequests = 0;
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.campaign === "auto-dispatch-fixture"
+      && params.operation === "progressive.request_deepen"
+    ) {
+      exactRequests += 1;
+      return exactRequests === 1
+        ? blockedWire
+        : currentDependencyResult(current);
+    }
+    if (params.campaign === "campaign-b") {
+      return { ok: true, tool: params.operation, data: {} };
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await invokeCurrentDependency(
+    harness,
+    "invoke-current-wire-blocked",
+  );
+  const first = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "不可释放的旧来源预览。" }],
+  });
+  const second = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "同一轮第二次仍不可释放。" }],
+  });
+  await harness.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: "请继续。" }],
+  });
+  const laterEpoch = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "下一轮仍不可释放。" }],
+  });
+  let wrongRecovery = null;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-current-wire-wrong-recovery",
+      {
+        operation: "scene.context",
+        campaign: "auto-dispatch-fixture",
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    wrongRecovery = error;
+  }
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-current-wire-other-campaign",
+    {
+      operation: "scene.context",
+      campaign: "campaign-b",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const otherCampaign = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "B 战役不受 A 的来源阻塞污染。" }],
+  });
+  await invokeCurrentDependency(
+    harness,
+    "invoke-current-wire-recovered",
+  );
+  const waiting = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "恢复提交后仍需等待精确终态。" }],
+  });
+  check("oversized exact wire blocker stays fail-closed until exact recovery",
+    first.content.some((part) => (
+      part.type === "text"
+      && part.text === (
+        "当前来源依赖的精确任务超过安全传输上限，无法安全提交。"
+        + "本回合已停止；请重试同一来源请求。"
+      )
+    ))
+    && second.content.every((part) => part.type !== "text")
+    && laterEpoch.content.every((part) => part.type !== "text")
+    && wrongRecovery instanceof Error
+    && wrongRecovery.message.includes("safe transport budget")
+    && otherCampaign.content.some((part) => part.type === "text")
+    && harness.launches.join(",") === current.task.packet.packet_id
+    && waiting.content.every((part) => part.type !== "text"));
+  await harness.shutdown();
+}
+
 // One exact current dependency suppresses only source-dependent output and
 // resumes from its own fulfilled terminal.
 {
@@ -5389,6 +5538,9 @@ async function exerciseFailureDrain(mode) {
         },
       };
     }
+    if (params.operation === "turn.finalize") {
+      return { ok: true, tool: "turn.finalize", data: {} };
+    }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
@@ -5402,7 +5554,7 @@ async function exerciseFailureDrain(mode) {
         target_id: "later-location",
         title: "Later location",
         current_dependency: {
-          operation: "scene.context",
+          operation: "turn.finalize",
           decision_id: "current-arrival-details",
         },
       },
@@ -5479,6 +5631,19 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   );
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-current-exact-finalizer",
+    {
+      operation: "turn.finalize",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        decision_id: "current-arrival-details",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const canonicalRelease = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "来自当前深层场景投影的事实。" }],
@@ -5489,6 +5654,115 @@ async function exerciseFailureDrain(mode) {
     && prematureConsumer.message.includes("canonical projection")
     && canonicalRelease.content.some((part) => part.type === "text"));
   await harness.shutdown();
+}
+
+// Pre-call admission and post-success consumption share one exact structured
+// matcher. Every supported settlement identity remains fail-closed across a
+// wrong identity/subject, another campaign, and a failed consumer response.
+for (const identityField of [
+  "decision_id", "settlement_id", "source_scope_signature",
+]) {
+  const current = currentDependencyFixture(
+    `coord-current-exact-${identityField}`,
+    { decisionId: `exact-${identityField}` },
+  );
+  const dependencyRef = {
+    operation: "turn.finalize",
+    subject: { kind: "location", id: "later-location" },
+    [identityField]: `exact-${identityField}`,
+  };
+  current.wait.dependency_ref = dependencyRef;
+  const gate = new main.OpeningTerminalContinuationGate();
+  gate.observeCurrentDependencySnapshot(
+    "auto-dispatch-fixture",
+    [current.wait],
+  );
+  gate.prepareCurrentDependencyDispatch(
+    current.wait.dependency_id,
+    current.wait.job_id,
+    current.task.packet.packet_id,
+  );
+  gate.observeCurrentDependencyTerminalReceipt(
+    current.task.packet.packet_id,
+    { status: "fulfilled" },
+  );
+  gate.markCurrentDependencyTerminalDelivered(
+    current.task.packet.packet_id,
+  );
+  gate.observeCurrentDependencyConsumerResult(
+    "scene.context",
+    {
+      campaign: "auto-dispatch-fixture",
+      arguments: {},
+    },
+    {
+      ok: true,
+      data: {
+        active_scene_id: "later-location",
+        scene: { parse_state: "deep", evidence_gap: false },
+      },
+    },
+  );
+  const exactArgs = { [identityField]: `exact-${identityField}` };
+  const wrongArgs = { [identityField]: `stale-${identityField}` };
+  const wrongIdentity = gate.currentDependencyToolError({
+    operation: "turn.finalize",
+    campaign: "auto-dispatch-fixture",
+    arguments: wrongArgs,
+  });
+  const wrongTarget = gate.currentDependencyToolError({
+    operation: "turn.finalize",
+    campaign: "auto-dispatch-fixture",
+    arguments: {
+      ...exactArgs,
+      kind: "location",
+      target_id: "wrong-location",
+    },
+  });
+  gate.observeCurrentDependencyConsumerResult(
+    "turn.finalize",
+    { campaign: "campaign-b", arguments: exactArgs },
+    { ok: true, data: {} },
+  );
+  gate.observeCurrentDependencyConsumerResult(
+    "turn.finalize",
+    {
+      campaign: "auto-dispatch-fixture",
+      arguments: exactArgs,
+    },
+    { ok: false, error: { code: "fixture_failure" } },
+  );
+  const retainedAfterWrongResults = gate.currentDependencyToolError({
+    operation: "rules.roll_dice",
+    campaign: "auto-dispatch-fixture",
+    arguments: {},
+  });
+  const exactAdmitted = gate.currentDependencyToolError({
+    operation: "turn.finalize",
+    campaign: "auto-dispatch-fixture",
+    arguments: exactArgs,
+  });
+  gate.observeCurrentDependencyConsumerResult(
+    "turn.finalize",
+    {
+      campaign: "auto-dispatch-fixture",
+      arguments: exactArgs,
+    },
+    { ok: true, data: {} },
+  );
+  const released = gate.currentDependencyToolError({
+    operation: "rules.roll_dice",
+    campaign: "auto-dispatch-fixture",
+    arguments: {},
+  });
+  check(`exact ${identityField} matcher owns admission and consumption`,
+    wrongIdentity?.includes("exact canonical projection") === true
+    && wrongTarget?.includes("exact canonical projection") === true
+    && retainedAfterWrongResults?.includes(
+      "exact canonical projection",
+    ) === true
+    && exactAdmitted === null
+    && released === null);
 }
 
 // Awaiting-scope/cache dependencies are durable output waits even before an
@@ -5515,7 +5789,7 @@ for (const operationalClass of ["awaiting_scope", "awaiting_cache"]) {
         target_id: "later-location",
         title: "Later location",
         current_dependency: {
-          operation: "scene.context",
+          operation: "turn.finalize",
           decision_id: "current-arrival-details",
         },
       },
@@ -5734,7 +6008,7 @@ for (const operationalClass of ["awaiting_scope", "awaiting_cache"]) {
         target_id: "later-location",
         title: "Later location",
         current_dependency: {
-          operation: "scene.context",
+          operation: "turn.finalize",
           decision_id: "current-arrival-details",
         },
       },
