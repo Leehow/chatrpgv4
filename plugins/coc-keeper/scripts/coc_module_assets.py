@@ -6153,6 +6153,7 @@ def enqueue_job(
     dependency_ref: dict[str, Any] | None = None,
     consumer_refs: list[dict[str, Any]] | None = None,
     kick_worker: bool = True,
+    materialization_owner: str | None = None,
 ) -> dict[str, Any]:
     if kind not in JOB_KINDS:
         raise ModuleAssetsError(f"unknown job kind {kind!r}")
@@ -6164,6 +6165,19 @@ def enqueue_job(
         validate_host_work_consumer_refs(consumer_refs)
         if consumer_refs is not None else None
     )
+    canonical_materialization_owner = str(
+        materialization_owner or ""
+    ).strip() or None
+    if canonical_materialization_owner is not None and (
+        canonical_materialization_owner != "opening_bootstrap"
+        or kind != "partial_opening"
+        or canonical_work_level != "current_dependency"
+        or kick_worker
+    ):
+        raise ModuleAssetsError(
+            "caller-owned materialization is reserved for the blocking "
+            "partial_opening/current_dependency bootstrap job"
+        )
     exact_source_scope: dict[str, Any] | None = None
     exact_source_signature: str | None = None
     exact_request_purpose: str | None = None
@@ -6288,6 +6302,22 @@ def enqueue_job(
                     pending_changed = True
             if merge_consumers(job):
                 pending_changed = True
+            if canonical_materialization_owner is not None:
+                existing_owner = str(
+                    job.get("materialization_owner") or ""
+                ).strip()
+                if existing_owner not in {
+                    "", canonical_materialization_owner,
+                }:
+                    raise ModuleAssetsError(
+                        "caller_materialization_conflict: pending work has "
+                        "another deterministic owner"
+                    )
+                if existing_owner != canonical_materialization_owner:
+                    job["materialization_owner"] = (
+                        canonical_materialization_owner
+                    )
+                    pending_changed = True
             if _job_depth(str(job.get("kind") or "")) < _job_depth(kind):
                 job["promoted_from"] = job.get("kind")
                 job["kind"] = kind
@@ -6313,6 +6343,14 @@ def enqueue_job(
                     and _job_depth(str(job.get("kind") or "")) >= _job_depth(kind)
                     and exact_dependency_matches(job)
                 ):
+                    if canonical_materialization_owner is not None and (
+                        str(job.get("materialization_owner") or "").strip()
+                        != canonical_materialization_owner
+                    ):
+                        raise ModuleAssetsError(
+                            "caller_materialization_conflict: exact opening "
+                            "work is already owned by another worker"
+                        )
                     if exact_source_scope is not None and not exact_scoped_row_matches(job):
                         raise_exact_scope_conflict()
                     if merge_consumers(job):
@@ -6399,6 +6437,10 @@ def enqueue_job(
                 )
             if canonical_consumer_refs is not None:
                 job["consumer_refs"] = canonical_consumer_refs
+            if canonical_materialization_owner is not None:
+                job["materialization_owner"] = (
+                    canonical_materialization_owner
+                )
             pending_supersedes = sorted({
                 str(row.get("job_id") or "").strip()
                 for row in stale_host_rows

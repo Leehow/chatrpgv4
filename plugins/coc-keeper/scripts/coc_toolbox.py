@@ -13871,6 +13871,7 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
             "start_location_id": location_id,
             "opening_pdf_indices": pages,
             "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
+            "execution_owner": "opening_source_coordinator",
         })
     )
     if request_data.get("status") == "current":
@@ -14113,6 +14114,9 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
             "job_id": str((ingest_receipt or {}).get("job_id") or "") or None,
             "worker_kick": {"started": False, "reason": "opening_pack_already_ready"},
         }, [], []
+    caller_owns_materialization = (
+        args.get("execution_owner") == "opening_source_coordinator"
+    )
     try:
         stub = assets_mod.ensure_stub(
             ctx.root,
@@ -14146,6 +14150,11 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
                     intent_kind="opening",
                 )
             ],
+            kick_worker=not caller_owns_materialization,
+            materialization_owner=(
+                "opening_bootstrap"
+                if caller_owns_materialization else None
+            ),
         )
     except assets_mod.ModuleAssetsError as exc:
         code = (
@@ -14155,6 +14164,27 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
         )
         raise ToolError(code, str(exc)) from exc
     job_id = str((queued.get("job") or {}).get("job_id") or "")
+    if caller_owns_materialization:
+        worker_mod = _load_sibling(
+            "coc_module_queue_worker_opening_bootstrap",
+            "coc_module_queue_worker.py",
+        )
+        try:
+            worker_mod.materialize_exact_caller_owned_host_work(
+                ctx.root,
+                root_id,
+                job_id=job_id,
+                materialization_owner="opening_bootstrap",
+            )
+        except (
+            worker_mod.QueueWorkerError,
+            assets_mod.ModuleAssetsError,
+            coc_fileio.CampaignLockError,
+        ) as exc:
+            raise ToolError(
+                "opening_host_work_materialization_failed",
+                str(exc),
+            ) from exc
     all_open_host_work = assets_mod.list_host_work_requests(
         ctx.root, root_id, limit=None,
     )
@@ -14166,9 +14196,13 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
         None,
     )
     worker_kick = queued.get("worker_kick") or {}
-    if open_request is None and (
-        worker_kick.get("started") is True
-        or worker_kick.get("already_running") is True
+    if (
+        not caller_owns_materialization
+        and open_request is None
+        and (
+            worker_kick.get("started") is True
+            or worker_kick.get("already_running") is True
+        )
     ):
         # The detached queue worker only converts deterministic queue state into
         # a host-work row.  Give that local handoff a very small grace interval
@@ -14189,6 +14223,11 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
             )
             if open_request is not None:
                 break
+    if caller_owns_materialization and open_request is None:
+        raise ToolError(
+            "opening_host_work_materialization_failed",
+            "exact opening job has no durable host-work request",
+        )
     data = {
         "status": "queued" if queued.get("enqueued") else "coalesced",
         "idempotent": bool(queued.get("deduped")),
@@ -14224,8 +14263,14 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
         }
         if takeover is not None:
             data["background_takeover"] = takeover
+        elif caller_owns_materialization:
+            raise ToolError(
+                "opening_host_work_takeover_unavailable",
+                "exact opening host-work request has no canonical takeover",
+            )
     return data, [], [
-        "the queue kick may materialize a host request; a host source worker must still return the exact partial pack"
+        "host-work materialization is deterministic bookkeeping; a host source "
+        "worker must still return the exact partial pack"
     ]
 
 

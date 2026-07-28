@@ -1089,20 +1089,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           !dispatchKey
           && objectOrNull(bootstrapSourceWork?.background_takeover)
         ) {
-          const terminalFailure = {
-            status: "terminal_failure",
+          const contractViolation = {
+            status: "contract_violation",
             failure_class: "coordinator_task_invalid",
           };
           try {
             pi.appendEntry(
               "coc-source-coordinator-auto-dispatch",
-              terminalFailure,
+              contractViolation,
             );
           } catch { /* audit is best effort */ }
-          return result(failedBlockingOpeningEnvelope(
-            terminalFailure,
-            "opening_coordinator_task_invalid",
-          ));
+          throw new Error(
+            "canonical opening bootstrap returned a malformed coordinator task",
+          );
         }
         if (
           !dispatchKey
@@ -1111,21 +1110,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             || bootstrapSourceStatus === "coalesced"
           )
         ) {
-          const terminalFailure = {
-            status: "terminal_failure",
-            failure_class: "coordinator_task_not_materialized",
+          const contractViolation = {
+            status: "contract_violation",
+            failure_class: "opening_coordinator_task_missing",
             source_status: bootstrapSourceStatus,
           };
           try {
             pi.appendEntry(
               "coc-source-coordinator-auto-dispatch",
-              terminalFailure,
+              contractViolation,
             );
           } catch { /* audit is best effort */ }
-          return result(failedBlockingOpeningEnvelope(
-            terminalFailure,
-            "opening_coordinator_task_not_materialized",
-          ));
+          throw new Error(
+            "canonical opening bootstrap returned unresolved source work "
+            + "without an exact coordinator task",
+          );
         }
         if (dispatchKey) {
           openingContinuationGate.beginSynchronousOpeningWait(dispatchKey);

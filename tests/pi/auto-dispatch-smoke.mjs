@@ -1128,8 +1128,8 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// Canonical queued/coalesced output can legitimately precede takeover-card
-// materialization. It is unresolved and must fail closed instead of escaping.
+// Queued/coalesced opening output without a takeover is a canonical contract
+// violation. Reject it without manufacturing false source-terminal evidence.
 {
   const task = coordinatorTask("coord-main-opening-no-takeover");
   const harness = mainExtensionHarness((_name, params) => {
@@ -1139,27 +1139,35 @@ async function exerciseFailureDrain(mode) {
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
-  const toolResult = await harness.registered.get("coc_invoke").execute(
-    "invoke-opening-no-takeover",
-    {
-      operation: "progressive.opening_bootstrap",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
-        opening_pdf_indices: [0],
+  let rejection;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-opening-no-takeover",
+      {
+        operation: "progressive.opening_bootstrap",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          start_location: { location_id: "opening", title: "Opening" },
+          opening_pdf_indices: [0],
+        },
       },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
-  const envelope = JSON.parse(toolResult.content[0].text);
-  check("queued opening without takeover fails closed",
-    envelope.ok === false
-    && envelope.error.code === "opening_coordinator_task_not_materialized"
-    && envelope.data.projection_ready === false
-    && envelope.data.activation_allowed === false
-    && envelope.data.coordinator_terminal.source_status === "queued"
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    rejection = error;
+  }
+  const audit = harness.appended.find((entry) => (
+    entry.name === "coc-source-coordinator-auto-dispatch"
+    && entry.value?.failure_class === "opening_coordinator_task_missing"
+  ));
+  check("queued opening without takeover is rejected as corruption",
+    rejection instanceof Error
+    && rejection.message.includes("without an exact coordinator task")
+    && audit?.value?.status === "contract_violation"
+    && audit.value.source_status === "queued"
+    && !Object.hasOwn(audit.value, "source_dependency_terminal")
     && harness.launches.length === 0
     && harness.calls.length === 1
     && harness.sent.length === 0);
@@ -1202,8 +1210,8 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// A malformed blocking takeover is a terminal host failure, never an
-// in-flight envelope handed to the provider for improvisation.
+// A malformed blocking takeover is canonical corruption. Reject it without
+// manufacturing false source-terminal evidence.
 {
   const task = coordinatorTask("coord-main-opening-invalid");
   delete task.packet.packet_id;
@@ -1214,25 +1222,34 @@ async function exerciseFailureDrain(mode) {
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
-  const toolResult = await harness.registered.get("coc_invoke").execute(
-    "invoke-opening-invalid",
-    {
-      operation: "progressive.opening_bootstrap",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
-        opening_pdf_indices: [0],
+  let rejection;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-opening-invalid",
+      {
+        operation: "progressive.opening_bootstrap",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          start_location: { location_id: "opening", title: "Opening" },
+          opening_pdf_indices: [0],
+        },
       },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
-  const envelope = JSON.parse(toolResult.content[0].text);
-  check("invalid opening takeover fails closed before provider continuation",
-    envelope.ok === false
-    && envelope.error.code === "opening_coordinator_task_invalid"
-    && envelope.data.projection_ready === false
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    rejection = error;
+  }
+  const audit = harness.appended.find((entry) => (
+    entry.name === "coc-source-coordinator-auto-dispatch"
+    && entry.value?.failure_class === "coordinator_task_invalid"
+  ));
+  check("invalid opening takeover is rejected before provider continuation",
+    rejection instanceof Error
+    && rejection.message.includes("malformed coordinator task")
+    && audit?.value?.status === "contract_violation"
+    && !Object.hasOwn(audit.value, "source_dependency_terminal")
     && harness.launches.length === 0
     && harness.calls.length === 1
     && harness.sent.length === 0);

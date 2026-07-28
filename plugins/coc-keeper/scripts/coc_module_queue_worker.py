@@ -874,8 +874,19 @@ def claim_jobs(
                 item.get("enqueued_at") or "",
             )
         )
-        take = pending[: int(limit)]
-        rest = pending[int(limit) :]
+        take: list[dict[str, Any]] = []
+        rest: list[dict[str, Any]] = []
+        for job in pending:
+            # Caller-owned blocking opening work is materialized only by its
+            # exact bootstrap owner. A detached worker must never win that
+            # queue race or claim an unrelated job on the caller's behalf.
+            caller_owned = bool(
+                str(job.get("materialization_owner") or "").strip()
+            )
+            if len(take) < int(limit) and not caller_owned:
+                take.append(job)
+            else:
+                rest.append(job)
         now_iso = _now_iso()
         now_ts = _now_ts()
         for job in take:
@@ -889,6 +900,124 @@ def claim_jobs(
         queue["in_flight"] = inflight
         _write_queue(workspace, asset_root_id, queue)
     return claimed
+
+
+def _claim_exact_caller_owned_job(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    job_id: str,
+    materialization_owner: str,
+) -> dict[str, Any] | None:
+    """Claim one exact caller-owned pending job without touching siblings."""
+    lock = _lock_path(workspace, asset_root_id)
+    with coc_fileio.advisory_file_lock(lock):
+        queue = _read_queue(workspace, asset_root_id)
+        pending = list(queue.get("pending") or [])
+        inflight = list(queue.get("in_flight") or [])
+        index = next(
+            (
+                position for position, row in enumerate(pending)
+                if str(row.get("job_id") or "") == job_id
+            ),
+            None,
+        )
+        if index is None:
+            if any(
+                str(row.get("job_id") or "") == job_id
+                for row in inflight
+            ):
+                raise QueueWorkerError(
+                    "exact caller-owned job is already in flight"
+                )
+            return None
+        job = dict(pending[index])
+        if (
+            str(job.get("materialization_owner") or "").strip()
+            != materialization_owner
+            or str(job.get("kind") or "") != "partial_opening"
+            or str(job.get("work_level") or "") != "current_dependency"
+        ):
+            raise QueueWorkerError(
+                "exact job is not the caller-owned blocking opening"
+            )
+        now_iso = _now_iso()
+        job["worker_id"] = f"caller:{materialization_owner}"
+        job["claimed_at"] = now_iso
+        job["claimed_at_ts"] = _now_ts()
+        pending.pop(index)
+        inflight.append(job)
+        queue["pending"] = pending
+        queue["in_flight"] = inflight
+        _write_queue(workspace, asset_root_id, queue)
+        return job
+
+
+def materialize_exact_caller_owned_host_work(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    job_id: str,
+    materialization_owner: str,
+) -> dict[str, Any]:
+    """Synchronously materialize one exact blocking opening host-work row."""
+    jid = coc_module_assets._require_id(job_id, "job_id")
+    owner = str(materialization_owner or "").strip()
+    if owner != "opening_bootstrap":
+        raise QueueWorkerError("unsupported caller materialization owner")
+    root = coc_module_assets.assets_root(workspace) / asset_root_id
+    exact_lock = root / f"caller-materialization-{jid}.lock"
+    with coc_fileio.advisory_file_lock(exact_lock):
+        request = coc_module_assets.get_host_work_request(
+            workspace, asset_root_id, jid,
+        )
+        if request is not None:
+            return {
+                "status": "current",
+                "job_id": jid,
+                "host_work_request": request,
+            }
+        job = _claim_exact_caller_owned_job(
+            workspace,
+            asset_root_id,
+            job_id=jid,
+            materialization_owner=owner,
+        )
+        if job is None:
+            request = coc_module_assets.get_host_work_request(
+                workspace, asset_root_id, jid,
+            )
+            if request is not None:
+                return {
+                    "status": "current",
+                    "job_id": jid,
+                    "host_work_request": request,
+                }
+            raise QueueWorkerError(
+                "exact caller-owned opening job is not pending and has no "
+                "durable host-work request"
+            )
+        processed = process_claimed_job(
+            workspace, asset_root_id, job,
+        )
+        request = coc_module_assets.get_host_work_request(
+            workspace, asset_root_id, jid,
+        )
+        if (
+            processed.get("ok") is not True
+            or processed.get("result") != "awaiting_host_pack"
+            or request is None
+        ):
+            raise QueueWorkerError(
+                "exact caller-owned opening job did not materialize one "
+                "durable host-work request"
+            )
+        return {
+            "status": "materialized",
+            "job_id": jid,
+            "host_work_request": request,
+            "process_result": processed,
+        }
 
 
 def _finish_job(

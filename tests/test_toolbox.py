@@ -11762,11 +11762,8 @@ def test_opening_request_returns_inline_takeover_for_source_coordinator(
         "execution_owner": "opening_source_coordinator",
     })
     assert first["ok"] is True, first
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_direct_request_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    assert first["data"]["host_request_id"] == first["data"]["job_id"]
+    assert "background_takeover" in first["data"]
 
     repeated = _run(ws, "progressive.request_opening_pack", {
         "asset_root_id": ws["asset_root_id"],
@@ -12080,7 +12077,23 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     tmp_path: Path, monkeypatch,
 ):
     monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
     ws = _opening_component_workspace(tmp_path)
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    unrelated = assets.enqueue_job(
+        ws["workspace"],
+        ws["asset_root_id"],
+        kind="deepen_location",
+        target_id="unrelated-high-priority",
+        priority=999,
+        reason="prove opening materialization is exact-job only",
+        kick_worker=False,
+    )
+
+    def reject_grace_poll(_seconds: float) -> None:
+        raise AssertionError("blocking opening bootstrap must not sleep or poll")
+
+    monkeypatch.setattr(coc_toolbox.time, "sleep", reject_grace_poll)
     args = {
         "start_location": {
             "location_id": "opening",
@@ -12090,10 +12103,53 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     }
     first = _run(ws, "progressive.opening_bootstrap", args)
     assert first["ok"] is True, first
-    assert first["data"]["source_work"]["status"] == "queued"
+    source_work = first["data"]["source_work"]
+    opening_job_id = source_work["job_id"]
+    assert source_work["status"] == "queued"
+    assert source_work["worker_kick"] == {
+        "started": False,
+        "reason": "caller_owns_materialization",
+    }
+    assert source_work["host_request_id"] == opening_job_id
+    assert source_work["background_takeover"]["next_host_action"]["action"] == (
+        "invoke_coc_dispatch_source_work"
+    )
+    assert (
+        source_work["background_takeover"]["next_host_action"]["task"]
+        ["packet"]["asset_root_id"]
+        == ws["asset_root_id"]
+    )
+    assert (
+        assets.get_host_work_request(
+            ws["workspace"], ws["asset_root_id"], opening_job_id,
+        )["work_level"]
+        == "current_dependency"
+    )
+    queue = assets.list_queue(ws["workspace"], ws["asset_root_id"])
+    assert [
+        row["job_id"] for row in queue["pending"]
+    ] == [unrelated["job"]["job_id"]]
+    assert queue["in_flight"] == []
+    assert any(
+        row["job_id"] == opening_job_id
+        and row["result"] == "awaiting_host_pack"
+        for row in queue["done"]
+    )
     repeated = _run(ws, "progressive.opening_bootstrap", args)
     assert repeated["ok"] is True, repeated
     assert repeated["data"]["source_work"]["status"] == "coalesced"
+    assert repeated["data"]["source_work"]["job_id"] == opening_job_id
+    assert (
+        repeated["data"]["source_work"]["background_takeover"]
+        == source_work["background_takeover"]
+    )
+    assert len(assets.list_host_work_requests(
+        ws["workspace"], ws["asset_root_id"], limit=None,
+    )) == 1
+    queue = assets.list_queue(ws["workspace"], ws["asset_root_id"])
+    assert [
+        row["job_id"] for row in queue["pending"]
+    ] == [unrelated["job"]["job_id"]]
     conflict = _run(ws, "progressive.opening_bootstrap", {
         **args,
         "start_location": {
@@ -12104,14 +12160,9 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     assert conflict["ok"] is False
     assert conflict["error"]["code"] == "opening_bootstrap_conflict"
 
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_bootstrap_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
     fulfilled = _run(ws, "progressive.fulfill_host_work", {
         "worker_result": {
-            "job_id": first["data"]["source_work"]["job_id"],
+            "job_id": opening_job_id,
                 "pack": _opening_component_pack(parse_state="partial"),
                 "related_packs": [],
                 "opening_setup": _opening_setup_unresolved(),
@@ -12120,6 +12171,10 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     })
     assert fulfilled["ok"] is True, fulfilled
     assert fulfilled["data"]["automatic_projection"][0]["status"] == "complete"
+    current = _run(ws, "progressive.opening_bootstrap", args)
+    assert current["ok"] is True, current
+    assert current["data"]["source_work"]["status"] == "current"
+    assert "background_takeover" not in current["data"]["source_work"]
     scenario = json.loads(
         (
             ws["campaign_dir"] / "scenario" / "scenario.json"
@@ -12143,11 +12198,6 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
         "opening_pdf_indices": [0],
     })
     assert boot["ok"] is True, boot
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_pending_finalize_source_lifecycle_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
     assets = coc_toolbox.coc_module_project.coc_module_assets
     claimed = assets.claim_host_work_requests(
         ws["workspace"],
@@ -12271,11 +12321,6 @@ def test_opening_setup_source_clock_preserves_relative_precision(
         "opening_pdf_indices": [0],
     })
     assert boot["ok"] is True, boot
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_clock_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
     fulfilled = _run(ws, "progressive.fulfill_host_work", {
         "worker_result": {
             "job_id": boot["data"]["source_work"]["job_id"],
@@ -12496,11 +12541,6 @@ def test_opening_setup_rejects_invalid_clock_before_source_or_campaign_writes(
         "opening_pdf_indices": [0],
     })
     assert boot["ok"] is True, boot
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_invalid_clock_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
     before = _opening_state_bytes_without_audit(ws["workspace"])
     rejected = _run(ws, "progressive.fulfill_host_work", {
         "worker_result": {
@@ -12551,11 +12591,6 @@ def test_direct_source_submit_drains_only_exact_campaign_watch(
         "opening_pdf_indices": [0],
     })
     assert boot["ok"] is True, boot
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_direct_watch_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
     claimed = coc_toolbox.coc_module_project.coc_module_assets.claim_host_work_requests(
         ws["workspace"],
         ws["asset_root_id"],
@@ -12604,11 +12639,6 @@ def test_opening_watch_refuses_non_pristine_without_rolling_back_pack(
         "opening_pdf_indices": [0],
     })
     assert boot["ok"] is True, boot
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_non_pristine_watch_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
     world_path = ws["campaign_dir"] / "save" / "world-state.json"
     world = json.loads(world_path.read_text(encoding="utf-8"))
     world["active_scene_id"] = "already-playing"
@@ -12645,11 +12675,6 @@ def test_opening_setup_rejects_clock_ref_outside_exact_window_before_writes(
         "opening_pdf_indices": [0],
     })
     assert boot["ok"] is True, boot
-    worker = coc_toolbox.coc_module_project._load_sibling(
-        "coc_module_queue_worker_bad_clock_ref_test",
-        "coc_module_queue_worker.py",
-    )
-    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
     rejected = _run(ws, "progressive.fulfill_host_work", {
         "worker_result": {
             "job_id": boot["data"]["source_work"]["job_id"],
