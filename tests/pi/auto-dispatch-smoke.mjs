@@ -104,7 +104,6 @@ function openingBootstrapWithoutTakeover(task, status = "queued") {
 }
 
 function openingSetupGate(nextOperation = {
-  schema_version: 1,
   operation: "progressive.prepare_opening",
   invoke_via: "coc_invoke",
   prefilled_arguments: {},
@@ -145,7 +144,6 @@ function preparedOpeningSetupResult() {
     data: {
       status: "blocked",
       next_operation: {
-        schema_version: 1,
         operation: "progressive.opening_bootstrap",
         invoke_via: "coc_invoke",
         prefilled_arguments: {},
@@ -1111,7 +1109,6 @@ async function exerciseFailureDrain(mode) {
 // canonical current opening result.
 {
   const bootstrapCard = {
-    schema_version: 1,
     operation: "progressive.opening_bootstrap",
     invoke_via: "coc_invoke",
     prefilled_arguments: {},
@@ -2016,7 +2013,6 @@ async function exerciseFailureDrain(mode) {
     },
   };
   const wrongBootstrapGate = openingSetupGate({
-    schema_version: 1,
     operation: "progressive.opening_bootstrap",
     invoke_via: "coc_invoke",
     prefilled_arguments: {
@@ -2067,7 +2063,6 @@ async function exerciseFailureDrain(mode) {
 // selection and are audited instead of poisoning the retained route.
 {
   const bootstrapCard = (prefilled_arguments, missing_arguments = []) => ({
-    schema_version: 1,
     operation: "progressive.opening_bootstrap",
     invoke_via: "coc_invoke",
     prefilled_arguments,
@@ -2275,12 +2270,7 @@ async function exerciseFailureDrain(mode) {
     "dispatch-wrong",
   );
   check("wrong dispatch cannot complete or clear the bootstrap route",
-    gate.completeOpeningSetupRouteAttempt(
-      "dispatch-bootstrap",
-      params,
-      "dispatch-wrong",
-    ) === false
-    && gate.openingSetupToolError("coc_invoke", {
+    gate.openingSetupToolError("coc_invoke", {
       operation: "scene.context",
       campaign: "dispatch",
       arguments: {},
@@ -2599,7 +2589,7 @@ async function exerciseFailureDrain(mode) {
       "--frozen",
       "python",
       "plugins/coc-keeper/scripts/coc_toolbox.py",
-      "setup.invoke",
+      params.operation,
       "--root",
       workspace,
     ];
@@ -2612,6 +2602,7 @@ async function exerciseFailureDrain(mode) {
       encoding: "utf8",
       env: {
         ...process.env,
+        COC_HOST: "pi",
         PYTHONDONTWRITEBYTECODE: "1",
       },
     });
@@ -2622,7 +2613,9 @@ async function exerciseFailureDrain(mode) {
     }
     return JSON.parse(completed.stdout);
   };
-  const harness = mainExtensionHarness(callRealToolbox);
+  const harness = mainExtensionHarness(callRealToolbox, {
+    coordinatorEnabled: async () => false,
+  });
   try {
     await harness.start();
     const created = JSON.parse((await harness.registered.get(
@@ -2816,7 +2809,10 @@ async function exerciseFailureDrain(mode) {
       missingBindRejected
       && harness.calls.length === callsBeforeMissingBind + 1
       && bound.ok === true
-      && bound.data.status === "PASS");
+      && bound.data.status === "PASS"
+      && bound.data.next_operation.operation
+        === "progressive.prepare_opening"
+      && !Object.hasOwn(bound.data.next_operation, "schema_version"));
 
     const linkArgs = {
       kind: "campaign.link_investigator",
@@ -2856,6 +2852,64 @@ async function exerciseFailureDrain(mode) {
       && harness.calls.length === callsBeforeMissingLink + 1
       && linked.ok === true
       && linked.data.status === "PASS");
+
+    const prepared = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r13-real-prepare",
+      {
+        operation: "progressive.prepare_opening",
+        campaign: campaignId,
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    const realBootstrapCard = prepared.data?.next_operation;
+    check("real toolbox prepare returns canonical schema-less bootstrap card",
+      prepared.ok === true
+      && realBootstrapCard?.operation === "progressive.opening_bootstrap"
+      && realBootstrapCard.invoke_via === "coc_invoke"
+      && realBootstrapCard.hard_gate === true
+      && realBootstrapCard.authority === "canonical_setup"
+      && !Object.hasOwn(realBootstrapCard, "schema_version"));
+    const realBootstrapArguments = {
+      ...realBootstrapCard.prefilled_arguments,
+    };
+    for (const field of realBootstrapCard.missing_arguments) {
+      if (field === "start_location") {
+        realBootstrapArguments.start_location = {
+          location_id: "r12-opening",
+          title: "R12 Module",
+        };
+      } else if (field === "opening_pdf_indices") {
+        realBootstrapArguments.opening_pdf_indices = [0];
+      }
+    }
+    const callsBeforeRealBootstrap = harness.calls.length;
+    let realBootstrapAdmissionError = null;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        "r13-real-bootstrap",
+        {
+          operation: "progressive.opening_bootstrap",
+          campaign: campaignId,
+          arguments: realBootstrapArguments,
+        },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch (error) {
+      realBootstrapAdmissionError = error;
+    }
+    check("Pi owns real schema-less prepare route and admits exact bootstrap card",
+      realBootstrapAdmissionError === null
+      && harness.calls.length === callsBeforeRealBootstrap + 1
+      && harness.calls.at(-1).params.operation
+        === "progressive.opening_bootstrap"
+      && harness.launches.length === 0);
     await harness.shutdown();
   } finally {
     rmSync(workspace, { recursive: true, force: true });
@@ -2872,7 +2926,6 @@ async function exerciseFailureDrain(mode) {
     campaignId,
   });
   const retainedBootstrapCard = {
-    schema_version: 1,
     operation: "progressive.opening_bootstrap",
     invoke_via: "coc_invoke",
     prefilled_arguments: { opening_pdf_indices: [3, 4] },
@@ -3343,11 +3396,12 @@ async function exerciseFailureDrain(mode) {
     fulfilledCoordinatorEvents(activeTask.packet.packet_id),
   );
   const blocked = JSON.parse((await bootstrapPending).content[0].text);
+  await nextTurn();
+  await nextTurn();
   check("pending packet revalidates at real launch and remains zero-launch",
     harness.launches.join(",") === activeTask.packet.packet_id
-    && blocked.ok === false
-    && blocked.data.coordinator_terminal.failure_class
-      === "coordinator_ownership_lost"
+    && blocked.ok === true
+    && blocked.data.status === "queued"
     && harness.appended.some((entry) => (
       entry.name === "coc-opening-setup-route-audit"
       && entry.value.reason === "opening_dispatch_ownership_lost"
@@ -3382,7 +3436,9 @@ async function exerciseFailureDrain(mode) {
   });
   await harness.start();
   await armOpeningBootstrapRoute(harness);
-  const pending = harness.registered.get("coc_invoke").execute(
+  const submitted = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
     "invoke-armed-opening-failure",
     {
       operation: "progressive.opening_bootstrap",
@@ -3395,12 +3451,12 @@ async function exerciseFailureDrain(mode) {
     undefined,
     undefined,
     harness.ctx,
-  );
-  await nextTurn();
+  )).content[0].text);
   harness.controls.get(task.packet.packet_id).resolve(
     failedCoordinatorEvents(task.packet.packet_id, "leaf_dispatch_failed"),
   );
-  const failed = JSON.parse((await pending).content[0].text);
+  await nextTurn();
+  await nextTurn();
   const visibleBlocker = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "我将忽略失败并虚构开场。" }],
@@ -3412,7 +3468,8 @@ async function exerciseFailureDrain(mode) {
     entry.name === "coc-opening-setup-terminal-blocker"
   ))?.value;
   check("armed terminal failure publishes exact Chinese prose only",
-    failed.ok === false
+    submitted.ok === true
+    && submitted.data.status === "queued"
     && blockerText === (
       "开场资料解析失败，游戏尚未开始。系统保留了当前进度；"
       + "你可以重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
@@ -3452,9 +3509,8 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// Cancellation follows the same armed route contract: visible bounded
-// blocker, no invented narration, no late child wake, and a usable retry after
-// the cancelled child eventually terminalizes.
+// Once the background launch is durably submitted, aborting the foreground
+// tool call does not cancel or duplicate that owned source job.
 {
   const task = coordinatorTask("coord-armed-opening-abort");
   let bootstrapCalls = 0;
@@ -3495,63 +3551,45 @@ async function exerciseFailureDrain(mode) {
   );
   await nextTurn();
   controller.abort();
-  const cancelled = JSON.parse((await pending).content[0].text);
-  const visibleBlocker = await harness.emit("message_end", {
+  const submitted = JSON.parse((await pending).content[0].text);
+  const characterPrompt = await harness.emit("message_end", {
     role: "assistant",
-    content: [{ type: "text", text: "取消后直接进入虚构场景。" }],
+    content: [{ type: "text", text: "后台解析中，我们继续创建调查员。" }],
   });
-  const blockerText = visibleBlocker.content.find(
-    (part) => part.type === "text",
-  )?.text;
-  const hiddenBlocker = harness.appended.find((entry) => (
-    entry.name === "coc-opening-setup-terminal-blocker"
-  ))?.value;
-  check("armed cancellation is exact Chinese prose without machine labels",
-    cancelled.error.code === "opening_source_wait_cancelled"
-    && blockerText === (
-      "开场资料解析已取消，游戏尚未开始。系统保留了当前进度；"
-      + "你可以稍后重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
-    )
-    && !/[{}]/.test(blockerText)
-    && !blockerText.includes("error_code")
-    && !blockerText.includes("dispatch_key")
-    && !blockerText.includes("next_operation")
-    && !blockerText.includes("progressive.opening_bootstrap")
-    && !blockerText.includes("虚构场景"));
-  check("armed cancellation retains hidden exact retry details",
-    hiddenBlocker.error_code === "opening_source_wait_cancelled"
-    && hiddenBlocker.next_operation.operation
-      === "progressive.opening_bootstrap");
+  check("foreground abort preserves submitted background character phase",
+    submitted.ok === true
+    && submitted.data.status === "queued"
+    && characterPrompt.content.some((part) => (
+      part.type === "text"
+      && part.text === "后台解析中，我们继续创建调查员。"
+    ))
+    && harness.controls.get(task.packet.packet_id).terminated === false);
 
   harness.controls.get(task.packet.packet_id).resolve(
     fulfilledCoordinatorEvents(task.packet.packet_id),
   );
   await nextTurn();
   await nextTurn();
-  check("armed cancellation late terminal remains append-only",
+  check("background terminal before character completion remains append-only",
     harness.appended.filter((entry) => (
       entry.name === "coc-source-coordinator-terminal"
     )).length === 1
     && harness.sent.length === 0);
 
-  const retried = JSON.parse((await harness.registered.get("coc_invoke").execute(
-    "retry-armed-opening-after-abort",
-    {
-      operation: "progressive.opening_bootstrap",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
-        opening_pdf_indices: [0],
-      },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  )).content[0].text);
-  check("armed cancellation retry remains live after late terminal",
-    bootstrapCalls === 2
-    && retried.ok === true
-    && retried.data.status === "current");
+  let duplicateBootstrapRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "retry-armed-opening-after-abort",
+      bootstrapOpeningParams("auto-dispatch-fixture"),
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch {
+    duplicateBootstrapRejected = true;
+  }
+  check("fulfilled background forbids duplicate bootstrap",
+    duplicateBootstrapRejected && bootstrapCalls === 1);
   await harness.shutdown();
 }
 
@@ -3596,97 +3634,213 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// V4 host path: the original opening_bootstrap tool call is the only provider
-// continuation. It remains unresolved until durable terminal publication and
-// one canonical current-projection check both finish.
+// Opening source work starts before character creation and stays nonblocking.
+// The exact link receipt closes character setup; live play then waits for one
+// terminal projection and releases one opening.
 {
   const task = coordinatorTask("coord-main-opening-success");
   const harness = mainExtensionHarness((_name, params) => {
     if (
       params.operation === "setup.invoke"
       && params.arguments?.kind === "scenario.bind_pdf"
-    ) {
-      return boundOpeningSetupResult();
-    }
+    ) return boundOpeningSetupResult();
     if (params.operation === "progressive.prepare_opening") {
       return preparedOpeningSetupResult();
     }
     if (params.operation === "progressive.opening_bootstrap") {
       return openingBootstrapResult(task);
     }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.render_briefing"
+    ) {
+      return {
+        ok: true,
+        tool: "setup.invoke",
+        data: {
+          status: "PASS",
+          result: { briefing_path: ".coc/fixture/scenario-briefing.md" },
+        },
+      };
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      return {
+        ok: true,
+        tool: "setup.invoke",
+        data: { status: "PASS", result: { investigator_ids: ["phase-inv"] } },
+      };
+    }
     if (params.operation === "progressive.project_opening") {
       return {
         ok: true,
         tool: "progressive.project_opening",
-        data: {
-          status: "current",
-          asset_root_id: task.packet.asset_root_id,
-          start_location_id: "opening",
-        },
+        data: { status: "current" },
       };
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
   await armOpeningBootstrapRoute(harness);
-  let settled = false;
-  const pendingResult = harness.registered.get("coc_invoke").execute(
-    "invoke-opening-success",
+  const bootstrap = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "phase-bootstrap",
+    bootstrapOpeningParams("auto-dispatch-fixture"),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("bootstrap starts one nonblocking background opening job",
+    bootstrap.ok === true
+    && bootstrap.data.status === "queued"
+    && bootstrap.data.source_dependency_terminal === false
+    && harness.launches.join(",") === task.packet.packet_id);
+
+  const briefing = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "phase-briefing",
     {
-      operation: "progressive.opening_bootstrap",
+      operation: "setup.invoke",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        kind: "campaign.render_briefing",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          language: "zh-Hans",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("briefing fallback remains available during background parsing",
+    briefing.ok === true
+    && briefing.data.result.briefing_path.endsWith("scenario-briefing.md"));
+
+  for (let index = 0; index < 3; index += 1) {
+    for (const handler of harness.handlers.get("agent_end") || []) {
+      await handler({ reason: `phase-${index}` }, harness.ctx);
+    }
+    for (const handler of harness.handlers.get("agent_start") || []) {
+      await handler({ reason: `phase-${index}` }, harness.ctx);
+    }
+    const visible = await harness.emit("message_end", {
+      role: "assistant",
+      content: [{ type: "text", text: `自然开卡对话 ${index + 1}` }],
+    });
+    check(`background parsing permits natural character round ${index + 1}`,
+      visible.content.some((part) => (
+        part.type === "text" && part.text === `自然开卡对话 ${index + 1}`
+      )));
+  }
+
+  await harness.registered.get("coc_invoke").execute(
+    "phase-link",
+    {
+      operation: "setup.invoke",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          investigator_ids: ["phase-inv"],
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const linkVisible = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "调查员已创建并加入本次游戏。" }],
+  });
+  const callsBeforeScene = harness.calls.length;
+  let sceneBlocked = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "phase-scene",
+      {
+        operation: "scene.context",
+        campaign: "auto-dispatch-fixture",
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch {
+    sceneBlocked = true;
+  }
+  const openingHidden = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "投影前的虚构开场。" }],
+  });
+  check("link receipt is visible then live play remains blocked",
+    linkVisible.content.some((part) => (
+      part.type === "text" && part.text === "调查员已创建并加入本次游戏。"
+    ))
+    && sceneBlocked
+    && harness.calls.length === callsBeforeScene
+    && openingHidden.content.every((part) => part.type !== "text"));
+
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  for (const handler of harness.handlers.get("agent_end") || []) {
+    await handler({ reason: "phase-terminal" }, harness.ctx);
+  }
+  await nextTurn();
+  await nextTurn();
+  check("fulfilled background wakes exactly once after character completion",
+    harness.sent.filter((entry) => (
+      entry.message?.customType
+        === "coc-source-coordinator-terminal-continuation"
+    )).length === 1);
+
+  for (const handler of harness.handlers.get("agent_start") || []) {
+    await handler({ reason: "phase-project" }, harness.ctx);
+  }
+  const projected = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "phase-project",
+    {
+      operation: "progressive.project_opening",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        asset_root_id: task.packet.asset_root_id,
+        source_file_sha256: "a".repeat(64),
+        start_location_id: "opening",
         opening_pdf_indices: [0],
       },
     },
     undefined,
     undefined,
     harness.ctx,
-  ).then((value) => {
-    settled = true;
-    return value;
+  )).content[0].text);
+  const openingVisible = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "来源投影完成后的唯一开场。" }],
   });
-  await nextTurn();
-  check("main opening does not return in-flight bootstrap to provider",
-    settled === false
-    && harness.calls.length === 3
-    && harness.calls[2].params.operation === "progressive.opening_bootstrap"
-    && harness.sent.length === 0);
-  harness.controls.get(task.packet.packet_id).resolve(
-    fulfilledCoordinatorEvents(task.packet.packet_id),
-  );
-  const toolResult = await pendingResult;
-  const envelope = JSON.parse(toolResult.content[0].text);
-  check("main opening returns only terminal current projection",
-    envelope.ok === true
-    && envelope.data.status === "current"
-    && envelope.data.source_dependency_terminal === true
-    && envelope.data.source_work.status === "fulfilled"
-    && envelope.data.source_work.terminal === true
-    && !Object.hasOwn(envelope.data.source_work, "background_takeover")
-    && envelope.data.coordinator_terminal.terminal_receipt.status === "fulfilled"
-    && envelope.data.coordinator_terminal.notification.hidden_continuation
-      === "suppressed_consumed"
-    && envelope.data.opening_projection.status === "current");
-  check("main opening performs one canonical projection opportunity",
-    harness.calls.length === 4
-    && harness.calls[3].params.operation === "progressive.project_opening"
-    && harness.calls[3].params.arguments.asset_root_id === task.packet.asset_root_id
-    && harness.calls[3].params.arguments.source_file_sha256 === "a".repeat(64)
-    && harness.calls[3].params.arguments.start_location_id === "opening"
-    && JSON.stringify(harness.calls[3].params.arguments.opening_pdf_indices)
-      === "[0]");
-  check("waiting opening terminal creates no competing continuation wake",
-    harness.sent.length === 0
-    && harness.appended.filter((entry) => (
-      entry.name === "coc-source-coordinator-terminal"
+  check("exact current projection releases one opening without duplicate wake",
+    projected.ok === true
+    && projected.data.status === "current"
+    && harness.calls.filter((call) => (
+      call.params.operation === "progressive.project_opening"
     )).length === 1
-    && harness.appended.some((entry) => (
-      entry.name === "coc-source-coordinator-auto-dispatch"
-      && entry.value.status === "submitted"
-    )));
-  await nextTurn();
+    && openingVisible.content.some((part) => (
+      part.type === "text" && part.text === "来源投影完成后的唯一开场。"
+    ))
+    && harness.sent.filter((entry) => (
+      entry.message?.customType
+        === "coc-source-coordinator-terminal-continuation"
+    )).length === 1);
   await harness.shutdown();
 }
 
@@ -3708,130 +3862,41 @@ async function exerciseFailureDrain(mode) {
   });
   await harness.start();
   await armOpeningBootstrapRoute(harness);
-  let settled = false;
-  const pendingResult = harness.registered.get("coc_invoke").execute(
+  const submitted = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
     "invoke-opening-failure",
-    {
-      operation: "progressive.opening_bootstrap",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
-        opening_pdf_indices: [0],
-      },
-    },
+    bootstrapOpeningParams("auto-dispatch-fixture"),
     undefined,
     undefined,
     harness.ctx,
-  ).then((value) => {
-    settled = true;
-    return value;
-  });
-  await nextTurn();
-  check("failed opening still waits for terminal source outcome",
-    settled === false && harness.calls.length === 3 && harness.sent.length === 0);
+  )).content[0].text);
   harness.controls.get(task.packet.packet_id).resolve(
     failedCoordinatorEvents(
       task.packet.packet_id,
       "leaf_dispatch_failed",
     ),
   );
-  const toolResult = await pendingResult;
-  const envelope = JSON.parse(toolResult.content[0].text);
+  await nextTurn();
+  await nextTurn();
+  const blocker = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "失败后虚构开场。" }],
+  });
   check("failed opening fails closed without projection",
-    envelope.ok === false
-    && envelope.error.code === "opening_source_terminal_failure"
-    && envelope.data.status === "terminal_failure"
-    && envelope.data.projection_ready === false
-    && envelope.data.activation_allowed === false
-    && envelope.data.coordinator_terminal.terminal_receipt.failure_class
-      === "leaf_dispatch_failed"
-    && envelope.data.coordinator_terminal.notification.hidden_continuation
-      === "suppressed_consumed"
-    && harness.calls.length === 3);
+    submitted.ok === true
+    && submitted.data.status === "queued"
+    && harness.calls.length === 3
+    && blocker.content.some((part) => (
+      part.type === "text"
+      && part.text.includes("开场资料解析失败")
+    )));
   check("failed opening has one durable terminal and no duplicate wake",
     harness.appended.filter((entry) => (
       entry.name === "coc-source-coordinator-terminal"
     )).length === 1
     && harness.sent.length === 0);
   await nextTurn();
-  await harness.shutdown();
-}
-
-// Aborting the per-call wait consumes only that opening owner. The next real
-// user epoch remains visible, and a late child terminal cannot wake the model.
-{
-  const task = coordinatorTask("coord-main-opening-abort");
-  const harness = mainExtensionHarness((_name, params) => {
-    if (
-      params.operation === "setup.invoke"
-      && params.arguments?.kind === "scenario.bind_pdf"
-    ) return boundOpeningSetupResult();
-    if (params.operation === "progressive.prepare_opening") {
-      return preparedOpeningSetupResult();
-    }
-    if (params.operation === "progressive.opening_bootstrap") {
-      return openingBootstrapResult(task);
-    }
-    throw new Error(`unexpected operation ${params.operation}`);
-  });
-  await harness.start();
-  await armOpeningBootstrapRoute(harness);
-  const controller = new AbortController();
-  const pendingResult = harness.registered.get("coc_invoke").execute(
-    "invoke-opening-abort",
-    {
-      operation: "progressive.opening_bootstrap",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
-        opening_pdf_indices: [0],
-      },
-    },
-    controller.signal,
-    undefined,
-    harness.ctx,
-  );
-  await nextTurn();
-  check("abort fixture reaches active synchronous wait",
-    harness.controls.has(task.packet.packet_id)
-    && harness.calls.length === 3
-    && harness.sent.length === 0);
-  controller.abort();
-  const cancelled = JSON.parse((await pendingResult).content[0].text);
-  check("aborted opening returns bounded not-playable cancellation",
-    cancelled.ok === false
-    && cancelled.error.code === "opening_source_wait_cancelled"
-    && cancelled.data.projection_ready === false
-    && cancelled.data.activation_allowed === false);
-
-  await harness.emit("message_start", {
-    role: "user",
-    content: [{ type: "text", text: "这是取消后的新回合。" }],
-  });
-  const nextAssistant = await harness.emit("message_end", {
-    role: "assistant",
-    content: [{ type: "text", text: "新回合的有效叙事保持可见。" }],
-  });
-  check("aborted wait keeps the next user epoch behind the opening blocker",
-    nextAssistant.content.some((part) => (
-      part.type === "text"
-      && part.text === (
-        "开场资料解析已取消，游戏尚未开始。系统保留了当前进度；"
-        + "你可以稍后重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
-      )
-    )));
-
-  harness.controls.get(task.packet.packet_id).resolve(
-    fulfilledCoordinatorEvents(task.packet.packet_id),
-  );
-  await nextTurn();
-  await nextTurn();
-  check("late terminal after abort is append-only and never wakes provider",
-    harness.appended.filter((entry) => (
-      entry.name === "coc-source-coordinator-terminal"
-    )).length === 1
-    && harness.sent.length === 0
-    && harness.calls.length === 3);
   await harness.shutdown();
 }
 
