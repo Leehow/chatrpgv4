@@ -233,6 +233,142 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
     assert "entering the session **is** activation" in main
 
 
+def _pi_coc_test_home(
+    tmp_path: Path, *, settings: dict, models: dict,
+) -> tuple[Path, Path]:
+    agent_dir = tmp_path / "agent"
+    agent_bin = agent_dir / "bin"
+    fake_bin = tmp_path / "fake-bin"
+    agent_bin.mkdir(parents=True)
+    fake_bin.mkdir()
+    (agent_dir / "settings.json").write_text(
+        json.dumps(settings), encoding="utf-8",
+    )
+    (agent_dir / "models-store.json").write_text(
+        json.dumps(models), encoding="utf-8",
+    )
+    for name in ("fd", "rg"):
+        executable = agent_bin / name
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o755)
+    fake_pi = fake_bin / "pi"
+    fake_pi.write_text(
+        '#!/bin/sh\nfor arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    return agent_dir, fake_bin
+
+
+def _run_pi_coc(
+    tmp_path: Path,
+    *,
+    settings: dict,
+    models: dict,
+    args: list[str],
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path, settings=settings, models=models,
+    )
+    args_path = tmp_path / "pi-args.txt"
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "PI_COC_AGENT_DIR": str(agent_dir),
+        "PI_COC_TEST_ARGS": str(args_path),
+    }
+    completed = subprocess.run(
+        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new", *args],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed, args_path
+
+
+def test_pi_coc_refuses_unsupported_thinking_off_before_pi_starts(tmp_path: Path):
+    settings = {"defaultProvider": "xai", "defaultModel": "grok-4.5"}
+    models = {
+        "xai": {
+            "models": [{
+                "id": "grok-4.5",
+                "reasoning": True,
+                "thinkingLevelMap": {"off": None, "low": "low"},
+            }],
+        },
+    }
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--thinking", "off"],
+    )
+    assert completed.returncode == 2
+    assert "declares thinking off unsupported" in completed.stderr
+    assert "silently clamp" in completed.stderr
+    assert not args_path.exists()
+
+
+def test_pi_coc_preserves_supported_thinking_off_exactly(tmp_path: Path):
+    settings = {"defaultProvider": "test", "defaultModel": "reasoning-optional"}
+    models = {
+        "test": {
+            "models": [{
+                "id": "reasoning-optional",
+                "reasoning": True,
+                "thinkingLevelMap": {"off": "off", "low": "low"},
+            }],
+        },
+    }
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--thinking", "off", "hello"],
+    )
+    assert completed.returncode == 0
+    forwarded = args_path.read_text(encoding="utf-8").splitlines()
+    assert forwarded[-3:] == ["--thinking", "off", "hello"]
+
+
+def test_pi_coc_requires_deliberate_valid_level_instead_of_none(tmp_path: Path):
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings={
+            "defaultProvider": "xai",
+            "defaultModel": "grok-4.5",
+            "defaultThinkingLevel": "none",
+        },
+        models={},
+        args=[],
+    )
+    assert completed.returncode == 2
+    assert 'invalid defaultThinkingLevel "none"' in completed.stderr
+    assert "hideThinkingBlock=true" in completed.stderr
+    assert not args_path.exists()
+
+
+def test_pi_coc_allows_deliberate_low_without_calling_it_off(tmp_path: Path):
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings={
+            "defaultProvider": "xai",
+            "defaultModel": "grok-4.5",
+            "defaultThinkingLevel": "low",
+            "hideThinkingBlock": True,
+        },
+        models={},
+        args=["--thinking", "low"],
+    )
+    assert completed.returncode == 0
+    assert args_path.read_text(encoding="utf-8").splitlines()[-2:] == [
+        "--thinking",
+        "low",
+    ]
+
+
 def test_pi_coc_welcome_guide_copy():
     result = _node(ROOT / "tests/pi/welcome-smoke.mjs", str(ROOT))
     assert result["ok"] is True

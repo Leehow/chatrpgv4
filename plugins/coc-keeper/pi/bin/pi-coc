@@ -125,4 +125,9 @@ if ((${#USER_ARGS[@]} > 0)); then
   PI_ARGS+=("${USER_ARGS[@]}")
 fi
 
+# Pi clamps unsupported thinking levels before extensions load. Guard the
+# original request here so `--thinking off` can never become a silent `low`.
+node "$SCRIPT_DIR/pi-coc-thinking-preflight.mjs" \
+  "$PI_CODING_AGENT_DIR" "${USER_ARGS[@]+"${USER_ARGS[@]}"}"
+
 exec pi "${PI_ARGS[@]}"
