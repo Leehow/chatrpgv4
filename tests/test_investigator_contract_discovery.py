@@ -191,6 +191,8 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         row for row in compact_catalog["rows"] if row[0] == "Dodge"
     )[1:3] == ["half_DEX", "闪避"]
     assert compact_catalog["starting_skill_cap"] == 75
+    assert compact_catalog["default_era"] == "1920s"
+    assert compact_catalog["supported_eras"] == ["1920s"]
     assert next(
         row for row in compact_catalog["rows"]
         if row[0] == "Fighting (Brawl)"
@@ -217,6 +219,7 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         {"required": ["characteristics"]},
         {"required": ["derived"]},
     ]
+    assert defs["quick_fire_sheet"]["properties"]["era"]["enum"] == ["1920s"]
     assert defs["quick_fire_creation"]["properties"]["luck_roll_total"] == {
         "type": "integer",
         "minimum": 3,

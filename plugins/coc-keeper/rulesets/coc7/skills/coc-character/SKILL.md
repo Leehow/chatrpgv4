@@ -73,7 +73,11 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   Language (Own) remain; generic Pilot, Science, and Survival represent their
   printed player-selected group rows; other grouped/uncommon variants appear
   only when an allocation explicitly selects them. Blank sheet rows remain
-  untyped. The Keeper still selects occupation eligibility and point
+  untyped. This is currently a closed 1920s policy: omit `sheet.era` for the
+  canonical `1920s` default or set it exactly to `"1920s"`. Do not submit
+  `modern` or another era until that era has its own authoritative
+  package-owned standard-sheet policy. The Keeper still selects occupation
+  eligibility and point
   destinations semantically. This is a deterministic reconciliation gate, not
   a second occupation-allocation engine. An already complete external sheet is
   accepted outside an owned Pi live-opening route only through the explicit

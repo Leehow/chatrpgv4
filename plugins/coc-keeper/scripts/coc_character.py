@@ -494,12 +494,19 @@ def _guided_quick_fire_skill_reconciliation(
     if not isinstance(submitted, dict):
         return {}, ["guided Quick Fire skill reconciliation requires skills"]
 
-    era = str(sheet.get("era") or "1920s").strip().casefold()
-    modern = era == "modern"
+    raw_era = sheet.get("era")
+    era = "1920s" if raw_era is None else (
+        raw_era.strip().casefold() if isinstance(raw_era, str) else ""
+    )
+    if era != "1920s":
+        return {}, [
+            f"guided Quick Fire era {raw_era!r} is unsupported; "
+            "the package currently owns only standard_sheet.1920s"
+        ]
     available = {
         skill_id: spec
         for skill_id, spec in catalog.items()
-        if modern or spec.get("modern_only") is not True
+        if spec.get("modern_only") is not True
     }
     creation_policy = policy.get("guided_creation_policy")
     starting_cap = (

@@ -2534,6 +2534,7 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     ]
     assert stored["derived"]["Luck"] == luck["data"]["total"] * 5
     assert stored["derived"]["DB"] == "none"
+    assert "era" not in stored
     assert stored["skills"] == complete_skills
     assert "Fighting (Brawl)" in stored["skills"]
     assert "Firearms (Handgun)" in stored["skills"]
@@ -2552,6 +2553,7 @@ def test_guided_quick_fire_selected_specialization_is_added(tmp_path):
         investigator_id="selected-specialization",
         decision_id="selected-specialization-luck",
     )
+    payload["sheet"]["era"] = "1920s"
     occupation = payload["creation"]["skill_budget"]["occupation_points"][
         "allocations"
     ]
@@ -2570,6 +2572,7 @@ def test_guided_quick_fire_selected_specialization_is_added(tmp_path):
          / "character.json").read_text(encoding="utf-8")
     )
     assert stored["skills"]["Fighting (Axe)"] == 25
+    assert stored["era"] == "1920s"
     assert any(
         row["key"] == "Fighting (Axe)" and row["label"] == "格斗（斧）"
         for row in stored["player_facing_sheet_zh"]["skills"]
@@ -2603,6 +2606,31 @@ def test_guided_quick_fire_rejects_package_starting_skill_cap_before_write(
         })
     assert not (
         tmp_path / ".coc" / "investigators" / "over-cap"
+    ).exists()
+
+
+@pytest.mark.parametrize("era", ["modern", "future-2099"])
+def test_guided_quick_fire_rejects_unsupported_era_before_write(
+    tmp_path, era,
+):
+    investigator_id = f"unsupported-{era}"
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id=investigator_id,
+        decision_id=f"{investigator_id}-luck",
+    )
+    payload["sheet"]["era"] = era
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=r"unsupported.*standard_sheet\.1920s",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / investigator_id
     ).exists()
 
 

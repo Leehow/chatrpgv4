@@ -199,6 +199,13 @@
           "age": {
             "$ref": "#/$defs/age"
           },
+          "era": {
+            "type": "string",
+            "enum": [
+              "1920s"
+            ],
+            "description": "Optional closed guided-creation era. Omit to use the canonical 1920s default; no modern standard-sheet policy is currently owned."
+          },
           "skills": {
             "$ref": "#/$defs/skills"
           },

@@ -394,6 +394,8 @@ def investigator_create_contract() -> dict[str, Any]:
         "starting_skill_cap_source_ref": (
             skill_rules["guided_creation_policy"]["source_ref"]
         ),
+        "default_era": "1920s",
+        "supported_eras": ["1920s"],
         "standard_sheet_source_ref": (
             skill_rules["standard_sheet"]["1920s"]["source_ref"]
         ),
