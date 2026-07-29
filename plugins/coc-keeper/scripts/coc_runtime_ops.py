@@ -58,6 +58,9 @@ coc_mythos = _load_sibling("coc_mythos_runtime_ops", "coc_mythos.py")
 coc_module_assets = _load_sibling(
     "coc_module_assets_runtime_ops", "coc_module_assets.py"
 )
+coc_module_project = _load_sibling(
+    "coc_module_project_runtime_ops", "coc_module_project.py"
+)
 coc_pdf_bundle = _load_sibling("coc_pdf_bundle_runtime_ops", "coc_pdf_bundle.py")
 coc_roll = _load_sibling("coc_roll_runtime_ops", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules_runtime_ops", "coc_rules.py")
@@ -4131,6 +4134,17 @@ _OPENING_REVIEW_FIELDS = {
     "opening_review_generation", "opening_review_challenge",
     "source_scope", "source_scope_signature", "failure",
 }
+_OPENING_COORDINATOR_RESULT_FIELDS = {
+    "schema_version", "contract_id", "status", "campaign_id", "scenario_id",
+    "selected_opening_pdf_indices", "source_bundle_sha256", "opening_job_id",
+    "opening_projection_ref", "initial_move_operation",
+    "opening_delivery_boundary", "failure_class",
+}
+_OPENING_DELIVERY_BOUNDARY = {
+    "operation": "evidence.table_opening",
+    "before_first_player_action": True,
+    "empty_presented_roll_ids_valid": True,
+}
 
 
 def _opening_review_task_digest(task: dict[str, Any]) -> str:
@@ -4258,6 +4272,123 @@ def _validate_opening_review_task(
             "opening source review task lifecycle is invalid"
         )
     return deepcopy(task)
+
+
+def _validate_opening_source_coordinator_ready_result(
+    workspace: Path | str,
+    *,
+    continuation: Any,
+    result: Any,
+) -> dict[str, Any]:
+    """Bind an opening-ready claim to the exact current durable source slice."""
+    root = Path(workspace).resolve()
+    campaign_id = str(
+        continuation.get("campaign_id") if isinstance(continuation, dict) else ""
+    )
+    scenario_id = str(
+        continuation.get("scenario_id") if isinstance(continuation, dict) else ""
+    )
+    selected = (
+        continuation.get("selected_opening_pdf_indices")
+        if isinstance(continuation, dict) else None
+    )
+    if (
+        not isinstance(result, dict)
+        or set(result) != _OPENING_COORDINATOR_RESULT_FIELDS
+        or result.get("schema_version") != 1
+        or result.get("contract_id")
+        != "coc.opening-source-coordinator-result.v1"
+        or result.get("status") != "opening_ready"
+        or result.get("failure_class") is not None
+        or result.get("campaign_id") != campaign_id
+        or result.get("scenario_id") != scenario_id
+        or result.get("selected_opening_pdf_indices") != selected
+        or not isinstance(selected, list)
+        or not selected
+    ):
+        raise RuntimeOperationError(
+            "opening source coordinator ready result shape or binding is invalid"
+        )
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            root, campaign_id,
+        )
+        campaign_dir = root_info["campaign_dir"]
+        binding = coc_module_project.current_opening_projection_source_binding(
+            campaign_dir,
+        )
+        source_scope = (
+            binding.get("source_scope") if isinstance(binding, dict) else None
+        )
+        start_location_id = str(
+            binding.get("start_location_id")
+            if isinstance(binding, dict) else ""
+        )
+        request = coc_module_assets.get_host_work_request(
+            root, root_info["asset_root_id"],
+            str(result.get("opening_job_id") or ""),
+        )
+    except (
+        coc_module_project.OpeningPreparationError,
+        coc_module_assets.ModuleAssetsError,
+    ) as exc:
+        raise RuntimeOperationError(
+            "opening source coordinator durable binding is invalid"
+        ) from exc
+    if (
+        result.get("source_bundle_sha256") != root_info["bundle_sha256"]
+        or not isinstance(binding, dict)
+        or binding.get("asset_root_id") != root_info["asset_root_id"]
+        or not isinstance(source_scope, dict)
+        or source_scope.get("pdf_indices") != selected
+        or not start_location_id
+        or not coc_module_project.opening_projection_state_is_fresh(
+            root,
+            campaign_dir,
+            root_info["asset_root_id"],
+            start_location_id,
+            source_scope,
+        )
+        or not isinstance(request, dict)
+        or request.get("status") != "fulfilled"
+        or request.get("dispatch_state") != "fulfilled"
+        or request.get("asset_root_id") != root_info["asset_root_id"]
+        or request.get("kind") != "partial_opening"
+        or request.get("target_id") != start_location_id
+        or request.get("request_purpose")
+        != coc_module_assets.FOREGROUND_OPENING_PURPOSE
+        or request.get("requested_source_scope") != source_scope
+    ):
+        raise RuntimeOperationError(
+            "opening source coordinator projection or job is not current"
+        )
+    expected_move = {
+        "operation": "state.move_scene",
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": {
+            "scene_id": start_location_id,
+            "defer_initial_progressive_on_enter": True,
+        },
+        "missing_arguments": ["decision_id"],
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+    projection_ref = (
+        f".coc/campaigns/{campaign_id}/scenario/scenario.json"
+        "#opening_projection_receipt"
+    )
+    if (
+        result.get("opening_projection_ref") not in {None, projection_ref}
+        or (
+            result.get("initial_move_operation") is not None
+            and result.get("initial_move_operation") != expected_move
+        )
+        or result.get("opening_delivery_boundary") != _OPENING_DELIVERY_BOUNDARY
+    ):
+        raise RuntimeOperationError(
+            "opening source coordinator delivery boundary is invalid"
+        )
+    return deepcopy(result)
 
 
 def _opening_review_receipt_digest(receipt: dict[str, Any]) -> str:
@@ -4481,6 +4612,62 @@ def _build_opening_source_review_fulfillment(
         root,
         receipt,
         expected_status=status,
+        expected_task_status="pending",
+    )
+
+
+def _build_opening_source_review_transport_failure(
+    workspace: Path | str,
+    *,
+    campaign_id: str,
+    scenario_id: str,
+    failure_class: str,
+    error_code: str,
+) -> dict[str, Any]:
+    """Build one terminal private failure before a continuation exists.
+
+    The Pi host transport can fail before the Codex coordinator has returned
+    its exact continuation.  That transport still owns the pending private
+    task, but it must not invent a continuation merely to consume it.  Bind
+    the failure directly to the current task identity and challenge instead.
+    """
+    root = Path(workspace).resolve()
+    campaign = _id(campaign_id, "campaign_id")
+    scenario_identity = _id(scenario_id, "scenario_id")
+    scenario = _read_object(
+        root / ".coc" / "campaigns" / campaign
+        / "scenario" / "scenario.json"
+    )
+    task = _validate_opening_review_task(
+        scenario, expected_status="pending",
+    )
+    if (
+        task["campaign_id"] != campaign
+        or task["scenario_id"] != scenario_identity
+    ):
+        raise RuntimeOperationError(
+            "opening source review transport failure identity mismatch"
+        )
+    receipt = {
+        "schema_version": 1,
+        "contract_id": _OPENING_REVIEW_CONTRACT_ID,
+        "status": "failed",
+        "coordinator_task_identity_sha256": task["task_identity_sha256"],
+        "campaign_id": campaign,
+        "scenario_id": scenario_identity,
+        "opening_review_generation": task["generation"],
+        "opening_review_challenge": task["challenge"],
+        "source_scope": None,
+        "source_scope_signature": None,
+        "failure": {
+            "failure_class": str(failure_class or "").strip(),
+            "error_code": str(error_code or "").strip(),
+        },
+    }
+    return _validate_opening_source_review_fulfillment(
+        root,
+        receipt,
+        expected_status="failed",
         expected_task_status="pending",
     )
 

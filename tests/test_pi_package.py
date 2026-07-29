@@ -1400,6 +1400,24 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
     )
 
 
+def test_pi_opening_source_review_transport_lifecycle():
+    result = _node(
+        ROOT / "tests/pi/opening-source-review-transport-smoke.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "ok": True,
+        "checks": {
+            "character_completion_trigger": True,
+            "private_task_not_model_visible": True,
+            "duplicate_suppressed": True,
+            "restart_reconciled_without_duplicate_launch": True,
+            "outer_failures_remain_retryable": True,
+            "timeout_and_abort_remain_retryable": True,
+        },
+    }
+
+
 def test_pdf_skill_adapter_reaps_term_resistant_codex_process_group(
     tmp_path: Path,
 ):

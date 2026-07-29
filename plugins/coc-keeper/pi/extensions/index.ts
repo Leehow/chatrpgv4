@@ -46,6 +46,7 @@ import { isCanonicalCampaignId } from "../lib/campaign-id.mjs";
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
 const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 5 * 60 * 1000;
+const OPENING_SOURCE_REVIEW_TIMEOUT_MS = 20 * 60 * 1000;
 const SOURCE_SCOPE_PUBLICATION_MARKER = ".coc-source-scope-publication.json";
 const SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS = 30_000;
 const SOURCE_SCOPE_PUBLISH_LOCK_OWNER = "owner.json";
@@ -3147,6 +3148,25 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  observeOpeningSourceReviewTransport(
+    receipt: JsonObject,
+  ): OpeningSetupRoute | null {
+    const campaignId = String(receipt.campaign_id ?? "");
+    const state = this.openingSetupStates.get(campaignId);
+    if (state === undefined || state.phase !== "source_review") return null;
+    if (receipt.status === "reviewed") {
+      this.armOpeningEvidenceRoute(state);
+      return structuredClone(state.route);
+    }
+    this.markOpeningSetupTerminalBlocker(
+      failedBlockingOpeningEnvelope(
+        receipt, "opening_source_review_terminal_failure",
+      ),
+      undefined, campaignId, state,
+    );
+    return null;
+  }
+
   private restoreBackgroundRetryRoute(state: OpeningSetupState): void {
     state.phase = "retry";
     state.route = {
@@ -4602,6 +4622,36 @@ export async function runPiSourceScopeProducer(
   return receipt;
 }
 
+async function runPiOpeningSourceReviewTransport(
+  task: JsonObject,
+  command: string,
+  signal?: AbortSignal,
+  timeoutMs = OPENING_SOURCE_REVIEW_TIMEOUT_MS,
+): Promise<JsonObject> {
+  const receipt = await runLocatorProcess(
+    command, ["--run-opening-review"], JSON.stringify(task),
+    timeoutMs, signal,
+  );
+  exactKeys(receipt, [
+    "schema_version", "contract_id", "status", "campaign_id", "scenario_id",
+    "opening_review_generation", "failure_class",
+  ], "opening source review transport receipt");
+  if (
+    receipt.schema_version !== 1
+    || receipt.contract_id
+      !== "coc.pi-opening-source-review-transport-result.v1"
+    || !["reviewed", "failed"].includes(String(receipt.status))
+    || receipt.campaign_id !== task.campaign_id
+    || receipt.opening_review_generation !== task.opening_review_generation
+    || typeof receipt.scenario_id !== "string"
+    || !receipt.scenario_id
+    || (receipt.status === "reviewed"
+      ? receipt.failure_class !== null
+      : typeof receipt.failure_class !== "string")
+  ) throw new Error("opening source review transport receipt binding drift");
+  return receipt;
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await lstat(path);
@@ -5335,6 +5385,25 @@ export function findPiSourceScopeLocatorTask(value: unknown): JsonObject | null 
   ) ? task : null;
 }
 
+export function findPiOpeningSourceReviewTrigger(
+  value: unknown,
+): JsonObject | null {
+  const envelope = objectOrNull(value);
+  const gate = objectOrNull(objectOrNull(envelope?.data)?.opening_gate)
+    ?? objectOrNull(objectOrNull(envelope?.error)?.details);
+  return gate?.phase === "opening_source_review_required"
+    && gate.hard_gate === true && gate.activation_allowed === false
+    && gate.character_setup_complete === true
+    && typeof gate.campaign_id === "string" && !!gate.campaign_id
+    && Number.isInteger(gate.opening_review_generation)
+    && Number(gate.opening_review_generation) >= 1 ? {
+    schema_version: 1,
+    contract_id: "coc.pi-opening-source-review-transport.v1",
+    campaign_id: gate.campaign_id,
+    opening_review_generation: gate.opening_review_generation,
+  } : null;
+}
+
 function findCurrentDependencyLifecycle(value: unknown): {
   campaignId: string;
   waits: JsonObject[];
@@ -5674,6 +5743,88 @@ interface SourceScopeAutoDispatchDeps {
   states: Map<string, JsonObject>;
   controllers: Map<string, AbortController>;
   audit(entry: JsonObject): void;
+}
+
+interface OpeningSourceReviewDispatchDeps {
+  isCurrent(): boolean;
+  workspaceRoot: string;
+  command(): string | undefined;
+  states: Map<string, JsonObject>;
+  controllers: Map<string, AbortController>;
+  onTerminal(receipt: JsonObject): void;
+  audit(entry: JsonObject): void;
+  timeoutMs?: number;
+}
+
+export async function autoDispatchPiOpeningSourceReview(
+  deps: OpeningSourceReviewDispatchDeps,
+  toolName: string,
+  value: unknown,
+): Promise<JsonObject | null> {
+  if (toolName !== "coc_invoke") return null;
+  const trigger = findPiOpeningSourceReviewTrigger(value);
+  if (trigger === null) return null;
+  const task = {
+    ...trigger,
+    workspace_root: deps.workspaceRoot,
+  };
+  const key = (
+    `opening-source-review:${trigger.campaign_id}:`
+    + String(trigger.opening_review_generation)
+  );
+  const previous = deps.states.get(key);
+  if (previous !== undefined) return previous;
+  const finish = (entry: JsonObject) => {
+    deps.states.set(key, entry);
+    deps.audit(entry);
+    return entry;
+  };
+  const retryable = (entry: JsonObject) => {
+    deps.audit(entry);
+    deps.states.delete(key);
+    return entry;
+  };
+  const submitted = { status: "submitted", dispatch_key: key };
+  finish(submitted);
+  const command = deps.command();
+  if (!command || !isAbsolute(command) || !deps.isCurrent()) {
+    return retryable({
+      status: "retryable_failure",
+      dispatch_key: key,
+      failure_class: !deps.isCurrent()
+        ? "session_closed"
+        : "opening_source_review_command_unavailable",
+    });
+  }
+  const controller = new AbortController();
+  deps.controllers.set(key, controller);
+  try {
+    const receipt = await runPiOpeningSourceReviewTransport(
+      task, command, controller.signal, deps.timeoutMs,
+    );
+    const terminal = finish({
+      status: receipt.status,
+      dispatch_key: key,
+      receipt,
+    });
+    if (deps.isCurrent()) deps.onTerminal(receipt);
+    return terminal;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    return retryable({
+      status: "retryable_failure",
+      dispatch_key: key,
+      failure_class: controller.signal.aborted
+        ? "opening_source_review_aborted"
+        : message.includes("timed out")
+          ? "opening_source_review_timeout"
+          : "opening_source_review_transport_failed",
+    });
+  } finally {
+    if (deps.controllers.get(key) === controller) {
+      deps.controllers.delete(key);
+    }
+  }
 }
 
 export async function autoDispatchPiSourceScopeLocator(
@@ -6284,6 +6435,38 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* opening setup audit is best effort */ }
     }
   };
+  const openingSourceReviewDispatchDeps = (
+    ctx: ExtensionContext,
+    epoch: number,
+  ): OpeningSourceReviewDispatchDeps => ({
+    isCurrent: () => isCurrent(epoch),
+    workspaceRoot: resolve(ctx.cwd),
+    command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
+    states: sourceScopeLocatorStates,
+    controllers: sourceScopeLocatorControllers,
+    onTerminal: (receipt) => {
+      const route = (
+        openingContinuationGate.observeOpeningSourceReviewTransport(receipt)
+      );
+      flushOpeningSetupAudits();
+      const content = route ?? {
+        schema_version: 1,
+        status: "terminal_failure",
+        failure_class: receipt.failure_class,
+        campaign_id: receipt.campaign_id,
+      };
+      pi.sendMessage({
+        customType: "coc-opening-source-review-terminal",
+        content: JSON.stringify(content),
+        display: false,
+        details: content,
+      }, { triggerTurn: true, deliverAs: "followUp" });
+    },
+    audit: (entry) => {
+      try { pi.appendEntry("coc-opening-source-review-lifecycle", entry); }
+      catch { /* audit is best effort */ }
+    },
+  });
   const initializeSession = (ctx: ExtensionContext): string | null => {
     sessionEpoch += 1;
     sessionClosing = false;
@@ -6608,6 +6791,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         !== "selection_hint_only_not_provenance"
       || details.required_source_owner
         !== "coc-opening-source-coordinator"
+      || !Number.isInteger(details.opening_review_generation)
+      || Number(details.opening_review_generation) < 1
       || typeof details.character_setup_complete !== "boolean"
       || details.next_operation !== null
     ) return null;
@@ -6620,6 +6805,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       campaign_id: campaignId,
       source_provenance: "selection_hint_only_not_provenance",
       required_source_owner: "coc-opening-source-coordinator",
+      opening_review_generation: details.opening_review_generation,
       character_setup_complete: details.character_setup_complete,
       next_operation: null,
       instruction: (
@@ -6841,6 +7027,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           setupVisibleOutput,
         )
       );
+      const openingReviewRun = autoDispatchPiOpeningSourceReview(
+        openingSourceReviewDispatchDeps(ctx, epoch),
+        name,
+        value,
+      );
+      sourceScopeLocatorRuns.add(openingReviewRun);
+      void openingReviewRun.catch(() => {}).finally(() => {
+        sourceScopeLocatorRuns.delete(openingReviewRun);
+      });
       if (startupResumeAttempt) {
         const selectedCampaignId = startupResumeGate?.campaignId ?? "";
         const disposition = classifyStartupResumeResult(
@@ -7537,7 +7732,9 @@ export const __test = {
   findAutoDispatchTask,
   findCurrentDependencyLifecycle,
   autoDispatchCoordinator,
+  autoDispatchPiOpeningSourceReview,
   autoDispatchPiSourceScopeLocator,
+  findPiOpeningSourceReviewTrigger,
   findPiSourceScopeLocatorTask,
   runPiSourceScopeProducer,
   validatePiSourceScopeLocatorTask,
