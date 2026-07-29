@@ -3694,9 +3694,15 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     throw new Error("Pi source-scope locator bundle path escapes its workspace");
   }
   const source = asObject(task.source, "locator source");
-  exactKeys(source, ["path", "source_id", "file_sha256"], "locator source");
+  exactKeys(
+    source,
+    ["path", "source_id", "title", "file_sha256"],
+    "locator source",
+  );
   if (
     !isAbsolute(nonEmpty(source.path, "source.path"))
+    || !nonEmpty(source.source_id, "source.source_id")
+    || !nonEmpty(source.title, "source.title")
     || !/^[a-f0-9]{64}$/.test(nonEmpty(source.file_sha256, "source.file_sha256"))
   ) throw new Error("Pi source-scope locator source identity is invalid");
   const resolveOperation = asObject(task.resolve_operation, "resolve operation");
@@ -3960,6 +3966,8 @@ async function validateStagedSourceBundle(
     manifest.schema_version !== 1
     || manifest.producer !== "codex-pdf-skill"
     || source.source_id !== expectedSource.source_id
+    || nonEmpty(source.title, "manifest.source.title")
+      !== nonEmpty(expectedSource.title, "task.source.title")
     || resolve(String(source.path ?? "")) !== resolve(String(expectedSource.path))
     || source.file_sha256 !== expectedSource.file_sha256
     || !Number.isInteger(source.page_count)

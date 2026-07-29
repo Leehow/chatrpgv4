@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -107,8 +108,17 @@ def _validate_task(value: Any) -> dict[str, Any]:
         if not isinstance(task.get(key), str) or not task[key].strip():
             _fail(f"task.{key} required")
     source = _object(task.get("source"), "task.source")
+    if set(source) != {"path", "source_id", "title", "file_sha256"}:
+        _fail("task.source contract mismatch")
     if not Path(str(source.get("path") or "")).is_absolute():
         _fail("task source path must be absolute")
+    for key in ("source_id", "title"):
+        if not isinstance(source.get(key), str) or not source[key].strip():
+            _fail(f"task.source.{key} required")
+    if not isinstance(source.get("file_sha256"), str) or not re.fullmatch(
+        r"[a-f0-9]{64}", source["file_sha256"],
+    ):
+        _fail("task.source.file_sha256 invalid")
     if not Path(task["workspace_root"]).is_absolute():
         _fail("task workspace_root must be absolute")
     if not Path(task["source_bundle_path"]).is_absolute():
@@ -131,7 +141,8 @@ def _prompt(task: dict[str, Any], pdf_skill: Path) -> str:
         "Do not use OCR. Do not read campaign saves or player transcripts. Do "
         "not call COC tools. Do not edit repository files outside the exact "
         "source_bundle_path. Write the canonical reviewed bundle required by "
-        "source_bundle_manifest_contract. If not located, write nothing. Return "
+        "source_bundle_manifest_contract, including manifest.source.title "
+        "copied exactly from task.source.title. If not located, write nothing. Return "
         "only one strict JSON object with contract_id "
         "coc.pi-source-scope-locator-producer-result.v1 and exact fields "
         "schema_version, contract_id, job_id, status, kind, target_id, "

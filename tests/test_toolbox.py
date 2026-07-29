@@ -11217,6 +11217,8 @@ def test_unknown_scope_projects_locator_and_resolution_wakes_existing_queue(
     assert task["kind"] == "location"
     assert task["target_id"] == "archive"
     assert task["target_label"] == "Archive"
+    assert task["source"]["title"] == "Opening Component"
+    assert "title" in task["source_bundle_manifest_contract"]["source_required"]
     assert task["source_bundle_manifest_contract"]["review_state"] == (
         "manual_accepted"
     )
@@ -11287,6 +11289,23 @@ def test_pi_source_scope_locator_projects_only_body_work(
 ):
     monkeypatch.setenv("COC_HOST", "pi")
     assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="asset-a",
+        identity={
+            "canonical_module_id": "asset-a",
+            "canonical_title": "Module Title",
+        },
+        file_sha256="a" * 64,
+        source={
+            "source_id": "pdf:module",
+            "title": "Module Title",
+            "path": str(tmp_path / "module.pdf"),
+            "file_sha256": "a" * 64,
+            "page_count": 3,
+            "producer": "codex-pdf-skill",
+        },
+    )
     monkeypatch.setattr(
         assets,
         "host_work_operational_class",
@@ -11378,6 +11397,8 @@ def test_pi_source_scope_locator_projects_only_body_work(
     assert task["model_policy"] == "external_codex_cli_configured_default"
     assert task["job_id"] == "job-body"
     assert task["kind"] == "location"
+    assert task["source"]["title"] == "Module Title"
+    assert "title" in task["source_bundle_manifest_contract"]["source_required"]
     assert "instruction_refs" not in task
     assert "page_ocr" not in task
 
@@ -11430,7 +11451,7 @@ if (process.argv[2] === "--capabilities") {
     producer: "codex-pdf-skill",
     source: {
       source_id: task.source.source_id,
-      title: "Opening Component",
+      title: task.source.title,
       path: task.source.path,
       file_sha256: task.source.file_sha256,
       page_count: 3,

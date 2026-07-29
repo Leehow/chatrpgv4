@@ -11232,6 +11232,58 @@ def _source_scope_locator_dispatch(
             Path(workspace_root), asset_root_id,
         )
     )
+    assets_mod = coc_module_project.coc_module_assets
+    identity_path = (
+        assets_mod._module_dir(Path(workspace_root), asset_root_id)
+        / "identity.json"
+    )
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ToolError(
+            "source_scope_identity_invalid",
+            "canonical module identity is unavailable for source-scope dispatch",
+        ) from exc
+    canonical_source = (
+        identity.get("source")
+        if isinstance(identity, dict)
+        and isinstance(identity.get("source"), dict)
+        else {}
+    )
+    module_identity = (
+        identity.get("module_identity")
+        if isinstance(identity, dict)
+        and isinstance(identity.get("module_identity"), dict)
+        else {}
+    )
+    source_title = str(
+        canonical_source.get("title")
+        or module_identity.get("canonical_title")
+        or ""
+    ).strip()
+    if not source_title:
+        raise ToolError(
+            "source_scope_identity_invalid",
+            "canonical module source title is required for source-scope dispatch",
+        )
+    canonical_task_source = {
+        "path": str(canonical_source.get("path") or ""),
+        "source_id": str(canonical_source.get("source_id") or ""),
+        "title": source_title,
+        "file_sha256": str(canonical_source.get("file_sha256") or ""),
+    }
+    if (
+        not canonical_task_source["path"]
+        or not canonical_task_source["source_id"]
+        or not re.fullmatch(
+            r"[a-f0-9]{64}",
+            canonical_task_source["file_sha256"],
+        )
+    ):
+        raise ToolError(
+            "source_scope_identity_invalid",
+            "canonical module source identity is incomplete",
+        )
     task = {
         "schema_version": 1,
         "contract_id": (
@@ -11265,11 +11317,7 @@ def _source_scope_locator_dispatch(
         "target_id": target_id,
         "target_label": target_label or target_id,
         "reason": str(request.get("reason") or ""),
-        "source": {
-            "path": str(request.get("source_pdf") or ""),
-            "source_id": str(request.get("source_id") or ""),
-            "file_sha256": str(request.get("file_sha256") or ""),
-        },
+        "source": canonical_task_source,
         "source_bundle_path": str(bundle_path),
         "cached_pdf_indices": cached_pdf_indices,
         "max_selected_pages": 3,
@@ -11277,7 +11325,7 @@ def _source_scope_locator_dispatch(
             "schema_version": 1,
             "producer": "codex-pdf-skill",
             "source_required": [
-                "source_id", "path", "file_sha256", "page_count",
+                "source_id", "title", "path", "file_sha256", "page_count",
             ],
             "page_required": [
                 "pdf_index", "markdown_path", "text_sha256",

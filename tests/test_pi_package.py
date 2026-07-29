@@ -1041,6 +1041,7 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
         "ok": True,
         "checks": {
             "strict_preflight_and_receipt": True,
+            "source_title_contract_enforced": True,
             "locate_resolve_replacement_chain": True,
             "duplicate_suppressed": True,
             "stable_bundle_not_overwritten": True,
@@ -1130,6 +1131,9 @@ time.sleep(10)
         ),
         "source": {
             "path": str(tmp_path / "module.pdf"),
+            "source_id": "pdf:adapter-termination",
+            "title": "Adapter Termination",
+            "file_sha256": "a" * 64,
         },
     }
     env = {

@@ -1379,6 +1379,9 @@ def test_source_scope_locator_is_bounded_nonblocking_and_prompt_first():
     assert contract["source_bundle_manifest_contract"] == {
         "schema_version": 1,
         "producer": "codex-pdf-skill",
+        "source_required": [
+            "source_id", "title", "path", "file_sha256", "page_count",
+        ],
         "review_state": "manual_accepted",
         "parse_confidence": "number_from_0_through_1",
         "text_sha256": "sha256_of_exact_markdown_file_bytes",

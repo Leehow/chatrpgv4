@@ -56,12 +56,14 @@ Follow this bounded workflow:
 3. At the exact `source_bundle_path`, write Markdown only for the accepted
    pages and `manifest.json` by copying the task's exact
    `source_bundle_manifest_contract`: `schema_version=1`,
-   `producer=codex-pdf-skill`, the complete original source path/hash and
-   host-observed positive integer page count, one row per selected page with
+   `producer=codex-pdf-skill`, the complete original source path/hash, the
+   exact non-empty task `source.title`, and host-observed positive integer
+   page count, one row per selected page with
    zero-based `pdf_index`, relative Markdown path, `text_sha256` equal to the
    SHA-256 of the exact Markdown file bytes, `review_state=manual_accepted`,
    numeric `parse_confidence` from 0 through 1, non-empty exact grep anchors,
-   and `assets=[]`. The source id is exactly the task's `source.source_id`.
+   and `assets=[]`. The source id and title are exactly the task's
+   `source.source_id` and `source.title`.
    Never use `accepted`, `visually_reviewed`, a string confidence such as
    `high`, or the field name `sha256`. Never include an unreviewed locator page
    or write any campaign/entity pack.

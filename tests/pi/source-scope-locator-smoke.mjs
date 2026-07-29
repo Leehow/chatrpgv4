@@ -47,6 +47,7 @@ function task() {
     source: {
       path: path.join(temp, "module.pdf"),
       source_id: "pdf:asset",
+      title: "Module",
       file_sha256: "b".repeat(64),
     },
     source_bundle_path: path.join(
@@ -57,7 +58,9 @@ function task() {
     source_bundle_manifest_contract: {
       schema_version: 1,
       producer: "codex-pdf-skill",
-      source_required: ["source_id", "path", "file_sha256", "page_count"],
+      source_required: [
+        "source_id", "title", "path", "file_sha256", "page_count",
+      ],
       page_required: [
         "pdf_index", "markdown_path", "text_sha256", "review_state",
         "parse_confidence", "grep_anchors",
@@ -156,7 +159,7 @@ else {
     producer: "codex-pdf-skill",
     source: {
       source_id: task.source.source_id,
-      title: "Module",
+      title: task.source.title,
       path: task.source.path,
       file_sha256: task.source.file_sha256,
       page_count: 3,
@@ -196,6 +199,75 @@ const direct = await extension.runPiSourceScopeProducer(
 );
 assert.deepEqual(direct.pdf_indices, [2]);
 await rm(directTask.source_bundle_path, { recursive: true });
+
+async function invalidTitleProducer(name, titleField) {
+  return await producer(name, `
+import crypto from "node:crypto";
+import fs from "node:fs";
+if (process.argv[2] === "--capabilities") process.stdout.write(${JSON.stringify(handshake)});
+else {
+  let input = ""; for await (const chunk of process.stdin) input += chunk;
+  const task = JSON.parse(input);
+  fs.mkdirSync(task.source_bundle_path, {recursive:true});
+  const page = "# Appendix 2\\n\\nAccepted extra source page.\\n";
+  fs.writeFileSync(task.source_bundle_path + "/page-0002.md", page);
+  fs.writeFileSync(task.source_bundle_path + "/manifest.json", JSON.stringify({
+    schema_version: 1,
+    producer: "codex-pdf-skill",
+    source: {
+      source_id: task.source.source_id,
+      ${titleField}
+      path: task.source.path,
+      file_sha256: task.source.file_sha256,
+      page_count: 3,
+    },
+    pages: [{
+      pdf_index: 2,
+      markdown_path: "page-0002.md",
+      text_sha256: crypto.createHash("sha256").update(page).digest("hex"),
+      review_state: "manual_accepted",
+      parse_confidence: 0.99,
+      grep_anchors: ["Accepted extra source page."],
+    }],
+    assets: [],
+  }));
+  process.stdout.write(JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+    job_id: task.job_id,
+    status: "located",
+    kind: task.kind,
+    target_id: task.target_id,
+    pdf_indices: [2],
+    source_bundle_path: task.source_bundle_path,
+    failure_class: null,
+  }));
+}`);
+}
+
+for (const [name, titleField] of [
+  ["missing-title", ""],
+  ["mismatched-title", 'title: "Wrong Module",'],
+]) {
+  const titleTask = taskAt(name);
+  const titleCalls = [];
+  const titleProducer = await invalidTitleProducer(`${name}.mjs`, titleField);
+  const titleResult = await extension.autoDispatchPiSourceScopeLocator({
+    isCurrent: () => true,
+    command: () => titleProducer,
+    states: new Map(),
+    controllers: new Map(),
+    audit: () => {},
+    call: async (...args) => { titleCalls.push(args); return {}; },
+    onResolved: async () => {},
+  }, "coc_invoke", envelope(titleTask));
+  assert.equal(
+    titleResult.failure_class,
+    "source_scope_bundle_publication_failed",
+  );
+  assert.equal(titleCalls.length, 0);
+  await assert.rejects(lstat(titleTask.source_bundle_path));
+}
 
 const states = new Map();
 const calls = [];
@@ -696,6 +768,7 @@ process.stdout.write(JSON.stringify({
   ok: true,
   checks: {
     strict_preflight_and_receipt: true,
+    source_title_contract_enforced: true,
     locate_resolve_replacement_chain: true,
     duplicate_suppressed: true,
     stable_bundle_not_overwritten: true,
