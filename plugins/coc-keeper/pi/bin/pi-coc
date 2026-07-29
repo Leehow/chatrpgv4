@@ -92,6 +92,8 @@ if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ] || [ ! -x "$PI_CODING_AGENT_DIR/bin/rg
 fi
 
 # Wrapper-only --new: open a fresh Pi session (omit default session-id).
+# Wrapper-only --campaign: select an existing COC campaign independently of
+# Pi's transcript/session identity and expose it only to the package extension.
 WANT_NEW=0
 USER_SESSION_OPT=0
 USER_ARGS=()
@@ -100,6 +102,16 @@ while [[ $# -gt 0 ]]; do
     --new)
       WANT_NEW=1
       shift
+      continue
+      ;;
+    --campaign)
+      if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+        printf '%s\n' "pi-coc: --campaign requires a non-empty campaign_id argument" >&2
+        exit 2
+      fi
+      PI_COC_CAMPAIGN_ID=$2
+      export PI_COC_CAMPAIGN_ID
+      shift 2
       continue
       ;;
     --session|--session-id|--fork|-c|--continue|--resume|-r|--no-session)

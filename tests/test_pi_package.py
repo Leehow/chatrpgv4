@@ -253,7 +253,11 @@ def _pi_coc_test_home(
         executable.chmod(0o755)
     fake_pi = fake_bin / "pi"
     fake_pi.write_text(
-        '#!/bin/sh\nfor arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n',
+        (
+            '#!/bin/sh\n'
+            'for arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n'
+            'printf "%s" "${PI_COC_CAMPAIGN_ID-}" > "$PI_COC_TEST_CAMPAIGN"\n'
+        ),
         encoding="utf-8",
     )
     fake_pi.chmod(0o755)
@@ -266,6 +270,8 @@ def _run_pi_coc(
     settings: dict,
     models: dict,
     args: list[str],
+    new: bool = True,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     agent_dir, fake_bin = _pi_coc_test_home(
         tmp_path, settings=settings, models=models,
@@ -276,9 +282,15 @@ def _run_pi_coc(
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "PI_COC_AGENT_DIR": str(agent_dir),
         "PI_COC_TEST_ARGS": str(args_path),
+        "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
+        **(extra_env or {}),
     }
+    wrapper_args = [str(PLUGIN / "pi" / "bin" / "pi-coc")]
+    if new:
+        wrapper_args.append("--new")
+    wrapper_args.extend(args)
     completed = subprocess.run(
-        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new", *args],
+        wrapper_args,
         cwd=ROOT,
         env=env,
         check=False,
@@ -286,6 +298,97 @@ def _run_pi_coc(
         text=True,
     )
     return completed, args_path
+
+
+def _supported_pi_settings() -> tuple[dict, dict]:
+    return (
+        {
+            "defaultProvider": "test",
+            "defaultModel": "reasoning-optional",
+        },
+        {
+            "test": {
+                "models": [{
+                    "id": "reasoning-optional",
+                    "reasoning": True,
+                    "thinkingLevelMap": {"off": "off", "low": "low"},
+                }],
+            },
+        },
+    )
+
+
+def test_pi_coc_campaign_selector_is_distinct_from_pi_session(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--campaign", "campaign-a"],
+        new=False,
+        extra_env={"PI_COC_SESSION_ID": "pi-window-a"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    forwarded = args_path.read_text(encoding="utf-8").splitlines()
+    assert forwarded[-2:] == ["--session-id", "pi-window-a"]
+    assert "--campaign" not in forwarded
+    assert (tmp_path / "campaign-id.txt").read_text(
+        encoding="utf-8",
+    ) == "campaign-a"
+
+
+def test_pi_coc_new_transcript_can_resume_existing_campaign(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--campaign", "campaign-new-transcript"],
+        new=True,
+        extra_env={"PI_COC_SESSION_ID": "unrelated-pi-window"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    forwarded = args_path.read_text(encoding="utf-8").splitlines()
+    assert "--session-id" not in forwarded
+    assert "--campaign" not in forwarded
+    assert (tmp_path / "campaign-id.txt").read_text(
+        encoding="utf-8",
+    ) == "campaign-new-transcript"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--campaign"], ["--campaign", ""], ["--campaign", "--new"]],
+)
+def test_pi_coc_rejects_missing_campaign_argument(
+    tmp_path: Path,
+    args: list[str],
+):
+    settings, models = _supported_pi_settings()
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=args,
+    )
+    assert completed.returncode == 2
+    assert "--campaign requires a non-empty campaign_id" in completed.stderr
+    assert not args_path.exists()
+
+
+def test_pi_coc_accepts_direct_explicit_campaign_environment(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    completed, _args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=[],
+        extra_env={"PI_COC_CAMPAIGN_ID": "campaign-from-env"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert (tmp_path / "campaign-id.txt").read_text(
+        encoding="utf-8",
+    ) == "campaign-from-env"
 
 
 def test_pi_coc_refuses_unsupported_thinking_off_before_pi_starts(tmp_path: Path):
@@ -388,7 +491,7 @@ def test_pi_coc_welcome_guide_copy():
     assert result["noEnvTableOpenUnchanged"] is True
     assert result["startupOpenExactResume"] is True
     assert result["startupOpenNoMenuFirst"] is True
-    assert result["startupInitializedBeforeTrigger"] is True
+    assert result["startupInstructionTriggered"] is True
     assert result["resumedHiddenResumeInstruction"] is True
     assert result["autoOpenFreshStartup"] is True
     assert result["noAutoOpenResumeHistory"] is True

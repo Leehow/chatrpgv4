@@ -17,6 +17,9 @@ import path from "node:path";
 import process from "node:process";
 
 const root = path.resolve(process.argv[2] || process.cwd());
+const extensionWelcomeAgentDir = mkdtempSync(
+  path.join(tmpdir(), "pi-coc-extension-welcome-"),
+);
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
 const { findAutoDispatchTask, autoDispatchCoordinator } = main.__test;
@@ -825,6 +828,12 @@ function mainExtensionHarness(responseForCall, options = {}) {
   };
   const fakeClient = {
     callTool: async (name, params) => {
+      if (
+        name === "coc_capabilities"
+        && options.recordCapabilities !== true
+      ) {
+        return { ok: true, host: "pi" };
+      }
       calls.push({ name, params });
       return responseForCall(name, params);
     },
@@ -834,6 +843,7 @@ function mainExtensionHarness(responseForCall, options = {}) {
     coordinatorEnabled: options.coordinatorEnabled ?? (async () => true),
     createClient: () => fakeClient,
     startupCampaignId: () => options.startupCampaignId ?? null,
+    welcomeAgentDir: extensionWelcomeAgentDir,
     launchCoordinator: (task) => {
       const key = task.packet.packet_id;
       launches.push(key);
@@ -884,13 +894,20 @@ function mainExtensionHarness(responseForCall, options = {}) {
   });
   const ctx = {
     cwd: root,
-    mode: "rpc",
+    mode: options.mode ?? "rpc",
     model: { provider: "offline", id: "offline" },
     sessionManager: {
-      getSessionId: () => "blocking-opening-extension",
-      getEntries: () => [],
+      getSessionId: () => options.sessionId ?? "blocking-opening-extension",
+      getEntries: () => options.entries ?? [],
     },
-    hasUI: false,
+    hasUI: options.hasUI ?? false,
+    ui: {
+      setHeader: () => {},
+      setStatus: () => {},
+      setFooter: () => {},
+      setWidget: () => {},
+      notify: () => {},
+    },
   };
   return {
     registered,
@@ -906,6 +923,15 @@ function mainExtensionHarness(responseForCall, options = {}) {
         { reason: "startup" },
         ctx,
       );
+      for (const handler of handlers.get("agent_start") || []) {
+        await handler({ reason: "tool-test" }, ctx);
+      }
+    },
+    async startAll(reason = "startup") {
+      const event = { reason };
+      for (const handler of handlers.get("session_start") || []) {
+        await handler(event, ctx);
+      }
       for (const handler of handlers.get("agent_start") || []) {
         await handler({ reason: "tool-test" }, ctx);
       }
@@ -2210,10 +2236,14 @@ async function exerciseFailureDrain(mode) {
 {
   const campaignId = "startup-prebound-opening";
   const retainedGate = openingSetupGate(undefined, campaignId);
-  check("explicit PI_COC_SESSION_ID is retained as exact startup campaign",
+  check("Pi session and explicit campaign selectors remain distinct",
     main.__test.explicitPiStartupCampaignId({
+      PI_COC_SESSION_ID: "unrelated-pi-transcript",
+      PI_COC_CAMPAIGN_ID: campaignId,
+    }) === campaignId
+    && main.__test.explicitPiStartupCampaignId({
       PI_COC_SESSION_ID: campaignId,
-    }) === campaignId);
+    }) === null);
   const harness = mainExtensionHarness((name, params) => {
     if (name === "coc_capabilities") {
       return { ok: true, host: "pi" };
@@ -2239,20 +2269,28 @@ async function exerciseFailureDrain(mode) {
       return preparedOpeningSetupResult();
     }
     throw new Error(`unexpected startup call ${name}:${params.operation}`);
-  }, { startupCampaignId: campaignId });
-  await harness.start();
+  }, {
+    startupCampaignId: campaignId,
+    sessionId: "different-pi-transcript",
+    mode: "tui",
+    hasUI: true,
+    recordCapabilities: true,
+  });
+  await harness.startAll();
 
-  const capability = await harness.registered.get(
-    "coc_capabilities",
-  ).execute(
-    "startup-capability",
-    {},
-    undefined,
-    undefined,
-    harness.ctx,
-  );
-  check("startup continuation still permits non-campaign capabilities",
-    JSON.parse(capability.content[0].text).ok === true);
+  const tableOpen = harness.sent.find((entry) => (
+    entry.message?.customType === "coc-pi-table-open"
+  ));
+  check("composed startup arms gate before welcome trigger",
+    harness.calls.length === 1
+    && harness.calls[0].name === "coc_capabilities"
+    && tableOpen?.options?.triggerTurn === true
+    && tableOpen?.message?.content.includes(
+      `"campaign":"${campaignId}"`,
+    )
+    && !tableOpen?.message?.content.includes(
+      '"campaign":"different-pi-transcript"',
+    ));
 
   const callsBeforeRejectedSetup = harness.calls.length;
   let setupInspectRejected = false;
@@ -2438,10 +2476,174 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// With no explicit PI_COC_SESSION_ID/startup identity, the original empty
+// Terminal startup failures never become hidden retry loops. The host emits
+// one fixed blocker, keeps every campaign/source route closed, and never
+// exposes backend/provider text or triggers another model turn.
+for (const terminalCase of [
+  {
+    label: "unknown campaign",
+    expectedFailure: "unknown_campaign",
+    response: {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "unknown_campaign",
+        message: "TOP_SECRET_UNKNOWN_CAMPAIGN_DETAIL",
+      },
+    },
+  },
+  {
+    label: "wrong tool envelope",
+    expectedFailure: "startup_resume_result_invalid",
+    response: {
+      ok: true,
+      tool: "scene.context",
+      data: {
+        schema_version: 1,
+        campaign_id: "startup-terminal-campaign",
+        mode: "awaiting_player",
+      },
+    },
+  },
+  {
+    label: "malformed resume envelope",
+    expectedFailure: "startup_resume_result_invalid",
+    response: {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        campaign_id: "startup-terminal-campaign",
+        mode: "awaiting_player",
+      },
+    },
+  },
+  {
+    label: "campaign mismatch",
+    expectedFailure: "startup_resume_campaign_mismatch",
+    response: {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: "wrong-campaign",
+        mode: "awaiting_player",
+      },
+    },
+  },
+  {
+    label: "transport failure",
+    expectedFailure: "startup_resume_transport_failed",
+    transportFailure: true,
+  },
+]) {
+  const campaignId = "startup-terminal-campaign";
+  const harness = mainExtensionHarness((name, params) => {
+    if (name !== "coc_invoke" || params.operation !== "session.resume") {
+      throw new Error(`unexpected terminal startup escape ${name}`);
+    }
+    if (terminalCase.transportFailure) {
+      throw new Error("TOP_SECRET_TRANSPORT_DETAIL");
+    }
+    return terminalCase.response;
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      `terminal-resume-${terminalCase.label}`,
+      {
+        operation: "session.resume",
+        root,
+        campaign: campaignId,
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch {
+    // Transport failure is surfaced to the tool caller after the host blocker
+    // has already terminalized the startup gate.
+  }
+
+  const backendCallsAfterFailure = harness.calls.length;
+  for (const [invocationId, params] of [
+    [
+      `terminal-scene-${terminalCase.label}`,
+      {
+        operation: "scene.context",
+        root,
+        campaign: campaignId,
+        arguments: {},
+      },
+    ],
+    [
+      `terminal-retry-${terminalCase.label}`,
+      {
+        operation: "session.resume",
+        root,
+        campaign: campaignId,
+        arguments: {},
+      },
+    ],
+  ]) {
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        invocationId,
+        params,
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch {
+      // Both are expected to remain host-blocked without backend entry.
+    }
+  }
+  const hiddenAfterFailure = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "TOP_SECRET_MODEL_RETRY_MENU" }],
+  });
+  const secondHiddenAfterFailure = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "再次尝试继续。" }],
+  });
+  const blockers = harness.sent.filter((entry) => (
+    entry.message?.customType === "coc-startup-resume-blocker"
+  ));
+  check(`${terminalCase.label}: one fixed blocker and no retry escape`,
+    backendCallsAfterFailure === 1
+    && harness.calls.length === backendCallsAfterFailure
+    && blockers.length === 1
+    && blockers[0].options?.triggerTurn === false
+    && blockers[0].message?.details?.failure_class
+      === terminalCase.expectedFailure
+    && blockers[0].message?.content.includes(
+      "pi-coc --campaign <正确的 campaign_id>",
+    )
+    && !JSON.stringify(blockers[0]).includes("TOP_SECRET")
+    && hiddenAfterFailure.content.every((part) => part.type !== "text")
+    && secondHiddenAfterFailure.content.every(
+      (part) => part.type !== "text",
+    )
+    && harness.sent.filter((entry) => (
+      entry.options?.triggerTurn === true
+    )).length === 0);
+  await harness.shutdown();
+}
+
+// With no explicit PI_COC_CAMPAIGN_ID/startup identity, the original empty
 // workspace onboarding remains open: setup.inspect is the first normal call.
 {
+  const oldTableOpen = [
+    "pi-coc table open: COC mode is already active on this dedicated desktop.",
+    "Do not ask the player to activate COC.",
+    "Follow coc-main now: call setup.inspect (and session.resume if a campaign is already in play),",
+    "greet in zh-Hans, and offer continue / built-in starter quick_start / create investigator.",
+    "Begin the onboarding or continuation immediately.",
+  ].join(" ");
   const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_capabilities") {
+      return { ok: true, host: "pi" };
+    }
     if (name === "coc_invoke" && params.operation === "setup.inspect") {
       return {
         ok: true,
@@ -2450,8 +2652,19 @@ async function exerciseFailureDrain(mode) {
       };
     }
     throw new Error(`unexpected empty-workspace call ${name}`);
+  }, {
+    mode: "tui",
+    hasUI: true,
+    recordCapabilities: true,
   });
-  await harness.start();
+  await harness.startAll();
+  const tableOpen = harness.sent.find((entry) => (
+    entry.message?.customType === "coc-pi-table-open"
+  ));
+  check("absent selector preserves composed welcome bytes",
+    harness.calls.length === 1
+    && harness.calls[0].name === "coc_capabilities"
+    && tableOpen?.message?.content === oldTableOpen);
   const inspected = JSON.parse((await harness.registered.get(
     "coc_invoke",
   ).execute(
@@ -2467,8 +2680,8 @@ async function exerciseFailureDrain(mode) {
   )).content[0].text);
   check("absent startup identity preserves empty-workspace setup.inspect",
     inspected.ok === true
-    && harness.calls.length === 1
-    && harness.calls[0].params.operation === "setup.inspect"
+    && harness.calls.length === 2
+    && harness.calls[1].params.operation === "setup.inspect"
     && main.__test.explicitPiStartupCampaignId({}) === null);
   await harness.shutdown();
 }
@@ -6887,6 +7100,7 @@ await exerciseFailureDrain("framing");
     && !JSON.stringify(audit[0]).includes("raw provider secret"));
 }
 
+rmSync(extensionWelcomeAgentDir, { recursive: true, force: true });
 if (problems.length) {
   console.error(`auto-dispatch smoke FAILED: ${problems.join("; ")}`);
   process.exit(1);

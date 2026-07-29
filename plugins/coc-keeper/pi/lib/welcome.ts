@@ -126,11 +126,11 @@ export function registerCocWelcome(
   pi: ExtensionAPI,
   getClient: (ctx: ExtensionContext) => McpJsonlClient,
   agentDir: string,
-  initializeSession?: (
-    event: unknown,
-    ctx: ExtensionContext,
-  ) => string | null,
-): void {
+): (
+  event: unknown,
+  ctx: ExtensionContext,
+  startupCampaignId: string | null,
+) => Promise<void> {
   const showWelcome = (reason: WelcomeReason) => {
     pi.sendMessage(
       {
@@ -176,8 +176,7 @@ export function registerCocWelcome(
     },
   });
 
-  pi.on("session_start", async (event, ctx) => {
-    const startupCampaignId = initializeSession?.(event, ctx) ?? null;
+  return async (event, ctx, startupCampaignId) => {
     const reason = (event as { reason?: string }).reason ?? "startup";
     const fresh = sessionLooksFresh(ctx);
     if (ctx.hasUI && ctx.mode === "tui") {
@@ -220,5 +219,5 @@ export function registerCocWelcome(
         { triggerTurn: false },
       );
     }
-  });
+  };
 }

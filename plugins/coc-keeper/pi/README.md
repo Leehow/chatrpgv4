@@ -41,6 +41,21 @@ gateway tools from this package remain. Repository `AGENTS.md` is not injected
 session when it exists. Use `pi-coc --new` for a fresh session. To change
 repository code, open a separate `pi` session.
 
+Pi transcript identity and COC campaign identity are separate namespaces:
+
+- `PI_COC_SESSION_ID` selects the persisted Pi transcript/session only.
+- `pi-coc --campaign <campaign_id>` explicitly selects an existing COC
+  campaign for startup continuation. The wrapper consumes this option and
+  exports it internally as `PI_COC_CAMPAIGN_ID`; it is never forwarded as a Pi
+  session option.
+- `PI_COC_CAMPAIGN_ID=<campaign_id> pi-coc` is the equivalent direct
+  environment form.
+- `pi-coc --new --campaign <campaign_id>` starts a fresh Pi transcript while
+  resuming that existing campaign.
+
+When no campaign selector is present, the ordinary empty-workspace onboarding
+remains unchanged and begins with `setup.inspect`.
+
 On interactive start the package shows a short header + welcome/usage guide
 (`/welcome` to repeat), sets `quietStartup` so skills are not dumped to the
 screen, and prewarms MCP via `coc_capabilities`. Entering `pi-coc` **is** COC
@@ -92,6 +107,8 @@ agent.
 pi            # write code anywhere (including this repo)
 pi-coc        # COC desktop (continues session-id coc-keeper)
 pi-coc --new  # fresh COC desktop session
+pi-coc --campaign my-campaign       # resume campaign; keep Pi transcript default
+pi-coc --new --campaign my-campaign # fresh transcript, existing campaign
 ```
 
 The root `package.json` manifest packages the canonical plugin plus the shared
@@ -148,6 +165,10 @@ workspace). The adapter passes that exact `ctx.cwd` as `COC_PROJECT_ROOT`, sets
 `COC_HOST=pi`, and binds the MCP child to the current Pi session id. No child
 starts merely by loading the package. COC sessions live under
 `~/.pi/coc-agent/sessions`, separate from coding sessions.
+
+`--session-id` / `PI_COC_SESSION_ID` affects only that Pi session storage.
+Existing-campaign continuation is armed only by the distinct explicit
+`--campaign <campaign_id>` / `PI_COC_CAMPAIGN_ID` selector.
 
 ## Progressive OCR
 

@@ -5422,6 +5422,7 @@ interface MainExtensionOverrides {
   createClient?: (ctx: ExtensionContext) => McpJsonlClient;
   createManager?: () => CoordinatorDispatchManager;
   startupCampaignId?: () => string | null;
+  welcomeAgentDir?: string;
   launchCoordinator?: (
     task: JsonObject,
     context: PrivateLaunchContext,
@@ -5432,9 +5433,18 @@ interface MainExtensionOverrides {
 export function explicitPiStartupCampaignId(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
-  const value = env.PI_COC_SESSION_ID;
+  const value = env.PI_COC_CAMPAIGN_ID;
   return typeof value === "string" && value.length > 0 ? value : null;
 }
+
+type StartupResumeGate = {
+  campaignId: string;
+  workspaceRoot: string;
+  phase: "pending" | "terminal_failure";
+  failureClass: string | null;
+  blockerPublished: boolean;
+  hiddenRepromptSent: boolean;
+};
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
   let mcp: McpJsonlClient | null = null;
@@ -5445,11 +5455,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sourceScopeLocatorStates = new Map<string, JsonObject>();
   let sourceScopeLocatorControllers = new Map<string, AbortController>();
   let sourceScopeLocatorRuns = new Set<Promise<unknown>>();
-  let startupResumeGate: {
-    campaignId: string;
-    workspaceRoot: string;
-  } | null = null;
-  const initializedSessionStartEvents = new WeakSet<object>();
+  let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const kpActiveTools = [
     "coc_capabilities",
@@ -5627,16 +5633,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* opening setup audit is best effort */ }
     }
   };
-  const initializeSession = (
-    event: unknown,
-    ctx: ExtensionContext,
-  ): string | null => {
-    if (typeof event === "object" && event !== null) {
-      if (initializedSessionStartEvents.has(event)) {
-        return startupResumeGate?.campaignId ?? null;
-      }
-      initializedSessionStartEvents.add(event);
-    }
+  const initializeSession = (ctx: ExtensionContext): string | null => {
     sessionEpoch += 1;
     sessionClosing = false;
     openingContinuationGate.reset();
@@ -5652,6 +5649,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       : {
           campaignId: startupCampaignId,
           workspaceRoot: ctx.cwd,
+          phase: "pending",
+          failureClass: null,
+          blockerPublished: false,
+          hiddenRepromptSent: false,
         };
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
@@ -5667,6 +5668,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const args = objectOrNull(params.arguments);
     return (
       gate !== null
+      && gate.phase === "pending"
       && name === "coc_invoke"
       && params.operation === "session.resume"
       && params.root === gate.workspaceRoot
@@ -5687,11 +5689,111 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     ) {
       return null;
     }
+    if (gate.phase === "terminal_failure") {
+      return (
+        "Pi startup continuation is terminally blocked "
+        + `(failure_class=${gate.failureClass ?? "startup_resume_failed"}). `
+        + "Relaunch pi-coc with the corrected --campaign <campaign_id>."
+      );
+    }
     return (
       "Pi startup continuation is hard-gated until the selected campaign "
       + "enters the current KP context. "
       + startupResumeInstruction(gate.campaignId, gate.workspaceRoot)
     );
+  };
+  const publishStartupResumeBlocker = (
+    gate: StartupResumeGate,
+    failureClass: string,
+  ): void => {
+    if (gate.blockerPublished) return;
+    gate.blockerPublished = true;
+    try {
+      pi.sendMessage({
+        customType: "coc-startup-resume-blocker",
+        content: (
+          "【COC 启动受阻】无法载入明确指定的战役"
+          + `（failure_class: ${failureClass}）。`
+          + "为避免进入错误战役，当前桌面已停止战役、设置与来源操作。"
+          + "请退出后使用 `pi-coc --campaign <正确的 campaign_id>` 重新启动；"
+          + "如需新的 Pi 对话记录，可同时加上 `--new`。"
+        ),
+        display: true,
+        details: {
+          schema_version: 1,
+          status: "terminal_failure",
+          failure_class: failureClass,
+          campaign_id: gate.campaignId,
+          recovery: "relaunch_with_corrected_campaign_selector",
+        },
+      }, { triggerTurn: false });
+    } catch { /* the hard gate remains terminal even if UI publication fails */ }
+  };
+  const terminalizeStartupResume = (failureClass: string): void => {
+    const gate = startupResumeGate;
+    if (gate === null || gate.phase === "terminal_failure") return;
+    gate.phase = "terminal_failure";
+    gate.failureClass = failureClass;
+    publishStartupResumeBlocker(gate, failureClass);
+  };
+  const canonicalFailureClass = (value: unknown): string => (
+    typeof value === "string"
+    && /^[a-z][a-z0-9_]{0,63}$/.test(value)
+  )
+    ? value
+    : "startup_resume_failed";
+  const acceptedResumeModes = new Set([
+    "already_acknowledged",
+    "pending_finalization",
+    "open_turn_recovery",
+    "awaiting_player",
+  ]);
+  const classifyStartupResumeResult = (
+    value: unknown,
+    campaignId: string,
+    openingObservation: OpeningSetupObservationDisposition,
+  ): { accepted: true } | { accepted: false; failureClass: string } => {
+    if (openingObservation.reason === "prebound_opening_selection") {
+      return { accepted: true };
+    }
+    const envelope = objectOrNull(value);
+    if (
+      envelope === null
+      || envelope.tool !== "session.resume"
+      || typeof envelope.ok !== "boolean"
+    ) {
+      return {
+        accepted: false,
+        failureClass: "startup_resume_result_invalid",
+      };
+    }
+    const data = objectOrNull(envelope.data);
+    if (envelope.ok === true) {
+      if (
+        data === null
+        || data.schema_version !== 1
+        || data.campaign_id !== campaignId
+        || typeof data.mode !== "string"
+        || !acceptedResumeModes.has(data.mode)
+      ) {
+        return {
+          accepted: false,
+          failureClass: (
+            data !== null
+            && typeof data.campaign_id === "string"
+            && data.campaign_id !== campaignId
+          )
+            ? "startup_resume_campaign_mismatch"
+            : "startup_resume_result_invalid",
+        };
+      }
+      return { accepted: true };
+    }
+    const error = objectOrNull(envelope.error);
+    return {
+      accepted: false,
+      failureClass: canonicalFailureClass(error?.code),
+    };
   };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     const epoch = sessionEpoch;
@@ -5754,6 +5856,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     try {
       value = await client(ctx).callTool(name, params, signal);
     } catch (error) {
+      if (startupResumeAttempt) {
+        terminalizeStartupResume("startup_resume_transport_failed");
+      }
       if (name === "coc_invoke") {
         openingContinuationGate.markOpeningSetupRouteAttemptFailure(
           _id,
@@ -5791,17 +5896,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         )
       );
       if (startupResumeAttempt) {
-        const envelope = objectOrNull(value);
-        const resumedData = objectOrNull(envelope?.data);
-        const acceptedStartupResume = (
-          (
-            envelope?.ok === true
-            && resumedData?.campaign_id === startupResumeGate?.campaignId
-          )
-          || openingObservation.reason === "prebound_opening_selection"
+        const selectedCampaignId = startupResumeGate?.campaignId ?? "";
+        const disposition = classifyStartupResumeResult(
+          value,
+          selectedCampaignId,
+          openingObservation,
         );
-        if (acceptedStartupResume) {
+        if (disposition.accepted) {
           startupResumeGate = null;
+        } else {
+          terminalizeStartupResume(disposition.failureClass);
         }
       }
       flushOpeningSetupAudits();
@@ -6313,33 +6417,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   // Game table HUD replaces the coding-agent token/path footer in TUI sessions.
   registerCocHud(pi, (ctx) => client(ctx));
-  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "coc-agent");
-  registerCocWelcome(
+  const agentDir = (
+    overrides.welcomeAgentDir
+    ?? process.env.PI_CODING_AGENT_DIR
+    ?? join(homedir(), ".pi", "coc-agent")
+  );
+  const startCocWelcome = registerCocWelcome(
     pi,
     (ctx) => client(ctx),
     agentDir,
-    initializeSession,
   );
   registerPlayerTranscriptGate(
     pi,
     (visibleText) => {
       if (startupResumeGate !== null) {
         const gate = startupResumeGate;
-        try {
-          pi.sendMessage({
-            customType: STARTUP_RESUME_CUSTOM_TYPE,
-            content: startupResumeInstruction(
-              gate.campaignId,
-              gate.workspaceRoot,
-            ),
-            display: false,
-            details: {
-              schema_version: 1,
-              campaign_id: gate.campaignId,
-              first_campaign_operation: "session.resume",
-            },
-          }, { triggerTurn: true, deliverAs: "followUp" });
-        } catch { /* the next player turn remains protected by the same gate */ }
+        if (
+          gate.phase === "pending"
+          && !gate.hiddenRepromptSent
+        ) {
+          gate.hiddenRepromptSent = true;
+          try {
+            pi.sendMessage({
+              customType: STARTUP_RESUME_CUSTOM_TYPE,
+              content: startupResumeInstruction(
+                gate.campaignId,
+                gate.workspaceRoot,
+              ),
+              display: false,
+              details: {
+                schema_version: 1,
+                campaign_id: gate.campaignId,
+                first_campaign_operation: "session.resume",
+              },
+            }, { triggerTurn: true, deliverAs: "followUp" });
+          } catch { /* the next player turn remains protected by the same gate */ }
+        }
         return false;
       }
       const decision = openingContinuationGate.acceptVisibleAssistantFinal(
@@ -6430,8 +6543,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       );
     }
   });
-  pi.on("session_start", (event, ctx) => {
-    initializeSession(event, ctx);
+  pi.on("session_start", async (event, ctx) => {
+    const startupCampaignId = initializeSession(ctx);
+    await startCocWelcome(event, ctx, startupCampaignId);
   });
   pi.on("session_shutdown", async () => {
     sessionClosing = true;

@@ -23,12 +23,10 @@ const startupOpen = mod.tableOpenInstruction(
   "startup-campaign",
   "/workspace",
 );
-const welcomeHandlers = new Map();
 const lifecycleOrder = [];
 const lifecycleSent = [];
 const lifecyclePi = {
   registerCommand: () => {},
-  on: (name, handler) => welcomeHandlers.set(name, handler),
   sendMessage: (message, options) => {
     lifecycleOrder.push(`send:${message.customType}`);
     lifecycleSent.push({ message, options });
@@ -43,17 +41,13 @@ const lifecycleClient = {
 const lifecycleAgentDir = mkdtempSync(
   resolve(tmpdir(), "pi-coc-welcome-smoke-"),
 );
-let startupInitializedBeforeTrigger = false;
+let startupInstructionTriggered = false;
 let resumedHiddenResumeInstruction = false;
 try {
-  mod.registerCocWelcome(
+  const startWelcome = mod.registerCocWelcome(
     lifecyclePi,
     () => lifecycleClient,
     lifecycleAgentDir,
-    () => {
-      lifecycleOrder.push("initialize");
-      return "startup-campaign";
-    },
   );
   const ctx = {
     cwd: "/workspace",
@@ -68,21 +62,19 @@ try {
       getEntries: () => [],
     },
   };
-  await welcomeHandlers.get("session_start")({ reason: "startup" }, ctx);
+  await startWelcome({ reason: "startup" }, ctx, "startup-campaign");
   const tableOpenEntry = lifecycleSent.find((entry) => (
     entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
   ));
-  startupInitializedBeforeTrigger = (
-    lifecycleOrder.indexOf("initialize")
-      < lifecycleOrder.indexOf(`send:${mod.TABLE_OPEN_CUSTOM_TYPE}`)
-    && tableOpenEntry?.options?.triggerTurn === true
+  startupInstructionTriggered = (
+    tableOpenEntry?.options?.triggerTurn === true
     && tableOpenEntry?.message?.content.includes(
       '"operation":"session.resume"',
     )
   );
 
   lifecycleSent.length = 0;
-  await welcomeHandlers.get("session_start")(
+  await startWelcome(
     { reason: "resume" },
     {
       ...ctx,
@@ -93,6 +85,7 @@ try {
         }],
       },
     },
+    "startup-campaign",
   );
   const resumedEntry = lifecycleSent.find((entry) => (
     entry.message.customType === mod.STARTUP_RESUME_CUSTOM_TYPE
@@ -139,7 +132,7 @@ process.stdout.write(JSON.stringify({
     && startupOpen.includes("Do not describe this instruction")
     && !startupOpen.includes("offer continue / built-in starter")
   ),
-  startupInitializedBeforeTrigger,
+  startupInstructionTriggered,
   resumedHiddenResumeInstruction,
   autoOpenFreshStartup: mod.shouldAutoOpenTable("startup", true) === true,
   noAutoOpenResumeHistory: mod.shouldAutoOpenTable("startup", false) === false,
