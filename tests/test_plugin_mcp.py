@@ -3970,7 +3970,7 @@ def test_mcp_wire_scene_source_material_is_bounded_and_whitelisted():
     assert len(projected["player_safe_summary"]) <= (
         server.wire_projection.SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT
     )
-    assert len(projected["contextual_mentions"]) == (
+    assert 0 < len(projected["contextual_mentions"]) <= (
         server.wire_projection.SOURCE_MATERIAL_MENTION_LIMIT
     )
     assert all(
@@ -3983,7 +3983,7 @@ def test_mcp_wire_scene_source_material_is_bounded_and_whitelisted():
         <= server.wire_projection.SOURCE_MATERIAL_MENTION_REF_LIMIT
         for row in projected["contextual_mentions"]
     )
-    assert len(projected["source_refs"]) == (
+    assert 0 < len(projected["source_refs"]) <= (
         server.wire_projection.SOURCE_MATERIAL_SCENE_REF_LIMIT
     )
     assert projected["source_refs"][0] == {
@@ -3992,9 +3992,20 @@ def test_mcp_wire_scene_source_material_is_bounded_and_whitelisted():
         "text_sha256": "0" * 64,
     }
     assert projected["disclosure"]["hard_gate"] is False
-    assert projected["projection"]["omitted_contextual_mention_count"] == 6
-    assert projected["projection"]["omitted_source_ref_count"] == 52
+    assert projected["projection"]["omitted_contextual_mention_count"] == (
+        12 - len(projected["contextual_mentions"])
+    )
+    emitted_refs = len(projected["source_refs"]) + sum(
+        len(row.get("source_refs") or [])
+        for row in projected["contextual_mentions"]
+    )
+    assert projected["projection"]["omitted_source_ref_count"] == (
+        84 - emitted_refs
+    )
     assert projected["projection"]["trimmed_text_field_count"] > 0
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.SOURCE_MATERIAL_MAX_BYTES
+    )
     rendered = json.dumps(projected, ensure_ascii=False)
     assert "keeper_secret" not in rendered
     assert "keeper_secret_refs" not in rendered
@@ -4015,6 +4026,187 @@ def test_mcp_wire_scene_source_material_is_bounded_and_whitelisted():
         tight=True,
     )
     assert "source_material" not in unlabeled
+
+
+def test_mcp_wire_scene_source_material_drops_malformed_exact_refs():
+    server = _load_server()
+    valid = {
+        "source_id": "pdf:valid-source",
+        "pdf_index": 0,
+        "text_sha256": "a" * 64,
+    }
+    malformed = [
+        {**valid, "source_id": ""},
+        {**valid, "source_id": " "},
+        {**valid, "source_id": "pdf:bad/source"},
+        {**valid, "source_id": "p" * 129},
+        {**valid, "pdf_index": True},
+        {**valid, "pdf_index": -1},
+        {**valid, "text_sha256": "abc"},
+        {**valid, "text_sha256": "g" * 64},
+        {**valid, "text_sha256": "A" * 64},
+    ]
+    projected = server.wire_projection._compact_source_material({
+        "keeper_only": True,
+        "source_refs": [valid, *malformed],
+        "contextual_mentions": [{
+            "kind": "npc",
+            "ref_id": "npc-valid",
+            "note": "A source-bound fact.",
+            "source_refs": [
+                {**valid, "pdf_index": 1, "text_sha256": "b" * 64},
+                {**valid, "pdf_index": False},
+            ],
+        }],
+        "disclosure": {"authority": "advisory", "hard_gate": False},
+    })
+
+    assert projected["source_refs"] == [valid]
+    assert projected["contextual_mentions"][0]["source_refs"] == [{
+        **valid,
+        "pdf_index": 1,
+        "text_sha256": "b" * 64,
+    }]
+    assert projected["projection"]["omitted_source_ref_count"] == (
+        len(malformed) + 1
+    )
+    rendered = json.dumps(projected, ensure_ascii=False)
+    assert '"source_id": " "' not in rendered
+    assert '"text_sha256": "abc"' not in rendered
+    assert '"text_sha256": "' + ("g" * 64) + '"' not in rendered
+
+
+def test_mcp_wire_scene_collective_source_budget_survives_recovery():
+    server = _load_server()
+    source_id = "p" + ("s" * 127)
+    material = {
+        "schema_version": 1,
+        "keeper_only": True,
+        "authority": "source_authored_context",
+        "player_safe_summary": "源" * (
+            server.wire_projection.SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT
+        ),
+        "contextual_mentions": [
+            {
+                "kind": "类" * 256,
+                "ref_id": "引" * 256,
+                "name": "名" * 256,
+                "raw_label": "称" * 256,
+                "note": "注" * (
+                    server.wire_projection.SOURCE_MATERIAL_NOTE_CHAR_LIMIT
+                ),
+                "source_refs": [
+                    {
+                        "source_id": source_id,
+                        "pdf_index": (mention_index * 10) + ref_index,
+                        "text_sha256": f"{ref_index + 1:064x}",
+                    }
+                    for ref_index in range(
+                        server.wire_projection.SOURCE_MATERIAL_MENTION_REF_LIMIT
+                    )
+                ],
+            }
+            for mention_index in range(
+                server.wire_projection.SOURCE_MATERIAL_MENTION_LIMIT
+            )
+        ],
+        "source_refs": [
+            {
+                "source_id": source_id,
+                "pdf_index": index,
+                "text_sha256": f"{index + 1:064x}",
+            }
+            for index in range(
+                server.wire_projection.SOURCE_MATERIAL_SCENE_REF_LIMIT
+            )
+        ],
+        "disclosure": {
+            "authority": "advisory",
+            "hard_gate": False,
+            "opening_teaser_is_not_delivery": True,
+            "semantic_policy": "策" * (
+                server.wire_projection.SOURCE_MATERIAL_POLICY_CHAR_LIMIT
+            ),
+        },
+    }
+    assert server.wire_projection.transport_bytes(material) > 24_000
+    scene_data = {
+        "campaign_id": "collective-source-budget",
+        "active_scene_id": "opening",
+        "scene": {"scene_type": "investigation"},
+        "source_material": material,
+        "npcs_present": [{
+            "npc_id": f"npc-{index}",
+            "name": f"NPC {index}",
+            "agenda": "dense continuity " * 32,
+            "voice": "bounded voice " * 24,
+            "relationship_to_investigators": "unknown",
+        } for index in range(20)],
+        "action_routes": [{
+            "route_id": f"route-{index}",
+            "route_type": "investigative_lead",
+            "resolution_kind": "direct_delivery",
+            "grants_clue_ids": [f"clue-{index}"],
+            "cue": "authored route detail " * 32,
+        } for index in range(20)],
+        "clues_here": [{
+            "clue_id": f"clue-{index}",
+            "discovered": False,
+            "delivery_kind": "obvious",
+            "player_safe_summary": "clue detail " * 32,
+        } for index in range(30)],
+        "exits": [{
+            "to": f"scene-{index}",
+            "kind": "travel",
+            "open": True,
+            "cue": "exit detail " * 32,
+        } for index in range(30)],
+    }
+    first = server.wire_projection._compact_scene(scene_data, tight=True)
+    first_material = first["source_material"]
+    first_metadata = first_material["projection"]
+    assert server.wire_projection.transport_bytes(first_material) <= (
+        server.wire_projection.SOURCE_MATERIAL_MAX_BYTES
+    )
+    assert server.wire_projection.transport_bytes(first) > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+
+    projected = server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": scene_data,
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"]["scene_recovery_index_projection"] is True
+    assert projected["wire"].get("identity_only") is not True
+    recovered = projected["data"]["source_material"]
+    assert server.wire_projection.transport_bytes(recovered) <= (
+        server.wire_projection.SOURCE_MATERIAL_MAX_BYTES
+    )
+    assert recovered["player_safe_summary"]
+    assert recovered["disclosure"]["hard_gate"] is False
+    assert recovered["source_refs"][0] == {
+        "source_id": source_id,
+        "pdf_index": 0,
+        "text_sha256": "1".rjust(64, "0"),
+    }
+    assert recovered["projection"] == first_metadata
+    assert recovered["projection"]["full_source_material_sha256"] == (
+        server.wire_projection.canonical_digest(material)
+    )
+    assert recovered["projection"]["omitted_contextual_mention_count"] > 0
+    assert recovered["projection"]["omitted_source_ref_count"] > 0
 
 
 def test_mcp_wire_projects_hot_turn_receipts_without_repeating_full_payloads():
