@@ -1678,6 +1678,7 @@ export class OpeningTerminalContinuationGate {
         (
           operation === "session.resume"
           && envelope?.ok === false
+          && envelope.tool === "session.resume"
           && error?.code === "opening_setup_incomplete"
           && details === returnedGate
         )
@@ -5815,31 +5816,95 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       failureClass: canonicalFailureClass(error?.code),
     };
   };
-  const startupCanonicalFailureEnvelope = (
+  type StartupCanonicalFailureProjection =
+    | { kind: "not_canonical" }
+    | { kind: "invalid" }
+    | { kind: "projected"; envelope: JsonObject };
+  const projectStartupOpeningSelection = (
+    details: JsonObject,
+    campaignId: string,
+  ): JsonObject | null => {
+    const card = objectOrNull(details.next_operation);
+    const prefilled = objectOrNull(card?.prefilled_arguments);
+    if (
+      details.schema_version !== 1
+      || details.status !== "blocked"
+      || details.hard_gate !== true
+      || details.activation_allowed !== false
+      || details.phase !== "opening_selection"
+      || details.campaign_id !== campaignId
+      || card === null
+      || card.operation !== "progressive.prepare_opening"
+      || card.invoke_via !== "coc_invoke"
+      || card.hard_gate !== true
+      || card.authority !== "canonical_setup"
+      || prefilled === null
+      || !exactKeysMatch(prefilled, [])
+      || !Array.isArray(card.missing_arguments)
+      || card.missing_arguments.length !== 0
+    ) return null;
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_selection",
+      campaign_id: campaignId,
+      next_operation: {
+        operation: "progressive.prepare_opening",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {},
+        missing_arguments: [],
+        hard_gate: true,
+        authority: "canonical_setup",
+      },
+      instruction: (
+        "invoke the exact retained progressive.prepare_opening route"
+      ),
+    };
+  };
+  const startupCanonicalFailureProjection = (
     error: unknown,
     name: string,
-  ): JsonObject | null => {
-    if (
-      !(error instanceof CanonicalToolError)
-      || error.toolName !== name
-    ) return null;
+    params: JsonObject,
+  ): StartupCanonicalFailureProjection => {
+    if (!(error instanceof CanonicalToolError)) {
+      return { kind: "not_canonical" };
+    }
     const envelope = objectOrNull(error.envelope);
     const envelopeError = objectOrNull(envelope?.error);
+    const envelopeDetails = objectOrNull(envelopeError?.details);
     if (
-      envelope === null
+      error.toolName !== name
+      || envelope === null
       || envelope.ok !== false
+      || envelope.tool !== "session.resume"
       || envelopeError === null
       || envelopeError.code !== error.code
-    ) return null;
-    // The host route needs the canonical machine metadata, especially the
-    // opening-selection card, but provider/backend prose is not player-safe.
-    // Preserve only exact structured identity and details.
+      || error.details !== envelopeDetails
+    ) return { kind: "invalid" };
+    const code = canonicalFailureClass(error.code);
+    const projectedDetails = (
+      code === "opening_setup_incomplete"
+      && typeof params.campaign === "string"
+      && envelopeDetails !== null
+    )
+      ? projectStartupOpeningSelection(
+          envelopeDetails,
+          params.campaign,
+        )
+      : null;
     return {
-      ok: false,
-      tool: envelope.tool,
-      error: {
-        code: error.code,
-        ...(error.details === null ? {} : { details: error.details }),
+      kind: "projected",
+      envelope: {
+        ok: false,
+        tool: "session.resume",
+        error: {
+          code,
+          ...(projectedDetails === null
+            ? {}
+            : { details: projectedDetails }),
+        },
       },
     };
   };
@@ -5905,13 +5970,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       value = await client(ctx).callTool(name, params, signal);
     } catch (error) {
       const canonicalFailure = startupResumeAttempt
-        ? startupCanonicalFailureEnvelope(error, name)
-        : null;
-      if (canonicalFailure !== null) {
-        value = canonicalFailure;
+        ? startupCanonicalFailureProjection(error, name, params)
+        : { kind: "not_canonical" as const };
+      if (canonicalFailure.kind === "projected") {
+        value = canonicalFailure.envelope;
       } else {
         if (startupResumeAttempt) {
-          terminalizeStartupResume("startup_resume_transport_failed");
+          terminalizeStartupResume(
+            canonicalFailure.kind === "invalid"
+              ? "startup_resume_result_invalid"
+              : "startup_resume_transport_failed",
+          );
         }
         if (name === "coc_invoke") {
           openingContinuationGate.markOpeningSetupRouteAttemptFailure(
@@ -5926,6 +5995,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             ),
           );
           flushOpeningSetupAudits();
+        }
+        if (canonicalFailure.kind === "invalid") {
+          return result({
+            ok: false,
+            tool: "session.resume",
+            error: { code: "startup_resume_result_invalid" },
+          });
         }
         throw error;
       }

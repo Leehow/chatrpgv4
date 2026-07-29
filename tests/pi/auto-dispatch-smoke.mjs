@@ -2230,6 +2230,31 @@ async function exerciseFailureDrain(mode) {
       {},
       "prebound-ocr-detour",
     )?.includes("progressive.prepare_opening"));
+
+  const wrongToolGate = new main.OpeningTerminalContinuationGate();
+  const wrongToolInvocation = "prebound-wrong-envelope-tool";
+  check("wrong-tool prebound probe is initially admitted",
+    wrongToolGate.openingSetupToolError(
+      "coc_invoke",
+      resumeParams,
+      wrongToolInvocation,
+    ) === null);
+  const wrongToolDisposition = wrongToolGate.observeOpeningSetupInvocation(
+    "session.resume",
+    resumeParams,
+    {
+      ok: false,
+      tool: "scene.context",
+      error: {
+        code: "opening_setup_incomplete",
+        details: retainedGate,
+      },
+    },
+    wrongToolInvocation,
+  );
+  check("observer defense rejects wrong returned tool identity",
+    wrongToolDisposition.reason === "non_route_result"
+    && wrongToolGate.requiredOpeningSetupContinuation() === null);
 }
 
 // An explicitly selected Pi session/campaign continuation is host-gated before
@@ -2238,7 +2263,17 @@ async function exerciseFailureDrain(mode) {
 // menus cannot race ahead of that first campaign operation.
 {
   const campaignId = "startup-prebound-opening";
-  const retainedGate = openingSetupGate(undefined, campaignId);
+  const baseRetainedGate = openingSetupGate(undefined, campaignId);
+  const retainedGate = {
+    ...baseRetainedGate,
+    asset_root_id: "asset-fixture",
+    instruction: "TOP_SECRET_GATE_INSTRUCTION",
+    TOP_SECRET_GATE_KEY: "TOP_SECRET_GATE_VALUE",
+    next_operation: {
+      ...baseRetainedGate.next_operation,
+      TOP_SECRET_CARD_KEY: "TOP_SECRET_CARD_VALUE",
+    },
+  };
   check("Pi session and explicit campaign selectors remain distinct",
     main.__test.explicitPiStartupCampaignId({
       PI_COC_SESSION_ID: "unrelated-pi-transcript",
@@ -2428,6 +2463,27 @@ async function exerciseFailureDrain(mode) {
     && resumed.error.code === "opening_setup_incomplete"
     && resumed.error.details.phase === "opening_selection"
     && resumed.error.message === undefined
+    && resumed.error.details.asset_root_id === undefined
+    && Object.keys(resumed.error.details).sort().join(",") === [
+      "activation_allowed",
+      "campaign_id",
+      "hard_gate",
+      "instruction",
+      "next_operation",
+      "phase",
+      "schema_version",
+      "status",
+    ].sort().join(",")
+    && Object.keys(
+      resumed.error.details.next_operation,
+    ).sort().join(",") === [
+      "authority",
+      "hard_gate",
+      "invoke_via",
+      "missing_arguments",
+      "operation",
+      "prefilled_arguments",
+    ].sort().join(",")
     && harness.calls.filter((call) => call.name === "coc_invoke")[0]
       ?.params.operation === "session.resume");
 
@@ -2461,6 +2517,7 @@ async function exerciseFailureDrain(mode) {
     && !JSON.stringify(resumed).includes(
       "source-bound opening projection is current",
     )
+    && !JSON.stringify(resumed).includes("TOP_SECRET")
     && !harness.sent.some((entry) => (
       entry.message?.customType === "coc-startup-resume-blocker"
     )));
@@ -2547,6 +2604,10 @@ for (const terminalCase of [
       error: {
         code: "unknown_campaign",
         message: "TOP_SECRET_UNKNOWN_CAMPAIGN_DETAIL",
+        details: {
+          internal_path: "/TOP_SECRET_UNKNOWN_PATH",
+          diagnostic: "TOP_SECRET_UNKNOWN_DIAGNOSTIC",
+        },
       },
     },
   },
@@ -2560,6 +2621,78 @@ for (const terminalCase of [
       error: {
         code: "context_epoch_conflict",
         message: "TOP_SECRET_CONTEXT_CONFLICT_DETAIL",
+        details: {
+          provider: "TOP_SECRET_CONTEXT_PROVIDER",
+          nested: { raw: "TOP_SECRET_CONTEXT_NESTED" },
+        },
+      },
+    },
+  },
+  {
+    label: "typed wrong envelope tool",
+    expectedFailure: "startup_resume_result_invalid",
+    throwCanonical: true,
+    response: {
+      ok: false,
+      tool: "scene.context",
+      error: {
+        code: "opening_setup_incomplete",
+        message: "TOP_SECRET_WRONG_TOOL_DETAIL",
+        details: openingSetupGate(
+          undefined,
+          "startup-terminal-campaign",
+        ),
+      },
+    },
+  },
+  {
+    label: "typed missing envelope tool",
+    expectedFailure: "startup_resume_result_invalid",
+    throwCanonical: true,
+    response: {
+      ok: false,
+      error: {
+        code: "opening_setup_incomplete",
+        message: "TOP_SECRET_MISSING_TOOL_DETAIL",
+        details: openingSetupGate(
+          undefined,
+          "startup-terminal-campaign",
+        ),
+      },
+    },
+  },
+  {
+    label: "typed and envelope code mismatch",
+    expectedFailure: "startup_resume_result_invalid",
+    throwCanonical: true,
+    typedCode: "context_epoch_conflict",
+    response: {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "unknown_campaign",
+        message: "TOP_SECRET_CODE_MISMATCH_DETAIL",
+      },
+    },
+  },
+  {
+    label: "typed and envelope details mismatch",
+    expectedFailure: "startup_resume_result_invalid",
+    throwCanonical: true,
+    typedDetails: openingSetupGate(
+      undefined,
+      "startup-terminal-campaign",
+    ),
+    response: {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "opening_setup_incomplete",
+        message: "TOP_SECRET_DETAILS_MISMATCH_DETAIL",
+        details: openingSetupGate(
+          undefined,
+          "startup-terminal-campaign",
+        ),
       },
     },
   },
@@ -2616,15 +2749,25 @@ for (const terminalCase of [
       throw new Error("TOP_SECRET_TRANSPORT_DETAIL");
     }
     if (terminalCase.throwCanonical) {
+      const typedCode = (
+        terminalCase.typedCode
+        ?? terminalCase.response.error.code
+      );
+      const typedDetails = Object.hasOwn(
+        terminalCase,
+        "typedDetails",
+      )
+        ? terminalCase.typedDetails
+        : terminalCase.response.error.details ?? null;
       throw new runtime.CanonicalToolError(
         "coc_invoke",
-        terminalCase.response.error.code,
+        typedCode,
         (
           "canonical coc_invoke failed: "
-          + `${terminalCase.response.error.code}: `
+          + `${typedCode}: `
           + terminalCase.response.error.message
         ),
-        terminalCase.response.error.details ?? null,
+        typedDetails,
         terminalCase.response,
       );
     }
@@ -2672,6 +2815,15 @@ for (const terminalCase of [
         arguments: {},
       },
     ],
+    [
+      `terminal-prepare-${terminalCase.label}`,
+      {
+        operation: "progressive.prepare_opening",
+        root,
+        campaign: campaignId,
+        arguments: {},
+      },
+    ],
   ]) {
     try {
       await harness.registered.get("coc_invoke").execute(
@@ -2707,11 +2859,14 @@ for (const terminalCase of [
       "pi-coc --campaign <正确的 campaign_id>",
     )
     && !JSON.stringify(blockers[0]).includes("TOP_SECRET")
+    && !JSON.stringify(harness.sent).includes("TOP_SECRET")
+    && !JSON.stringify(harness.appended).includes("TOP_SECRET")
     && (
       terminalCase.throwCanonical !== true
       || (
         resumeToolOutput?.error?.code === terminalCase.expectedFailure
         && resumeToolOutput?.error?.message === undefined
+        && resumeToolOutput?.error?.details === undefined
         && !JSON.stringify(resumeToolOutput).includes("TOP_SECRET")
       )
     )
