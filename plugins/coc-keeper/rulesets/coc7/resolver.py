@@ -391,6 +391,12 @@ def investigator_create_contract() -> dict[str, Any]:
         "starting_skill_cap": (
             skill_rules["guided_creation_policy"]["starting_skill_cap"]
         ),
+        "starting_skill_cap_scope": (
+            "player_allocated_and_non_characteristic_derived_final_values"
+        ),
+        "characteristic_derived_base_policy": (
+            "authoritative_when_unallocated_even_above_starting_skill_cap"
+        ),
         "starting_skill_cap_source_ref": (
             skill_rules["guided_creation_policy"]["source_ref"]
         ),

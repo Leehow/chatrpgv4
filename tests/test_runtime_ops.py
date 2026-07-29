@@ -2579,22 +2579,93 @@ def test_guided_quick_fire_selected_specialization_is_added(tmp_path):
     )
 
 
-def test_guided_quick_fire_rejects_package_starting_skill_cap_before_write(
+def test_guided_quick_fire_accepts_unallocated_edu_80_own_language(tmp_path):
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id="edu-80-own-language",
+        decision_id="edu-80-own-language-luck",
+    )
+    payload["creation"]["characteristic_assignment_order"] = [
+        "EDU", "INT", "POW", "DEX", "CON", "SIZ", "APP", "STR",
+    ]
+    payload["sheet"]["skills"]["Language (Own)"] = 80
+    payload["sheet"]["skills"]["Dodge"] = 30
+
+    receipt = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.create",
+        "payload": payload,
+    })
+
+    assert receipt["status"] == "PASS"
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "edu-80-own-language"
+         / "character.json").read_text(encoding="utf-8")
+    )
+    assert stored["characteristics"]["EDU"] == 80
+    assert stored["skills"]["Language (Own)"] == 80
+    assert all(
+        "Language (Own)" not in account["allocations"]
+        for account in payload["creation"]["skill_budget"].values()
+    )
+
+
+def test_guided_quick_fire_rejects_allocation_to_derived_base_above_cap(
     tmp_path,
 ):
     payload = _guided_quick_fire_payload(
         tmp_path,
-        investigator_id="over-cap",
-        decision_id="over-cap-luck",
+        investigator_id="allocated-edu-80-own-language",
+        decision_id="allocated-edu-80-own-language-luck",
+    )
+    payload["creation"]["characteristic_assignment_order"] = [
+        "EDU", "INT", "POW", "DEX", "CON", "SIZ", "APP", "STR",
+    ]
+    occupation = payload["creation"]["skill_budget"]["occupation_points"][
+        "allocations"
+    ]
+    occupation["History"] -= 1
+    occupation["Language (Own)"] = 1
+    payload["sheet"]["skills"]["History"] -= 1
+    payload["sheet"]["skills"]["Language (Own)"] = 81
+    payload["sheet"]["skills"]["Dodge"] = 30
+
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=(
+            r"Language \(Own\).*authoritative characteristic-derived base "
+            r"80.*allocation delta 1 is not permitted"
+        ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators"
+        / "allocated-edu-80-own-language"
+    ).exists()
+
+
+@pytest.mark.parametrize("skill_id", ["Credit Rating", "Cthulhu Mythos"])
+def test_guided_quick_fire_rejects_package_starting_skill_cap_before_write(
+    tmp_path,
+    skill_id,
+):
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id=f"over-cap-{skill_id.replace(' ', '-').lower()}",
+        decision_id=f"over-cap-{skill_id.replace(' ', '-').lower()}-luck",
     )
     occupation = payload["creation"]["skill_budget"]["occupation_points"][
         "allocations"
     ]
-    for skill_id, delta in list(occupation.items()):
-        payload["sheet"]["skills"][skill_id] -= delta
+    for allocated_skill_id, delta in list(occupation.items()):
+        payload["sheet"]["skills"][allocated_skill_id] -= delta
     occupation.clear()
-    occupation["Credit Rating"] = 200
-    payload["sheet"]["skills"]["Credit Rating"] = 200
+    occupation[skill_id] = 200
+    payload["sheet"]["skills"][skill_id] = 200
     with pytest.raises(
         ops.RuntimeOperationError,
         match="starting-skill cap 75",
@@ -2605,7 +2676,8 @@ def test_guided_quick_fire_rejects_package_starting_skill_cap_before_write(
             "payload": payload,
         })
     assert not (
-        tmp_path / ".coc" / "investigators" / "over-cap"
+        tmp_path / ".coc" / "investigators"
+        / f"over-cap-{skill_id.replace(' ', '-').lower()}"
     ).exists()
 
 

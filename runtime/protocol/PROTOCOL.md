@@ -92,6 +92,11 @@ workflow); runtime code never parses the PDF.
 Character cards default to Markdown
 only so host capability detection cannot change the canonical result; callers
 may explicitly request `html_mode: auto|always`.
+For COC7 guided Quick Fire, formula/characteristic-derived standard skill bases
+remain authoritative. The package-selected starting-skill cap constrains
+player-allocated and non-derived values; it does not lower an unallocated
+`Language (Own)=EDU` base, and no points may be added when that derived base is
+already above the cap.
 
 ## Event envelope
 

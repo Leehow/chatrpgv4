@@ -2672,6 +2672,445 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
+// A live-shaped recovery may have current source material but no linked
+// investigator, active scene, or table-opening receipt. Rehydrate the same
+// guided setup gate used by a fresh Pi opening, and do not return the source
+// pack, time, place, mission, or complete-sheet escape branch to the KP.
+{
+  const campaignId = "startup-current-empty-party";
+  const investigatorId = "resume-guided-investigator";
+  const openingText = [
+    "[in_game]",
+    "【开场时间】来源约束下的清晨",
+    "",
+    "链接调查员后唯一释放的权威开场。",
+    "[/in_game]",
+  ].join("\n");
+  const contractResult = {
+    ok: true,
+    tool: "setup.investigator_contract",
+    data: {
+      schema_version: 1,
+      status: "PASS",
+      kind: "investigator.contract",
+      result: {
+        ruleset_id: "coc7",
+        payload_schema: {
+          title: "Full investigator contract",
+          oneOf: [
+            {
+              title: "Deterministic Quick Fire input",
+              properties: {
+                creation: { $ref: "#/$defs/quick_fire_creation" },
+              },
+            },
+            {
+              title: "Explicit complete-sheet import",
+              properties: {
+                creation: { $ref: "#/$defs/complete_sheet_creation" },
+              },
+            },
+          ],
+          $defs: {
+            quick_fire_creation: {
+              properties: {
+                input_mode: { const: "guided_quick_fire" },
+              },
+            },
+            quick_fire_sheet: { type: "object" },
+            complete_sheet_creation: {
+              properties: {
+                input_mode: { const: "import_complete_sheet" },
+              },
+            },
+            complete_sheet: { type: "object" },
+          },
+        },
+      },
+    },
+  };
+  const liveResume = {
+    ok: true,
+    tool: "session.resume",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      TOP_SECRET_WIRE: "TOP_SECRET_WIRE_VALUE",
+    },
+    data: {
+      schema_version: 1,
+      campaign_id: campaignId,
+      mode: "open_turn_recovery",
+      pending_turn: null,
+      checkpoint: null,
+      delivery: { status: "none" },
+      compiled_archive_recovery: {
+        status: "reused",
+        canonical_sources_unchanged: true,
+      },
+      current_turn: {
+        rows: [
+          {
+            tool: "progressive.opening_bootstrap",
+            ok: true,
+            args: {
+              start_location: {
+                location_id: "TOP_SECRET_LOCATION_ID",
+                title: "TOP_SECRET_LOCATION_TITLE",
+              },
+              opening_pdf_indices: [3],
+            },
+          },
+          {
+            tool: "progressive.fulfill_host_work",
+            ok: true,
+            args: {
+              worker_result: {
+                job_id: "job-live-resume",
+                pack: {
+                  origin: "source",
+                  parse_state: "partial",
+                  source_refs: [{
+                    source_id: "pdf:live-resume",
+                    pdf_index: 3,
+                  }],
+                  player_safe_summary: "TOP_SECRET_MISSION_DETAIL",
+                  title: "TOP_SECRET_SOURCE_TITLE",
+                },
+              },
+            },
+          },
+          {
+            tool: "setup.invoke",
+            ok: true,
+            args: {
+              kind: "campaign.render_briefing",
+              payload: { campaign_id: campaignId },
+            },
+          },
+        ],
+      },
+      scene_context: {
+        campaign_id: campaignId,
+        active_scene_id: null,
+        scene: null,
+        party: [],
+        party_investigators: [],
+        turn_number: 0,
+        time: {
+          display: "TOP_SECRET_OPENING_TIME",
+          location_id: null,
+        },
+        progressive: {
+          campaign_id: campaignId,
+          asset_root_id: "TOP_SECRET_SOURCE_ASSET",
+          current_dependency_snapshot_complete: true,
+          current_dependency_projection_status: "complete_empty",
+          current_dependency_waits: [],
+          current_dependency_dispatches: [],
+        },
+      },
+    },
+  };
+  const harness = mainExtensionHarness((name, params) => {
+    if (name !== "coc_invoke") {
+      throw new Error(`unexpected resume-empty-party tool ${name}`);
+    }
+    if (params.operation === "session.resume") return liveResume;
+    if (params.operation === "setup.investigator_contract") {
+      return contractResult;
+    }
+    if (params.operation === "rules.roll_dice") {
+      return {
+        ok: true,
+        tool: "rules.roll_dice",
+        data: {
+          expression: "3D6",
+          rolls: [3, 4, 4],
+          total: 11,
+          roll_id: "toolbox-startup-current-empty-party-000001",
+        },
+      };
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) {
+      return canonicalGuidedCreateResult(investigatorId);
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      return canonicalLinkSetupResult(campaignId, [investigatorId]);
+    }
+    if (params.operation === "evidence.table_opening") {
+      return {
+        ok: true,
+        tool: "evidence.table_opening",
+        data: {
+          turn: 0,
+          text: openingText,
+          text_sha256: `sha256:${createHash("sha256").update(
+            JSON.stringify(openingText),
+          ).digest("hex")}`,
+          authoritative_time_anchor: {
+            schema_version: 1,
+            display: "来源约束下的清晨",
+            rendered_line: "【开场时间】来源约束下的清晨",
+          },
+        },
+      };
+    }
+    throw new Error(
+      `unexpected resume-empty-party call ${name}:${params.operation}`,
+    );
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+
+  const resumed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "resume-empty-party-first",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const resumedText = JSON.stringify(resumed);
+  const allowedActions = resumed.data.opening_gate.allowed_actions;
+  check("empty-party recovery rehydrates a tight guided setup projection",
+    harness.calls[0]?.params.operation === "session.resume"
+    && resumed.ok === true
+    && resumed.data.mode === "open_turn_recovery"
+    && resumed.data.opening_gate.phase
+      === "opening_character_setup_required"
+    && resumed.data.opening_gate.next_operation === null
+    && Array.isArray(allowedActions)
+    && allowedActions.some((action) => (
+      action.kind === "investigator.create"
+      && action.required_creation_input_mode === "guided_quick_fire"
+    ))
+    && !allowedActions.some((action) => (
+      action.kind === "campaign.render_briefing"
+    ))
+    && !resumedText.includes("import_complete_sheet")
+    && !resumedText.includes("scene_context")
+    && !resumedText.includes("current_turn")
+    && !resumedText.includes("TOP_SECRET"));
+
+  const callsBeforeBlockedDetours = harness.calls.length;
+  let discoverBlocked = false;
+  try {
+    await harness.registered.get("coc_discover").execute(
+      "resume-empty-party-discover",
+      { operation: "scene.context" },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { discoverBlocked = true; }
+  let sceneBlocked = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "resume-empty-party-scene",
+      {
+        operation: "scene.context",
+        campaign: campaignId,
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { sceneBlocked = true; }
+  let importBlocked = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "resume-empty-party-import",
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: {
+          kind: "investigator.create",
+          payload: {
+            investigator_id: "import-escape",
+            sheet: {
+              id: "import-escape",
+              name: "Import Escape",
+              characteristics: {},
+              derived: {},
+              skills: {},
+            },
+            creation: { input_mode: "import_complete_sheet" },
+          },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { importBlocked = true; }
+  let briefingBlocked = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "resume-empty-party-briefing",
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: {
+          kind: "campaign.render_briefing",
+          payload: { campaign_id: campaignId },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { briefingBlocked = true; }
+  check(
+    "rehydrated setup blocks discover scene briefing and complete-sheet escape",
+    discoverBlocked
+    && sceneBlocked
+    && importBlocked
+    && briefingBlocked
+    && harness.calls.length === callsBeforeBlockedDetours);
+
+  const contract = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "resume-empty-party-contract",
+    {
+      operation: "setup.investigator_contract",
+      campaign: campaignId,
+      arguments: { campaign_id: campaignId },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("Pi overlap contract exposes only applicable guided branch",
+    contract.ok === true
+    && contract.data.result.applicable_input_mode === "guided_quick_fire"
+    && contract.data.result.payload_schema.oneOf.length === 1
+    && contract.data.result.payload_schema.oneOf[0].properties.creation.$ref
+      === "#/$defs/quick_fire_creation"
+    && contract.data.result.payload_schema.$defs.complete_sheet === undefined
+    && contract.data.result.payload_schema.$defs.complete_sheet_creation
+      === undefined
+    && !JSON.stringify(contract).includes("import_complete_sheet"));
+
+  const luck = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "resume-empty-party-luck",
+    {
+      operation: "rules.roll_dice",
+      campaign: campaignId,
+      arguments: {
+        expression: "3D6",
+        decision_id: "resume-empty-party-luck",
+        purpose: "investigator_creation_luck",
+        reason: "Quick-Fire investigator Luck",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const created = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "resume-empty-party-create",
+    guidedQuickFireCreateParams(campaignId, investigatorId),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const linked = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "resume-empty-party-link",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: campaignId,
+          investigator_ids: [investigatorId],
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const linkVisible = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "模型自拟链接说明。" }],
+  });
+  const openingRoute = harness.sent.findLast((entry) => (
+    entry.message?.customType === "coc-opening-setup-route"
+    && entry.message?.details?.next_operation?.operation
+      === "evidence.table_opening"
+  ));
+  check("guided luck create and exact link release one opening route",
+    luck.ok === true
+    && created.data.status === "PASS"
+    && linked.data.status === "PASS"
+    && linkVisible.content.some((part) => (
+      part.type === "text" && part.text === "调查员已正式加入战役。"
+    ))
+    && openingRoute?.options?.triggerTurn === true
+    && harness.sent.filter((entry) => (
+      entry.message?.customType === "coc-opening-setup-route"
+      && entry.message?.details?.next_operation?.operation
+        === "evidence.table_opening"
+    )).length === 1
+    && !harness.calls.some((call) => (
+      call.params.operation === "progressive.project_opening"
+    )));
+
+  const opening = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "resume-empty-party-opening",
+    {
+      operation: "evidence.table_opening",
+      campaign: campaignId,
+      arguments: {
+        text: openingText,
+        run_id: "resume-empty-party-run",
+        presented_roll_ids: [],
+        decision_id: "resume-empty-party-opening",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const visibleOpening = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "模型自行泄露的第二份开场。" }],
+  });
+  check("current source opening releases exactly once after exact link",
+    opening.ok === true
+    && opening.data.text === openingText
+    && visibleOpening.content.filter((part) => (
+      part.type === "text" && part.text === openingText
+    )).length === 1
+    && harness.calls.filter((call) => (
+      call.params.operation === "evidence.table_opening"
+    )).length === 1);
+  await harness.shutdown();
+}
+
 // Terminal startup failures never become hidden retry loops. The host emits
 // one fixed blocker, keeps every campaign/source route closed, and never
 // exposes backend/provider text or triggers another model turn.

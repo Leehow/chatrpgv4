@@ -307,6 +307,7 @@ type OpeningSetupRoute = {
   campaign_id: string;
   next_operation: JsonObject | null;
   allowed_actions?: JsonObject[];
+  character_setup_policy?: "guided_quick_fire_no_source";
   instruction: string;
 };
 type OpeningSetupTerminalBlocker = {
@@ -360,6 +361,7 @@ type OpeningSetupObservationDisposition = {
   accepted: boolean;
   dispatchAllowed: boolean;
   reason: string;
+  modelProjection?: JsonObject;
 };
 type OpeningBackgroundSubmissionDisposition =
   | { status: "submitted" }
@@ -632,20 +634,16 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
-  private characterSetupAllowedActions(campaignId: string): JsonObject[] {
-    return [
+  private characterSetupAllowedActions(
+    campaignId: string,
+    includeSourceBriefing = true,
+  ): JsonObject[] {
+    const actions: JsonObject[] = [
       {
         operation: "setup.investigator_contract",
         invoke_via: "coc_invoke",
         campaign: campaignId,
         arguments: { campaign_id: campaignId },
-      },
-      {
-        operation: "setup.invoke",
-        invoke_via: "coc_invoke",
-        campaign: campaignId,
-        kind: "campaign.render_briefing",
-        payload: { campaign_id: campaignId },
       },
       {
         operation: "rules.roll_dice",
@@ -690,6 +688,16 @@ export class OpeningTerminalContinuationGate {
         optional_payload_fields: ["language", "html_mode"],
       },
     ];
+    if (includeSourceBriefing) {
+      actions.splice(1, 0, {
+        operation: "setup.invoke",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        kind: "campaign.render_briefing",
+        payload: { campaign_id: campaignId },
+      });
+    }
+    return actions;
   }
 
   private canonicalSetupInvokeForOpening(
@@ -841,6 +849,13 @@ export class OpeningTerminalContinuationGate {
       );
     }
     const setupArgs = objectOrNull(params.arguments);
+    if (
+      state.route.character_setup_policy === "guided_quick_fire_no_source"
+      && operation === "setup.invoke"
+      && setupArgs?.kind === "campaign.render_briefing"
+    ) {
+      return false;
+    }
     if (
       operation === "setup.invoke"
       && setupArgs?.kind === "campaign.link_investigator"
@@ -1124,6 +1139,214 @@ export class OpeningTerminalContinuationGate {
     };
     state.continuationReleaseOwner = null;
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+  }
+
+  private recoveredCurrentCharacterSetupRoute(
+    campaignId: string,
+  ): OpeningSetupRoute {
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_character_setup_required",
+      campaign_id: campaignId,
+      next_operation: null,
+      allowed_actions: this.characterSetupAllowedActions(campaignId, false),
+      character_setup_policy: "guided_quick_fire_no_source",
+      instruction: (
+        "the source-bound opening is current but no investigator is linked; "
+        + "complete only the retained guided Quick-Fire create and exact "
+        + "campaign.link_investigator sequence before opening play"
+      ),
+    };
+  }
+
+  private currentSourceResumeNeedsCharacterSetup(
+    envelope: JsonObject | null,
+    campaignId: string,
+  ): boolean {
+    const data = objectOrNull(envelope?.data);
+    const sceneContext = objectOrNull(data?.scene_context);
+    const progressive = objectOrNull(sceneContext?.progressive);
+    const recovery = objectOrNull(data?.compiled_archive_recovery);
+    const delivery = objectOrNull(data?.delivery);
+    const currentTurn = objectOrNull(data?.current_turn);
+    const rows = Array.isArray(currentTurn?.rows)
+      ? currentTurn.rows
+      : null;
+    const party = sceneContext?.party;
+    const partyInvestigators = sceneContext?.party_investigators;
+    if (
+      envelope?.ok !== true
+      || envelope.tool !== "session.resume"
+      || data?.schema_version !== 1
+      || data.campaign_id !== campaignId
+      || ![
+        "already_acknowledged",
+        "open_turn_recovery",
+        "awaiting_player",
+      ].includes(String(data.mode))
+      || data.pending_turn !== null
+      || data.checkpoint !== null
+      || delivery?.status !== "none"
+      || sceneContext === null
+      || sceneContext.campaign_id !== campaignId
+      || sceneContext.active_scene_id !== null
+      || sceneContext.scene !== null
+      || sceneContext.turn_number !== 0
+      || !Array.isArray(party)
+      || party.length !== 0
+      || !Array.isArray(partyInvestigators)
+      || partyInvestigators.length !== 0
+      || progressive === null
+      || progressive.campaign_id !== campaignId
+      || typeof progressive.asset_root_id !== "string"
+      || progressive.asset_root_id.trim().length === 0
+      || progressive.current_dependency_snapshot_complete !== true
+      || progressive.current_dependency_projection_status !== "complete_empty"
+      || !Array.isArray(progressive.current_dependency_waits)
+      || progressive.current_dependency_waits.length !== 0
+      || !Array.isArray(progressive.current_dependency_dispatches)
+      || progressive.current_dependency_dispatches.length !== 0
+      || recovery?.status !== "reused"
+      || recovery.canonical_sources_unchanged !== true
+      || rows === null
+    ) {
+      return false;
+    }
+    const structuredRows = rows
+      .map((row) => objectOrNull(row))
+      .filter((row): row is JsonObject => row !== null);
+    const successfulTool = (tool: string): boolean => (
+      structuredRows.some((row) => row.tool === tool && row.ok === true)
+    );
+    const fulfilledSourcePack = structuredRows.some((row) => {
+      if (row.tool !== "progressive.fulfill_host_work" || row.ok !== true) {
+        return false;
+      }
+      const args = objectOrNull(row.args);
+      const workerResult = objectOrNull(args?.worker_result);
+      const pack = objectOrNull(workerResult?.pack);
+      return (
+        typeof workerResult?.job_id === "string"
+        && workerResult.job_id.trim().length > 0
+        && pack?.origin === "source"
+        && ["partial", "complete"].includes(String(pack.parse_state))
+        && Array.isArray(pack.source_refs)
+        && pack.source_refs.length > 0
+      );
+    });
+    const currentBriefing = structuredRows.some((row) => {
+      if (row.tool !== "setup.invoke" || row.ok !== true) return false;
+      const args = objectOrNull(row.args);
+      const payload = objectOrNull(args?.payload);
+      return (
+        args?.kind === "campaign.render_briefing"
+        && payload?.campaign_id === campaignId
+      );
+    });
+    return (
+      successfulTool("progressive.opening_bootstrap")
+      && fulfilledSourcePack
+      && currentBriefing
+      && !successfulTool("evidence.table_opening")
+    );
+  }
+
+  private safeRecoveredCharacterSetupProjection(
+    campaignId: string,
+    mode: unknown,
+    route: OpeningSetupRoute,
+  ): JsonObject {
+    return {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: campaignId,
+        mode: String(mode),
+        opening_gate: route,
+      },
+      warnings: [],
+      hints: [
+        "follow only opening_gate.allowed_actions until the exact current "
+        + "guided create and campaign.link_investigator receipts succeed",
+      ],
+    };
+  }
+
+  projectGuidedCharacterContract(
+    operation: string,
+    params: JsonObject,
+    value: unknown,
+  ): unknown {
+    if (operation !== "setup.investigator_contract") return value;
+    const campaignId = typeof params.campaign === "string"
+      ? params.campaign
+      : "";
+    const state = this.openingSetupStates.get(campaignId);
+    if (
+      state === undefined
+      || state.characterSetupComplete
+      || !this.characterSetupAllowed(state)
+    ) {
+      return value;
+    }
+    const envelope = objectOrNull(value);
+    const data = objectOrNull(envelope?.data);
+    const contract = objectOrNull(data?.result);
+    const payloadSchema = objectOrNull(contract?.payload_schema);
+    const branches = Array.isArray(payloadSchema?.oneOf)
+      ? payloadSchema.oneOf
+      : null;
+    const defs = objectOrNull(payloadSchema?.$defs);
+    if (branches === null || defs === null) {
+      return JSON.stringify(value).includes("import_complete_sheet")
+        ? {
+            ok: false,
+            tool: "setup.investigator_contract",
+            error: { code: "guided_contract_projection_failed" },
+          }
+        : value;
+    }
+    const guidedBranch = branches.find((branch) => {
+      const branchObject = objectOrNull(branch);
+      const properties = objectOrNull(branchObject?.properties);
+      const creation = objectOrNull(properties?.creation);
+      return creation?.$ref === "#/$defs/quick_fire_creation";
+    });
+    if (guidedBranch === undefined) {
+      return {
+        ok: false,
+        tool: "setup.investigator_contract",
+        error: { code: "guided_contract_projection_failed" },
+      };
+    }
+    const projected = structuredClone(envelope!);
+    const projectedData = objectOrNull(projected.data)!;
+    const projectedContract = objectOrNull(projectedData.result)!;
+    const projectedSchema = objectOrNull(projectedContract.payload_schema)!;
+    const projectedDefs = objectOrNull(projectedSchema.$defs)!;
+    projectedSchema.oneOf = [structuredClone(guidedBranch)];
+    delete projectedDefs.complete_sheet;
+    delete projectedDefs.complete_sheet_creation;
+    projectedSchema.title = (
+      "COC7 guided Quick Fire investigator.create payload"
+    );
+    projectedSchema.description = (
+      "Pi opening setup permits only the guided_quick_fire branch until "
+      + "the exact current investigator create and campaign link succeed."
+    );
+    projectedContract.applicable_input_mode = "guided_quick_fire";
+    if (JSON.stringify(projected).includes("import_complete_sheet")) {
+      return {
+        ok: false,
+        tool: "setup.investigator_contract",
+        error: { code: "guided_contract_projection_failed" },
+      };
+    }
+    return projected;
   }
 
   private armOpeningProjectionRoute(state: OpeningSetupState): void {
@@ -1832,6 +2055,44 @@ export class OpeningTerminalContinuationGate {
         )
       )
     );
+    if (
+      state === undefined
+      && attempt.attemptClass === "probe"
+      && operation === "session.resume"
+      && this.unboundAttemptIsFresh(attempt)
+      && this.currentSourceResumeNeedsCharacterSetup(
+        envelope,
+        attempt.campaignId,
+      )
+    ) {
+      const route = this.recoveredCurrentCharacterSetupRoute(
+        attempt.campaignId,
+      );
+      this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "ready",
+        attempt,
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: "current_opening_empty_party_guided_setup_rehydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "prebound_current_opening_character_setup",
+        modelProjection: this.safeRecoveredCharacterSetupProjection(
+          attempt.campaignId,
+          data?.mode,
+          route,
+        ),
+      };
+    }
     if (state === undefined && canonicalPreboundProbe) {
       this.initializeOpeningSetupState(
         attempt.campaignId,
@@ -6259,6 +6520,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           terminalizeStartupResume(disposition.failureClass);
         }
       }
+      value = openingObservation.modelProjection ?? value;
+      value = openingContinuationGate.projectGuidedCharacterContract(
+        String(params.operation),
+        params,
+        value,
+      );
       flushOpeningSetupAudits();
       if (String(params.operation) === "progressive.opening_bootstrap") {
         const task = findAutoDispatchTask(value);

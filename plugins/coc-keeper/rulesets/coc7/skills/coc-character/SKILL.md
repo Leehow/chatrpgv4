@@ -70,11 +70,18 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   requires personal-interest budget to equal `INT*2`, resolves flat,
   `half_DEX`, and `EDU` catalog bases, and requires every final machine value
   to equal base plus both deltas. This package selects the optional starting
-  skill cap of 75 from Keeper Rulebook p.48; guided creation rejects any
-  reconciled final above 75 before writing. The required default set is the
-  package-owned standard 1920s sheet classification from the reviewed
-  investigator sheet (PDF index 441): fixed Brawl, Handgun, Rifle/Shotgun, and
-  Language (Own) remain; generic Pilot, Science, and Survival represent their
+  skill cap of 75 from Keeper Rulebook p.48. That optional cap constrains
+  player-allocated and non-derived starting values; it never lowers an
+  unallocated standard-sheet base derived directly from a characteristic.
+  Thus `Language (Own)=EDU` remains 80 when Quick Fire assigns EDU 80 and no
+  points are allocated to it. If a characteristic-derived base is already
+  above 75, allocating any occupation or personal-interest points to that
+  skill is rejected explicitly; otherwise a reconciled value pushed above 75
+  is rejected before writing. Credit Rating and Cthulhu Mythos remain
+  non-derived catalog bases and receive no exemption. The required default set
+  is the package-owned standard 1920s sheet classification from the reviewed
+  investigator sheet (PDF index 441): fixed Brawl, Handgun, Rifle/Shotgun,
+  and Language (Own) remain; generic Pilot, Science, and Survival represent their
   printed player-selected group rows; other grouped/uncommon variants appear
   only when an allocation explicitly selects them. Blank sheet rows remain
   untyped. This is currently a closed 1920s policy: omit `sheet.era` for the

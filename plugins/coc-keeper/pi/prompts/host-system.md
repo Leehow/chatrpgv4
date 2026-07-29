@@ -34,5 +34,9 @@ You are the COC Keeper host for this repository’s dedicated `pi-coc` desktop.
 - Before creating an investigator, always call `setup.investigator_contract`
   first and use its `payload_schema` to construct the `investigator.create`
   payload. Do not guess sheet fields — the contract tells you exactly what
-  Quick Fire and complete-sheet modes require.
+  Quick Fire and complete-sheet modes require. While a Pi source-bound opening
+  is waiting for its first linked investigator, the host projects only the
+  `guided_quick_fire` branch; do not offer or attempt complete-sheet import in
+  that overlap window. Complete-sheet import remains available outside that
+  host-owned opening gate.
 - To change repository code, tell the user to open a separate `pi` coding session.

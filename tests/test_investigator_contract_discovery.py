@@ -191,6 +191,12 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         row for row in compact_catalog["rows"] if row[0] == "Dodge"
     )[1:3] == ["half_DEX", "闪避"]
     assert compact_catalog["starting_skill_cap"] == 75
+    assert compact_catalog["starting_skill_cap_scope"] == (
+        "player_allocated_and_non_characteristic_derived_final_values"
+    )
+    assert compact_catalog["characteristic_derived_base_policy"] == (
+        "authoritative_when_unallocated_even_above_starting_skill_cap"
+    )
     assert compact_catalog["default_era"] == "1920s"
     assert compact_catalog["supported_eras"] == ["1920s"]
     assert next(

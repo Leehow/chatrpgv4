@@ -645,12 +645,37 @@ def _guided_quick_fire_skill_reconciliation(
             + allocations_by_account["occupation_points"].get(skill_id, 0)
             + allocations_by_account["personal_interest_points"].get(skill_id, 0)
         )
+        allocation_delta = (
+            allocations_by_account["occupation_points"].get(skill_id, 0)
+            + allocations_by_account["personal_interest_points"].get(skill_id, 0)
+        )
         if expected[skill_id] > starting_cap:
-            errors.append(
-                f"guided Quick Fire skill {skill_id!r} final value "
-                f"{expected[skill_id]} exceeds the package starting-skill "
-                f"cap {starting_cap}"
+            characteristic_derived_base = (
+                catalog[skill_id].get("base_chance") in {"half_DEX", "EDU"}
             )
+            if (
+                characteristic_derived_base
+                and base > starting_cap
+                and allocation_delta == 0
+            ):
+                continue
+            if (
+                characteristic_derived_base
+                and base > starting_cap
+                and allocation_delta > 0
+            ):
+                errors.append(
+                    f"guided Quick Fire skill {skill_id!r} has authoritative "
+                    f"characteristic-derived base {base} above the package "
+                    f"starting-skill cap {starting_cap}; allocation delta "
+                    f"{allocation_delta} is not permitted"
+                )
+            else:
+                errors.append(
+                    f"guided Quick Fire skill {skill_id!r} final value "
+                    f"{expected[skill_id]} exceeds the package starting-skill "
+                    f"cap {starting_cap}"
+                )
     if set(submitted) != set(expected):
         missing = sorted(set(expected) - set(submitted))
         extra = sorted(set(submitted) - set(expected))
