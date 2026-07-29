@@ -40,6 +40,7 @@ import {
   STARTUP_RESUME_CUSTOM_TYPE,
   startupResumeInstruction,
 } from "../lib/welcome.ts";
+import { isCanonicalCampaignId } from "../lib/campaign-id.mjs";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -5434,7 +5435,14 @@ export function explicitPiStartupCampaignId(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   const value = env.PI_COC_CAMPAIGN_ID;
-  return typeof value === "string" && value.length > 0 ? value : null;
+  if (value === undefined) return null;
+  if (!isCanonicalCampaignId(value)) {
+    throw new Error(
+      "PI_COC_CAMPAIGN_ID must match "
+      + "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    );
+  }
+  return value;
 }
 
 type StartupResumeGate = {
@@ -5442,8 +5450,9 @@ type StartupResumeGate = {
   workspaceRoot: string;
   phase: "pending" | "terminal_failure";
   failureClass: string | null;
-  blockerPublished: boolean;
-  hiddenRepromptSent: boolean;
+  blockerDelivery: "pending" | "sending" | "delivered" | "exhausted";
+  blockerDeliveryAttempts: number;
+  hiddenRepromptDelivery: "pending" | "sending" | "delivered";
 };
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
@@ -5651,8 +5660,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           workspaceRoot: ctx.cwd,
           phase: "pending",
           failureClass: null,
-          blockerPublished: false,
-          hiddenRepromptSent: false,
+          blockerDelivery: "pending",
+          blockerDeliveryAttempts: 0,
+          hiddenRepromptDelivery: "pending",
         };
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
@@ -5706,8 +5716,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     gate: StartupResumeGate,
     failureClass: string,
   ): void => {
-    if (gate.blockerPublished) return;
-    gate.blockerPublished = true;
+    if (
+      gate.blockerDelivery !== "pending"
+      || gate.blockerDeliveryAttempts >= 2
+    ) return;
+    gate.blockerDelivery = "sending";
+    gate.blockerDeliveryAttempts += 1;
     try {
       pi.sendMessage({
         customType: "coc-startup-resume-blocker",
@@ -5727,7 +5741,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           recovery: "relaunch_with_corrected_campaign_selector",
         },
       }, { triggerTurn: false });
-    } catch { /* the hard gate remains terminal even if UI publication fails */ }
+      gate.blockerDelivery = "delivered";
+    } catch {
+      gate.blockerDelivery = gate.blockerDeliveryAttempts >= 2
+        ? "exhausted"
+        : "pending";
+    }
   };
   const terminalizeStartupResume = (failureClass: string): void => {
     const gate = startupResumeGate;
@@ -6432,11 +6451,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     (visibleText) => {
       if (startupResumeGate !== null) {
         const gate = startupResumeGate;
-        if (
+        if (gate.phase === "terminal_failure") {
+          publishStartupResumeBlocker(
+            gate,
+            gate.failureClass ?? "startup_resume_failed",
+          );
+        } else if (
           gate.phase === "pending"
-          && !gate.hiddenRepromptSent
+          && gate.hiddenRepromptDelivery === "pending"
         ) {
-          gate.hiddenRepromptSent = true;
+          gate.hiddenRepromptDelivery = "sending";
           try {
             pi.sendMessage({
               customType: STARTUP_RESUME_CUSTOM_TYPE,
@@ -6451,7 +6475,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 first_campaign_operation: "session.resume",
               },
             }, { triggerTurn: true, deliverAs: "followUp" });
-          } catch { /* the next player turn remains protected by the same gate */ }
+            gate.hiddenRepromptDelivery = "delivered";
+          } catch {
+            // Leave delivery unclaimed so one later transcript boundary can
+            // retry; the campaign gate remains armed throughout.
+            gate.hiddenRepromptDelivery = "pending";
+          }
         }
         return false;
       }

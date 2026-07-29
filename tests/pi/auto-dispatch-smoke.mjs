@@ -795,6 +795,7 @@ function mainExtensionHarness(responseForCall, options = {}) {
   const handlers = new Map();
   const appended = [];
   const sent = [];
+  const sendAttempts = [];
   const calls = [];
   const launches = [];
   const controls = new Map();
@@ -816,6 +817,7 @@ function mainExtensionHarness(responseForCall, options = {}) {
     appendEntry: (name, value) => appended.push({ name, value }),
     sendMessage: (message, sendOptions) => {
       const customType = String(message?.customType ?? "");
+      sendAttempts.push({ customType, message, options: sendOptions });
       const remaining = Number(sendFailuresByType.get(customType) ?? 0);
       if (remaining > 0) {
         sendFailuresByType.set(customType, remaining - 1);
@@ -914,6 +916,7 @@ function mainExtensionHarness(responseForCall, options = {}) {
     handlers,
     appended,
     sent,
+    sendAttempts,
     calls,
     launches,
     controls,
@@ -2244,6 +2247,29 @@ async function exerciseFailureDrain(mode) {
     && main.__test.explicitPiStartupCampaignId({
       PI_COC_SESSION_ID: campaignId,
     }) === null);
+  let invalidSelectorsRejected = true;
+  for (const invalidSelector of [
+    "",
+    "   ",
+    "--new",
+    "../outside",
+    "dir/campaign",
+    "a".repeat(129),
+  ]) {
+    try {
+      main.__test.explicitPiStartupCampaignId({
+        PI_COC_CAMPAIGN_ID: invalidSelector,
+      });
+      invalidSelectorsRejected = false;
+    } catch {
+      // Invalid explicit selectors must not degrade to null/fresh setup.
+    }
+  }
+  check("direct startup selector enforces canonical safe campaign grammar",
+    invalidSelectorsRejected
+    && main.__test.explicitPiStartupCampaignId({
+      PI_COC_CAMPAIGN_ID: "A.valid_name:part-9",
+    }) === "A.valid_name:part-9");
   const harness = mainExtensionHarness((name, params) => {
     if (name === "coc_capabilities") {
       return { ok: true, host: "pi" };
@@ -2627,6 +2653,181 @@ for (const terminalCase of [
     && harness.sent.filter((entry) => (
       entry.options?.triggerTurn === true
     )).length === 0);
+  await harness.shutdown();
+}
+
+// Publication ownership transfers only after sendMessage succeeds. One failed
+// blocker send is retried once at the next external transcript boundary, then
+// deduplicated without another model turn or backend escape.
+{
+  const campaignId = "startup-blocker-retry";
+  const harness = mainExtensionHarness(() => ({
+    ok: false,
+    tool: "session.resume",
+    error: {
+      code: "unknown_campaign",
+      message: "TOP_SECRET_BLOCKER_RETRY_DETAIL",
+    },
+  }), {
+    startupCampaignId: campaignId,
+    sendFailuresByType: { "coc-startup-resume-blocker": 1 },
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "startup-blocker-retry-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  let blockedAfterFailedSend = false;
+  try {
+    await harness.registered.get("coc_discover").execute(
+      "startup-blocker-retry-discover",
+      {},
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch {
+    blockedAfterFailedSend = true;
+  }
+  const firstBoundary = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "TOP_SECRET_RETRY_BOUNDARY" }],
+  });
+  const secondBoundary = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "重复边界" }],
+  });
+  const blockerAttempts = harness.sendAttempts.filter((entry) => (
+    entry.customType === "coc-startup-resume-blocker"
+  ));
+  const blockers = harness.sent.filter((entry) => (
+    entry.message?.customType === "coc-startup-resume-blocker"
+  ));
+  check("failed blocker send retries once and publishes exactly once",
+    blockedAfterFailedSend
+    && harness.calls.length === 1
+    && blockerAttempts.length === 2
+    && blockers.length === 1
+    && blockers[0].options?.triggerTurn === false
+    && !JSON.stringify(blockers[0]).includes("TOP_SECRET")
+    && firstBoundary.content.every((part) => part.type !== "text")
+    && secondBoundary.content.every((part) => part.type !== "text")
+    && harness.sendAttempts.every((entry) => (
+      entry.options?.triggerTurn !== true
+    )));
+  await harness.shutdown();
+}
+
+// A permanently failing blocker channel makes at most the initial attempt plus
+// one external-boundary retry. It never unlocks the startup gate or spins.
+{
+  const campaignId = "startup-blocker-permanent-failure";
+  const harness = mainExtensionHarness(() => ({
+    ok: false,
+    tool: "session.resume",
+    error: {
+      code: "unknown_campaign",
+      message: "TOP_SECRET_PERMANENT_SEND_DETAIL",
+    },
+  }), {
+    startupCampaignId: campaignId,
+    sendFailuresByType: { "coc-startup-resume-blocker": 99 },
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "startup-blocker-permanent-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const suppressed = [];
+  for (const text of ["边界一", "边界二", "边界三"]) {
+    suppressed.push(await harness.emit("message_end", {
+      role: "assistant",
+      content: [{ type: "text", text }],
+    }));
+  }
+  let stillBlocked = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "startup-blocker-permanent-scene",
+      {
+        operation: "scene.context",
+        root,
+        campaign: campaignId,
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch {
+    stillBlocked = true;
+  }
+  const blockerAttempts = harness.sendAttempts.filter((entry) => (
+    entry.customType === "coc-startup-resume-blocker"
+  ));
+  check("permanent blocker send failure stays bounded and fail-closed",
+    stillBlocked
+    && harness.calls.length === 1
+    && blockerAttempts.length === 2
+    && harness.sent.filter((entry) => (
+      entry.message?.customType === "coc-startup-resume-blocker"
+    )).length === 0
+    && suppressed.every((message) => (
+      message.content.every((part) => part.type !== "text")
+    ))
+    && harness.sendAttempts.every((entry) => (
+      entry.options?.triggerTurn !== true
+    )));
+  await harness.shutdown();
+}
+
+// Pending exact-resume follow-up ownership also commits only after a
+// successful send, allowing one later transcript boundary to recover.
+{
+  const campaignId = "startup-hidden-followup-retry";
+  const hiddenResumeType = "coc-startup-resume-required";
+  const harness = mainExtensionHarness(() => {
+    throw new Error("backend must not be reached by hidden follow-up test");
+  }, {
+    startupCampaignId: campaignId,
+    sendFailuresByType: { [hiddenResumeType]: 1 },
+    mode: "tui",
+    hasUI: true,
+  });
+  await harness.start();
+  for (const text of ["第一次无工具响应", "第二次无工具响应", "第三次无工具响应"]) {
+    await harness.emit("message_end", {
+      role: "assistant",
+      content: [{ type: "text", text }],
+    });
+  }
+  const hiddenAttempts = harness.sendAttempts.filter((entry) => (
+    entry.customType === hiddenResumeType
+  ));
+  const hiddenDelivered = harness.sent.filter((entry) => (
+    entry.message?.customType === hiddenResumeType
+  ));
+  check("failed hidden resume follow-up retains delivery ownership",
+    harness.calls.length === 0
+    && hiddenAttempts.length === 2
+    && hiddenDelivered.length === 1
+    && hiddenDelivered[0].options?.triggerTurn === true);
   await harness.shutdown();
 }
 

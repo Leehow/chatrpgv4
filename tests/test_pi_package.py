@@ -356,39 +356,112 @@ def test_pi_coc_new_transcript_can_resume_existing_campaign(tmp_path: Path):
     ) == "campaign-new-transcript"
 
 
+def test_pi_coc_rejects_missing_campaign_argument(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--campaign"],
+    )
+    assert completed.returncode == 2
+    assert "--campaign requires a campaign_id" in completed.stderr
+    assert not args_path.exists()
+
+
 @pytest.mark.parametrize(
-    "args",
-    [["--campaign"], ["--campaign", ""], ["--campaign", "--new"]],
+    "campaign_id",
+    [
+        "",
+        "   ",
+        "--new",
+        "../outside",
+        r"dir\campaign",
+        "a" * 129,
+    ],
 )
-def test_pi_coc_rejects_missing_campaign_argument(
+def test_pi_coc_rejects_invalid_cli_campaign_before_pi(
     tmp_path: Path,
-    args: list[str],
+    campaign_id: str,
 ):
     settings, models = _supported_pi_settings()
     completed, args_path = _run_pi_coc(
         tmp_path,
         settings=settings,
         models=models,
-        args=args,
+        args=["--campaign", campaign_id],
     )
     assert completed.returncode == 2
-    assert "--campaign requires a non-empty campaign_id" in completed.stderr
+    assert (
+        "campaign_id must match ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        in completed.stderr
+    )
+    assert not args_path.exists()
+
+
+@pytest.mark.parametrize(
+    "campaign_id",
+    [
+        "",
+        "   ",
+        "--new",
+        "../outside",
+        r"dir\campaign",
+        "a" * 129,
+    ],
+)
+def test_pi_coc_rejects_invalid_direct_campaign_environment_before_pi(
+    tmp_path: Path,
+    campaign_id: str,
+):
+    settings, models = _supported_pi_settings()
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=[],
+        extra_env={"PI_COC_CAMPAIGN_ID": campaign_id},
+    )
+    assert completed.returncode == 2
+    assert (
+        "campaign_id must match ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        in completed.stderr
+    )
     assert not args_path.exists()
 
 
 def test_pi_coc_accepts_direct_explicit_campaign_environment(tmp_path: Path):
     settings, models = _supported_pi_settings()
+    campaign_id = "A.valid_name:part-9"
     completed, _args_path = _run_pi_coc(
         tmp_path,
         settings=settings,
         models=models,
         args=[],
-        extra_env={"PI_COC_CAMPAIGN_ID": "campaign-from-env"},
+        extra_env={"PI_COC_CAMPAIGN_ID": campaign_id},
     )
     assert completed.returncode == 0, completed.stderr
     assert (tmp_path / "campaign-id.txt").read_text(
         encoding="utf-8",
-    ) == "campaign-from-env"
+    ) == campaign_id
+
+
+def test_pi_coc_accepts_valid_punctuation_in_cli_campaign(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    campaign_id = "A.valid_name:part-9"
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--campaign", campaign_id],
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--campaign" not in args_path.read_text(
+        encoding="utf-8",
+    ).splitlines()
+    assert (tmp_path / "campaign-id.txt").read_text(
+        encoding="utf-8",
+    ) == campaign_id
 
 
 def test_pi_coc_refuses_unsupported_thinking_off_before_pi_starts(tmp_path: Path):

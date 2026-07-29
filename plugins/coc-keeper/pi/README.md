@@ -53,6 +53,11 @@ Pi transcript identity and COC campaign identity are separate namespaces:
 - `pi-coc --new --campaign <campaign_id>` starts a fresh Pi transcript while
   resuming that existing campaign.
 
+Both selector forms use the canonical safe campaign-ID grammar
+`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`. Invalid CLI or inherited environment
+values are rejected by the launcher before Pi starts; they never fall through
+to fresh-campaign onboarding.
+
 When no campaign selector is present, the ordinary empty-workspace onboarding
 remains unchanged and begins with `setup.inspect`.
 

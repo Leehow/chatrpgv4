@@ -96,6 +96,10 @@ fi
 # Pi's transcript/session identity and expose it only to the package extension.
 WANT_NEW=0
 USER_SESSION_OPT=0
+CAMPAIGN_SELECTOR_SET=0
+if [[ ${PI_COC_CAMPAIGN_ID+x} ]]; then
+  CAMPAIGN_SELECTOR_SET=1
+fi
 USER_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -105,12 +109,12 @@ while [[ $# -gt 0 ]]; do
       continue
       ;;
     --campaign)
-      if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
-        printf '%s\n' "pi-coc: --campaign requires a non-empty campaign_id argument" >&2
+      if [[ $# -lt 2 ]]; then
+        printf '%s\n' "pi-coc: --campaign requires a campaign_id argument" >&2
         exit 2
       fi
       PI_COC_CAMPAIGN_ID=$2
-      export PI_COC_CAMPAIGN_ID
+      CAMPAIGN_SELECTOR_SET=1
       shift 2
       continue
       ;;
@@ -121,6 +125,11 @@ while [[ $# -gt 0 ]]; do
   USER_ARGS+=("$1")
   shift
 done
+
+if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
+  node "$SCRIPT_DIR/../lib/campaign-id.mjs" "$PI_COC_CAMPAIGN_ID"
+  export PI_COC_CAMPAIGN_ID
+fi
 
 PI_ARGS=(
   --no-builtin-tools
