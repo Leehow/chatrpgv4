@@ -2269,8 +2269,8 @@ def test_bind_pdf_field_error_names_every_missing_and_unsupported_field(tmp_path
         ops.RuntimeOperationError,
         match=(
             r"missing: scenario_id, title; unsupported: scenario_title; "
-            r"allowed: campaign_id, compile_now, opening_source_provenance, "
-            r"scenario_id, source_bundle_path, title"
+            r"allowed: campaign_id, compile_now, scenario_id, "
+            r"source_bundle_path, title"
         ),
     ):
         ops.execute_setup_operation(tmp_path, operation={
@@ -2280,6 +2280,26 @@ def test_bind_pdf_field_error_names_every_missing_and_unsupported_field(tmp_path
                 "campaign_id": "custom",
                 "scenario_title": "Custom Module",
                 "source_bundle_path": str(tmp_path / "module-source"),
+            },
+        })
+
+
+def test_public_bind_pdf_rejects_forged_review_authority(tmp_path):
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=r"unsupported: opening_source_provenance",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "scenario.bind_pdf",
+            "payload": {
+                "campaign_id": "custom",
+                "scenario_id": "custom-module",
+                "title": "Custom Module",
+                "source_bundle_path": str(tmp_path / "source"),
+                "opening_source_provenance": (
+                    "coordinator_reviewed_playable_opening"
+                ),
             },
         })
 
@@ -2404,11 +2424,9 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     assert len(scenario["source"]["bundle_sha256"]) == 64
     assert scenario["source"]["source_bundle_path"] == str(source_bundle)
     assert scenario["opening_source_provenance"] == (
-        "coordinator_reviewed_playable_opening"
+        "selection_hint_only_not_provenance"
     )
-    assert scenario["source"]["opening_source_provenance"] == (
-        "coordinator_reviewed_playable_opening"
-    )
+    assert "opening_source_provenance" not in scenario["source"]
     assert scenario["source_cache_asset_root_id"] == "custom-module"
     assert "progressive_asset_root_id" not in scenario
     assert bound["result"]["source_cache"]["asset_root_id"] == "custom-module"

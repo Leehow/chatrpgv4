@@ -1357,15 +1357,72 @@ def _pi_opening_setup_gate(
             message="campaign scenario metadata must be an object",
         )
     scenario = loaded_scenario
-    opening_source_provenance = str(
-        scenario.get("opening_source_provenance")
-        or (
-            scenario.get("source", {}).get("opening_source_provenance")
-            if isinstance(scenario.get("source"), dict)
-            else ""
+    scenario_source = (
+        scenario.get("source")
+        if isinstance(scenario.get("source"), dict)
+        else {}
+    )
+    top_provenance = scenario.get("opening_source_provenance")
+    nested_provenance = scenario_source.get("opening_source_provenance")
+    if (
+        top_provenance is not None
+        and nested_provenance is not None
+        and top_provenance != nested_provenance
+    ):
+        return _pi_opening_source_contract_error_gate(
+            str(campaign_id),
+            code="opening_source_provenance_mismatch",
+            message=(
+                "top-level and nested opening source provenance disagree"
+            ),
         )
-        or ""
+    opening_source_provenance = str(
+        top_provenance
+        if top_provenance is not None
+        else nested_provenance
+        if nested_provenance is not None
+        else ""
     ).strip()
+    failure_receipt = scenario.get("opening_source_review_failure")
+    if failure_receipt is not None:
+        try:
+            validated_failure = (
+                coc_runtime_ops._validate_opening_source_review_fulfillment(
+                    root, failure_receipt, expected_status="failed",
+                )
+            )
+        except coc_runtime_ops.RuntimeOperationError as exc:
+            return _pi_opening_source_contract_error_gate(
+                str(campaign_id),
+                code="opening_source_review_failure_invalid",
+                message=str(exc),
+            )
+        return {
+            "schema_version": 1,
+            "status": "failed",
+            "hard_gate": True,
+            "activation_allowed": False,
+            "phase": "opening_source_review_failed",
+            "campaign_id": str(campaign_id),
+            "source_provenance": opening_source_provenance,
+            "required_source_owner": "coc-opening-source-coordinator",
+            "character_setup_complete": _pi_opening_character_setup_complete(
+                campaign_dir, str(campaign_id),
+            ),
+            "source_review_failure": {
+                **validated_failure["failure"],
+                "coordinator_task_identity_sha256": validated_failure[
+                    "coordinator_task_identity_sha256"
+                ],
+                "receipt_sha256": validated_failure["receipt_sha256"],
+            },
+            "next_operation": None,
+            "instruction": (
+                "the canonical opening source coordinator terminated without "
+                "a reviewed playable opening; do not retry, rebind, invent, "
+                "project, mutate play, or narrate from the locator hint"
+            ),
+        }
     if opening_source_provenance == "selection_hint_only_not_provenance":
         character_setup_complete = _pi_opening_character_setup_complete(
             campaign_dir, str(campaign_id),
@@ -1397,16 +1454,24 @@ def _pi_opening_setup_gate(
             code="opening_source_provenance_invalid",
             message="persisted opening source provenance is unsupported",
         )
+    if opening_source_provenance == "coordinator_reviewed_playable_opening":
+        try:
+            coc_runtime_ops._validate_opening_source_review_fulfillment(
+                root,
+                scenario.get("opening_source_review_receipt"),
+                expected_status="reviewed",
+            )
+        except coc_runtime_ops.RuntimeOperationError as exc:
+            return _pi_opening_source_contract_error_gate(
+                str(campaign_id),
+                code="opening_source_review_receipt_invalid",
+                message=str(exc),
+            )
     persisted_root_id = str(
         scenario.get("progressive_asset_root_id")
         or scenario.get("source_cache_asset_root_id")
         or ""
     ).strip()
-    scenario_source = (
-        scenario.get("source")
-        if isinstance(scenario.get("source"), dict)
-        else {}
-    )
     has_persisted_source_binding = bool(
         persisted_root_id
         or str(scenario_source.get("bundle_sha256") or "").strip()
@@ -1507,22 +1572,21 @@ def _pi_opening_setup_operation_allowed(
 ) -> bool:
     if (
         isinstance(gate, dict)
+        and gate.get("phase") in {
+            "opening_source_contract_invalid",
+            "opening_source_review_failed",
+        }
+    ):
+        return False
+    if (
+        isinstance(gate, dict)
         and gate.get("phase") == "opening_source_review_required"
     ):
         if name == "setup.invoke":
             kind = str(args.get("kind") or "")
             if kind in _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS:
                 return True
-            payload = (
-                args.get("payload")
-                if isinstance(args.get("payload"), dict)
-                else {}
-            )
-            return bool(
-                kind == "scenario.bind_pdf"
-                and payload.get("opening_source_provenance")
-                == "coordinator_reviewed_playable_opening"
-            )
+            return False
         if name == "rules.roll_dice":
             return _pi_opening_setup_operation_allowed(name, args)
         return name in {"setup.investigator_contract", "rules.cash_assets"}
@@ -7509,7 +7573,8 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
                 "campaign.link_investigator requires exactly "
                 "campaign_id/investigator_ids; scenario.bind_pdf requires "
                 "campaign_id/scenario_id/title/source_bundle_path and optionally "
-                "opening_source_provenance/compile_now; "
+                "compile_now; playable-opening review authority is never a "
+                "public setup payload; "
                 "campaign.render_briefing requires campaign_id and "
                 "optionally language; investigator.render_card requires "
                 "campaign_id/investigator_id and optionally language/html_mode. "
@@ -7546,19 +7611,6 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
                 },
                 "scenario_id": {"type": "string"},
                 "source_bundle_path": {"type": "string"},
-                "opening_source_provenance": {
-                    "type": "string",
-                    "enum": [
-                        "selection_hint_only_not_provenance",
-                        "coordinator_reviewed_playable_opening",
-                    ],
-                    "desc": (
-                        "typed source-window authority: a fast locator is only "
-                        "a character-setup hint; only the canonical opening "
-                        "source coordinator may declare a reviewed playable "
-                        "opening window"
-                    ),
-                },
                 "language": {"type": "string"},
                 "html_mode": {
                     "type": "string",

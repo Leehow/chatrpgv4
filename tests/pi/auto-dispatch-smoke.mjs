@@ -6298,8 +6298,6 @@ for (const terminalCase of [
         scenario_id: "r12-module",
         title: "R12 Module",
         source_bundle_path: bundlePath,
-        opening_source_provenance:
-          "coordinator_reviewed_playable_opening",
         compile_now: false,
       },
     };
@@ -6334,66 +6332,30 @@ for (const terminalCase of [
       && harness.calls.length === callsBeforeMissingBind + 1
       && bound.ok === true
       && bound.data.status === "PASS"
-      && bound.data.next_operation.operation
-        === "progressive.prepare_opening"
-      && !Object.hasOwn(bound.data.next_operation, "schema_version"));
+      && bound.data.opening_gate.phase
+        === "opening_source_review_required"
+      && bound.data.opening_gate.next_operation === null);
 
-    const prepared = JSON.parse((await harness.registered.get(
-      "coc_invoke",
-    ).execute(
-      "r13-real-prepare",
-      {
-        operation: "progressive.prepare_opening",
-        campaign: campaignId,
-        arguments: {},
-      },
-      undefined,
-      undefined,
-      harness.ctx,
-    )).content[0].text);
-    const realBootstrapCard = prepared.data?.next_operation;
-    check("real toolbox prepare returns canonical schema-less bootstrap card",
-      prepared.ok === true
-      && realBootstrapCard?.operation === "progressive.opening_bootstrap"
-      && realBootstrapCard.invoke_via === "coc_invoke"
-      && realBootstrapCard.hard_gate === true
-      && realBootstrapCard.authority === "canonical_setup"
-      && !Object.hasOwn(realBootstrapCard, "schema_version"));
-    const realBootstrapArguments = {
-      ...realBootstrapCard.prefilled_arguments,
-    };
-    for (const field of realBootstrapCard.missing_arguments) {
-      if (field === "start_location") {
-        realBootstrapArguments.start_location = {
-          location_id: "r12-opening",
-          title: "R12 Module",
-        };
-      } else if (field === "opening_pdf_indices") {
-        realBootstrapArguments.opening_pdf_indices = [0];
-      }
-    }
-    const callsBeforeRealBootstrap = harness.calls.length;
-    let realBootstrapAdmissionError = null;
+    const callsBeforeBlockedPrepare = harness.calls.length;
+    let blockedPrepareRejected = false;
     try {
       await harness.registered.get("coc_invoke").execute(
-        "r13-real-bootstrap",
+        "r13-real-prepare-before-review",
         {
-          operation: "progressive.opening_bootstrap",
+          operation: "progressive.prepare_opening",
           campaign: campaignId,
-          arguments: realBootstrapArguments,
+          arguments: {},
         },
         undefined,
         undefined,
         harness.ctx,
       );
-    } catch (error) {
-      realBootstrapAdmissionError = error;
+    } catch {
+      blockedPrepareRejected = true;
     }
-    check("Pi owns real schema-less prepare route and admits exact bootstrap card",
-      realBootstrapAdmissionError === null
-      && harness.calls.length === callsBeforeRealBootstrap + 1
-      && harness.calls.at(-1).params.operation
-        === "progressive.opening_bootstrap"
+    check("real hint bind blocks prepare before private coordinator review",
+      blockedPrepareRejected
+      && harness.calls.length === callsBeforeBlockedPrepare
       && harness.launches.length === 0);
 
     const linkArgs = {

@@ -176,15 +176,20 @@ text, concept choice, sheet data, or any reconstructed/edited continuation.
        "campaign_id": "<input campaign_id>",
        "scenario_id": "<input scenario_id>",
        "title": "<input title>",
-       "source_bundle_path": "<input source_bundle_path>",
-       "opening_source_provenance": "coordinator_reviewed_playable_opening"
+       "source_bundle_path": "<input source_bundle_path>"
      }
    }
    ```
 
-   Do not omit or move any of those five payload fields. The fixed provenance
-   value is the typed proof that this coordinator completed step 2; a fast
-   locator hint must never use it. Do not discover
+   Do not omit or move any of those four payload fields. Public
+   `scenario.bind_pdf` always registers the bundle as a locator/background
+   hint; it cannot assert playable-opening review authority. The host adapter's
+   private coordinator-fulfillment boundary must authenticate this retained
+   task and bind its exact continuation identity, campaign, scenario, bundle,
+   selected page scope, and canonical scope signature before persisting
+   `coordinator_reviewed_playable_opening`. Never put that provenance value in
+   a setup payload or advertise the fulfillment boundary as a model-callable
+   operation. Do not discover
    `scenario.bind_pdf`, any domain, or a no-argument catalog. Invoke
    `progressive.prepare_opening` directly once with
    `opening_pdf_indices=selected_opening_pdf_indices`; do not make a preliminary

@@ -1548,7 +1548,6 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
         "scenario_id": "custom-mcp-module",
         "title": "Custom MCP Module",
         "source_bundle_path": os.fspath(bundle),
-        "opening_source_provenance": "coordinator_reviewed_playable_opening",
         "compile_now": False,
     })
     assert bound["ok"] is True, bound
@@ -1563,8 +1562,40 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
         and "do not rerender" in hint
         for hint in bound["hints"]
     )
-    next_operation = bound["data"]["next_operation"]
-    assert next_operation == bound["data"]["opening_gate"]["next_operation"]
+    assert "next_operation" not in bound["data"]
+    assert bound["data"]["opening_gate"]["phase"] == (
+        "opening_source_review_required"
+    )
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": "mcp-custom",
+        "scenario_id": "custom-mcp-module",
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": "custom-mcp-module",
+        "source_bundle_path": os.fspath(bundle.resolve()),
+        "result_delivery": "task_return_to_parent",
+    }
+    review_receipt = (
+        server.toolbox.coc_runtime_ops
+        ._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation=continuation,
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
+    )
+    server.toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        tmp_path, review_receipt,
+    )
+    resumed_after_review = server._call_tool("coc_invoke", {
+        "operation": "session.resume",
+        "root": os.fspath(tmp_path),
+        "campaign": "mcp-custom",
+        "arguments": {},
+    })
+    assert resumed_after_review["ok"] is False, resumed_after_review
+    next_operation = resumed_after_review["error"]["details"]["next_operation"]
     assert next_operation["operation"] == "progressive.prepare_opening"
     assert next_operation["invoke_via"] == "coc_invoke"
     assert next_operation["prefilled_arguments"] == {}

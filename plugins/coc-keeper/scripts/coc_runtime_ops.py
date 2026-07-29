@@ -3970,7 +3970,7 @@ def execute_setup_operation(
 
     allowed = {
         "campaign_id", "scenario_id", "title", "source_bundle_path",
-        "opening_source_provenance", "compile_now",
+        "compile_now",
     }
     required = {"campaign_id", "scenario_id", "title", "source_bundle_path"}
     unsupported = sorted(set(payload) - allowed)
@@ -3990,23 +3990,10 @@ def execute_setup_operation(
     title = payload.get("title")
     if not isinstance(title, str) or not title.strip():
         raise RuntimeOperationError("scenario.bind_pdf title must be non-empty")
-    opening_source_provenance = str(
-        payload.get("opening_source_provenance")
-        or (
-            "selection_hint_only_not_provenance"
-            if str(os.environ.get("COC_HOST") or "").lower() == "pi"
-            else "coordinator_reviewed_playable_opening"
-        )
-    ).strip()
-    if opening_source_provenance not in {
-        "selection_hint_only_not_provenance",
-        "coordinator_reviewed_playable_opening",
-    }:
-        raise RuntimeOperationError(
-            "scenario.bind_pdf opening_source_provenance must be "
-            "selection_hint_only_not_provenance or "
-            "coordinator_reviewed_playable_opening"
-        )
+    # Public setup callers can register host-reviewed source pages, but cannot
+    # assert that those pages are a semantically complete playable opening.
+    # Promotion is owned by the unexposed coordinator fulfillment boundary.
+    opening_source_provenance = "selection_hint_only_not_provenance"
     source_bundle_path = Path(str(payload.get("source_bundle_path") or "")).expanduser().resolve()
     try:
         host_bundle = coc_pdf_bundle.load_host_bundle(source_bundle_path)
@@ -4040,7 +4027,6 @@ def execute_setup_operation(
     source = {
         **host_bundle["source"],
         "source_bundle_path": str(source_bundle_path),
-        "opening_source_provenance": opening_source_provenance,
     }
     coc_scenario.create_scenario_skeleton(
         campaign_dir, scenario_id, title.strip(), source
@@ -4110,6 +4096,254 @@ def execute_setup_operation(
             briefing["briefing_path"],
         ],
     }
+
+
+_OPENING_REVIEW_CONTRACT_ID = "coc.opening-source-review-fulfillment.v1"
+_OPENING_REVIEW_OWNER = "opening_source_coordinator"
+_OPENING_REVIEW_FIELDS = {
+    "schema_version", "contract_id", "status", "execution_owner",
+    "coordinator_task_identity_sha256", "campaign_id", "scenario_id",
+    "source_scope", "source_scope_signature", "failure", "receipt_sha256",
+}
+
+
+def _opening_review_receipt_digest(receipt: dict[str, Any]) -> str:
+    body = {
+        key: value
+        for key, value in receipt.items()
+        if key != "receipt_sha256"
+    }
+    return _canonical_sha256(body)
+
+
+def _validate_opening_source_review_fulfillment(
+    workspace: Path | str,
+    receipt: Any,
+    *,
+    expected_status: str | None = None,
+) -> dict[str, Any]:
+    """Validate one private coordinator fulfillment against current source.
+
+    This function is intentionally not a setup/toolbox operation.  The future
+    host adapter must authenticate the retained coordinator task before calling
+    the mutating companion; the receipt then binds that identity to the exact
+    campaign, source bundle, and reviewed page scope.
+    """
+    if not isinstance(receipt, dict):
+        raise RuntimeOperationError(
+            "opening source review fulfillment must be an object"
+        )
+    status = str(receipt.get("status") or "")
+    if set(receipt) != _OPENING_REVIEW_FIELDS:
+        raise RuntimeOperationError(
+            "opening source review fulfillment fields are not exact"
+        )
+    if (
+        receipt.get("schema_version") != 1
+        or receipt.get("contract_id") != _OPENING_REVIEW_CONTRACT_ID
+        or receipt.get("execution_owner") != _OPENING_REVIEW_OWNER
+        or status not in {"reviewed", "failed"}
+        or (expected_status is not None and status != expected_status)
+    ):
+        raise RuntimeOperationError(
+            "opening source review fulfillment authority is invalid"
+        )
+    task_identity = str(
+        receipt.get("coordinator_task_identity_sha256") or ""
+    )
+    claimed_digest = str(receipt.get("receipt_sha256") or "")
+    if (
+        re.fullmatch(r"sha256:[0-9a-f]{64}", task_identity) is None
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", claimed_digest) is None
+        or claimed_digest != _opening_review_receipt_digest(receipt)
+    ):
+        raise RuntimeOperationError(
+            "opening source review fulfillment hash binding is invalid"
+        )
+    root = Path(workspace).resolve()
+    campaign_id = _id(receipt.get("campaign_id"), "campaign_id")
+    scenario_id = _id(receipt.get("scenario_id"), "scenario_id")
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    scenario = _read_object(scenario_path)
+    if str(scenario.get("scenario_id") or "") != scenario_id:
+        raise RuntimeOperationError(
+            "opening source review fulfillment scenario identity mismatch"
+        )
+    if status == "failed":
+        failure = receipt.get("failure")
+        if (
+            receipt.get("source_scope") is not None
+            or receipt.get("source_scope_signature") is not None
+            or not isinstance(failure, dict)
+            or set(failure) != {"failure_class", "error_code"}
+            or not all(
+                isinstance(value, str) and bool(value.strip())
+                for value in failure.values()
+            )
+        ):
+            raise RuntimeOperationError(
+                "opening source review failure requires bounded failure identity"
+            )
+        return deepcopy(receipt)
+
+    asset_root_id = str(
+        scenario.get("source_cache_asset_root_id")
+        or scenario.get("progressive_asset_root_id")
+        or ""
+    ).strip()
+    if not asset_root_id:
+        raise RuntimeOperationError(
+            "opening source review fulfillment has no source asset root"
+        )
+    try:
+        canonical_scope = coc_module_assets.validate_opening_source_scope(
+            root, asset_root_id, receipt.get("source_scope"),
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise RuntimeOperationError(
+            f"opening source review fulfillment scope is invalid: {exc}"
+        ) from exc
+    expected_signature = coc_module_assets.opening_source_scope_signature(
+        canonical_scope
+    )
+    if (
+        receipt.get("source_scope") != canonical_scope
+        or receipt.get("source_scope_signature") != expected_signature
+        or receipt.get("failure") is not None
+    ):
+        raise RuntimeOperationError(
+            "opening source review fulfillment scope binding mismatch"
+        )
+    return deepcopy(receipt)
+
+
+def _build_opening_source_review_fulfillment(
+    workspace: Path | str,
+    *,
+    continuation: dict[str, Any],
+    status: str,
+    selected_opening_pdf_indices: list[int] | None = None,
+    failure_class: str | None = None,
+    error_code: str | None = None,
+) -> dict[str, Any]:
+    """Build the exact receipt for an already-authenticated retained task."""
+    if (
+        not isinstance(continuation, dict)
+        or continuation.get("schema_version") != 1
+        or continuation.get("contract_id") != "coc.opening-source-continue.v1"
+    ):
+        raise RuntimeOperationError(
+            "opening source review requires the retained exact continuation"
+        )
+    campaign_id = _id(continuation.get("campaign_id"), "campaign_id")
+    scenario_id = _id(continuation.get("scenario_id"), "scenario_id")
+    receipt: dict[str, Any] = {
+        "schema_version": 1,
+        "contract_id": _OPENING_REVIEW_CONTRACT_ID,
+        "status": status,
+        "execution_owner": _OPENING_REVIEW_OWNER,
+        "coordinator_task_identity_sha256": _canonical_sha256(continuation),
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "source_scope": None,
+        "source_scope_signature": None,
+        "failure": None,
+    }
+    root = Path(workspace).resolve()
+    if status == "reviewed":
+        campaign_dir = root / ".coc" / "campaigns" / campaign_id
+        scenario = _read_object(
+            campaign_dir / "scenario" / "scenario.json"
+        )
+        source = (
+            scenario.get("source")
+            if isinstance(scenario.get("source"), dict)
+            else {}
+        )
+        if (
+            str(scenario.get("scenario_id") or "") != scenario_id
+            or str(source.get("source_bundle_path") or "")
+            != str(continuation.get("source_bundle_path") or "")
+        ):
+            raise RuntimeOperationError(
+                "opening source review continuation differs from current binding"
+            )
+        asset_root_id = str(
+            scenario.get("source_cache_asset_root_id")
+            or scenario.get("progressive_asset_root_id")
+            or ""
+        ).strip()
+        try:
+            scope = coc_module_assets.validate_opening_source_window(
+                root,
+                asset_root_id,
+                bundle_sha256=str(source.get("bundle_sha256") or ""),
+                pdf_indices=selected_opening_pdf_indices,
+            )
+        except coc_module_assets.ModuleAssetsError as exc:
+            raise RuntimeOperationError(
+                f"opening source review window is invalid: {exc}"
+            ) from exc
+        receipt["source_scope"] = scope
+        receipt["source_scope_signature"] = (
+            coc_module_assets.opening_source_scope_signature(scope)
+        )
+    elif status == "failed":
+        receipt["failure"] = {
+            "failure_class": str(failure_class or "").strip(),
+            "error_code": str(error_code or "").strip(),
+        }
+    else:
+        raise RuntimeOperationError(
+            "opening source review status must be reviewed or failed"
+        )
+    receipt["receipt_sha256"] = _opening_review_receipt_digest(receipt)
+    return _validate_opening_source_review_fulfillment(
+        root, receipt, expected_status=status,
+    )
+
+
+def _apply_opening_source_review_fulfillment(
+    workspace: Path | str,
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    """Private host-adapter mutation; deliberately absent from public tools."""
+    root = Path(workspace).resolve()
+    validated = _validate_opening_source_review_fulfillment(root, receipt)
+    campaign_id = str(validated["campaign_id"])
+    scenario_path = (
+        root / ".coc" / "campaigns" / campaign_id
+        / "scenario" / "scenario.json"
+    )
+    scenario = _read_object(scenario_path)
+    source = (
+        scenario.get("source")
+        if isinstance(scenario.get("source"), dict)
+        else {}
+    )
+    source.pop("opening_source_provenance", None)
+    scenario["source"] = source
+    if validated["status"] == "reviewed":
+        scenario["opening_source_provenance"] = (
+            "coordinator_reviewed_playable_opening"
+        )
+        scenario["opening_source_review_receipt"] = validated
+        scenario.pop("opening_source_review_failure", None)
+    else:
+        scenario["opening_source_provenance"] = (
+            "selection_hint_only_not_provenance"
+        )
+        scenario["opening_source_review_failure"] = validated
+        scenario.pop("opening_source_review_receipt", None)
+    coc_fileio.write_json_atomic(
+        scenario_path,
+        scenario,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return deepcopy(validated)
 
 
 def execute_operation(

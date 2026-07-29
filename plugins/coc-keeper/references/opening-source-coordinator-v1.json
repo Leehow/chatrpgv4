@@ -159,11 +159,18 @@
         "campaign_id",
         "scenario_id",
         "title",
-        "source_bundle_path",
-        "opening_source_provenance"
+        "source_bundle_path"
       ],
-      "fixed_opening_source_provenance": "coordinator_reviewed_playable_opening",
       "values_from_retained_closed_task": true
+    },
+    "review_fulfillment": {
+      "public_tool": false,
+      "execution_owner": "opening_source_coordinator",
+      "contract_id": "coc.opening-source-review-fulfillment.v1",
+      "retained_continuation_identity_hash_bound": true,
+      "campaign_scenario_bundle_and_source_scope_hash_bound": true,
+      "canonical_scope_signature_required": true,
+      "ordinary_setup_promotion_forbidden": true
     },
     "main_keeper_waits_only_for_concept_result_before_character_choice": true,
     "main_keeper_character_flow_continues_without_waiting": true,

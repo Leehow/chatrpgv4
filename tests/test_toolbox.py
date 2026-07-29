@@ -13728,9 +13728,11 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
     scenario["opening_source_provenance"] = (
         "selection_hint_only_not_provenance"
     )
-    scenario["source"]["opening_source_provenance"] = (
-        "selection_hint_only_not_provenance"
+    scenario["scenario_id"] = ws["asset_root_id"]
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
     )
+    scenario["source"].pop("opening_source_provenance", None)
     _write_json(scenario_path, scenario)
     monkeypatch.setenv("COC_HOST", "pi")
 
@@ -13794,19 +13796,141 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
     assert after_character["error"]["details"][
         "character_setup_complete"
     ] is True
+    restarted = _run(ws, "session.resume")
+    assert restarted["ok"] is False
+    assert restarted["error"]["details"]["phase"] == (
+        "opening_source_review_required"
+    )
+    assert restarted["error"]["details"]["character_setup_complete"] is True
 
-    scenario["opening_source_provenance"] = (
-        "coordinator_reviewed_playable_opening"
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": scenario["scenario_id"],
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": ws["asset_root_id"],
+        "source_bundle_path": scenario["source"]["source_bundle_path"],
+        "result_delivery": "task_return_to_parent",
+    }
+    review_receipt = (
+        coc_toolbox.coc_runtime_ops
+        ._build_opening_source_review_fulfillment(
+            ws["workspace"],
+            continuation=continuation,
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
     )
-    scenario["source"]["opening_source_provenance"] = (
-        "coordinator_reviewed_playable_opening"
+    scope_forgery = deepcopy(review_receipt)
+    scope_forgery["source_scope"]["pdf_indices"] = [1]
+    scope_forgery["receipt_sha256"] = (
+        coc_toolbox.coc_runtime_ops._opening_review_receipt_digest(
+            scope_forgery
+        )
     )
-    _write_json(scenario_path, scenario)
+    with pytest.raises(
+        coc_toolbox.coc_runtime_ops.RuntimeOperationError,
+        match="scope is invalid",
+    ):
+        coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+            ws["workspace"], scope_forgery,
+        )
+    coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        ws["workspace"], review_receipt,
+    )
     reviewed = _run(ws, "progressive.prepare_opening")
     assert reviewed["ok"] is True, reviewed
     assert reviewed["data"]["next_operation"]["operation"] == (
         "progressive.opening_bootstrap"
     )
+
+
+def test_pi_reviewed_provenance_requires_receipt_and_matching_copies(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    scenario["opening_source_provenance"] = (
+        "coordinator_reviewed_playable_opening"
+    )
+    scenario["source"].pop("opening_source_provenance", None)
+    scenario.pop("opening_source_review_receipt", None)
+    _write_json(scenario_path, scenario)
+    forged = _run(ws, "progressive.prepare_opening")
+    assert forged["ok"] is False
+    assert forged["error"]["details"]["source_contract_error"]["code"] == (
+        "opening_source_review_receipt_invalid"
+    )
+
+    scenario["source"]["opening_source_provenance"] = (
+        "selection_hint_only_not_provenance"
+    )
+    _write_json(scenario_path, scenario)
+    mismatched = _run(ws, "session.resume")
+    assert mismatched["ok"] is False
+    assert mismatched["error"]["details"]["source_contract_error"]["code"] == (
+        "opening_source_provenance_mismatch"
+    )
+
+
+def test_pi_opening_coordinator_terminal_failure_survives_restart(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["opening_source_provenance"] = (
+        "selection_hint_only_not_provenance"
+    )
+    scenario["scenario_id"] = ws["asset_root_id"]
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
+    )
+    scenario["source"].pop("opening_source_provenance", None)
+    _write_json(scenario_path, scenario)
+    monkeypatch.setenv("COC_HOST", "pi")
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": scenario["scenario_id"],
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": ws["asset_root_id"],
+        "source_bundle_path": scenario["source"]["source_bundle_path"],
+        "result_delivery": "task_return_to_parent",
+    }
+    failure_receipt = (
+        coc_toolbox.coc_runtime_ops
+        ._build_opening_source_review_fulfillment(
+            ws["workspace"],
+            continuation=continuation,
+            status="failed",
+            failure_class="pdf_scope_failed",
+            error_code="missing_reviewed_window",
+        )
+    )
+    coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        ws["workspace"], failure_receipt,
+    )
+
+    for operation in ("session.resume", "scene.map"):
+        terminal = _run(ws, operation)
+        assert terminal["ok"] is False
+        assert terminal["error"]["code"] == "opening_setup_incomplete"
+        details = terminal["error"]["details"]
+        assert details["phase"] == "opening_source_review_failed"
+        assert details["status"] == "failed"
+        assert details["next_operation"] is None
+        assert details["source_review_failure"]["failure_class"] == (
+            "pdf_scope_failed"
+        )
+        assert details["source_review_failure"]["receipt_sha256"].startswith(
+            "sha256:"
+        )
 
 
 def test_pi_bound_source_contract_drift_remains_a_hard_play_gate(
