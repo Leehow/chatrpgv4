@@ -313,6 +313,14 @@ type OpeningSetupTerminalBlocker = {
   visibleText: string;
   details: JsonObject;
 };
+type OpeningGuidedCreateReceipt = {
+  campaignId: string;
+  investigatorId: string;
+  generation: string;
+  revision: number;
+  invocationId: string;
+  receiptSha256: string;
+};
 type OpeningSetupState = {
   route: OpeningSetupRoute;
   generation: string;
@@ -330,6 +338,7 @@ type OpeningSetupState = {
     | "contract_invalid";
   dispatchIdentity: string | null;
   characterSetupComplete: boolean;
+  guidedCreateReceipts: Map<string, OpeningGuidedCreateReceipt>;
   projectionCard: JsonObject | null;
   bootstrapRetryCard: JsonObject | null;
   continuationReleaseOwner: "route" | "terminal" | null;
@@ -670,6 +679,7 @@ export class OpeningTerminalContinuationGate {
         campaign: campaignId,
         kind: "campaign.link_investigator",
         required_payload_fields: ["campaign_id", "investigator_ids"],
+        requires_current_opening_receipt: "investigator.create:guided_quick_fire",
       },
       {
         operation: "setup.invoke",
@@ -776,6 +786,34 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private linkMatchesCurrentGuidedCreates(
+    params: JsonObject,
+    state: OpeningSetupState,
+  ): boolean {
+    const args = objectOrNull(params.arguments);
+    const payload = objectOrNull(args?.payload);
+    const investigatorIds = payload?.investigator_ids;
+    return (
+      args?.kind === "campaign.link_investigator"
+      && payload?.campaign_id === state.route.campaign_id
+      && Array.isArray(investigatorIds)
+      && investigatorIds.length > 0
+      && investigatorIds.every((value) => {
+        if (typeof value !== "string") return false;
+        const receipt = state.guidedCreateReceipts.get(value);
+        return (
+          receipt !== undefined
+          && receipt.campaignId === state.route.campaign_id
+          && receipt.investigatorId === value
+          && receipt.generation === state.generation
+          && receipt.revision === state.revision
+          && receipt.invocationId.length > 0
+          && receipt.receiptSha256.startsWith("sha256:")
+        );
+      })
+    );
+  }
+
   private characterSetupAllowed(state: OpeningSetupState): boolean {
     return [
       "submitting",
@@ -800,6 +838,16 @@ export class OpeningTerminalContinuationGate {
         operation === "setup.invoke"
         && args?.kind === "investigator.render_card"
         && this.canonicalSetupInvokeForOpening(params, route)
+      );
+    }
+    const setupArgs = objectOrNull(params.arguments);
+    if (
+      operation === "setup.invoke"
+      && setupArgs?.kind === "campaign.link_investigator"
+    ) {
+      return (
+        this.canonicalSetupInvokeForOpening(params, route)
+        && this.linkMatchesCurrentGuidedCreates(params, state)
       );
     }
     if (operation === "setup.investigator_contract") {
@@ -929,6 +977,7 @@ export class OpeningTerminalContinuationGate {
       return (
         typeof payload.investigator_id === "string"
         && result.investigator_id === payload.investigator_id
+        && exactKeysMatch(result, ["investigator_id"])
       );
     }
     if (kind === "investigator.render_card") {
@@ -1425,7 +1474,7 @@ export class OpeningTerminalContinuationGate {
     ) {
       throw new Error("opening setup generation identity is unavailable");
     }
-    const state = {
+    const state: OpeningSetupState = {
       route,
       generation: attempt.generation,
       generationSequence: attempt.generationSequence,
@@ -1433,6 +1482,7 @@ export class OpeningTerminalContinuationGate {
       phase,
       dispatchIdentity: null,
       characterSetupComplete: false,
+      guidedCreateReceipts: new Map<string, OpeningGuidedCreateReceipt>(),
       projectionCard: null,
       bootstrapRetryCard: null,
       continuationReleaseOwner: null,
@@ -1456,6 +1506,7 @@ export class OpeningTerminalContinuationGate {
       dispatchIdentity: null,
       continuationReleaseOwner: null,
       backgroundTerminalReceipt: null,
+      guidedCreateReceipts: new Map<string, OpeningGuidedCreateReceipt>(),
     };
     this.openingSetupStates.set(state.route.campaign_id, next);
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
@@ -1883,6 +1934,10 @@ export class OpeningTerminalContinuationGate {
         operation === "setup.invoke"
         && setupArgs?.kind === "campaign.link_investigator"
       );
+      const createAttempt = (
+        operation === "setup.invoke"
+        && setupArgs?.kind === "investigator.create"
+      );
       let canonicalVisibleText = this.canonicalCharacterSetupVisibleText(
         operation,
         params,
@@ -1914,7 +1969,44 @@ export class OpeningTerminalContinuationGate {
         });
       }
       const acceptedCharacterResult = canonicalVisibleText !== null;
-      if (linkAttempt && acceptedCharacterResult) {
+      if (createAttempt && acceptedCharacterResult) {
+        const payload = objectOrNull(setupArgs?.payload);
+        const creation = objectOrNull(payload?.creation);
+        const investigatorId = typeof payload?.investigator_id === "string"
+          ? payload.investigator_id
+          : "";
+        if (
+          investigatorId
+          && payload?.campaign_id === attempt.campaignId
+          && creation?.input_mode === "guided_quick_fire"
+        ) {
+          state.guidedCreateReceipts.set(investigatorId, {
+            campaignId: attempt.campaignId,
+            investigatorId,
+            generation: state.generation,
+            revision: state.revision,
+            invocationId: attempt.invocationId,
+            receiptSha256: canonicalJsonValueSha256({
+              tool: envelope?.tool,
+              data: envelope?.data,
+            }),
+          });
+          this.recordOpeningSetupAudit({
+            status: "retained",
+            reason: "guided_quick_fire_create_current",
+            campaign_id: attempt.campaignId,
+            investigator_id: investigatorId,
+            generation: state.generation,
+            revision: state.revision,
+            invocation_id: attempt.invocationId,
+          });
+        }
+      }
+      if (
+        linkAttempt
+        && acceptedCharacterResult
+        && this.linkMatchesCurrentGuidedCreates(params, state)
+      ) {
         state.characterSetupComplete = true;
         if (state.phase === "ready") {
           this.armOpeningEvidenceRoute(state);

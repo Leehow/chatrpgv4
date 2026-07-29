@@ -372,6 +372,72 @@ function canonicalLinkSetupResult(
   };
 }
 
+function guidedQuickFireCreateParams(campaignId, investigatorId) {
+  return {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "investigator.create",
+      payload: {
+        campaign_id: campaignId,
+        investigator_id: investigatorId,
+        sheet: { id: investigatorId, name: `Investigator ${investigatorId}` },
+        creation: {
+          input_mode: "guided_quick_fire",
+          method: "quick_fire_array",
+          characteristic_assignment_order: [
+            "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+          ],
+          luck_roll_total: 12,
+          luck_roll_receipt: {
+            campaign_id: campaignId,
+            decision_id: `luck-${investigatorId}`,
+            roll_id: `toolbox-${campaignId}-${investigatorId}`,
+          },
+        },
+      },
+    },
+  };
+}
+
+function canonicalGuidedCreateResult(investigatorId, overrides = {}) {
+  return {
+    ok: true,
+    tool: "setup.invoke",
+    data: {
+      schema_version: 1,
+      status: "PASS",
+      kind: "investigator.create",
+      result: { investigator_id: investigatorId },
+      ...overrides,
+    },
+  };
+}
+
+function observeCanonicalGuidedCreate(
+  gate,
+  campaignId,
+  investigatorId,
+  invocationId,
+  result = canonicalGuidedCreateResult(investigatorId),
+) {
+  const params = guidedQuickFireCreateParams(campaignId, investigatorId);
+  const admissionError = gate.openingSetupToolError(
+    "coc_invoke",
+    params,
+    invocationId,
+  );
+  if (admissionError !== null) {
+    throw new Error(`guided create was not admitted: ${admissionError}`);
+  }
+  return gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    params,
+    result,
+    invocationId,
+  );
+}
+
 function observeOwnedOpeningInvocation(gate, invocationId, params, value) {
   const admissionError = gate.openingSetupToolError(
     "coc_invoke",
@@ -2048,6 +2114,12 @@ async function exerciseFailureDrain(mode) {
     ) {
       return linked.promise;
     }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) {
+      return canonicalGuidedCreateResult("monotonic-investigator");
+    }
     if (params.operation === "progressive.opening_bootstrap") {
       return bootstrapped.promise;
     }
@@ -2151,6 +2223,16 @@ async function exerciseFailureDrain(mode) {
 
   bootstrapped.resolve(openingBootstrapWithoutTakeover(task, "current"));
   const current = JSON.parse((await bootstrapPending).content[0].text);
+  await harness.registered.get("coc_invoke").execute(
+    "monotonic-create-after-current",
+    guidedQuickFireCreateParams(
+      "auto-dispatch-fixture",
+      "monotonic-investigator",
+    ),
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const linkPending = harness.registered.get("coc_invoke").execute(
     "monotonic-link-after-current",
     {
@@ -3205,6 +3287,17 @@ for (const terminalCase of [
       },
     },
   };
+  const directReusableLinkError = gate.openingSetupToolError(
+    "coc_invoke",
+    linkParams,
+    "current-before-link-reusable-direct",
+  );
+  const currentCreate = observeCanonicalGuidedCreate(
+    gate,
+    "current-before-link",
+    "current-before-link-investigator",
+    "current-before-link-create",
+  );
   const linked = observeOwnedOpeningInvocation(
     gate,
     "current-before-link-link",
@@ -3214,8 +3307,13 @@ for (const terminalCase of [
       ["current-before-link-investigator"],
     ),
   );
-  check("exact link receipt is visible before retained table-opening evidence",
-    linked === undefined
+  check("current opening requires same-generation guided create before link",
+    directReusableLinkError?.includes(
+      '"requires_current_opening_receipt":'
+      + '"investigator.create:guided_quick_fire"',
+    )
+    && currentCreate.accepted === true
+    && linked === undefined
     && replacementIs(
       gate.acceptVisibleAssistantFinal("模型自拟的链接说明。"),
       "调查员已正式加入战役。",
@@ -3227,6 +3325,135 @@ for (const terminalCase of [
     }, "current-before-link-still-gated")?.includes(
       '"operation":"evidence.table_opening"',
     ));
+}
+
+// Completion-bearing links are causally bound to a successful guided create
+// receipt in this exact gate generation. Failed/mismatched creates, wrong
+// linked IDs, and receipts retired with an older generation never qualify.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  const campaignId = "guided-create-causality";
+  bindOpeningRoute(gate, campaignId, "causal-bind-1");
+  prepareOpeningRoute(gate, campaignId, "causal-prepare-1");
+  observeOwnedOpeningInvocation(
+    gate,
+    "causal-current-1",
+    bootstrapOpeningParams(campaignId),
+    openingBootstrapWithoutTakeover(
+      coordinatorTask("causal-current-task-1", { campaignId }),
+      "current",
+    ),
+  );
+  const failedCreate = observeCanonicalGuidedCreate(
+    gate,
+    campaignId,
+    "failed-create-investigator",
+    "causal-failed-create",
+    {
+      ok: false,
+      tool: "setup.invoke",
+      error: { code: "setup_failed" },
+    },
+  );
+  const mismatchedIdCreate = observeCanonicalGuidedCreate(
+    gate,
+    campaignId,
+    "mismatched-id-investigator",
+    "causal-mismatched-id-create",
+    canonicalGuidedCreateResult("different-result-investigator"),
+  );
+  const mismatchedCampaignCreate = observeCanonicalGuidedCreate(
+    gate,
+    campaignId,
+    "mismatched-campaign-investigator",
+    "causal-mismatched-campaign-create",
+    canonicalGuidedCreateResult(
+      "mismatched-campaign-investigator",
+      {
+        result: {
+          campaign_id: "wrong-campaign",
+          investigator_id: "mismatched-campaign-investigator",
+        },
+      },
+    ),
+  );
+  const unqualifiedLink = (investigatorId, invocationId) => (
+    gate.openingSetupToolError(
+      "coc_invoke",
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: {
+          kind: "campaign.link_investigator",
+          payload: {
+            campaign_id: campaignId,
+            investigator_ids: [investigatorId],
+          },
+        },
+      },
+      invocationId,
+    )
+  );
+  check("failed and mismatched create receipts cannot qualify a link",
+    failedCreate.accepted === false
+    && mismatchedIdCreate.accepted === false
+    && mismatchedCampaignCreate.accepted === false
+    && unqualifiedLink(
+      "failed-create-investigator",
+      "causal-failed-link",
+    ) !== null
+    && unqualifiedLink(
+      "mismatched-id-investigator",
+      "causal-mismatched-id-link",
+    ) !== null
+    && unqualifiedLink(
+      "mismatched-campaign-investigator",
+      "causal-mismatched-campaign-link",
+    ) !== null);
+
+  const currentCreated = observeCanonicalGuidedCreate(
+    gate,
+    campaignId,
+    "current-created-investigator",
+    "causal-current-create",
+  );
+  check("successful create qualifies only its exact investigator id",
+    currentCreated.accepted === true
+    && unqualifiedLink(
+      "wrong-linked-investigator",
+      "causal-wrong-id-link",
+    ) !== null);
+
+  gate.clearOpeningSetupRoute(campaignId);
+  bindOpeningRoute(gate, campaignId, "causal-bind-2");
+  prepareOpeningRoute(gate, campaignId, "causal-prepare-2");
+  observeOwnedOpeningInvocation(
+    gate,
+    "causal-current-2",
+    bootstrapOpeningParams(campaignId),
+    openingBootstrapWithoutTakeover(
+      coordinatorTask("causal-current-task-2", { campaignId }),
+      "current",
+    ),
+  );
+  const oldGenerationLink = unqualifiedLink(
+    "current-created-investigator",
+    "causal-old-generation-link",
+  );
+  check("retired generation create receipt cannot unlock new opening route",
+    oldGenerationLink?.includes(
+      '"requires_current_opening_receipt":'
+      + '"investigator.create:guided_quick_fire"',
+    )
+    && gate.openingSetupToolError(
+      "coc_invoke",
+      {
+        operation: "scene.context",
+        campaign: campaignId,
+        arguments: {},
+      },
+      "causal-new-generation-scene",
+    )?.includes('"phase":"opening_current_character_setup_required"'));
 }
 
 // Terminal fulfillment before link is append-only. Projection remains
@@ -3335,6 +3562,14 @@ for (const terminalCase of [
     check(`submitting phase admits exact canonical character action ${id}`,
       gate.openingSetupToolError("coc_invoke", params, id) === null);
   }
+  const submittingCreateObserved = gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    createParams,
+    canonicalGuidedCreateResult("submitting-overlap-investigator"),
+    "submitting-overlap-create",
+  );
+  check("submitting create receipt establishes current link eligibility",
+    submittingCreateObserved.accepted === true);
 
   const rejectedOperations = [
     {
@@ -3761,6 +3996,12 @@ for (const terminalCase of [
     },
   };
   gate.markAgentStart();
+  observeCanonicalGuidedCreate(
+    gate,
+    "terminal-release-owner",
+    "terminal-release-owner-investigator",
+    "terminal-release-owner-create",
+  );
   observeOwnedOpeningInvocation(
     gate,
     "terminal-release-owner-link",
@@ -4461,17 +4702,10 @@ for (const terminalCase of [
 {
   const gate = new main.OpeningTerminalContinuationGate();
   beginBackgroundOpeningRoute(gate, "attempt-cleanup", "attempt-cleanup");
-  const characterParams = {
-    operation: "setup.invoke",
-    campaign: "attempt-cleanup",
-    arguments: {
-      kind: "campaign.link_investigator",
-      payload: {
-        campaign_id: "attempt-cleanup",
-        investigator_ids: ["cleanup-investigator"],
-      },
-    },
-  };
+  const characterParams = guidedQuickFireCreateParams(
+    "attempt-cleanup",
+    "cleanup-investigator",
+  );
   check("character attempt is admitted before transport failure",
     gate.openingSetupToolError(
       "coc_invoke",
@@ -4495,7 +4729,7 @@ for (const terminalCase of [
   gate.observeOpeningSetupInvocation(
     "setup.invoke",
     characterParams,
-    staleCharacterSetupResult("campaign.link_investigator"),
+    staleCharacterSetupResult("investigator.create"),
     "attempt-cleanup-reuse",
   );
 
@@ -5026,29 +5260,26 @@ for (const terminalCase of [
     } catch {
       missingLinkRejected = true;
     }
-    const linked = JSON.parse((await harness.registered.get(
-      "coc_invoke",
-    ).execute(
-      "r12-real-link-corrected",
-      {
-        operation: "setup.invoke",
-        campaign: campaignId,
-        arguments: linkArgs,
-      },
-      undefined,
-      undefined,
-      harness.ctx,
-    )).content[0].text);
-    check("real toolbox link waits for background attempt and then succeeds",
+    let importedLinkRejected = false;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        "r12-real-link-imported",
+        {
+          operation: "setup.invoke",
+          campaign: campaignId,
+          arguments: linkArgs,
+        },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch {
+      importedLinkRejected = true;
+    }
+    check("real imported reusable investigator cannot complete Pi opening",
       missingLinkRejected
-      && harness.calls.length === callsBeforeMissingLink + 1
-      && linked.ok === true
-      && linked.data.schema_version === 1
-      && linked.data.status === "PASS"
-      && linked.data.kind === "campaign.link_investigator"
-      && linked.data.result.campaign_id === campaignId
-      && JSON.stringify(linked.data.result.investigator_ids)
-        === JSON.stringify([investigatorId]));
+      && importedLinkRejected
+      && harness.calls.length === callsBeforeMissingLink);
     await harness.shutdown();
   } finally {
     rmSync(workspace, { recursive: true, force: true });
@@ -5087,6 +5318,12 @@ for (const terminalCase of [
         campaignId,
         params.arguments.payload.investigator_ids,
       );
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) {
+      return canonicalGuidedCreateResult("live-grok-investigator");
     }
     if (params.operation === "progressive.prepare_opening") {
       return {
@@ -5232,6 +5469,15 @@ for (const terminalCase of [
     undefined,
     harness.ctx,
   )).content[0].text);
+  const correctedCreate = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "live-grok-corrected-create",
+    guidedQuickFireCreateParams(campaignId, "live-grok-investigator"),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
   const correctedLink = JSON.parse((await harness.registered.get(
     "coc_invoke",
   ).execute(
@@ -5248,15 +5494,17 @@ for (const terminalCase of [
   check("corrected live Grok setup advances only the exact retained route",
     wrongBootstrapRejected
     && beforeWrongBootstrap === 2
-    && harness.calls.length === 4
+    && harness.calls.length === 5
     && harness.calls.map((call) => call.params.operation).join(",") === [
       "setup.invoke",
       "progressive.prepare_opening",
       "progressive.opening_bootstrap",
       "setup.invoke",
+      "setup.invoke",
     ].join(",")
     && correctedBootstrap.ok === true
     && correctedBootstrap.data.status === "current"
+    && correctedCreate.data.kind === "investigator.create"
     && correctedLink.data.kind === "campaign.link_investigator"
     && harness.launches.length === 0);
   await harness.shutdown();
@@ -5845,6 +6093,7 @@ for (const terminalCase of [
 // fulfilled projection route then remains available for one natural retry.
 {
   const task = coordinatorTask("terminal-send-retry");
+  const terminalSendInvestigatorId = "terminal-send-investigator";
   const harness = mainExtensionHarness((_name, params) => {
     if (
       params.operation === "setup.invoke"
@@ -5865,6 +6114,12 @@ for (const terminalCase of [
         ["terminal-send-investigator"],
       );
     }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) {
+      return canonicalGuidedCreateResult(terminalSendInvestigatorId);
+    }
     throw new Error(`unexpected operation ${params.operation}`);
   }, {
     sendFailuresByType: {
@@ -5881,6 +6136,16 @@ for (const terminalCase of [
     harness.ctx,
   );
   await harness.registered.get("coc_invoke").execute(
+    "terminal-send-create",
+    guidedQuickFireCreateParams(
+      "auto-dispatch-fixture",
+      terminalSendInvestigatorId,
+    ),
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await harness.registered.get("coc_invoke").execute(
     "terminal-send-link",
     {
       operation: "setup.invoke",
@@ -5889,7 +6154,7 @@ for (const terminalCase of [
         kind: "campaign.link_investigator",
         payload: {
           campaign_id: "auto-dispatch-fixture",
-          investigator_ids: ["terminal-send-investigator"],
+          investigator_ids: [terminalSendInvestigatorId],
         },
       },
     },
@@ -6293,6 +6558,12 @@ for (const terminalCase of [
         ["phase-inv"],
       );
     }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) {
+      return canonicalGuidedCreateResult("phase-inv");
+    }
     if (params.operation === "progressive.project_opening") {
       return {
         ok: true,
@@ -6359,6 +6630,13 @@ for (const terminalCase of [
       )));
   }
 
+  await harness.registered.get("coc_invoke").execute(
+    "phase-create",
+    guidedQuickFireCreateParams("auto-dispatch-fixture", "phase-inv"),
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   await harness.registered.get("coc_invoke").execute(
     "phase-link",
     {

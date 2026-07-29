@@ -58,6 +58,7 @@ DEFAULT_RECOMMENDED_SKILLS = [
 PROGRESSIVE_MACHINE_SUMMARY = (
     "Progressive import: skeleton topology; deep packs fill in on demand."
 )
+PROGRESSIVE_MACHINE_TITLE = "Progressive Module"
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -142,14 +143,31 @@ def _localized_title(title: str, campaign: dict[str, Any], language: str) -> str
     return title
 
 
-def _scenario_title(campaign: dict[str, Any], scenario: dict[str, Any], module_meta: dict[str, Any], language: str) -> str:
-    title = str(
-        scenario.get("title")
-        or module_meta.get("title")
-        or campaign.get("title")
-        or "Call of Cthulhu Scenario"
-    )
-    return _localized_title(title, campaign, language)
+def _public_title_candidate(value: Any) -> str:
+    text = str(value or "").strip()
+    if text == PROGRESSIVE_MACHINE_TITLE:
+        return ""
+    return text
+
+
+def _scenario_title(
+    campaign: dict[str, Any],
+    scenario: dict[str, Any],
+    module_meta: dict[str, Any],
+    source_map: dict[str, Any],
+    language: str,
+) -> str:
+    source_title = _public_title_candidate(_source_label(source_map, scenario))
+    for value in (
+        scenario.get("title"),
+        module_meta.get("title"),
+        source_title,
+        campaign.get("title"),
+    ):
+        title = _public_title_candidate(value)
+        if title:
+            return _localized_title(title, campaign, language)
+    return "调查员创建简报" if language == "zh-Hans" else "Investigator Briefing"
 
 
 def _source_label(source_map: dict[str, Any], scenario: dict[str, Any]) -> str:
@@ -157,7 +175,9 @@ def _source_label(source_map: dict[str, Any], scenario: dict[str, Any]) -> str:
     if not isinstance(source, dict):
         sources = source_map.get("sources", [])
         source = sources[0] if isinstance(sources, list) and sources and isinstance(sources[0], dict) else {}
-    return str(source.get("title") or source.get("filename") or source.get("path") or "")
+    return _public_title_candidate(
+        source.get("title") or source.get("filename") or source.get("path")
+    )
 
 
 def _era_label(value: Any, language: str) -> str:
@@ -283,7 +303,7 @@ def render_briefing(
     *,
     language: str = "zh-Hans",
 ) -> str:
-    title = _scenario_title(campaign, scenario, module_meta, language)
+    title = _scenario_title(campaign, scenario, module_meta, source_map, language)
     era = _era_label(module_meta.get("era") or campaign.get("era"), language)
     structure = _structure_label(module_meta.get("structure_type"), language)
     source = _localized_title(_source_label(source_map, scenario), campaign, language)

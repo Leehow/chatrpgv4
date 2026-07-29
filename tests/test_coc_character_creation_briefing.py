@@ -136,12 +136,12 @@ def test_render_briefing_omits_unavailable_machine_fields_and_internal_markers(
     )
     _write_json(
         campaign_dir / "scenario" / "scenario.json",
-        {"title": "Sparse Case"},
+        {"title": "Progressive Module"},
     )
     _write_json(
         campaign_dir / "scenario" / "module-meta.json",
         {
-            "title": "Sparse Case",
+            "title": "Progressive Module",
             "era": "unknown",
             "structure_type": "unknown",
             "player_safe_summary": (
@@ -163,8 +163,47 @@ def test_render_briefing_omits_unavailable_machine_fields_and_internal_markers(
     assert "**来源**" not in markdown
     assert "unknown" not in markdown
     assert "Progressive import: skeleton topology" not in markdown
+    assert "Progressive Module" not in markdown
+    assert markdown.startswith("# 调查员创建简报：开卡序章")
     assert "<!--" not in markdown
     assert "generated_at" not in markdown
     assert "generated_by" not in markdown
     assert "不要使用内置预设调查员" not in markdown
     assert "接下来请选择一种属性生成方式" in markdown
+
+
+def test_progressive_placeholder_prefers_localized_source_title(tmp_path):
+    briefing = _load_briefing_script()
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-source-title"
+    _write_json(
+        campaign_dir / "campaign.json",
+        {
+            "title": "Generic Campaign Shell",
+            "play_language": "zh-Hans",
+            "localized_terms": {
+                "zh-Hans": {"Source-Backed Case": "有据可查的案件"},
+            },
+        },
+    )
+    _write_json(
+        campaign_dir / "scenario" / "scenario.json",
+        {"title": "Progressive Module"},
+    )
+    _write_json(
+        campaign_dir / "scenario" / "module-meta.json",
+        {"title": "Progressive Module", "era": "unknown"},
+    )
+    _write_json(
+        campaign_dir / "index" / "source-map.json",
+        {"sources": [{"title": "Source-Backed Case"}]},
+    )
+
+    result = briefing.render_briefing_from_campaign(
+        campaign_dir,
+        repo_root=tmp_path,
+    )
+    markdown = (tmp_path / result["briefing_path"]).read_text(encoding="utf-8")
+
+    assert markdown.startswith("# 有据可查的案件：开卡序章")
+    assert "Progressive Module" not in markdown
+    assert "Generic Campaign Shell" not in markdown
