@@ -4,10 +4,12 @@ import {
   lstat,
   mkdir,
   open,
+  readdir,
   readFile,
   realpath,
   rename,
   rm,
+  rmdir,
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -40,6 +42,8 @@ const OCR_TIMEOUT_MS = 15 * 60 * 1000;
 const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 5 * 60 * 1000;
 const SOURCE_SCOPE_PUBLICATION_MARKER = ".coc-source-scope-publication.json";
 const SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS = 30_000;
+const SOURCE_SCOPE_PUBLISH_LOCK_OWNER = "owner.json";
+const SOURCE_SCOPE_PUBLISH_RECOVERY_GUARD_SUFFIX = ".recovery.guard";
 const discoverSchema = { type: "object", properties: { operation: { type: "string" }, domain: { type: "string" } }, additionalProperties: false } as const;
 const invokeSchema = {
   type: "object",
@@ -4175,8 +4179,8 @@ function processOwnerAlive(pid: number): boolean {
 async function createPublishLock(
   lockPath: string,
   taskDigest: string,
-): Promise<{ handle: Awaited<ReturnType<typeof open>>; owner: JsonObject }> {
-  const handle = await open(lockPath, "wx", 0o600);
+): Promise<{ owner: JsonObject }> {
+  await mkdir(lockPath, { mode: 0o700 });
   const owner = {
     schema_version: 1,
     contract_id: "coc.pi-source-scope-publish-lock.v1",
@@ -4185,36 +4189,82 @@ async function createPublishLock(
     created_at_ms: Date.now(),
     task_digest: taskDigest,
   };
-  await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
-  await handle.sync();
-  return { handle, owner };
+  const handle = await open(
+    join(lockPath, SOURCE_SCOPE_PUBLISH_LOCK_OWNER),
+    "wx",
+    0o600,
+  );
+  try {
+    await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  return { owner };
 }
 
-async function acquirePublishLock(
+type PublishLockInspection = {
+  stale: boolean;
+  dev: number;
+  ino: number;
+};
+
+async function inspectPublishLock(
   lockPath: string,
-  stablePath: string,
-  taskDigest: string,
-): Promise<{ handle: Awaited<ReturnType<typeof open>>; owner: JsonObject }> {
-  try {
-    return await createPublishLock(lockPath, taskDigest);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  if (await pathExists(stablePath)) {
-    throw new Error("publish lock recovery found an existing stable bundle");
-  }
+): Promise<PublishLockInspection> {
   const stat = await lstat(lockPath);
-  if (!stat.isFile() || stat.isSymbolicLink()) {
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
     throw new Error("source-scope publish lock is invalid");
   }
-  const existing = asObject(
-    JSON.parse((await readFile(lockPath, "utf8")).trim()),
-    "source-scope publish lock",
-  );
-  exactKeys(existing, [
-    "schema_version", "contract_id", "pid", "owner_nonce",
-    "created_at_ms", "task_digest",
-  ], "source-scope publish lock");
+  const directoryAgeMs = Date.now() - stat.mtimeMs;
+  const ownerPath = join(lockPath, SOURCE_SCOPE_PUBLISH_LOCK_OWNER);
+  let ownerBytes: string;
+  try {
+    const ownerStat = await lstat(ownerPath);
+    if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) {
+      throw new Error("source-scope publish lock owner is invalid");
+    }
+    ownerBytes = await readFile(ownerPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return {
+      stale: directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
+      dev: stat.dev,
+      ino: stat.ino,
+    };
+  }
+  let existing: JsonObject;
+  try {
+    existing = asObject(
+      JSON.parse(ownerBytes.trim()),
+      "source-scope publish lock",
+    );
+  } catch {
+    // A process can crash while writing the owner record. With no readable
+    // PID, the directory mtime is the only safe bounded recovery signal.
+    return {
+      stale: directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
+      dev: stat.dev,
+      ino: stat.ino,
+    };
+  }
+  try {
+    exactKeys(existing, [
+      "schema_version", "contract_id", "pid", "owner_nonce",
+      "created_at_ms", "task_digest",
+    ], "source-scope publish lock");
+  } catch {
+    const partialPid = Number(existing.pid);
+    return {
+      stale: !(
+        Number.isInteger(partialPid)
+        && partialPid > 0
+        && processOwnerAlive(partialPid)
+      ) && directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
+      dev: stat.dev,
+      ino: stat.ino,
+    };
+  }
   const pid = Number(existing.pid);
   const ageMs = Date.now() - Number(existing.created_at_ms);
   if (
@@ -4225,37 +4275,220 @@ async function acquirePublishLock(
     || !/^[0-9a-f-]{36}$/.test(String(existing.owner_nonce ?? ""))
     || !Number.isFinite(ageMs)
     || !/^[a-f0-9]{64}$/.test(String(existing.task_digest ?? ""))
-  ) throw new Error("source-scope publish lock metadata is invalid");
-  if (processOwnerAlive(pid) || ageMs < SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS) {
-    throw new Error("source-scope publish lock is active");
+  ) {
+    return {
+      stale: !(
+        Number.isInteger(pid)
+        && pid > 0
+        && processOwnerAlive(pid)
+      ) && directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
+      dev: stat.dev,
+      ino: stat.ino,
+    };
   }
-  const stalePath = `${lockPath}.stale-${randomUUID()}`;
-  await rename(lockPath, stalePath);
+  return {
+    stale: !processOwnerAlive(pid)
+      && ageMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
+    dev: stat.dev,
+    ino: stat.ino,
+  };
+}
+
+function recoveryGuardOwnerName(owner: JsonObject): string {
+  return [
+    "owner-v1",
+    owner.pid,
+    owner.created_at_ms,
+    owner.owner_nonce,
+    owner.task_digest,
+  ].join("__");
+}
+
+function parseRecoveryGuardOwnerName(value: string): JsonObject | null {
+  const parts = value.split("__");
+  if (
+    parts.length !== 5
+    || parts[0] !== "owner-v1"
+    || !/^[0-9]+$/.test(parts[1] ?? "")
+    || !/^[0-9]+$/.test(parts[2] ?? "")
+    || !/^[0-9a-f-]{36}$/.test(parts[3] ?? "")
+    || !/^[a-f0-9]{64}$/.test(parts[4] ?? "")
+  ) return null;
+  return {
+    pid: Number(parts[1]),
+    created_at_ms: Number(parts[2]),
+    owner_nonce: parts[3],
+    task_digest: parts[4],
+  };
+}
+
+async function createPublishRecoveryGuard(
+  guardPath: string,
+  taskDigest: string,
+): Promise<{ owner: JsonObject; ownerPath: string }> {
+  await mkdir(guardPath, { mode: 0o700 });
+  const owner = {
+    pid: process.pid,
+    created_at_ms: Date.now(),
+    owner_nonce: randomUUID(),
+    task_digest: taskDigest,
+  };
+  const ownerPath = join(guardPath, recoveryGuardOwnerName(owner));
+  await mkdir(ownerPath, { mode: 0o700 });
+  return { owner, ownerPath };
+}
+
+async function acquirePublishRecoveryGuard(
+  guardPath: string,
+  taskDigest: string,
+): Promise<{ owner: JsonObject; ownerPath: string }> {
   try {
-    const acquired = await createPublishLock(lockPath, taskDigest);
-    await rm(stalePath, { force: true });
-    return acquired;
+    return await createPublishRecoveryGuard(guardPath, taskDigest);
   } catch (error) {
-    throw new Error(
-      `source-scope stale publish lock takeover lost: ${
-        error instanceof Error ? error.message : "unknown error"
-      }`,
-    );
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const stat = await lstat(guardPath);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error("source-scope publish recovery guard is invalid");
+  }
+  const entries = await readdir(guardPath, { withFileTypes: true });
+  if (entries.length === 0) {
+    if (Date.now() - stat.mtimeMs < SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS) {
+      throw new Error("source-scope publish recovery guard is active");
+    }
+    try {
+      await rmdir(guardPath);
+    } catch (error) {
+      if (!["ENOENT", "ENOTEMPTY"].includes(
+        String((error as NodeJS.ErrnoException).code ?? ""),
+      )) throw error;
+    }
+    try {
+      return await createPublishRecoveryGuard(guardPath, taskDigest);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error("source-scope publish recovery guard is active");
+      }
+      throw error;
+    }
+  }
+  if (
+    entries.length !== 1
+    || !entries[0].isDirectory()
+    || entries[0].isSymbolicLink()
+  ) throw new Error("source-scope publish recovery guard metadata is invalid");
+  const priorOwner = parseRecoveryGuardOwnerName(entries[0].name);
+  if (priorOwner === null) {
+    throw new Error("source-scope publish recovery guard metadata is invalid");
+  }
+  const pid = Number(priorOwner.pid);
+  const ageMs = Date.now() - Number(priorOwner.created_at_ms);
+  if (
+    !Number.isInteger(pid)
+    || pid <= 0
+    || !Number.isFinite(ageMs)
+    || processOwnerAlive(pid)
+    || ageMs < SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS
+  ) throw new Error("source-scope publish recovery guard is active");
+  const priorOwnerPath = join(guardPath, entries[0].name);
+  try {
+    await rmdir(priorOwnerPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error("source-scope publish recovery guard changed");
+    }
+    throw error;
+  }
+  try {
+    await rmdir(guardPath);
+  } catch (error) {
+    if (["ENOENT", "ENOTEMPTY"].includes(
+      String((error as NodeJS.ErrnoException).code ?? ""),
+    )) throw new Error("source-scope publish recovery guard changed");
+    throw error;
+  }
+  try {
+    return await createPublishRecoveryGuard(guardPath, taskDigest);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error("source-scope publish recovery guard is active");
+    }
+    throw error;
+  }
+}
+
+async function releasePublishRecoveryGuard(
+  guardPath: string,
+  guard: { owner: JsonObject; ownerPath: string },
+): Promise<void> {
+  try {
+    if (basename(guard.ownerPath) !== recoveryGuardOwnerName(guard.owner)) {
+      return;
+    }
+    await rmdir(guard.ownerPath);
+    await rmdir(guardPath);
+  } catch {
+    // Never remove a guard whose current owner cannot be proven.
+  }
+}
+
+async function acquirePublishLock(
+  lockPath: string,
+  stablePath: string,
+  taskDigest: string,
+): Promise<{ owner: JsonObject }> {
+  try {
+    return await createPublishLock(lockPath, taskDigest);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  if (await pathExists(stablePath)) {
+    throw new Error("publish lock recovery found an existing stable bundle");
+  }
+  const guardPath = `${lockPath}${SOURCE_SCOPE_PUBLISH_RECOVERY_GUARD_SUFFIX}`;
+  const guard = await acquirePublishRecoveryGuard(guardPath, taskDigest);
+  try {
+    if (await pathExists(stablePath)) {
+      throw new Error("publish lock recovery found an existing stable bundle");
+    }
+    const inspected = await inspectPublishLock(lockPath);
+    if (!inspected.stale) {
+      throw new Error("source-scope publish lock is active");
+    }
+    const current = await inspectPublishLock(lockPath);
+    if (
+      !current.stale
+      || current.dev !== inspected.dev
+      || current.ino !== inspected.ino
+    ) throw new Error("source-scope publish lock changed during recovery");
+    await rm(lockPath, { recursive: true });
+    try {
+      return await createPublishLock(lockPath, taskDigest);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error("source-scope stale publish lock takeover lost");
+      }
+      throw error;
+    }
+  } finally {
+    await releasePublishRecoveryGuard(guardPath, guard);
   }
 }
 
 async function releasePublishLock(
   lockPath: string,
-  lock: { handle: Awaited<ReturnType<typeof open>>; owner: JsonObject },
+  lock: { owner: JsonObject },
 ): Promise<void> {
-  await lock.handle.close();
   try {
+    const ownerPath = join(lockPath, SOURCE_SCOPE_PUBLISH_LOCK_OWNER);
+    const ownerStat = await lstat(ownerPath);
+    if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) return;
     const current = asObject(
-      JSON.parse((await readFile(lockPath, "utf8")).trim()),
+      JSON.parse((await readFile(ownerPath, "utf8")).trim()),
       "source-scope publish lock",
     );
     if (current.owner_nonce === lock.owner.owner_nonce) {
-      await rm(lockPath, { force: true });
+      await rm(lockPath, { recursive: true });
     }
   } catch {
     // Never remove a lock whose current owner cannot be proven.

@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -332,8 +341,12 @@ const staleLockTask = taskAt("stale-lock");
 await mkdir(path.dirname(staleLockTask.source_bundle_path), {
   recursive: true,
 });
+await mkdir(`${staleLockTask.source_bundle_path}.publish.lock`);
 await writeFile(
-  `${staleLockTask.source_bundle_path}.publish.lock`,
+  path.join(
+    `${staleLockTask.source_bundle_path}.publish.lock`,
+    "owner.json",
+  ),
   JSON.stringify({
     schema_version: 1,
     contract_id: "coc.pi-source-scope-publish-lock.v1",
@@ -356,8 +369,12 @@ const activeLockTask = taskAt("active-lock");
 await mkdir(path.dirname(activeLockTask.source_bundle_path), {
   recursive: true,
 });
+await mkdir(`${activeLockTask.source_bundle_path}.publish.lock`);
 await writeFile(
-  `${activeLockTask.source_bundle_path}.publish.lock`,
+  path.join(
+    `${activeLockTask.source_bundle_path}.publish.lock`,
+    "owner.json",
+  ),
   JSON.stringify({
     schema_version: 1,
     contract_id: "coc.pi-source-scope-publish-lock.v1",
@@ -380,6 +397,153 @@ assert.equal(
   "source_scope_bundle_publication_failed",
 );
 await assert.rejects(readFile(activeLockTask.source_bundle_path));
+
+const staleEmptyLockTask = taskAt("stale-empty-lock");
+const staleEmptyLockPath = `${staleEmptyLockTask.source_bundle_path}.publish.lock`;
+const staleEmptyGuardPath = `${staleEmptyLockPath}.recovery.guard`;
+await mkdir(path.dirname(staleEmptyLockTask.source_bundle_path), {
+  recursive: true,
+});
+await mkdir(staleEmptyLockPath);
+await mkdir(staleEmptyGuardPath);
+const oldTimestamp = new Date(Date.now() - 60_000);
+await utimes(staleEmptyLockPath, oldTimestamp, oldTimestamp);
+await utimes(staleEmptyGuardPath, oldTimestamp, oldTimestamp);
+const staleEmptyLockResult = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  onResolved: async () => {},
+}, "coc_invoke", envelope(staleEmptyLockTask));
+assert.equal(staleEmptyLockResult.status, "scope_registered");
+await readFile(path.join(staleEmptyLockTask.source_bundle_path, "manifest.json"));
+
+const staleTruncatedLockTask = taskAt("stale-truncated-lock");
+const staleTruncatedLockPath =
+  `${staleTruncatedLockTask.source_bundle_path}.publish.lock`;
+const staleDeadGuardPath =
+  `${staleTruncatedLockPath}.recovery.guard`;
+await mkdir(path.dirname(staleTruncatedLockTask.source_bundle_path), {
+  recursive: true,
+});
+await mkdir(staleTruncatedLockPath);
+await writeFile(path.join(staleTruncatedLockPath, "owner.json"), "{");
+await utimes(staleTruncatedLockPath, oldTimestamp, oldTimestamp);
+await mkdir(staleDeadGuardPath);
+await mkdir(path.join(
+  staleDeadGuardPath,
+  [
+    "owner-v1",
+    "2147483647",
+    String(Date.now() - 60_000),
+    "00000000-0000-4000-8000-000000000002",
+    "e".repeat(64),
+  ].join("__"),
+));
+const staleTruncatedLockResult =
+  await extension.autoDispatchPiSourceScopeLocator({
+    ...deps,
+    states: new Map(),
+    controllers: new Map(),
+    onResolved: async () => {},
+  }, "coc_invoke", envelope(staleTruncatedLockTask));
+assert.equal(staleTruncatedLockResult.status, "scope_registered");
+await readFile(path.join(
+  staleTruncatedLockTask.source_bundle_path,
+  "manifest.json",
+));
+
+const activeEmptyLockTask = taskAt("active-empty-lock");
+const activeEmptyLockPath =
+  `${activeEmptyLockTask.source_bundle_path}.publish.lock`;
+await mkdir(path.dirname(activeEmptyLockTask.source_bundle_path), {
+  recursive: true,
+});
+await mkdir(activeEmptyLockPath);
+const activeEmptyLockResult =
+  await extension.autoDispatchPiSourceScopeLocator({
+    ...deps,
+    states: new Map(),
+    controllers: new Map(),
+    call: async () => {
+      throw new Error("young empty lock must block canonical mutation");
+    },
+  }, "coc_invoke", envelope(activeEmptyLockTask));
+assert.equal(
+  activeEmptyLockResult.failure_class,
+  "source_scope_bundle_publication_failed",
+);
+await assert.rejects(readFile(activeEmptyLockTask.source_bundle_path));
+
+const concurrentLockTask = taskAt("concurrent-stale-lock");
+const concurrentLockPath =
+  `${concurrentLockTask.source_bundle_path}.publish.lock`;
+await mkdir(path.dirname(concurrentLockTask.source_bundle_path), {
+  recursive: true,
+});
+await mkdir(concurrentLockPath);
+await writeFile(
+  path.join(concurrentLockPath, "owner.json"),
+  JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-publish-lock.v1",
+    pid: 2147483647,
+    owner_nonce: "00000000-0000-4000-8000-000000000003",
+    created_at_ms: Date.now() - 60_000,
+    task_digest: "f".repeat(64),
+  }),
+);
+const concurrentCalls = [];
+const concurrentRuns = await Promise.all([
+  extension.autoDispatchPiSourceScopeLocator({
+    ...deps,
+    states: new Map(),
+    controllers: new Map(),
+    call: async (...args) => {
+      concurrentCalls.push(args);
+      return {
+        ok: true,
+        data: {
+          replacement_job_id: "job-concurrent",
+          lifecycle: {},
+        },
+      };
+    },
+    onResolved: async () => {},
+  }, "coc_invoke", envelope(concurrentLockTask)),
+  extension.autoDispatchPiSourceScopeLocator({
+    ...deps,
+    states: new Map(),
+    controllers: new Map(),
+    call: async (...args) => {
+      concurrentCalls.push(args);
+      return {
+        ok: true,
+        data: {
+          replacement_job_id: "job-concurrent",
+          lifecycle: {},
+        },
+      };
+    },
+    onResolved: async () => {},
+  }, "coc_invoke", envelope(concurrentLockTask)),
+]);
+assert.equal(
+  concurrentRuns.filter((result) => result.status === "scope_registered").length,
+  1,
+);
+assert.equal(
+  concurrentRuns.filter(
+    (result) =>
+      result.failure_class === "source_scope_bundle_publication_failed",
+  ).length,
+  1,
+);
+assert.equal(concurrentCalls.length, 1);
+await readFile(path.join(concurrentLockTask.source_bundle_path, "manifest.json"));
+await assert.rejects(lstat(
+  `${concurrentLockPath}.recovery.guard`,
+));
 
 const unavailableCalls = [];
 const unavailable = await extension.autoDispatchPiSourceScopeLocator({
@@ -538,6 +702,9 @@ process.stdout.write(JSON.stringify({
     published_unregistered_recovered: true,
     stale_publish_lock_recovered: true,
     active_publish_lock_preserved: true,
+    crashed_publish_lock_recovered: true,
+    concurrent_publish_recovery_serialized: true,
+    active_empty_publish_lock_preserved: true,
     symlink_staging_rejected: true,
     session_abort_kills_descendants: true,
     missing_command_no_mutation: true,
