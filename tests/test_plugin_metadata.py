@@ -1250,6 +1250,18 @@ def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
         "forbid_guessed_zero_padding": True,
         "missing_or_ambiguous_path_failure_class": "pdf_scope_failed",
     }
+    assert contract["task"]["visual_review_transport"] == {
+        "request_contract_id": "coc.opening-visual-review-request.v1",
+        "resume_contract_id": "coc.opening-visual-review-resume.v1",
+        "max_images": 3,
+        "result_delivery": "same_thread_image_resume",
+        "render_root_is_exact_task_local_directory": True,
+        "request_paths_are_exact_regular_non_symlink_direct_children": True,
+        "request_indices_and_paths_have_same_order_and_count": True,
+        "adapter_attaches_only_validated_exact_paths": True,
+        "same_child_thread_required": True,
+        "second_request_forbidden": True,
+    }
     assert contract["lifecycle"]["main_keeper_dispatches_before_pdf_locator_or_concepts"] is True
     assert contract["lifecycle"]["blocking_phase"] == "concept_locator_natural_return"
     assert contract["lifecycle"]["background_phase"] == (
@@ -1257,6 +1269,19 @@ def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
     )
     assert contract["lifecycle"]["main_keeper_exact_forwards_continue_task"] is True
     assert contract["lifecycle"]["no_in_turn_parent_callback"] is True
+    assert contract["lifecycle"]["optional_visual_review_bridge"] == {
+        "only_when_child_image_inspection_unavailable": True,
+        "request_contract": "coc.opening-visual-review-request.v1",
+        "resume_contract": "coc.opening-visual-review-resume.v1",
+        "transport": "same_thread_image_resume",
+        "maximum_images": 3,
+        "adapter_lifecycle_checkpoint": "visual_review_ready",
+        "ready_checkpoint_is_restart_resumable": True,
+        "started_checkpoint_is_terminal_on_restart": True,
+        "same_thread_identity_required": True,
+        "coordinator_visually_inspects_all_attached_images": True,
+        "pdf_reopen_or_rerender_after_resume": False,
+    }
     assert contract["lifecycle"]["binding_call"] == {
         "operation": "setup.invoke",
         "kind": "scenario.bind_pdf",

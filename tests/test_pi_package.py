@@ -47,6 +47,15 @@ def _load_mcp_server():
     return module
 
 
+def _load_pdf_adapter(name: str):
+    path = PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     assert manifest["pi"] == {
@@ -1513,6 +1522,50 @@ time.sleep(10)
     child_pid = int(child_pid_path.read_text(encoding="utf-8"))
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+def test_pdf_skill_adapter_preserves_image_argv_order_on_same_thread_resume(
+    tmp_path: Path, monkeypatch,
+):
+    argv_path = tmp_path / "argv.json"
+    fake_codex = tmp_path / "fake-codex"
+    fake_codex.write_text(
+        f"""#!{os.fspath(Path(os.sys.executable).resolve())}
+import json
+import sys
+from pathlib import Path
+args = sys.argv[1:]
+Path({str(argv_path)!r}).write_text(json.dumps(args))
+output = Path(args[args.index("--output-last-message") + 1])
+output.write_text('{{"status":"ok"}}')
+print('{{"type":"thread.started","thread_id":"thread-a"}}')
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+    monkeypatch.setenv("COC_CODEX_COMMAND", str(fake_codex))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    image_two = tmp_path / "page-02.png"
+    image_one = tmp_path / "page-01.png"
+    image_two.write_bytes(b"\x89PNG\r\n\x1a\nsecond")
+    image_one.write_bytes(b"\x89PNG\r\n\x1a\nfirst")
+    adapter = _load_pdf_adapter("coc_pdf_adapter_image_argv_test")
+
+    result, thread = adapter._codex_turn(
+        {"contract_id": "coc.opening-visual-review-resume.v1"},
+        workspace,
+        resume="thread-a",
+        images=[image_two, image_one],
+        isolated=True,
+    )
+
+    assert result == {"status": "ok"}
+    assert thread == "thread-a"
+    argv = json.loads(argv_path.read_text(encoding="utf-8"))
+    assert argv[-6:] == [
+        "-i", str(image_two), "-i", str(image_one), "thread-a", "-",
+    ]
 
 
 def test_secrets_example_contains_key_name_only():

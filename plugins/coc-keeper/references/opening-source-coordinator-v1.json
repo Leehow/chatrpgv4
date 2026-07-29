@@ -33,6 +33,7 @@
       "source_bundle_path",
       "opening_locator_pdf_indices",
       "max_selected_opening_pages",
+      "visual_review_transport",
       "instruction_refs",
       "result_delivery"
     ],
@@ -51,8 +52,21 @@
       "workspace_root",
       "pdf_path",
       "source_bundle_path",
+      "visual_review_transport.render_root",
       "instruction_refs.pdf_skill"
     ],
+    "visual_review_transport": {
+      "request_contract_id": "coc.opening-visual-review-request.v1",
+      "resume_contract_id": "coc.opening-visual-review-resume.v1",
+      "max_images": 3,
+      "result_delivery": "same_thread_image_resume",
+      "render_root_is_exact_task_local_directory": true,
+      "request_paths_are_exact_regular_non_symlink_direct_children": true,
+      "request_indices_and_paths_have_same_order_and_count": true,
+      "adapter_attaches_only_validated_exact_paths": true,
+      "same_child_thread_required": true,
+      "second_request_forbidden": true
+    },
     "opening_locator_pdf_indices": {
       "coordinate_system": "zero_based_pdf_index",
       "minimum_count": 0,
@@ -148,6 +162,19 @@
     "main_keeper_dispatches_before_pdf_locator_or_concepts": true,
     "blocking_phase": "concept_locator_natural_return",
     "blocking_result_contract": "coc.opening-character-concepts.v1",
+    "optional_visual_review_bridge": {
+      "only_when_child_image_inspection_unavailable": true,
+      "request_contract": "coc.opening-visual-review-request.v1",
+      "resume_contract": "coc.opening-visual-review-resume.v1",
+      "transport": "same_thread_image_resume",
+      "maximum_images": 3,
+      "adapter_lifecycle_checkpoint": "visual_review_ready",
+      "ready_checkpoint_is_restart_resumable": true,
+      "started_checkpoint_is_terminal_on_restart": true,
+      "same_thread_identity_required": true,
+      "coordinator_visually_inspects_all_attached_images": true,
+      "pdf_reopen_or_rerender_after_resume": false
+    },
     "background_phase": "same_child_exact_followup_source_build",
     "background_followup_contract": "coc.opening-source-continue.v1",
     "main_keeper_exact_forwards_continue_task": true,

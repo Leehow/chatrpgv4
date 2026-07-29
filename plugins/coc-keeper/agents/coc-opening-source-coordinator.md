@@ -86,6 +86,43 @@ Follow this bounded lifecycle:
    `pdf_scope_failed`; do not guess, rerender, or search outside that exact
    directory. Use the text layer only as locator/extraction aid; it is not
    accepted without visual review.
+
+   If and only if this child has no usable local image-inspection tool after
+   rendering, use the task's `visual_review_transport` bridge instead of
+   failing. Render the one contiguous one-to-three-page candidate batch below
+   its exact `render_root`, capture the actual output paths once as above, and
+   return exactly one compact bare intermediate object:
+
+   ```
+   {
+     "schema_version": 1,
+     "contract_id": "coc.opening-visual-review-request.v1",
+     "status": "visual_review_required",
+     "campaign_id": "<input campaign_id>",
+     "scenario_id": "<input scenario_id>",
+     "render_root": "<exact input visual_review_transport.render_root>",
+     "pdf_indices": [0],
+     "image_paths": ["<exact absolute actual direct-child image path>"],
+     "failure_class": null
+   }
+   ```
+
+   `pdf_indices` must be one-to-three contiguous zero-based indices in the
+   exact same order and count as unique `image_paths`. Every path must be a
+   regular non-symlink PNG/JPEG direct child of the exact render root. Do not
+   return a glob, directory, derived name, alternate root, or more than three
+   paths. The adapter validates and attaches only those exact images to a
+   same-thread resume. This intermediate request is transport control, not a
+   coordinator failure, concept result, source result, or parent/player
+   callback.
+
+   On the next turn, accept only one exact bare
+   `coc.opening-visual-review-resume.v1` object whose campaign, scenario,
+   indices, image count, and `result_delivery=same_thread_image_resume` match
+   the retained request. Require the attached images in the same order,
+   visually inspect every image, and then continue step 2 in this same child.
+   Do not rerender, reopen the PDF, read a new text window, or return another
+   visual-review request.
 2. Semantically choose the shortest accepted contiguous one-to-three-page
    opening window. It must contain the complete current player-facing beat:
    source-authored time or phase, every materially present NPC, the complete

@@ -14064,6 +14064,34 @@ def test_pi_opening_review_adapter_resumes_same_codex_thread_and_applies(
         calls.append((prompt, options))
         if options.get("resume") is None:
             assert "challenge" not in json.dumps(prompt)
+            render_root = Path(
+                prompt["visual_review_transport"]["render_root"]
+            )
+            render_root.mkdir(parents=True)
+            image_path = render_root / "opening-01.png"
+            image_path.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+            return {
+                "schema_version": 1,
+                "contract_id": "coc.opening-visual-review-request.v1",
+                "status": "visual_review_required",
+                "campaign_id": ws["campaign_id"],
+                "scenario_id": ws["asset_root_id"],
+                "render_root": str(render_root),
+                "pdf_indices": [0],
+                "image_paths": [str(image_path)],
+                "failure_class": None,
+            }, "codex-thread-a"
+        assert options["resume"] == "codex-thread-a"
+        if (
+            isinstance(prompt, dict)
+            and prompt.get("contract_id")
+            == "coc.opening-visual-review-resume.v1"
+        ):
+            assert options["images"] == [
+                ws["workspace"]
+                / "opening-visual-review"
+                / "opening-01.png"
+            ]
             return {
                 "schema_version": 1,
                 "contract_id": "coc.opening-character-concepts.v1",
@@ -14073,7 +14101,7 @@ def test_pi_opening_review_adapter_resumes_same_codex_thread_and_applies(
                 "selected_opening_pdf_indices": [0],
                 "continue_task": continuation,
             }, "codex-thread-a"
-        assert options["resume"] == "codex-thread-a"
+        assert options.get("images") is None
         assert prompt == continuation
         return ready_result, "codex-thread-a"
 
@@ -14086,7 +14114,7 @@ def test_pi_opening_review_adapter_resumes_same_codex_thread_and_applies(
     monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
     receipt = adapter._run_opening_review()
     assert receipt["status"] == "reviewed"
-    assert len(calls) == 2
+    assert len(calls) == 3
     consumed = json.loads(scenario_path.read_text(encoding="utf-8"))
     assert consumed["opening_source_review_task"]["status"] == "fulfilled"
     assert consumed["opening_source_provenance"] == (
@@ -14095,7 +14123,7 @@ def test_pi_opening_review_adapter_resumes_same_codex_thread_and_applies(
 
     monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
     assert adapter._run_opening_review() == receipt
-    assert len(calls) == 2
+    assert len(calls) == 3
 
     rebound = json.loads(scenario_path.read_text(encoding="utf-8"))
     rebound["opening_source_provenance"] = (
@@ -14122,10 +14150,226 @@ def test_pi_opening_review_adapter_resumes_same_codex_thread_and_applies(
     rebound_receipt = adapter._run_opening_review()
     assert rebound_receipt["status"] == "failed"
     assert rebound_receipt["opening_review_generation"] == 2
-    assert len(calls) == 2
+    assert len(calls) == 3
     rebound_terminal = json.loads(scenario_path.read_text(encoding="utf-8"))
     assert rebound_terminal["opening_source_review_task"]["generation"] == 2
     assert rebound_terminal["opening_source_review_task"]["status"] == "failed"
+
+
+def test_pi_opening_visual_review_request_rejects_missing_ambiguous_and_outside_paths(
+    tmp_path: Path,
+):
+    adapter = _load(
+        "coc_pdf_skill_adapter_visual_path_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    render_root = (tmp_path / "render").resolve()
+    render_root.mkdir()
+    image = render_root / "opening-01.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+    task = {
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "visual_review_transport": {
+            "render_root": str(render_root),
+        },
+    }
+
+    def request(paths: list[Path], indices: list[int]) -> dict:
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.opening-visual-review-request.v1",
+            "status": "visual_review_required",
+            "campaign_id": "campaign-a",
+            "scenario_id": "scenario-a",
+            "render_root": str(render_root),
+            "pdf_indices": indices,
+            "image_paths": [str(path) for path in paths],
+            "failure_class": None,
+        }
+
+    valid = adapter._visual_review_request(request([image], [0]), task)
+    assert valid["image_paths"] == [str(image)]
+
+    missing = render_root / "missing.png"
+    with pytest.raises((RuntimeError, OSError)):
+        adapter._visual_review_request(request([missing], [0]), task)
+    with pytest.raises(RuntimeError, match="request invalid"):
+        adapter._visual_review_request(request([image, image], [0, 1]), task)
+    outside = (tmp_path / "outside.png").resolve()
+    outside.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+    with pytest.raises(RuntimeError, match="image path invalid"):
+        adapter._visual_review_request(request([outside], [0]), task)
+
+
+def test_pi_opening_review_adapter_preserves_coordinator_pdf_scope_failure(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["scenario_id"] = ws["asset_root_id"]
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
+    )
+    _install_opening_review_task(ws, scenario)
+    _write_json(scenario_path, scenario)
+    adapter = _load(
+        "coc_pdf_skill_adapter_failure_mapping_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    request = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-source-review-transport.v1",
+        "workspace_root": str(ws["workspace"]),
+        "campaign_id": ws["campaign_id"],
+        "opening_review_generation": 1,
+    }
+    monkeypatch.setattr(
+        adapter, "_validate_opening_review_transport", lambda value: value,
+    )
+    failure_result = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-coordinator-result.v1",
+        "status": "failed",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "selected_opening_pdf_indices": [],
+        "source_bundle_sha256": None,
+        "opening_job_id": None,
+        "opening_projection_ref": None,
+        "initial_move_operation": None,
+        "opening_delivery_boundary": {
+            "operation": "evidence.table_opening",
+            "before_first_player_action": True,
+            "empty_presented_roll_ids_valid": True,
+        },
+        "failure_class": "pdf_scope_failed",
+    }
+    calls = []
+
+    def fake_codex(prompt, _workspace, **options):
+        calls.append((prompt, options))
+        return failure_result, "codex-thread-failed"
+
+    monkeypatch.setattr(adapter, "_codex_turn", fake_codex)
+
+    class AdapterInput:
+        def __init__(self):
+            self.buffer = io.BytesIO(json.dumps(request).encode())
+
+    monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    receipt = adapter._run_opening_review()
+    assert receipt["status"] == "failed"
+    assert receipt["failure_class"] == "pdf_scope_failed"
+    assert len(calls) == 1
+    failed = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert failed["opening_source_review_task"]["status"] == "failed"
+    assert failed["opening_source_review_failure"]["failure"][
+        "failure_class"
+    ] == "pdf_scope_failed"
+
+
+def test_pi_opening_review_adapter_restarts_from_visual_review_ready(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["scenario_id"] = ws["asset_root_id"]
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
+    )
+    _install_opening_review_task(ws, scenario)
+    _write_json(scenario_path, scenario)
+    adapter = _load(
+        "coc_pdf_skill_adapter_visual_restart_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    request = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-source-review-transport.v1",
+        "workspace_root": str(ws["workspace"]),
+        "campaign_id": ws["campaign_id"],
+        "opening_review_generation": 1,
+    }
+    monkeypatch.setattr(
+        adapter, "_validate_opening_review_transport", lambda value: value,
+    )
+    task, scenario_id = adapter._coordinator_task(
+        ws["workspace"], request,
+    )
+    render_root = Path(
+        task["visual_review_transport"]["render_root"]
+    )
+    render_root.mkdir(parents=True)
+    image = render_root / "opening-01.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+    visual_request = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-visual-review-request.v1",
+        "status": "visual_review_required",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": scenario_id,
+        "render_root": str(render_root),
+        "pdf_indices": [0],
+        "image_paths": [str(image)],
+        "failure_class": None,
+    }
+    state_path = (
+        ws["campaign_dir"] / "opening-source-review-transport.json"
+    )
+    _write_json(state_path, {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-source-review-lifecycle.v1",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": scenario_id,
+        "opening_review_generation": 1,
+        "status": "visual_review_ready",
+        "thread_id": "codex-thread-restart",
+        "visual_review_request": visual_request,
+    })
+    failure_result = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-coordinator-result.v1",
+        "status": "failed",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": scenario_id,
+        "selected_opening_pdf_indices": [],
+        "source_bundle_sha256": None,
+        "opening_job_id": None,
+        "opening_projection_ref": None,
+        "initial_move_operation": None,
+        "opening_delivery_boundary": {
+            "operation": "evidence.table_opening",
+            "before_first_player_action": True,
+            "empty_presented_roll_ids_valid": True,
+        },
+        "failure_class": "pdf_scope_failed",
+    }
+    calls = []
+
+    def fake_codex(prompt, _workspace, **options):
+        calls.append((prompt, options))
+        assert prompt["contract_id"] == (
+            "coc.opening-visual-review-resume.v1"
+        )
+        assert options["resume"] == "codex-thread-restart"
+        assert options["images"] == [image]
+        return failure_result, "codex-thread-restart"
+
+    monkeypatch.setattr(adapter, "_codex_turn", fake_codex)
+
+    class AdapterInput:
+        def __init__(self):
+            self.buffer = io.BytesIO(json.dumps(request).encode())
+
+    monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    receipt = adapter._run_opening_review()
+    assert receipt["failure_class"] == "pdf_scope_failed"
+    assert len(calls) == 1
+    lifecycle = json.loads(state_path.read_text(encoding="utf-8"))
+    assert lifecycle["status"] == "terminal"
 
 
 def test_pi_bound_source_contract_drift_remains_a_hard_play_gate(
