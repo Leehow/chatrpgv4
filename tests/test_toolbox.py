@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -13503,6 +13504,33 @@ def test_pi_current_empty_party_resume_emits_guided_character_discriminator(
         key in json.dumps(details)
         for key in ("current_turn", "location", "opening_time", "task")
     )
+
+
+@pytest.mark.parametrize("party_path_kind", ["directory", "fifo"])
+def test_pi_character_discriminator_rejects_nonregular_party_path(
+    tmp_path: Path,
+    monkeypatch,
+    party_path_kind: str,
+):
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    party_path = ws["campaign_dir"] / "party.json"
+    if party_path_kind == "directory":
+        party_path.mkdir()
+    else:
+        os.mkfifo(party_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    resumed = _run(ws, "session.resume")
+
+    details = (
+        resumed.get("error", {}).get("details", {})
+        if isinstance(resumed, dict)
+        else {}
+    )
+    assert details.get("phase") != "opening_character_setup_required"
+    assert details.get("character_setup_policy") != "guided_quick_fire"
 
 
 def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(

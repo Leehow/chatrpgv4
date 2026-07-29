@@ -35,6 +35,7 @@ import json
 import os
 import random
 import re
+import stat
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -1256,9 +1257,15 @@ def _pi_opening_character_setup_gate(
     if not coc_module_project.campaign_is_pristine_for_opening(campaign_dir):
         return None
     party_path = campaign_dir / "party.json"
-    if party_path.is_symlink():
+    try:
+        party_mode = party_path.lstat().st_mode
+    except FileNotFoundError:
+        party_mode = None
+    except OSError:
         return None
-    if party_path.is_file():
+    if party_mode is not None:
+        if not stat.S_ISREG(party_mode):
+            return None
         try:
             party = json.loads(party_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
