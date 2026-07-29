@@ -1243,8 +1243,55 @@ def _pi_opening_source_contract_error_gate(
     }
 
 
+def _pi_opening_character_setup_gate(
+    campaign_dir: Path,
+    campaign_id: str,
+) -> dict[str, Any] | None:
+    """Discriminate one current-source, pre-play, empty-party resume.
+
+    This is deliberately narrower than the general opening gate. It is emitted
+    only for ``session.resume`` after the caller has already proved the
+    source-bound opening projection current.
+    """
+    if not coc_module_project.campaign_is_pristine_for_opening(campaign_dir):
+        return None
+    party_path = campaign_dir / "party.json"
+    if party_path.is_symlink():
+        return None
+    if party_path.is_file():
+        try:
+            party = json.loads(party_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+        if (
+            not isinstance(party, dict)
+            or party.get("schema_version") != 1
+            or party.get("campaign_id") != campaign_id
+            or party.get("investigator_ids") != []
+            or party.get("active_investigator_ids") != []
+        ):
+            return None
+    return {
+        "schema_version": 1,
+        "status": "blocked",
+        "hard_gate": True,
+        "activation_allowed": False,
+        "phase": "opening_character_setup_required",
+        "campaign_id": campaign_id,
+        "character_setup_policy": "guided_quick_fire",
+        "next_operation": None,
+        "instruction": (
+            "complete one guided Quick Fire investigator creation and exact "
+            "campaign link before opening play"
+        ),
+    }
+
+
 def _pi_opening_setup_gate(
-    root: Path, campaign_id: str | None,
+    root: Path,
+    campaign_id: str | None,
+    *,
+    include_character_setup: bool = False,
 ) -> dict[str, Any] | None:
     """Return the persisted Pi opening gate until source projection is fresh."""
     if str(os.environ.get("COC_HOST") or "").lower() != "pi" or not campaign_id:
@@ -1317,7 +1364,14 @@ def _pi_opening_setup_gate(
                 source_scope,
             )
         ):
-            return None
+            return (
+                _pi_opening_character_setup_gate(
+                    campaign_dir,
+                    str(campaign_id),
+                )
+                if include_character_setup
+                else None
+            )
     watch = (
         scenario.get("opening_projection_watch")
         if isinstance(scenario.get("opening_projection_watch"), dict)
@@ -1444,7 +1498,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
             opening_setup_gate = _pi_opening_setup_gate(
-                ctx.root, ctx.campaign_id,
+                ctx.root,
+                ctx.campaign_id,
+                include_character_setup=(name == "session.resume"),
             )
             if (
                 opening_setup_gate is not None

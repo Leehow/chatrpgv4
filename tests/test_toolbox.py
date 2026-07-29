@@ -13470,6 +13470,41 @@ def _publish_and_project_opening_component(ws: dict, *, pack: dict | None = None
     return published, projected
 
 
+def test_pi_current_empty_party_resume_emits_guided_character_discriminator(
+    tmp_path: Path,
+    monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    resumed = _run(ws, "session.resume")
+
+    assert resumed["ok"] is False, resumed
+    assert resumed["tool"] == "session.resume"
+    assert resumed["error"]["code"] == "opening_setup_incomplete"
+    details = resumed["error"]["details"]
+    assert details == {
+        "schema_version": 1,
+        "status": "blocked",
+        "hard_gate": True,
+        "activation_allowed": False,
+        "phase": "opening_character_setup_required",
+        "campaign_id": ws["campaign_id"],
+        "character_setup_policy": "guided_quick_fire",
+        "next_operation": None,
+        "instruction": (
+            "complete one guided Quick Fire investigator creation and exact "
+            "campaign link before opening play"
+        ),
+    }
+    assert not any(
+        key in json.dumps(details)
+        for key in ("current_turn", "location", "opening_time", "task")
+    )
+
+
 def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     tmp_path: Path, monkeypatch,
 ):

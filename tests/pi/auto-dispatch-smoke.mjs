@@ -2339,23 +2339,33 @@ async function exerciseFailureDrain(mode) {
     && wrongToolGate.requiredOpeningSetupContinuation() === null);
 }
 
-// A current canonical runtime may intentionally return only the typed
-// opening_setup_incomplete business error. The exact minimal envelope means
-// the source opening exists but the current investigator setup is incomplete;
-// Pi must recover the same guided-only gate without inventing source details.
+// Only the canonical producer's explicit current-source character discriminator
+// may hydrate guided setup. The overloaded detail-free error is not evidence
+// of this phase and remains fail-closed.
 {
-  const campaignId = "minimal-opening-setup-incomplete";
+  const campaignId = "discriminated-opening-character-setup";
   const resumeParams = {
     operation: "session.resume",
     campaign: campaignId,
     arguments: {},
   };
+  const characterSetupDetails = {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_character_setup_required",
+    campaign_id: campaignId,
+    character_setup_policy: "guided_quick_fire",
+    next_operation: null,
+    instruction: "safe canonical character setup",
+  };
   const gate = new main.OpeningTerminalContinuationGate();
-  check("minimal opening-setup error probe is admitted",
+  check("discriminated character-setup error probe is admitted",
     gate.openingSetupToolError(
       "coc_invoke",
       resumeParams,
-      "minimal-opening-resume",
+      "discriminated-opening-resume",
     ) === null);
   const hydrated = gate.observeOpeningSetupInvocation(
     "session.resume",
@@ -2363,16 +2373,19 @@ async function exerciseFailureDrain(mode) {
     {
       ok: false,
       tool: "session.resume",
-      error: { code: "opening_setup_incomplete" },
+      error: {
+        code: "opening_setup_incomplete",
+        details: characterSetupDetails,
+      },
     },
-    "minimal-opening-resume",
+    "discriminated-opening-resume",
   );
   const projectedText = JSON.stringify(hydrated.modelProjection);
   const projectedGate = hydrated.modelProjection?.data?.opening_gate;
-  check("exact minimal business error hydrates safe guided-only setup",
+  check("canonical character discriminator hydrates safe guided-only setup",
     hydrated.accepted === true
     && hydrated.reason
-      === "prebound_opening_setup_incomplete_character_setup"
+      === "prebound_opening_character_setup"
     && projectedGate?.phase === "opening_character_setup_required"
     && projectedGate?.character_setup_policy
       === "guided_quick_fire_no_source"
@@ -2577,6 +2590,11 @@ async function exerciseFailureDrain(mode) {
     && gate.requiredOpeningSetupContinuation() === null);
 
   const adjacentFailures = [
+    {
+      ok: false,
+      tool: "session.resume",
+      error: { code: "opening_setup_incomplete" },
+    },
     {
       ok: false,
       tool: "session.resume",
@@ -2979,10 +2997,9 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// A live-shaped recovery may have current source material but no linked
-// investigator, active scene, or table-opening receipt. Rehydrate the same
-// guided setup gate used by a fresh Pi opening, and do not return the source
-// pack, time, place, mission, or complete-sheet escape branch to the KP.
+// The canonical current-source/empty-party discriminator rehydrates the same
+// guided setup gate used by a fresh Pi opening. Its backend message and
+// instruction never enter KP context.
 {
   const campaignId = "startup-current-empty-party";
   const investigatorId = "resume-guided-investigator";
@@ -3036,94 +3053,39 @@ async function exerciseFailureDrain(mode) {
       },
     },
   };
-  const liveResume = {
-    ok: true,
+  const characterSetupDetails = {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_character_setup_required",
+    campaign_id: campaignId,
+    character_setup_policy: "guided_quick_fire",
+    next_operation: null,
+    instruction: "TOP_SECRET_CHARACTER_SETUP_INSTRUCTION",
+  };
+  const characterSetupEnvelope = {
+    ok: false,
     tool: "session.resume",
-    wire: {
-      schema_version: 1,
-      profile: "keeper_hot_v1",
-      TOP_SECRET_WIRE: "TOP_SECRET_WIRE_VALUE",
-    },
-    data: {
-      schema_version: 1,
-      campaign_id: campaignId,
-      mode: "open_turn_recovery",
-      pending_turn: null,
-      checkpoint: null,
-      delivery: { status: "none" },
-      compiled_archive_recovery: {
-        status: "reused",
-        canonical_sources_unchanged: true,
-      },
-      current_turn: {
-        rows: [
-          {
-            tool: "progressive.opening_bootstrap",
-            ok: true,
-            args: {
-              start_location: {
-                location_id: "TOP_SECRET_LOCATION_ID",
-                title: "TOP_SECRET_LOCATION_TITLE",
-              },
-              opening_pdf_indices: [3],
-            },
-          },
-          {
-            tool: "progressive.fulfill_host_work",
-            ok: true,
-            args: {
-              worker_result: {
-                job_id: "job-live-resume",
-                pack: {
-                  origin: "source",
-                  parse_state: "partial",
-                  source_refs: [{
-                    source_id: "pdf:live-resume",
-                    pdf_index: 3,
-                  }],
-                  player_safe_summary: "TOP_SECRET_MISSION_DETAIL",
-                  title: "TOP_SECRET_SOURCE_TITLE",
-                },
-              },
-            },
-          },
-          {
-            tool: "setup.invoke",
-            ok: true,
-            args: {
-              kind: "campaign.render_briefing",
-              payload: { campaign_id: campaignId },
-            },
-          },
-        ],
-      },
-      scene_context: {
-        campaign_id: campaignId,
-        active_scene_id: null,
-        scene: null,
-        party: [],
-        party_investigators: [],
-        turn_number: 0,
-        time: {
-          display: "TOP_SECRET_OPENING_TIME",
-          location_id: null,
-        },
-        progressive: {
-          campaign_id: campaignId,
-          asset_root_id: "TOP_SECRET_SOURCE_ASSET",
-          current_dependency_snapshot_complete: true,
-          current_dependency_projection_status: "complete_empty",
-          current_dependency_waits: [],
-          current_dependency_dispatches: [],
-        },
-      },
+    error: {
+      code: "opening_setup_incomplete",
+      message: "TOP_SECRET_CHARACTER_SETUP_MESSAGE",
+      details: characterSetupDetails,
     },
   };
   const harness = mainExtensionHarness((name, params) => {
     if (name !== "coc_invoke") {
       throw new Error(`unexpected resume-empty-party tool ${name}`);
     }
-    if (params.operation === "session.resume") return liveResume;
+    if (params.operation === "session.resume") {
+      throw new runtime.CanonicalToolError(
+        "coc_invoke",
+        "opening_setup_incomplete",
+        "canonical coc_invoke failed: opening_setup_incomplete",
+        characterSetupDetails,
+        characterSetupEnvelope,
+      );
+    }
     if (params.operation === "setup.investigator_contract") {
       return contractResult;
     }
@@ -3194,7 +3156,7 @@ async function exerciseFailureDrain(mode) {
   check("empty-party recovery rehydrates a tight guided setup projection",
     harness.calls[0]?.params.operation === "session.resume"
     && resumed.ok === true
-    && resumed.data.mode === "open_turn_recovery"
+    && resumed.data.mode === "opening_character_setup_required"
     && resumed.data.opening_gate.phase
       === "opening_character_setup_required"
     && resumed.data.opening_gate.next_operation === null
@@ -3418,16 +3380,31 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// The startup adapter must preserve the typed canonical identity of the exact
-// minimal business error, hydrate the guided gate, and clear only the startup
-// resume blocker. A following allowed setup call proves the startup classifier
-// did not terminalize the campaign.
+// The startup adapter must preserve the canonical producer's explicit
+// character-setup discriminator, hydrate the guided gate, and clear only the
+// startup resume blocker. A following allowed setup call proves the startup
+// classifier did not terminalize the campaign.
 {
-  const campaignId = "startup-minimal-opening-setup-incomplete";
-  const minimalEnvelope = {
+  const campaignId = "startup-discriminated-character-setup";
+  const characterDetails = {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_character_setup_required",
+    campaign_id: campaignId,
+    character_setup_policy: "guided_quick_fire",
+    next_operation: null,
+    instruction: "TOP_SECRET_BACKEND_CHARACTER_INSTRUCTION",
+  };
+  const canonicalEnvelope = {
     ok: false,
     tool: "session.resume",
-    error: { code: "opening_setup_incomplete" },
+    error: {
+      code: "opening_setup_incomplete",
+      message: "TOP_SECRET_BACKEND_CHARACTER_MESSAGE",
+      details: characterDetails,
+    },
   };
   const harness = mainExtensionHarness((name, params) => {
     if (
@@ -3438,8 +3415,8 @@ async function exerciseFailureDrain(mode) {
         "coc_invoke",
         "opening_setup_incomplete",
         "canonical coc_invoke failed: opening_setup_incomplete",
-        null,
-        minimalEnvelope,
+        characterDetails,
+        canonicalEnvelope,
       );
     }
     if (
@@ -3461,14 +3438,14 @@ async function exerciseFailureDrain(mode) {
       };
     }
     throw new Error(
-      `unexpected minimal startup call ${name}:${params.operation}`,
+      `unexpected discriminated startup call ${name}:${params.operation}`,
     );
   }, { startupCampaignId: campaignId });
   await harness.start();
   const resumed = JSON.parse((await harness.registered.get(
     "coc_invoke",
   ).execute(
-    "startup-minimal-opening-resume",
+    "startup-discriminated-opening-resume",
     {
       operation: "session.resume",
       root,
@@ -3482,7 +3459,7 @@ async function exerciseFailureDrain(mode) {
   const contract = JSON.parse((await harness.registered.get(
     "coc_invoke",
   ).execute(
-    "startup-minimal-opening-contract",
+    "startup-discriminated-opening-contract",
     {
       operation: "setup.investigator_contract",
       root,
@@ -3493,9 +3470,9 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   )).content[0].text);
-  check("typed minimal startup error hydrates instead of terminalizing",
+  check("typed character discriminator hydrates instead of terminalizing",
     resumed.ok === true
-    && resumed.data.mode === "opening_setup_incomplete"
+    && resumed.data.mode === "opening_character_setup_required"
     && resumed.data.opening_gate.phase
       === "opening_character_setup_required"
     && contract.ok === true
@@ -3505,7 +3482,174 @@ async function exerciseFailureDrain(mode) {
       entry.message?.customType === "coc-startup-resume-blocker"
     ))
     && !JSON.stringify(resumed).includes("scene_context")
-    && !JSON.stringify(resumed).includes("current_turn"));
+    && !JSON.stringify(resumed).includes("current_turn")
+    && !JSON.stringify(resumed).includes("TOP_SECRET"));
+  await harness.shutdown();
+}
+
+// Rich canonical materialization details must survive the startup bridge as a
+// sanitized wait gate. They must never collapse into guided character setup.
+{
+  const campaignId = "startup-source-materialization-wait";
+  const materializationDetails = {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_source_materialization",
+    asset_root_id: "TOP_SECRET_MATERIALIZATION_ASSET",
+    source_lifecycle_status: "pending",
+  };
+  const canonicalEnvelope = {
+    ok: false,
+    tool: "session.resume",
+    error: {
+      code: "opening_setup_incomplete",
+      message: "TOP_SECRET_MATERIALIZATION_MESSAGE",
+      details: materializationDetails,
+    },
+  };
+  const harness = mainExtensionHarness((name, params) => {
+    if (
+      name !== "coc_invoke"
+      || params.operation !== "session.resume"
+    ) {
+      throw new Error(
+        `unexpected materialization escape ${name}:${params.operation}`,
+      );
+    }
+    throw new runtime.CanonicalToolError(
+      "coc_invoke",
+      "opening_setup_incomplete",
+      "canonical coc_invoke failed: opening_setup_incomplete",
+      materializationDetails,
+      canonicalEnvelope,
+    );
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+  const resumed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-materialization-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  let setupWaitBlocked = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "startup-materialization-contract",
+      {
+        operation: "setup.investigator_contract",
+        root,
+        campaign: campaignId,
+        arguments: { campaign_id: campaignId },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    setupWaitBlocked = String(error).includes(
+      "opening_source_materialization",
+    );
+  }
+  check("source materialization remains a sanitized wait-only startup gate",
+    resumed.ok === false
+    && resumed.error.code === "opening_setup_incomplete"
+    && resumed.error.details.phase === "opening_source_materialization"
+    && resumed.error.details.source_lifecycle_status === "pending"
+    && resumed.error.details.asset_root_id === undefined
+    && !JSON.stringify(resumed).includes("TOP_SECRET")
+    && setupWaitBlocked
+    && harness.calls.length === 1
+    && !harness.sent.some((entry) => (
+      entry.message?.customType === "coc-startup-resume-blocker"
+    )));
+  await harness.shutdown();
+}
+
+// A canonical invalid source contract remains fatal. The bridge may retain its
+// safe phase/code discriminator, but must remove backend paths and messages and
+// must never turn the failure into guided setup.
+{
+  const campaignId = "startup-source-contract-invalid";
+  const invalidDetails = {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_source_contract_invalid",
+    asset_root_id: "TOP_SECRET_INVALID_ASSET",
+    source_contract_error: {
+      code: "binding_invalid",
+      message: "TOP_SECRET_INVALID_SOURCE_MESSAGE",
+    },
+  };
+  const canonicalEnvelope = {
+    ok: false,
+    tool: "session.resume",
+    error: {
+      code: "opening_setup_incomplete",
+      message: "TOP_SECRET_INVALID_ENVELOPE_MESSAGE",
+      details: invalidDetails,
+    },
+  };
+  const harness = mainExtensionHarness((name, params) => {
+    if (
+      name !== "coc_invoke"
+      || params.operation !== "session.resume"
+    ) {
+      throw new Error(
+        `unexpected invalid-source escape ${name}:${params.operation}`,
+      );
+    }
+    throw new runtime.CanonicalToolError(
+      "coc_invoke",
+      "opening_setup_incomplete",
+      "canonical coc_invoke failed: opening_setup_incomplete",
+      invalidDetails,
+      canonicalEnvelope,
+    );
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+  const resumed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-invalid-source-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const blocker = harness.sent.find((entry) => (
+    entry.message?.customType === "coc-startup-resume-blocker"
+  ));
+  check("invalid source contract remains sanitized and terminal",
+    resumed.ok === false
+    && resumed.error.code === "opening_setup_incomplete"
+    && resumed.error.details.phase === "opening_source_contract_invalid"
+    && resumed.error.details.source_contract_error.code === "binding_invalid"
+    && resumed.error.details.source_contract_error.message === undefined
+    && resumed.error.details.asset_root_id === undefined
+    && blocker?.message?.details?.failure_class
+      === "opening_source_contract_invalid"
+    && !JSON.stringify(resumed).includes("TOP_SECRET")
+    && !JSON.stringify(blocker).includes("TOP_SECRET")
+    && !JSON.stringify(resumed).includes(
+      "opening_character_setup_required",
+    ));
   await harness.shutdown();
 }
 
@@ -3513,6 +3657,37 @@ async function exerciseFailureDrain(mode) {
 // one fixed blocker, keeps every campaign/source route closed, and never
 // exposes backend/provider text or triggers another model turn.
 for (const terminalCase of [
+  {
+    label: "exact live detail-free opening error",
+    expectedFailure: "opening_setup_incomplete",
+    throwCanonical: true,
+    response: {
+      ok: false,
+      tool: "session.resume",
+      error: { code: "opening_setup_incomplete" },
+    },
+  },
+  {
+    label: "character phase without canonical discriminator",
+    expectedFailure: "opening_setup_incomplete",
+    throwCanonical: true,
+    response: {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "opening_setup_incomplete",
+        message: "TOP_SECRET_AMBIGUOUS_CHARACTER_PHASE",
+        details: {
+          schema_version: 1,
+          status: "blocked",
+          hard_gate: true,
+          activation_allowed: false,
+          phase: "opening_character_setup_required",
+          campaign_id: "startup-terminal-campaign",
+        },
+      },
+    },
+  },
   {
     label: "unknown campaign",
     expectedFailure: "unknown_campaign",

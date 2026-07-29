@@ -308,6 +308,7 @@ type OpeningSetupRoute = {
   next_operation: JsonObject | null;
   allowed_actions?: JsonObject[];
   character_setup_policy?: "guided_quick_fire_no_source";
+  startup_resume_policy?: "source_materialization_wait_only";
   instruction: string;
 };
 type OpeningSetupTerminalBlocker = {
@@ -823,13 +824,16 @@ export class OpeningTerminalContinuationGate {
   }
 
   private characterSetupAllowed(state: OpeningSetupState): boolean {
-    return [
-      "submitting",
-      "materializing",
-      "retry",
-      "projection",
-      "ready",
-    ].includes(state.phase);
+    return (
+      state.route.startup_resume_policy !== "source_materialization_wait_only"
+      && [
+        "submitting",
+        "materializing",
+        "retry",
+        "projection",
+        "ready",
+      ].includes(state.phase)
+    );
   }
 
   private openingSetupCharacterInvocation(
@@ -1162,120 +1166,8 @@ export class OpeningTerminalContinuationGate {
     };
   }
 
-  private currentSourceResumeNeedsCharacterSetup(
-    envelope: JsonObject | null,
-    campaignId: string,
-  ): boolean {
-    const data = objectOrNull(envelope?.data);
-    const sceneContext = objectOrNull(data?.scene_context);
-    const progressive = objectOrNull(sceneContext?.progressive);
-    const recovery = objectOrNull(data?.compiled_archive_recovery);
-    const delivery = objectOrNull(data?.delivery);
-    const currentTurn = objectOrNull(data?.current_turn);
-    const rows = Array.isArray(currentTurn?.rows)
-      ? currentTurn.rows
-      : null;
-    const party = sceneContext?.party;
-    const partyInvestigators = sceneContext?.party_investigators;
-    if (
-      envelope?.ok !== true
-      || envelope.tool !== "session.resume"
-      || data?.schema_version !== 1
-      || data.campaign_id !== campaignId
-      || ![
-        "already_acknowledged",
-        "open_turn_recovery",
-        "awaiting_player",
-      ].includes(String(data.mode))
-      || data.pending_turn !== null
-      || data.checkpoint !== null
-      || delivery?.status !== "none"
-      || sceneContext === null
-      || sceneContext.campaign_id !== campaignId
-      || sceneContext.active_scene_id !== null
-      || sceneContext.scene !== null
-      || sceneContext.turn_number !== 0
-      || !Array.isArray(party)
-      || party.length !== 0
-      || !Array.isArray(partyInvestigators)
-      || partyInvestigators.length !== 0
-      || progressive === null
-      || progressive.campaign_id !== campaignId
-      || typeof progressive.asset_root_id !== "string"
-      || progressive.asset_root_id.trim().length === 0
-      || progressive.current_dependency_snapshot_complete !== true
-      || progressive.current_dependency_projection_status !== "complete_empty"
-      || !Array.isArray(progressive.current_dependency_waits)
-      || progressive.current_dependency_waits.length !== 0
-      || !Array.isArray(progressive.current_dependency_dispatches)
-      || progressive.current_dependency_dispatches.length !== 0
-      || recovery?.status !== "reused"
-      || recovery.canonical_sources_unchanged !== true
-      || rows === null
-    ) {
-      return false;
-    }
-    const structuredRows = rows
-      .map((row) => objectOrNull(row))
-      .filter((row): row is JsonObject => row !== null);
-    const successfulTool = (tool: string): boolean => (
-      structuredRows.some((row) => row.tool === tool && row.ok === true)
-    );
-    const fulfilledSourcePack = structuredRows.some((row) => {
-      if (row.tool !== "progressive.fulfill_host_work" || row.ok !== true) {
-        return false;
-      }
-      const args = objectOrNull(row.args);
-      const workerResult = objectOrNull(args?.worker_result);
-      const pack = objectOrNull(workerResult?.pack);
-      return (
-        typeof workerResult?.job_id === "string"
-        && workerResult.job_id.trim().length > 0
-        && pack?.origin === "source"
-        && ["partial", "complete"].includes(String(pack.parse_state))
-        && Array.isArray(pack.source_refs)
-        && pack.source_refs.length > 0
-      );
-    });
-    const currentBriefing = structuredRows.some((row) => {
-      if (row.tool !== "setup.invoke" || row.ok !== true) return false;
-      const args = objectOrNull(row.args);
-      const payload = objectOrNull(args?.payload);
-      return (
-        args?.kind === "campaign.render_briefing"
-        && payload?.campaign_id === campaignId
-      );
-    });
-    return (
-      successfulTool("progressive.opening_bootstrap")
-      && fulfilledSourcePack
-      && currentBriefing
-      && !successfulTool("evidence.table_opening")
-    );
-  }
-
-  private exactOpeningSetupIncompleteResume(
-    envelope: JsonObject | null,
-  ): boolean {
-    if (
-      envelope === null
-      || !exactKeysMatch(envelope, ["ok", "tool", "error"])
-      || envelope.ok !== false
-      || envelope.tool !== "session.resume"
-    ) {
-      return false;
-    }
-    const error = objectOrNull(envelope.error);
-    return (
-      error !== null
-      && exactKeysMatch(error, ["code"])
-      && error.code === "opening_setup_incomplete"
-    );
-  }
-
   private safeRecoveredCharacterSetupProjection(
     campaignId: string,
-    mode: unknown,
     route: OpeningSetupRoute,
   ): JsonObject {
     return {
@@ -1284,11 +1176,7 @@ export class OpeningTerminalContinuationGate {
       data: {
         schema_version: 1,
         campaign_id: campaignId,
-        mode: (
-          typeof mode === "string" && mode.trim().length > 0
-            ? mode
-            : "opening_setup_incomplete"
-        ),
+        mode: "opening_character_setup_required",
         opening_gate: route,
       },
       warnings: [],
@@ -1296,6 +1184,25 @@ export class OpeningTerminalContinuationGate {
         "follow only opening_gate.allowed_actions until the exact current "
         + "guided create and campaign.link_investigator receipts succeed",
       ],
+    };
+  }
+
+  private recoveredSourceMaterializationRoute(
+    campaignId: string,
+  ): OpeningSetupRoute {
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_source_materialization",
+      campaign_id: campaignId,
+      next_operation: null,
+      startup_resume_policy: "source_materialization_wait_only",
+      instruction: (
+        "the retained opening source lifecycle is still pending; wait for its "
+        + "canonical host terminal event before any setup or play operation"
+      ),
     };
   }
 
@@ -2057,6 +1964,16 @@ export class OpeningTerminalContinuationGate {
     const preboundRoute = returnedGate === null
       ? null
       : this.routeFromGate(returnedGate);
+    const exactProjectedResumeError = (
+      envelope !== null
+      && exactKeysMatch(envelope, ["ok", "tool", "error"])
+      && envelope.ok === false
+      && envelope.tool === "session.resume"
+      && error !== null
+      && exactKeysMatch(error, ["code", "details"])
+      && error.code === "opening_setup_incomplete"
+      && details === returnedGate
+    );
     const canonicalPreboundProbe = (
       attempt.attemptClass === "probe"
       && this.unboundAttemptIsFresh(attempt)
@@ -2078,13 +1995,59 @@ export class OpeningTerminalContinuationGate {
         )
       )
     );
-    if (
-      state === undefined
-      && attempt.attemptClass === "probe"
+    const canonicalCharacterSetupProbe = (
+      attempt.attemptClass === "probe"
       && operation === "session.resume"
       && this.unboundAttemptIsFresh(attempt)
-      && this.exactOpeningSetupIncompleteResume(envelope)
-    ) {
+      && exactProjectedResumeError
+      && returnedGate !== null
+      && exactKeysMatch(returnedGate, [
+        "schema_version",
+        "status",
+        "hard_gate",
+        "activation_allowed",
+        "phase",
+        "campaign_id",
+        "character_setup_policy",
+        "next_operation",
+        "instruction",
+      ])
+      && returnedGate.schema_version === 1
+      && returnedGate.status === "blocked"
+      && returnedGate.hard_gate === true
+      && returnedGate.activation_allowed === false
+      && returnedGate.phase === "opening_character_setup_required"
+      && returnedGate.campaign_id === attempt.campaignId
+      && returnedGate.character_setup_policy === "guided_quick_fire"
+      && returnedGate.next_operation === null
+    );
+    const canonicalMaterializationProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "session.resume"
+      && this.unboundAttemptIsFresh(attempt)
+      && exactProjectedResumeError
+      && returnedGate !== null
+      && exactKeysMatch(returnedGate, [
+        "schema_version",
+        "status",
+        "hard_gate",
+        "activation_allowed",
+        "phase",
+        "campaign_id",
+        "source_lifecycle_status",
+        "next_operation",
+        "instruction",
+      ])
+      && returnedGate.schema_version === 1
+      && returnedGate.status === "blocked"
+      && returnedGate.hard_gate === true
+      && returnedGate.activation_allowed === false
+      && returnedGate.phase === "opening_source_materialization"
+      && returnedGate.campaign_id === attempt.campaignId
+      && returnedGate.source_lifecycle_status === "pending"
+      && returnedGate.next_operation === null
+    );
+    if (state === undefined && canonicalCharacterSetupProbe) {
       const route = this.recoveredCurrentCharacterSetupRoute(
         attempt.campaignId,
       );
@@ -2097,7 +2060,7 @@ export class OpeningTerminalContinuationGate {
       this.finalizeOpeningSetupAttempt(invocationId);
       this.recordOpeningSetupAudit({
         status: "transitioned",
-        transition: "opening_setup_incomplete_guided_setup_rehydrated",
+        transition: "canonical_character_setup_guided_gate_rehydrated",
         campaign_id: attempt.campaignId,
         generation: attempt.generation,
         invocation_id: invocationId,
@@ -2105,37 +2068,27 @@ export class OpeningTerminalContinuationGate {
       return {
         accepted: true,
         dispatchAllowed: false,
-        reason: "prebound_opening_setup_incomplete_character_setup",
+        reason: "prebound_opening_character_setup",
         modelProjection: this.safeRecoveredCharacterSetupProjection(
           attempt.campaignId,
-          "opening_setup_incomplete",
           route,
         ),
       };
     }
-    if (
-      state === undefined
-      && attempt.attemptClass === "probe"
-      && operation === "session.resume"
-      && this.unboundAttemptIsFresh(attempt)
-      && this.currentSourceResumeNeedsCharacterSetup(
-        envelope,
-        attempt.campaignId,
-      )
-    ) {
-      const route = this.recoveredCurrentCharacterSetupRoute(
+    if (state === undefined && canonicalMaterializationProbe) {
+      const route = this.recoveredSourceMaterializationRoute(
         attempt.campaignId,
       );
       this.initializeOpeningSetupState(
         attempt.campaignId,
         route,
-        "ready",
+        "materializing",
         attempt,
       );
       this.finalizeOpeningSetupAttempt(invocationId);
       this.recordOpeningSetupAudit({
         status: "transitioned",
-        transition: "current_opening_empty_party_guided_setup_rehydrated",
+        transition: "canonical_source_materialization_wait_rehydrated",
         campaign_id: attempt.campaignId,
         generation: attempt.generation,
         invocation_id: invocationId,
@@ -2143,12 +2096,7 @@ export class OpeningTerminalContinuationGate {
       return {
         accepted: true,
         dispatchAllowed: false,
-        reason: "prebound_current_opening_character_setup",
-        modelProjection: this.safeRecoveredCharacterSetupProjection(
-          attempt.campaignId,
-          data?.mode,
-          route,
-        ),
+        reason: "prebound_opening_source_materialization",
       };
     }
     if (state === undefined && canonicalPreboundProbe) {
@@ -6316,9 +6264,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (
       openingObservation.reason === "prebound_opening_selection"
       || openingObservation.reason
-        === "prebound_opening_setup_incomplete_character_setup"
+        === "prebound_opening_character_setup"
+      || openingObservation.reason
+        === "prebound_opening_source_materialization"
     ) {
       return { accepted: true };
+    }
+    if (openingObservation.reason === "source_contract_invalid") {
+      return {
+        accepted: false,
+        failureClass: "opening_source_contract_invalid",
+      };
     }
     const envelope = objectOrNull(value);
     if (
@@ -6406,6 +6362,118 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ),
     };
   };
+  const projectStartupCharacterSetup = (
+    details: JsonObject,
+    campaignId: string,
+  ): JsonObject | null => {
+    if (
+      !exactKeysMatch(details, [
+        "schema_version",
+        "status",
+        "hard_gate",
+        "activation_allowed",
+        "phase",
+        "campaign_id",
+        "character_setup_policy",
+        "next_operation",
+        "instruction",
+      ])
+      || details.schema_version !== 1
+      || details.status !== "blocked"
+      || details.hard_gate !== true
+      || details.activation_allowed !== false
+      || details.phase !== "opening_character_setup_required"
+      || details.campaign_id !== campaignId
+      || details.character_setup_policy !== "guided_quick_fire"
+      || details.next_operation !== null
+      || typeof details.instruction !== "string"
+    ) return null;
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_character_setup_required",
+      campaign_id: campaignId,
+      character_setup_policy: "guided_quick_fire",
+      next_operation: null,
+      instruction: (
+        "complete the retained guided Quick Fire investigator creation and "
+        + "exact campaign link before opening play"
+      ),
+    };
+  };
+  const projectStartupSourceMaterialization = (
+    details: JsonObject,
+    campaignId: string,
+  ): JsonObject | null => {
+    if (
+      details.schema_version !== 1
+      || details.status !== "blocked"
+      || details.hard_gate !== true
+      || details.activation_allowed !== false
+      || details.phase !== "opening_source_materialization"
+      || (
+        details.campaign_id !== undefined
+        && details.campaign_id !== campaignId
+      )
+      || details.source_lifecycle_status !== "pending"
+      || (
+        details.next_operation !== undefined
+        && details.next_operation !== null
+      )
+    ) return null;
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_source_materialization",
+      campaign_id: campaignId,
+      source_lifecycle_status: "pending",
+      next_operation: null,
+      instruction: (
+        "wait for the retained canonical opening source lifecycle terminal "
+        + "event before any setup or play operation"
+      ),
+    };
+  };
+  const projectStartupSourceContractInvalid = (
+    details: JsonObject,
+    campaignId: string,
+  ): JsonObject | null => {
+    if (
+      details.schema_version !== 1
+      || details.status !== "blocked"
+      || details.hard_gate !== true
+      || details.activation_allowed !== false
+      || details.phase !== "opening_source_contract_invalid"
+      || (
+        details.campaign_id !== undefined
+        && details.campaign_id !== campaignId
+      )
+      || (
+        details.next_operation !== undefined
+        && details.next_operation !== null
+      )
+    ) return null;
+    const sourceContract = objectOrNull(details.source_contract_error);
+    const sourceCode = canonicalFailureClass(sourceContract?.code);
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_source_contract_invalid",
+      campaign_id: campaignId,
+      source_contract_error: { code: sourceCode },
+      next_operation: null,
+      instruction: (
+        "the canonical opening source contract is invalid; stop setup and "
+        + "play until the contract is repaired"
+      ),
+    };
+  };
   const startupCanonicalFailureProjection = (
     error: unknown,
     name: string,
@@ -6427,16 +6495,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       || error.details !== envelopeDetails
     ) return { kind: "invalid" };
     const code = canonicalFailureClass(error.code);
-    const projectedDetails = (
+    let projectedDetails: JsonObject | null = null;
+    if (
       code === "opening_setup_incomplete"
       && typeof params.campaign === "string"
       && envelopeDetails !== null
-    )
-      ? projectStartupOpeningSelection(
+    ) {
+      projectedDetails = (
+        projectStartupOpeningSelection(envelopeDetails, params.campaign)
+        ?? projectStartupCharacterSetup(envelopeDetails, params.campaign)
+        ?? projectStartupSourceMaterialization(
           envelopeDetails,
           params.campaign,
         )
-      : null;
+        ?? projectStartupSourceContractInvalid(
+          envelopeDetails,
+          params.campaign,
+        )
+      );
+    }
     return {
       kind: "projected",
       envelope: {
