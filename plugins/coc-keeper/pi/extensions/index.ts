@@ -1254,6 +1254,25 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private exactOpeningSetupIncompleteResume(
+    envelope: JsonObject | null,
+  ): boolean {
+    if (
+      envelope === null
+      || !exactKeysMatch(envelope, ["ok", "tool", "error"])
+      || envelope.ok !== false
+      || envelope.tool !== "session.resume"
+    ) {
+      return false;
+    }
+    const error = objectOrNull(envelope.error);
+    return (
+      error !== null
+      && exactKeysMatch(error, ["code"])
+      && error.code === "opening_setup_incomplete"
+    );
+  }
+
   private safeRecoveredCharacterSetupProjection(
     campaignId: string,
     mode: unknown,
@@ -1265,7 +1284,11 @@ export class OpeningTerminalContinuationGate {
       data: {
         schema_version: 1,
         campaign_id: campaignId,
-        mode: String(mode),
+        mode: (
+          typeof mode === "string" && mode.trim().length > 0
+            ? mode
+            : "opening_setup_incomplete"
+        ),
         opening_gate: route,
       },
       warnings: [],
@@ -2055,6 +2078,41 @@ export class OpeningTerminalContinuationGate {
         )
       )
     );
+    if (
+      state === undefined
+      && attempt.attemptClass === "probe"
+      && operation === "session.resume"
+      && this.unboundAttemptIsFresh(attempt)
+      && this.exactOpeningSetupIncompleteResume(envelope)
+    ) {
+      const route = this.recoveredCurrentCharacterSetupRoute(
+        attempt.campaignId,
+      );
+      this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "ready",
+        attempt,
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: "opening_setup_incomplete_guided_setup_rehydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "prebound_opening_setup_incomplete_character_setup",
+        modelProjection: this.safeRecoveredCharacterSetupProjection(
+          attempt.campaignId,
+          "opening_setup_incomplete",
+          route,
+        ),
+      };
+    }
     if (
       state === undefined
       && attempt.attemptClass === "probe"
@@ -6255,7 +6313,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     campaignId: string,
     openingObservation: OpeningSetupObservationDisposition,
   ): { accepted: true } | { accepted: false; failureClass: string } => {
-    if (openingObservation.reason === "prebound_opening_selection") {
+    if (
+      openingObservation.reason === "prebound_opening_selection"
+      || openingObservation.reason
+        === "prebound_opening_setup_incomplete_character_setup"
+    ) {
       return { accepted: true };
     }
     const envelope = objectOrNull(value);

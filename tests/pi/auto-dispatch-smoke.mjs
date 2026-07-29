@@ -2339,6 +2339,313 @@ async function exerciseFailureDrain(mode) {
     && wrongToolGate.requiredOpeningSetupContinuation() === null);
 }
 
+// A current canonical runtime may intentionally return only the typed
+// opening_setup_incomplete business error. The exact minimal envelope means
+// the source opening exists but the current investigator setup is incomplete;
+// Pi must recover the same guided-only gate without inventing source details.
+{
+  const campaignId = "minimal-opening-setup-incomplete";
+  const resumeParams = {
+    operation: "session.resume",
+    campaign: campaignId,
+    arguments: {},
+  };
+  const gate = new main.OpeningTerminalContinuationGate();
+  check("minimal opening-setup error probe is admitted",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      resumeParams,
+      "minimal-opening-resume",
+    ) === null);
+  const hydrated = gate.observeOpeningSetupInvocation(
+    "session.resume",
+    resumeParams,
+    {
+      ok: false,
+      tool: "session.resume",
+      error: { code: "opening_setup_incomplete" },
+    },
+    "minimal-opening-resume",
+  );
+  const projectedText = JSON.stringify(hydrated.modelProjection);
+  const projectedGate = hydrated.modelProjection?.data?.opening_gate;
+  check("exact minimal business error hydrates safe guided-only setup",
+    hydrated.accepted === true
+    && hydrated.reason
+      === "prebound_opening_setup_incomplete_character_setup"
+    && projectedGate?.phase === "opening_character_setup_required"
+    && projectedGate?.character_setup_policy
+      === "guided_quick_fire_no_source"
+    && projectedGate?.allowed_actions?.some((action) => (
+      action.kind === "investigator.create"
+      && action.required_creation_input_mode === "guided_quick_fire"
+    ))
+    && !projectedGate?.allowed_actions?.some((action) => (
+      action.kind === "campaign.render_briefing"
+    ))
+    && !projectedText.includes("import_complete_sheet")
+    && !projectedText.includes("scene_context")
+    && !projectedText.includes("current_turn")
+    && !projectedText.includes("location")
+    && !projectedText.includes("task"));
+
+  const contractParams = {
+    operation: "setup.investigator_contract",
+    campaign: campaignId,
+    arguments: { campaign_id: campaignId },
+  };
+  check("minimal-error gate admits only its current contract query",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      contractParams,
+      "minimal-opening-contract",
+    ) === null);
+  const projectedContract = gate.projectGuidedCharacterContract(
+    "setup.investigator_contract",
+    contractParams,
+    {
+      ok: true,
+      tool: "setup.investigator_contract",
+      data: {
+        schema_version: 1,
+        status: "PASS",
+        kind: "investigator.contract",
+        result: {
+          ruleset_id: "coc7",
+          payload_schema: {
+            oneOf: [
+              {
+                title: "Guided",
+                properties: {
+                  creation: { $ref: "#/$defs/quick_fire_creation" },
+                },
+              },
+              {
+                title: "Import",
+                properties: {
+                  creation: { $ref: "#/$defs/complete_sheet_creation" },
+                },
+              },
+            ],
+            $defs: {
+              quick_fire_creation: { type: "object" },
+              complete_sheet: { type: "object" },
+              complete_sheet_creation: { type: "object" },
+            },
+          },
+        },
+      },
+    },
+  );
+  check("minimal-error contract projection removes complete-sheet import",
+    projectedContract.data.result.payload_schema.oneOf.length === 1
+    && projectedContract.data.result.applicable_input_mode
+      === "guided_quick_fire"
+    && !JSON.stringify(projectedContract).includes("import_complete_sheet")
+    && projectedContract.data.result.payload_schema.$defs.complete_sheet
+      === undefined
+    && projectedContract.data.result.payload_schema.$defs
+      .complete_sheet_creation === undefined);
+  const contractObserved = gate.observeOpeningSetupInvocation(
+    "setup.investigator_contract",
+    contractParams,
+    projectedContract,
+    "minimal-opening-contract",
+  );
+  check("minimal-error projected contract remains a canonical owned receipt",
+    contractObserved.accepted === true
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal("模型自拟的创建方式说明。"),
+      "请选择调查员的特征值生成方式，并继续确认职业与技能。",
+    ));
+
+  const blockedDetours = [
+    {
+      name: "coc_invoke",
+      id: "minimal-opening-scene",
+      params: {
+        operation: "scene.context",
+        campaign: campaignId,
+        arguments: {},
+      },
+    },
+    {
+      name: "coc_invoke",
+      id: "minimal-opening-source",
+      params: {
+        operation: "progressive.project_opening",
+        campaign: campaignId,
+        arguments: {},
+      },
+    },
+    {
+      name: "coc_invoke",
+      id: "minimal-opening-briefing",
+      params: {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: {
+          kind: "campaign.render_briefing",
+          payload: { campaign_id: campaignId },
+        },
+      },
+    },
+    {
+      name: "coc_invoke",
+      id: "minimal-opening-import",
+      params: {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: {
+          kind: "investigator.create",
+          payload: {
+            campaign_id: campaignId,
+            investigator_id: "minimal-import",
+            sheet: { id: "minimal-import", name: "Import" },
+            creation: { input_mode: "import_complete_sheet" },
+          },
+        },
+      },
+    },
+    {
+      name: "coc_discover",
+      id: "minimal-opening-discover",
+      params: { operation: "scene.context" },
+    },
+  ];
+  check("minimal-error gate blocks source import discover and scene detours",
+    blockedDetours.every(({ name, id, params }) => (
+      gate.openingSetupToolError(name, params, id) !== null
+    )));
+
+  const investigatorId = "minimal-guided-investigator";
+  const createParams = guidedQuickFireCreateParams(
+    campaignId,
+    investigatorId,
+  );
+  check("minimal-error gate admits the exact guided create",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      createParams,
+      "minimal-opening-create",
+    ) === null);
+  const created = gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    createParams,
+    canonicalGuidedCreateResult(investigatorId),
+    "minimal-opening-create",
+  );
+  const createdVisible = gate.acceptVisibleAssistantFinal(
+    "模型自拟的创建成功说明。",
+  );
+  const linkParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: campaignId,
+        investigator_ids: [investigatorId],
+      },
+    },
+  };
+  check("minimal-error gate admits only the current guided investigator link",
+    created.accepted === true
+    && gate.openingSetupToolError(
+      "coc_invoke",
+      linkParams,
+      "minimal-opening-link",
+    ) === null);
+  const linked = gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    linkParams,
+    canonicalLinkSetupResult(campaignId, [investigatorId]),
+    "minimal-opening-link",
+  );
+  const linkedVisible = gate.acceptVisibleAssistantFinal(
+    "模型自拟的链接成功说明。",
+  );
+  const released = gate.requiredOpeningSetupContinuation();
+  check("minimal-error gate releases the opening exactly once after link",
+    replacementIs(
+      createdVisible,
+      "调查员资料已创建；请确认后加入战役。",
+    )
+    && linked.accepted === true
+    && replacementIs(linkedVisible, "调查员已正式加入战役。")
+    && released?.next_operation?.operation === "evidence.table_opening"
+    && gate.requiredOpeningSetupContinuation() === null);
+
+  const adjacentFailures = [
+    {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "opening_setup_incomplete",
+        message: "adjacent richer error is not the exact minimal contract",
+      },
+    },
+    {
+      ok: false,
+      tool: "session.resume",
+      error: { code: "opening_setup_incomplete", details: null },
+    },
+    {
+      ok: false,
+      tool: "session.resume",
+      error: { code: "campaign_not_found" },
+    },
+    {
+      ok: false,
+      tool: "scene.context",
+      error: { code: "opening_setup_incomplete" },
+    },
+  ];
+  for (const [index, envelope] of adjacentFailures.entries()) {
+    const adjacentGate = new main.OpeningTerminalContinuationGate();
+    const invocationId = `minimal-opening-adjacent-${index}`;
+    check(`adjacent minimal-error variant ${index} probe is admitted`,
+      adjacentGate.openingSetupToolError(
+        "coc_invoke",
+        resumeParams,
+        invocationId,
+      ) === null);
+    const disposition = adjacentGate.observeOpeningSetupInvocation(
+      "session.resume",
+      resumeParams,
+      envelope,
+      invocationId,
+    );
+    check(`adjacent minimal-error variant ${index} is not hijacked`,
+      disposition.reason === "non_route_result"
+      && disposition.modelProjection === undefined
+      && adjacentGate.requiredOpeningSetupContinuation() === null);
+  }
+  const mismatchedCampaignGate = new main.OpeningTerminalContinuationGate();
+  check("minimal-error campaign mismatch probe is admitted under its owner",
+    mismatchedCampaignGate.openingSetupToolError(
+      "coc_invoke",
+      resumeParams,
+      "minimal-opening-campaign-mismatch",
+    ) === null);
+  const mismatchedCampaign = (
+    mismatchedCampaignGate.observeOpeningSetupInvocation(
+      "session.resume",
+      { ...resumeParams, campaign: "other-campaign" },
+      {
+        ok: false,
+        tool: "session.resume",
+        error: { code: "opening_setup_incomplete" },
+      },
+      "minimal-opening-campaign-mismatch",
+    )
+  );
+  check("exact minimal error cannot cross its invocation campaign",
+    mismatchedCampaign.reason === "invocation_or_campaign_mismatch"
+    && mismatchedCampaign.modelProjection === undefined
+    && mismatchedCampaignGate.requiredOpeningSetupContinuation() === null);
+}
+
 // An explicitly selected Pi session/campaign continuation is host-gated before
 // the welcome turn. The KP itself must execute the normal session.resume tool
 // so the recovery result enters its context; setup discovery and tool-free
@@ -3108,6 +3415,97 @@ async function exerciseFailureDrain(mode) {
     && harness.calls.filter((call) => (
       call.params.operation === "evidence.table_opening"
     )).length === 1);
+  await harness.shutdown();
+}
+
+// The startup adapter must preserve the typed canonical identity of the exact
+// minimal business error, hydrate the guided gate, and clear only the startup
+// resume blocker. A following allowed setup call proves the startup classifier
+// did not terminalize the campaign.
+{
+  const campaignId = "startup-minimal-opening-setup-incomplete";
+  const minimalEnvelope = {
+    ok: false,
+    tool: "session.resume",
+    error: { code: "opening_setup_incomplete" },
+  };
+  const harness = mainExtensionHarness((name, params) => {
+    if (
+      name === "coc_invoke"
+      && params.operation === "session.resume"
+    ) {
+      throw new runtime.CanonicalToolError(
+        "coc_invoke",
+        "opening_setup_incomplete",
+        "canonical coc_invoke failed: opening_setup_incomplete",
+        null,
+        minimalEnvelope,
+      );
+    }
+    if (
+      name === "coc_invoke"
+      && params.operation === "setup.investigator_contract"
+    ) {
+      return {
+        ok: true,
+        tool: "setup.investigator_contract",
+        data: {
+          schema_version: 1,
+          status: "PASS",
+          kind: "investigator.contract",
+          result: {
+            ruleset_id: "coc7",
+            payload_schema: { type: "object" },
+          },
+        },
+      };
+    }
+    throw new Error(
+      `unexpected minimal startup call ${name}:${params.operation}`,
+    );
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+  const resumed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-minimal-opening-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const contract = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-minimal-opening-contract",
+    {
+      operation: "setup.investigator_contract",
+      root,
+      campaign: campaignId,
+      arguments: { campaign_id: campaignId },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("typed minimal startup error hydrates instead of terminalizing",
+    resumed.ok === true
+    && resumed.data.mode === "opening_setup_incomplete"
+    && resumed.data.opening_gate.phase
+      === "opening_character_setup_required"
+    && contract.ok === true
+    && harness.calls.map((call) => call.params.operation).join(",")
+      === "session.resume,setup.investigator_contract"
+    && !harness.sent.some((entry) => (
+      entry.message?.customType === "coc-startup-resume-blocker"
+    ))
+    && !JSON.stringify(resumed).includes("scene_context")
+    && !JSON.stringify(resumed).includes("current_turn"));
   await harness.shutdown();
 }
 
