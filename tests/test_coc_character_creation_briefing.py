@@ -370,6 +370,67 @@ def test_nested_encoded_filename_delimiters_and_invalid_percent_are_rejected():
         assert "token=PRIVATE" not in markdown
 
 
+def test_trailing_source_path_separator_never_promotes_a_directory_name():
+    briefing = _load_briefing_script()
+    rejected_filenames = (
+        "https://files.example/Users/private/",
+        "/Users/private/",
+        "C:\\Users\\private\\",
+        "https://files.example/Users/private/?token=PRIVATE#fragment",
+        "/Users/private/?token=PRIVATE#fragment",
+        "C:\\Users\\private\\?token=PRIVATE#fragment",
+        "https://files.example/Users/private%2F",
+        "https://files.example/Users/private%252F",
+        "/Users/private%EF%BC%8F",
+        "/Users/private／",
+        "C:\\Users\\private＼",
+    )
+    for filename in rejected_filenames:
+        markdown = briefing.render_briefing(
+            {
+                "title": "Progressive Module",
+                "play_language": "zh-Hans",
+            },
+            {"title": "Progressive Module"},
+            {"title": "Progressive Module"},
+            {"sources": [{"filename": filename}]},
+            language="zh-Hans",
+        )
+
+        assert markdown.startswith("# 调查员创建简报：开卡序章")
+        assert "**来源**" not in markdown
+        assert "private：开卡序章" not in markdown
+        assert "token=PRIVATE" not in markdown
+
+
+def test_paths_with_actual_source_filenames_still_expose_only_the_basename():
+    briefing = _load_briefing_script()
+    safe_filenames = (
+        "https://files.example/Users/private/case.pdf",
+        "/Users/private/case.pdf",
+        "C:\\Users\\private\\case.pdf",
+        "https://files.example/Users/private/case.pdf?token=PRIVATE#fragment",
+    )
+    for filename in safe_filenames:
+        markdown = briefing.render_briefing(
+            {
+                "title": "Progressive Module",
+                "play_language": "zh-Hans",
+            },
+            {"title": "Progressive Module"},
+            {"title": "Progressive Module"},
+            {"sources": [{"filename": filename}]},
+            language="zh-Hans",
+        )
+
+        assert markdown.startswith("# case.pdf：开卡序章")
+        assert "- **来源**：case.pdf" in markdown
+        assert "/Users/private" not in markdown
+        assert "\\Users\\private" not in markdown
+        assert "files.example" not in markdown
+        assert "token=PRIVATE" not in markdown
+
+
 def test_safe_literal_and_encoded_unicode_identities_remain_visible():
     briefing = _load_briefing_script()
     literal_title = briefing.render_briefing(

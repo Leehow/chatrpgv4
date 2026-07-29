@@ -263,6 +263,8 @@ def _safe_source_filename(value: Any) -> str:
     ):
         return ""
     path = decoded_path.replace("\\", "/")
+    if path.endswith("/"):
+        return ""
     segments = [segment for segment in path.split("/") if segment]
     if any(segment in {".", ".."} for segment in segments):
         return ""
