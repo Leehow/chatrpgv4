@@ -207,3 +207,95 @@ def test_progressive_placeholder_prefers_localized_source_title(tmp_path):
     assert markdown.startswith("# 有据可查的案件：开卡序章")
     assert "Progressive Module" not in markdown
     assert "Generic Campaign Shell" not in markdown
+
+
+def test_source_path_only_never_reaches_player_briefing(tmp_path):
+    briefing = _load_briefing_script()
+    source_paths = (
+        "/Users/private/project/source/secret-module.pdf",
+        r"C:\Users\private\project\source\secret-module.pdf?token=private",
+    )
+    for index, source_path in enumerate(source_paths):
+        campaign_dir = (
+            tmp_path / ".coc" / "campaigns" / f"case-private-path-{index}"
+        )
+        _write_json(
+            campaign_dir / "campaign.json",
+            {
+                "title": "Progressive Module",
+                "play_language": "zh-Hans",
+            },
+        )
+        _write_json(
+            campaign_dir / "scenario" / "scenario.json",
+            {"title": "Progressive Module"},
+        )
+        _write_json(
+            campaign_dir / "scenario" / "module-meta.json",
+            {"title": "Progressive Module", "era": "unknown"},
+        )
+        _write_json(
+            campaign_dir / "index" / "source-map.json",
+            {"sources": [{"path": source_path}]},
+        )
+
+        result = briefing.render_briefing_from_campaign(
+            campaign_dir,
+            repo_root=tmp_path,
+        )
+        markdown = (
+            tmp_path / result["briefing_path"]
+        ).read_text(encoding="utf-8")
+
+        assert markdown.startswith("# 调查员创建简报：开卡序章")
+        assert "**来源**" not in markdown
+        assert source_path not in markdown
+        assert "secret-module.pdf" not in markdown
+        assert "/Users/" not in markdown
+        assert r"C:\Users" not in markdown
+        assert "private/project/source" not in markdown
+        assert r"private\project\source" not in markdown
+        assert "token=private" not in markdown
+
+
+def test_filename_fallback_is_basename_only_and_strips_uri_query(tmp_path):
+    briefing = _load_briefing_script()
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-safe-filename"
+    _write_json(
+        campaign_dir / "campaign.json",
+        {
+            "title": "Progressive Module",
+            "play_language": "zh-Hans",
+        },
+    )
+    _write_json(
+        campaign_dir / "scenario" / "scenario.json",
+        {"title": "Progressive Module"},
+    )
+    _write_json(
+        campaign_dir / "scenario" / "module-meta.json",
+        {"title": "Progressive Module"},
+    )
+    _write_json(
+        campaign_dir / "index" / "source-map.json",
+        {
+            "sources": [{
+                "filename": (
+                    "https://files.example/private/"
+                    "safe-case.pdf?token=do-not-render"
+                ),
+            }],
+        },
+    )
+
+    result = briefing.render_briefing_from_campaign(
+        campaign_dir,
+        repo_root=tmp_path,
+    )
+    markdown = (tmp_path / result["briefing_path"]).read_text(encoding="utf-8")
+
+    assert markdown.startswith("# safe-case.pdf：开卡序章")
+    assert "- **来源**：safe-case.pdf" in markdown
+    assert "files.example" not in markdown
+    assert "/private/" not in markdown
+    assert "token=do-not-render" not in markdown

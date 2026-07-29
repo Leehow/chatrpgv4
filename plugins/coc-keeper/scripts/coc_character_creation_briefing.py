@@ -11,6 +11,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -59,6 +60,15 @@ PROGRESSIVE_MACHINE_SUMMARY = (
     "Progressive import: skeleton topology; deep packs fill in on demand."
 )
 PROGRESSIVE_MACHINE_TITLE = "Progressive Module"
+GENERIC_SOURCE_BASENAMES = {
+    "document",
+    "document.pdf",
+    "module",
+    "module.pdf",
+    "source",
+    "source.pdf",
+    "unknown",
+}
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -145,9 +155,63 @@ def _localized_title(title: str, campaign: dict[str, Any], language: str) -> str
 
 def _public_title_candidate(value: Any) -> str:
     text = str(value or "").strip()
-    if text == PROGRESSIVE_MACHINE_TITLE:
+    decoded = unquote(text)
+    parsed = urlsplit(text)
+    if (
+        text == PROGRESSIVE_MACHINE_TITLE
+        or "/" in decoded
+        or "\\" in decoded
+        or decoded.startswith("~")
+        or bool(
+            parsed.scheme
+            and (parsed.netloc or parsed.scheme.lower() == "file")
+        )
+    ):
         return ""
     return text
+
+
+def _safe_source_filename(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # `filename` is the only source field permitted to yield a basename.
+    # Strip URI parameters before normalizing both POSIX and Windows
+    # separators; `source.path` never reaches this function.
+    parsed = urlsplit(text)
+    text = unquote(parsed.path if parsed.scheme else text)
+    text = text.split("#", 1)[0].split("?", 1)[0].replace("\\", "/")
+    basename = text.rsplit("/", 1)[-1].strip()
+    if basename.lower() in GENERIC_SOURCE_BASENAMES:
+        return ""
+    return _public_title_candidate(basename)
+
+
+def _safe_source_title(value: Any) -> str:
+    text = str(value or "").strip()
+    decoded = unquote(text)
+    parsed = urlsplit(text)
+    if (
+        not text
+        or "/" in decoded
+        or "\\" in decoded
+        or "?" in decoded
+        or "#" in decoded
+        or decoded.startswith("~")
+        or bool(
+            parsed.scheme
+            and (parsed.netloc or parsed.scheme.lower() == "file")
+        )
+    ):
+        return ""
+    return _public_title_candidate(decoded)
+
+
+def _safe_source_record_label(source: dict[str, Any]) -> str:
+    title = _safe_source_title(source.get("title"))
+    if title:
+        return title
+    return _safe_source_filename(source.get("filename"))
 
 
 def _scenario_title(
@@ -171,13 +235,18 @@ def _scenario_title(
 
 
 def _source_label(source_map: dict[str, Any], scenario: dict[str, Any]) -> str:
+    candidates: list[dict[str, Any]] = []
     source = scenario.get("source")
-    if not isinstance(source, dict):
-        sources = source_map.get("sources", [])
-        source = sources[0] if isinstance(sources, list) and sources and isinstance(sources[0], dict) else {}
-    return _public_title_candidate(
-        source.get("title") or source.get("filename") or source.get("path")
-    )
+    if isinstance(source, dict):
+        candidates.append(source)
+    sources = source_map.get("sources", [])
+    if isinstance(sources, list):
+        candidates.extend(item for item in sources if isinstance(item, dict))
+    for candidate in candidates:
+        label = _safe_source_record_label(candidate)
+        if label:
+            return label
+    return ""
 
 
 def _era_label(value: Any, language: str) -> str:
