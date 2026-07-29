@@ -285,9 +285,15 @@ def _validate_quick_fire_luck_receipt(
     record = receipt.get("roll_record") if isinstance(receipt, dict) else None
     payload = record.get("payload") if isinstance(record, dict) else None
     rolls = data.get("rolls") if isinstance(data, dict) else None
+    typed_reason = (
+        operation.get("reason")
+        if isinstance(operation, dict)
+        else None
+    )
     expected_operation = {
         "expression": "3D6",
-        "reason": "Quick-Fire investigator Luck",
+        "reason": typed_reason,
+        "purpose": "investigator_creation_luck",
     }
     expected_resolution = {
         "expression": "3D6",
@@ -322,7 +328,23 @@ def _validate_quick_fire_luck_receipt(
         and data.get("count") == 3
         and data.get("sides") == 6
         and data.get("modifier") == 0
-        and data.get("reason") == "Quick-Fire investigator Luck"
+        and (
+            (
+                typed_reason is None
+                and "reason" not in data
+                and "reason" not in record
+                and "reason" not in payload
+            )
+            or (
+                isinstance(typed_reason, str)
+                and data.get("reason") == typed_reason
+                and record.get("reason") == typed_reason
+                and payload.get("reason") == typed_reason
+            )
+        )
+        and data.get("purpose") == "investigator_creation_luck"
+        and record.get("purpose") == "investigator_creation_luck"
+        and payload.get("purpose") == "investigator_creation_luck"
         and data.get("roll_id") == roll_id
         and isinstance(rolls, list)
         and len(rolls) == 3
@@ -3757,9 +3779,7 @@ def execute_setup_operation(
         investigator_id = _id(payload.get("investigator_id"), "investigator_id")
         sheet = payload.get("sheet")
         creation = payload.get("creation")
-        if not isinstance(sheet, dict) or (
-            creation is not None and not isinstance(creation, dict)
-        ):
+        if not isinstance(sheet, dict) or not isinstance(creation, dict):
             raise RuntimeOperationError("investigator.create requires object sheet/creation")
         quick_fire_materialization = (
             isinstance(creation, dict)
@@ -3769,6 +3789,11 @@ def execute_setup_operation(
             )
         )
         if quick_fire_materialization:
+            if creation.get("input_mode") != "guided_quick_fire":
+                raise RuntimeOperationError(
+                    "deterministic Quick Fire investigator.create requires "
+                    "creation.input_mode=guided_quick_fire"
+                )
             current_campaign_id = _id(
                 payload.get("campaign_id"),
                 "campaign_id",
@@ -3788,6 +3813,11 @@ def execute_setup_operation(
             raise RuntimeOperationError(
                 "investigator.create campaign_id is supported only for "
                 "deterministic Quick Fire creation"
+            )
+        elif creation.get("input_mode") != "import_complete_sheet":
+            raise RuntimeOperationError(
+                "complete-sheet investigator.create requires explicit "
+                "creation.input_mode=import_complete_sheet"
             )
         try:
             sheet = coc_character.materialize_quick_fire_create_sheet(

@@ -41,7 +41,8 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   Record the selected method in the creation draft and validate fixed/point-buy
   values with `../../../../scripts/coc_character.py`.
 - **Quick Fire deterministic materialization:** after semantic assignment,
-  submit `creation.method="quick_fire_array"`,
+  submit `creation.input_mode="guided_quick_fire"` and
+  `creation.method="quick_fire_array"`,
   `creation.characteristic_assignment_order` as the eight unique canonical
   characteristic keys in descending array-slot order, and
   `creation.luck_roll_total` as the authoritative 3D6 total. Also submit
@@ -54,12 +55,21 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `sheet.characteristics` and `sheet.derived`; `investigator.create` copies the
   configured `[80,70,60,60,50,50,50,40]` array, multiplies Luck by five, and
   derives HP/MP/SAN/DB/Build/MOV deterministically. The Keeper still owns the
-  concept and semantic priority order. Complete-sheet legacy creation remains
-  valid when those two materialization fields are absent.
+  concept and semantic priority order. Include the confirmed
+  `sheet.player_facing_sheet_zh` with a non-empty `display_name` and one
+  localized `skills` entry for every canonical machine skill, preserving the
+  same key/value. Include `creation.skill_budget` with exact
+  `occupation_points` and `personal_interest_points` budget/spent accounts;
+  each account must be fully spent. This is a narrow accounting gate, not a
+  second occupation-allocation engine. An already complete external sheet is
+  accepted only through the explicit
+  `creation.input_mode="import_complete_sheet"` branch.
 - **Quick-Fire Luck exact recipe:** invoke `coc_invoke` exactly once with
   `operation="rules.roll_dice"`, the current campaign, and `arguments`
-  containing exactly `expression="3D6"`, a stable creation-scoped
-  `decision_id`, and `reason="Quick-Fire investigator Luck"`. Reuse the same
+  containing required fields `expression="3D6"`, a stable creation-scoped
+  `decision_id`, and `purpose="investigator_creation_luck"`. `reason` is
+  optional human-readable context and is not a hidden authorization literal.
+  Reuse the same
   `decision_id` value on retry. Apply the COC7 creation formula to the
   authoritative returned total as `creation.luck_roll_total`, and retain the
   returned `roll_id` in `creation.luck_roll_receipt`; the setup rules layer
@@ -69,6 +79,9 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   recipe preserves deterministic rolls; investigator concept, characteristic
   assignment, occupation, backstory, and final character craft remain live
   semantic Keeper work.
+- During this guided setup window, `rules.cash_assets` is the only additional
+  rules query admitted. Use it with the confirmed canonical `Credit Rating`
+  (and optional period) to materialize cash/assets; do not estimate them.
 - After the player confirms the final parameters, reuse the canonical
   `setup.invoke` card already returned by setup inspection and construct its
   `investigator.create` payload from the retained

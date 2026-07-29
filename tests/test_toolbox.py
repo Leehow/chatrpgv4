@@ -13524,10 +13524,15 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
         ws["workspace"] / briefing["data"]["result"]["briefing_path"]
     ).is_file()
 
+    cash_assets = _run(ws, "rules.cash_assets", {"credit_rating": 20})
+    assert cash_assets["ok"] is True, cash_assets
+    assert cash_assets["data"]["credit_rating"] == 20
+
     luck = _run(ws, "rules.roll_dice", {
         "expression": "3D6",
         "decision_id": "quick-fire-opening-setup-luck",
-        "reason": "Quick-Fire investigator Luck",
+        "purpose": "investigator_creation_luck",
+        "reason": "为开场调查员生成幸运值",
     })
     assert luck["ok"] is True, luck
     assert 3 <= luck["data"]["total"] <= 18
@@ -13544,8 +13549,16 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
                     "Credit Rating": 20,
                     "Spot Hidden": 60,
                 },
+                "player_facing_sheet_zh": {
+                    "display_name": "开场速建调查员",
+                    "skills": [
+                        {"key": "Credit Rating", "label": "信用评级", "value": 20},
+                        {"key": "Spot Hidden", "label": "侦查", "value": 60},
+                    ],
+                },
             },
             "creation": {
+                "input_mode": "guided_quick_fire",
                 "method": "quick_fire_array",
                 "characteristic_assignment_order": [
                     "DEX", "INT", "POW", "EDU",
@@ -13556,6 +13569,10 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
                     "campaign_id": ws["campaign_id"],
                     "decision_id": "quick-fire-opening-setup-luck",
                     "roll_id": luck["data"]["roll_id"],
+                },
+                "skill_budget": {
+                    "occupation_points": {"budget": 200, "spent": 200},
+                    "personal_interest_points": {"budget": 100, "spent": 100},
                 },
             },
         },
@@ -13575,10 +13592,10 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     wrong_creation_dice = _run(ws, "rules.roll_dice", {
         "expression": "3D6",
         "decision_id": "not-the-canonical-creation-recipe",
+        "purpose": "investigator_creation_luck",
         "reason": "ordinary random event",
     })
-    assert wrong_creation_dice["ok"] is False
-    assert wrong_creation_dice["error"]["code"] == "opening_setup_incomplete"
+    assert wrong_creation_dice["ok"] is True
     played_check = _run(ws, "rules.roll", {
         "actor_id": "opening-quick-fire",
         "skill": "Spot Hidden",

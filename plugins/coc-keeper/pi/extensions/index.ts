@@ -568,12 +568,19 @@ export class OpeningTerminalContinuationGate {
     const args = objectOrNull(params.arguments);
     return (
       args !== null
-      && exactKeysMatch(
-        args,
-        ["expression", "decision_id", "reason"],
-      )
+      && Object.keys(args).every((key) => (
+        ["expression", "decision_id", "purpose", "reason"].includes(key)
+      ))
+      && ["expression", "decision_id", "purpose"].every((key) => (
+        Object.keys(args).includes(key)
+      ))
       && args.expression === "3D6"
-      && args.reason === "Quick-Fire investigator Luck"
+      && args.purpose === "investigator_creation_luck"
+      && (
+        args.reason === undefined
+        || args.reason === null
+        || typeof args.reason === "string"
+      )
       && typeof args.decision_id === "string"
       && args.decision_id.trim().length > 0
     );
@@ -606,28 +613,27 @@ export class OpeningTerminalContinuationGate {
       const keys = Object.keys(payload);
       const creation = objectOrNull(payload.creation);
       const quickFireMaterialization = (
-        creation !== null
-        && (
-          creation.characteristic_assignment_order !== undefined
-          || creation.luck_roll_total !== undefined
-        )
+        creation?.input_mode === "guided_quick_fire"
       );
+      const explicitImport = creation?.input_mode === "import_complete_sheet";
       const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
+      const sheet = objectOrNull(payload.sheet);
       return (
         keys.every((key) => (
           ["campaign_id", "investigator_id", "sheet", "creation"].includes(key)
         ))
         && ["investigator_id", "sheet"].every((key) => keys.includes(key))
         && typeof payload.investigator_id === "string"
-        && objectOrNull(payload.sheet) !== null
+        && sheet !== null
+        && creation !== null
         && (
-          payload.creation === undefined
-          || creation !== null
-        )
-        && (
-          !quickFireMaterialization
-          || (
-            payload.campaign_id === route.campaign_id
+          (
+            quickFireMaterialization
+            && creation?.method === "quick_fire_array"
+            && Array.isArray(creation.characteristic_assignment_order)
+            && creation.characteristic_assignment_order.length === 8
+            && Number.isInteger(creation.luck_roll_total)
+            && payload.campaign_id === route.campaign_id
             && luckReceipt !== null
             && exactKeysMatch(
               luckReceipt,
@@ -639,10 +645,10 @@ export class OpeningTerminalContinuationGate {
             && typeof luckReceipt.roll_id === "string"
             && luckReceipt.roll_id.trim().length > 0
           )
-        )
-        && (
-          quickFireMaterialization
-          || payload.campaign_id === undefined
+          || (
+            explicitImport
+            && payload.campaign_id === undefined
+          )
         )
       );
     }
@@ -707,6 +713,21 @@ export class OpeningTerminalContinuationGate {
       return args !== null
         && exactKeysMatch(args, ["campaign_id"])
         && args.campaign_id === route.campaign_id;
+    }
+    if (operation === "rules.cash_assets") {
+      const args = objectOrNull(params.arguments);
+      return (
+        args !== null
+        && Object.keys(args).every((key) => (
+          ["credit_rating", "period"].includes(key)
+        ))
+        && Object.keys(args).includes("credit_rating")
+        && Number.isInteger(args.credit_rating)
+        && (
+          args.period === undefined
+          || typeof args.period === "string"
+        )
+      );
     }
     return this.canonicalSetupInvokeForOpening(params, route)
       || (
@@ -1483,6 +1504,7 @@ export class OpeningTerminalContinuationGate {
           arguments: {
             expression: "3D6",
             decision_id: decisionId,
+            purpose: "investigator_creation_luck",
             reason: "Quick-Fire investigator Luck",
           },
         })
@@ -1642,6 +1664,50 @@ export class OpeningTerminalContinuationGate {
     }
 
     let state = this.openingSetupStates.get(attempt.campaignId);
+    const preboundRoute = returnedGate === null
+      ? null
+      : this.routeFromGate(returnedGate);
+    const canonicalPreboundProbe = (
+      attempt.attemptClass === "probe"
+      && this.unboundAttemptIsFresh(attempt)
+      && preboundRoute !== null
+      && preboundRoute.phase === "opening_selection"
+      && this.exactPrepareCard(preboundRoute.next_operation)
+      && (
+        (
+          operation === "session.resume"
+          && envelope?.ok === false
+          && error?.code === "opening_setup_incomplete"
+          && details === returnedGate
+        )
+        || (
+          operation === "setup.investigator_contract"
+          && envelope?.ok === true
+          && objectOrNull(data?.opening_gate) === returnedGate
+        )
+      )
+    );
+    if (state === undefined && canonicalPreboundProbe) {
+      this.initializeOpeningSetupState(
+        attempt.campaignId,
+        preboundRoute,
+        "selection",
+        attempt,
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: "prebound_opening_selection_hydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "prebound_opening_selection",
+      };
+    }
     if (
       state === undefined
       && this.unboundAttemptIsFresh(attempt)

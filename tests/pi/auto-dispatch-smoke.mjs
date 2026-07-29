@@ -1810,6 +1810,9 @@ async function exerciseFailureDrain(mode) {
     && luckNearMiss.message.includes(
       '"reason":"Quick-Fire investigator Luck"',
     )
+    && luckNearMiss.message.includes(
+      '"purpose":"investigator_creation_luck"',
+    )
     && harness.calls.length === callsBeforeLuckNearMiss);
 
   await harness.registered.get("coc_invoke").execute(
@@ -1820,6 +1823,7 @@ async function exerciseFailureDrain(mode) {
       arguments: {
         expression: "3D6",
         decision_id: "quick-fire-luck-during-opening",
+        purpose: "investigator_creation_luck",
         reason: "Quick-Fire investigator Luck",
       },
     },
@@ -1868,6 +1872,7 @@ async function exerciseFailureDrain(mode) {
         investigator_id: "route-investigator",
         sheet: { id: "route-investigator", name: "Route Investigator" },
         creation: {
+          input_mode: "guided_quick_fire",
           method: "quick_fire_array",
           characteristic_assignment_order: [
             "DEX", "INT", "POW", "EDU",
@@ -2145,6 +2150,58 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
+// A safe campaign-bound probe may discover an already persisted opening
+// selection. Pi must hydrate that canonical route instead of discarding the
+// result and suggesting an impossible source rebind/OCR detour.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  const campaignId = "prebound-opening-selection";
+  const resumeParams = {
+    operation: "session.resume",
+    campaign: campaignId,
+    arguments: {},
+  };
+  check("prebound resume probe is admitted before Pi owns a route",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      resumeParams,
+      "prebound-resume",
+    ) === null);
+  const retainedGate = openingSetupGate(undefined, campaignId);
+  const hydrated = gate.observeOpeningSetupInvocation(
+    "session.resume",
+    resumeParams,
+    {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "opening_setup_incomplete",
+        message: "opening setup remains incomplete",
+        details: retainedGate,
+      },
+    },
+    "prebound-resume",
+  );
+  const prepareParams = {
+    operation: "progressive.prepare_opening",
+    campaign: campaignId,
+    arguments: {},
+  };
+  check("prebound opening selection hydrates and retains exact prepare route",
+    hydrated.accepted === true
+    && hydrated.reason === "prebound_opening_selection"
+    && gate.openingSetupToolError(
+      "coc_invoke",
+      prepareParams,
+      "prebound-prepare",
+    ) === null
+    && gate.openingSetupToolError(
+      "coc_progressive_ocr",
+      {},
+      "prebound-ocr-detour",
+    )?.includes("progressive.prepare_opening"));
+}
+
 // Route progress and clearing are campaign-local even when two source binds
 // complete in the same Pi session.
 {
@@ -2386,9 +2443,20 @@ async function exerciseFailureDrain(mode) {
       payload: {
         investigator_id: "terminal-before-link-investigator",
         sheet: { name: "Exact Character" },
+        creation: { input_mode: "import_complete_sheet" },
       },
     },
   };
+  check("character setup admits the typed read-only cash/assets query",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      {
+        operation: "rules.cash_assets",
+        campaign: "terminal-before-link",
+        arguments: { credit_rating: 20 },
+      },
+      "terminal-before-link-cash-assets",
+    ) === null);
   check("canonical create remains admitted after fulfilled terminal",
     gate.openingSetupToolError(
       "coc_invoke",
@@ -2615,6 +2683,7 @@ async function exerciseFailureDrain(mode) {
       payload: {
         investigator_id: "inv-a",
         sheet: { id: "inv-a", name: "A" },
+        creation: { input_mode: "import_complete_sheet" },
       },
     },
   };
@@ -3601,6 +3670,7 @@ async function exerciseFailureDrain(mode) {
           payload: {
             investigator_id: investigatorId,
             sheet: investigatorSheet,
+            creation: { input_mode: "import_complete_sheet" },
           },
         },
       },
@@ -4346,6 +4416,7 @@ async function exerciseFailureDrain(mode) {
       arguments: {
         expression: "3D6",
         decision_id: luckDecisionId,
+        purpose: "investigator_creation_luck",
         reason: "Quick-Fire investigator Luck",
       },
     },
@@ -4371,6 +4442,7 @@ async function exerciseFailureDrain(mode) {
               name: "Fabricated Luck",
             },
             creation: {
+              input_mode: "guided_quick_fire",
               method: "quick_fire_array",
               characteristic_assignment_order: [
                 "DEX", "INT", "POW", "EDU",
@@ -4403,6 +4475,7 @@ async function exerciseFailureDrain(mode) {
             name: "Fulfilled Chargen Investigator",
           },
           creation: {
+            input_mode: "guided_quick_fire",
             method: "quick_fire_array",
             characteristic_assignment_order: [
               "DEX", "INT", "POW", "EDU",

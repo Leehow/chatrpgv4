@@ -1506,6 +1506,7 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     investigator = invoke("investigator.create", {
         "investigator_id": "mcp-custom-investigator",
         "sheet": _custom_setup_investigator_sheet("mcp-custom-investigator"),
+        "creation": {"input_mode": "import_complete_sheet"},
     })
     assert investigator["ok"] is True, investigator
     assert investigator["data"]["result"]["investigator_id"] == (

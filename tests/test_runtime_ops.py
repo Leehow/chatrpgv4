@@ -2214,7 +2214,11 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     created = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
         "kind": "investigator.create",
-        "payload": {"investigator_id": "custom-inv", "sheet": sheet},
+        "payload": {
+            "investigator_id": "custom-inv",
+            "sheet": sheet,
+            "creation": {"input_mode": "import_complete_sheet"},
+        },
     })
     assert created["status"] == "PASS"
     linked = ops.execute_setup_operation(tmp_path, operation={
@@ -2350,7 +2354,7 @@ def test_investigator_create_rejects_localized_machine_skills_before_write(tmp_p
             "payload": {
                 "investigator_id": "localized-inv",
                 "sheet": sheet,
-                "creation": {"method": "quick_fire_array"},
+                "creation": {"input_mode": "import_complete_sheet"},
             },
         })
 
@@ -2370,7 +2374,8 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
         {
             "expression": "3D6",
             "decision_id": "runtime-ops-quick-fire-luck",
-            "reason": "Quick-Fire investigator Luck",
+            "purpose": "investigator_creation_luck",
+            "reason": "为速建调查员生成幸运值",
             "seed": 19,
         },
     )
@@ -2386,8 +2391,16 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
                 "name": "Quick Fire Investigator",
                 "age": 29,
                 "skills": {"Credit Rating": 20, "Spot Hidden": 60},
+                "player_facing_sheet_zh": {
+                    "display_name": "速建调查员",
+                    "skills": [
+                        {"key": "Credit Rating", "label": "信用评级", "value": 20},
+                        {"key": "Spot Hidden", "label": "侦查", "value": 60},
+                    ],
+                },
             },
             "creation": {
+                "input_mode": "guided_quick_fire",
                 "method": "quick_fire_array",
                 "characteristic_assignment_order": [
                     "DEX", "INT", "POW", "EDU",
@@ -2398,6 +2411,10 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
                     "campaign_id": "quick-fire",
                     "decision_id": "runtime-ops-quick-fire-luck",
                     "roll_id": luck["data"]["roll_id"],
+                },
+                "skill_budget": {
+                    "occupation_points": {"budget": 200, "spent": 200},
+                    "personal_interest_points": {"budget": 100, "spent": 100},
                 },
             },
         },
@@ -2413,6 +2430,41 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     ]
     assert stored["derived"]["Luck"] == luck["data"]["total"] * 5
     assert stored["derived"]["DB"] == "none"
+
+
+@pytest.mark.parametrize("creation", [{}, {"method": "quick_fire_array"}])
+def test_investigator_create_rejects_undiscriminated_creation_before_write(
+    tmp_path, creation,
+):
+    sheet = {
+        "id": "undiscriminated",
+        "name": "Undiscriminated",
+        "characteristics": {
+            "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50,
+            "APP": 50, "INT": 50, "POW": 50, "EDU": 50,
+        },
+        "derived": {
+            "HP": 10, "MP": 10, "SAN": 50, "Luck": 50,
+            "DB": "none", "Build": 0, "MOV": 8,
+        },
+        "skills": {"Credit Rating": 20},
+    }
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="input_mode|deterministic Quick Fire",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": {
+                "investigator_id": "undiscriminated",
+                "sheet": sheet,
+                "creation": creation,
+            },
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / "undiscriminated"
+    ).exists()
 
 
 def test_suffocation_lifecycle_is_persisted_and_roll_traced(tmp_path):

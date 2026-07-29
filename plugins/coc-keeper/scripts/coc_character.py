@@ -129,6 +129,11 @@ def materialize_quick_fire_create_sheet(
     luck_roll_total = creation.get("luck_roll_total")
     if assignment is None and luck_roll_total is None:
         return materialized
+    if creation.get("input_mode") != "guided_quick_fire":
+        raise ValueError(
+            "deterministic Quick Fire creation requires "
+            "creation.input_mode=guided_quick_fire"
+        )
     if creation.get("method") != "quick_fire_array":
         raise ValueError(
             "characteristic_assignment_order/luck_roll_total require "
@@ -323,8 +328,106 @@ def validate_character_create_sheet(
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 errors.append(f"skill {key!r} must be a non-negative integer")
 
-    if errors or not creation:
+    if errors:
         return errors
+
+    if not isinstance(creation, dict):
+        errors.append(
+            "creation is required and must declare input_mode as "
+            "guided_quick_fire or import_complete_sheet"
+        )
+        return errors
+    input_mode = creation.get("input_mode")
+    if input_mode == "import_complete_sheet":
+        return errors
+    if input_mode != "guided_quick_fire":
+        errors.append(
+            "creation.input_mode must be guided_quick_fire or "
+            "import_complete_sheet"
+        )
+        return errors
+
+    player_sheet = sheet.get("player_facing_sheet_zh")
+    if not isinstance(player_sheet, dict):
+        errors.append(
+            "guided Quick Fire requires sheet.player_facing_sheet_zh"
+        )
+    else:
+        display_name = player_sheet.get("display_name")
+        localized_skills = player_sheet.get("skills")
+        if not isinstance(display_name, str) or not display_name.strip():
+            errors.append(
+                "guided Quick Fire player_facing_sheet_zh.display_name must "
+                "be non-empty"
+            )
+        if not isinstance(localized_skills, list):
+            errors.append(
+                "guided Quick Fire player_facing_sheet_zh.skills must be a list"
+            )
+        else:
+            localized_values: dict[str, int] = {}
+            for entry in localized_skills:
+                if not isinstance(entry, dict):
+                    errors.append(
+                        "guided Quick Fire localized skill entries must be objects"
+                    )
+                    continue
+                key = entry.get("key")
+                value = entry.get("value")
+                label = entry.get("label")
+                if (
+                    not isinstance(key, str)
+                    or not key.strip()
+                    or not isinstance(label, str)
+                    or not label.strip()
+                    or isinstance(value, bool)
+                    or not isinstance(value, int)
+                ):
+                    errors.append(
+                        "guided Quick Fire localized skills require non-empty "
+                        "key/label and integer value"
+                    )
+                    continue
+                localized_values[key] = value
+            if isinstance(skills, dict) and localized_values != skills:
+                errors.append(
+                    "guided Quick Fire localized skills must cover every "
+                    "canonical machine skill with the same value"
+                )
+
+    budget = creation.get("skill_budget")
+    if not isinstance(budget, dict) or set(budget) != {
+        "occupation_points", "personal_interest_points",
+    }:
+        errors.append(
+            "guided Quick Fire requires skill_budget with exactly "
+            "occupation_points and personal_interest_points"
+        )
+    else:
+        for name in ("occupation_points", "personal_interest_points"):
+            account = budget.get(name)
+            if not isinstance(account, dict) or set(account) != {
+                "budget", "spent",
+            }:
+                errors.append(
+                    f"skill_budget.{name} must contain exactly budget and spent"
+                )
+                continue
+            total = account.get("budget")
+            spent = account.get("spent")
+            if (
+                isinstance(total, bool)
+                or not isinstance(total, int)
+                or total <= 0
+                or isinstance(spent, bool)
+                or not isinstance(spent, int)
+                or spent <= 0
+                or spent != total
+            ):
+                errors.append(
+                    f"skill_budget.{name} budget/spent must be equal "
+                    "positive integers"
+                )
 
     method_id = creation.get("method")
     if not isinstance(method_id, str) or not method_id.strip():

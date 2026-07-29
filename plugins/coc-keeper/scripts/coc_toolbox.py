@@ -1203,6 +1203,7 @@ _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
     "setup.investigator_contract",
+    "rules.cash_assets",
 })
 _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS = frozenset({
     "actor.create",
@@ -1369,10 +1370,17 @@ def _pi_opening_setup_operation_allowed(
     name: str, args: dict[str, Any],
 ) -> bool:
     if name == "rules.roll_dice":
+        allowed = {"expression", "decision_id", "purpose", "reason"}
         return (
-            set(args) == {"expression", "decision_id", "reason"}
+            set(args) <= allowed
+            and {"expression", "decision_id", "purpose"} <= set(args)
             and args.get("expression") == "3D6"
-            and args.get("reason") == "Quick-Fire investigator Luck"
+            and args.get("purpose") == "investigator_creation_luck"
+            and (
+                "reason" not in args
+                or args.get("reason") is None
+                or isinstance(args.get("reason"), str)
+            )
             and bool(str(args.get("decision_id") or "").strip())
         )
     if name in _PI_OPENING_SETUP_ALLOWED_OPERATIONS:
@@ -2934,10 +2942,13 @@ def _roll_dice_semantic_operation(args: dict[str, Any]) -> dict[str, Any]:
     expression = str(args["expression"]).strip().upper()
     if coc_roll.ROLL_PATTERN.fullmatch(expression) is None:
         raise ValueError(f"unsupported dice expression: {args['expression']}")
-    return {
+    operation = {
         "expression": expression,
         "reason": str(args["reason"]) if args.get("reason") is not None else None,
     }
+    if args.get("purpose") is not None:
+        operation["purpose"] = str(args["purpose"])
+    return operation
 
 
 def _roll_receipt_path(ctx: Ctx) -> Path:
@@ -3292,9 +3303,18 @@ def _dice_evidence_is_consistent(
     rolls = data.get("rolls")
     total = data.get("total")
     reason = operation.get("reason")
+    purpose = operation.get("purpose")
+    operation_fields = set(operation)
     return bool(
-        set(operation) == {"expression", "reason"}
+        operation_fields in (
+            {"expression", "reason"},
+            {"expression", "reason", "purpose"},
+        )
         and (reason is None or isinstance(reason, str))
+        and (
+            purpose is None
+            or purpose == "investigator_creation_luck"
+        )
         and set(resolution) == set(_DICE_RESOLUTION_FIELDS)
         and _is_exact_int(count)
         and _is_exact_int(sides)
@@ -3323,6 +3343,9 @@ def _dice_evidence_is_consistent(
         and payload.get("roll") == total
         and _optional_scalar_evidence_matches(
             "reason", reason, data, record, payload
+        )
+        and _optional_scalar_evidence_matches(
+            "purpose", purpose, data, record, payload
         )
     )
 
@@ -8098,6 +8121,14 @@ def _tool_rules_push(ctx: Ctx, args: dict[str, Any]):
     {
         "expression": {"type": "string", "required": True, "desc": "NdM(+/-k) expression"},
         "reason": {"type": "string", "desc": "what the roll is for (logged)"},
+        "purpose": {
+            "type": "string",
+            "enum": ["investigator_creation_luck"],
+            "desc": (
+                "closed semantic purpose for typed rolls; use "
+                "investigator_creation_luck for the Quick-Fire Luck source"
+            ),
+        },
         "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
@@ -8117,8 +8148,10 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
     result = _rules_resolver(ctx, "roll_dice").roll_dice(
         str(args["expression"]), rng=_rng(args)
     )
-    if args.get("reason"):
+    if args.get("reason") is not None:
         result["reason"] = str(args["reason"])
+    if args.get("purpose"):
+        result["purpose"] = str(args["purpose"])
     payload = {
         **result,
         "die_expression": result["expression"],

@@ -41,11 +41,12 @@
         "additionalProperties": false
       },
       {
-        "title": "Complete legacy sheet input",
+        "title": "Explicit complete-sheet import",
         "type": "object",
         "required": [
           "investigator_id",
-          "sheet"
+          "sheet",
+          "creation"
         ],
         "properties": {
           "investigator_id": {
@@ -185,7 +186,8 @@
         "required": [
           "id",
           "name",
-          "skills"
+          "skills",
+          "player_facing_sheet_zh"
         ],
         "properties": {
           "id": {
@@ -199,6 +201,9 @@
           },
           "skills": {
             "$ref": "#/$defs/skills"
+          },
+          "player_facing_sheet_zh": {
+            "$ref": "#/$defs/player_facing_sheet_zh"
           }
         },
         "not": {
@@ -221,12 +226,17 @@
       "quick_fire_creation": {
         "type": "object",
         "required": [
+          "input_mode",
           "method",
           "characteristic_assignment_order",
           "luck_roll_total",
-          "luck_roll_receipt"
+          "luck_roll_receipt",
+          "skill_budget"
         ],
         "properties": {
+          "input_mode": {
+            "const": "guided_quick_fire"
+          },
           "method": {
             "const": "quick_fire_array"
           },
@@ -282,6 +292,9 @@
             },
             "additionalProperties": false,
             "description": "Compact reference to the current campaign's immutable Quick-Fire Luck source receipt."
+          },
+          "skill_budget": {
+            "$ref": "#/$defs/skill_budget"
           }
         },
         "additionalProperties": true
@@ -316,47 +329,94 @@
           }
         },
         "additionalProperties": true,
-        "description": "Complete legacy machine sheet. When a non-empty creation object is supplied, the runtime validates method constraints and derived-value consistency."
+        "description": "Complete machine sheet accepted only through the explicit import_complete_sheet path."
       },
       "complete_sheet_creation": {
-        "description": "Optional legacy creation record. An empty object preserves the historical no-method path; a populated object requires one supported method. Quick Fire materialization fields belong only to the deterministic Quick Fire branch.",
-        "oneOf": [
-          {
-            "type": "object",
-            "maxProperties": 0
-          },
-          {
-            "type": "object",
-            "required": [
-              "method"
-            ],
-            "properties": {
-              "method": {
-                "enum": [
-                  "rolled_in_order",
-                  "rolled_pool_assignment",
-                  "point_buy_460",
-                  "quick_fire_array"
-                ]
-              }
-            },
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "characteristic_assignment_order"
-                  ]
-                },
-                {
-                  "required": [
-                    "luck_roll_total"
-                  ]
-                }
-              ]
-            },
-            "additionalProperties": true
+        "description": "Explicit discriminator for importing an already complete sheet. Guided creation must use the deterministic Quick Fire branch.",
+        "type": "object",
+        "required": [
+          "input_mode"
+        ],
+        "properties": {
+          "input_mode": {
+            "const": "import_complete_sheet"
           }
-        ]
+        },
+        "additionalProperties": true
+      },
+      "player_facing_sheet_zh": {
+        "type": "object",
+        "required": [
+          "display_name",
+          "skills"
+        ],
+        "properties": {
+          "display_name": {
+            "$ref": "#/$defs/name"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "key",
+                "label",
+                "value"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "skill_budget_account": {
+        "type": "object",
+        "required": [
+          "budget",
+          "spent"
+        ],
+        "properties": {
+          "budget": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "spent": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "skill_budget": {
+        "type": "object",
+        "required": [
+          "occupation_points",
+          "personal_interest_points"
+        ],
+        "properties": {
+          "occupation_points": {
+            "$ref": "#/$defs/skill_budget_account"
+          },
+          "personal_interest_points": {
+            "$ref": "#/$defs/skill_budget_account"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Narrow guided Quick Fire accounting gate. Runtime requires spent to equal budget in both accounts; it does not introduce a second occupation-allocation engine."
       }
     }
   }

@@ -60,8 +60,16 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
             "name": "Quick Fire Investigator",
             "age": 29,
             "skills": {"Credit Rating": 20, "Spot Hidden": 60},
+            "player_facing_sheet_zh": {
+                "display_name": "速建调查员",
+                "skills": [
+                    {"key": "Credit Rating", "label": "信用评级", "value": 20},
+                    {"key": "Spot Hidden", "label": "侦查", "value": 60},
+                ],
+            },
         },
         "creation": {
+            "input_mode": "guided_quick_fire",
             "method": "quick_fire_array",
             "characteristic_assignment_order": [
                 "DEX",
@@ -78,6 +86,10 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
                 "campaign_id": "contract-campaign",
                 "decision_id": "contract-quick-fire-luck",
                 "roll_id": "toolbox-contract-campaign-000001",
+            },
+            "skill_budget": {
+                "occupation_points": {"budget": 200, "spent": 200},
+                "personal_interest_points": {"budget": 100, "spent": 100},
             },
         },
     }
@@ -111,6 +123,7 @@ def _complete_payload(investigator_id: str = "complete-inv") -> dict:
             },
             "skills": {"Credit Rating": 20},
         },
+        "creation": {"input_mode": "import_complete_sheet"},
     }
 
 
@@ -134,7 +147,7 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
     schema = contract["payload_schema"]
     assert [branch["title"] for branch in schema["oneOf"]] == [
         "Deterministic Quick Fire input",
-        "Complete legacy sheet input",
+        "Explicit complete-sheet import",
     ]
     assert schema["oneOf"][0]["required"] == [
         "campaign_id",
@@ -158,10 +171,12 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         ),
     }
     assert defs["quick_fire_creation"]["required"] == [
+        "input_mode",
         "method",
         "characteristic_assignment_order",
         "luck_roll_total",
         "luck_roll_receipt",
+        "skill_budget",
     ]
     assert defs["complete_sheet"]["required"] == [
         "id",
@@ -305,6 +320,7 @@ def test_coc7_actor_create_stays_unsupported_and_quick_fire_still_creates(
         {
             "expression": "3D6",
             "decision_id": "contract-quick-fire-luck",
+            "purpose": "investigator_creation_luck",
             "reason": "Quick-Fire investigator Luck",
             "seed": 17,
         },
@@ -357,6 +373,7 @@ def test_quick_fire_create_rejects_unreceipted_or_mismatched_luck(
         {
             "expression": "3D6",
             "decision_id": "bound-quick-fire-luck",
+            "purpose": "investigator_creation_luck",
             "reason": "Quick-Fire investigator Luck",
             "seed": 23,
         },
@@ -464,6 +481,7 @@ def test_quick_fire_create_binds_declared_current_campaign_at_runtime_gateway(
         {
             "expression": "3D6",
             "decision_id": "cross-campaign-quick-fire-luck",
+            "purpose": "investigator_creation_luck",
             "reason": "Quick-Fire investigator Luck",
             "seed": 31,
         },
