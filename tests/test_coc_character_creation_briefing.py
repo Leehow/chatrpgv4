@@ -73,6 +73,7 @@ def test_render_briefing_writes_player_safe_markdown_and_campaign_pointer(tmp_pa
     assert "点购：460 点" in markdown
     assert "快速数组：80、70、60、60、50、50、50、40" in markdown
     assert "The secret solution" not in markdown
+    assert "<!--" not in markdown
     assert campaign["character_creation"]["briefing_path"] == result["briefing_path"]
     assert campaign["character_creation"]["public_setup_sha256"] == result[
         "public_setup_sha256"
@@ -122,3 +123,48 @@ def test_render_briefing_uses_safe_default_when_summary_missing(tmp_path):
     assert "The Case 的开卡阶段只呈现玩家安全信息" in markdown
     assert "case.pdf" in markdown
     assert "守秘人秘密" in markdown
+
+
+def test_render_briefing_omits_unavailable_machine_fields_and_internal_markers(
+    tmp_path,
+):
+    briefing = _load_briefing_script()
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-sparse"
+    _write_json(
+        campaign_dir / "campaign.json",
+        {"play_language": "zh-Hans"},
+    )
+    _write_json(
+        campaign_dir / "scenario" / "scenario.json",
+        {"title": "Sparse Case"},
+    )
+    _write_json(
+        campaign_dir / "scenario" / "module-meta.json",
+        {
+            "title": "Sparse Case",
+            "era": "unknown",
+            "structure_type": "unknown",
+            "player_safe_summary": (
+                "Progressive import: skeleton topology; "
+                "deep packs fill in on demand."
+            ),
+        },
+    )
+    _write_json(campaign_dir / "index" / "source-map.json", {"sources": []})
+
+    result = briefing.render_briefing_from_campaign(
+        campaign_dir,
+        repo_root=tmp_path,
+    )
+    markdown = (tmp_path / result["briefing_path"]).read_text(encoding="utf-8")
+
+    assert "**年代**" not in markdown
+    assert "**结构**" not in markdown
+    assert "**来源**" not in markdown
+    assert "unknown" not in markdown
+    assert "Progressive import: skeleton topology" not in markdown
+    assert "<!--" not in markdown
+    assert "generated_at" not in markdown
+    assert "generated_by" not in markdown
+    assert "不要使用内置预设调查员" not in markdown
+    assert "接下来请选择一种属性生成方式" in markdown

@@ -93,7 +93,7 @@ def test_pi_package_metadata_exposes_bounded_opening_preview_compatibility():
     }
 
 
-def test_real_canonical_briefing_receipt_owns_exact_pi_visible_bytes(
+def test_real_canonical_briefing_receipt_authorizes_conversational_pi_output(
     tmp_path: Path,
     monkeypatch,
 ):

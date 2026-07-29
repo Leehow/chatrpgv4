@@ -55,6 +55,10 @@ DEFAULT_RECOMMENDED_SKILLS = [
     ("闪避或射击", "不是每个危险都能靠档案解决。"),
 ]
 
+PROGRESSIVE_MACHINE_SUMMARY = (
+    "Progressive import: skeleton topology; deep packs fill in on demand."
+)
+
 
 def _load_json(path: Path, default: Any) -> Any:
     if not path.exists():
@@ -153,11 +157,13 @@ def _source_label(source_map: dict[str, Any], scenario: dict[str, Any]) -> str:
     if not isinstance(source, dict):
         sources = source_map.get("sources", [])
         source = sources[0] if isinstance(sources, list) and sources and isinstance(sources[0], dict) else {}
-    return str(source.get("title") or source.get("filename") or source.get("path") or "未记录")
+    return str(source.get("title") or source.get("filename") or source.get("path") or "")
 
 
 def _era_label(value: Any, language: str) -> str:
-    text = str(value or "1920s")
+    text = str(value or "").strip()
+    if text.lower() in {"unknown", "none", "null"}:
+        return ""
     if language == "zh-Hans" and re.fullmatch(r"\d{4}s", text):
         return f"{text[:3]}0年代"
     return text
@@ -171,31 +177,44 @@ def _safe_summary(
     language: str,
 ) -> str:
     player_safe_summary = scenario.get("player_safe_summary")
-    if isinstance(player_safe_summary, str) and player_safe_summary.strip():
+    if (
+        isinstance(player_safe_summary, str)
+        and player_safe_summary.strip()
+        and player_safe_summary.strip() != PROGRESSIVE_MACHINE_SUMMARY
+    ):
         return player_safe_summary.strip()
     player_safe_summary = module_meta.get("player_safe_summary")
-    if isinstance(player_safe_summary, str) and player_safe_summary.strip():
+    if (
+        isinstance(player_safe_summary, str)
+        and player_safe_summary.strip()
+        and player_safe_summary.strip() != PROGRESSIVE_MACHINE_SUMMARY
+    ):
         return player_safe_summary.strip()
     structure_type = str(module_meta.get("structure_type") or "")
     if language == "zh-Hans":
+        era_context = f"{era}，" if era else ""
         if structure_type == "hybrid_mega":
             return (
-                f"{title}适合创建能承受长线调查压力的调查员。故事的公开气质是 {era}的"
+                f"{title}适合创建能承受长线调查压力的调查员。故事的公开气质是"
+                f"{era_context}"
                 "异地奔走、旧友来信、档案追索、学术圈与城市阴影。你的角色不需要知道真相，"
                 "只需要有一个愿意追问、愿意远行、或无法拒绝某个求助的理由。"
             )
         return (
-            f"{title} 的开卡阶段只呈现玩家安全信息：{era}，一场逐步展开的调查。"
+            f"{title} 的开卡阶段只呈现玩家安全信息：{era_context}一场逐步展开的调查。"
             "请优先考虑你的调查员为什么会接触到委托、档案、异常传闻或危险的人际关系。"
         )
+    era_context = f"{era}, " if era else ""
     return (
-        f"{title} character creation uses player-safe setup only: {era}, investigation-first, "
+        f"{title} character creation uses player-safe setup only: {era_context}investigation-first, "
         "with no Keeper-only solution or secret revealed."
     )
 
 
 def _structure_label(value: Any, language: str) -> str:
-    text = str(value or "unknown")
+    text = str(value or "").strip()
+    if text.lower() in {"unknown", "none", "null"}:
+        return ""
     if language == "zh-Hans":
         return STRUCTURE_LABELS_ZH.get(text, text)
     return text
@@ -265,24 +284,29 @@ def render_briefing(
     language: str = "zh-Hans",
 ) -> str:
     title = _scenario_title(campaign, scenario, module_meta, language)
-    era = _era_label(module_meta.get("era") or campaign.get("era") or "1920s", language)
+    era = _era_label(module_meta.get("era") or campaign.get("era"), language)
     structure = _structure_label(module_meta.get("structure_type"), language)
     source = _localized_title(_source_label(source_map, scenario), campaign, language)
     summary = _safe_summary(scenario, module_meta, title, era, language)
     flags = _content_flags(module_meta.get("content_flags"), language)
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
     if language != "zh-Hans":
         skill_lines = [f"- **{name}**: {reason}" for name, reason in _recommended_skills(language)]
+        setup_lines = [
+            line
+            for line in (
+                f"- Era: {era}" if era else "",
+                f"- Structure: {structure}" if structure else "",
+                f"- Source: {source}" if source else "",
+            )
+            if line
+        ]
         return "\n".join(
             [
                 f"# Character Creation Briefing: {title}",
                 "",
                 "This briefing is player-safe. It supports investigator creation without revealing Keeper-only secrets.",
                 "",
-                f"- Era: {era}",
-                f"- Structure: {structure}",
-                f"- Source: {source}",
+                *setup_lines,
                 "",
                 "## Mood",
                 "",
@@ -293,23 +317,37 @@ def render_briefing(
                 *skill_lines,
                 "",
                 "## Before You Roll",
-            "",
-            "Choose the characteristic generation method before rolling or assigning values:",
-            "",
-            *_generation_method_lines(language),
-            "",
-            "You create the investigator yourself. The AI may draft a complete investigator only if you ask for auto-creation, and you must confirm the final sheet before play begins.",
-            "",
-            "- Why would this investigator follow a disturbing lead?",
+                "",
+                (
+                    "Choose the characteristic generation method before "
+                    "rolling or assigning values:"
+                ),
+                "",
+                *_generation_method_lines(language),
+                "",
+                (
+                    "Next, choose one characteristic-generation method and "
+                    "describe the investigator concept. The final sheet joins "
+                    "the campaign only after your confirmation."
+                ),
+                "",
+                "- Why would this investigator follow a disturbing lead?",
                 "- What person, institution, or belief makes them stay involved?",
                 "- What is one strength they trust, and one weakness they know?",
-                "",
-                "<!-- generated_by: coc_character_creation_briefing.py -->",
             ]
         ).rstrip() + "\n"
 
     skill_lines = [f"- **{name}**：{reason}" for name, reason in _recommended_skills(language)]
-    flag_line = "、".join(flags) if flags else "未记录"
+    setup_lines = [
+        line
+        for line in (
+            f"- **年代**：{era}" if era else "",
+            f"- **结构**：{structure}" if structure else "",
+            f"- **来源**：{source}" if source else "",
+            f"- **内容提示**：{'、'.join(flags)}" if flags else "",
+        )
+        if line
+    ]
     return "\n".join(
         [
             f"# {title}：开卡序章",
@@ -318,10 +356,7 @@ def render_briefing(
             "",
             "## 模组窗口",
             "",
-            f"- **年代**：{era}",
-            f"- **结构**：{structure}",
-            f"- **来源**：{source}",
-            f"- **内容提示**：{flag_line}",
+            *setup_lines,
             "",
             "## 氛围",
             "",
@@ -343,14 +378,11 @@ def render_briefing(
             "",
             *_generation_method_lines(language),
             "",
-            "玩家可以自己创建调查员；也可以要求 AI 按上述背景自动起草一名调查员，但必须由玩家确认最终角色卡后才能进入剧情。不要使用内置预设调查员作为默认角色。",
+            "接下来请选择一种属性生成方式，并描述你想扮演的调查员概念；最终角色卡会在你确认后加入战役。",
             "",
             "- 这个调查员为什么会愿意相信一件“不该是真的”的事？",
             "- 当证据和安全冲突时，TA 通常保护什么：名誉、朋友、真相、学生、家族，还是自己的理论？",
             "- TA 有什么适合长途调查的资源，又有什么会在压力下暴露的弱点？",
-            "",
-            f"<!-- generated_at: {generated_at} -->",
-            "<!-- generated_by: coc_character_creation_briefing.py -->",
         ]
     ).rstrip() + "\n"
 

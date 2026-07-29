@@ -210,15 +210,19 @@ const observed = gate.observeOpeningSetupInvocation(
   "real-visible-briefing",
   output,
 );
+const conversationalSummary = (
+  "这份玩家安全资料建议从旧档案与人际牵连切入。"
+  + "你想让调查员从事什么职业？"
+);
 const decision = gate.acceptVisibleAssistantFinal(
-  "公元1135年的冬夜，你已经站在舍伯恩修道院门前。",
+  conversationalSummary,
 );
 if (
   observed.accepted !== true
-  || typeof decision !== "object"
-  || decision.replacementText !== expected
+  || decision !== true
+  || conversationalSummary === expected
 ) {
-  throw new Error("canonical briefing did not exact-replace arbitrary prose");
+  throw new Error("canonical briefing did not authorize conversational KP prose");
 }
 
 process.stdout.write(JSON.stringify({

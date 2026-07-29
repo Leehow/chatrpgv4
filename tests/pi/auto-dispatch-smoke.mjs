@@ -3234,6 +3234,245 @@ for (const terminalCase of [
 // exact current link exposes one projection route.
 {
   const gate = new main.OpeningTerminalContinuationGate();
+  const campaignId = "submitting-character-overlap";
+  bindOpeningRoute(gate, campaignId, "submitting-overlap-bind");
+  prepareOpeningRoute(gate, campaignId, "submitting-overlap-prepare");
+  const bootstrapParams = bootstrapOpeningParams(campaignId);
+  const bootstrapId = "submitting-overlap-bootstrap";
+  const task = coordinatorTask("submitting-overlap-task", { campaignId });
+  check("submitting overlap bootstrap is admitted",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      bootstrapParams,
+      bootstrapId,
+    ) === null);
+  const observedBootstrap = gate.observeOpeningSetupInvocation(
+    "progressive.opening_bootstrap",
+    bootstrapParams,
+    openingBootstrapResult(task),
+    bootstrapId,
+  );
+  check("submitting overlap background starts before coordinator submit",
+    observedBootstrap.dispatchAllowed
+    && gate.beginOpeningBackground(
+      bootstrapId,
+      bootstrapParams,
+      task.packet.packet_id,
+      {
+        operation: "progressive.project_opening",
+        campaign: campaignId,
+        arguments: {
+          asset_root_id: task.packet.asset_root_id,
+          source_file_sha256: "a".repeat(64),
+          start_location_id: "opening",
+          opening_pdf_indices: [0],
+        },
+      },
+    ));
+
+  const contractParams = {
+    operation: "setup.investigator_contract",
+    campaign: campaignId,
+    arguments: { campaign_id: campaignId },
+  };
+  const briefingParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "campaign.render_briefing",
+      payload: { campaign_id: campaignId, language: "zh-Hans" },
+    },
+  };
+  const luckParams = {
+    operation: "rules.roll_dice",
+    campaign: campaignId,
+    arguments: {
+      expression: "3D6",
+      decision_id: "submitting-overlap-luck",
+      purpose: "investigator_creation_luck",
+    },
+  };
+  const cashParams = {
+    operation: "rules.cash_assets",
+    campaign: campaignId,
+    arguments: { credit_rating: 40, period: "1920s" },
+  };
+  const createParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "investigator.create",
+      payload: {
+        campaign_id: campaignId,
+        investigator_id: "submitting-overlap-investigator",
+        sheet: {
+          id: "submitting-overlap-investigator",
+          name: "Overlap Investigator",
+        },
+        creation: {
+          input_mode: "guided_quick_fire",
+          method: "quick_fire_array",
+          characteristic_assignment_order: [
+            "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+          ],
+          luck_roll_total: 12,
+          luck_roll_receipt: {
+            campaign_id: campaignId,
+            decision_id: "submitting-overlap-luck",
+            roll_id: "toolbox-submitting-overlap-000001",
+          },
+        },
+      },
+    },
+  };
+  for (const [id, params] of [
+    ["submitting-overlap-contract", contractParams],
+    ["submitting-overlap-briefing", briefingParams],
+    ["submitting-overlap-luck-call", luckParams],
+    ["submitting-overlap-cash", cashParams],
+    ["submitting-overlap-create", createParams],
+  ]) {
+    check(`submitting phase admits exact canonical character action ${id}`,
+      gate.openingSetupToolError("coc_invoke", params, id) === null);
+  }
+
+  const rejectedOperations = [
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "actor.create",
+        payload: {
+          campaign_id: campaignId,
+          actor_id: "not-an-investigator",
+          sheet: {},
+        },
+      },
+    },
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "investigator.create",
+        payload: {
+          campaign_id: campaignId,
+          investigator_id: "imported-investigator",
+          sheet: { id: "imported-investigator", name: "Imported" },
+          creation: { input_mode: "import_complete_sheet" },
+        },
+      },
+    },
+    {
+      operation: "investigator.create",
+      campaign: campaignId,
+      arguments: {},
+    },
+    {
+      operation: "rules.roll",
+      campaign: campaignId,
+      arguments: {},
+    },
+    {
+      operation: "scene.context",
+      campaign: campaignId,
+      arguments: {},
+    },
+  ];
+  const rejectedMessages = rejectedOperations.map((params, index) => (
+    gate.openingSetupToolError(
+      "coc_invoke",
+      params,
+      `submitting-overlap-rejected-${index}`,
+    )
+  ));
+  check("submitting phase rejects actor import standalone and live near misses",
+    rejectedMessages.every((message) => typeof message === "string")
+    && rejectedMessages.every((message) => (
+      message.includes('"allowed_actions"')
+      && message.includes('"kind":"investigator.create"')
+      && message.includes('"kind":"campaign.link_investigator"')
+      && message.includes('"purpose":"investigator_creation_luck"')
+      && !message.includes('"kind":"actor.create"')
+      && !message.includes("import_complete_sheet")
+    )));
+
+  check("coordinator submission advances overlap without changing its route",
+    gate.markOpeningBackgroundSubmitted(
+      bootstrapId,
+      bootstrapParams,
+      task.packet.packet_id,
+    ).status === "submitted");
+  gate.observeOpeningCoordinatorTerminal({
+    packet_id: task.packet.packet_id,
+    status: "fulfilled",
+  });
+  const linkParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: campaignId,
+        investigator_ids: ["submitting-overlap-investigator"],
+      },
+    },
+  };
+  observeOwnedOpeningInvocation(
+    gate,
+    "submitting-overlap-link",
+    linkParams,
+    canonicalLinkSetupResult(
+      campaignId,
+      ["submitting-overlap-investigator"],
+    ),
+  );
+  const linkedVisible = gate.acceptVisibleAssistantFinal(
+    "模型自拟的链接完成说明。",
+  );
+  const stillBlocked = gate.openingSetupToolError(
+    "coc_invoke",
+    {
+      operation: "scene.context",
+      campaign: campaignId,
+      arguments: {},
+    },
+    "submitting-overlap-scene-after-link",
+  );
+  const repeatedContractBlocked = gate.openingSetupToolError(
+    "coc_invoke",
+    contractParams,
+    "submitting-overlap-contract-after-link",
+  );
+  const postLinkCardParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "investigator.render_card",
+      payload: {
+        campaign_id: campaignId,
+        investigator_id: "submitting-overlap-investigator",
+      },
+    },
+  };
+  const postLinkCardAllowed = gate.openingSetupToolError(
+    "coc_invoke",
+    postLinkCardParams,
+    "submitting-overlap-card-after-link",
+  );
+  const releasedProjection = gate.requiredOpeningSetupContinuation();
+  check("exact link releases only the retained current-source projector",
+    replacementIs(linkedVisible, "调查员已正式加入战役。")
+    && stillBlocked?.includes('"operation":"progressive.project_opening"')
+    && repeatedContractBlocked?.includes(
+      '"operation":"progressive.project_opening"',
+    )
+    && postLinkCardAllowed === null
+    && releasedProjection?.next_operation?.operation
+      === "progressive.project_opening");
+}
+
+{
+  const gate = new main.OpeningTerminalContinuationGate();
   const { task } = beginBackgroundOpeningRoute(
     gate,
     "terminal-before-link",
@@ -5880,9 +6119,10 @@ for (const terminalCase of [
   await harness.shutdown();
 }
 
-// The bind receipt owns the setup generation's exact player-safe briefing.
+// The bind receipt owns the setup generation's player-safe source context.
 // A later sparse progressive rerender may stay a valid canonical receipt, but
-// it cannot replace those already accepted bytes in player-visible output.
+// the gate must permit the KP's one conversational summary instead of dumping
+// either Markdown document into player-visible output.
 {
   const campaignId = "bind-briefing-first";
   const gate = new main.OpeningTerminalContinuationGate();
@@ -5960,10 +6200,13 @@ for (const terminalCase of [
     renderInvocationId,
     sparseBriefing,
   );
-  const visible = gate.acceptVisibleAssistantFinal(sparseText);
-  check("bind receipt bytes survive sparse same-generation rerender",
+  const conversationalSummary = "这是一场围绕旧档案展开的调查。你想扮演什么职业？";
+  const visible = gate.acceptVisibleAssistantFinal(conversationalSummary);
+  check("briefing receipt permits one conversational KP summary without dump",
     observed.accepted === true
-    && replacementIs(visible, bindText)
+    && visible === true
+    && conversationalSummary !== bindText
+    && conversationalSummary !== sparseText
     && gate.takeOpeningSetupAudits().some((entry) => (
       entry.reason === "bind_briefing_owns_setup_generation"
       && entry.retained_public_setup_sha256 === "a".repeat(64)

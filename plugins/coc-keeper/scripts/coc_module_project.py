@@ -255,10 +255,7 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             ) if skeleton.get("mechanics_locator_scope") is not None else None,
             "items": {},
         },
-        "player_safe_summary": str(
-            skeleton.get("player_safe_summary")
-            or "Progressive import: skeleton topology; deep packs fill in on demand."
-        ),
+        "player_safe_summary": str(skeleton.get("player_safe_summary") or ""),
         "summary": "Skeleton-projected progressive scenario IR.",
         "win_condition": str(
             (skeleton.get("finale_buckets") or [{}])[0].get("title")

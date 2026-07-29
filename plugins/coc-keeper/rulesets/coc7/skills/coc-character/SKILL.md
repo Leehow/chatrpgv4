@@ -34,6 +34,10 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   Only call the shared `campaign.render_briefing` setup operation when neither
   path exists or player-safe public setup metadata later changes. The briefing
   gives module mood and investigator-fit guidance without Keeper-only spoilers.
+  Treat the document as source context: summarize its useful substance
+  conversationally in the campaign `play_language`, then ask exactly one next
+  character-creation question. Never dump the Markdown document, its headings,
+  generation metadata, or operational instructions into table chat.
 - Before rolling or assigning characteristics, ask the player to choose the
   characteristic generation method. Supported methods are the rules JSON
   entries in `../../rules-json/characteristic-dice.json`: roll in fixed

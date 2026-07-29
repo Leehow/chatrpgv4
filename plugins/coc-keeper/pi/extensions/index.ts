@@ -64,7 +64,6 @@ const PRIVATE_LEASE_OPERATIONS = new Set([
   "progressive.release_host_work_leases",
 ]);
 const OPENING_SETUP_CHARACTER_KINDS = new Set([
-  "actor.create",
   "investigator.create",
   "campaign.link_investigator",
   "campaign.render_briefing",
@@ -307,6 +306,7 @@ type OpeningSetupRoute = {
   phase: string;
   campaign_id: string;
   next_operation: JsonObject | null;
+  allowed_actions?: JsonObject[];
   instruction: string;
 };
 type OpeningSetupTerminalBlocker = {
@@ -423,8 +423,8 @@ export class OpeningTerminalContinuationGate {
     revision: number;
     agentTurn: number;
     invocationId: string;
-    replacementText: string;
-    replacementTextSha256: string;
+    replacementText: string | null;
+    replacementTextSha256: string | null;
     source: string;
   } | null = null;
   private readonly openingSetupContinuationQueued = new Set<string>();
@@ -502,6 +502,37 @@ export class OpeningTerminalContinuationGate {
       invocationId: attempt.invocationId,
       replacementText,
       replacementTextSha256: canonicalJsonValueSha256(replacementText),
+      source,
+    };
+  }
+
+  private authorizeOpeningSetupConversationalOutput(
+    state: OpeningSetupState,
+    attempt: OpeningSetupAttempt,
+    source: string,
+  ): void {
+    if (
+      attempt.agentTurn !== this.openingSetupAgentTurn
+      || this.openingSetupTurnCampaignAmbiguous
+      || this.openingSetupTurnCampaignId !== attempt.campaignId
+    ) {
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "late_or_ambiguous_conversational_setup_output",
+        campaign_id: attempt.campaignId,
+        invocation_id: attempt.invocationId,
+        source,
+      });
+      return;
+    }
+    this.openingSetupVisibleOutputAuthorization = {
+      campaignId: attempt.campaignId,
+      generation: state.generation,
+      revision: state.revision,
+      agentTurn: attempt.agentTurn,
+      invocationId: attempt.invocationId,
+      replacementText: null,
+      replacementTextSha256: null,
       source,
     };
   }
@@ -592,6 +623,65 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private characterSetupAllowedActions(campaignId: string): JsonObject[] {
+    return [
+      {
+        operation: "setup.investigator_contract",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        arguments: { campaign_id: campaignId },
+      },
+      {
+        operation: "setup.invoke",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        kind: "campaign.render_briefing",
+        payload: { campaign_id: campaignId },
+      },
+      {
+        operation: "rules.roll_dice",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        exact_recipe: {
+          expression: "3D6",
+          purpose: "investigator_creation_luck",
+          required: ["decision_id"],
+          optional: ["reason"],
+        },
+      },
+      {
+        operation: "rules.cash_assets",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        required: ["credit_rating"],
+        optional: ["period"],
+      },
+      {
+        operation: "setup.invoke",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        kind: "investigator.create",
+        contract_source: "setup.investigator_contract.result.payload_schema",
+        required_creation_input_mode: "guided_quick_fire",
+      },
+      {
+        operation: "setup.invoke",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        kind: "campaign.link_investigator",
+        required_payload_fields: ["campaign_id", "investigator_ids"],
+      },
+      {
+        operation: "setup.invoke",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        kind: "investigator.render_card",
+        required_payload_fields: ["campaign_id", "investigator_id"],
+        optional_payload_fields: ["language", "html_mode"],
+      },
+    ];
+  }
+
   private canonicalSetupInvokeForOpening(
     params: JsonObject,
     route: OpeningSetupRoute,
@@ -609,12 +699,6 @@ export class OpeningTerminalContinuationGate {
     }
     const payload = objectOrNull(args.payload);
     if (payload === null) return false;
-    if (args.kind === "actor.create") {
-      return exactKeysMatch(payload, ["campaign_id", "actor_id", "sheet"])
-        && payload.campaign_id === route.campaign_id
-        && typeof payload.actor_id === "string"
-        && objectOrNull(payload.sheet) !== null;
-    }
     if (args.kind === "investigator.create") {
       const keys = Object.keys(payload);
       const creation = objectOrNull(payload.creation);
@@ -694,6 +778,7 @@ export class OpeningTerminalContinuationGate {
 
   private characterSetupAllowed(state: OpeningSetupState): boolean {
     return [
+      "submitting",
       "materializing",
       "retry",
       "projection",
@@ -709,6 +794,14 @@ export class OpeningTerminalContinuationGate {
     const route = state.route;
     const operation = String(params.operation ?? "");
     if (params.campaign !== route.campaign_id) return false;
+    if (state.characterSetupComplete) {
+      const args = objectOrNull(params.arguments);
+      return (
+        operation === "setup.invoke"
+        && args?.kind === "investigator.render_card"
+        && this.canonicalSetupInvokeForOpening(params, route)
+      );
+    }
     if (operation === "setup.investigator_contract") {
       const args = objectOrNull(params.arguments);
       return args !== null
@@ -838,13 +931,6 @@ export class OpeningTerminalContinuationGate {
         && result.investigator_id === payload.investigator_id
       );
     }
-    if (kind === "actor.create") {
-      return (
-        result.campaign_id === params.campaign
-        && result.actor_id === payload.actor_id
-        && typeof result.ruleset_id === "string"
-      );
-    }
     if (kind === "investigator.render_card") {
       return (
         result.campaign_id === params.campaign
@@ -886,7 +972,7 @@ export class OpeningTerminalContinuationGate {
     if (args?.kind === "campaign.link_investigator") {
       return "调查员已正式加入战役。";
     }
-    if (args?.kind === "investigator.create" || args?.kind === "actor.create") {
+    if (args?.kind === "investigator.create") {
       return "调查员资料已创建；请确认后加入战役。";
     }
     if (args?.kind === "investigator.render_card") {
@@ -958,6 +1044,7 @@ export class OpeningTerminalContinuationGate {
       ...state.route,
       phase: "opening_table_evidence_required",
       next_operation: this.openingEvidenceCard(),
+      allowed_actions: undefined,
       instruction: (
         "draft the source-backed opening without restating or reversing the "
         + "authoritative scene.context.time anchor; invoke this exact retained "
@@ -976,6 +1063,9 @@ export class OpeningTerminalContinuationGate {
       ...state.route,
       phase: "opening_character_setup_required",
       next_operation: null,
+      allowed_actions: this.characterSetupAllowedActions(
+        state.route.campaign_id,
+      ),
       instruction: (
         "opening source work is fulfilled, but its projection card remains "
         + "private until the old setup order completes: render the public "
@@ -994,6 +1084,9 @@ export class OpeningTerminalContinuationGate {
       ...state.route,
       phase: "opening_projection_required",
       next_operation: state.projectionCard,
+      allowed_actions: this.characterSetupAllowedActions(
+        state.route.campaign_id,
+      ).filter((action) => action.kind === "investigator.render_card"),
       instruction: (
         "character creation and the exact canonical investigator link are "
         + "current; invoke this exact retained projection card before live play"
@@ -1607,10 +1700,9 @@ export class OpeningTerminalContinuationGate {
             === canonicalJsonValueSha256(canonicalVisibleOutput.text)
         ) {
           initialized.bindBriefing = { ...canonicalVisibleOutput };
-          this.authorizeOpeningSetupVisibleOutput(
+          this.authorizeOpeningSetupConversationalOutput(
             initialized,
             attempt,
-            canonicalVisibleOutput.text,
             (
               `scenario.bind_pdf:${canonicalVisibleOutput.publicSetupSha256}`
             ),
@@ -1842,24 +1934,39 @@ export class OpeningTerminalContinuationGate {
         });
       }
       if (acceptedCharacterResult) {
-        this.authorizeOpeningSetupVisibleOutput(
-          state,
-          attempt,
-          canonicalVisibleText,
-          (
-            canonicalVisibleOutput === null
-              ? `${operation}:${String(setupArgs?.kind ?? operation)}`
-              : retainedBindBriefing !== null
-                ? (
-                  `${retainedBindBriefing.sourceKind}:`
-                  + retainedBindBriefing.publicSetupSha256
-                )
-              : (
-                `${canonicalVisibleOutput.sourceKind}:`
-                + canonicalVisibleOutput.publicSetupSha256
+        const source = (
+          canonicalVisibleOutput === null
+            ? `${operation}:${String(setupArgs?.kind ?? operation)}`
+            : retainedBindBriefing !== null
+              ? (
+                `${retainedBindBriefing.sourceKind}:`
+                + retainedBindBriefing.publicSetupSha256
               )
-          ),
+            : (
+              `${canonicalVisibleOutput.sourceKind}:`
+              + canonicalVisibleOutput.publicSetupSha256
+            )
         );
+        if (
+          setupArgs?.kind === "campaign.render_briefing"
+          && (
+            canonicalVisibleOutput !== null
+            || retainedBindBriefing !== null
+          )
+        ) {
+          this.authorizeOpeningSetupConversationalOutput(
+            state,
+            attempt,
+            source,
+          );
+        } else {
+          this.authorizeOpeningSetupVisibleOutput(
+            state,
+            attempt,
+            canonicalVisibleText,
+            source,
+          );
+        }
       }
       return {
         accepted: acceptedCharacterResult,
@@ -1997,6 +2104,9 @@ export class OpeningTerminalContinuationGate {
             ...state.route,
             phase: "opening_current_character_setup_required",
             next_operation: null,
+            allowed_actions: this.characterSetupAllowedActions(
+              state.route.campaign_id,
+            ),
             instruction: (
               "opening source projection is current; complete the exact "
               + "canonical investigator link before any live play"
@@ -2409,6 +2519,9 @@ export class OpeningTerminalContinuationGate {
       ...state.route,
       phase: "opening_source_materialization",
       next_operation: null,
+      allowed_actions: this.characterSetupAllowedActions(
+        state.route.campaign_id,
+      ),
       instruction: (
         "opening source materialization is running in the background; "
         + "continue normal character creation, but do not enter live play"
@@ -2529,6 +2642,9 @@ export class OpeningTerminalContinuationGate {
       ...state.route,
       phase: "opening_bootstrap_required",
       next_operation: state.bootstrapRetryCard,
+      allowed_actions: this.characterSetupAllowedActions(
+        state.route.campaign_id,
+      ),
       instruction: (
         "opening background failed; preserve evidence and retry only this "
         + "exact retained bootstrap card"
@@ -3309,6 +3425,18 @@ export class OpeningTerminalContinuationGate {
             openingState.route.campaign_id,
             openingState.generation,
           );
+        }
+        if (
+          authorization.replacementText === null
+          && authorization.replacementTextSha256 === null
+        ) {
+          return true;
+        }
+        if (
+          authorization.replacementText === null
+          || authorization.replacementTextSha256 === null
+        ) {
+          return false;
         }
         if (
           authorization.replacementText === visibleText
