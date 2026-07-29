@@ -385,6 +385,11 @@ def test_pi_coc_welcome_guide_copy():
     assert result["headerSaysActive"] is True
     assert result["customType"] == "coc-pi-welcome"
     assert result["tableOpenNoAskActivate"] is True
+    assert result["noEnvTableOpenUnchanged"] is True
+    assert result["startupOpenExactResume"] is True
+    assert result["startupOpenNoMenuFirst"] is True
+    assert result["startupInitializedBeforeTrigger"] is True
+    assert result["resumedHiddenResumeInstruction"] is True
     assert result["autoOpenFreshStartup"] is True
     assert result["noAutoOpenResumeHistory"] is True
 

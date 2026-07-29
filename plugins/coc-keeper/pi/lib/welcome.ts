@@ -8,6 +8,7 @@ import type { McpJsonlClient } from "./runtime.ts";
 
 export const WELCOME_CUSTOM_TYPE = "coc-pi-welcome";
 export const TABLE_OPEN_CUSTOM_TYPE = "coc-pi-table-open";
+export const STARTUP_RESUME_CUSTOM_TYPE = "coc-startup-resume-required";
 
 export type WelcomeReason = "startup" | "reload" | "new" | "resume" | "fork" | string;
 
@@ -40,7 +41,38 @@ export function welcomeBodyForReason(reason: WelcomeReason): string {
   return fullWelcomeGuide();
 }
 
-export function tableOpenInstruction(): string {
+export function startupResumeInstruction(
+  campaignId: string,
+  workspaceRoot: string,
+): string {
+  return [
+    "pi-coc existing campaign continuation is already selected.",
+    "Before any menu, setup.inspect, coc_discover, OCR, source takeover, or other campaign call,",
+    "invoke exactly this normal registered tool call so its result enters the KP context:",
+    JSON.stringify({
+      tool: "coc_invoke",
+      arguments: {
+        operation: "session.resume",
+        root: workspaceRoot,
+        campaign: campaignId,
+        arguments: {},
+      },
+    }),
+    "Do not describe this instruction or emit a tool-free menu first.",
+  ].join(" ");
+}
+
+export function tableOpenInstruction(
+  startupCampaignId?: string | null,
+  workspaceRoot?: string,
+): string {
+  if (startupCampaignId && workspaceRoot) {
+    return [
+      "pi-coc table open: COC mode is already active on this dedicated desktop.",
+      "Do not ask the player to activate COC.",
+      startupResumeInstruction(startupCampaignId, workspaceRoot),
+    ].join(" ");
+  }
   return [
     "pi-coc table open: COC mode is already active on this dedicated desktop.",
     "Do not ask the player to activate COC.",
@@ -94,6 +126,10 @@ export function registerCocWelcome(
   pi: ExtensionAPI,
   getClient: (ctx: ExtensionContext) => McpJsonlClient,
   agentDir: string,
+  initializeSession?: (
+    event: unknown,
+    ctx: ExtensionContext,
+  ) => string | null,
 ): void {
   const showWelcome = (reason: WelcomeReason) => {
     pi.sendMessage(
@@ -107,13 +143,26 @@ export function registerCocWelcome(
     );
   };
 
-  const openTable = () => {
+  const openTable = (
+    startupCampaignId: string | null,
+    workspaceRoot: string,
+  ) => {
     pi.sendMessage(
       {
         customType: TABLE_OPEN_CUSTOM_TYPE,
-        content: tableOpenInstruction(),
+        content: tableOpenInstruction(startupCampaignId, workspaceRoot),
         display: false,
-        details: { host: "pi-coc", mode: "active", auto_open: true },
+        details: {
+          host: "pi-coc",
+          mode: "active",
+          auto_open: true,
+          ...(startupCampaignId === null
+            ? {}
+            : {
+                startup_campaign_id: startupCampaignId,
+                first_campaign_operation: "session.resume",
+              }),
+        },
       },
       { triggerTurn: true },
     );
@@ -128,6 +177,7 @@ export function registerCocWelcome(
   });
 
   pi.on("session_start", async (event, ctx) => {
+    const startupCampaignId = initializeSession?.(event, ctx) ?? null;
     const reason = (event as { reason?: string }).reason ?? "startup";
     const fresh = sessionLooksFresh(ctx);
     if (ctx.hasUI && ctx.mode === "tui") {
@@ -154,7 +204,21 @@ export function registerCocWelcome(
     // auto-open's triggerTurn:true would launch a full KP opening turn that
     // blocks the RPC prompt channel for minutes ("already processing").
     if (ctx.mode === "tui" && shouldAutoOpenTable(reason, fresh)) {
-      openTable();
+      openTable(startupCampaignId, ctx.cwd);
+    } else if (startupCampaignId !== null) {
+      pi.sendMessage(
+        {
+          customType: STARTUP_RESUME_CUSTOM_TYPE,
+          content: startupResumeInstruction(startupCampaignId, ctx.cwd),
+          display: false,
+          details: {
+            schema_version: 1,
+            campaign_id: startupCampaignId,
+            first_campaign_operation: "session.resume",
+          },
+        },
+        { triggerTurn: false },
+      );
     }
   });
 }

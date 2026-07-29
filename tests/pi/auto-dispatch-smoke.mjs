@@ -833,6 +833,7 @@ function mainExtensionHarness(responseForCall, options = {}) {
   main.default(fakePi, {
     coordinatorEnabled: options.coordinatorEnabled ?? (async () => true),
     createClient: () => fakeClient,
+    startupCampaignId: () => options.startupCampaignId ?? null,
     launchCoordinator: (task) => {
       const key = task.packet.packet_id;
       launches.push(key);
@@ -2200,6 +2201,276 @@ async function exerciseFailureDrain(mode) {
       {},
       "prebound-ocr-detour",
     )?.includes("progressive.prepare_opening"));
+}
+
+// An explicitly selected Pi session/campaign continuation is host-gated before
+// the welcome turn. The KP itself must execute the normal session.resume tool
+// so the recovery result enters its context; setup discovery and tool-free
+// menus cannot race ahead of that first campaign operation.
+{
+  const campaignId = "startup-prebound-opening";
+  const retainedGate = openingSetupGate(undefined, campaignId);
+  check("explicit PI_COC_SESSION_ID is retained as exact startup campaign",
+    main.__test.explicitPiStartupCampaignId({
+      PI_COC_SESSION_ID: campaignId,
+    }) === campaignId);
+  const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_capabilities") {
+      return { ok: true, host: "pi" };
+    }
+    if (
+      name === "coc_invoke"
+      && params.operation === "session.resume"
+    ) {
+      return {
+        ok: false,
+        tool: "session.resume",
+        error: {
+          code: "opening_setup_incomplete",
+          message: "opening setup remains incomplete",
+          details: retainedGate,
+        },
+      };
+    }
+    if (
+      name === "coc_invoke"
+      && params.operation === "progressive.prepare_opening"
+    ) {
+      return preparedOpeningSetupResult();
+    }
+    throw new Error(`unexpected startup call ${name}:${params.operation}`);
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+
+  const capability = await harness.registered.get(
+    "coc_capabilities",
+  ).execute(
+    "startup-capability",
+    {},
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  check("startup continuation still permits non-campaign capabilities",
+    JSON.parse(capability.content[0].text).ok === true);
+
+  const callsBeforeRejectedSetup = harness.calls.length;
+  let setupInspectRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "startup-setup-inspect",
+      {
+        operation: "setup.inspect",
+        root,
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    setupInspectRejected = String(error).includes("session.resume");
+  }
+  let discoverRejected = false;
+  try {
+    await harness.registered.get("coc_discover").execute(
+      "startup-discover",
+      {},
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    discoverRejected = String(error).includes("session.resume");
+  }
+  let ocrRejected = false;
+  try {
+    await harness.registered.get("coc_progressive_ocr").execute(
+      "startup-ocr",
+      { operation: "status" },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    ocrRejected = String(error).includes("session.resume");
+  }
+  let takeoverRejected = false;
+  try {
+    await harness.registered.get("coc_dispatch_source_work").execute(
+      "startup-takeover",
+      { task: coordinatorTask("startup-takeover") },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    takeoverRejected = String(error).includes("session.resume");
+  }
+  check("startup gate rejects setup/discovery/OCR/takeover before backend",
+    setupInspectRejected
+    && discoverRejected
+    && ocrRejected
+    && takeoverRejected
+    && harness.calls.length === callsBeforeRejectedSetup);
+
+  const hiddenMenu = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "请选择继续、开卡或导入剧本。" }],
+  });
+  const forcedResume = harness.sent.findLast((entry) => (
+    entry.message?.customType === "coc-startup-resume-required"
+  ));
+  check("startup gate suppresses tool-free menu and queues exact resume",
+    hiddenMenu.content.every((part) => part.type !== "text")
+    && forcedResume?.options?.triggerTurn === true
+    && forcedResume?.message?.content.includes(
+      `"campaign":"${campaignId}"`,
+    )
+    && forcedResume?.message?.content.includes(
+      "Before any menu, setup.inspect",
+    ));
+
+  const resumed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("explicit startup identity makes resume the first backend campaign call",
+    resumed.ok === false
+    && resumed.error.code === "opening_setup_incomplete"
+    && harness.calls.filter((call) => call.name === "coc_invoke")[0]
+      ?.params.operation === "session.resume");
+
+  const prepared = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-prepare",
+    {
+      operation: "progressive.prepare_opening",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("startup prebound opening selection hydrates exact prepare route",
+    prepared.ok === true
+    && prepared.data.next_operation.operation
+      === "progressive.opening_bootstrap");
+  await harness.shutdown();
+}
+
+// A successful normal resume clears only the startup gate and leaves the
+// returned recovery bundle in the KP's ordinary tool result/context.
+{
+  const campaignId = "startup-current-campaign";
+  const harness = mainExtensionHarness((name, params) => {
+    if (name !== "coc_invoke") {
+      throw new Error(`unexpected successful startup tool ${name}`);
+    }
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "awaiting_player",
+        },
+      };
+    }
+    if (params.operation === "scene.context") {
+      return {
+        ok: true,
+        tool: "scene.context",
+        data: { campaign_id: campaignId, scene: { scene_id: "current" } },
+      };
+    }
+    throw new Error(`unexpected successful startup call ${params.operation}`);
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+  const resumed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-success-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const scene = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-success-scene",
+    {
+      operation: "scene.context",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("successful startup resume clears gate for normal continuation",
+    resumed.ok === true
+    && resumed.data.mode === "awaiting_player"
+    && scene.ok === true
+    && harness.calls.map((call) => call.params.operation).join(",")
+      === "session.resume,scene.context");
+  await harness.shutdown();
+}
+
+// With no explicit PI_COC_SESSION_ID/startup identity, the original empty
+// workspace onboarding remains open: setup.inspect is the first normal call.
+{
+  const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "setup.inspect") {
+      return {
+        ok: true,
+        tool: "setup.inspect",
+        data: { result: { campaigns: [] } },
+      };
+    }
+    throw new Error(`unexpected empty-workspace call ${name}`);
+  });
+  await harness.start();
+  const inspected = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "empty-workspace-inspect",
+    {
+      operation: "setup.inspect",
+      root,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("absent startup identity preserves empty-workspace setup.inspect",
+    inspected.ok === true
+    && harness.calls.length === 1
+    && harness.calls[0].params.operation === "setup.inspect"
+    && main.__test.explicitPiStartupCampaignId({}) === null);
+  await harness.shutdown();
 }
 
 // Route progress and clearing are campaign-local even when two source binds

@@ -35,7 +35,11 @@ import {
 } from "../lib/runtime.ts";
 import { compactToolRenderers } from "../lib/tool-render.ts";
 import { registerCocHud } from "../lib/hud.ts";
-import { registerCocWelcome } from "../lib/welcome.ts";
+import {
+  registerCocWelcome,
+  STARTUP_RESUME_CUSTOM_TYPE,
+  startupResumeInstruction,
+} from "../lib/welcome.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -5417,11 +5421,19 @@ interface MainExtensionOverrides {
   coordinatorEnabled?: () => Promise<boolean>;
   createClient?: (ctx: ExtensionContext) => McpJsonlClient;
   createManager?: () => CoordinatorDispatchManager;
+  startupCampaignId?: () => string | null;
   launchCoordinator?: (
     task: JsonObject,
     context: PrivateLaunchContext,
     signal?: AbortSignal,
   ) => ChildRun;
+}
+
+export function explicitPiStartupCampaignId(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const value = env.PI_COC_SESSION_ID;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
@@ -5433,7 +5445,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sourceScopeLocatorStates = new Map<string, JsonObject>();
   let sourceScopeLocatorControllers = new Map<string, AbortController>();
   let sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+  let startupResumeGate: {
+    campaignId: string;
+    workspaceRoot: string;
+  } | null = null;
+  const initializedSessionStartEvents = new WeakSet<object>();
   const openingContinuationGate = new OpeningTerminalContinuationGate();
+  const kpActiveTools = [
+    "coc_capabilities",
+    "coc_discover",
+    "coc_invoke",
+    "coc_progressive_ocr",
+  ];
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
     status: "session_closed",
@@ -5604,8 +5627,88 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* opening setup audit is best effort */ }
     }
   };
+  const initializeSession = (
+    event: unknown,
+    ctx: ExtensionContext,
+  ): string | null => {
+    if (typeof event === "object" && event !== null) {
+      if (initializedSessionStartEvents.has(event)) {
+        return startupResumeGate?.campaignId ?? null;
+      }
+      initializedSessionStartEvents.add(event);
+    }
+    sessionEpoch += 1;
+    sessionClosing = false;
+    openingContinuationGate.reset();
+    continuedCoordinatorDispatches = new Set<string>();
+    sourceScopeLocatorStates = new Map<string, JsonObject>();
+    sourceScopeLocatorControllers = new Map<string, AbortController>();
+    sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+    const startupCampaignId = overrides.startupCampaignId === undefined
+      ? explicitPiStartupCampaignId()
+      : overrides.startupCampaignId();
+    startupResumeGate = startupCampaignId === null
+      ? null
+      : {
+          campaignId: startupCampaignId,
+          workspaceRoot: ctx.cwd,
+        };
+    // The host owns exact nested coordinator-task dispatch. Keep the
+    // fail-closed tool registered for the private manager boundary and probes,
+    // but never expose it to the KP model.
+    pi.setActiveTools(kpActiveTools);
+    return startupCampaignId;
+  };
+  const exactStartupResumeInvocation = (
+    name: string,
+    params: JsonObject,
+  ): boolean => {
+    const gate = startupResumeGate;
+    const args = objectOrNull(params.arguments);
+    return (
+      gate !== null
+      && name === "coc_invoke"
+      && params.operation === "session.resume"
+      && params.root === gate.workspaceRoot
+      && params.campaign === gate.campaignId
+      && args !== null
+      && Object.keys(args).length === 0
+    );
+  };
+  const startupResumeToolError = (
+    name: string,
+    params: JsonObject,
+  ): string | null => {
+    const gate = startupResumeGate;
+    if (
+      gate === null
+      || name === "coc_capabilities"
+      || exactStartupResumeInvocation(name, params)
+    ) {
+      return null;
+    }
+    return (
+      "Pi startup continuation is hard-gated until the selected campaign "
+      + "enters the current KP context. "
+      + startupResumeInstruction(gate.campaignId, gate.workspaceRoot)
+    );
+  };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     const epoch = sessionEpoch;
+    const startupResumeError = startupResumeToolError(name, params);
+    if (startupResumeError !== null) {
+      try {
+        pi.appendEntry("coc-startup-resume-gate", {
+          schema_version: 1,
+          status: "rejected",
+          campaign_id: startupResumeGate?.campaignId,
+          tool: name,
+          operation: params.operation,
+        });
+      } catch { /* startup resume audit is best effort */ }
+      throw new Error(startupResumeError);
+    }
+    const startupResumeAttempt = exactStartupResumeInvocation(name, params);
     if (name === "coc_invoke" && PRIVATE_LEASE_OPERATIONS.has(String(params.operation))) {
       try {
         pi.appendEntry("coc-source-coordinator-private-boundary", {
@@ -5687,6 +5790,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           setupVisibleOutput,
         )
       );
+      if (startupResumeAttempt) {
+        const envelope = objectOrNull(value);
+        const resumedData = objectOrNull(envelope?.data);
+        const acceptedStartupResume = (
+          (
+            envelope?.ok === true
+            && resumedData?.campaign_id === startupResumeGate?.campaignId
+          )
+          || openingObservation.reason === "prebound_opening_selection"
+        );
+        if (acceptedStartupResume) {
+          startupResumeGate = null;
+        }
+      }
       flushOpeningSetupAudits();
       if (String(params.operation) === "progressive.opening_bootstrap") {
         const task = findAutoDispatchTask(value);
@@ -6140,6 +6257,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     description: "Submit one exact repository-produced Pi source coordinator task.", parameters: dispatchSchema,
     ...compactToolRenderers("coc_dispatch_source_work"),
     async execute(_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
+      const startupResumeError = startupResumeToolError(
+        "coc_dispatch_source_work",
+        params,
+      );
+      if (startupResumeError !== null) throw new Error(startupResumeError);
       const epoch = sessionEpoch;
       if (!isCurrent(epoch)) return result(sessionClosed());
       exactKeys(params, ["task"], "dispatch request");
@@ -6174,6 +6296,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     description: "Run configured external Progressive OCR status/fast/enhance/export.", parameters: ocrSchema,
     ...compactToolRenderers("coc_progressive_ocr"),
     async execute(_id: string, params: JsonObject, signal: AbortSignal | undefined) {
+      const startupResumeError = startupResumeToolError(
+        "coc_progressive_ocr",
+        params,
+      );
+      if (startupResumeError !== null) throw new Error(startupResumeError);
       const openingSetupError = openingContinuationGate.openingSetupToolError(
         "coc_progressive_ocr",
         params,
@@ -6187,10 +6314,34 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   // Game table HUD replaces the coding-agent token/path footer in TUI sessions.
   registerCocHud(pi, (ctx) => client(ctx));
   const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "coc-agent");
-  registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
+  registerCocWelcome(
+    pi,
+    (ctx) => client(ctx),
+    agentDir,
+    initializeSession,
+  );
   registerPlayerTranscriptGate(
     pi,
     (visibleText) => {
+      if (startupResumeGate !== null) {
+        const gate = startupResumeGate;
+        try {
+          pi.sendMessage({
+            customType: STARTUP_RESUME_CUSTOM_TYPE,
+            content: startupResumeInstruction(
+              gate.campaignId,
+              gate.workspaceRoot,
+            ),
+            display: false,
+            details: {
+              schema_version: 1,
+              campaign_id: gate.campaignId,
+              first_campaign_operation: "session.resume",
+            },
+          }, { triggerTurn: true, deliverAs: "followUp" });
+        } catch { /* the next player turn remains protected by the same gate */ }
+        return false;
+      }
       const decision = openingContinuationGate.acceptVisibleAssistantFinal(
         visibleText,
       );
@@ -6279,28 +6430,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       );
     }
   });
-  const kpActiveTools = [
-    "coc_capabilities",
-    "coc_discover",
-    "coc_invoke",
-    "coc_progressive_ocr",
-  ];
-  pi.on("session_start", () => {
-    sessionEpoch += 1;
-    sessionClosing = false;
-    openingContinuationGate.reset();
-    continuedCoordinatorDispatches = new Set<string>();
-    sourceScopeLocatorStates = new Map<string, JsonObject>();
-    sourceScopeLocatorControllers = new Map<string, AbortController>();
-    sourceScopeLocatorRuns = new Set<Promise<unknown>>();
-    // The host owns exact nested coordinator-task dispatch. Keep the
-    // fail-closed tool registered for the private manager boundary and probes,
-    // but never expose it to the KP model.
-    pi.setActiveTools(kpActiveTools);
+  pi.on("session_start", (event, ctx) => {
+    initializeSession(event, ctx);
   });
   pi.on("session_shutdown", async () => {
     sessionClosing = true;
     sessionEpoch += 1;
+    startupResumeGate = null;
     openingContinuationGate.reset();
     for (const controller of sourceScopeLocatorControllers.values()) {
       controller.abort("session_shutdown");
@@ -6319,6 +6455,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
 }
 
 export const __test = {
+  explicitPiStartupCampaignId,
   piCoordinatorEnabled,
   runOcr,
   findAutoDispatchTask,
