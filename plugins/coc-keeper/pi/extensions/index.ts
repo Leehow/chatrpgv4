@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   asObject,
+  CanonicalToolError,
   CoordinatorDispatchManager,
   exactKeys,
   loadSecrets,
@@ -5814,6 +5815,34 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       failureClass: canonicalFailureClass(error?.code),
     };
   };
+  const startupCanonicalFailureEnvelope = (
+    error: unknown,
+    name: string,
+  ): JsonObject | null => {
+    if (
+      !(error instanceof CanonicalToolError)
+      || error.toolName !== name
+    ) return null;
+    const envelope = objectOrNull(error.envelope);
+    const envelopeError = objectOrNull(envelope?.error);
+    if (
+      envelope === null
+      || envelope.ok !== false
+      || envelopeError === null
+      || envelopeError.code !== error.code
+    ) return null;
+    // The host route needs the canonical machine metadata, especially the
+    // opening-selection card, but provider/backend prose is not player-safe.
+    // Preserve only exact structured identity and details.
+    return {
+      ok: false,
+      tool: envelope.tool,
+      error: {
+        code: error.code,
+        ...(error.details === null ? {} : { details: error.details }),
+      },
+    };
+  };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     const epoch = sessionEpoch;
     const startupResumeError = startupResumeToolError(name, params);
@@ -5875,24 +5904,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     try {
       value = await client(ctx).callTool(name, params, signal);
     } catch (error) {
-      if (startupResumeAttempt) {
-        terminalizeStartupResume("startup_resume_transport_failed");
+      const canonicalFailure = startupResumeAttempt
+        ? startupCanonicalFailureEnvelope(error, name)
+        : null;
+      if (canonicalFailure !== null) {
+        value = canonicalFailure;
+      } else {
+        if (startupResumeAttempt) {
+          terminalizeStartupResume("startup_resume_transport_failed");
+        }
+        if (name === "coc_invoke") {
+          openingContinuationGate.markOpeningSetupRouteAttemptFailure(
+            _id,
+            params,
+            failedBlockingOpeningEnvelope(
+              {
+                status: "terminal_failure",
+                failure_class: "canonical_route_call_failed",
+              },
+              "opening_setup_route_call_failed",
+            ),
+          );
+          flushOpeningSetupAudits();
+        }
+        throw error;
       }
-      if (name === "coc_invoke") {
-        openingContinuationGate.markOpeningSetupRouteAttemptFailure(
-          _id,
-          params,
-          failedBlockingOpeningEnvelope(
-            {
-              status: "terminal_failure",
-              failure_class: "canonical_route_call_failed",
-            },
-            "opening_setup_route_call_failed",
-          ),
-        );
-        flushOpeningSetupAudits();
-      }
-      throw error;
     }
     if (name === "coc_invoke") {
       openingContinuationGate.observeCurrentDependencyConsumerResult(

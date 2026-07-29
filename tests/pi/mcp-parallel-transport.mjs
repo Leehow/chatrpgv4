@@ -20,7 +20,7 @@ const runtimeUrl = pathToFileURL(
   path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"),
 ).href;
 
-const { McpJsonlClient } = await import(runtimeUrl);
+const { CanonicalToolError, McpJsonlClient } = await import(runtimeUrl);
 const fixture = path.join(root, "tests/pi/fixtures/mcp-fake-child.mjs");
 
 const results = {};
@@ -90,6 +90,49 @@ try {
   await client.close();
 } catch (error) {
   results.abortIsolation = { ok: false, detail: String(error) };
+}
+
+// (d) Canonical MCP business failures retain their structured envelope so a
+// host route can distinguish them from transport exceptions without parsing
+// provider-facing prose.
+try {
+  process.env.FAKE_CHILD_DELAY_MS = "0";
+  delete process.env.FAKE_CHILD_HANG_ID;
+  const client = new McpJsonlClient(
+    root,
+    "probe-canonical-error",
+    false,
+    { launchPath: fixture, timeoutMs: 1000 },
+  );
+  let caught;
+  try {
+    await client.callTool("coc_invoke", {
+      operation: "session.resume",
+      root,
+      campaign: "canonical-error-campaign",
+      arguments: {},
+    });
+  } catch (error) {
+    caught = error;
+  }
+  results.canonicalErrorMetadata = {
+    ok: (
+      caught instanceof CanonicalToolError
+      && caught.toolName === "coc_invoke"
+      && caught.code === "opening_setup_incomplete"
+      && caught.envelope?.tool === "session.resume"
+      && caught.envelope?.error?.details?.phase === "opening_selection"
+      && caught.envelope?.error?.details?.campaign_id
+        === "canonical-error-campaign"
+    ),
+    errorName: caught?.name ?? null,
+    code: caught?.code ?? null,
+    tool: caught?.envelope?.tool ?? null,
+    phase: caught?.envelope?.error?.details?.phase ?? null,
+  };
+  await client.close();
+} catch (error) {
+  results.canonicalErrorMetadata = { ok: false, detail: String(error) };
 }
 
 const ok = Object.values(results).every((entry) => entry.ok);

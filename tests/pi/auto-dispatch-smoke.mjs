@@ -2278,15 +2278,29 @@ async function exerciseFailureDrain(mode) {
       name === "coc_invoke"
       && params.operation === "session.resume"
     ) {
-      return {
+      const envelope = {
         ok: false,
         tool: "session.resume",
         error: {
           code: "opening_setup_incomplete",
-          message: "opening setup remains incomplete",
+          message: (
+            "session.resume is unavailable until the source-bound "
+            + "opening projection is current"
+          ),
           details: retainedGate,
         },
       };
+      throw new runtime.CanonicalToolError(
+        "coc_invoke",
+        "opening_setup_incomplete",
+        (
+          "canonical coc_invoke failed: opening_setup_incomplete: "
+          + "session.resume is unavailable until the source-bound "
+          + "opening projection is current"
+        ),
+        retainedGate,
+        envelope,
+      );
     }
     if (
       name === "coc_invoke"
@@ -2412,6 +2426,8 @@ async function exerciseFailureDrain(mode) {
   check("explicit startup identity makes resume the first backend campaign call",
     resumed.ok === false
     && resumed.error.code === "opening_setup_incomplete"
+    && resumed.error.details.phase === "opening_selection"
+    && resumed.error.message === undefined
     && harness.calls.filter((call) => call.name === "coc_invoke")[0]
       ?.params.operation === "session.resume");
 
@@ -2432,7 +2448,22 @@ async function exerciseFailureDrain(mode) {
   check("startup prebound opening selection hydrates exact prepare route",
     prepared.ok === true
     && prepared.data.next_operation.operation
-      === "progressive.opening_bootstrap");
+      === "progressive.opening_bootstrap"
+    && harness.calls.filter((call) => (
+      call.name === "coc_invoke"
+    )).map((call) => call.params.operation).join(",")
+      === "session.resume,progressive.prepare_opening"
+    && !harness.calls.some((call) => (
+      call.params.operation === "setup.inspect"
+      || call.params.operation === "scenario.bind_pdf"
+      || call.name === "coc_progressive_ocr"
+    ))
+    && !JSON.stringify(resumed).includes(
+      "source-bound opening projection is current",
+    )
+    && !harness.sent.some((entry) => (
+      entry.message?.customType === "coc-startup-resume-blocker"
+    )));
   await harness.shutdown();
 }
 
@@ -2509,12 +2540,26 @@ for (const terminalCase of [
   {
     label: "unknown campaign",
     expectedFailure: "unknown_campaign",
+    throwCanonical: true,
     response: {
       ok: false,
       tool: "session.resume",
       error: {
         code: "unknown_campaign",
         message: "TOP_SECRET_UNKNOWN_CAMPAIGN_DETAIL",
+      },
+    },
+  },
+  {
+    label: "canonical context conflict",
+    expectedFailure: "context_epoch_conflict",
+    throwCanonical: true,
+    response: {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "context_epoch_conflict",
+        message: "TOP_SECRET_CONTEXT_CONFLICT_DETAIL",
       },
     },
   },
@@ -2570,11 +2615,27 @@ for (const terminalCase of [
     if (terminalCase.transportFailure) {
       throw new Error("TOP_SECRET_TRANSPORT_DETAIL");
     }
+    if (terminalCase.throwCanonical) {
+      throw new runtime.CanonicalToolError(
+        "coc_invoke",
+        terminalCase.response.error.code,
+        (
+          "canonical coc_invoke failed: "
+          + `${terminalCase.response.error.code}: `
+          + terminalCase.response.error.message
+        ),
+        terminalCase.response.error.details ?? null,
+        terminalCase.response,
+      );
+    }
     return terminalCase.response;
   }, { startupCampaignId: campaignId });
   await harness.start();
+  let resumeToolOutput = null;
   try {
-    await harness.registered.get("coc_invoke").execute(
+    resumeToolOutput = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
       `terminal-resume-${terminalCase.label}`,
       {
         operation: "session.resume",
@@ -2585,7 +2646,7 @@ for (const terminalCase of [
       undefined,
       undefined,
       harness.ctx,
-    );
+    )).content[0].text);
   } catch {
     // Transport failure is surfaced to the tool caller after the host blocker
     // has already terminalized the startup gate.
@@ -2646,6 +2707,14 @@ for (const terminalCase of [
       "pi-coc --campaign <正确的 campaign_id>",
     )
     && !JSON.stringify(blockers[0]).includes("TOP_SECRET")
+    && (
+      terminalCase.throwCanonical !== true
+      || (
+        resumeToolOutput?.error?.code === terminalCase.expectedFailure
+        && resumeToolOutput?.error?.message === undefined
+        && !JSON.stringify(resumeToolOutput).includes("TOP_SECRET")
+      )
+    )
     && hiddenAfterFailure.content.every((part) => part.type !== "text")
     && secondHiddenAfterFailure.content.every(
       (part) => part.type !== "text",

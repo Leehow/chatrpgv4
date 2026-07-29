@@ -1643,17 +1643,20 @@ export class CanonicalToolError extends Error {
   readonly toolName: string;
   readonly code: string;
   readonly details: JsonObject | null;
+  readonly envelope: JsonObject | null;
   constructor(
     toolName: string,
     code: string,
     message: string,
     details: JsonObject | null = null,
+    envelope: JsonObject | null = null,
   ) {
     super(message);
     this.name = "CanonicalToolError";
     this.toolName = toolName;
     this.code = code;
     this.details = details;
+    this.envelope = envelope;
   }
 }
 
@@ -1849,7 +1852,13 @@ export class McpJsonlClient {
         && !Array.isArray(errorValue.details)
       ) ? errorValue.details as JsonObject : null;
       if (code) {
-        throw new CanonicalToolError(name, code, message, details);
+        throw new CanonicalToolError(
+          name,
+          code,
+          message,
+          details,
+          envelope,
+        );
       }
       throw new Error(message);
     }

@@ -33,7 +33,54 @@ async function pump() {
       break;
     }
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    const result = { method: message.method, echoed: message.params ?? null, arrivalOrder: arrival.slice() };
+    let result;
+    if (
+      message.method === "tools/call"
+      && message.params?.name === "coc_invoke"
+      && message.params?.arguments?.operation === "session.resume"
+    ) {
+      const campaignId = message.params.arguments.campaign;
+      const openingGate = {
+        schema_version: 1,
+        status: "blocked",
+        hard_gate: true,
+        activation_allowed: false,
+        phase: "opening_selection",
+        campaign_id: campaignId,
+        asset_root_id: "asset-fake-child",
+        next_operation: {
+          operation: "progressive.prepare_opening",
+          invoke_via: "coc_invoke",
+          prefilled_arguments: {},
+          missing_arguments: [],
+          hard_gate: true,
+          authority: "canonical_setup",
+        },
+      };
+      const envelope = {
+        ok: false,
+        tool: "session.resume",
+        error: {
+          code: "opening_setup_incomplete",
+          message: "TOP_SECRET_FAKE_CHILD_ERROR_PROSE",
+          details: openingGate,
+        },
+      };
+      result = {
+        content: [{
+          type: "text",
+          text: JSON.stringify(envelope),
+        }],
+        structuredContent: envelope,
+        isError: true,
+      };
+    } else {
+      result = {
+        method: message.method,
+        echoed: message.params ?? null,
+        arrivalOrder: arrival.slice(),
+      };
+    }
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\n");
   }
   busy = false;

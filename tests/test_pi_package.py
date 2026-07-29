@@ -672,6 +672,13 @@ def test_pi_mcp_parallel_dispatch_transport():
     assert result["hangDetection"]["statuses"] == ["rejected"] * 3
     assert result["abortIsolation"]["ok"] is True
     assert result["abortIsolation"]["statuses"] == ["fulfilled", "rejected", "fulfilled"]
+    assert result["canonicalErrorMetadata"] == {
+        "ok": True,
+        "errorName": "CanonicalToolError",
+        "code": "opening_setup_incomplete",
+        "tool": "session.resume",
+        "phase": "opening_selection",
+    }
 
 
 def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
