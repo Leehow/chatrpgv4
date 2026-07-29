@@ -299,3 +299,124 @@ def test_filename_fallback_is_basename_only_and_strips_uri_query(tmp_path):
     assert "files.example" not in markdown
     assert "/private/" not in markdown
     assert "token=do-not-render" not in markdown
+
+
+def test_nested_encoded_and_opaque_titles_fall_back_neutrally():
+    briefing = _load_briefing_script()
+    rejected_titles = (
+        "%252FUsers%252Fprivate%252Fsecret.pdf",
+        "%252fUsers%252fprivate%252fsecret.pdf",
+        "%255CUsers%255Cprivate%255Csecret.pdf",
+        "mailto:private@example.com",
+        "data:text/plain,private",
+        "urn:private:identity",
+        "file%253A%252F%252FUsers%252Fprivate%252Fsecret.pdf",
+        "unsafe%2500title",
+        "invalid%FFtitle",
+        "invalid%ZZtitle",
+        "invalid%2title",
+    )
+    for title in rejected_titles:
+        markdown = briefing.render_briefing(
+            {
+                "title": "Progressive Module",
+                "play_language": "zh-Hans",
+            },
+            {"title": title},
+            {"title": "Progressive Module"},
+            {"sources": []},
+            language="zh-Hans",
+        )
+
+        assert markdown.startswith("# 调查员创建简报：开卡序章")
+        assert title not in markdown
+        assert "private@example.com" not in markdown
+        assert "/Users/" not in markdown
+
+
+def test_nested_encoded_filename_delimiters_and_invalid_percent_are_rejected():
+    briefing = _load_briefing_script()
+    over_nested = "%2Fprivate.pdf"
+    for _ in range(10):
+        over_nested = over_nested.replace("%", "%25")
+    rejected_filenames = (
+        "safe.pdf%253Ftoken=PRIVATE",
+        "secret%25252Fprivate.pdf",
+        "secret%25252fprivate.pdf",
+        "secret%255Cprivate.pdf",
+        "secret%253Aprivate.pdf",
+        "secret%253Fprivate.pdf",
+        "secret%2523private.pdf",
+        "secret%2500private.pdf",
+        "secret%FFprivate.pdf",
+        "secret%ZZprivate.pdf",
+        "secret%2private.pdf",
+        "../private.pdf",
+        r"..\private.pdf",
+        over_nested,
+    )
+    for filename in rejected_filenames:
+        markdown = briefing.render_briefing(
+            {
+                "title": "Progressive Module",
+                "play_language": "zh-Hans",
+            },
+            {"title": "Progressive Module"},
+            {"title": "Progressive Module"},
+            {"sources": [{"filename": filename}]},
+            language="zh-Hans",
+        )
+
+        assert markdown.startswith("# 调查员创建简报：开卡序章")
+        assert "**来源**" not in markdown
+        assert filename not in markdown
+        assert "token=PRIVATE" not in markdown
+
+
+def test_safe_literal_and_encoded_unicode_identities_remain_visible():
+    briefing = _load_briefing_script()
+    literal_title = briefing.render_briefing(
+        {"play_language": "zh-Hans"},
+        {"title": "A Safe Literal Title"},
+        {},
+        {"sources": []},
+        language="zh-Hans",
+    )
+    encoded_filename = briefing.render_briefing(
+        {
+            "title": "Progressive Module",
+            "play_language": "zh-Hans",
+        },
+        {"title": "Progressive Module"},
+        {"title": "Progressive Module"},
+        {"sources": [{"filename": "safe-%E6%A1%88%E4%BB%B6.pdf"}]},
+        language="zh-Hans",
+    )
+    literal_filename = briefing.render_briefing(
+        {
+            "title": "Progressive Module",
+            "play_language": "zh-Hans",
+        },
+        {"title": "Progressive Module"},
+        {"title": "Progressive Module"},
+        {"sources": [{"filename": "safe-literal.pdf"}]},
+        language="zh-Hans",
+    )
+    encoded_uri_filename = briefing.render_briefing(
+        {
+            "title": "Progressive Module",
+            "play_language": "zh-Hans",
+        },
+        {"title": "Progressive Module"},
+        {"title": "Progressive Module"},
+        {"sources": [{"filename": "https://example.test/files/%E6%A1%88%E4%BB%B6.pdf"}]},
+        language="zh-Hans",
+    )
+
+    assert literal_title.startswith("# A Safe Literal Title：开卡序章")
+    assert encoded_filename.startswith("# safe-案件.pdf：开卡序章")
+    assert "- **来源**：safe-案件.pdf" in encoded_filename
+    assert literal_filename.startswith("# safe-literal.pdf：开卡序章")
+    assert "- **来源**：safe-literal.pdf" in literal_filename
+    assert encoded_uri_filename.startswith("# 案件.pdf：开卡序章")
+    assert "- **来源**：案件.pdf" in encoded_uri_filename

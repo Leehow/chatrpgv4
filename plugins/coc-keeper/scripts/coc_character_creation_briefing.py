@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote_to_bytes, urlsplit
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -69,6 +69,12 @@ GENERIC_SOURCE_BASENAMES = {
     "source.pdf",
     "unknown",
 }
+MAX_PUBLIC_IDENTITY_BYTES = 4096
+MAX_PERCENT_DECODE_PASSES = 8
+PERCENT_ESCAPE = re.compile(r"%[0-9A-Fa-f]{2}")
+INVALID_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
+CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+WINDOWS_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -153,58 +159,113 @@ def _localized_title(title: str, campaign: dict[str, Any], language: str) -> str
     return title
 
 
+def _decode_percent_fixed_point(value: Any) -> tuple[str, bool] | None:
+    current = str(value or "").strip()
+    try:
+        if len(current.encode("utf-8")) > MAX_PUBLIC_IDENTITY_BYTES:
+            return None
+    except UnicodeEncodeError:
+        return None
+    changed = False
+    for _ in range(MAX_PERCENT_DECODE_PASSES):
+        if "%" not in current:
+            return current, changed
+        if INVALID_PERCENT.search(current):
+            return None
+        try:
+            decoded = unquote_to_bytes(current).decode("utf-8", errors="strict")
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            return None
+        if decoded == current:
+            return None
+        current = decoded
+        changed = True
+        if len(current.encode("utf-8")) > MAX_PUBLIC_IDENTITY_BYTES:
+            return None
+    if "%" in current or PERCENT_ESCAPE.search(current):
+        return None
+    return current, changed
+
+
+def _has_unsafe_identity_character(value: str) -> bool:
+    return (
+        CONTROL_CHARACTER.search(value) is not None
+        or "/" in value
+        or "\\" in value
+        or "?" in value
+        or "#" in value
+    )
+
+
 def _public_title_candidate(value: Any) -> str:
-    text = str(value or "").strip()
-    decoded = unquote(text)
-    parsed = urlsplit(text)
+    normalized = _decode_percent_fixed_point(value)
+    if normalized is None:
+        return ""
+    text, _changed = normalized
     if (
-        text == PROGRESSIVE_MACHINE_TITLE
-        or "/" in decoded
-        or "\\" in decoded
-        or decoded.startswith("~")
-        or bool(
-            parsed.scheme
-            and (parsed.netloc or parsed.scheme.lower() == "file")
-        )
+        not text
+        or text == PROGRESSIVE_MACHINE_TITLE
+        or _has_unsafe_identity_character(text)
+        or text.startswith(("~", "."))
     ):
+        return ""
+    try:
+        if urlsplit(text).scheme:
+            return ""
+    except ValueError:
         return ""
     return text
 
 
 def _safe_source_filename(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
+    raw = str(value or "").strip()
+    if not raw:
         return ""
-    # `filename` is the only source field permitted to yield a basename.
-    # Strip URI parameters before normalizing both POSIX and Windows
-    # separators; `source.path` never reaches this function.
-    parsed = urlsplit(text)
-    text = unquote(parsed.path if parsed.scheme else text)
-    text = text.split("#", 1)[0].split("?", 1)[0].replace("\\", "/")
-    basename = text.rsplit("/", 1)[-1].strip()
-    if basename.lower() in GENERIC_SOURCE_BASENAMES:
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
         return ""
-    return _public_title_candidate(basename)
+    is_windows_path = WINDOWS_DRIVE_PATH.match(raw) is not None
+    if parsed.scheme and not is_windows_path:
+        if not parsed.netloc and parsed.scheme.lower() != "file":
+            return ""
+        encoded_path = parsed.path
+    else:
+        encoded_path = raw.split("#", 1)[0].split("?", 1)[0]
+    normalized = _decode_percent_fixed_point(encoded_path)
+    if normalized is None:
+        return ""
+    decoded_path, changed = normalized
+    if changed and any(
+        decoded_path.count(delimiter) > encoded_path.count(delimiter)
+        for delimiter in ("/", "\\", ":", "?", "#")
+    ):
+        return ""
+    path = decoded_path.replace("\\", "/")
+    segments = [segment for segment in path.split("/") if segment]
+    if any(segment in {".", ".."} for segment in segments):
+        return ""
+    basename = segments[-1].strip() if segments else ""
+    if (
+        not basename
+        or basename.startswith(".")
+        or basename.lower() in GENERIC_SOURCE_BASENAMES
+        or _has_unsafe_identity_character(basename)
+        or ":" in basename
+        or "%" in basename
+        or CONTROL_CHARACTER.search(basename) is not None
+    ):
+        return ""
+    try:
+        if urlsplit(basename).scheme:
+            return ""
+    except ValueError:
+        return ""
+    return basename
 
 
 def _safe_source_title(value: Any) -> str:
-    text = str(value or "").strip()
-    decoded = unquote(text)
-    parsed = urlsplit(text)
-    if (
-        not text
-        or "/" in decoded
-        or "\\" in decoded
-        or "?" in decoded
-        or "#" in decoded
-        or decoded.startswith("~")
-        or bool(
-            parsed.scheme
-            and (parsed.netloc or parsed.scheme.lower() == "file")
-        )
-    ):
-        return ""
-    return _public_title_candidate(decoded)
+    return _public_title_candidate(value)
 
 
 def _safe_source_record_label(source: dict[str, Any]) -> str:
