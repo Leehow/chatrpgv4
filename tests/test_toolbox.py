@@ -11417,6 +11417,11 @@ if (process.argv[2] === "--capabilities") {
   let input = "";
   for await (const chunk of process.stdin) input += chunk;
   const task = JSON.parse(input);
+  fs.mkdirSync(task.workspace_root + "/.tmp", {recursive: true});
+  fs.appendFileSync(
+    task.workspace_root + "/.tmp/fake-producer-runs",
+    "run\\n",
+  );
   fs.mkdirSync(task.source_bundle_path, {recursive: true});
   const page = "# Appendix 2\\n\\nCanonical integration page.\\n";
   fs.writeFileSync(task.source_bundle_path + "/page-0002.md", page);
@@ -11510,6 +11515,9 @@ if (process.argv[2] === "--capabilities") {
         "toolbox": str(TOOLBOX_SCRIPT),
         "envelope": status,
         "expected_job_id": task["job_id"],
+        "producer_marker": str(
+            ws["workspace"] / ".tmp" / "fake-producer-runs"
+        ),
     }), encoding="utf-8")
     completed = subprocess.run(
         [
@@ -11529,6 +11537,7 @@ if (process.argv[2] === "--capabilities") {
     assert receipt["ok"] is True
     assert receipt["resolved_job_id"] == task["job_id"]
     assert receipt["replacement_job_id"] != task["job_id"]
+    assert receipt["idempotent_terminal"] is True
     after = coc_toolbox._source_host_work_projection(
         coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"]),
         ws["asset_root_id"],

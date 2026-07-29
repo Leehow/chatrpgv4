@@ -8,6 +8,7 @@ import {
   realpath,
   rename,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -37,6 +38,8 @@ import { registerCocWelcome } from "../lib/welcome.ts";
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
 const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 5 * 60 * 1000;
+const SOURCE_SCOPE_PUBLICATION_MARKER = ".coc-source-scope-publication.json";
+const SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS = 30_000;
 const discoverSchema = { type: "object", properties: { operation: { type: "string" }, domain: { type: "string" } }, additionalProperties: false } as const;
 const invokeSchema = {
   type: "object",
@@ -3891,10 +3894,33 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+function sha256Json(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function sourceScopeTaskDigest(task: JsonObject): string {
+  return sha256Json({
+    schema_version: task.schema_version,
+    contract_id: task.contract_id,
+    contract_revision: task.contract_revision,
+    workspace_root: task.workspace_root,
+    campaign_id: task.campaign_id,
+    asset_root_id: task.asset_root_id,
+    job_id: task.job_id,
+    job_kind: task.job_kind,
+    kind: task.kind,
+    target_id: task.target_id,
+    source: task.source,
+    source_bundle_path: task.source_bundle_path,
+    max_selected_pages: task.max_selected_pages,
+    resolve_operation: task.resolve_operation,
+  });
+}
+
 async function validateStagedSourceBundle(
   task: JsonObject,
   receipt: JsonObject,
-): Promise<void> {
+): Promise<string> {
   const root = resolve(nonEmpty(task.source_bundle_path, "source_bundle_path"));
   const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
@@ -3940,6 +3966,7 @@ async function validateStagedSourceBundle(
   ) throw new Error("staged source bundle identity is invalid");
   const expectedIndices = receipt.pdf_indices as number[];
   const actualIndices: number[] = [];
+  const pageDigests: JsonObject[] = [];
   for (const [position, rawPage] of pages.entries()) {
     const page = asObject(rawPage, `staged source page ${position}`);
     const pdfIndex = page.pdf_index;
@@ -3981,11 +4008,258 @@ async function validateStagedSourceBundle(
         !== page.text_sha256
     ) throw new Error("staged source bundle page content is invalid");
     actualIndices.push(Number(pdfIndex));
+    pageDigests.push({
+      pdf_index: Number(pdfIndex),
+      markdown_path: markdownPath,
+      text_sha256: page.text_sha256,
+    });
   }
   if (
     JSON.stringify([...actualIndices].sort((a, b) => a - b))
     !== JSON.stringify(expectedIndices)
   ) throw new Error("staged source bundle pages diverge from producer receipt");
+  return sha256Json({
+    manifest_sha256: createHash("sha256").update(manifestBytes).digest("hex"),
+    pages: pageDigests.sort(
+      (left, right) => Number(left.pdf_index) - Number(right.pdf_index),
+    ),
+  });
+}
+
+async function writeSourceScopePublicationMarker(
+  stableTask: JsonObject,
+  stagedTask: JsonObject,
+  receipt: JsonObject,
+  bundleDigest: string,
+): Promise<void> {
+  const source = asObject(stableTask.source, "locator source");
+  const core = {
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-publication.v1",
+    state: "published_unregistered",
+    task_digest: sourceScopeTaskDigest(stableTask),
+    bundle_digest: bundleDigest,
+    job_id: stableTask.job_id,
+    kind: stableTask.kind,
+    target_id: stableTask.target_id,
+    pdf_indices: structuredClone(receipt.pdf_indices),
+    source_id: source.source_id,
+    file_sha256: source.file_sha256,
+    stable_path: stableTask.source_bundle_path,
+  };
+  const marker = {
+    ...core,
+    marker_sha256: sha256Json(core),
+  };
+  await writeFile(
+    join(
+      nonEmpty(stagedTask.source_bundle_path, "staging source_bundle_path"),
+      SOURCE_SCOPE_PUBLICATION_MARKER,
+    ),
+    `${JSON.stringify(marker)}\n`,
+    { encoding: "utf8", flag: "wx", mode: 0o600 },
+  );
+}
+
+async function recoverPublishedSourceBundle(
+  task: JsonObject,
+): Promise<JsonObject> {
+  const stablePath = resolve(
+    nonEmpty(task.source_bundle_path, "stable source_bundle_path"),
+  );
+  const markerPath = join(stablePath, SOURCE_SCOPE_PUBLICATION_MARKER);
+  const markerStat = await lstat(markerPath);
+  if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
+    throw new Error("stable source bundle publication marker is invalid");
+  }
+  const markerBytes = await readFile(markerPath);
+  if (markerBytes.length > MAX_BYTES) {
+    throw new Error("stable source bundle publication marker exceeds limit");
+  }
+  const marker = asObject(
+    JSON.parse(markerBytes.toString("utf8")),
+    "stable source bundle publication marker",
+  );
+  exactKeys(marker, [
+    "schema_version", "contract_id", "state", "task_digest",
+    "bundle_digest", "job_id", "kind", "target_id", "pdf_indices",
+    "source_id", "file_sha256", "stable_path", "marker_sha256",
+  ], "stable source bundle publication marker");
+  const {
+    marker_sha256: markerSha256,
+    ...core
+  } = marker;
+  const source = asObject(task.source, "locator source");
+  if (
+    marker.schema_version !== 1
+    || marker.contract_id !== "coc.pi-source-scope-publication.v1"
+    || marker.state !== "published_unregistered"
+    || marker.task_digest !== sourceScopeTaskDigest(task)
+    || marker.job_id !== task.job_id
+    || marker.kind !== task.kind
+    || marker.target_id !== task.target_id
+    || marker.source_id !== source.source_id
+    || marker.file_sha256 !== source.file_sha256
+    || marker.stable_path !== task.source_bundle_path
+    || !/^[a-f0-9]{64}$/.test(String(marker.bundle_digest ?? ""))
+    || markerSha256 !== sha256Json(core)
+  ) throw new Error("stable source bundle publication marker binding drift");
+  const receipt = {
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+    job_id: task.job_id,
+    status: "located",
+    kind: task.kind,
+    target_id: task.target_id,
+    pdf_indices: structuredClone(marker.pdf_indices),
+    source_bundle_path: task.source_bundle_path,
+    failure_class: null,
+  };
+  const validatedReceipt = await runPiSourceScopeProducerReceiptOnly(
+    task,
+    receipt,
+  );
+  const bundleDigest = await validateStagedSourceBundle(
+    task,
+    validatedReceipt,
+  );
+  if (bundleDigest !== marker.bundle_digest) {
+    throw new Error("stable source bundle content drift");
+  }
+  return validatedReceipt;
+}
+
+async function runPiSourceScopeProducerReceiptOnly(
+  taskValue: unknown,
+  receiptValue: unknown,
+): Promise<JsonObject> {
+  const task = validatePiSourceScopeLocatorTask(taskValue);
+  const receipt = asObject(receiptValue, "source-scope locator receipt");
+  exactKeys(receipt, [
+    "schema_version", "contract_id", "job_id", "status", "kind",
+    "target_id", "pdf_indices", "source_bundle_path", "failure_class",
+  ], "source-scope locator producer receipt");
+  const status = String(receipt.status ?? "");
+  if (
+    receipt.schema_version !== 1
+    || receipt.contract_id
+      !== "coc.pi-source-scope-locator-producer-result.v1"
+    || receipt.job_id !== task.job_id
+    || receipt.kind !== task.kind
+    || receipt.target_id !== task.target_id
+    || status !== "located"
+    || !Array.isArray(receipt.pdf_indices)
+    || receipt.pdf_indices.length < 1
+    || receipt.pdf_indices.length > 3
+    || receipt.pdf_indices.some(
+      (value) => !Number.isInteger(value) || Number(value) < 0,
+    )
+    || JSON.stringify(receipt.pdf_indices) !== JSON.stringify(
+      [...new Set(receipt.pdf_indices as number[])].sort((a, b) => a - b),
+    )
+    || receipt.source_bundle_path !== task.source_bundle_path
+    || receipt.failure_class !== null
+  ) throw new Error("source-scope locator recovery receipt binding drift");
+  return receipt;
+}
+
+function processOwnerAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+async function createPublishLock(
+  lockPath: string,
+  taskDigest: string,
+): Promise<{ handle: Awaited<ReturnType<typeof open>>; owner: JsonObject }> {
+  const handle = await open(lockPath, "wx", 0o600);
+  const owner = {
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-publish-lock.v1",
+    pid: process.pid,
+    owner_nonce: randomUUID(),
+    created_at_ms: Date.now(),
+    task_digest: taskDigest,
+  };
+  await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
+  await handle.sync();
+  return { handle, owner };
+}
+
+async function acquirePublishLock(
+  lockPath: string,
+  stablePath: string,
+  taskDigest: string,
+): Promise<{ handle: Awaited<ReturnType<typeof open>>; owner: JsonObject }> {
+  try {
+    return await createPublishLock(lockPath, taskDigest);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  if (await pathExists(stablePath)) {
+    throw new Error("publish lock recovery found an existing stable bundle");
+  }
+  const stat = await lstat(lockPath);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error("source-scope publish lock is invalid");
+  }
+  const existing = asObject(
+    JSON.parse((await readFile(lockPath, "utf8")).trim()),
+    "source-scope publish lock",
+  );
+  exactKeys(existing, [
+    "schema_version", "contract_id", "pid", "owner_nonce",
+    "created_at_ms", "task_digest",
+  ], "source-scope publish lock");
+  const pid = Number(existing.pid);
+  const ageMs = Date.now() - Number(existing.created_at_ms);
+  if (
+    existing.schema_version !== 1
+    || existing.contract_id !== "coc.pi-source-scope-publish-lock.v1"
+    || !Number.isInteger(pid)
+    || pid <= 0
+    || !/^[0-9a-f-]{36}$/.test(String(existing.owner_nonce ?? ""))
+    || !Number.isFinite(ageMs)
+    || !/^[a-f0-9]{64}$/.test(String(existing.task_digest ?? ""))
+  ) throw new Error("source-scope publish lock metadata is invalid");
+  if (processOwnerAlive(pid) || ageMs < SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS) {
+    throw new Error("source-scope publish lock is active");
+  }
+  const stalePath = `${lockPath}.stale-${randomUUID()}`;
+  await rename(lockPath, stalePath);
+  try {
+    const acquired = await createPublishLock(lockPath, taskDigest);
+    await rm(stalePath, { force: true });
+    return acquired;
+  } catch (error) {
+    throw new Error(
+      `source-scope stale publish lock takeover lost: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
+  }
+}
+
+async function releasePublishLock(
+  lockPath: string,
+  lock: { handle: Awaited<ReturnType<typeof open>>; owner: JsonObject },
+): Promise<void> {
+  await lock.handle.close();
+  try {
+    const current = asObject(
+      JSON.parse((await readFile(lockPath, "utf8")).trim()),
+      "source-scope publish lock",
+    );
+    if (current.owner_nonce === lock.owner.owner_nonce) {
+      await rm(lockPath, { force: true });
+    }
+  } catch {
+    // Never remove a lock whose current owner cannot be proven.
+  }
 }
 
 async function publishStagedSourceBundle(
@@ -3993,7 +4267,13 @@ async function publishStagedSourceBundle(
   stagedTask: JsonObject,
   receipt: JsonObject,
 ): Promise<JsonObject> {
-  await validateStagedSourceBundle(stagedTask, receipt);
+  const bundleDigest = await validateStagedSourceBundle(stagedTask, receipt);
+  await writeSourceScopePublicationMarker(
+    stableTask,
+    stagedTask,
+    receipt,
+    bundleDigest,
+  );
   const stablePath = resolve(
     nonEmpty(stableTask.source_bundle_path, "stable source_bundle_path"),
   );
@@ -4009,15 +4289,18 @@ async function publishStagedSourceBundle(
     throw new Error("stable source bundle parent contains a symlink");
   }
   const lockPath = `${stablePath}.publish.lock`;
-  const lock = await open(lockPath, "wx");
+  const lock = await acquirePublishLock(
+    lockPath,
+    stablePath,
+    sourceScopeTaskDigest(stableTask),
+  );
   try {
     if (await pathExists(stablePath)) {
       throw new Error("stable source bundle already exists");
     }
     await rename(stagingPath, stablePath);
   } finally {
-    await lock.close();
-    await rm(lockPath, { force: true });
+    await releasePublishLock(lockPath, lock);
   }
   return {
     ...receipt,
@@ -4493,15 +4776,20 @@ export async function autoDispatchPiSourceScopeLocator(
   const stablePath = resolve(
     nonEmpty(task.source_bundle_path, "source_bundle_path"),
   );
+  let recoveredReceipt: JsonObject | null = null;
   if (await pathExists(stablePath)) {
-    const failure = {
-      status: "failed",
-      dispatch_key: key,
-      failure_class: "source_scope_stable_bundle_exists",
-    };
-    deps.states.set(key, failure);
-    deps.audit(failure);
-    return failure;
+    try {
+      recoveredReceipt = await recoverPublishedSourceBundle(task);
+    } catch {
+      const failure = {
+        status: "failed",
+        dispatch_key: key,
+        failure_class: "source_scope_stable_bundle_mismatch",
+      };
+      deps.states.set(key, failure);
+      deps.audit(failure);
+      return failure;
+    }
   }
   const stagingPath = join(
     dirname(stablePath),
@@ -4521,60 +4809,64 @@ export async function autoDispatchPiSourceScopeLocator(
   else options.signal?.addEventListener("abort", abort, { once: true });
   try {
     let receipt: JsonObject;
-    try {
-      receipt = await runPiSourceScopeProducer(stagedTask, {
-        command,
-        timeoutMs: options.timeoutMs,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      const failure = {
-        status: "failed",
-        dispatch_key: key,
-        failure_class: message.includes("timed out")
-          ? "source_scope_locator_timeout"
-          : message.includes("aborted")
-            ? "source_scope_locator_aborted"
-            : message.includes("capability")
-              ? "source_scope_locator_preflight_failed"
-              : "source_scope_locator_result_invalid",
-      };
-      deps.states.set(key, failure);
-      deps.audit(failure);
-      return failure;
-    }
-    if (!deps.isCurrent()) {
-      const failure = {
-        status: "session_closed",
-        dispatch_key: key,
-        failure_class: "session_closed_before_scope_registration",
-      };
-      deps.states.set(key, failure);
-      deps.audit(failure);
-      return failure;
-    }
-    if (receipt.status !== "located") {
-      const terminal = {
-        status: receipt.status,
-        dispatch_key: key,
-        failure_class: receipt.failure_class,
-      };
-      deps.states.set(key, terminal);
-      deps.audit(terminal);
-      return terminal;
-    }
-    try {
-      receipt = await publishStagedSourceBundle(task, stagedTask, receipt);
-    } catch {
-      const failure = {
-        status: "failed",
-        dispatch_key: key,
-        failure_class: "source_scope_bundle_publication_failed",
-      };
-      deps.states.set(key, failure);
-      deps.audit(failure);
-      return failure;
+    if (recoveredReceipt !== null) {
+      receipt = recoveredReceipt;
+    } else {
+      try {
+        receipt = await runPiSourceScopeProducer(stagedTask, {
+          command,
+          timeoutMs: options.timeoutMs,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const failure = {
+          status: "failed",
+          dispatch_key: key,
+          failure_class: message.includes("timed out")
+            ? "source_scope_locator_timeout"
+            : message.includes("aborted")
+              ? "source_scope_locator_aborted"
+              : message.includes("capability")
+                ? "source_scope_locator_preflight_failed"
+                : "source_scope_locator_result_invalid",
+        };
+        deps.states.set(key, failure);
+        deps.audit(failure);
+        return failure;
+      }
+      if (!deps.isCurrent()) {
+        const failure = {
+          status: "session_closed",
+          dispatch_key: key,
+          failure_class: "session_closed_before_scope_registration",
+        };
+        deps.states.set(key, failure);
+        deps.audit(failure);
+        return failure;
+      }
+      if (receipt.status !== "located") {
+        const terminal = {
+          status: receipt.status,
+          dispatch_key: key,
+          failure_class: receipt.failure_class,
+        };
+        deps.states.set(key, terminal);
+        deps.audit(terminal);
+        return terminal;
+      }
+      try {
+        receipt = await publishStagedSourceBundle(task, stagedTask, receipt);
+      } catch {
+        const failure = {
+          status: "failed",
+          dispatch_key: key,
+          failure_class: "source_scope_bundle_publication_failed",
+        };
+        deps.states.set(key, failure);
+        deps.audit(failure);
+        return failure;
+      }
     }
     if (!deps.isCurrent()) {
       const failure = {

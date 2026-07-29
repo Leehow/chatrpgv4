@@ -4986,17 +4986,11 @@ def resolve_source_scope(
             "pdf_indices must contain 1..3 unique ascending non-negative integers"
         )
 
-    rows = coc_module_assets.list_host_work_requests(
-        workspace, root_id, include_closed=True, limit=None,
-    )
-    request = next(
-        (row for row in rows if str(row.get("job_id") or "") == job_id),
-        None,
+    request = coc_module_assets.get_host_work_request(
+        workspace, root_id, job_id,
     )
     if not isinstance(request, dict):
         raise ModuleProjectError("source-scope job is missing")
-    if str(request.get("status") or "open") in coc_module_assets.HOST_WORK_CLOSED_STATUSES:
-        raise ModuleProjectError("source-scope job is already closed")
     job_kind = str(request.get("kind") or "")
     if (
         coc_module_assets._job_entity_kind(job_kind) != kind
@@ -5008,6 +5002,79 @@ def resolve_source_scope(
             "resolve_source_scope accepts body jobs only; mechanics scope must "
             "come from the canonical mechanics locator"
         )
+    request_status = str(request.get("status") or "open")
+    if request_status in coc_module_assets.HOST_WORK_CLOSED_STATUSES:
+        if (
+            request_status != "superseded"
+            or source_bundle_path is None
+            or request.get("schema_version")
+            != coc_module_assets.HOST_WORK_SCHEMA_VERSION
+        ):
+            raise ModuleProjectError("source-scope job is already closed")
+        bundle = coc_module_assets.coc_pdf_bundle.load_host_bundle(
+            source_bundle_path,
+        )
+        bundle_source = bundle.get("source") or {}
+        bundle_indices = [
+            int(page["pdf_index"]) for page in (bundle.get("pages") or [])
+        ]
+        if (
+            bundle_indices != pdf_indices
+            or str(bundle_source.get("file_sha256") or "")
+            != str(request.get("file_sha256") or "")
+            or str(bundle_source.get("source_id") or "")
+            != str(request.get("source_id") or "")
+            or Path(str(bundle_source.get("path") or "")).resolve()
+            != Path(str(request.get("source_pdf") or "")).resolve()
+        ):
+            raise ModuleProjectError(
+                "closed source-scope bundle does not match the original request"
+            )
+        replacement_job_id = str(
+            request.get("superseded_by_job_id") or "",
+        ).strip()
+        replacement = coc_module_assets.get_host_work_request(
+            workspace, root_id, replacement_job_id,
+        ) if replacement_job_id else None
+        if (
+            not isinstance(replacement, dict)
+            or replacement.get("schema_version")
+            != coc_module_assets.HOST_WORK_SCHEMA_VERSION
+            or str(replacement.get("status") or "open")
+            in {"cancelled", "superseded", "quarantined"}
+            or not coc_module_assets._same_entity_work(
+                replacement, job_kind, target_id,
+            )
+            or list(replacement.get("requested_pdf_indices") or [])
+            != pdf_indices
+        ):
+            raise ModuleProjectError(
+                "closed source-scope job has no exact live replacement"
+            )
+        coc_module_assets._cached_source_refs(
+            workspace,
+            root_id,
+            {"source_page_indices": pdf_indices},
+            field="resolve_source_scope idempotent terminal",
+        )
+        return {
+            "asset_root_id": root_id,
+            "resolved_job_id": job_id,
+            "replacement_job_id": replacement.get("job_id"),
+            "kind": kind,
+            "target_id": target_id,
+            "pdf_indices": pdf_indices,
+            "source_reuse": True,
+            "reused_pdf_indices": list(pdf_indices),
+            "registered_pdf_indices": [],
+            "registration": None,
+            "replacement": replacement,
+            "lifecycle": coc_module_assets.host_work_lifecycle_summary(
+                workspace, root_id,
+            ),
+            "status": "already_resolved",
+            "idempotent_terminal": True,
+        }
     if coc_module_assets.host_work_operational_class(request) not in {
         "awaiting_scope", "legacy_unowned",
     }:

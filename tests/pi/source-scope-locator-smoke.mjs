@@ -246,7 +246,7 @@ const existing = await extension.autoDispatchPiSourceScopeLocator({
   states: new Map(),
   controllers: new Map(),
 }, "coc_invoke", envelope());
-assert.equal(existing.failure_class, "source_scope_stable_bundle_exists");
+assert.equal(existing.status, "scope_registered");
 assert.deepEqual(
   await readFile(stableManifestPath),
   stableManifest,
@@ -255,6 +255,131 @@ assert.equal(
   (await readFile(marker, "utf8")).split("\n").filter(Boolean).length,
   beforeExisting,
 );
+assert.equal(calls.length, 2);
+
+const invalidStableTask = taskAt("invalid-stable");
+await mkdir(invalidStableTask.source_bundle_path, { recursive: true });
+await writeFile(
+  path.join(invalidStableTask.source_bundle_path, "do-not-overwrite"),
+  "user evidence",
+);
+const invalidStableCalls = [];
+const invalidStable = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  call: async (...args) => { invalidStableCalls.push(args); return {}; },
+}, "coc_invoke", envelope(invalidStableTask));
+assert.equal(
+  invalidStable.failure_class,
+  "source_scope_stable_bundle_mismatch",
+);
+assert.equal(invalidStableCalls.length, 0);
+assert.equal(
+  await readFile(
+    path.join(invalidStableTask.source_bundle_path, "do-not-overwrite"),
+    "utf8",
+  ),
+  "user evidence",
+);
+
+const sessionTask = taskAt("session-recovery");
+let currentChecks = 0;
+const firstSessionCalls = [];
+const firstSession = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  isCurrent: () => {
+    currentChecks += 1;
+    return currentChecks < 3;
+  },
+  states: new Map(),
+  controllers: new Map(),
+  call: async (...args) => { firstSessionCalls.push(args); return {}; },
+}, "coc_invoke", envelope(sessionTask));
+assert.equal(
+  firstSession.failure_class,
+  "session_closed_before_scope_registration",
+);
+assert.equal(firstSessionCalls.length, 0);
+const beforeRecovery = (
+  await readFile(marker, "utf8")
+).split("\n").filter(Boolean).length;
+const secondSessionCalls = [];
+const secondSession = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  onResolved: async () => {},
+  call: async (name, args) => {
+    secondSessionCalls.push({ name, args });
+    return {
+      ok: true,
+      data: {
+        resolved_job_id: sessionTask.job_id,
+        replacement_job_id: "replacement-after-recovery",
+      },
+    };
+  },
+}, "coc_invoke", envelope(sessionTask));
+assert.equal(secondSession.status, "scope_registered");
+assert.equal(secondSessionCalls.length, 1);
+assert.equal(
+  (await readFile(marker, "utf8")).split("\n").filter(Boolean).length,
+  beforeRecovery,
+);
+
+const staleLockTask = taskAt("stale-lock");
+await mkdir(path.dirname(staleLockTask.source_bundle_path), {
+  recursive: true,
+});
+await writeFile(
+  `${staleLockTask.source_bundle_path}.publish.lock`,
+  JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-publish-lock.v1",
+    pid: 2147483647,
+    owner_nonce: "00000000-0000-4000-8000-000000000000",
+    created_at_ms: Date.now() - 60_000,
+    task_digest: "c".repeat(64),
+  }),
+);
+const staleLockResult = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  onResolved: async () => {},
+}, "coc_invoke", envelope(staleLockTask));
+assert.equal(staleLockResult.status, "scope_registered");
+await readFile(path.join(staleLockTask.source_bundle_path, "manifest.json"));
+
+const activeLockTask = taskAt("active-lock");
+await mkdir(path.dirname(activeLockTask.source_bundle_path), {
+  recursive: true,
+});
+await writeFile(
+  `${activeLockTask.source_bundle_path}.publish.lock`,
+  JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-publish-lock.v1",
+    pid: process.pid,
+    owner_nonce: "00000000-0000-4000-8000-000000000001",
+    created_at_ms: Date.now() - 60_000,
+    task_digest: "d".repeat(64),
+  }),
+);
+const activeLockResult = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  call: async () => {
+    throw new Error("active lock must block canonical mutation");
+  },
+}, "coc_invoke", envelope(activeLockTask));
+assert.equal(
+  activeLockResult.failure_class,
+  "source_scope_bundle_publication_failed",
+);
+await assert.rejects(readFile(activeLockTask.source_bundle_path));
 
 const unavailableCalls = [];
 const unavailable = await extension.autoDispatchPiSourceScopeLocator({
@@ -410,6 +535,9 @@ process.stdout.write(JSON.stringify({
     locate_resolve_replacement_chain: true,
     duplicate_suppressed: true,
     stable_bundle_not_overwritten: true,
+    published_unregistered_recovered: true,
+    stale_publish_lock_recovered: true,
+    active_publish_lock_preserved: true,
     symlink_staging_rejected: true,
     session_abort_kills_descendants: true,
     missing_command_no_mutation: true,

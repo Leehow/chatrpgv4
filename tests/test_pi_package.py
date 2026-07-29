@@ -5,10 +5,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import shlex
 import shutil
 import subprocess
 import tarfile
+import time
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1040,6 +1044,9 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
             "locate_resolve_replacement_chain": True,
             "duplicate_suppressed": True,
             "stable_bundle_not_overwritten": True,
+            "published_unregistered_recovered": True,
+            "stale_publish_lock_recovered": True,
+            "active_publish_lock_preserved": True,
             "symlink_staging_rejected": True,
             "session_abort_kills_descendants": True,
             "missing_command_no_mutation": True,
@@ -1063,6 +1070,100 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
     assert pi["coc_source_scope_locator_v1_dynamic_gate"] == (
         "absolute_executable_COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"
     )
+
+
+def test_pdf_skill_adapter_reaps_term_resistant_codex_process_group(
+    tmp_path: Path,
+):
+    started = tmp_path / "codex-started"
+    child_pid_path = tmp_path / "child-pid"
+    survivor = tmp_path / "descendant-survived"
+    fake_codex = tmp_path / "fake-codex"
+    child_code = (
+        "import os,signal,time,pathlib;"
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+        f"pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid()));"
+        "time.sleep(1.2);"
+        f"pathlib.Path({str(survivor)!r}).write_text('survived')"
+    )
+    fake_codex.write_text(
+        f"""#!{os.fspath(Path(os.sys.executable).resolve())}
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+if sys.argv[1:] == ["--version"]:
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+subprocess.Popen([sys.executable, "-c", {child_code!r}])
+Path({str(started)!r}).write_text(str(os.getpid()))
+time.sleep(10)
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-task.v1",
+        "adapter_mode": "pi_external_pdf_skill_lifecycle",
+        "model_policy": "external_codex_cli_configured_default",
+        "max_selected_pages": 3,
+        "workspace_root": str(workspace),
+        "job_id": "job-adapter-termination",
+        "kind": "location",
+        "target_id": "archive",
+        "target_label": "Archive",
+        "source_bundle_path": str(
+            workspace
+            / ".tmp"
+            / "coc-source-scope"
+            / "camp"
+            / "job"
+            / "staging"
+        ),
+        "source": {
+            "path": str(tmp_path / "module.pdf"),
+        },
+    }
+    env = {
+        **os.environ,
+        "COC_CODEX_COMMAND": str(fake_codex),
+    }
+    # This test owns only process-tree termination. The fake Codex never reads
+    # the adapter's required external-skill path, so keep the fixture hermetic.
+    pdf_skill = tmp_path / "pdf-skill" / "SKILL.md"
+    pdf_skill.parent.mkdir()
+    pdf_skill.write_text("# process-tree fixture\n", encoding="utf-8")
+    env["COC_CODEX_PDF_SKILL"] = str(pdf_skill)
+    adapter = PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
+    process = subprocess.Popen(
+        [os.sys.executable, str(adapter), "--run"],
+        cwd=ROOT,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert process.stdin is not None
+    process.stdin.write(json.dumps(task))
+    process.stdin.close()
+    deadline = time.monotonic() + 3
+    while not started.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert started.is_file()
+    process.send_signal(signal.SIGTERM)
+    assert process.wait(timeout=5) != 0
+    time.sleep(1.3)
+    assert not survivor.exists()
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
 
 
 def test_secrets_example_contains_key_name_only():

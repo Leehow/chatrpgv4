@@ -23,7 +23,10 @@ from typing import Any, NoReturn
 MAX_INPUT_BYTES = 256 * 1024
 MAX_OUTPUT_BYTES = 256 * 1024
 CODEX_TIMEOUT_SECONDS = 240
-TERMINATION_GRACE_SECONDS = 1.5
+# The outer Pi locator owner allows 1.5s for TERM and another 1.5s for KILL.
+# Keep this nested Codex process-group budget well inside that first window so
+# the adapter can reap its own start_new_session child before Pi escalates.
+TERMINATION_GRACE_SECONDS = 0.35
 
 
 def _fail(message: str) -> NoReturn:
@@ -88,6 +91,8 @@ def _validate_task(value: Any) -> dict[str, Any]:
         task.get("schema_version") != 1
         or task.get("contract_id") != "coc.pi-source-scope-locator-task.v1"
         or task.get("adapter_mode") != "pi_external_pdf_skill_lifecycle"
+        or task.get("model_policy")
+        != "external_codex_cli_configured_default"
         or task.get("max_selected_pages") != 3
     ):
         _fail("task contract mismatch")
