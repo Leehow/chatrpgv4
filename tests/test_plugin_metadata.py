@@ -1262,12 +1262,16 @@ def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
         "kind": "scenario.bind_pdf",
         "required_payload_fields": [
             "campaign_id",
-            "scenario_id",
-            "title",
-            "source_bundle_path",
-        ],
-        "values_from_retained_closed_task": True,
-    }
+                "scenario_id",
+                "title",
+                "source_bundle_path",
+                "opening_source_provenance",
+            ],
+            "fixed_opening_source_provenance": (
+                "coordinator_reviewed_playable_opening"
+            ),
+            "values_from_retained_closed_task": True,
+        }
     assert contract["lifecycle"]["main_keeper_character_flow_continues_without_waiting"] is True
     assert contract["lifecycle"]["foreground_source_execution"] == (
         "same_coordinator_inline"
@@ -1322,7 +1326,7 @@ def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
         "task name does not activate this file",
         "one direct `apply_patch` call",
         "do not discover `scenario.bind_pdf`",
-        "do not omit or move any of those four payload fields",
+        "do not omit or move any of those five payload fields",
         "`execution_owner=opening_source_coordinator`",
         "`dispatch_mode=inline_single_owner`",
         "`action=claim_and_compile_inline`",

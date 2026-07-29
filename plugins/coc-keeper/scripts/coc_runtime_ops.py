@@ -3968,7 +3968,10 @@ def execute_setup_operation(
             ],
         }
 
-    allowed = {"campaign_id", "scenario_id", "title", "source_bundle_path", "compile_now"}
+    allowed = {
+        "campaign_id", "scenario_id", "title", "source_bundle_path",
+        "opening_source_provenance", "compile_now",
+    }
     required = {"campaign_id", "scenario_id", "title", "source_bundle_path"}
     unsupported = sorted(set(payload) - allowed)
     missing = sorted(required - set(payload))
@@ -3987,6 +3990,23 @@ def execute_setup_operation(
     title = payload.get("title")
     if not isinstance(title, str) or not title.strip():
         raise RuntimeOperationError("scenario.bind_pdf title must be non-empty")
+    opening_source_provenance = str(
+        payload.get("opening_source_provenance")
+        or (
+            "selection_hint_only_not_provenance"
+            if str(os.environ.get("COC_HOST") or "").lower() == "pi"
+            else "coordinator_reviewed_playable_opening"
+        )
+    ).strip()
+    if opening_source_provenance not in {
+        "selection_hint_only_not_provenance",
+        "coordinator_reviewed_playable_opening",
+    }:
+        raise RuntimeOperationError(
+            "scenario.bind_pdf opening_source_provenance must be "
+            "selection_hint_only_not_provenance or "
+            "coordinator_reviewed_playable_opening"
+        )
     source_bundle_path = Path(str(payload.get("source_bundle_path") or "")).expanduser().resolve()
     try:
         host_bundle = coc_pdf_bundle.load_host_bundle(source_bundle_path)
@@ -4020,6 +4040,7 @@ def execute_setup_operation(
     source = {
         **host_bundle["source"],
         "source_bundle_path": str(source_bundle_path),
+        "opening_source_provenance": opening_source_provenance,
     }
     coc_scenario.create_scenario_skeleton(
         campaign_dir, scenario_id, title.strip(), source
@@ -4027,6 +4048,7 @@ def execute_setup_operation(
     scenario_path = campaign_dir / "scenario" / "scenario.json"
     scenario = _read_object(scenario_path)
     scenario["resolution_policy"] = "source_first"
+    scenario["opening_source_provenance"] = opening_source_provenance
     # This locator only means the verified pages are reusable.  Cold compile
     # remains valid; the progressive play marker is stamped later by the
     # explicit skeleton projection path.

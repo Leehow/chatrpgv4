@@ -1548,6 +1548,7 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
         "scenario_id": "custom-mcp-module",
         "title": "Custom MCP Module",
         "source_bundle_path": os.fspath(bundle),
+        "opening_source_provenance": "coordinator_reviewed_playable_opening",
         "compile_now": False,
     })
     assert bound["ok"] is True, bound

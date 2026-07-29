@@ -13719,6 +13719,96 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     assert released["ok"] is True, released
 
 
+def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path, source_page_count=34)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["opening_source_provenance"] = (
+        "selection_hint_only_not_provenance"
+    )
+    scenario["source"]["opening_source_provenance"] = (
+        "selection_hint_only_not_provenance"
+    )
+    _write_json(scenario_path, scenario)
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    for operation, arguments in (
+        ("progressive.prepare_opening", {}),
+        (
+            "progressive.opening_bootstrap",
+            {
+                "start_location": {
+                    "location_id": "false-opening",
+                    "title": "Premise hint",
+                },
+                "opening_pdf_indices": [0],
+            },
+        ),
+        (
+            "progressive.project_opening",
+            {
+                "asset_root_id": ws["asset_root_id"],
+                "source_file_sha256": ws["file_sha256"],
+                "start_location_id": "false-opening",
+                "opening_pdf_indices": [0],
+            },
+        ),
+        (
+            "evidence.table_opening",
+            {
+                "text": "不得从快速提示虚构开场。",
+                "run_id": "fast-hint-bypass",
+                "presented_roll_ids": [],
+                "decision_id": "fast-hint-bypass",
+            },
+        ),
+    ):
+        blocked = _run(ws, operation, arguments)
+        assert blocked["ok"] is False, blocked
+        assert blocked["error"]["code"] == "opening_setup_incomplete"
+        gate = blocked["error"]["details"]
+        assert gate["phase"] == "opening_source_review_required"
+        assert gate["source_provenance"] == (
+            "selection_hint_only_not_provenance"
+        )
+        assert gate["required_source_owner"] == (
+            "coc-opening-source-coordinator"
+        )
+        assert gate["next_operation"] is None
+
+    _write_json(ws["campaign_dir"] / "party.json", {
+        "schema_version": 1,
+        "campaign_id": ws["campaign_id"],
+        "investigator_ids": ["linked-investigator"],
+        "active_investigator_ids": ["linked-investigator"],
+    })
+    after_character = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "false-opening",
+        "opening_pdf_indices": [0],
+    })
+    assert after_character["ok"] is False
+    assert after_character["error"]["details"][
+        "character_setup_complete"
+    ] is True
+
+    scenario["opening_source_provenance"] = (
+        "coordinator_reviewed_playable_opening"
+    )
+    scenario["source"]["opening_source_provenance"] = (
+        "coordinator_reviewed_playable_opening"
+    )
+    _write_json(scenario_path, scenario)
+    reviewed = _run(ws, "progressive.prepare_opening")
+    assert reviewed["ok"] is True, reviewed
+    assert reviewed["data"]["next_operation"]["operation"] == (
+        "progressive.opening_bootstrap"
+    )
+
+
 def test_pi_bound_source_contract_drift_remains_a_hard_play_gate(
     tmp_path: Path, monkeypatch,
 ):

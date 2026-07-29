@@ -176,12 +176,15 @@ text, concept choice, sheet data, or any reconstructed/edited continuation.
        "campaign_id": "<input campaign_id>",
        "scenario_id": "<input scenario_id>",
        "title": "<input title>",
-       "source_bundle_path": "<input source_bundle_path>"
+       "source_bundle_path": "<input source_bundle_path>",
+       "opening_source_provenance": "coordinator_reviewed_playable_opening"
      }
    }
    ```
 
-   Do not omit or move any of those four payload fields, and do not discover
+   Do not omit or move any of those five payload fields. The fixed provenance
+   value is the typed proof that this coordinator completed step 2; a fast
+   locator hint must never use it. Do not discover
    `scenario.bind_pdf`, any domain, or a no-argument catalog. Invoke
    `progressive.prepare_opening` directly once with
    `opening_pdf_indices=selected_opening_pdf_indices`; do not make a preliminary

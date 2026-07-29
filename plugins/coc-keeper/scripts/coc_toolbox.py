@@ -1295,6 +1295,38 @@ def _pi_opening_character_setup_gate(
     }
 
 
+def _pi_opening_character_setup_complete(
+    campaign_dir: Path,
+    campaign_id: str,
+) -> bool:
+    """Return true only for one structurally current non-empty party link."""
+    party_path = campaign_dir / "party.json"
+    try:
+        party_mode = party_path.lstat().st_mode
+        if not stat.S_ISREG(party_mode):
+            return False
+        party = json.loads(party_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    if (
+        not isinstance(party, dict)
+        or party.get("schema_version") != 1
+        or party.get("campaign_id") != campaign_id
+    ):
+        return False
+    investigator_ids = party.get("investigator_ids")
+    active_ids = party.get("active_investigator_ids")
+    return bool(
+        isinstance(investigator_ids, list)
+        and investigator_ids
+        and all(isinstance(value, str) and value for value in investigator_ids)
+        and isinstance(active_ids, list)
+        and active_ids
+        and all(isinstance(value, str) and value for value in active_ids)
+        and set(active_ids).issubset(set(investigator_ids))
+    )
+
+
 def _pi_opening_setup_gate(
     root: Path,
     campaign_id: str | None,
@@ -1325,6 +1357,46 @@ def _pi_opening_setup_gate(
             message="campaign scenario metadata must be an object",
         )
     scenario = loaded_scenario
+    opening_source_provenance = str(
+        scenario.get("opening_source_provenance")
+        or (
+            scenario.get("source", {}).get("opening_source_provenance")
+            if isinstance(scenario.get("source"), dict)
+            else ""
+        )
+        or ""
+    ).strip()
+    if opening_source_provenance == "selection_hint_only_not_provenance":
+        character_setup_complete = _pi_opening_character_setup_complete(
+            campaign_dir, str(campaign_id),
+        )
+        return {
+            "schema_version": 1,
+            "status": "blocked",
+            "hard_gate": True,
+            "activation_allowed": False,
+            "phase": "opening_source_review_required",
+            "campaign_id": str(campaign_id),
+            "source_provenance": opening_source_provenance,
+            "required_source_owner": "coc-opening-source-coordinator",
+            "character_setup_complete": character_setup_complete,
+            "next_operation": None,
+            "instruction": (
+                "retain this fast locator only as spoiler-free character "
+                "background; the canonical coc-opening-source-coordinator must "
+                "visually review and rebind the complete current player-facing "
+                "opening window before progressive preparation, projection, "
+                "table-opening evidence, scene mutation, or narration"
+            ),
+        }
+    if opening_source_provenance not in {
+        "", "coordinator_reviewed_playable_opening",
+    }:
+        return _pi_opening_source_contract_error_gate(
+            str(campaign_id),
+            code="opening_source_provenance_invalid",
+            message="persisted opening source provenance is unsupported",
+        )
     persisted_root_id = str(
         scenario.get("progressive_asset_root_id")
         or scenario.get("source_cache_asset_root_id")
@@ -1429,8 +1501,31 @@ def _pi_opening_setup_gate(
 
 
 def _pi_opening_setup_operation_allowed(
-    name: str, args: dict[str, Any],
+    name: str,
+    args: dict[str, Any],
+    gate: dict[str, Any] | None = None,
 ) -> bool:
+    if (
+        isinstance(gate, dict)
+        and gate.get("phase") == "opening_source_review_required"
+    ):
+        if name == "setup.invoke":
+            kind = str(args.get("kind") or "")
+            if kind in _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS:
+                return True
+            payload = (
+                args.get("payload")
+                if isinstance(args.get("payload"), dict)
+                else {}
+            )
+            return bool(
+                kind == "scenario.bind_pdf"
+                and payload.get("opening_source_provenance")
+                == "coordinator_reviewed_playable_opening"
+            )
+        if name == "rules.roll_dice":
+            return _pi_opening_setup_operation_allowed(name, args)
+        return name in {"setup.investigator_contract", "rules.cash_assets"}
     if name == "rules.roll_dice":
         allowed = {"expression", "decision_id", "purpose", "reason"}
         return (
@@ -1512,7 +1607,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             )
             if (
                 opening_setup_gate is not None
-                and not _pi_opening_setup_operation_allowed(name, args)
+                and not _pi_opening_setup_operation_allowed(
+                    name, args, opening_setup_gate,
+                )
             ):
                 raise ToolError(
                     "opening_setup_incomplete",
@@ -7412,7 +7509,8 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
                 "campaign.link_investigator requires exactly "
                 "campaign_id/investigator_ids; scenario.bind_pdf requires "
                 "campaign_id/scenario_id/title/source_bundle_path and optionally "
-                "compile_now; campaign.render_briefing requires campaign_id and "
+                "opening_source_provenance/compile_now; "
+                "campaign.render_briefing requires campaign_id and "
                 "optionally language; investigator.render_card requires "
                 "campaign_id/investigator_id and optionally language/html_mode. "
                 "Per-kind allowed fields are enforced by the canonical setup runtime. "
@@ -7448,6 +7546,19 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
                 },
                 "scenario_id": {"type": "string"},
                 "source_bundle_path": {"type": "string"},
+                "opening_source_provenance": {
+                    "type": "string",
+                    "enum": [
+                        "selection_hint_only_not_provenance",
+                        "coordinator_reviewed_playable_opening",
+                    ],
+                    "desc": (
+                        "typed source-window authority: a fast locator is only "
+                        "a character-setup hint; only the canonical opening "
+                        "source coordinator may declare a reviewed playable "
+                        "opening window"
+                    ),
+                },
                 "language": {"type": "string"},
                 "html_mode": {
                     "type": "string",
@@ -7522,7 +7633,10 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
     )
     if (
         opening_setup_gate is not None
-        and kind not in _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS
+        and not _pi_opening_setup_operation_allowed(
+            "setup.invoke", {"kind": kind, "payload": payload},
+            opening_setup_gate,
+        )
     ):
         raise ToolError(
             "opening_setup_incomplete",

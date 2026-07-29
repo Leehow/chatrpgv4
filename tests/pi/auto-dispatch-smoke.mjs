@@ -6298,6 +6298,8 @@ for (const terminalCase of [
         scenario_id: "r12-module",
         title: "R12 Module",
         source_bundle_path: bundlePath,
+        opening_source_provenance:
+          "coordinator_reviewed_playable_opening",
         compile_now: false,
       },
     };

@@ -330,6 +330,7 @@ type OpeningSetupState = {
   revision: number;
   phase:
     | "selection"
+    | "source_review"
     | "bootstrap"
     | "submitting"
     | "materializing"
@@ -355,7 +356,11 @@ type OpeningSetupAttempt = {
   generationSequence: number | null;
   revision: number | null;
   operation: string;
-  attemptClass: "bind" | "route" | "character" | "probe";
+  attemptClass:
+    | "bind"
+    | "route"
+    | "character"
+    | "probe";
   agentTurn: number;
   dispatchIdentity: string | null;
 };
@@ -830,6 +835,7 @@ export class OpeningTerminalContinuationGate {
       && [
         "submitting",
         "materializing",
+        "source_review",
         "retry",
         "projection",
         "ready",
@@ -1941,13 +1947,29 @@ export class OpeningTerminalContinuationGate {
       if (
         envelope?.ok === true
         && route !== null
-        && route.phase === "opening_selection"
-        && this.exactPrepareCard(route.next_operation)
+        && (
+          (
+            route.phase === "opening_selection"
+            && this.exactPrepareCard(route.next_operation)
+          )
+          || (
+            route.phase === "opening_source_review_required"
+            && route.next_operation === null
+          )
+        )
       ) {
+        const sourceReviewRequired = (
+          route.phase === "opening_source_review_required"
+        );
+        if (sourceReviewRequired) {
+          route.allowed_actions = this.characterSetupAllowedActions(
+            attempt.campaignId,
+          );
+        }
         const initialized = this.initializeOpeningSetupState(
           attempt.campaignId,
           route,
-          "selection",
+          sourceReviewRequired ? "source_review" : "selection",
           attempt,
         );
         if (
@@ -1969,7 +1991,9 @@ export class OpeningTerminalContinuationGate {
         return {
           accepted: true,
           dispatchAllowed: false,
-          reason: "bind_opening_selection",
+          reason: sourceReviewRequired
+            ? "bind_opening_source_review_required"
+            : "bind_opening_selection",
         };
       } else if (
         returnedGate?.phase === "opening_source_contract_invalid"
@@ -2100,6 +2124,61 @@ export class OpeningTerminalContinuationGate {
       && returnedGate.source_lifecycle_status === "pending"
       && returnedGate.next_operation === null
     );
+    const canonicalSourceReviewProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "session.resume"
+      && this.unboundAttemptIsFresh(attempt)
+      && exactProjectedResumeError
+      && returnedGate !== null
+      && returnedGate.schema_version === 1
+      && returnedGate.status === "blocked"
+      && returnedGate.hard_gate === true
+      && returnedGate.activation_allowed === false
+      && returnedGate.phase === "opening_source_review_required"
+      && returnedGate.campaign_id === attempt.campaignId
+      && returnedGate.source_provenance
+        === "selection_hint_only_not_provenance"
+      && returnedGate.required_source_owner
+        === "coc-opening-source-coordinator"
+      && typeof returnedGate.character_setup_complete === "boolean"
+      && returnedGate.next_operation === null
+    );
+    if (state === undefined && canonicalSourceReviewProbe) {
+      const route = this.routeFromGate(returnedGate!);
+      if (route === null) {
+        this.finalizeOpeningSetupAttempt(invocationId);
+        return {
+          accepted: false,
+          dispatchAllowed: false,
+          reason: "opening_source_review_gate_invalid",
+        };
+      }
+      route.allowed_actions = this.characterSetupAllowedActions(
+        attempt.campaignId,
+      );
+      const initialized = this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "source_review",
+        attempt,
+      );
+      initialized.characterSetupComplete = (
+        returnedGate!.character_setup_complete === true
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: "canonical_source_review_gate_rehydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "prebound_opening_source_review_required",
+      };
+    }
     if (state === undefined && canonicalCharacterSetupProbe) {
       const route = this.recoveredCurrentCharacterSetupRoute(
         attempt.campaignId,
@@ -6341,6 +6420,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         === "prebound_opening_character_setup"
       || openingObservation.reason
         === "prebound_opening_source_materialization"
+      || openingObservation.reason
+        === "prebound_opening_source_review_required"
     ) {
       return { accepted: true };
     }
@@ -6512,6 +6593,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ),
     };
   };
+  const projectStartupSourceReviewRequired = (
+    details: JsonObject,
+    campaignId: string,
+  ): JsonObject | null => {
+    if (
+      details.schema_version !== 1
+      || details.status !== "blocked"
+      || details.hard_gate !== true
+      || details.activation_allowed !== false
+      || details.phase !== "opening_source_review_required"
+      || details.campaign_id !== campaignId
+      || details.source_provenance
+        !== "selection_hint_only_not_provenance"
+      || details.required_source_owner
+        !== "coc-opening-source-coordinator"
+      || typeof details.character_setup_complete !== "boolean"
+      || details.next_operation !== null
+    ) return null;
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_source_review_required",
+      campaign_id: campaignId,
+      source_provenance: "selection_hint_only_not_provenance",
+      required_source_owner: "coc-opening-source-coordinator",
+      character_setup_complete: details.character_setup_complete,
+      next_operation: null,
+      instruction: (
+        "retain the fast locator only for character background while the "
+        + "canonical opening source coordinator reviews the complete playable "
+        + "opening window"
+      ),
+    };
+  };
   const projectStartupSourceContractInvalid = (
     details: JsonObject,
     campaignId: string,
@@ -6579,6 +6696,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         projectStartupOpeningSelection(envelopeDetails, params.campaign)
         ?? projectStartupCharacterSetup(envelopeDetails, params.campaign)
         ?? projectStartupSourceMaterialization(
+          envelopeDetails,
+          params.campaign,
+        )
+        ?? projectStartupSourceReviewRequired(
           envelopeDetails,
           params.campaign,
         )
