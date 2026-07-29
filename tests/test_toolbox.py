@@ -13528,6 +13528,36 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     assert cash_assets["ok"] is True, cash_assets
     assert cash_assets["data"]["credit_rating"] == 20
 
+    assignment_order = (
+        "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+    )
+    assigned_characteristics = dict(zip(
+        assignment_order,
+        (80, 70, 60, 60, 50, 50, 50, 40),
+        strict=True,
+    ))
+    occupation_allocations = {
+        "Credit Rating": 20, "Spot Hidden": 40, "Library Use": 40,
+        "Psychology": 30, "Fast Talk": 30, "History": 40,
+    }
+    interest_allocations = {
+        "Listen": 40, "Stealth": 40, "Occult": 30, "First Aid": 30,
+    }
+    complete_skills = {}
+    for skill_id, spec in coc_toolbox.coc_rules.skills_table().items():
+        if spec.get("modern_only") is True or spec.get("uncommon") is True:
+            continue
+        base = spec["base_chance"]
+        if base == "half_DEX":
+            base = assigned_characteristics["DEX"] // 2
+        elif base == "EDU":
+            base = assigned_characteristics["EDU"]
+        complete_skills[skill_id] = (
+            int(base)
+            + occupation_allocations.get(skill_id, 0)
+            + interest_allocations.get(skill_id, 0)
+        )
+
     luck = _run(ws, "rules.roll_dice", {
         "expression": "3D6",
         "decision_id": "quick-fire-opening-setup-luck",
@@ -13545,25 +13575,16 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
                 "id": "opening-quick-fire",
                 "name": "Opening Quick Fire",
                 "age": 29,
-                "skills": {
-                    "Credit Rating": 20,
-                    "Spot Hidden": 60,
-                },
+                "skills": complete_skills,
                 "player_facing_sheet_zh": {
                     "display_name": "开场速建调查员",
-                    "skills": [
-                        {"key": "Credit Rating", "label": "信用评级", "value": 20},
-                        {"key": "Spot Hidden", "label": "侦查", "value": 60},
-                    ],
+                    "skills": [],
                 },
             },
             "creation": {
                 "input_mode": "guided_quick_fire",
                 "method": "quick_fire_array",
-                "characteristic_assignment_order": [
-                    "DEX", "INT", "POW", "EDU",
-                    "CON", "SIZ", "APP", "STR",
-                ],
+                "characteristic_assignment_order": list(assignment_order),
                 "luck_roll_total": luck["data"]["total"],
                 "luck_roll_receipt": {
                     "campaign_id": ws["campaign_id"],
@@ -13571,8 +13592,16 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
                     "roll_id": luck["data"]["roll_id"],
                 },
                 "skill_budget": {
-                    "occupation_points": {"budget": 200, "spent": 200},
-                    "personal_interest_points": {"budget": 100, "spent": 100},
+                    "occupation_points": {
+                        "budget": 200,
+                        "spent": 200,
+                        "allocations": occupation_allocations,
+                    },
+                    "personal_interest_points": {
+                        "budget": 140,
+                        "spent": 140,
+                        "allocations": interest_allocations,
+                    },
                 },
             },
         },

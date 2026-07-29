@@ -52,6 +52,33 @@ def _query(workspace: Path, campaign_id: str = "contract-campaign") -> dict:
 
 
 def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
+    order = ("DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR")
+    characteristics = dict(zip(
+        order, (80, 70, 60, 60, 50, 50, 50, 40), strict=True,
+    ))
+    occupation_allocations = {
+        "Credit Rating": 20, "Spot Hidden": 40, "Library Use": 40,
+        "Psychology": 30, "Fast Talk": 30, "History": 40,
+    }
+    interest_allocations = {
+        "Listen": 40, "Stealth": 40, "Occult": 30, "First Aid": 30,
+    }
+    skills = {}
+    for skill_id, spec in (
+        coc_runtime_ops.coc_character.coc_rules.skills_table().items()
+    ):
+        if spec.get("modern_only") is True or spec.get("uncommon") is True:
+            continue
+        base = spec["base_chance"]
+        if base == "half_DEX":
+            base = characteristics["DEX"] // 2
+        elif base == "EDU":
+            base = characteristics["EDU"]
+        skills[skill_id] = (
+            int(base)
+            + occupation_allocations.get(skill_id, 0)
+            + interest_allocations.get(skill_id, 0)
+        )
     return {
         "campaign_id": "contract-campaign",
         "investigator_id": investigator_id,
@@ -59,13 +86,10 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
             "id": investigator_id,
             "name": "Quick Fire Investigator",
             "age": 29,
-            "skills": {"Credit Rating": 20, "Spot Hidden": 60},
+            "skills": skills,
             "player_facing_sheet_zh": {
                 "display_name": "速建调查员",
-                "skills": [
-                    {"key": "Credit Rating", "label": "信用评级", "value": 20},
-                    {"key": "Spot Hidden", "label": "侦查", "value": 60},
-                ],
+                "skills": [],
             },
         },
         "creation": {
@@ -88,8 +112,16 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
                 "roll_id": "toolbox-contract-campaign-000001",
             },
             "skill_budget": {
-                "occupation_points": {"budget": 200, "spent": 200},
-                "personal_interest_points": {"budget": 100, "spent": 100},
+                "occupation_points": {
+                    "budget": 200,
+                    "spent": 200,
+                    "allocations": occupation_allocations,
+                },
+                "personal_interest_points": {
+                    "budget": 140,
+                    "spent": 140,
+                    "allocations": interest_allocations,
+                },
             },
         },
     }
@@ -143,6 +175,16 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
     assert contract["runtime_authority"]["schema_role"] == (
         "upfront machine-readable construction guidance"
     )
+    assert contract["guided_quick_fire_skill_catalog"]["source"] == (
+        "rules-json/skills.json"
+    )
+    compact_catalog = contract["guided_quick_fire_skill_catalog"]
+    assert compact_catalog["columns"] == [
+        "skill_id", "base_chance", "zh-Hans", "modern_only", "uncommon",
+    ]
+    assert next(
+        row for row in compact_catalog["rows"] if row[0] == "Dodge"
+    )[1:3] == ["half_DEX", "闪避"]
 
     schema = contract["payload_schema"]
     assert [branch["title"] for branch in schema["oneOf"]] == [
@@ -186,7 +228,10 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         "skills",
     ]
     assert defs["skills"]["required"] == ["Credit Rating"]
-    assert "does not prove every key" in defs["skills"]["description"]
+    assert "complete era-appropriate standard" in defs["skills"]["description"]
+    assert defs["skill_budget_account"]["required"] == [
+        "budget", "spent", "allocations",
+    ]
     assert defs["age"]["minimum"] == 15
     assert defs["age"]["maximum"] == 89
 

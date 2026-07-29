@@ -381,6 +381,32 @@ def investigator_create_contract() -> dict[str, Any]:
     )
     if not isinstance(contract, dict):
         raise ValueError("investigator create contract must be an object")
+    catalog = coc_rules.skills_table()
+    contract["guided_quick_fire_skill_catalog"] = {
+        "source": "rules-json/skills.json",
+        "columns": [
+            "skill_id",
+            "base_chance",
+            "zh-Hans",
+            "modern_only",
+            "uncommon",
+        ],
+        "rows": [
+            [
+                skill_id,
+                spec.get("base_chance"),
+                (spec.get("localized_labels") or {}).get("zh-Hans", skill_id),
+                spec.get("modern_only") is True,
+                spec.get("uncommon") is True,
+            ]
+            for skill_id, spec in catalog.items()
+        ],
+        "instruction": (
+            "construct the complete era-appropriate standard machine skill "
+            "map from these canonical bases, add both allocation maps, and "
+            "let investigator.create regenerate the zh-Hans skill rows"
+        ),
+    }
     return contract
 
 

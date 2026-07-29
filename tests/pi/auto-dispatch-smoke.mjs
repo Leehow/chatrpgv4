@@ -2441,12 +2441,45 @@ async function exerciseFailureDrain(mode) {
     arguments: {
       kind: "investigator.create",
       payload: {
+        campaign_id: "terminal-before-link",
         investigator_id: "terminal-before-link-investigator",
-        sheet: { name: "Exact Character" },
-        creation: { input_mode: "import_complete_sheet" },
+        sheet: {
+          id: "terminal-before-link-investigator",
+          name: "Exact Character",
+        },
+        creation: {
+          input_mode: "guided_quick_fire",
+          method: "quick_fire_array",
+          characteristic_assignment_order: [
+            "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+          ],
+          luck_roll_total: 12,
+          luck_roll_receipt: {
+            campaign_id: "terminal-before-link",
+            decision_id: "terminal-before-link-luck",
+            roll_id: "toolbox-terminal-before-link-000001",
+          },
+        },
       },
     },
   };
+  check("Pi live opening rejects model-selected complete-sheet import",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      {
+        operation: "setup.invoke",
+        campaign: "terminal-before-link",
+        arguments: {
+          kind: "investigator.create",
+          payload: {
+            investigator_id: "model-selected-import",
+            sheet: { id: "model-selected-import", name: "Placeholder" },
+            creation: { input_mode: "import_complete_sheet" },
+          },
+        },
+      },
+      "terminal-before-link-import",
+    ) !== null);
   check("character setup admits the typed read-only cash/assets query",
     gate.openingSetupToolError(
       "coc_invoke",
@@ -2681,9 +2714,22 @@ async function exerciseFailureDrain(mode) {
     arguments: {
       kind: "investigator.create",
       payload: {
+        campaign_id: "campaign-a",
         investigator_id: "inv-a",
         sheet: { id: "inv-a", name: "A" },
-        creation: { input_mode: "import_complete_sheet" },
+        creation: {
+          input_mode: "guided_quick_fire",
+          method: "quick_fire_array",
+          characteristic_assignment_order: [
+            "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+          ],
+          luck_roll_total: 12,
+          luck_roll_receipt: {
+            campaign_id: "campaign-a",
+            decision_id: "campaign-a-luck",
+            roll_id: "toolbox-campaign-a-000001",
+          },
+        },
       },
     },
   };

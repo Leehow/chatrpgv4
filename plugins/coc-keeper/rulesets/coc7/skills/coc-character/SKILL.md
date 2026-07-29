@@ -57,12 +57,20 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   derives HP/MP/SAN/DB/Build/MOV deterministically. The Keeper still owns the
   concept and semantic priority order. Include the confirmed
   `sheet.player_facing_sheet_zh` with a non-empty `display_name` and one
-  localized `skills` entry for every canonical machine skill, preserving the
-  same key/value. Include `creation.skill_budget` with exact
-  `occupation_points` and `personal_interest_points` budget/spent accounts;
-  each account must be fully spent. This is a narrow accounting gate, not a
-  second occupation-allocation engine. An already complete external sheet is
-  accepted only through the explicit
+  localized `skills` array; the deterministic materializer regenerates that
+  array from the canonical `skills.json` zh-Hans labels and reconciled values.
+  Include `creation.skill_budget` with exact `occupation_points` and
+  `personal_interest_points` accounts. Each account contains `budget`, `spent`,
+  and an `allocations` map from canonical skill key to added points. Runtime
+  sums those maps, requires each derived sum to equal `spent` and `budget`,
+  requires personal-interest budget to equal `INT*2`, resolves flat,
+  `half_DEX`, and `EDU` catalog bases, and requires every final machine value
+  to equal base plus both deltas. The sheet must include the complete
+  era-appropriate standard catalog; allocated uncommon/specialized skills are
+  added explicitly. The Keeper still selects occupation eligibility and point
+  destinations semantically. This is a deterministic reconciliation gate, not
+  a second occupation-allocation engine. An already complete external sheet is
+  accepted outside an owned Pi live-opening route only through the explicit
   `creation.input_mode="import_complete_sheet"` branch.
 - **Quick-Fire Luck exact recipe:** invoke `coc_invoke` exactly once with
   `operation="rules.roll_dice"`, the current campaign, and `arguments`

@@ -42,6 +42,112 @@ toolbox = _load(
 )
 
 
+_QUICK_FIRE_ORDER = (
+    "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+)
+_QUICK_FIRE_OCCUPATION_ALLOCATIONS = {
+    "Credit Rating": 20,
+    "Spot Hidden": 40,
+    "Library Use": 40,
+    "Psychology": 30,
+    "Fast Talk": 30,
+    "History": 40,
+}
+_QUICK_FIRE_INTEREST_ALLOCATIONS = {
+    "Listen": 40,
+    "Stealth": 40,
+    "Occult": 30,
+    "First Aid": 30,
+}
+
+
+def _complete_quick_fire_skills() -> tuple[dict[str, int], dict]:
+    characteristics = dict(zip(
+        _QUICK_FIRE_ORDER,
+        (80, 70, 60, 60, 50, 50, 50, 40),
+        strict=True,
+    ))
+    catalog = ops.coc_character.coc_rules.skills_table()
+    skills: dict[str, int] = {}
+    for skill_id, spec in catalog.items():
+        if spec.get("modern_only") is True or spec.get("uncommon") is True:
+            continue
+        base = spec["base_chance"]
+        if base == "half_DEX":
+            base = characteristics["DEX"] // 2
+        elif base == "EDU":
+            base = characteristics["EDU"]
+        skills[skill_id] = (
+            int(base)
+            + _QUICK_FIRE_OCCUPATION_ALLOCATIONS.get(skill_id, 0)
+            + _QUICK_FIRE_INTEREST_ALLOCATIONS.get(skill_id, 0)
+        )
+    return skills, {
+        "occupation_points": {
+            "budget": 200,
+            "spent": 200,
+            "allocations": dict(_QUICK_FIRE_OCCUPATION_ALLOCATIONS),
+        },
+        "personal_interest_points": {
+            "budget": 140,
+            "spent": 140,
+            "allocations": dict(_QUICK_FIRE_INTEREST_ALLOCATIONS),
+        },
+    }
+
+
+def _guided_quick_fire_payload(
+    tmp_path: Path,
+    *,
+    investigator_id: str,
+    decision_id: str,
+) -> dict:
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {"campaign_id": "guided", "title": "Guided"},
+    })
+    luck = toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "guided",
+        {
+            "expression": "3D6",
+            "decision_id": decision_id,
+            "purpose": "investigator_creation_luck",
+            "reason": "guided fixture",
+            "seed": 31,
+        },
+    )
+    skills, skill_budget = _complete_quick_fire_skills()
+    return {
+        "campaign_id": "guided",
+        "investigator_id": investigator_id,
+        "sheet": {
+            "id": investigator_id,
+            "name": "Guided Investigator",
+            "age": 29,
+            "skills": skills,
+            "player_facing_sheet_zh": {
+                "display_name": "引导式调查员",
+                "skills": [],
+            },
+        },
+        "creation": {
+            "input_mode": "guided_quick_fire",
+            "method": "quick_fire_array",
+            "characteristic_assignment_order": list(_QUICK_FIRE_ORDER),
+            "luck_roll_total": luck["data"]["total"],
+            "luck_roll_receipt": {
+                "campaign_id": "guided",
+                "decision_id": decision_id,
+                "roll_id": luck["data"]["roll_id"],
+            },
+            "skill_budget": skill_budget,
+        },
+    }
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     if not path.is_file():
         return []
@@ -2362,6 +2468,7 @@ def test_investigator_create_rejects_localized_machine_skills_before_write(tmp_p
 
 
 def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_path):
+    complete_skills, skill_budget = _complete_quick_fire_skills()
     ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
         "kind": "campaign.create",
@@ -2390,32 +2497,23 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
                 "id": "quick-fire-inv",
                 "name": "Quick Fire Investigator",
                 "age": 29,
-                "skills": {"Credit Rating": 20, "Spot Hidden": 60},
+                "skills": complete_skills,
                 "player_facing_sheet_zh": {
                     "display_name": "速建调查员",
-                    "skills": [
-                        {"key": "Credit Rating", "label": "信用评级", "value": 20},
-                        {"key": "Spot Hidden", "label": "侦查", "value": 60},
-                    ],
+                    "skills": [],
                 },
             },
             "creation": {
                 "input_mode": "guided_quick_fire",
                 "method": "quick_fire_array",
-                "characteristic_assignment_order": [
-                    "DEX", "INT", "POW", "EDU",
-                    "CON", "SIZ", "APP", "STR",
-                ],
+                "characteristic_assignment_order": list(_QUICK_FIRE_ORDER),
                 "luck_roll_total": luck["data"]["total"],
                 "luck_roll_receipt": {
                     "campaign_id": "quick-fire",
                     "decision_id": "runtime-ops-quick-fire-luck",
                     "roll_id": luck["data"]["roll_id"],
                 },
-                "skill_budget": {
-                    "occupation_points": {"budget": 200, "spent": 200},
-                    "personal_interest_points": {"budget": 100, "spent": 100},
-                },
+                "skill_budget": skill_budget,
             },
         },
     })
@@ -2430,6 +2528,82 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     ]
     assert stored["derived"]["Luck"] == luck["data"]["total"] * 5
     assert stored["derived"]["DB"] == "none"
+    assert stored["skills"] == complete_skills
+    assert len(stored["player_facing_sheet_zh"]["skills"]) == len(complete_skills)
+    assert stored["player_facing_sheet_zh"]["skills"][0]["label"] == "会计"
+
+
+def test_guided_quick_fire_rejects_sparse_machine_and_localized_skills_before_write(
+    tmp_path,
+):
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id="sparse-guided",
+        decision_id="sparse-guided-luck",
+    )
+    payload["sheet"]["skills"] = {
+        "Credit Rating": 20,
+        "Spot Hidden": 65,
+    }
+    payload["sheet"]["player_facing_sheet_zh"]["skills"] = [
+        {"key": "Credit Rating", "label": "信用评级", "value": 20},
+        {"key": "Spot Hidden", "label": "侦查", "value": 65},
+    ]
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="complete era-appropriate standard catalog",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / "sparse-guided"
+    ).exists()
+
+
+def test_guided_quick_fire_rejects_fake_aggregate_budget_before_write(tmp_path):
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id="fake-budget",
+        decision_id="fake-budget-luck",
+    )
+    for account in payload["creation"]["skill_budget"].values():
+        account.pop("allocations")
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="budget, spent, and allocations",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / "fake-budget"
+    ).exists()
+
+
+def test_guided_quick_fire_rejects_final_value_mismatch_before_write(tmp_path):
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id="mismatched-value",
+        decision_id="mismatched-value-luck",
+    )
+    payload["sheet"]["skills"]["Spot Hidden"] += 1
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="catalog base plus allocation deltas",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / "mismatched-value"
+    ).exists()
 
 
 @pytest.mark.parametrize("creation", [{}, {"method": "quick_fire_array"}])

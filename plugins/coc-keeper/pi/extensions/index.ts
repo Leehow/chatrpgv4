@@ -615,7 +615,6 @@ export class OpeningTerminalContinuationGate {
       const quickFireMaterialization = (
         creation?.input_mode === "guided_quick_fire"
       );
-      const explicitImport = creation?.input_mode === "import_complete_sheet";
       const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
       const sheet = objectOrNull(payload.sheet);
       return (
@@ -644,10 +643,6 @@ export class OpeningTerminalContinuationGate {
             && luckReceipt.decision_id.trim().length > 0
             && typeof luckReceipt.roll_id === "string"
             && luckReceipt.roll_id.trim().length > 0
-          )
-          || (
-            explicitImport
-            && payload.campaign_id === undefined
           )
         )
       );

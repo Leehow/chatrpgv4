@@ -179,7 +179,7 @@
           "type": "integer",
           "minimum": 0
         },
-        "description": "Canonical English machine skill keys mapped to non-negative integers, including exact Credit Rating. The current runtime checks non-empty trimmed ASCII keys but does not prove every key belongs to a canonical skill catalog."
+        "description": "Canonical English machine skill keys mapped to non-negative integers, including exact Credit Rating. For guided Quick Fire, runtime requires the complete era-appropriate standard skills.json catalog plus explicitly allocated optional skills, and reconciles every value to catalog base plus allocation deltas."
       },
       "quick_fire_sheet": {
         "type": "object",
@@ -387,7 +387,8 @@
         "type": "object",
         "required": [
           "budget",
-          "spent"
+          "spent",
+          "allocations"
         ],
         "properties": {
           "budget": {
@@ -397,6 +398,17 @@
           "spent": {
             "type": "integer",
             "minimum": 1
+          },
+          "allocations": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^(?=\\S)(?=[\\s\\S]*\\S$)[\\x00-\\x7F]+$"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Canonical skills.json key to added points. Runtime sums this map, checks it against spent/budget, and reconciles the final machine value."
           }
         },
         "additionalProperties": false
@@ -416,7 +428,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Narrow guided Quick Fire accounting gate. Runtime requires spent to equal budget in both accounts; it does not introduce a second occupation-allocation engine."
+        "description": "Narrow guided Quick Fire accounting gate. Runtime derives spent from both per-skill allocation maps, requires complete catalog/base reconciliation, and checks personal-interest budget against INT*2. Occupation eligibility remains semantic Keeper judgment; this does not introduce a second occupation engine."
       }
     }
   }

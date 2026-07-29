@@ -187,6 +187,21 @@ def materialize_quick_fire_create_sheet(
         luck=luck_roll_total * 5,
         age_mov_penalty=age_mov_penalty,
     )
+    expected_skills, skill_errors = _guided_quick_fire_skill_reconciliation(
+        materialized,
+        creation,
+    )
+    if skill_errors:
+        raise ValueError("; ".join(skill_errors))
+    player_sheet = materialized.get("player_facing_sheet_zh")
+    if not isinstance(player_sheet, dict):
+        raise ValueError(
+            "guided Quick Fire requires sheet.player_facing_sheet_zh"
+        )
+    materialized["player_facing_sheet_zh"] = {
+        **player_sheet,
+        "skills": _localized_skill_rows(expected_skills),
+    }
     return materialized
 
 
@@ -347,6 +362,11 @@ def validate_character_create_sheet(
         )
         return errors
 
+    expected_skills, reconciliation_errors = (
+        _guided_quick_fire_skill_reconciliation(sheet, creation)
+    )
+    errors.extend(reconciliation_errors)
+
     player_sheet = sheet.get("player_facing_sheet_zh")
     if not isinstance(player_sheet, dict):
         errors.append(
@@ -364,70 +384,11 @@ def validate_character_create_sheet(
             errors.append(
                 "guided Quick Fire player_facing_sheet_zh.skills must be a list"
             )
-        else:
-            localized_values: dict[str, int] = {}
-            for entry in localized_skills:
-                if not isinstance(entry, dict):
-                    errors.append(
-                        "guided Quick Fire localized skill entries must be objects"
-                    )
-                    continue
-                key = entry.get("key")
-                value = entry.get("value")
-                label = entry.get("label")
-                if (
-                    not isinstance(key, str)
-                    or not key.strip()
-                    or not isinstance(label, str)
-                    or not label.strip()
-                    or isinstance(value, bool)
-                    or not isinstance(value, int)
-                ):
-                    errors.append(
-                        "guided Quick Fire localized skills require non-empty "
-                        "key/label and integer value"
-                    )
-                    continue
-                localized_values[key] = value
-            if isinstance(skills, dict) and localized_values != skills:
-                errors.append(
-                    "guided Quick Fire localized skills must cover every "
-                    "canonical machine skill with the same value"
-                )
-
-    budget = creation.get("skill_budget")
-    if not isinstance(budget, dict) or set(budget) != {
-        "occupation_points", "personal_interest_points",
-    }:
-        errors.append(
-            "guided Quick Fire requires skill_budget with exactly "
-            "occupation_points and personal_interest_points"
-        )
-    else:
-        for name in ("occupation_points", "personal_interest_points"):
-            account = budget.get(name)
-            if not isinstance(account, dict) or set(account) != {
-                "budget", "spent",
-            }:
-                errors.append(
-                    f"skill_budget.{name} must contain exactly budget and spent"
-                )
-                continue
-            total = account.get("budget")
-            spent = account.get("spent")
-            if (
-                isinstance(total, bool)
-                or not isinstance(total, int)
-                or total <= 0
-                or isinstance(spent, bool)
-                or not isinstance(spent, int)
-                or spent <= 0
-                or spent != total
-            ):
-                errors.append(
-                    f"skill_budget.{name} budget/spent must be equal "
-                    "positive integers"
-                )
+        elif localized_skills != _localized_skill_rows(expected_skills):
+            errors.append(
+                "guided Quick Fire localized skills must be the canonical "
+                "zh-Hans catalog projection of the reconciled machine skills"
+            )
 
     method_id = creation.get("method")
     if not isinstance(method_id, str) or not method_id.strip():
@@ -479,6 +440,193 @@ def _skill_catalog() -> dict[str, dict]:
         for canonical, spec in table.items()
         if isinstance(canonical, str) and isinstance(spec, dict)
     }
+
+
+def _guided_skill_base(
+    skill_id: str,
+    spec: dict[str, Any],
+    characteristics: dict[str, Any],
+) -> int:
+    base = spec.get("base_chance")
+    if isinstance(base, int) and not isinstance(base, bool):
+        return base
+    if base == "half_DEX":
+        return int(characteristics["DEX"]) // 2
+    if base == "EDU":
+        return int(characteristics["EDU"])
+    raise ValueError(
+        f"skill catalog base chance for {skill_id!r} is unsupported: {base!r}"
+    )
+
+
+def _guided_quick_fire_skill_reconciliation(
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+) -> tuple[dict[str, int], list[str]]:
+    """Reconcile guided Quick-Fire skills against the canonical COC7 catalog.
+
+    Occupation eligibility remains semantic Keeper work. This function owns
+    only deterministic catalog completeness, base-value resolution, allocation
+    arithmetic, and final-value equality.
+    """
+    errors: list[str] = []
+    catalog = _skill_catalog()
+    characteristics = sheet.get("characteristics")
+    submitted = sheet.get("skills")
+    if not catalog:
+        return {}, ["canonical COC7 skill catalog is unavailable"]
+    if not isinstance(characteristics, dict):
+        return {}, ["guided Quick Fire skill reconciliation requires characteristics"]
+    if not isinstance(submitted, dict):
+        return {}, ["guided Quick Fire skill reconciliation requires skills"]
+
+    era = str(sheet.get("era") or "1920s").strip().casefold()
+    modern = era == "modern"
+    available = {
+        skill_id: spec
+        for skill_id, spec in catalog.items()
+        if modern or spec.get("modern_only") is not True
+    }
+    required = {
+        skill_id
+        for skill_id, spec in available.items()
+        if spec.get("uncommon") is not True
+    }
+    budget = creation.get("skill_budget")
+    if not isinstance(budget, dict) or set(budget) != {
+        "occupation_points", "personal_interest_points",
+    }:
+        return {}, [
+            "guided Quick Fire requires skill_budget with exactly "
+            "occupation_points and personal_interest_points"
+        ]
+
+    allocations_by_account: dict[str, dict[str, int]] = {}
+    for account_name in ("occupation_points", "personal_interest_points"):
+        account = budget.get(account_name)
+        if not isinstance(account, dict) or set(account) != {
+            "budget", "spent", "allocations",
+        }:
+            errors.append(
+                f"skill_budget.{account_name} must contain exactly "
+                "budget, spent, and allocations"
+            )
+            continue
+        declared_budget = account.get("budget")
+        declared_spent = account.get("spent")
+        allocations = account.get("allocations")
+        if (
+            isinstance(declared_budget, bool)
+            or not isinstance(declared_budget, int)
+            or declared_budget <= 0
+            or isinstance(declared_spent, bool)
+            or not isinstance(declared_spent, int)
+            or declared_spent <= 0
+            or not isinstance(allocations, dict)
+        ):
+            errors.append(
+                f"skill_budget.{account_name} requires positive integer "
+                "budget/spent and an allocations object"
+            )
+            continue
+        normalized: dict[str, int] = {}
+        for skill_id, delta in allocations.items():
+            if skill_id not in catalog:
+                errors.append(
+                    f"skill_budget.{account_name} allocation uses unknown "
+                    f"canonical skill {skill_id!r}"
+                )
+                continue
+            if skill_id not in available:
+                errors.append(
+                    f"skill_budget.{account_name} allocation uses "
+                    f"era-inappropriate skill {skill_id!r}"
+                )
+                continue
+            if isinstance(delta, bool) or not isinstance(delta, int) or delta < 0:
+                errors.append(
+                    f"skill_budget.{account_name} allocation for "
+                    f"{skill_id!r} must be a non-negative integer"
+                )
+                continue
+            normalized[skill_id] = delta
+        derived_spent = sum(normalized.values())
+        if derived_spent != declared_spent or declared_spent != declared_budget:
+            errors.append(
+                f"skill_budget.{account_name} derived allocation total "
+                f"{derived_spent} must equal spent and budget "
+                f"{declared_spent}/{declared_budget}"
+            )
+        if (
+            account_name == "personal_interest_points"
+            and isinstance(characteristics.get("INT"), int)
+            and not isinstance(characteristics.get("INT"), bool)
+            and declared_budget != int(characteristics["INT"]) * 2
+        ):
+            errors.append(
+                "skill_budget.personal_interest_points budget must equal INT*2"
+            )
+        allocations_by_account[account_name] = normalized
+
+    if errors:
+        return {}, errors
+    selected = set().union(*(
+        set(allocations) for allocations in allocations_by_account.values()
+    ))
+    expected_ids = required | selected
+    expected: dict[str, int] = {}
+    for skill_id in catalog:
+        if skill_id not in expected_ids:
+            continue
+        try:
+            base = _guided_skill_base(
+                skill_id,
+                catalog[skill_id],
+                characteristics,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(str(exc))
+            continue
+        expected[skill_id] = (
+            base
+            + allocations_by_account["occupation_points"].get(skill_id, 0)
+            + allocations_by_account["personal_interest_points"].get(skill_id, 0)
+        )
+    if set(submitted) != set(expected):
+        missing = sorted(set(expected) - set(submitted))
+        extra = sorted(set(submitted) - set(expected))
+        errors.append(
+            "guided Quick Fire skills must contain the complete "
+            f"era-appropriate standard catalog (missing={missing}, extra={extra})"
+        )
+    else:
+        for skill_id, expected_value in expected.items():
+            if submitted.get(skill_id) != expected_value:
+                errors.append(
+                    f"guided Quick Fire skill {skill_id!r} value "
+                    f"{submitted.get(skill_id)!r} must equal catalog base plus "
+                    f"allocation deltas ({expected_value})"
+                )
+    return expected, errors
+
+
+def _localized_skill_rows(skills: dict[str, int]) -> list[dict[str, Any]]:
+    catalog = _skill_catalog()
+    return [
+        {
+            "key": skill_id,
+            "label": str(
+                (catalog[skill_id].get("localized_labels") or {}).get(
+                    "zh-Hans",
+                    skill_id,
+                )
+            ),
+            "value": value,
+            "half": value // 2,
+            "fifth": value // 5,
+        }
+        for skill_id, value in skills.items()
+    ]
 
 
 def _canonical_skill_identity(key: str, catalog: dict[str, dict]) -> str:
