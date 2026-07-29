@@ -205,6 +205,7 @@ def test_progressive_placeholder_prefers_localized_source_title(tmp_path):
     markdown = (tmp_path / result["briefing_path"]).read_text(encoding="utf-8")
 
     assert markdown.startswith("# 有据可查的案件：开卡序章")
+    assert "- **来源**：有据可查的案件" in markdown
     assert "Progressive Module" not in markdown
     assert "Generic Campaign Shell" not in markdown
 
@@ -313,8 +314,6 @@ def test_nested_encoded_and_opaque_titles_fall_back_neutrally():
         "file%253A%252F%252FUsers%252Fprivate%252Fsecret.pdf",
         "unsafe%2500title",
         "invalid%FFtitle",
-        "invalid%ZZtitle",
-        "invalid%2title",
     )
     for title in rejected_titles:
         markdown = briefing.render_briefing(
@@ -349,8 +348,6 @@ def test_nested_encoded_filename_delimiters_and_invalid_percent_are_rejected():
         "secret%2523private.pdf",
         "secret%2500private.pdf",
         "secret%FFprivate.pdf",
-        "secret%ZZprivate.pdf",
-        "secret%2private.pdf",
         "../private.pdf",
         r"..\private.pdf",
         over_nested,
@@ -412,6 +409,37 @@ def test_safe_literal_and_encoded_unicode_identities_remain_visible():
         {"sources": [{"filename": "https://example.test/files/%E6%A1%88%E4%BB%B6.pdf"}]},
         language="zh-Hans",
     )
+    literal_percent_title = briefing.render_briefing(
+        {"play_language": "zh-Hans"},
+        {"title": "The 100% Safe Case"},
+        {},
+        {"sources": []},
+        language="zh-Hans",
+    )
+    non_escape_percent_title = briefing.render_briefing(
+        {"play_language": "zh-Hans"},
+        {"title": "The 100%ZZ Safe Case"},
+        {},
+        {"sources": []},
+        language="zh-Hans",
+    )
+    literal_percent_filename = briefing.render_briefing(
+        {
+            "title": "Progressive Module",
+            "play_language": "zh-Hans",
+        },
+        {"title": "Progressive Module"},
+        {"title": "Progressive Module"},
+        {"sources": [{"filename": "The 100% Safe Case.pdf"}]},
+        language="zh-Hans",
+    )
+    safe_unicode_title = briefing.render_briefing(
+        {"play_language": "zh-Hans"},
+        {"title": "黄色之王的使者"},
+        {},
+        {"sources": []},
+        language="zh-Hans",
+    )
 
     assert literal_title.startswith("# A Safe Literal Title：开卡序章")
     assert encoded_filename.startswith("# safe-案件.pdf：开卡序章")
@@ -420,3 +448,94 @@ def test_safe_literal_and_encoded_unicode_identities_remain_visible():
     assert "- **来源**：safe-literal.pdf" in literal_filename
     assert encoded_uri_filename.startswith("# 案件.pdf：开卡序章")
     assert "- **来源**：案件.pdf" in encoded_uri_filename
+    assert literal_percent_title.startswith("# The 100% Safe Case：开卡序章")
+    assert non_escape_percent_title.startswith("# The 100%ZZ Safe Case：开卡序章")
+    assert literal_percent_filename.startswith(
+        "# The 100% Safe Case.pdf：开卡序章"
+    )
+    assert "- **来源**：The 100% Safe Case.pdf" in literal_percent_filename
+    assert safe_unicode_title.startswith("# 黄色之王的使者：开卡序章")
+
+
+def test_localized_title_and_source_are_revalidated_at_display_boundary():
+    briefing = _load_briefing_script()
+    unsafe_translations = (
+        "/Users/private/secret.pdf",
+        "mailto:private@example.com",
+        "Safe%252Fprivate",
+        "Safe%E2%80%AEprivate",
+        "Safe％２５２Ｆprivate",
+        "Safe\u202eprivate",
+        "Safe\u200bprivate",
+        "Safe\u2066private",
+        "Safe\u2028private",
+        "ｍａｉｌｔｏ：private@example.com",
+    )
+    for translated in unsafe_translations:
+        campaign = {
+            "title": "Progressive Module",
+            "play_language": "zh-Hans",
+            "localized_terms": {
+                "zh-Hans": {
+                    "Safe Case": translated,
+                    "Safe Source": translated,
+                },
+            },
+        }
+        localized_title = briefing.render_briefing(
+            campaign,
+            {"title": "Safe Case"},
+            {"title": "Progressive Module"},
+            {"sources": []},
+            language="zh-Hans",
+        )
+        localized_source = briefing.render_briefing(
+            campaign,
+            {"title": "Progressive Module"},
+            {"title": "Progressive Module"},
+            {"sources": [{"title": "Safe Source"}]},
+            language="zh-Hans",
+        )
+
+        assert localized_title.startswith("# 调查员创建简报：开卡序章")
+        assert "**来源**" not in localized_title
+        assert translated not in localized_title
+        assert localized_source.startswith("# 调查员创建简报：开卡序章")
+        assert "**来源**" not in localized_source
+        assert translated not in localized_source
+        assert "/Users/private" not in localized_title + localized_source
+        assert "private@example.com" not in localized_title + localized_source
+
+
+def test_unicode_controls_separators_and_compatibility_delimiters_are_rejected():
+    briefing = _load_briefing_script()
+    rejected_titles = (
+        "Safe\u202eprivate",
+        "Safe\u200bprivate",
+        "Safe\u2066private",
+        "Safe\u2028private",
+        "Safe\u2029private",
+        "\u2028Safe private",
+        "Safe\x1fprivate",
+        "Safe private\n",
+        "Safe\ud800private",
+        "Safe／private",
+        "Safe＼private",
+        "Safe？token=private",
+        "ｍａｉｌｔｏ：private@example.com",
+        "Safe%EF%BC%8Fprivate",
+        "The 100% Safe%252Fprivate",
+    )
+    for title in rejected_titles:
+        markdown = briefing.render_briefing(
+            {"play_language": "zh-Hans"},
+            {"title": title},
+            {},
+            {"sources": []},
+            language="zh-Hans",
+        )
+
+        assert markdown.startswith("# 调查员创建简报：开卡序章")
+        assert title not in markdown
+        assert "token=private" not in markdown
+        assert "private@example.com" not in markdown

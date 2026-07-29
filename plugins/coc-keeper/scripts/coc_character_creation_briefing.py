@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -72,9 +73,8 @@ GENERIC_SOURCE_BASENAMES = {
 MAX_PUBLIC_IDENTITY_BYTES = 4096
 MAX_PERCENT_DECODE_PASSES = 8
 PERCENT_ESCAPE = re.compile(r"%[0-9A-Fa-f]{2}")
-INVALID_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
-CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 WINDOWS_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+FORBIDDEN_UNICODE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -159,37 +159,55 @@ def _localized_title(title: str, campaign: dict[str, Any], language: str) -> str
     return title
 
 
+def _has_forbidden_unicode_category(value: str) -> bool:
+    return any(
+        unicodedata.category(character) in FORBIDDEN_UNICODE_CATEGORIES
+        for character in value
+    )
+
+
 def _decode_percent_fixed_point(value: Any) -> tuple[str, bool] | None:
-    current = str(value or "").strip()
+    input_text = str(value or "")
+    if _has_forbidden_unicode_category(input_text):
+        return None
+    raw = input_text.strip()
+    try:
+        if len(raw.encode("utf-8")) > MAX_PUBLIC_IDENTITY_BYTES:
+            return None
+    except UnicodeEncodeError:
+        return None
+    current = unicodedata.normalize("NFKC", raw)
     try:
         if len(current.encode("utf-8")) > MAX_PUBLIC_IDENTITY_BYTES:
             return None
     except UnicodeEncodeError:
         return None
-    changed = False
+    changed = current != raw
     for _ in range(MAX_PERCENT_DECODE_PASSES):
-        if "%" not in current:
+        if PERCENT_ESCAPE.search(current) is None:
             return current, changed
-        if INVALID_PERCENT.search(current):
-            return None
         try:
             decoded = unquote_to_bytes(current).decode("utf-8", errors="strict")
         except (UnicodeDecodeError, UnicodeEncodeError):
             return None
+        decoded = unicodedata.normalize("NFKC", decoded)
         if decoded == current:
             return None
         current = decoded
         changed = True
-        if len(current.encode("utf-8")) > MAX_PUBLIC_IDENTITY_BYTES:
+        try:
+            if len(current.encode("utf-8")) > MAX_PUBLIC_IDENTITY_BYTES:
+                return None
+        except UnicodeEncodeError:
             return None
-    if "%" in current or PERCENT_ESCAPE.search(current):
+    if PERCENT_ESCAPE.search(current):
         return None
     return current, changed
 
 
 def _has_unsafe_identity_character(value: str) -> bool:
     return (
-        CONTROL_CHARACTER.search(value) is not None
+        _has_forbidden_unicode_category(value)
         or "/" in value
         or "\\" in value
         or "?" in value
@@ -218,7 +236,10 @@ def _public_title_candidate(value: Any) -> str:
 
 
 def _safe_source_filename(value: Any) -> str:
-    raw = str(value or "").strip()
+    input_text = str(value or "")
+    if _has_forbidden_unicode_category(input_text):
+        return ""
+    raw = input_text.strip()
     if not raw:
         return ""
     try:
@@ -252,8 +273,6 @@ def _safe_source_filename(value: Any) -> str:
         or basename.lower() in GENERIC_SOURCE_BASENAMES
         or _has_unsafe_identity_character(basename)
         or ":" in basename
-        or "%" in basename
-        or CONTROL_CHARACTER.search(basename) is not None
     ):
         return ""
     try:
@@ -291,7 +310,12 @@ def _scenario_title(
     ):
         title = _public_title_candidate(value)
         if title:
-            return _localized_title(title, campaign, language)
+            localized_title = _public_title_candidate(
+                _localized_title(title, campaign, language)
+            )
+            if localized_title:
+                return localized_title
+            break
     return "调查员创建简报" if language == "zh-Hans" else "Investigator Briefing"
 
 
@@ -436,7 +460,14 @@ def render_briefing(
     title = _scenario_title(campaign, scenario, module_meta, source_map, language)
     era = _era_label(module_meta.get("era") or campaign.get("era"), language)
     structure = _structure_label(module_meta.get("structure_type"), language)
-    source = _localized_title(_source_label(source_map, scenario), campaign, language)
+    source_label = _source_label(source_map, scenario)
+    source = (
+        _public_title_candidate(
+            _localized_title(source_label, campaign, language)
+        )
+        if source_label
+        else ""
+    )
     summary = _safe_summary(scenario, module_meta, title, era, language)
     flags = _content_flags(module_meta.get("content_flags"), language)
     if language != "zh-Hans":
