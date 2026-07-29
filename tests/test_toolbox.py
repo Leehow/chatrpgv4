@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -11343,6 +11344,24 @@ def test_pi_source_scope_locator_projects_only_body_work(
         "root": tmp_path,
         "campaign_id": "pi-body-only",
     })()
+    unavailable = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[mechanics, body],
+    )
+    assert unavailable["awaiting_scope_count"] == 2
+    assert "source_scope_takeover" not in unavailable
+    monkeypatch.setenv(
+        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND",
+        str(
+            REPO
+            / "plugins"
+            / "coc-keeper"
+            / "pi"
+            / "bin"
+            / "coc-pdf-skill-adapter"
+        ),
+    )
     projected = coc_toolbox._source_host_work_projection(
         ctx,
         "asset-a",
@@ -11356,6 +11375,7 @@ def test_pi_source_scope_locator_projects_only_body_work(
     )
     task = takeover["next_host_action"]["task"]
     assert task["contract_id"] == "coc.pi-source-scope-locator-task.v1"
+    assert task["model_policy"] == "external_codex_cli_configured_default"
     assert task["job_id"] == "job-body"
     assert task["kind"] == "location"
     assert "instruction_refs" not in task
@@ -11368,6 +11388,164 @@ def test_pi_source_scope_locator_projects_only_body_work(
     )
     assert mechanics_only["awaiting_scope_count"] == 1
     assert "source_scope_takeover" not in mechanics_only
+
+
+def test_pi_source_scope_locator_runs_real_canonical_resolution(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "codex")
+    producer = tmp_path / "fake-pdf-producer.mjs"
+    producer.write_text(
+        """#!/usr/bin/env node
+import crypto from "node:crypto";
+import fs from "node:fs";
+const handshake = {
+  schema_version: 1,
+  contract_id: "coc.pi-source-scope-locator-producer-capabilities.v1",
+  capability: "bounded_pdf_visual_locator",
+  producer: "fake-reviewed-pdf-skill",
+  max_selected_pages: 3,
+  writes_canonical_bundle: true,
+  visual_review: true,
+  repository_pdf_parser: false,
+  ocr: false,
+};
+if (process.argv[2] === "--capabilities") {
+  process.stdout.write(JSON.stringify(handshake));
+} else {
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+  const task = JSON.parse(input);
+  fs.mkdirSync(task.source_bundle_path, {recursive: true});
+  const page = "# Appendix 2\\n\\nCanonical integration page.\\n";
+  fs.writeFileSync(task.source_bundle_path + "/page-0002.md", page);
+  fs.writeFileSync(task.source_bundle_path + "/manifest.json", JSON.stringify({
+    schema_version: 1,
+    producer: "codex-pdf-skill",
+    source: {
+      source_id: task.source.source_id,
+      title: "Opening Component",
+      path: task.source.path,
+      file_sha256: task.source.file_sha256,
+      page_count: 3,
+    },
+    pages: [{
+      pdf_index: 2,
+      markdown_path: "page-0002.md",
+      text_sha256: crypto.createHash("sha256").update(page).digest("hex"),
+      review_state: "manual_accepted",
+      parse_confidence: 0.99,
+      grep_anchors: ["Canonical integration page."],
+    }],
+    assets: [],
+  }));
+  process.stdout.write(JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+    job_id: task.job_id,
+    status: "located",
+    kind: task.kind,
+    target_id: task.target_id,
+    pdf_indices: [2],
+    source_bundle_path: task.source_bundle_path,
+    failure_class: null,
+  }));
+}
+""",
+        encoding="utf-8",
+    )
+    producer.chmod(0o755)
+    monkeypatch.setenv(
+        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND",
+        str(producer),
+    )
+    ws = _opening_component_workspace(
+        tmp_path,
+        source_page_count=3,
+    )
+    ws["skeleton"]["locations"].append({
+        "location_id": "archive",
+        "title": "Archive",
+        "parse_state": "named_only",
+    })
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    requested = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "archive",
+        "title": "Archive",
+        "reason": "real canonical locator integration",
+    })
+    assert requested["ok"] is True, requested
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_scope_real_pi_integration",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1, materialized
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    projection = coc_toolbox._source_host_work_projection(
+        coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"]),
+        ws["asset_root_id"],
+        all_open_host_work=assets.list_host_work_requests(
+            ws["workspace"],
+            ws["asset_root_id"],
+            limit=None,
+        ),
+    )
+    status = {"ok": True, "tool": "progressive.status", "data": projection}
+    task = status["data"]["source_scope_takeover"]["next_host_action"]["task"]
+    fixture = tmp_path / "canonical-locator-fixture.json"
+    uv = shutil.which("uv")
+    assert uv is not None
+    fixture.write_text(json.dumps({
+        "producer": str(producer),
+        "uv": uv,
+        "toolbox": str(TOOLBOX_SCRIPT),
+        "envelope": status,
+        "expected_job_id": task["job_id"],
+    }), encoding="utf-8")
+    completed = subprocess.run(
+        [
+            "node",
+            "--experimental-strip-types",
+            str(REPO / "tests/pi/source-scope-canonical-integration.mjs"),
+            str(REPO),
+            str(fixture),
+        ],
+        cwd=REPO,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    receipt = json.loads(completed.stdout)
+    assert receipt["ok"] is True
+    assert receipt["resolved_job_id"] == task["job_id"]
+    assert receipt["replacement_job_id"] != task["job_id"]
+    after = coc_toolbox._source_host_work_projection(
+        coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"]),
+        ws["asset_root_id"],
+        all_open_host_work=assets.list_host_work_requests(
+            ws["workspace"],
+            ws["asset_root_id"],
+            limit=None,
+        ),
+    )
+    assert "source_scope_takeover" not in after
+    assert after["background_takeover"]["dispatch_mode"] == (
+        "coordinator_fanout"
+    ), json.dumps(
+        after, ensure_ascii=False, indent=2,
+    )
+    assert after["awaiting_scope_count"] == 0
+    assert after["runnable_count"] == 1
 
 
 def test_source_direct_single_dispatch_is_closed_and_needs_no_manager():

@@ -205,6 +205,8 @@ The bundled thin adapter invokes an already installed and logged-in Codex CLI
 plus its existing `pdf` skill. Override their absolute locations with
 `COC_CODEX_COMMAND` and `COC_CODEX_PDF_SKILL` when needed. The adapter contains
 no PDF parser, renderer, OCR, page-text scanner, queue, or fulfillment engine.
+It uses the Codex CLI's configured default model; it does not inherit the main
+Pi/Grok model or its reasoning setting.
 
 Pi runs `--capabilities` before every closed task, then `--run` with one bounded
 JSON packet. The producer may only locate, render, visually review, and write

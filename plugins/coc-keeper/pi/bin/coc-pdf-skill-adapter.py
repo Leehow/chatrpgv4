@@ -12,15 +12,18 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, NoReturn
 
 
 MAX_INPUT_BYTES = 256 * 1024
 MAX_OUTPUT_BYTES = 256 * 1024
 CODEX_TIMEOUT_SECONDS = 240
+TERMINATION_GRACE_SECONDS = 1.5
 
 
 def _fail(message: str) -> NoReturn:
@@ -136,6 +139,27 @@ def _prompt(task: dict[str, Any], pdf_skill: Path) -> str:
     )
 
 
+def _terminate_process_group(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
+    while process.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.02)
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        process.wait(timeout=TERMINATION_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        _fail("external Codex process group did not terminate")
+
+
 def _run() -> dict[str, Any]:
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
@@ -154,8 +178,19 @@ def _run() -> dict[str, Any]:
         delete=False,
     ) as output_file:
         output_path = Path(output_file.name)
+    process: subprocess.Popen[str] | None = None
+    prior_handlers: dict[int, Any] = {}
+
+    def interrupted(signum: int, _frame: Any) -> NoReturn:
+        if process is not None:
+            _terminate_process_group(process)
+        _fail(f"external Codex lifecycle interrupted by signal {signum}")
+
     try:
-        completed = subprocess.run(
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            prior_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, interrupted)
+        process = subprocess.Popen(
             [
                 command,
                 "exec",
@@ -168,12 +203,11 @@ def _run() -> dict[str, Any]:
                 "--output-last-message",
                 str(output_path),
             ],
-            input=_prompt(task, pdf_skill),
             text=True,
-            check=True,
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            timeout=CODEX_TIMEOUT_SECONDS,
+            start_new_session=True,
             env={
                 key: value
                 for key, value in os.environ.items()
@@ -193,12 +227,28 @@ def _run() -> dict[str, Any]:
                 }
             },
         )
-        del completed
+        try:
+            _stdout, stderr = process.communicate(
+                input=_prompt(task, pdf_skill),
+                timeout=CODEX_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            _terminate_process_group(process)
+            _fail("external Codex lifecycle timed out")
+        if process.returncode != 0:
+            _fail(
+                "external Codex lifecycle failed; stderr redacted "
+                f"({len((stderr or '').encode('utf-8'))} bytes)"
+            )
         payload = output_path.read_bytes()
         if len(payload) > MAX_OUTPUT_BYTES:
             _fail("Codex producer receipt exceeds output limit")
         return _object(json.loads(payload.decode("utf-8")), "Codex receipt")
     finally:
+        if process is not None and process.poll() is None:
+            _terminate_process_group(process)
+        for signum, handler in prior_handlers.items():
+            signal.signal(signum, handler)
         output_path.unlink(missing_ok=True)
 
 

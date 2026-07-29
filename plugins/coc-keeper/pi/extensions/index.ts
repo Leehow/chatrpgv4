@@ -1,8 +1,16 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFile, realpath } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
@@ -16,6 +24,7 @@ import {
   rejectSecretDisclosure,
   safeEnv,
   spawnPiChild,
+  terminateTree,
   validateCoordinatorTask,
   type ChildRun,
   type JsonObject,
@@ -3655,6 +3664,7 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     task.schema_version !== 1
     || task.contract_id !== "coc.pi-source-scope-locator-task.v1"
     || task.adapter_mode !== "pi_external_pdf_skill_lifecycle"
+    || task.model_policy !== "external_codex_cli_configured_default"
     || task.max_selected_pages !== 3
     || task.result_delivery !== "natural_completion_notification_only"
   ) throw new Error("Pi source-scope locator task contract drift");
@@ -3717,6 +3727,7 @@ async function runLocatorProcess(
   const child = spawn(command, args, {
     cwd: process.cwd(),
     shell: false,
+    detached: process.platform !== "win32",
     stdio: ["pipe", "pipe", "pipe"],
     env: locatorEnvironment(),
   });
@@ -3724,16 +3735,27 @@ async function runLocatorProcess(
   let stderrBytes = 0;
   const code = await new Promise<number | null>((resolveClose, rejectClose) => {
     let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const finishError = (error: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
-      try { child.kill("SIGTERM"); } catch { /* already closed */ }
-      rejectClose(error);
+      void terminateTree(child).then(
+        () => rejectClose(error),
+        (terminationError) => rejectClose(
+          new Error(
+            `${error.message}; producer tree termination failed: ${
+              terminationError instanceof Error
+                ? terminationError.message
+                : "unknown error"
+            }`,
+          ),
+        ),
+      );
     };
     const abort = () => finishError(new Error("source-scope locator aborted"));
-    const timer = setTimeout(
+    timer = setTimeout(
       () => finishError(new Error("source-scope locator timed out")),
       timeoutMs,
     );
@@ -3857,6 +3879,150 @@ export async function runPiSourceScopeProducer(
     )
   ) throw new Error("non-located source-scope receipt is invalid");
   return receipt;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function validateStagedSourceBundle(
+  task: JsonObject,
+  receipt: JsonObject,
+): Promise<void> {
+  const root = resolve(nonEmpty(task.source_bundle_path, "source_bundle_path"));
+  const rootStat = await lstat(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("staged source bundle root must be a real directory");
+  }
+  const canonicalRoot = await realpath(root);
+  if (
+    canonicalRoot
+    !== join(await realpath(dirname(root)), basename(root))
+  ) {
+    throw new Error("staged source bundle root contains a symlink");
+  }
+  const manifestPath = join(root, "manifest.json");
+  const manifestStat = await lstat(manifestPath);
+  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+    throw new Error("staged source bundle manifest must be a real file");
+  }
+  if (await realpath(manifestPath) !== join(canonicalRoot, "manifest.json")) {
+    throw new Error("staged source bundle manifest contains a symlink");
+  }
+  const manifestBytes = await readFile(manifestPath);
+  if (manifestBytes.length > MAX_BYTES) {
+    throw new Error("staged source bundle manifest exceeds limit");
+  }
+  const manifest = asObject(
+    JSON.parse(manifestBytes.toString("utf8")),
+    "staged source bundle manifest",
+  );
+  const source = asObject(manifest.source, "staged source identity");
+  const expectedSource = asObject(task.source, "locator source");
+  const pages = manifest.pages;
+  if (
+    manifest.schema_version !== 1
+    || manifest.producer !== "codex-pdf-skill"
+    || source.source_id !== expectedSource.source_id
+    || resolve(String(source.path ?? "")) !== resolve(String(expectedSource.path))
+    || source.file_sha256 !== expectedSource.file_sha256
+    || !Number.isInteger(source.page_count)
+    || Number(source.page_count) <= 0
+    || !Array.isArray(pages)
+    || pages.length < 1
+    || pages.length > 3
+  ) throw new Error("staged source bundle identity is invalid");
+  const expectedIndices = receipt.pdf_indices as number[];
+  const actualIndices: number[] = [];
+  for (const [position, rawPage] of pages.entries()) {
+    const page = asObject(rawPage, `staged source page ${position}`);
+    const pdfIndex = page.pdf_index;
+    const markdownPath = String(page.markdown_path ?? "");
+    if (
+      !Number.isInteger(pdfIndex)
+      || Number(pdfIndex) < 0
+      || Number(pdfIndex) >= Number(source.page_count)
+      || !markdownPath
+      || isAbsolute(markdownPath)
+      || page.review_state !== "manual_accepted"
+      || typeof page.parse_confidence !== "number"
+      || Number(page.parse_confidence) < 0
+      || Number(page.parse_confidence) > 1
+      || !Array.isArray(page.grep_anchors)
+      || page.grep_anchors.some(
+        (anchor) => typeof anchor !== "string" || !anchor.trim(),
+      )
+      || !/^[a-f0-9]{64}$/.test(String(page.text_sha256 ?? ""))
+    ) throw new Error("staged source bundle page contract is invalid");
+    const pagePath = resolve(root, markdownPath);
+    if (!pagePath.startsWith(`${root}${sep}`)) {
+      throw new Error("staged source bundle page escapes its root");
+    }
+    const pageStat = await lstat(pagePath);
+    if (!pageStat.isFile() || pageStat.isSymbolicLink()) {
+      throw new Error("staged source bundle page must be a real file");
+    }
+    if (
+      await realpath(pagePath)
+      !== resolve(canonicalRoot, markdownPath)
+    ) {
+      throw new Error("staged source bundle page contains a symlink");
+    }
+    const bytes = await readFile(pagePath);
+    if (
+      bytes.length > MAX_BYTES
+      || createHash("sha256").update(bytes).digest("hex")
+        !== page.text_sha256
+    ) throw new Error("staged source bundle page content is invalid");
+    actualIndices.push(Number(pdfIndex));
+  }
+  if (
+    JSON.stringify([...actualIndices].sort((a, b) => a - b))
+    !== JSON.stringify(expectedIndices)
+  ) throw new Error("staged source bundle pages diverge from producer receipt");
+}
+
+async function publishStagedSourceBundle(
+  stableTask: JsonObject,
+  stagedTask: JsonObject,
+  receipt: JsonObject,
+): Promise<JsonObject> {
+  await validateStagedSourceBundle(stagedTask, receipt);
+  const stablePath = resolve(
+    nonEmpty(stableTask.source_bundle_path, "stable source_bundle_path"),
+  );
+  const stagingPath = resolve(
+    nonEmpty(stagedTask.source_bundle_path, "staging source_bundle_path"),
+  );
+  const stableParent = dirname(stablePath);
+  await mkdir(stableParent, { recursive: true });
+  if (
+    await realpath(stableParent)
+    !== join(await realpath(dirname(stableParent)), basename(stableParent))
+  ) {
+    throw new Error("stable source bundle parent contains a symlink");
+  }
+  const lockPath = `${stablePath}.publish.lock`;
+  const lock = await open(lockPath, "wx");
+  try {
+    if (await pathExists(stablePath)) {
+      throw new Error("stable source bundle already exists");
+    }
+    await rename(stagingPath, stablePath);
+  } finally {
+    await lock.close();
+    await rm(lockPath, { force: true });
+  }
+  return {
+    ...receipt,
+    source_bundle_path: stablePath,
+  };
 }
 
 function objectOrNull(value: unknown): JsonObject | null {
@@ -4274,6 +4440,7 @@ interface SourceScopeAutoDispatchDeps {
   call(name: string, args: JsonObject, signal?: AbortSignal): Promise<JsonObject>;
   onResolved(value: JsonObject): Promise<void>;
   states: Map<string, JsonObject>;
+  controllers: Map<string, AbortController>;
   audit(entry: JsonObject): void;
 }
 
@@ -4323,101 +4490,167 @@ export async function autoDispatchPiSourceScopeLocator(
     deps.audit(failure);
     return failure;
   }
-  let receipt: JsonObject;
-  try {
-    receipt = await runPiSourceScopeProducer(task, {
-      command,
-      timeoutMs: options.timeoutMs,
-      signal: options.signal,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    const failure = {
-      status: "failed",
-      dispatch_key: key,
-      failure_class: message.includes("timed out")
-        ? "source_scope_locator_timeout"
-        : message.includes("capability")
-          ? "source_scope_locator_preflight_failed"
-          : "source_scope_locator_result_invalid",
-    };
-    deps.states.set(key, failure);
-    deps.audit(failure);
-    return failure;
-  }
-  if (!deps.isCurrent()) {
-    const failure = {
-      status: "session_closed",
-      dispatch_key: key,
-      failure_class: "session_closed_before_scope_registration",
-    };
-    deps.states.set(key, failure);
-    deps.audit(failure);
-    return failure;
-  }
-  if (receipt.status !== "located") {
-    const terminal = {
-      status: receipt.status,
-      dispatch_key: key,
-      failure_class: receipt.failure_class,
-    };
-    deps.states.set(key, terminal);
-    deps.audit(terminal);
-    return terminal;
-  }
-  const resolveOperation = asObject(task.resolve_operation, "resolve operation");
-  const prefilled = asObject(
-    resolveOperation.prefilled_arguments,
-    "resolve prefilled arguments",
+  const stablePath = resolve(
+    nonEmpty(task.source_bundle_path, "source_bundle_path"),
   );
-  let resolved: JsonObject;
-  try {
-    resolved = await deps.call("coc_invoke", {
-      operation: "progressive.resolve_source_scope",
-      root: task.workspace_root,
-      campaign: task.campaign_id,
-      arguments: {
-        ...structuredClone(prefilled),
-        pdf_indices: structuredClone(receipt.pdf_indices),
-        source_bundle_path: receipt.source_bundle_path,
-      },
-    }, options.signal);
-    if (resolved.ok !== true) {
-      throw new Error("canonical scope resolution rejected");
-    }
-  } catch {
+  if (await pathExists(stablePath)) {
     const failure = {
       status: "failed",
       dispatch_key: key,
-      failure_class: "source_scope_registration_failed",
+      failure_class: "source_scope_stable_bundle_exists",
     };
     deps.states.set(key, failure);
     deps.audit(failure);
     return failure;
   }
+  const stagingPath = join(
+    dirname(stablePath),
+    `.locator-staging-${randomUUID()}`,
+  );
+  await mkdir(dirname(stagingPath), { recursive: true });
+  const stagedTask = {
+    ...task,
+    source_bundle_path: stagingPath,
+  };
+  const controller = new AbortController();
+  deps.controllers.set(key, controller);
+  const abort = () => controller.abort(
+    options.signal?.reason ?? "source_scope_locator_interrupted",
+  );
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
   try {
-    if (deps.isCurrent()) await deps.onResolved(resolved);
-  } catch {
-    const failure = {
+    let receipt: JsonObject;
+    try {
+      receipt = await runPiSourceScopeProducer(stagedTask, {
+        command,
+        timeoutMs: options.timeoutMs,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const failure = {
+        status: "failed",
+        dispatch_key: key,
+        failure_class: message.includes("timed out")
+          ? "source_scope_locator_timeout"
+          : message.includes("aborted")
+            ? "source_scope_locator_aborted"
+            : message.includes("capability")
+              ? "source_scope_locator_preflight_failed"
+              : "source_scope_locator_result_invalid",
+      };
+      deps.states.set(key, failure);
+      deps.audit(failure);
+      return failure;
+    }
+    if (!deps.isCurrent()) {
+      const failure = {
+        status: "session_closed",
+        dispatch_key: key,
+        failure_class: "session_closed_before_scope_registration",
+      };
+      deps.states.set(key, failure);
+      deps.audit(failure);
+      return failure;
+    }
+    if (receipt.status !== "located") {
+      const terminal = {
+        status: receipt.status,
+        dispatch_key: key,
+        failure_class: receipt.failure_class,
+      };
+      deps.states.set(key, terminal);
+      deps.audit(terminal);
+      return terminal;
+    }
+    try {
+      receipt = await publishStagedSourceBundle(task, stagedTask, receipt);
+    } catch {
+      const failure = {
+        status: "failed",
+        dispatch_key: key,
+        failure_class: "source_scope_bundle_publication_failed",
+      };
+      deps.states.set(key, failure);
+      deps.audit(failure);
+      return failure;
+    }
+    if (!deps.isCurrent()) {
+      const failure = {
+        status: "session_closed",
+        dispatch_key: key,
+        failure_class: "session_closed_before_scope_registration",
+      };
+      deps.states.set(key, failure);
+      deps.audit(failure);
+      return failure;
+    }
+    const resolveOperation = asObject(
+      task.resolve_operation,
+      "resolve operation",
+    );
+    const prefilled = asObject(
+      resolveOperation.prefilled_arguments,
+      "resolve prefilled arguments",
+    );
+    let resolved: JsonObject;
+    try {
+      resolved = await deps.call("coc_invoke", {
+        operation: "progressive.resolve_source_scope",
+        root: task.workspace_root,
+        campaign: task.campaign_id,
+        arguments: {
+          ...structuredClone(prefilled),
+          pdf_indices: structuredClone(receipt.pdf_indices),
+          source_bundle_path: receipt.source_bundle_path,
+        },
+      }, controller.signal);
+      if (resolved.ok !== true) {
+        throw new Error("canonical scope resolution rejected");
+      }
+    } catch {
+      const failure = {
+        status: "failed",
+        dispatch_key: key,
+        failure_class: "source_scope_registration_failed",
+      };
+      deps.states.set(key, failure);
+      deps.audit(failure);
+      return failure;
+    }
+    try {
+      if (deps.isCurrent()) await deps.onResolved(resolved);
+    } catch {
+      const failure = {
+        status: "scope_registered",
+        dispatch_key: key,
+        job_id: task.job_id,
+        pdf_indices: structuredClone(receipt.pdf_indices),
+        failure_class: "source_scope_continuation_failed",
+      };
+      deps.states.set(key, failure);
+      deps.audit(failure);
+      return failure;
+    }
+    const terminal = {
       status: "scope_registered",
       dispatch_key: key,
       job_id: task.job_id,
       pdf_indices: structuredClone(receipt.pdf_indices),
-      failure_class: "source_scope_continuation_failed",
     };
-    deps.states.set(key, failure);
-    deps.audit(failure);
-    return failure;
+    deps.states.set(key, terminal);
+    deps.audit(terminal);
+    return terminal;
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
+    if (deps.controllers.get(key) === controller) {
+      deps.controllers.delete(key);
+    }
+    if (await pathExists(stagingPath)) {
+      await rm(stagingPath, { recursive: true, force: true });
+    }
   }
-  const terminal = {
-    status: "scope_registered",
-    dispatch_key: key,
-    job_id: task.job_id,
-    pdf_indices: structuredClone(receipt.pdf_indices),
-  };
-  deps.states.set(key, terminal);
-  deps.audit(terminal);
-  return terminal;
 }
 
 function blockingOpeningProjectionCall(
@@ -4604,6 +4837,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sessionClosing = true;
   let continuedCoordinatorDispatches = new Set<string>();
   let sourceScopeLocatorStates = new Map<string, JsonObject>();
+  let sourceScopeLocatorControllers = new Map<string, AbortController>();
+  let sourceScopeLocatorRuns = new Set<Promise<unknown>>();
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
@@ -4763,6 +4998,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     call: (name, args, signal) => client(ctx).callTool(name, args, signal),
     onResolved: (resolved) => dispatchResolvedSourceWork(resolved, ctx, epoch),
     states: sourceScopeLocatorStates,
+    controllers: sourceScopeLocatorControllers,
     audit: (entry) => {
       try { pi.appendEntry("coc-source-scope-locator-lifecycle", entry); }
       catch { /* audit is best effort */ }
@@ -5275,12 +5511,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         name,
         value,
       ).catch(() => {});
-      void autoDispatchPiSourceScopeLocator(
+      const locatorRun = autoDispatchPiSourceScopeLocator(
         sourceScopeDispatchDeps(ctx, epoch),
         name,
         value,
-        { signal },
-      ).catch(() => {});
+      );
+      sourceScopeLocatorRuns.add(locatorRun);
+      void locatorRun.catch(() => {}).finally(() => {
+        sourceScopeLocatorRuns.delete(locatorRun);
+      });
     }
     return result(value);
   };
@@ -5458,6 +5697,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     openingContinuationGate.reset();
     continuedCoordinatorDispatches = new Set<string>();
     sourceScopeLocatorStates = new Map<string, JsonObject>();
+    sourceScopeLocatorControllers = new Map<string, AbortController>();
+    sourceScopeLocatorRuns = new Set<Promise<unknown>>();
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
     // but never expose it to the KP model.
@@ -5467,6 +5708,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = true;
     sessionEpoch += 1;
     openingContinuationGate.reset();
+    for (const controller of sourceScopeLocatorControllers.values()) {
+      controller.abort("session_shutdown");
+    }
+    await Promise.allSettled([...sourceScopeLocatorRuns]);
+    sourceScopeLocatorControllers.clear();
+    sourceScopeLocatorRuns.clear();
     sourceScopeLocatorStates.clear();
     const ownedManager = manager;
     const ownedMcp = mcp;

@@ -1039,6 +1039,9 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
             "strict_preflight_and_receipt": True,
             "locate_resolve_replacement_chain": True,
             "duplicate_suppressed": True,
+            "stable_bundle_not_overwritten": True,
+            "symlink_staging_rejected": True,
+            "session_abort_kills_descendants": True,
             "missing_command_no_mutation": True,
             "invalid_handshake_no_mutation": True,
             "invalid_receipt_no_mutation": True,
@@ -1058,7 +1061,7 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
         "pi_external_pdf_skill_lifecycle"
     )
     assert pi["coc_source_scope_locator_v1_dynamic_gate"] == (
-        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"
+        "absolute_executable_COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"
     )
 
 

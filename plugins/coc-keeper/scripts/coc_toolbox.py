@@ -11251,7 +11251,11 @@ def _source_scope_locator_dispatch(
             if host_adapter == "pi"
             else "codex_background_pdf_locator"
         ),
-        "model_policy": "inherit_parent",
+        "model_policy": (
+            "external_codex_cli_configured_default"
+            if host_adapter == "pi"
+            else "inherit_parent"
+        ),
         "workspace_root": workspace_root,
         "campaign_id": campaign_id,
         "asset_root_id": asset_root_id,
@@ -11701,6 +11705,16 @@ def _source_host_work_projection(
         for row in open_rows
     ]
     host_adapter = str(os.environ.get("COC_HOST") or "unknown").lower()
+    pi_locator_command = str(
+        os.environ.get("COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND") or ""
+    ).strip()
+    pi_locator_available = (
+        host_adapter == "pi"
+        and bool(pi_locator_command)
+        and Path(pi_locator_command).is_absolute()
+        and Path(pi_locator_command).is_file()
+        and os.access(pi_locator_command, os.X_OK)
+    )
     ready_candidates = [
         compact
         for row, compact in zip(
@@ -11829,7 +11843,9 @@ def _source_host_work_projection(
             "pi_coordinator_retry_exhausted_requests": retry_exhausted[:4],
             "automatic_retry_remaining": False,
         })
-    if locator_scope_requests and host_adapter in {"codex", "pi"}:
+    if locator_scope_requests and (
+        host_adapter == "codex" or pi_locator_available
+    ):
         locator_request = min(
             locator_scope_requests,
             key=lambda row: (
