@@ -857,6 +857,7 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
             "npc_policy": "source_supported_and_materially_present_only",
             "opening_completeness_pass": [
                 "current_situation",
+                "complete_current_briefing_and_material_referenced_facts",
                 "authored_choices_or_investigation_paths",
                 "information_each_path_can_establish",
                 "named_conditional_contacts_as_mentions",
@@ -866,7 +867,7 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
         "semantic_default_replacement": {
             "clues": "populate every source-authored clue needed to play the current beat",
             "affordances": "populate source-authored immediately usable courses of action",
-            "mentions": "populate source-authored named people or places referenced but not materially present",
+            "mentions": "populate source-authored referenced entities; note may preserve current-beat context but never asserts presence, discovery, or disclosure",
             "scene_edges": "populate only source-established destination locations",
         },
         "all_empty_semantic_arrays_allowed_only_when_source_authors_none": True,

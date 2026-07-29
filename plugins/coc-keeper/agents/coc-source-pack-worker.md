@@ -232,7 +232,13 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   `player_safe_summary`, every source-authored clue or actionable route needed
   to play the current beat, structured mentions for named people/places that
   are referenced but not materially present, and source-supported materially
-  present NPC pairs. Never assert a present NPC without both its same-pack
+  present NPC pairs. For an authored briefing, commission, or explanation,
+  `player_safe_summary` covers the complete current player-facing substance,
+  not only the opening teaser. A structured mention may include a concise
+  source-authored `note` needed to understand that substance; the repository
+  keeps it as Keeper-only context and it still does not assert presence,
+  discovery, or automatic disclosure. Never assert a present NPC without both
+  its same-pack
   `npc_id` and source-bounded immediate agenda. Use `affordances` for
   player-usable courses of action; use `scene_edges` only when the selected
   source actually establishes a destination location. Do not infer a route,
@@ -255,7 +261,9 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   Before returning `status=usable`, perform a semantic opening-completeness
   pass over the whole selected window: current situation; authored choices or
   investigation paths; the information each path can establish; named
-  conditional contacts as `mentions`; and materially present NPCs. An all-empty
+  conditional contacts as `mentions`; the complete current briefing,
+  commission, or explanation (including material facts carried by referenced
+  people, places, things, or documents); and materially present NPCs. An all-empty
   `clues`/`affordances`/`mentions` result is valid only when the selected source
   genuinely authors none of them—not because those arrays began as defaults.
   This is LLM semantic judgment, never keyword matching or a free-prose gate.

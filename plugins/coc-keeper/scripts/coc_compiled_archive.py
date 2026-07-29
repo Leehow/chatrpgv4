@@ -622,6 +622,11 @@ def build_documents(
                 "san_triggers": deepcopy(on_enter.get("san_triggers") or []),
                 "affordance_operations": keeper_ops,
                 "secret_ref_ids": secret_ids,
+                # Source mentions remain Keeper context only. They do not
+                # assert live presence, discovery, or player knowledge.
+                "source_context_mentions": deepcopy(
+                    scene.get("source_context_mentions") or []
+                ),
             },
             drilldown_refs={
                 "npc": npc_ids,

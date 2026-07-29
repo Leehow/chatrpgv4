@@ -143,7 +143,21 @@ def _deep(loc_id: str, *, with_secret: bool = False) -> dict:
         ],
         "pressure_moves": [],
         "tone": [],
-        "mentions": [],
+        "mentions": (
+            [{
+                "kind": "npc",
+                "ref_id": "npc-elder",
+                "raw_label": "the village elder",
+                "note": "The patron says the elder is bedridden and hard of hearing.",
+                "source_refs": [{
+                    "source_id": "pdf:ca-demo",
+                    "pdf_index": 2,
+                    "text_sha256": "e" * 64,
+                }],
+            }]
+            if loc_id == "opening"
+            else []
+        ),
         "keeper_secret_refs": [],
     }
     if with_secret:
@@ -367,6 +381,29 @@ def test_scene_context_consumes_archive_and_exposes_identity(tmp_path: Path):
     assert npc["identity_ref"].startswith("npc-identity-v2:")
     assert npc["profile_revision_ref"].startswith("npc-profile-v2:")
     assert "identity_contract" not in npc
+    assert data["scene"]["player_safe_summary"] == "Deep pack for opening."
+    material = data["source_material"]
+    assert material["keeper_only"] is True
+    assert material["authority"] == "source_authored_context"
+    assert material["disclosure"]["opening_teaser_is_not_delivery"] is True
+    assert material["disclosure"]["hard_gate"] is False
+    assert material["player_safe_summary"] == "Deep pack for opening."
+    assert material["contextual_mentions"] == [{
+        "kind": "npc",
+        "ref_id": "npc-elder",
+        "raw_label": "the village elder",
+        "note": "The patron says the elder is bedridden and hard of hearing.",
+        "source_refs": [{
+            "source_id": "pdf:ca-demo",
+            "pdf_index": 2,
+            "text_sha256": "e" * 64,
+        }],
+    }]
+    assert all(row["npc_id"] != "npc-elder" for row in data["npcs_present"])
+    assert any(
+        "opening prose may be only a teaser" in hint
+        for hint in envelope["hints"]
+    )
     scene_shard = archive.load_scene_shard(camp_dir, "opening")
     assert scene_shard["provenance"]["source_page_indices"] == [2]
     assert scene_shard["provenance"]["source_evidence"]["file_sha256"] == FAKE_SHA

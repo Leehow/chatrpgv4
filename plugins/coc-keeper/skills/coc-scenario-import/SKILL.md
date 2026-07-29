@@ -182,12 +182,17 @@ cached pages.
 
 Deep-pack `mentions[]` are indexed as source-scoped named-only stubs on scene
 entry, but that internal index does not enqueue host extraction by itself.
+Their source-authored names/notes may also survive as **Keeper-only contextual
+material** in `scene.context`; this does not make them present, discovered, or
+player knowledge and never forces disclosure.
 
 Deep-pack presence is deliberately stricter than source relationship:
 `npc_ids` and embedded `npcs[]` assert that those people are unconditionally
 present in the live scene represented by the pack. Related, historical,
 conditional, or merely source-mentioned people belong in structured
-`mentions[]`; they do not enter `scene.context` and do not start host work.
+`mentions[]`; they never enter `npcs_present`, establish player knowledge, or
+start host work. A compact keeper-only contextual projection is advice for
+semantic use of the source, not a presence or reveal signal.
 When play itself brings an authored or campaign-local NPC into or out of a
 scene, the KP records that live overlay with `state.npc_presence` rather than
 rewriting module truth or inferring presence from a prior conversation.

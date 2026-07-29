@@ -352,6 +352,7 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
                 "npc_policy": "source_supported_and_materially_present_only",
                 "opening_completeness_pass": [
                     "current_situation",
+                    "complete_current_briefing_and_material_referenced_facts",
                     "authored_choices_or_investigation_paths",
                     "information_each_path_can_establish",
                     "named_conditional_contacts_as_mentions",
@@ -366,8 +367,9 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
                     "populate source-authored immediately usable courses of action"
                 ),
                 "mentions": (
-                    "populate source-authored named people or places referenced "
-                    "but not materially present"
+                    "populate source-authored referenced entities; note may "
+                    "preserve current-beat context but never asserts "
+                    "presence, discovery, or disclosure"
                 ),
                 "scene_edges": "populate only source-established destination locations",
             },
@@ -422,8 +424,9 @@ def _body_location_result_contract(*, parse_state: str) -> dict[str, Any]:
                     "populate source-authored immediately usable courses of action"
                 ),
                 "mentions": (
-                    "populate source-authored named people or places referenced "
-                    "but not materially present"
+                    "populate source-authored referenced entities; note may "
+                    "preserve current-beat context but never asserts "
+                    "presence, discovery, or disclosure"
                 ),
                 "scene_edges": "populate only source-established destination locations",
             },

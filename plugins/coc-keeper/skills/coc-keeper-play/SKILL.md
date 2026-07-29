@@ -60,6 +60,15 @@ each turn. Prefer a known tool, then describe only it if parameters are unclear.
 
 **Ordinary-turn hot path:** use typed cards, not host `Read`/search over scenario assets, files, logs, or old calls. Travel uses the exit card—or tight resume's `exit_operation_template` plus selected `exits[].to`—then returned context once; never preview an inactive scene. A full `scene.context` with `working_set.mode=full` and needed `covered_domains` is enough: stop extra reads. Drill down only for a named missing field that materially affects current adjudication—never for reassurance via domain discovery, continuation pagination, `session.delivery_text`, or empty clue/secret reads. After `progressive.request_deepen`, do not confirm in the same player turn with `scene.map`/`progressive.status`; background continues and the player reply comes first. Only typed `current_dependency` blocks; never poll. This is not a fixed call count/order.
 
+For source-backed scenes, `scene.context.source_material` is Keeper-only
+authored context. Opening narration may be a teaser rather than proof that the
+full briefing was delivered. When a player's natural action semantically asks
+to hear the current source-authored briefing, commission, or explanation from a
+fitting present speaker, use every materially relevant fact that speaker can
+reveal from that projection. Decide relevance, secrecy, and phrasing
+semantically—never count fields, treat contextual mentions as present NPCs, or
+dump the projection.
+
 ## Context Recovery (Always Active)
 
 `session.resume` is prior-context recovery; never use it after create/setup in the current initial request. Keep receipts; do not reopen saves/context/transcript/catalog.

@@ -3069,6 +3069,35 @@ def test_deep_remerge_preserves_player_dig_route(tmp_path: Path):
     )
 
 
+def test_deep_merge_preserves_source_mentions_as_keeper_context_only():
+    pack = _deep_opening_pack()
+    pack["mentions"] = [
+        {
+            "kind": "npc",
+            "ref_id": "npc-elder",
+            "raw_label": "the village elder",
+            "note": "The patron says the elder is bedridden and hard of hearing.",
+            "source_page_indices": [0],
+        }
+    ]
+
+    merged = project.merge_deep_location_into_ir(
+        project.project_skeleton_to_ir(_skeleton()),
+        pack,
+    )
+    opening = next(
+        scene for scene in merged["story-graph.json"]["scenes"]
+        if scene["scene_id"] == "opening"
+    )
+
+    assert opening["source_context_mentions"] == pack["mentions"]
+    assert "npc-elder" not in opening["npc_ids"]
+    assert all(
+        npc.get("npc_id") != "npc-elder"
+        for npc in merged["npc-agendas.json"]["npcs"]
+    )
+
+
 def test_clue_mentions_follow_on_discover(tmp_path: Path):
     """Structured clue.mentions enqueue dig targets (no free-prose scan)."""
     _put_source_bound_skeleton(tmp_path)

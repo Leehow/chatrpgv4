@@ -467,6 +467,16 @@ def merge_deep_location_into_ir(
     scene["player_safe_summary"] = pack.get("player_safe_summary") or scene.get(
         "player_safe_summary"
     )
+    # Top-level source mentions do not establish presence, discovery, or a
+    # player dig.  They may still carry source-authored context the live Keeper
+    # needs to answer a natural request for the current briefing or
+    # explanation.  Preserve that context on the scene under a deliberately
+    # separate keeper-facing field instead of promoting mentions into NPCs,
+    # clues, routes, or player knowledge.
+    if pack.get("mentions") is not None:
+        scene["source_context_mentions"] = json.loads(
+            json.dumps(pack.get("mentions") or [])
+        )
     # Provenance and source-quality evidence are part of the canonical entity,
     # not disposable parser metadata.  Preserve them on the same scene object
     # consumed by the compiler/archive/runtime.
@@ -1989,7 +1999,7 @@ _OPENING_LOCATION_PROJECTION_FIELDS = frozenset({
     "san_triggers", "source_refs", "source_span", "source_page_indices",
     "page_text_sha256", "source_evidence", "source_discrepancies",
     "location_tags", "entry_conditions", "importance", "clues", "npcs",
-    "keeper_secret_refs", "origin",
+    "keeper_secret_refs", "mentions", "origin",
 })
 _OPENING_CLUE_PROJECTION_FIELDS = frozenset({
     "clue_id", "conclusion_id", "importance", "conclusion_description",

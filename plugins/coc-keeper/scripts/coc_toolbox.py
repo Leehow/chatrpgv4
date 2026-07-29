@@ -12374,6 +12374,16 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                 ),
                 "parse_state": scene_shard.get("parse_state"),
                 "evidence_gap": bool(scene_shard.get("evidence_gap")),
+                "source_context_mentions": deepcopy(
+                    (scene_shard.get("keeper_only") or {}).get(
+                        "source_context_mentions"
+                    )
+                    or []
+                ),
+                "_archive_source_refs": deepcopy(
+                    (scene_shard.get("provenance") or {}).get("source_refs")
+                    or []
+                ),
             }
             for npc_shard in archive_packet.get("npcs") or []:
                 keeper_npc = npc_shard.get("keeper_only") or {}
@@ -12756,18 +12766,76 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     if len(discovered_clues_public) > 32:
         discovered_clues_public = discovered_clues_public[:32]
 
+    def _brief_source_refs(value: Any) -> list[dict[str, Any]]:
+        """Keep exact source identity without repeating bulky review metadata."""
+        out: list[dict[str, Any]] = []
+        for ref in value or []:
+            if not isinstance(ref, dict):
+                continue
+            row = {
+                key: deepcopy(ref[key])
+                for key in ("source_id", "pdf_index", "text_sha256")
+                if ref.get(key) is not None
+            }
+            if row:
+                out.append(row)
+        return out
+
+    source_context_mentions: list[dict[str, Any]] = []
+    for mention in (scene or {}).get("source_context_mentions") or []:
+        if not isinstance(mention, dict):
+            continue
+        projected = {
+            key: deepcopy(mention[key])
+            for key in ("kind", "ref_id", "name", "raw_label", "note")
+            if mention.get(key) is not None
+        }
+        mention_refs = _brief_source_refs(mention.get("source_refs"))
+        if mention_refs:
+            projected["source_refs"] = mention_refs
+        if projected:
+            source_context_mentions.append(projected)
+    scene_source_refs = _brief_source_refs(
+        (scene or {}).get("_archive_source_refs")
+        or (scene or {}).get("source_refs")
+        or []
+    )
+
     data = {
         "campaign_id": ctx.campaign_id,
         "active_scene_id": active_id,
         "scene": {
             "scene_type": (scene or {}).get("scene_type"),
             "dramatic_question": (scene or {}).get("dramatic_question"),
+            "player_safe_summary": (scene or {}).get("player_safe_summary"),
             "tone": (scene or {}).get("tone"),
             "location_tags": (scene or {}).get("location_tags"),
             "pressure_moves": (scene or {}).get("pressure_moves"),
             "exit_conditions": (scene or {}).get("exit_conditions"),
             "allowed_improvisation": (scene or {}).get("allowed_improvisation"),
         } if scene else None,
+        "source_material": {
+            "schema_version": 1,
+            "keeper_only": True,
+            "authority": "source_authored_context",
+            "player_safe_summary": (scene or {}).get("player_safe_summary"),
+            "contextual_mentions": source_context_mentions,
+            "source_refs": scene_source_refs,
+            "disclosure": {
+                "authority": "advisory",
+                "hard_gate": False,
+                "opening_teaser_is_not_delivery": True,
+                "semantic_policy": (
+                    "Opening narration may establish only the scene teaser. "
+                    "When the player naturally asks to hear a source-authored "
+                    "briefing, commission, or explanation through a fitting "
+                    "present speaker, use every materially relevant current-"
+                    "scene fact here that speaker can reveal. Decide relevance, "
+                    "secrecy, and phrasing semantically; do not count fields, "
+                    "treat mentions as presence, or dump this object."
+                ),
+            },
+        } if scene and (source_context_mentions or scene_source_refs) else None,
         "scene_contract": _scene_contract_projection(ctx, active_id, world),
         "npcs_present": npcs,
         "clues_here": clues,
@@ -12948,6 +13016,13 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             "compiled_archive supplies active-scene authored material; drilldown_refs "
             "list exact entity ids still available without rescanning the whole module"
+        )
+    if data.get("source_material"):
+        hints.append(
+            "source_material is keeper-only authored context, not player knowledge: "
+            "opening prose may be only a teaser, so semantically honor a natural "
+            "request for the complete current briefing or explanation using relevant "
+            "facts and their source refs; mentions never assert presence or force disclosure"
         )
     hints.append(
         "optional pacing support: call director.advise on scene entry, after repeated approaches, or when momentum stalls; its suggestions are advisory and may be ignored"
