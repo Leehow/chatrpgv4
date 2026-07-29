@@ -2825,7 +2825,38 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     scene_data = {
         "campaign_id": "scene-progressive",
         "active_scene_id": "opening",
-        "scene": {"scene_type": "investigation"},
+        "scene": {
+            "scene_type": "investigation",
+            "player_safe_summary": "The patron begins the complete briefing.",
+        },
+        "source_material": {
+            "schema_version": 1,
+            "keeper_only": True,
+            "authority": "source_authored_context",
+            "player_safe_summary": "The patron begins the complete briefing.",
+            "contextual_mentions": [{
+                "kind": "npc",
+                "ref_id": "npc-elder",
+                "raw_label": "the village elder",
+                "note": "The elder is bedridden and hard of hearing.",
+                "source_refs": [{
+                    "source_id": "pdf:wire-source",
+                    "pdf_index": 3,
+                    "text_sha256": "a" * 64,
+                }],
+            }],
+            "source_refs": [{
+                "source_id": "pdf:wire-source",
+                "pdf_index": 3,
+                "text_sha256": "a" * 64,
+            }],
+            "disclosure": {
+                "authority": "advisory",
+                "hard_gate": False,
+                "opening_teaser_is_not_delivery": True,
+                "semantic_policy": "Use relevant revealable facts semantically.",
+            },
+        },
         "npcs_present": [{
             "npc_id": f"npc-{index}",
             "name": f"NPC {index}",
@@ -2916,6 +2947,34 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert "cue" not in scene_index["route_index"][0]
     assert "player_safe_summary" not in scene_index["clue_index"][0]
     assert "cue" not in scene_index["exit_index"][0]
+    assert scene_index["source_material"] == {
+        "schema_version": 1,
+        "keeper_only": True,
+        "authority": "source_authored_context",
+        "player_safe_summary": "The patron begins the complete briefing.",
+        "contextual_mentions": [{
+            "kind": "npc",
+            "ref_id": "npc-elder",
+            "raw_label": "the village elder",
+            "note": "The elder is bedridden and hard of hearing.",
+            "source_refs": [{
+                "source_id": "pdf:wire-source",
+                "pdf_index": 3,
+                "text_sha256": "a" * 64,
+            }],
+        }],
+        "source_refs": [{
+            "source_id": "pdf:wire-source",
+            "pdf_index": 3,
+            "text_sha256": "a" * 64,
+        }],
+        "disclosure": {
+            "authority": "advisory",
+            "hard_gate": False,
+            "opening_teaser_is_not_delivery": True,
+            "semantic_policy": "Use relevant revealable facts semantically.",
+        },
+    }
     assert scene_index["counts"] == {
         "npcs_present": 20,
         "action_routes": 20,
@@ -3846,6 +3905,116 @@ def test_mcp_wire_scene_context_keeps_authored_npc_identity_refs():
     assert server.wire_projection.transport_bytes(projected) <= (
         server.wire_projection.MAX_INLINE_BYTES
     )
+
+
+def test_mcp_wire_scene_source_material_is_bounded_and_whitelisted():
+    server = _load_server()
+    long_text = "source context " * 600
+    material = {
+        "schema_version": 1,
+        "keeper_only": True,
+        "authority": "source_authored_context",
+        "player_safe_summary": long_text,
+        "contextual_mentions": [
+            {
+                "kind": "npc",
+                "ref_id": f"npc-{index}",
+                "note": long_text,
+                "source_refs": [
+                    {
+                        "source_id": "pdf:bounded-source",
+                        "pdf_index": ref_index,
+                        "text_sha256": f"{ref_index:064x}",
+                        "review_metadata": long_text,
+                    }
+                    for ref_index in range(6)
+                ],
+                "keeper_secret": long_text,
+            }
+            for index in range(12)
+        ],
+        "source_refs": [
+            {
+                "source_id": "pdf:bounded-source",
+                "pdf_index": index,
+                "text_sha256": f"{index:064x}",
+                "grep_anchors": [long_text],
+            }
+            for index in range(12)
+        ],
+        "disclosure": {
+            "authority": "advisory",
+            "hard_gate": False,
+            "opening_teaser_is_not_delivery": True,
+            "semantic_policy": long_text,
+            "secret_policy": long_text,
+        },
+        "keeper_secret_refs": [{"id": "secret-do-not-forward", "body": long_text}],
+    }
+
+    compact = server.wire_projection._compact_scene(
+        {
+            "campaign_id": "bounded-source-material",
+            "active_scene_id": "opening",
+            "scene": {"scene_type": "social"},
+            "source_material": material,
+            "npcs_present": [],
+            "clues_here": [],
+            "action_routes": [],
+            "exits": [],
+        },
+        tight=True,
+    )
+
+    projected = compact["source_material"]
+    assert len(projected["player_safe_summary"]) <= (
+        server.wire_projection.SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT
+    )
+    assert len(projected["contextual_mentions"]) == (
+        server.wire_projection.SOURCE_MATERIAL_MENTION_LIMIT
+    )
+    assert all(
+        len(row["note"])
+        <= server.wire_projection.SOURCE_MATERIAL_NOTE_CHAR_LIMIT
+        for row in projected["contextual_mentions"]
+    )
+    assert all(
+        len(row["source_refs"])
+        <= server.wire_projection.SOURCE_MATERIAL_MENTION_REF_LIMIT
+        for row in projected["contextual_mentions"]
+    )
+    assert len(projected["source_refs"]) == (
+        server.wire_projection.SOURCE_MATERIAL_SCENE_REF_LIMIT
+    )
+    assert projected["source_refs"][0] == {
+        "source_id": "pdf:bounded-source",
+        "pdf_index": 0,
+        "text_sha256": "0" * 64,
+    }
+    assert projected["disclosure"]["hard_gate"] is False
+    assert projected["projection"]["omitted_contextual_mention_count"] == 6
+    assert projected["projection"]["omitted_source_ref_count"] == 52
+    assert projected["projection"]["trimmed_text_field_count"] > 0
+    rendered = json.dumps(projected, ensure_ascii=False)
+    assert "keeper_secret" not in rendered
+    assert "keeper_secret_refs" not in rendered
+    assert "review_metadata" not in rendered
+    assert "grep_anchors" not in rendered
+    assert "secret_policy" not in rendered
+    assert server.wire_projection.transport_bytes(compact) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    unlabeled = server.wire_projection._compact_scene(
+        {
+            "campaign_id": "unlabeled-source-material",
+            "source_material": {
+                "player_safe_summary": "This must not cross the wire.",
+                "contextual_mentions": material["contextual_mentions"],
+            },
+        },
+        tight=True,
+    )
+    assert "source_material" not in unlabeled
 
 
 def test_mcp_wire_projects_hot_turn_receipts_without_repeating_full_payloads():

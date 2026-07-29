@@ -29,6 +29,7 @@ project = _load("coc_module_project_ca_test", str(SCRIPTS / "coc_module_project.
 worker = _load("coc_module_queue_worker_ca_test", str(SCRIPTS / "coc_module_queue_worker.py"))
 state = _load("coc_state_ca_test", str(SCRIPTS / "coc_state.py"))
 toolbox = _load("coc_toolbox_ca_test", str(SCRIPTS / "coc_toolbox.py"))
+wire = _load("coc_mcp_wire_ca_test", str(SCRIPTS / "coc_mcp_wire.py"))
 
 
 def _skeleton() -> dict:
@@ -422,6 +423,53 @@ def test_scene_context_consumes_archive_and_exposes_identity(tmp_path: Path):
     assert queried_npc["identity_contract"]["source_refs"] == [
         {"source_id": "pdf:ca-demo", "pdf_index": 2}
     ]
+
+
+def test_scene_context_source_material_reaches_pi_mcp_projection(tmp_path: Path):
+    cid, _camp_dir = _campaign(tmp_path)
+    raw = toolbox.run_tool("scene.context", tmp_path, cid, {})
+    assert raw["ok"] is True
+    assert raw["data"]["source_material"]["contextual_mentions"][0]["note"] == (
+        "The patron says the elder is bedridden and hard of hearing."
+    )
+
+    projected = wire.project_envelope(
+        "scene.context",
+        raw,
+        contract_digest="sha256:test-contract",
+        argument_schemas={},
+    )
+
+    assert projected["wire"]["payload_projected"] is True
+    assert projected["wire"].get("identity_only") is not True
+    assert wire.transport_bytes(projected) <= wire.MAX_INLINE_BYTES
+    material = projected["data"]["source_material"]
+    assert material["keeper_only"] is True
+    assert material["player_safe_summary"] == "Deep pack for opening."
+    assert material["disclosure"]["hard_gate"] is False
+    assert material["contextual_mentions"] == [{
+        "kind": "npc",
+        "ref_id": "npc-elder",
+        "raw_label": "the village elder",
+        "note": "The patron says the elder is bedridden and hard of hearing.",
+        "source_refs": [{
+            "source_id": "pdf:ca-demo",
+            "pdf_index": 2,
+            "text_sha256": "e" * 64,
+        }],
+    }]
+    assert material["source_refs"] == [{
+        "source_id": "pdf:ca-demo",
+        "pdf_index": 2,
+        "text_sha256": "e" * 64,
+    }]
+    assert all(
+        row["npc_id"] != "npc-elder"
+        for row in projected["data"]["npcs_present"]
+    )
+    rendered = json.dumps(projected, ensure_ascii=False)
+    assert "The patron already knows the cellar is wrong." not in rendered
+    assert "keeper_secret_refs" not in rendered
 
 
 def test_scene_context_cache_invalidates_when_archive_is_republished(tmp_path: Path):

@@ -20,6 +20,12 @@ PROFILE_ID = "keeper_hot_v1"
 # Grok's documented default is 20,000 bytes.  Budget the complete envelope,
 # not only ``data``, and retain headroom for the host's MCP wrapper.
 MAX_INLINE_BYTES = 16 * 1024
+SOURCE_MATERIAL_MENTION_LIMIT = 6
+SOURCE_MATERIAL_SCENE_REF_LIMIT = 8
+SOURCE_MATERIAL_MENTION_REF_LIMIT = 4
+SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT = 1536
+SOURCE_MATERIAL_NOTE_CHAR_LIMIT = 640
+SOURCE_MATERIAL_POLICY_CHAR_LIMIT = 800
 SOURCE_WORKER_CONTRACT_PATH = (
     Path(__file__).resolve().parent.parent
     / "references"
@@ -500,6 +506,162 @@ def _compact_continuity(value: Any, *, tight: bool) -> dict[str, Any]:
     return projected
 
 
+def _bounded_source_text(value: Any, limit: int) -> tuple[str | None, bool]:
+    if not isinstance(value, str):
+        return None, False
+    if len(value) <= limit:
+        return value, False
+    return value[: max(0, limit - 1)] + "…", True
+
+
+def _compact_source_ref(value: Any) -> tuple[dict[str, Any], bool]:
+    """Whitelist one exact canonical ref; drop rather than rewrite bad fields."""
+    if not isinstance(value, dict):
+        return {}, False
+    source_id = value.get("source_id")
+    if not isinstance(source_id, str) or not source_id or len(source_id) > 256:
+        return {}, True
+    pdf_index = value.get("pdf_index")
+    if (
+        not isinstance(pdf_index, int)
+        or isinstance(pdf_index, bool)
+        or pdf_index < 0
+    ):
+        return {}, True
+    text_sha256 = value.get("text_sha256")
+    if text_sha256 is not None and (
+        not isinstance(text_sha256, str)
+        or not text_sha256
+        or len(text_sha256) > 80
+    ):
+        return {}, True
+    projected = {
+        "source_id": source_id,
+        "pdf_index": pdf_index,
+        **(
+            {"text_sha256": text_sha256}
+            if isinstance(text_sha256, str)
+            else {}
+        ),
+    }
+    return projected, False
+
+
+def _compact_source_material(value: Any) -> dict[str, Any] | None:
+    """Bound the Keeper-only authored context used by live Pi turns.
+
+    This projection never accepts unlabeled material and never forwards
+    arbitrary nested fields. Included canonical refs remain exact; counts and
+    a digest make any deterministic omission visible without turning the wire
+    layer into a semantic judge.
+    """
+    if not isinstance(value, dict) or value.get("keeper_only") is not True:
+        return None
+    summary, summary_trimmed = _bounded_source_text(
+        value.get("player_safe_summary"),
+        SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT,
+    )
+    disclosure_value = (
+        value.get("disclosure")
+        if isinstance(value.get("disclosure"), dict)
+        else {}
+    )
+    semantic_policy, policy_trimmed = _bounded_source_text(
+        disclosure_value.get("semantic_policy"),
+        SOURCE_MATERIAL_POLICY_CHAR_LIMIT,
+    )
+    disclosure = _pick(
+        disclosure_value,
+        ("authority", "hard_gate", "opening_teaser_is_not_delivery"),
+    )
+    if semantic_policy is not None:
+        disclosure["semantic_policy"] = semantic_policy
+
+    all_mentions = [
+        row
+        for row in value.get("contextual_mentions") or []
+        if isinstance(row, dict)
+    ]
+    mentions: list[dict[str, Any]] = []
+    trimmed_fields = int(summary_trimmed) + int(policy_trimmed)
+    omitted_refs = 0
+    for mention in all_mentions[:SOURCE_MATERIAL_MENTION_LIMIT]:
+        row: dict[str, Any] = {}
+        for field in ("kind", "ref_id", "name", "raw_label"):
+            text, trimmed = _bounded_source_text(mention.get(field), 256)
+            if text is not None:
+                row[field] = text
+            trimmed_fields += int(trimmed)
+        note, note_trimmed = _bounded_source_text(
+            mention.get("note"),
+            SOURCE_MATERIAL_NOTE_CHAR_LIMIT,
+        )
+        if note is not None:
+            row["note"] = note
+        trimmed_fields += int(note_trimmed)
+        mention_refs = [
+            ref
+            for ref in mention.get("source_refs") or []
+            if isinstance(ref, dict)
+        ]
+        projected_refs = []
+        for ref in mention_refs[:SOURCE_MATERIAL_MENTION_REF_LIMIT]:
+            projected_ref, ref_omitted = _compact_source_ref(ref)
+            if projected_ref:
+                projected_refs.append(projected_ref)
+            omitted_refs += int(ref_omitted)
+        if projected_refs:
+            row["source_refs"] = projected_refs
+        omitted_refs += max(
+            0, len(mention_refs) - SOURCE_MATERIAL_MENTION_REF_LIMIT
+        )
+        if row:
+            mentions.append(row)
+    omitted_refs += sum(
+        len([
+            ref for ref in mention.get("source_refs") or []
+            if isinstance(ref, dict)
+        ])
+        for mention in all_mentions[SOURCE_MATERIAL_MENTION_LIMIT:]
+    )
+
+    scene_refs = [
+        ref for ref in value.get("source_refs") or []
+        if isinstance(ref, dict)
+    ]
+    projected_scene_refs = []
+    for ref in scene_refs[:SOURCE_MATERIAL_SCENE_REF_LIMIT]:
+        projected_ref, ref_omitted = _compact_source_ref(ref)
+        if projected_ref:
+            projected_scene_refs.append(projected_ref)
+        omitted_refs += int(ref_omitted)
+    omitted_refs += max(0, len(scene_refs) - SOURCE_MATERIAL_SCENE_REF_LIMIT)
+
+    projected = {
+        **_pick(
+            value,
+            ("schema_version", "keeper_only", "authority"),
+        ),
+        "player_safe_summary": summary,
+        "contextual_mentions": mentions,
+        "source_refs": projected_scene_refs,
+        "disclosure": disclosure,
+    }
+    omitted_mentions = max(
+        0, len(all_mentions) - SOURCE_MATERIAL_MENTION_LIMIT
+    )
+    if omitted_mentions or omitted_refs or trimmed_fields:
+        projected["projection"] = {
+            "full_source_material_sha256": canonical_digest(value),
+            "contextual_mention_count": len(all_mentions),
+            "emitted_contextual_mention_count": len(mentions),
+            "omitted_contextual_mention_count": omitted_mentions,
+            "omitted_source_ref_count": omitted_refs,
+            "trimmed_text_field_count": trimmed_fields,
+        }
+    return projected
+
+
 def _compact_scene(
     value: Any,
     *,
@@ -531,6 +693,9 @@ def _compact_scene(
             "drilldown_refs",
         ),
     )
+    source_material = _compact_source_material(value.get("source_material"))
+    if source_material is not None:
+        projected["source_material"] = source_material
     if isinstance(value.get("progressive"), dict):
         projected["progressive"] = _project_source_work_lifecycle(
             value["progressive"]
@@ -1366,6 +1531,9 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
         },
         "full_projection_operation": _operation_card("scene.context"),
     }
+    source_material = _compact_source_material(scene.get("source_material"))
+    if source_material is not None:
+        scene_index["source_material"] = source_material
     if isinstance(scene.get("exit_operation_template"), dict):
         scene_index["exit_operation_template"] = deepcopy(
             scene["exit_operation_template"]
