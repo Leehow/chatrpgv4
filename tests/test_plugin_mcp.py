@@ -3967,15 +3967,15 @@ def test_mcp_wire_scene_source_material_is_bounded_and_whitelisted():
     )
 
     projected = compact["source_material"]
-    assert len(projected["player_safe_summary"]) <= (
-        server.wire_projection.SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT
+    assert len(projected["player_safe_summary"].encode("utf-8")) <= (
+        server.wire_projection.SOURCE_MATERIAL_SUMMARY_BYTE_LIMIT
     )
     assert 0 < len(projected["contextual_mentions"]) <= (
         server.wire_projection.SOURCE_MATERIAL_MENTION_LIMIT
     )
     assert all(
-        len(row["note"])
-        <= server.wire_projection.SOURCE_MATERIAL_NOTE_CHAR_LIMIT
+        len(row["note"].encode("utf-8"))
+        <= server.wire_projection.SOURCE_MATERIAL_NOTE_BYTE_LIMIT
         for row in projected["contextual_mentions"]
     )
     assert all(
@@ -4084,7 +4084,7 @@ def test_mcp_wire_scene_collective_source_budget_survives_recovery():
         "keeper_only": True,
         "authority": "source_authored_context",
         "player_safe_summary": "源" * (
-            server.wire_projection.SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT
+            server.wire_projection.SOURCE_MATERIAL_SUMMARY_BYTE_LIMIT
         ),
         "contextual_mentions": [
             {
@@ -4093,7 +4093,7 @@ def test_mcp_wire_scene_collective_source_budget_survives_recovery():
                 "name": "名" * 256,
                 "raw_label": "称" * 256,
                 "note": "注" * (
-                    server.wire_projection.SOURCE_MATERIAL_NOTE_CHAR_LIMIT
+                    server.wire_projection.SOURCE_MATERIAL_NOTE_BYTE_LIMIT
                 ),
                 "source_refs": [
                     {
@@ -4125,7 +4125,7 @@ def test_mcp_wire_scene_collective_source_budget_survives_recovery():
             "hard_gate": False,
             "opening_teaser_is_not_delivery": True,
             "semantic_policy": "策" * (
-                server.wire_projection.SOURCE_MATERIAL_POLICY_CHAR_LIMIT
+                server.wire_projection.SOURCE_MATERIAL_POLICY_BYTE_LIMIT
             ),
         },
     }
@@ -4201,6 +4201,7 @@ def test_mcp_wire_scene_collective_source_budget_survives_recovery():
         "pdf_index": 0,
         "text_sha256": "1".rjust(64, "0"),
     }
+    assert recovered == first_material
     assert recovered["projection"] == first_metadata
     assert recovered["projection"]["full_source_material_sha256"] == (
         server.wire_projection.canonical_digest(material)

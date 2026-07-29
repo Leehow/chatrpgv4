@@ -23,10 +23,12 @@ MAX_INLINE_BYTES = 16 * 1024
 SOURCE_MATERIAL_MENTION_LIMIT = 6
 SOURCE_MATERIAL_SCENE_REF_LIMIT = 8
 SOURCE_MATERIAL_MENTION_REF_LIMIT = 4
-SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT = 1536
-SOURCE_MATERIAL_NOTE_CHAR_LIMIT = 640
-SOURCE_MATERIAL_POLICY_CHAR_LIMIT = 800
 SOURCE_MATERIAL_MAX_BYTES = 4 * 1024
+SOURCE_MATERIAL_METADATA_RESERVE_BYTES = 512
+SOURCE_MATERIAL_SUMMARY_BYTE_LIMIT = 768
+SOURCE_MATERIAL_NOTE_BYTE_LIMIT = 640
+SOURCE_MATERIAL_POLICY_BYTE_LIMIT = 512
+SOURCE_MATERIAL_LABEL_BYTE_LIMIT = 128
 SOURCE_IDENTIFIER_MAX_CHARS = 128
 _SOURCE_IDENTIFIER_FIRST = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -513,14 +515,6 @@ def _compact_continuity(value: Any, *, tight: bool) -> dict[str, Any]:
     return projected
 
 
-def _bounded_source_text(value: Any, limit: int) -> tuple[str | None, bool]:
-    if not isinstance(value, str):
-        return None, False
-    if len(value) <= limit:
-        return value, False
-    return value[: max(0, limit - 1)] + "…", True
-
-
 def _bounded_source_text_bytes(
     value: Any,
     limit: int,
@@ -550,44 +544,32 @@ def _is_source_identifier(value: Any) -> bool:
     )
 
 
-def _is_lower_sha256(value: Any, *, prefixed: bool = False) -> bool:
-    if not isinstance(value, str):
-        return False
-    digest = value[7:] if prefixed and value.startswith("sha256:") else value
-    if prefixed and not value.startswith("sha256:"):
-        return False
-    return len(digest) == 64 and all(char in _LOWER_HEX for char in digest)
+def _is_lower_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(char in _LOWER_HEX for char in value)
+    )
 
 
-def _bounded_projection_count(value: Any) -> int | None:
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or value < 0
-        or value > 1_000_000_000
-    ):
-        return None
-    return value
-
-
-def _compact_source_ref(value: Any) -> tuple[dict[str, Any], bool]:
+def _compact_source_ref(value: Any) -> dict[str, Any]:
     """Whitelist one exact canonical ref; drop rather than rewrite bad fields."""
     if not isinstance(value, dict):
-        return {}, False
+        return {}
     source_id = value.get("source_id")
     if not _is_source_identifier(source_id):
-        return {}, True
+        return {}
     pdf_index = value.get("pdf_index")
     if (
         not isinstance(pdf_index, int)
         or isinstance(pdf_index, bool)
         or pdf_index < 0
     ):
-        return {}, True
+        return {}
     text_sha256 = value.get("text_sha256")
     if text_sha256 is not None and not _is_lower_sha256(text_sha256):
-        return {}, True
-    projected = {
+        return {}
+    return {
         "source_id": source_id,
         "pdf_index": pdf_index,
         **(
@@ -596,136 +578,43 @@ def _compact_source_ref(value: Any) -> tuple[dict[str, Any], bool]:
             else {}
         ),
     }
-    return projected, False
 
 
 def _compact_source_material(value: Any) -> dict[str, Any] | None:
-    """Bound the Keeper-only authored context used by live Pi turns.
-
-    This projection never accepts unlabeled material and never forwards
-    arbitrary nested fields. Included canonical refs remain exact; counts and
-    a digest make any deterministic omission visible without turning the wire
-    layer into a semantic judge.
-    """
+    """Pack raw Keeper-only authored context once for every wire path."""
     if not isinstance(value, dict) or value.get("keeper_only") is not True:
         return None
-    prior_projection = (
-        value.get("projection")
-        if isinstance(value.get("projection"), dict)
-        else {}
-    )
-    prior_digest = prior_projection.get("full_source_material_sha256")
-    full_digest = (
-        prior_digest
-        if _is_lower_sha256(prior_digest, prefixed=True)
-        else canonical_digest(value)
-    )
-    prior_total_mentions = _bounded_projection_count(
-        prior_projection.get("contextual_mention_count")
-    )
-    prior_omitted_refs = _bounded_projection_count(
-        prior_projection.get("omitted_source_ref_count")
-    )
-    prior_trimmed_fields = _bounded_projection_count(
-        prior_projection.get("trimmed_text_field_count")
-    )
-    prior_total_mentions = prior_total_mentions or 0
-    prior_omitted_refs = prior_omitted_refs or 0
-    prior_trimmed_fields = prior_trimmed_fields or 0
 
-    trimmed_field_keys: set[str] = set()
-    summary, summary_trimmed = _bounded_source_text(
+    trimmed_fields = 0
+    summary, trimmed = _bounded_source_text_bytes(
         value.get("player_safe_summary"),
-        SOURCE_MATERIAL_SUMMARY_CHAR_LIMIT,
+        SOURCE_MATERIAL_SUMMARY_BYTE_LIMIT,
     )
-    if summary_trimmed:
-        trimmed_field_keys.add("player_safe_summary")
+    trimmed_fields += int(trimmed)
     disclosure_value = (
         value.get("disclosure")
         if isinstance(value.get("disclosure"), dict)
         else {}
     )
-    semantic_policy, policy_trimmed = _bounded_source_text(
+    policy, trimmed = _bounded_source_text_bytes(
         disclosure_value.get("semantic_policy"),
-        SOURCE_MATERIAL_POLICY_CHAR_LIMIT,
+        SOURCE_MATERIAL_POLICY_BYTE_LIMIT,
     )
-    if policy_trimmed:
-        trimmed_field_keys.add("disclosure.semantic_policy")
+    trimmed_fields += int(trimmed)
     disclosure: dict[str, Any] = {}
     if _is_source_identifier(disclosure_value.get("authority")):
         disclosure["authority"] = disclosure_value["authority"]
     for field in ("hard_gate", "opening_teaser_is_not_delivery"):
         if isinstance(disclosure_value.get(field), bool):
             disclosure[field] = disclosure_value[field]
-    if semantic_policy is not None:
-        disclosure["semantic_policy"] = semantic_policy
+    if policy is not None:
+        disclosure["semantic_policy"] = policy
 
-    all_mentions = [
-        row
-        for row in value.get("contextual_mentions") or []
-        if isinstance(row, dict)
-    ]
-    mentions: list[dict[str, Any]] = []
-    raw_ref_count = 0
-    for mention_index, mention in enumerate(
-        all_mentions[:SOURCE_MATERIAL_MENTION_LIMIT]
-    ):
-        row: dict[str, Any] = {}
-        for field in ("kind", "ref_id", "name", "raw_label"):
-            text, trimmed = _bounded_source_text(mention.get(field), 256)
-            if text is not None:
-                row[field] = text
-            if trimmed:
-                trimmed_field_keys.add(
-                    f"contextual_mentions.{mention_index}.{field}"
-                )
-        note, note_trimmed = _bounded_source_text(
-            mention.get("note"),
-            SOURCE_MATERIAL_NOTE_CHAR_LIMIT,
-        )
-        if note is not None:
-            row["note"] = note
-        if note_trimmed:
-            trimmed_field_keys.add(
-                f"contextual_mentions.{mention_index}.note"
-            )
-        mention_refs = [
-            ref
-            for ref in mention.get("source_refs") or []
-            if isinstance(ref, dict)
-        ]
-        raw_ref_count += len(mention_refs)
-        projected_refs = []
-        for ref in mention_refs[:SOURCE_MATERIAL_MENTION_REF_LIMIT]:
-            projected_ref, _ref_omitted = _compact_source_ref(ref)
-            if projected_ref:
-                projected_refs.append(projected_ref)
-        if projected_refs:
-            row["source_refs"] = projected_refs
-        if row:
-            mentions.append(row)
-    for mention in all_mentions[SOURCE_MATERIAL_MENTION_LIMIT:]:
-        raw_ref_count += len([
-            ref for ref in mention.get("source_refs") or []
-            if isinstance(ref, dict)
-        ])
-
-    scene_refs = [
-        ref for ref in value.get("source_refs") or []
-        if isinstance(ref, dict)
-    ]
-    raw_ref_count += len(scene_refs)
-    projected_scene_refs = []
-    for ref in scene_refs[:SOURCE_MATERIAL_SCENE_REF_LIMIT]:
-        projected_ref, _ref_omitted = _compact_source_ref(ref)
-        if projected_ref:
-            projected_scene_refs.append(projected_ref)
-
-    projected = {
+    projected: dict[str, Any] = {
         "keeper_only": True,
         "player_safe_summary": summary,
-        "contextual_mentions": mentions,
-        "source_refs": projected_scene_refs,
+        "contextual_mentions": [],
+        "source_refs": [],
         "disclosure": disclosure,
     }
     schema_version = value.get("schema_version")
@@ -738,161 +627,138 @@ def _compact_source_material(value: Any) -> dict[str, Any] | None:
     if _is_source_identifier(value.get("authority")):
         projected["authority"] = value["authority"]
 
-    total_mentions = max(prior_total_mentions, len(all_mentions))
-    total_refs = prior_omitted_refs + raw_ref_count
+    all_mentions = [
+        row
+        for row in value.get("contextual_mentions") or []
+        if isinstance(row, dict)
+    ]
+    scene_refs = [
+        row for row in value.get("source_refs") or []
+        if isinstance(row, dict)
+    ]
+    mention_refs = [
+        [
+            row for row in mention.get("source_refs") or []
+            if isinstance(row, dict)
+        ]
+        for mention in all_mentions
+    ]
+    total_refs = len(scene_refs) + sum(len(rows) for rows in mention_refs)
 
-    def _refresh_projection_metadata() -> None:
-        emitted_refs = len(projected["source_refs"]) + sum(
-            len(mention.get("source_refs") or [])
-            for mention in projected["contextual_mentions"]
-            if isinstance(mention, dict)
-        )
-        omitted_mentions = max(
-            0, total_mentions - len(projected["contextual_mentions"])
-        )
-        omitted_refs = max(0, total_refs - emitted_refs)
-        trimmed_fields = prior_trimmed_fields + len(trimmed_field_keys)
-        if (
-            prior_projection
-            or omitted_mentions
-            or omitted_refs
-            or trimmed_fields
-        ):
-            projected["projection"] = {
-                "full_source_material_sha256": full_digest,
-                "contextual_mention_count": total_mentions,
-                "emitted_contextual_mention_count": len(
-                    projected["contextual_mentions"]
-                ),
-                "omitted_contextual_mention_count": omitted_mentions,
-                "omitted_source_ref_count": omitted_refs,
-                "trimmed_text_field_count": trimmed_fields,
-            }
-        else:
-            projected.pop("projection", None)
+    # Reserve the one fixed metadata object, then spend the remaining bytes in
+    # source-utility order. Item JSON sizes are sufficient because the empty
+    # list brackets already exist in ``projected``.
+    remaining = (
+        SOURCE_MATERIAL_MAX_BYTES
+        - transport_bytes(projected)
+        - SOURCE_MATERIAL_METADATA_RESERVE_BYTES
+    )
 
-    _refresh_projection_metadata()
-    if transport_bytes(projected) > SOURCE_MATERIAL_MAX_BYTES:
-        # Source refs usually repeat at scene and mention scope. Keep one exact
-        # ref at each useful scope before sacrificing authored mention prose.
-        for mention in projected["contextual_mentions"]:
-            refs = mention.get("source_refs")
-            if isinstance(refs, list) and len(refs) > 1:
-                mention["source_refs"] = refs[:1]
-        projected["source_refs"] = projected["source_refs"][:2]
-        _refresh_projection_metadata()
+    valid_scene_refs = []
+    for raw_ref in scene_refs[:SOURCE_MATERIAL_SCENE_REF_LIMIT]:
+        ref = _compact_source_ref(raw_ref)
+        if ref:
+            valid_scene_refs.append(ref)
+    if valid_scene_refs:
+        first_ref = valid_scene_refs.pop(0)
+        cost = transport_bytes(first_ref)
+        if cost <= remaining:
+            projected["source_refs"].append(first_ref)
+            remaining -= cost
 
-    while (
-        transport_bytes(projected) > SOURCE_MATERIAL_MAX_BYTES
-        and len(projected["contextual_mentions"]) > 1
+    for mention_index, mention in enumerate(
+        all_mentions[:SOURCE_MATERIAL_MENTION_LIMIT]
     ):
-        projected["contextual_mentions"].pop()
-        _refresh_projection_metadata()
-
-    if transport_bytes(projected) > SOURCE_MATERIAL_MAX_BYTES:
-        collective_limits = {
-            "player_safe_summary": 512,
-            "disclosure.semantic_policy": 384,
-            "contextual_mentions.0.kind": 96,
-            "contextual_mentions.0.ref_id": 128,
-            "contextual_mentions.0.name": 128,
-            "contextual_mentions.0.raw_label": 128,
-            "contextual_mentions.0.note": 512,
-        }
-        summary, trimmed = _bounded_source_text_bytes(
-            projected.get("player_safe_summary"),
-            collective_limits["player_safe_summary"],
+        row: dict[str, Any] = {}
+        for field in ("kind", "ref_id", "name", "raw_label"):
+            text, trimmed = _bounded_source_text_bytes(
+                mention.get(field),
+                SOURCE_MATERIAL_LABEL_BYTE_LIMIT,
+            )
+            if text is not None:
+                row[field] = text
+            trimmed_fields += int(trimmed)
+        note, trimmed = _bounded_source_text_bytes(
+            mention.get("note"),
+            SOURCE_MATERIAL_NOTE_BYTE_LIMIT,
         )
-        projected["player_safe_summary"] = summary
-        if trimmed:
-            trimmed_field_keys.add("player_safe_summary")
-        policy, trimmed = _bounded_source_text_bytes(
-            projected["disclosure"].get("semantic_policy"),
-            collective_limits["disclosure.semantic_policy"],
-        )
-        if policy is None:
-            projected["disclosure"].pop("semantic_policy", None)
-        else:
-            projected["disclosure"]["semantic_policy"] = policy
-        if trimmed:
-            trimmed_field_keys.add("disclosure.semantic_policy")
-        if projected["contextual_mentions"]:
-            mention = projected["contextual_mentions"][0]
-            for field in ("kind", "ref_id", "name", "raw_label", "note"):
-                key = f"contextual_mentions.0.{field}"
-                text, trimmed = _bounded_source_text_bytes(
-                    mention.get(field),
-                    collective_limits[key],
-                )
-                if text is None:
-                    mention.pop(field, None)
-                else:
-                    mention[field] = text
-                if trimmed:
-                    trimmed_field_keys.add(key)
-        projected["source_refs"] = projected["source_refs"][:1]
-        _refresh_projection_metadata()
+        if note is not None:
+            row["note"] = note
+        trimmed_fields += int(trimmed)
+        row_cost = transport_bytes(row)
+        row_cost += int(bool(projected["contextual_mentions"]))
+        if not row or row_cost > remaining:
+            continue
+        remaining -= row_cost
 
-    if transport_bytes(projected) > SOURCE_MATERIAL_MAX_BYTES:
-        # Defensive terminal form: preserve useful briefing/advisory content
-        # and one exact evidence ref, never silently fall back to identity-only.
-        projected["contextual_mentions"] = []
-        projected["source_refs"] = projected["source_refs"][:1]
-        summary, trimmed = _bounded_source_text_bytes(
-            projected.get("player_safe_summary"),
-            384,
-        )
-        projected["player_safe_summary"] = summary
-        if trimmed:
-            trimmed_field_keys.add("player_safe_summary")
-        policy, trimmed = _bounded_source_text_bytes(
-            projected["disclosure"].get("semantic_policy"),
-            256,
-        )
-        if policy is None:
-            projected["disclosure"].pop("semantic_policy", None)
-        else:
-            projected["disclosure"]["semantic_policy"] = policy
-        if trimmed:
-            trimmed_field_keys.add("disclosure.semantic_policy")
-        _refresh_projection_metadata()
+        valid_refs = []
+        for raw_ref in mention_refs[mention_index][
+            :SOURCE_MATERIAL_MENTION_REF_LIMIT
+        ]:
+            ref = _compact_source_ref(raw_ref)
+            if ref:
+                valid_refs.append(ref)
+        if valid_refs:
+            ref_list_cost = len(',"source_refs":[]'.encode("utf-8"))
+            selected_refs = []
+            for ref in valid_refs:
+                ref_cost = transport_bytes(ref) + int(bool(selected_refs))
+                if ref_list_cost + ref_cost > remaining:
+                    break
+                selected_refs.append(ref)
+                ref_list_cost += ref_cost
+            if selected_refs:
+                row["source_refs"] = selected_refs
+                remaining -= ref_list_cost
+        projected["contextual_mentions"].append(row)
 
-    if transport_bytes(projected) > SOURCE_MATERIAL_MAX_BYTES:
-        # Only malformed/pathological metadata could reach this point.
-        projected.pop("schema_version", None)
-        projected.pop("authority", None)
-        projected["disclosure"].pop("semantic_policy", None)
-        _refresh_projection_metadata()
+    for ref in valid_scene_refs:
+        cost = transport_bytes(ref) + int(bool(projected["source_refs"]))
+        if cost > remaining:
+            break
+        projected["source_refs"].append(ref)
+        remaining -= cost
 
-    if (
-        transport_bytes(projected) > SOURCE_MATERIAL_MAX_BYTES
-        and projected["source_refs"]
-    ):
-        projected["source_refs"] = []
-        _refresh_projection_metadata()
-
-    if transport_bytes(projected) > SOURCE_MATERIAL_MAX_BYTES:
-        # The remaining fixed-shape packet is always well under budget, but
-        # keep a fail-closed form if future metadata fields grow.
+    emitted_refs = len(projected["source_refs"]) + sum(
+        len(mention.get("source_refs") or [])
+        for mention in projected["contextual_mentions"]
+    )
+    omitted_mentions = len(all_mentions) - len(
+        projected["contextual_mentions"]
+    )
+    omitted_refs = total_refs - emitted_refs
+    if omitted_mentions or omitted_refs or trimmed_fields:
         projected["projection"] = {
-            "full_source_material_sha256": full_digest,
-            "contextual_mention_count": total_mentions,
-            "emitted_contextual_mention_count": 0,
-            "omitted_contextual_mention_count": total_mentions,
-            "omitted_source_ref_count": total_refs,
-            "trimmed_text_field_count": (
-                prior_trimmed_fields + len(trimmed_field_keys)
+            "full_source_material_sha256": canonical_digest(value),
+            "contextual_mention_count": len(all_mentions),
+            "emitted_contextual_mention_count": len(
+                projected["contextual_mentions"]
             ),
+            "omitted_contextual_mention_count": omitted_mentions,
+            "omitted_source_ref_count": omitted_refs,
+            "trimmed_text_field_count": trimmed_fields,
         }
-        projected["player_safe_summary"] = None
-        projected["contextual_mentions"] = []
-        projected["source_refs"] = []
-        projected["disclosure"] = {
-            key: disclosure[key]
-            for key in ("authority", "hard_gate", "opening_teaser_is_not_delivery")
-            if key in disclosure
-        }
-    return projected
+
+    if transport_bytes(projected) <= SOURCE_MATERIAL_MAX_BYTES:
+        return projected
+
+    # Fixed fail-closed packet for future metadata growth. It retains the
+    # digest and advisory boundary but never manufactures an exact ref.
+    return {
+        "keeper_only": True,
+        "player_safe_summary": summary,
+        "contextual_mentions": [],
+        "source_refs": [],
+        "disclosure": disclosure,
+        "projection": {
+            "full_source_material_sha256": canonical_digest(value),
+            "contextual_mention_count": len(all_mentions),
+            "emitted_contextual_mention_count": 0,
+            "omitted_contextual_mention_count": len(all_mentions),
+            "omitted_source_ref_count": total_refs,
+            "trimmed_text_field_count": trimmed_fields,
+        },
+    }
 
 
 def _compact_scene(
@@ -1764,9 +1630,11 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
         },
         "full_projection_operation": _operation_card("scene.context"),
     }
-    source_material = _compact_source_material(scene.get("source_material"))
-    if source_material is not None:
-        scene_index["source_material"] = source_material
+    # ``scene`` is the internal tight projection produced by ``_compact_scene``;
+    # source material was already validated, packed, and digested exactly once.
+    source_material = scene.get("source_material")
+    if isinstance(source_material, dict):
+        scene_index["source_material"] = deepcopy(source_material)
     if isinstance(scene.get("exit_operation_template"), dict):
         scene_index["exit_operation_template"] = deepcopy(
             scene["exit_operation_template"]
