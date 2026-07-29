@@ -69,6 +69,13 @@
       "fork_turns": "none",
       "model_policy": "inherit_parent"
     },
+    "pi": {
+      "status": "unavailable_dynamic_preflight",
+      "adapter_mode": "pi_external_pdf_skill_lifecycle",
+      "task_contract_id": "coc.pi-source-scope-locator-task.v1",
+      "producer_command_env": "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND",
+      "main_keeper_tool_access": false
+    },
     "default": {
       "status": "unavailable",
       "adapter_mode": "unsupported"

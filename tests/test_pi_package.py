@@ -1028,6 +1028,40 @@ def test_capability_promoted_after_real_lifecycle_probe():
     assert "COC_PI_ROLE" not in source
 
 
+def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
+    result = _node(
+        ROOT / "tests/pi/source-scope-locator-smoke.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "ok": True,
+        "checks": {
+            "strict_preflight_and_receipt": True,
+            "locate_resolve_replacement_chain": True,
+            "duplicate_suppressed": True,
+            "missing_command_no_mutation": True,
+            "invalid_handshake_no_mutation": True,
+            "invalid_receipt_no_mutation": True,
+            "timeout_no_mutation": True,
+        },
+    }
+    pi = json.loads(
+        (PLUGIN / "references/host-capabilities.json").read_text(
+            encoding="utf-8",
+        )
+    )["pi"]
+    assert pi["coc_source_scope_locator_v1"] is False
+    assert pi["coc_source_scope_locator_v1_status"] == (
+        "unavailable_dynamic_preflight"
+    )
+    assert pi["coc_source_scope_locator_v1_adapter"] == (
+        "pi_external_pdf_skill_lifecycle"
+    )
+    assert pi["coc_source_scope_locator_v1_dynamic_gate"] == (
+        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"
+    )
+
+
 def test_secrets_example_contains_key_name_only():
     assert (PLUGIN / "pi/secrets.env.example").read_text(encoding="utf-8") == "BAIDUOCR_TOKEN=\n"
 

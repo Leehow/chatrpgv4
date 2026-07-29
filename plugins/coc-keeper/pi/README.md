@@ -191,6 +191,37 @@ The OCR tool accepts only `status`, `fast`, `enhance`, and `export`. It validate
 paths and structured JSON results, but deliberately does not reject ordinary
 OCR wording, column-order, or layout noise.
 
+## External PDF scope locator
+
+Pi has no built-in PDF/document tool. To enable the hidden bounded locator,
+configure a separate absolute external PDF-skill producer:
+
+```bash
+chmod +x <repo>/plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter
+export COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND=<repo>/plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter
+```
+
+The bundled thin adapter invokes an already installed and logged-in Codex CLI
+plus its existing `pdf` skill. Override their absolute locations with
+`COC_CODEX_COMMAND` and `COC_CODEX_PDF_SKILL` when needed. The adapter contains
+no PDF parser, renderer, OCR, page-text scanner, queue, or fulfillment engine.
+
+Pi runs `--capabilities` before every closed task, then `--run` with one bounded
+JSON packet. The producer may only locate, render, visually review, and write
+the exact canonical 1..3-page bundle. The Pi extension validates its versioned
+receipt, calls canonical `progressive.resolve_source_scope`, and hands the
+replacement to the existing source coordinator. The main Keeper never receives
+PDF bytes, source pages, bash/read tools, or producer output.
+Any action that actually depends on the unresolved body remains under the
+existing current-dependency blocker until that replacement is fulfilled;
+unrelated play may continue, but the Keeper must not invent the missing source.
+
+`coc_source_scope_locator_v1` remains statically unavailable because
+`coc_capabilities` cannot prove a process-local command preflight. The hidden
+runtime gate is authoritative: a missing, relative, incompatible, timed-out, or
+malformed producer fails closed without source or campaign mutation. Promotion
+to `experimental` requires a provider-authenticated end-to-end lifecycle probe.
+
 ## Source hierarchy
 
 The only nested hierarchy is:

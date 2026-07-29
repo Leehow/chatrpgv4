@@ -27,6 +27,7 @@ import { registerCocWelcome } from "../lib/welcome.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
+const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 5 * 60 * 1000;
 const discoverSchema = { type: "object", properties: { operation: { type: "string" }, domain: { type: "string" } }, additionalProperties: false } as const;
 const invokeSchema = {
   type: "object",
@@ -3626,6 +3627,238 @@ async function piCoordinatorEnabled(): Promise<boolean> {
   return asObject(document.pi, "Pi capabilities").coc_source_coordinator_v1 === true;
 }
 
+function locatorEnvironment(): NodeJS.ProcessEnv {
+  const allowed = [
+    "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
+    "LOGNAME", "SHELL", "CODEX_HOME", "COC_CODEX_COMMAND",
+    "COC_CODEX_PDF_SKILL",
+  ];
+  return Object.fromEntries(
+    allowed.flatMap((key) => (
+      typeof process.env[key] === "string" ? [[key, process.env[key]]] : []
+    )),
+  );
+}
+
+export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
+  const task = asObject(input, "Pi source-scope locator task");
+  exactKeys(task, [
+    "schema_version", "contract_id", "bootstrap_instruction",
+    "instruction_ref", "contract_ref", "contract_revision", "adapter_mode",
+    "model_policy", "workspace_root", "campaign_id", "asset_root_id",
+    "job_id", "job_kind", "kind", "target_id", "target_label", "reason",
+    "source", "source_bundle_path", "cached_pdf_indices",
+    "max_selected_pages", "source_bundle_manifest_contract",
+    "resolve_operation", "result_delivery",
+  ], "Pi source-scope locator task");
+  if (
+    task.schema_version !== 1
+    || task.contract_id !== "coc.pi-source-scope-locator-task.v1"
+    || task.adapter_mode !== "pi_external_pdf_skill_lifecycle"
+    || task.max_selected_pages !== 3
+    || task.result_delivery !== "natural_completion_notification_only"
+  ) throw new Error("Pi source-scope locator task contract drift");
+  for (const field of [
+    "workspace_root", "campaign_id", "asset_root_id", "job_id", "job_kind",
+    "kind", "target_id", "target_label", "source_bundle_path",
+  ]) nonEmpty(task[field], field);
+  if (
+    !isAbsolute(String(task.workspace_root))
+    || !isAbsolute(String(task.source_bundle_path))
+  ) throw new Error("Pi source-scope locator paths must be absolute");
+  const workspaceRoot = resolve(String(task.workspace_root));
+  const bundleRoot = resolve(
+    workspaceRoot,
+    ".tmp",
+    "coc-source-scope",
+  );
+  const bundlePath = resolve(String(task.source_bundle_path));
+  if (!bundlePath.startsWith(`${bundleRoot}${sep}`)) {
+    throw new Error("Pi source-scope locator bundle path escapes its workspace");
+  }
+  const source = asObject(task.source, "locator source");
+  exactKeys(source, ["path", "source_id", "file_sha256"], "locator source");
+  if (
+    !isAbsolute(nonEmpty(source.path, "source.path"))
+    || !/^[a-f0-9]{64}$/.test(nonEmpty(source.file_sha256, "source.file_sha256"))
+  ) throw new Error("Pi source-scope locator source identity is invalid");
+  const resolveOperation = asObject(task.resolve_operation, "resolve operation");
+  exactKeys(resolveOperation, [
+    "operation", "invoke_via", "prefilled_arguments", "missing_arguments",
+    "authority", "hard_gate",
+  ], "resolve operation");
+  const prefilled = asObject(
+    resolveOperation.prefilled_arguments,
+    "resolve prefilled arguments",
+  );
+  if (
+    resolveOperation.operation !== "progressive.resolve_source_scope"
+    || resolveOperation.invoke_via !== "coc_invoke"
+    || prefilled.job_id !== task.job_id
+    || prefilled.kind !== task.kind
+    || prefilled.target_id !== task.target_id
+  ) throw new Error("Pi source-scope locator resolve binding drift");
+  return structuredClone(task);
+}
+
+async function runLocatorProcess(
+  command: string,
+  args: string[],
+  input: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<JsonObject> {
+  if (!isAbsolute(command)) {
+    throw new Error("COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND must be absolute");
+  }
+  if (Buffer.byteLength(input, "utf8") > MAX_BYTES) {
+    throw new Error("source-scope locator stdin exceeds the bounded limit");
+  }
+  const child = spawn(command, args, {
+    cwd: process.cwd(),
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: locatorEnvironment(),
+  });
+  let stdout = "";
+  let stderrBytes = 0;
+  const code = await new Promise<number | null>((resolveClose, rejectClose) => {
+    let settled = false;
+    const finishError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      try { child.kill("SIGTERM"); } catch { /* already closed */ }
+      rejectClose(error);
+    };
+    const abort = () => finishError(new Error("source-scope locator aborted"));
+    const timer = setTimeout(
+      () => finishError(new Error("source-scope locator timed out")),
+      timeoutMs,
+    );
+    child.stdout.on("data", (chunk) => {
+      if (settled) return;
+      stdout += chunk.toString();
+      if (Buffer.byteLength(stdout, "utf8") > MAX_BYTES) {
+        finishError(new Error("source-scope locator stdout exceeded limit"));
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      if (settled) return;
+      stderrBytes += chunk.length;
+      if (stderrBytes > MAX_BYTES) {
+        finishError(new Error("source-scope locator stderr exceeded limit"));
+      }
+    });
+    child.once("error", finishError);
+    child.once("close", (closeCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      resolveClose(closeCode);
+    });
+    child.stdin.end(input);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
+  if (code !== 0) throw new Error("source-scope locator producer failed");
+  let parsed: unknown;
+  try { parsed = JSON.parse(stdout.trim()); }
+  catch { throw new Error("source-scope locator producer must return strict JSON"); }
+  return asObject(parsed, "source-scope locator producer result");
+}
+
+export async function runPiSourceScopeProducer(
+  taskValue: unknown,
+  options: {
+    command?: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  } = {},
+): Promise<JsonObject> {
+  const task = validatePiSourceScopeLocatorTask(taskValue);
+  const command = options.command
+    ?? process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND
+    ?? "";
+  if (!command || !isAbsolute(command)) {
+    throw new Error(
+      "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND must name an absolute external PDF-skill producer",
+    );
+  }
+  const timeoutMs = options.timeoutMs ?? SOURCE_SCOPE_LOCATOR_TIMEOUT_MS;
+  const handshake = await runLocatorProcess(
+    command,
+    ["--capabilities"],
+    "",
+    timeoutMs,
+    options.signal,
+  );
+  exactKeys(handshake, [
+    "schema_version", "contract_id", "capability", "producer",
+    "max_selected_pages", "writes_canonical_bundle", "visual_review",
+    "repository_pdf_parser", "ocr",
+  ], "source-scope locator producer handshake");
+  if (
+    handshake.schema_version !== 1
+    || handshake.contract_id
+      !== "coc.pi-source-scope-locator-producer-capabilities.v1"
+    || handshake.capability !== "bounded_pdf_visual_locator"
+    || handshake.max_selected_pages !== 3
+    || handshake.writes_canonical_bundle !== true
+    || handshake.visual_review !== true
+    || handshake.repository_pdf_parser !== false
+    || handshake.ocr !== false
+  ) throw new Error("source-scope locator producer capability mismatch");
+  const receipt = await runLocatorProcess(
+    command,
+    ["--run"],
+    JSON.stringify(task),
+    timeoutMs,
+    options.signal,
+  );
+  exactKeys(receipt, [
+    "schema_version", "contract_id", "job_id", "status", "kind",
+    "target_id", "pdf_indices", "source_bundle_path", "failure_class",
+  ], "source-scope locator producer receipt");
+  const status = String(receipt.status ?? "");
+  if (
+    receipt.schema_version !== 1
+    || receipt.contract_id
+      !== "coc.pi-source-scope-locator-producer-result.v1"
+    || receipt.job_id !== task.job_id
+    || receipt.kind !== task.kind
+    || receipt.target_id !== task.target_id
+    || !["located", "not_located", "failed"].includes(status)
+  ) throw new Error("source-scope locator producer receipt binding drift");
+  const indices = receipt.pdf_indices;
+  if (
+    !Array.isArray(indices)
+    || indices.length > 3
+    || indices.some((value) => !Number.isInteger(value) || (value as number) < 0)
+    || JSON.stringify(indices) !== JSON.stringify(
+      [...new Set(indices as number[])].sort((a, b) => a - b),
+    )
+  ) throw new Error("source-scope locator producer pdf_indices are invalid");
+  if (status === "located") {
+    if (
+      indices.length === 0
+      || receipt.source_bundle_path !== task.source_bundle_path
+      || receipt.failure_class !== null
+    ) throw new Error("located source-scope receipt is incomplete");
+  } else if (
+    indices.length !== 0
+    || receipt.source_bundle_path !== null
+    || (
+      status === "not_located"
+        ? receipt.failure_class !== null
+        : typeof receipt.failure_class !== "string"
+    )
+  ) throw new Error("non-located source-scope receipt is invalid");
+  return receipt;
+}
+
 function objectOrNull(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : null;
 }
@@ -3664,6 +3897,44 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
     && task?.contract_id === "coc.pi-source-coordinator-task.v1"
     ? task
     : null;
+}
+
+export function findPiSourceScopeLocatorTask(value: unknown): JsonObject | null {
+  const envelope = objectOrNull(value);
+  if (envelope?.ok !== true) return null;
+  const data = objectOrNull(envelope.data);
+  const progressive = objectOrNull(data?.progressive);
+  const sceneContext = objectOrNull(data?.scene_context);
+  const resumeProgressive = objectOrNull(sceneContext?.progressive);
+  const candidates = [
+    objectOrNull(data?.source_scope_takeover),
+    objectOrNull(progressive?.source_scope_takeover),
+    objectOrNull(resumeProgressive?.source_scope_takeover),
+  ].filter((candidate): candidate is JsonObject => candidate !== null);
+  const unique = new Map<string, JsonObject>();
+  for (const candidate of candidates) {
+    const action = objectOrNull(candidate.next_host_action);
+    const dispatchKey = typeof action?.dispatch_key === "string"
+      ? action.dispatch_key.trim()
+      : "";
+    const task = objectOrNull(action?.task);
+    const key = dispatchKey || (
+      typeof task?.job_id === "string" ? `job:${task.job_id}` : ""
+    );
+    if (!key) return null;
+    const previous = unique.get(key);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(candidate)) {
+      return null;
+    }
+    unique.set(key, candidate);
+  }
+  if (unique.size !== 1) return null;
+  const action = objectOrNull([...unique.values()][0].next_host_action);
+  const task = objectOrNull(action?.task);
+  return (
+    action?.action === "invoke_coc_dispatch_source_scope_locator"
+    && task?.contract_id === "coc.pi-source-scope-locator-task.v1"
+  ) ? task : null;
 }
 
 function findCurrentDependencyLifecycle(value: unknown): {
@@ -3997,6 +4268,158 @@ async function autoDispatchCoordinator(
   return await ownedManager.waitForTerminal(key, options.signal);
 }
 
+interface SourceScopeAutoDispatchDeps {
+  isCurrent(): boolean;
+  command(): string | undefined;
+  call(name: string, args: JsonObject, signal?: AbortSignal): Promise<JsonObject>;
+  onResolved(value: JsonObject): Promise<void>;
+  states: Map<string, JsonObject>;
+  audit(entry: JsonObject): void;
+}
+
+export async function autoDispatchPiSourceScopeLocator(
+  deps: SourceScopeAutoDispatchDeps,
+  toolName: string,
+  value: unknown,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<JsonObject | null> {
+  if (toolName !== "coc_invoke") return null;
+  const rawTask = findPiSourceScopeLocatorTask(value);
+  if (rawTask === null) return null;
+  let task: JsonObject;
+  try { task = validatePiSourceScopeLocatorTask(rawTask); }
+  catch {
+    const failure = {
+      status: "validation_failed",
+      failure_class: "source_scope_locator_task_invalid",
+    };
+    deps.audit(failure);
+    return failure;
+  }
+  const key = `source-scope-locator:${nonEmpty(task.job_id, "job_id")}`;
+  const previous = deps.states.get(key);
+  if (previous) return previous;
+  const submitted = { status: "submitted", dispatch_key: key };
+  deps.states.set(key, submitted);
+  deps.audit(submitted);
+  if (!deps.isCurrent()) {
+    const failure = {
+      status: "session_closed",
+      dispatch_key: key,
+      failure_class: "session_closed",
+    };
+    deps.states.set(key, failure);
+    deps.audit(failure);
+    return failure;
+  }
+  const command = deps.command();
+  if (!command || !isAbsolute(command)) {
+    const failure = {
+      status: "capability_unavailable",
+      dispatch_key: key,
+      failure_class: "source_scope_locator_command_unavailable",
+    };
+    deps.states.set(key, failure);
+    deps.audit(failure);
+    return failure;
+  }
+  let receipt: JsonObject;
+  try {
+    receipt = await runPiSourceScopeProducer(task, {
+      command,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const failure = {
+      status: "failed",
+      dispatch_key: key,
+      failure_class: message.includes("timed out")
+        ? "source_scope_locator_timeout"
+        : message.includes("capability")
+          ? "source_scope_locator_preflight_failed"
+          : "source_scope_locator_result_invalid",
+    };
+    deps.states.set(key, failure);
+    deps.audit(failure);
+    return failure;
+  }
+  if (!deps.isCurrent()) {
+    const failure = {
+      status: "session_closed",
+      dispatch_key: key,
+      failure_class: "session_closed_before_scope_registration",
+    };
+    deps.states.set(key, failure);
+    deps.audit(failure);
+    return failure;
+  }
+  if (receipt.status !== "located") {
+    const terminal = {
+      status: receipt.status,
+      dispatch_key: key,
+      failure_class: receipt.failure_class,
+    };
+    deps.states.set(key, terminal);
+    deps.audit(terminal);
+    return terminal;
+  }
+  const resolveOperation = asObject(task.resolve_operation, "resolve operation");
+  const prefilled = asObject(
+    resolveOperation.prefilled_arguments,
+    "resolve prefilled arguments",
+  );
+  let resolved: JsonObject;
+  try {
+    resolved = await deps.call("coc_invoke", {
+      operation: "progressive.resolve_source_scope",
+      root: task.workspace_root,
+      campaign: task.campaign_id,
+      arguments: {
+        ...structuredClone(prefilled),
+        pdf_indices: structuredClone(receipt.pdf_indices),
+        source_bundle_path: receipt.source_bundle_path,
+      },
+    }, options.signal);
+    if (resolved.ok !== true) {
+      throw new Error("canonical scope resolution rejected");
+    }
+  } catch {
+    const failure = {
+      status: "failed",
+      dispatch_key: key,
+      failure_class: "source_scope_registration_failed",
+    };
+    deps.states.set(key, failure);
+    deps.audit(failure);
+    return failure;
+  }
+  try {
+    if (deps.isCurrent()) await deps.onResolved(resolved);
+  } catch {
+    const failure = {
+      status: "scope_registered",
+      dispatch_key: key,
+      job_id: task.job_id,
+      pdf_indices: structuredClone(receipt.pdf_indices),
+      failure_class: "source_scope_continuation_failed",
+    };
+    deps.states.set(key, failure);
+    deps.audit(failure);
+    return failure;
+  }
+  const terminal = {
+    status: "scope_registered",
+    dispatch_key: key,
+    job_id: task.job_id,
+    pdf_indices: structuredClone(receipt.pdf_indices),
+  };
+  deps.states.set(key, terminal);
+  deps.audit(terminal);
+  return terminal;
+}
+
 function blockingOpeningProjectionCall(
   originalParams: JsonObject,
   bootstrapValue: unknown,
@@ -4180,6 +4603,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sessionEpoch = 0;
   let sessionClosing = true;
   let continuedCoordinatorDispatches = new Set<string>();
+  let sourceScopeLocatorStates = new Map<string, JsonObject>();
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
@@ -4265,6 +4689,84 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch { return null; }
     },
     audit: (entry) => { try { pi.appendEntry("coc-source-coordinator-auto-dispatch", entry); } catch { /* audit is best effort */ } },
+  });
+  const dispatchResolvedSourceWork = async (
+    resolved: JsonObject,
+    ctx: ExtensionContext,
+    epoch: number,
+  ) => {
+    const lifecycle = findCurrentDependencyLifecycle(resolved);
+    if (lifecycle !== null) {
+      openingContinuationGate.observeCurrentDependencySnapshot(
+        lifecycle.campaignId,
+        lifecycle.waits,
+        lifecycle.snapshotScope,
+        currentDependencyProjectionBlocked(resolved),
+      );
+      for (const dispatch of lifecycle.dispatches) {
+        const dependencyId = String(dispatch.dependency_id ?? "").trim();
+        const jobId = String(dispatch.job_id ?? "").trim();
+        const action = objectOrNull(dispatch.next_host_action);
+        const task = objectOrNull(action?.task);
+        const packet = objectOrNull(task?.packet);
+        const dispatchKey = typeof packet?.packet_id === "string"
+          ? packet.packet_id.trim()
+          : "";
+        if (
+          task === null
+          || !openingContinuationGate.prepareCurrentDependencyDispatch(
+            dependencyId,
+            jobId,
+            dispatchKey,
+          )
+        ) continue;
+        const submission = await autoDispatchCoordinator(
+          autoDispatchDeps(ctx, epoch),
+          "coc_invoke",
+          resolved,
+          { exactTask: task },
+        );
+        if (!currentDependencySubmissionRetained(submission)) {
+          const retained = objectOrNull(submission);
+          const terminal = objectOrNull(retained?.terminal_receipt);
+          const notification = objectOrNull(retained?.notification);
+          if (
+            retained?.status === "completed"
+            && terminal?.status === "fulfilled"
+            && notification?.hidden_continuation !== "failed"
+          ) {
+            openingContinuationGate.markCurrentDependencyTerminalDelivered(
+              dispatchKey,
+            );
+          } else {
+            openingContinuationGate.rollbackCurrentDependencySubmission(
+              dependencyId,
+              jobId,
+              dispatchKey,
+            );
+          }
+        }
+      }
+    }
+    await autoDispatchCoordinator(
+      autoDispatchDeps(ctx, epoch),
+      "coc_invoke",
+      resolved,
+    );
+  };
+  const sourceScopeDispatchDeps = (
+    ctx: ExtensionContext,
+    epoch: number,
+  ): SourceScopeAutoDispatchDeps => ({
+    isCurrent: () => isCurrent(epoch),
+    command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
+    call: (name, args, signal) => client(ctx).callTool(name, args, signal),
+    onResolved: (resolved) => dispatchResolvedSourceWork(resolved, ctx, epoch),
+    states: sourceScopeLocatorStates,
+    audit: (entry) => {
+      try { pi.appendEntry("coc-source-scope-locator-lifecycle", entry); }
+      catch { /* audit is best effort */ }
+    },
   });
   const flushOpeningSetupAudits = () => {
     for (const audit of openingContinuationGate.takeOpeningSetupAudits()) {
@@ -4773,6 +5275,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         name,
         value,
       ).catch(() => {});
+      void autoDispatchPiSourceScopeLocator(
+        sourceScopeDispatchDeps(ctx, epoch),
+        name,
+        value,
+        { signal },
+      ).catch(() => {});
     }
     return result(value);
   };
@@ -4949,6 +5457,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = false;
     openingContinuationGate.reset();
     continuedCoordinatorDispatches = new Set<string>();
+    sourceScopeLocatorStates = new Map<string, JsonObject>();
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
     // but never expose it to the KP model.
@@ -4958,6 +5467,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = true;
     sessionEpoch += 1;
     openingContinuationGate.reset();
+    sourceScopeLocatorStates.clear();
     const ownedManager = manager;
     const ownedMcp = mcp;
     manager = null;
@@ -4973,5 +5483,9 @@ export const __test = {
   findAutoDispatchTask,
   findCurrentDependencyLifecycle,
   autoDispatchCoordinator,
+  autoDispatchPiSourceScopeLocator,
+  findPiSourceScopeLocatorTask,
+  runPiSourceScopeProducer,
+  validatePiSourceScopeLocatorTask,
   MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,
 };

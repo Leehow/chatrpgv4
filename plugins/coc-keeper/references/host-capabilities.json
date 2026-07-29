@@ -94,7 +94,11 @@
     "max_source_coordinator_leaves": 4,
     "coc_source_parent_fanout_v1": false,
     "coc_source_parent_fanout_v1_status": "unavailable",
-    "coc_source_parent_fanout_v1_adapter": "nested_coordinator_component_only"
+    "coc_source_parent_fanout_v1_adapter": "nested_coordinator_component_only",
+    "coc_source_scope_locator_v1": false,
+    "coc_source_scope_locator_v1_status": "unavailable_dynamic_preflight",
+    "coc_source_scope_locator_v1_adapter": "pi_external_pdf_skill_lifecycle",
+    "coc_source_scope_locator_v1_dynamic_gate": "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"
   },
   "kimi": {
     "plugin_skills": true,

@@ -11281,6 +11281,95 @@ def test_unknown_scope_projects_locator_and_resolution_wakes_existing_queue(
     assert after["data"]["host_work"]["ready_for_background_count"] == 1
 
 
+def test_pi_source_scope_locator_projects_only_body_work(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    monkeypatch.setattr(
+        assets,
+        "host_work_operational_class",
+        lambda row: row["test_operational_class"],
+    )
+    monkeypatch.setattr(
+        assets,
+        "accepted_cached_pdf_indices",
+        lambda _root, _asset_root_id: [],
+    )
+    monkeypatch.setattr(
+        assets,
+        "get_entity",
+        lambda _root, _asset_root_id, kind, target_id: {
+            "title": f"{kind}:{target_id}",
+        },
+    )
+
+    def request(
+        *,
+        job_id: str,
+        kind: str,
+        target_id: str,
+        priority: int,
+    ) -> dict:
+        return {
+            "job_id": job_id,
+            "kind": kind,
+            "target_id": target_id,
+            "priority": priority,
+            "work_level": "near_term",
+            "dispatch_state": "ready",
+            "cached_scope_complete": False,
+            "requested_pdf_indices": [],
+            "test_operational_class": "awaiting_scope",
+            "source_pdf": str(tmp_path / "module.pdf"),
+            "source_id": "pdf:module",
+            "file_sha256": "a" * 64,
+            "created_at": "2026-07-28T00:00:00Z",
+        }
+
+    body = request(
+        job_id="job-body",
+        kind="partial_neighbor",
+        target_id="archive",
+        priority=10,
+    )
+    mechanics = request(
+        job_id="job-mechanics",
+        kind="resolve_npc_mechanics",
+        target_id="keeper",
+        priority=100,
+    )
+    ctx = type("ProjectionContext", (), {
+        "root": tmp_path,
+        "campaign_id": "pi-body-only",
+    })()
+    projected = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[mechanics, body],
+    )
+    assert projected["awaiting_scope_count"] == 2
+    takeover = projected["source_scope_takeover"]
+    assert takeover["host_adapter"] == "pi"
+    assert takeover["next_host_action"]["action"] == (
+        "invoke_coc_dispatch_source_scope_locator"
+    )
+    task = takeover["next_host_action"]["task"]
+    assert task["contract_id"] == "coc.pi-source-scope-locator-task.v1"
+    assert task["job_id"] == "job-body"
+    assert task["kind"] == "location"
+    assert "instruction_refs" not in task
+    assert "page_ocr" not in task
+
+    mechanics_only = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[mechanics],
+    )
+    assert mechanics_only["awaiting_scope_count"] == 1
+    assert "source_scope_takeover" not in mechanics_only
+
+
 def test_source_direct_single_dispatch_is_closed_and_needs_no_manager():
     first = coc_toolbox._source_direct_single_dispatch(
         workspace_root="/workspace",

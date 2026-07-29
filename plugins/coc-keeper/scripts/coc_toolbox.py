@@ -11191,6 +11191,7 @@ def _source_scope_locator_dispatch(
     asset_root_id: str,
     request: dict[str, Any],
     target_label: str,
+    host_adapter: str = "codex",
 ) -> dict[str, Any]:
     """Build one closed Codex task for an unresolved exact PDF locator.
 
@@ -11203,6 +11204,11 @@ def _source_scope_locator_dispatch(
         coc_module_project.coc_module_assets._job_entity_kind(job_kind) or ""
     )
     target_id = str(request.get("target_id") or "")
+    if host_adapter not in {"codex", "pi"}:
+        raise ToolError(
+            "invalid_param",
+            f"unsupported source-scope locator host adapter {host_adapter!r}",
+        )
     codex_root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     instruction_path = (
         _HERE.parent / "agents" / "coc-source-scope-locator.md"
@@ -11228,7 +11234,11 @@ def _source_scope_locator_dispatch(
     )
     task = {
         "schema_version": 1,
-        "contract_id": "coc.codex-source-scope-locator-task.v1",
+        "contract_id": (
+            "coc.pi-source-scope-locator-task.v1"
+            if host_adapter == "pi"
+            else "coc.codex-source-scope-locator-task.v1"
+        ),
         "bootstrap_instruction": (
             "Before any response or tool call, read instruction_ref completely, "
             "then execute this closed task under that instruction."
@@ -11236,7 +11246,11 @@ def _source_scope_locator_dispatch(
         "instruction_ref": str(instruction_path),
         "contract_ref": str(contract_path),
         "contract_revision": f"sha256:{contract_digest}",
-        "adapter_mode": "codex_background_pdf_locator",
+        "adapter_mode": (
+            "pi_external_pdf_skill_lifecycle"
+            if host_adapter == "pi"
+            else "codex_background_pdf_locator"
+        ),
         "model_policy": "inherit_parent",
         "workspace_root": workspace_root,
         "campaign_id": campaign_id,
@@ -11255,28 +11269,6 @@ def _source_scope_locator_dispatch(
         "source_bundle_path": str(bundle_path),
         "cached_pdf_indices": cached_pdf_indices,
         "max_selected_pages": 3,
-        "instruction_refs": {
-            "pdf_skill": str((codex_root / "skills" / "pdf" / "SKILL.md").resolve()),
-            "baiduocr_skill": str(
-                (codex_root / "skills" / "baiduocr" / "SKILL.md").resolve()
-            ),
-            "baiduocr_script": str(
-                (
-                    codex_root
-                    / "skills"
-                    / "baiduocr"
-                    / "scripts"
-                    / "baiduocr.py"
-                ).resolve()
-            ),
-        },
-        "page_ocr": {
-            "provider": "baidu-paddleocr-jobs",
-            "model": "PaddleOCR-VL-1.6",
-            "credential_env": "BAIDUOCR_TOKEN",
-            "structured_data_format": "paddleocr-vl-layout-v1",
-            "blocking": False,
-        },
         "source_bundle_manifest_contract": {
             "schema_version": 1,
             "producer": "codex-pdf-skill",
@@ -11309,21 +11301,56 @@ def _source_scope_locator_dispatch(
         },
         "result_delivery": "natural_completion_notification_only",
     }
+    if host_adapter == "codex":
+        task["instruction_refs"] = {
+            "pdf_skill": str(
+                (codex_root / "skills" / "pdf" / "SKILL.md").resolve()
+            ),
+            "baiduocr_skill": str(
+                (codex_root / "skills" / "baiduocr" / "SKILL.md").resolve()
+            ),
+            "baiduocr_script": str(
+                (
+                    codex_root
+                    / "skills"
+                    / "baiduocr"
+                    / "scripts"
+                    / "baiduocr.py"
+                ).resolve()
+            ),
+        }
+        task["page_ocr"] = {
+            "provider": "baidu-paddleocr-jobs",
+            "model": "PaddleOCR-VL-1.6",
+            "credential_env": "BAIDUOCR_TOKEN",
+            "structured_data_format": "paddleocr-vl-layout-v1",
+            "blocking": False,
+        }
+    action = (
+        "invoke_coc_dispatch_source_scope_locator"
+        if host_adapter == "pi"
+        else "spawn_background_task"
+    )
     return {
         "schema_version": 1,
         "kind": "awaiting_source_scope",
         "dispatch_mode": "background_single_locator",
-        "host_adapter": "codex",
+        "host_adapter": host_adapter,
         "authority": "advisory",
         "hard_gate": False,
         "next_host_action": {
-            "action": "spawn_background_task",
+            "action": action,
             "execute_before_any_other_host_operation": False,
             "dispatch_key": f"source-scope-locator:{job_id}",
             "spawn_once_while_job_open": True,
-            "agent_type": "coc-source-scope-locator",
-            "fork_turns": "none",
-            "model_policy": "inherit_parent",
+            **(
+                {
+                    "agent_type": "coc-source-scope-locator",
+                    "fork_turns": "none",
+                    "model_policy": "inherit_parent",
+                }
+                if host_adapter == "codex" else {}
+            ),
             "task": task,
             "parent_waits": False,
             "parent_result_polls": 0,
@@ -11733,6 +11760,10 @@ def _source_host_work_projection(
         )
         if operational_class == "awaiting_scope"
     ]
+    locator_scope_requests = [
+        row for row in awaiting_scope
+        if assets_mod._job_aspect(str(row.get("kind") or "")) == "body"
+    ]
     projection: dict[str, Any] = {
         "asset_root_id": asset_root_id,
         "campaign_id": str(ctx.campaign_id),
@@ -11798,9 +11829,9 @@ def _source_host_work_projection(
             "pi_coordinator_retry_exhausted_requests": retry_exhausted[:4],
             "automatic_retry_remaining": False,
         })
-    if awaiting_scope and host_adapter == "codex":
+    if locator_scope_requests and host_adapter in {"codex", "pi"}:
         locator_request = min(
-            awaiting_scope,
+            locator_scope_requests,
             key=lambda row: (
                 assets_mod.HOST_WORK_LEVELS.index(
                     str(row.get("work_level") or "near_term")
@@ -11832,6 +11863,7 @@ def _source_host_work_projection(
             asset_root_id=asset_root_id,
             request=locator_request,
             target_label=target_label,
+            host_adapter=host_adapter,
         )
     if not dispatch_ready_background:
         return projection
