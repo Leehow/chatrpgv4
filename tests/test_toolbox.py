@@ -13719,6 +13719,19 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     assert released["ok"] is True, released
 
 
+def _install_opening_review_task(ws: dict, scenario: dict) -> None:
+    scenario["opening_source_review_task"] = (
+        coc_toolbox.coc_runtime_ops._new_opening_review_task(
+            campaign_id=ws["campaign_id"],
+            scenario_id=scenario["scenario_id"],
+            source=scenario["source"],
+            source_bundle_id=ws["asset_root_id"],
+            allowed_pdf_indices=[0],
+            generation=1,
+        )
+    )
+
+
 def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
     tmp_path: Path, monkeypatch,
 ):
@@ -13733,6 +13746,7 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
         ws["workspace"] / "opening-source"
     )
     scenario["source"].pop("opening_source_provenance", None)
+    _install_opening_review_task(ws, scenario)
     _write_json(scenario_path, scenario)
     monkeypatch.setenv("COC_HOST", "pi")
 
@@ -13822,13 +13836,19 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
             selected_opening_pdf_indices=[0],
         )
     )
+    identity_forgery = deepcopy(review_receipt)
+    identity_forgery["coordinator_task_identity_sha256"] = (
+        "sha256:" + ("0" * 64)
+    )
+    with pytest.raises(
+        coc_toolbox.coc_runtime_ops.RuntimeOperationError,
+        match="does not match pending task",
+    ):
+        coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+            ws["workspace"], identity_forgery,
+        )
     scope_forgery = deepcopy(review_receipt)
     scope_forgery["source_scope"]["pdf_indices"] = [1]
-    scope_forgery["receipt_sha256"] = (
-        coc_toolbox.coc_runtime_ops._opening_review_receipt_digest(
-            scope_forgery
-        )
-    )
     with pytest.raises(
         coc_toolbox.coc_runtime_ops.RuntimeOperationError,
         match="scope is invalid",
@@ -13838,6 +13858,16 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
         )
     coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
         ws["workspace"], review_receipt,
+    )
+    consumed = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert consumed["opening_source_review_task"]["status"] == "fulfilled"
+    assert consumed["opening_source_review_task"][
+        "terminal_receipt_sha256"
+    ].startswith("sha256:")
+    resumed_after_review = _run(ws, "session.resume")
+    assert resumed_after_review["ok"] is False
+    assert resumed_after_review["error"]["details"]["phase"] == (
+        "opening_selection"
     )
     reviewed = _run(ws, "progressive.prepare_opening")
     assert reviewed["ok"] is True, reviewed
@@ -13891,6 +13921,7 @@ def test_pi_opening_coordinator_terminal_failure_survives_restart(
         ws["workspace"] / "opening-source"
     )
     scenario["source"].pop("opening_source_provenance", None)
+    _install_opening_review_task(ws, scenario)
     _write_json(scenario_path, scenario)
     monkeypatch.setenv("COC_HOST", "pi")
     continuation = {
@@ -13909,6 +13940,7 @@ def test_pi_opening_coordinator_terminal_failure_survives_restart(
             ws["workspace"],
             continuation=continuation,
             status="failed",
+            selected_opening_pdf_indices=[0],
             failure_class="pdf_scope_failed",
             error_code="missing_reviewed_window",
         )
@@ -13916,6 +13948,15 @@ def test_pi_opening_coordinator_terminal_failure_survives_restart(
     coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
         ws["workspace"], failure_receipt,
     )
+    failed_state = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert failed_state["opening_source_review_task"]["status"] == "failed"
+    with pytest.raises(
+        coc_toolbox.coc_runtime_ops.RuntimeOperationError,
+        match="task authority is invalid",
+    ):
+        coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+            ws["workspace"], failure_receipt,
+        )
 
     for operation in ("session.resume", "scene.map"):
         terminal = _run(ws, operation)

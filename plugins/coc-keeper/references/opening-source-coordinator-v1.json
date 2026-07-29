@@ -166,10 +166,13 @@
     "review_fulfillment": {
       "public_tool": false,
       "execution_owner": "opening_source_coordinator",
+      "pending_task_contract_id": "coc.opening-source-review-task.v1",
       "contract_id": "coc.opening-source-review-fulfillment.v1",
       "retained_continuation_identity_hash_bound": true,
       "campaign_scenario_bundle_and_source_scope_hash_bound": true,
       "canonical_scope_signature_required": true,
+      "private_challenge_and_generation_required": true,
+      "single_terminal_consumption": true,
       "ordinary_setup_promotion_forbidden": true
     },
     "main_keeper_waits_only_for_concept_result_before_character_choice": true,

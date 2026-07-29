@@ -1271,10 +1271,13 @@ def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
     assert contract["lifecycle"]["review_fulfillment"] == {
         "public_tool": False,
         "execution_owner": "opening_source_coordinator",
+        "pending_task_contract_id": "coc.opening-source-review-task.v1",
         "contract_id": "coc.opening-source-review-fulfillment.v1",
         "retained_continuation_identity_hash_bound": True,
         "campaign_scenario_bundle_and_source_scope_hash_bound": True,
         "canonical_scope_signature_required": True,
+        "private_challenge_and_generation_required": True,
+        "single_terminal_consumption": True,
         "ordinary_setup_promotion_forbidden": True,
     }
     assert contract["lifecycle"]["main_keeper_character_flow_continues_without_waiting"] is True

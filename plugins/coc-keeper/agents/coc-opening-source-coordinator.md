@@ -185,8 +185,10 @@ text, concept choice, sheet data, or any reconstructed/edited continuation.
    `scenario.bind_pdf` always registers the bundle as a locator/background
    hint; it cannot assert playable-opening review authority. The host adapter's
    private coordinator-fulfillment boundary must authenticate this retained
-   task and bind its exact continuation identity, campaign, scenario, bundle,
-   selected page scope, and canonical scope signature before persisting
+   task against the exact pending `coc.opening-source-review-task.v1`
+   challenge and generation, then bind its exact continuation identity,
+   campaign, scenario, bundle, selected page scope, and canonical scope
+   signature before atomically consuming that task and persisting
    `coordinator_reviewed_playable_opening`. Never put that provenance value in
    a setup payload or advertise the fulfillment boundary as a model-callable
    operation. Do not discover

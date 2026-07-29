@@ -1414,7 +1414,11 @@ def _pi_opening_setup_gate(
                 "coordinator_task_identity_sha256": validated_failure[
                     "coordinator_task_identity_sha256"
                 ],
-                "receipt_sha256": validated_failure["receipt_sha256"],
+                "receipt_sha256": (
+                    coc_runtime_ops._opening_review_receipt_digest(
+                        validated_failure
+                    )
+                ),
             },
             "next_operation": None,
             "instruction": (
@@ -1424,6 +1428,16 @@ def _pi_opening_setup_gate(
             ),
         }
     if opening_source_provenance == "selection_hint_only_not_provenance":
+        try:
+            pending_review = coc_runtime_ops._validate_opening_review_task(
+                scenario, expected_status="pending",
+            )
+        except coc_runtime_ops.RuntimeOperationError as exc:
+            return _pi_opening_source_contract_error_gate(
+                str(campaign_id),
+                code="opening_source_review_task_invalid",
+                message=str(exc),
+            )
         character_setup_complete = _pi_opening_character_setup_complete(
             campaign_dir, str(campaign_id),
         )
@@ -1436,6 +1450,7 @@ def _pi_opening_setup_gate(
             "campaign_id": str(campaign_id),
             "source_provenance": opening_source_provenance,
             "required_source_owner": "coc-opening-source-coordinator",
+            "opening_review_generation": pending_review["generation"],
             "character_setup_complete": character_setup_complete,
             "next_operation": None,
             "instruction": (

@@ -2466,6 +2466,92 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     assert rerendered["status"] == "PASS"
     assert rerendered["result"]["briefing_path"] == briefing_path
 
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": "custom",
+        "scenario_id": "custom-module",
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": "custom-module",
+        "source_bundle_path": str(source_bundle),
+        "result_delivery": "task_return_to_parent",
+    }
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="retained exact continuation",
+    ):
+        ops._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation={
+                **continuation,
+                "result_delivery": "caller_supplied",
+            },
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="continuation differs from pending task",
+    ):
+        ops._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation={
+                **continuation,
+                "source_bundle_id": "forged-bundle-id",
+            },
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="continuation differs from pending task",
+    ):
+        ops._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation=continuation,
+            status="reviewed",
+            selected_opening_pdf_indices=[1],
+        )
+    receipt = ops._build_opening_source_review_fulfillment(
+        tmp_path,
+        continuation=continuation,
+        status="reviewed",
+        selected_opening_pdf_indices=[0],
+    )
+    first_generation = scenario["opening_source_review_task"]["generation"]
+    ops._apply_opening_source_review_fulfillment(tmp_path, receipt)
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="task authority is invalid",
+    ):
+        ops._apply_opening_source_review_fulfillment(tmp_path, receipt)
+
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "custom",
+            "scenario_id": "custom-module",
+            "title": "Custom Module",
+            "source_bundle_path": str(source_bundle),
+            "compile_now": False,
+        },
+    })
+    rebound_scenario = json.loads(
+        (
+            tmp_path / ".coc" / "campaigns" / "custom"
+            / "scenario" / "scenario.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert rebound_scenario["opening_source_review_task"]["generation"] == (
+        first_generation + 1
+    )
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="does not match pending task",
+    ):
+        ops._apply_opening_source_review_fulfillment(tmp_path, receipt)
+
 
 def test_investigator_create_rejects_localized_machine_skills_before_write(tmp_path):
     sheet = {

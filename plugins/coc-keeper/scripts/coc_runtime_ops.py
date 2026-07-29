@@ -14,6 +14,7 @@ import json
 import os
 import random
 import re
+import secrets
 import shutil
 import tempfile
 from contextlib import ExitStack
@@ -4028,21 +4029,36 @@ def execute_setup_operation(
         **host_bundle["source"],
         "source_bundle_path": str(source_bundle_path),
     }
-    coc_scenario.create_scenario_skeleton(
-        campaign_dir, scenario_id, title.strip(), source
-    )
     scenario_path = campaign_dir / "scenario" / "scenario.json"
-    scenario = _read_object(scenario_path)
-    scenario["resolution_policy"] = "source_first"
-    scenario["opening_source_provenance"] = opening_source_provenance
-    # This locator only means the verified pages are reusable.  Cold compile
-    # remains valid; the progressive play marker is stamped later by the
-    # explicit skeleton projection path.
-    scenario["source_cache_asset_root_id"] = source_cache["asset_root_id"]
-    coc_fileio.write_json_atomic(
-        scenario_path, scenario, indent=2, ensure_ascii=False,
-        trailing_newline=True,
-    )
+    with coc_fileio.advisory_file_lock(
+        campaign_dir / "opening-source-review.lock"
+    ):
+        previous_generation = _current_opening_review_generation(scenario_path)
+        coc_scenario.create_scenario_skeleton(
+            campaign_dir, scenario_id, title.strip(), source
+        )
+        scenario = _read_object(scenario_path)
+        scenario["resolution_policy"] = "source_first"
+        scenario["opening_source_provenance"] = opening_source_provenance
+        scenario["opening_source_review_task"] = _new_opening_review_task(
+            campaign_id=campaign_id,
+            scenario_id=scenario_id,
+            source=scenario["source"],
+            source_bundle_id=scenario_id,
+            allowed_pdf_indices=sorted(
+                int(row["pdf_index"]) for row in host_bundle["pages"]
+            ),
+            generation=previous_generation + 1,
+        )
+        scenario.pop("opening_source_review_receipt", None)
+        scenario.pop("opening_source_review_failure", None)
+        # This locator only means the verified pages are reusable. Cold compile
+        # remains valid; progressive play is stamped by explicit projection.
+        scenario["source_cache_asset_root_id"] = source_cache["asset_root_id"]
+        coc_fileio.write_json_atomic(
+            scenario_path, scenario, indent=2, ensure_ascii=False,
+            trailing_newline=True,
+        )
     campaign_path = campaign_dir / "campaign.json"
     campaign = _read_object(campaign_path)
     campaign["active_scenario_id"] = scenario_id
@@ -4100,20 +4116,152 @@ def execute_setup_operation(
 
 _OPENING_REVIEW_CONTRACT_ID = "coc.opening-source-review-fulfillment.v1"
 _OPENING_REVIEW_OWNER = "opening_source_coordinator"
+_OPENING_REVIEW_TASK_CONTRACT_ID = "coc.opening-source-review-task.v1"
+_OPENING_REVIEW_TASK_FIELDS = {
+    "schema_version", "contract_id", "status", "generation", "challenge",
+    "execution_owner", "coordinator_contract_id", "continuation_contract_id",
+    "campaign_id", "scenario_id", "source_bundle_id", "source_bundle_path",
+    "source_id", "source_file_sha256", "source_bundle_sha256",
+    "allowed_pdf_indices", "max_selected_opening_pages", "result_delivery",
+    "task_identity_sha256", "terminal_receipt_sha256",
+}
 _OPENING_REVIEW_FIELDS = {
-    "schema_version", "contract_id", "status", "execution_owner",
+    "schema_version", "contract_id", "status",
     "coordinator_task_identity_sha256", "campaign_id", "scenario_id",
-    "source_scope", "source_scope_signature", "failure", "receipt_sha256",
+    "opening_review_generation", "opening_review_challenge",
+    "source_scope", "source_scope_signature", "failure",
 }
 
 
-def _opening_review_receipt_digest(receipt: dict[str, Any]) -> str:
-    body = {
+def _opening_review_task_digest(task: dict[str, Any]) -> str:
+    return _canonical_sha256({
         key: value
-        for key, value in receipt.items()
-        if key != "receipt_sha256"
+        for key, value in task.items()
+        if key not in {
+            "status", "task_identity_sha256", "terminal_receipt_sha256",
+        }
+    })
+
+
+def _current_opening_review_generation(scenario_path: Path) -> int:
+    if not scenario_path.is_file():
+        return 0
+    scenario = _read_object(scenario_path)
+    task = scenario.get("opening_source_review_task")
+    if not isinstance(task, dict):
+        return 0
+    generation = task.get("generation")
+    return (
+        generation
+        if isinstance(generation, int) and not isinstance(generation, bool)
+        and generation >= 1
+        else 0
+    )
+
+
+def _new_opening_review_task(
+    *,
+    campaign_id: str,
+    scenario_id: str,
+    source: dict[str, Any],
+    source_bundle_id: str,
+    allowed_pdf_indices: list[int],
+    generation: int,
+) -> dict[str, Any]:
+    task: dict[str, Any] = {
+        "schema_version": 1,
+        "contract_id": _OPENING_REVIEW_TASK_CONTRACT_ID,
+        "status": "pending",
+        "generation": generation,
+        "challenge": secrets.token_hex(32),
+        "execution_owner": _OPENING_REVIEW_OWNER,
+        "coordinator_contract_id": "coc.codex-opening-source-task.v1",
+        "continuation_contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "source_bundle_id": source_bundle_id,
+        "source_bundle_path": str(source.get("source_bundle_path") or ""),
+        "source_id": str(source.get("source_id") or ""),
+        "source_file_sha256": str(source.get("file_sha256") or ""),
+        "source_bundle_sha256": str(source.get("bundle_sha256") or ""),
+        "allowed_pdf_indices": allowed_pdf_indices,
+        "max_selected_opening_pages": 3,
+        "result_delivery": "task_return_to_parent",
+        "task_identity_sha256": "",
+        "terminal_receipt_sha256": None,
     }
-    return _canonical_sha256(body)
+    task["task_identity_sha256"] = _opening_review_task_digest(task)
+    return task
+
+
+def _validate_opening_review_task(
+    scenario: dict[str, Any],
+    *,
+    expected_status: str,
+) -> dict[str, Any]:
+    task = scenario.get("opening_source_review_task")
+    if (
+        not isinstance(task, dict)
+        or set(task) != _OPENING_REVIEW_TASK_FIELDS
+        or task.get("schema_version") != 1
+        or task.get("contract_id") != _OPENING_REVIEW_TASK_CONTRACT_ID
+        or task.get("execution_owner") != _OPENING_REVIEW_OWNER
+        or task.get("coordinator_contract_id")
+        != "coc.codex-opening-source-task.v1"
+        or task.get("continuation_contract_id")
+        != "coc.opening-source-continue.v1"
+        or task.get("result_delivery") != "task_return_to_parent"
+        or task.get("status") != expected_status
+        or task.get("task_identity_sha256")
+        != _opening_review_task_digest(task)
+    ):
+        raise RuntimeOperationError(
+            "opening source review task authority is invalid"
+        )
+    source = (
+        scenario.get("source")
+        if isinstance(scenario.get("source"), dict)
+        else {}
+    )
+    expected = {
+        "scenario_id": str(scenario.get("scenario_id") or ""),
+        "source_bundle_path": str(source.get("source_bundle_path") or ""),
+        "source_id": str(source.get("source_id") or ""),
+        "source_file_sha256": str(source.get("file_sha256") or ""),
+        "source_bundle_sha256": str(source.get("bundle_sha256") or ""),
+    }
+    if any(task.get(key) != value for key, value in expected.items()):
+        raise RuntimeOperationError(
+            "opening source review task source binding is stale"
+        )
+    if (
+        not isinstance(task.get("generation"), int)
+        or isinstance(task.get("generation"), bool)
+        or int(task["generation"]) < 1
+        or re.fullmatch(r"[0-9a-f]{64}", str(task.get("challenge") or ""))
+        is None
+        or not isinstance(task.get("allowed_pdf_indices"), list)
+        or task.get("max_selected_opening_pages") != 3
+        or (
+            expected_status == "pending"
+            and task.get("terminal_receipt_sha256") is not None
+        )
+        or (
+            expected_status in {"fulfilled", "failed"}
+            and re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                str(task.get("terminal_receipt_sha256") or ""),
+            ) is None
+        )
+    ):
+        raise RuntimeOperationError(
+            "opening source review task lifecycle is invalid"
+        )
+    return deepcopy(task)
+
+
+def _opening_review_receipt_digest(receipt: dict[str, Any]) -> str:
+    return _canonical_sha256(receipt)
 
 
 def _validate_opening_source_review_fulfillment(
@@ -4121,6 +4269,7 @@ def _validate_opening_source_review_fulfillment(
     receipt: Any,
     *,
     expected_status: str | None = None,
+    expected_task_status: str | None = None,
 ) -> dict[str, Any]:
     """Validate one private coordinator fulfillment against current source.
 
@@ -4141,24 +4290,11 @@ def _validate_opening_source_review_fulfillment(
     if (
         receipt.get("schema_version") != 1
         or receipt.get("contract_id") != _OPENING_REVIEW_CONTRACT_ID
-        or receipt.get("execution_owner") != _OPENING_REVIEW_OWNER
         or status not in {"reviewed", "failed"}
         or (expected_status is not None and status != expected_status)
     ):
         raise RuntimeOperationError(
             "opening source review fulfillment authority is invalid"
-        )
-    task_identity = str(
-        receipt.get("coordinator_task_identity_sha256") or ""
-    )
-    claimed_digest = str(receipt.get("receipt_sha256") or "")
-    if (
-        re.fullmatch(r"sha256:[0-9a-f]{64}", task_identity) is None
-        or re.fullmatch(r"sha256:[0-9a-f]{64}", claimed_digest) is None
-        or claimed_digest != _opening_review_receipt_digest(receipt)
-    ):
-        raise RuntimeOperationError(
-            "opening source review fulfillment hash binding is invalid"
         )
     root = Path(workspace).resolve()
     campaign_id = _id(receipt.get("campaign_id"), "campaign_id")
@@ -4169,6 +4305,29 @@ def _validate_opening_source_review_fulfillment(
     if str(scenario.get("scenario_id") or "") != scenario_id:
         raise RuntimeOperationError(
             "opening source review fulfillment scenario identity mismatch"
+        )
+    task_status = (
+        expected_task_status
+        or ("fulfilled" if status == "reviewed" else "failed")
+    )
+    task = _validate_opening_review_task(
+        scenario, expected_status=task_status,
+    )
+    if (
+        receipt.get("campaign_id") != task["campaign_id"]
+        or receipt.get("scenario_id") != task["scenario_id"]
+        or receipt.get("coordinator_task_identity_sha256")
+        != task["task_identity_sha256"]
+        or receipt.get("opening_review_generation") != task["generation"]
+        or receipt.get("opening_review_challenge") != task["challenge"]
+        or (
+            task_status != "pending"
+            and task.get("terminal_receipt_sha256")
+            != _opening_review_receipt_digest(receipt)
+        )
+    ):
+        raise RuntimeOperationError(
+            "opening source review fulfillment does not match pending task"
         )
     if status == "failed":
         failure = receipt.get("failure")
@@ -4211,6 +4370,11 @@ def _validate_opening_source_review_fulfillment(
         receipt.get("source_scope") != canonical_scope
         or receipt.get("source_scope_signature") != expected_signature
         or receipt.get("failure") is not None
+        or not set(canonical_scope["pdf_indices"]) <= set(
+            task["allowed_pdf_indices"]
+        )
+        or len(canonical_scope["pdf_indices"])
+        > int(task["max_selected_opening_pages"])
     ):
         raise RuntimeOperationError(
             "opening source review fulfillment scope binding mismatch"
@@ -4228,47 +4392,62 @@ def _build_opening_source_review_fulfillment(
     error_code: str | None = None,
 ) -> dict[str, Any]:
     """Build the exact receipt for an already-authenticated retained task."""
+    continuation_fields = {
+        "schema_version", "contract_id", "campaign_id", "scenario_id",
+        "selected_opening_pdf_indices", "source_bundle_id",
+        "source_bundle_path", "result_delivery",
+    }
     if (
         not isinstance(continuation, dict)
+        or set(continuation) != continuation_fields
         or continuation.get("schema_version") != 1
         or continuation.get("contract_id") != "coc.opening-source-continue.v1"
+        or continuation.get("result_delivery") != "task_return_to_parent"
     ):
         raise RuntimeOperationError(
             "opening source review requires the retained exact continuation"
         )
     campaign_id = _id(continuation.get("campaign_id"), "campaign_id")
     scenario_id = _id(continuation.get("scenario_id"), "scenario_id")
+    root = Path(workspace).resolve()
+    scenario = _read_object(
+        root / ".coc" / "campaigns" / campaign_id
+        / "scenario" / "scenario.json"
+    )
+    task = _validate_opening_review_task(
+        scenario, expected_status="pending",
+    )
+    if (
+        campaign_id != task["campaign_id"]
+        or scenario_id != task["scenario_id"]
+        or continuation.get("source_bundle_id") != task["source_bundle_id"]
+        or continuation.get("source_bundle_path")
+        != task["source_bundle_path"]
+        or continuation.get("selected_opening_pdf_indices")
+        != selected_opening_pdf_indices
+    ):
+        raise RuntimeOperationError(
+            "opening source review continuation differs from pending task"
+        )
     receipt: dict[str, Any] = {
         "schema_version": 1,
         "contract_id": _OPENING_REVIEW_CONTRACT_ID,
         "status": status,
-        "execution_owner": _OPENING_REVIEW_OWNER,
-        "coordinator_task_identity_sha256": _canonical_sha256(continuation),
+        "coordinator_task_identity_sha256": task["task_identity_sha256"],
         "campaign_id": campaign_id,
         "scenario_id": scenario_id,
+        "opening_review_generation": task["generation"],
+        "opening_review_challenge": task["challenge"],
         "source_scope": None,
         "source_scope_signature": None,
         "failure": None,
     }
-    root = Path(workspace).resolve()
     if status == "reviewed":
-        campaign_dir = root / ".coc" / "campaigns" / campaign_id
-        scenario = _read_object(
-            campaign_dir / "scenario" / "scenario.json"
-        )
         source = (
             scenario.get("source")
             if isinstance(scenario.get("source"), dict)
             else {}
         )
-        if (
-            str(scenario.get("scenario_id") or "") != scenario_id
-            or str(source.get("source_bundle_path") or "")
-            != str(continuation.get("source_bundle_path") or "")
-        ):
-            raise RuntimeOperationError(
-                "opening source review continuation differs from current binding"
-            )
         asset_root_id = str(
             scenario.get("source_cache_asset_root_id")
             or scenario.get("progressive_asset_root_id")
@@ -4298,9 +4477,11 @@ def _build_opening_source_review_fulfillment(
         raise RuntimeOperationError(
             "opening source review status must be reviewed or failed"
         )
-    receipt["receipt_sha256"] = _opening_review_receipt_digest(receipt)
     return _validate_opening_source_review_fulfillment(
-        root, receipt, expected_status=status,
+        root,
+        receipt,
+        expected_status=status,
+        expected_task_status="pending",
     )
 
 
@@ -4310,39 +4491,57 @@ def _apply_opening_source_review_fulfillment(
 ) -> dict[str, Any]:
     """Private host-adapter mutation; deliberately absent from public tools."""
     root = Path(workspace).resolve()
-    validated = _validate_opening_source_review_fulfillment(root, receipt)
-    campaign_id = str(validated["campaign_id"])
+    campaign_id = _id(
+        receipt.get("campaign_id") if isinstance(receipt, dict) else None,
+        "campaign_id",
+    )
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
     scenario_path = (
-        root / ".coc" / "campaigns" / campaign_id
-        / "scenario" / "scenario.json"
+        campaign_dir / "scenario" / "scenario.json"
     )
-    scenario = _read_object(scenario_path)
-    source = (
-        scenario.get("source")
-        if isinstance(scenario.get("source"), dict)
-        else {}
-    )
-    source.pop("opening_source_provenance", None)
-    scenario["source"] = source
-    if validated["status"] == "reviewed":
-        scenario["opening_source_provenance"] = (
-            "coordinator_reviewed_playable_opening"
+    with coc_fileio.advisory_file_lock(
+        campaign_dir / "opening-source-review.lock"
+    ):
+        validated = _validate_opening_source_review_fulfillment(
+            root, receipt, expected_task_status="pending",
         )
-        scenario["opening_source_review_receipt"] = validated
-        scenario.pop("opening_source_review_failure", None)
-    else:
-        scenario["opening_source_provenance"] = (
-            "selection_hint_only_not_provenance"
+        scenario = _read_object(scenario_path)
+        task = _validate_opening_review_task(
+            scenario, expected_status="pending",
         )
-        scenario["opening_source_review_failure"] = validated
-        scenario.pop("opening_source_review_receipt", None)
-    coc_fileio.write_json_atomic(
-        scenario_path,
-        scenario,
-        indent=2,
-        ensure_ascii=False,
-        trailing_newline=True,
-    )
+        task["status"] = (
+            "fulfilled" if validated["status"] == "reviewed" else "failed"
+        )
+        task["terminal_receipt_sha256"] = (
+            _opening_review_receipt_digest(validated)
+        )
+        scenario["opening_source_review_task"] = task
+        source = (
+            scenario.get("source")
+            if isinstance(scenario.get("source"), dict)
+            else {}
+        )
+        source.pop("opening_source_provenance", None)
+        scenario["source"] = source
+        if validated["status"] == "reviewed":
+            scenario["opening_source_provenance"] = (
+                "coordinator_reviewed_playable_opening"
+            )
+            scenario["opening_source_review_receipt"] = validated
+            scenario.pop("opening_source_review_failure", None)
+        else:
+            scenario["opening_source_provenance"] = (
+                "selection_hint_only_not_provenance"
+            )
+            scenario["opening_source_review_failure"] = validated
+            scenario.pop("opening_source_review_receipt", None)
+        coc_fileio.write_json_atomic(
+            scenario_path,
+            scenario,
+            indent=2,
+            ensure_ascii=False,
+            trailing_newline=True,
+        )
     return deepcopy(validated)
 
 
