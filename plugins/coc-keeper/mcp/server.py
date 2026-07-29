@@ -655,18 +655,50 @@ def _run_canonical_operation(
             "authority": "advisory",
             "hard_gate": False,
         }
+    resume_error = envelope.get("error")
+    resume_details = (
+        resume_error.get("details")
+        if isinstance(resume_error, dict)
+        and resume_error.get("code") == "opening_setup_incomplete"
+        else None
+    )
+    canonical_opening_resume_gate = (
+        canonical_name == "session.resume"
+        and campaign_key is not None
+        and envelope.get("ok") is False
+        and envelope.get("tool") == "session.resume"
+        and isinstance(resume_details, dict)
+        and resume_details.get("schema_version") == 1
+        and resume_details.get("status") == "blocked"
+        and resume_details.get("hard_gate") is True
+        and resume_details.get("activation_allowed") is False
+        and resume_details.get("campaign_id") == campaign_id
+        and resume_details.get("phase") in {
+            "opening_selection",
+            "opening_source_materialization",
+            "opening_character_setup_required",
+            "opening_source_contract_invalid",
+        }
+        and isinstance(resume_details.get("instruction"), str)
+    )
     if (
         canonical_name == "session.resume"
         and campaign_key is not None
-        and envelope.get("ok") is True
+        and (
+            envelope.get("ok") is True
+            or canonical_opening_resume_gate
+        )
     ):
+        # A canonical opening hard-gate response is itself the bounded current
+        # campaign recovery projection.  It acknowledges this MCP process
+        # context even though live play remains correctly blocked.
         _PROCESS_ACTIVE_CAMPAIGN = campaign_key
         acknowledged = (
             ((envelope.get("data") or {}).get("host_context") or {}).get(
                 "acknowledged"
             )
             or {}
-        )
+        ) if envelope.get("ok") is True else {}
         acknowledged_session_id = acknowledged.get("session_id")
         if (
             isinstance(acknowledged_session_id, str)

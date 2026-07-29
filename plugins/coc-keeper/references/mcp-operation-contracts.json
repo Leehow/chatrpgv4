@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:9548b83d1b0187c87247ce40b980c094d19a250515bd288314951f38415092b8",
+  "content_sha256": "sha256:1aa30480e899b263b4dabb87daab370d778fe840c39feb00362f62d3bde2d3f6",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1781,7 +1781,7 @@
     },
     "rules.check": {
       "canonical_operation": "rules.check",
-      "description": "Run the active ruleset's generic deterministic check primitive and persist canonical public roll evidence. The request follows the package signature; the kernel binds actor, package version, idempotency, rolls.jsonl, and finalization. Canonical operation `rules.check`; the result envelope is authoritative.",
+      "description": "Low-level ruleset-package integration primitive, not an investigator skill or characteristic check. Live Keepers use rules.roll for ordinary investigator checks and rules.psychology_observe for concealed Psychology observation; rules.skill_check does not exist. This primitive persists canonical public roll evidence from an exact package-native request signature. Canonical operation `rules.check`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1799,7 +1799,7 @@
           },
           "request": {
             "additionalProperties": true,
-            "description": "package-defined check keyword arguments (rng is injected by the kernel)",
+            "description": "exact package-native low-level check kwargs (rng is injected); do not pass investigator skill or skill_id here",
             "type": "object"
           },
           "root": {
@@ -1820,7 +1820,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Run the active ruleset's generic deterministic check primitive and persist canonical public roll evidence. The request follows the package signature; the kernel binds actor, package version, idempotency, rolls.jsonl, and finalization."
+      "summary": "Low-level ruleset-package integration primitive, not an investigator skill or characteristic check. Live Keepers use rules.roll for ordinary investigator checks and rules.psychology_observe for concealed Psychology observation; rules.skill_check does not exist. This primitive persists canonical public roll evidence from an exact package-native request signature."
     },
     "rules.damage": {
       "canonical_operation": "rules.damage",

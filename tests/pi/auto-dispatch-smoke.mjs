@@ -4986,6 +4986,148 @@ for (const terminalCase of [
     route?.next_operation?.operation === "progressive.project_opening");
 }
 
+// A current projection must not expose its scene activation before the exact
+// table-opening receipt. The receipt then returns that same canonical card so
+// the model can activate once without probing scene.context first.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  const campaignId = "opening-activation-receipt-order";
+  const { task } = beginBackgroundOpeningRoute(
+    gate,
+    campaignId,
+    "opening-activation-order",
+  );
+  const investigatorId = "opening-activation-investigator";
+  observeCanonicalGuidedCreate(
+    gate,
+    campaignId,
+    investigatorId,
+    "opening-activation-create",
+  );
+  observeOwnedOpeningInvocation(
+    gate,
+    "opening-activation-link",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: campaignId,
+          investigator_ids: [investigatorId],
+        },
+      },
+    },
+    canonicalLinkSetupResult(campaignId, [investigatorId]),
+  );
+  gate.observeOpeningCoordinatorTerminal({
+    packet_id: task.packet.packet_id,
+    status: "fulfilled",
+  });
+
+  const projectParams = {
+    operation: "progressive.project_opening",
+    campaign: campaignId,
+    arguments: {
+      asset_root_id: task.packet.asset_root_id,
+      source_file_sha256: "a".repeat(64),
+      start_location_id: "opening",
+      opening_pdf_indices: [0],
+    },
+  };
+  const activationCard = {
+    operation: "state.move_scene",
+    invoke_via: "coc_invoke",
+    prefilled_arguments: {
+      scene_id: "opening",
+      defer_initial_progressive_on_enter: true,
+    },
+    missing_arguments: ["decision_id"],
+    authority: "advisory",
+    hard_gate: false,
+  };
+  check("current opening projection is admitted after source fulfillment",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      projectParams,
+      "opening-activation-project",
+    ) === null);
+  const projected = gate.observeOpeningSetupInvocation(
+    "progressive.project_opening",
+    projectParams,
+    {
+      ok: true,
+      tool: "progressive.project_opening",
+      data: {
+        status: "current",
+        activation_operation: activationCard,
+      },
+    },
+    "opening-activation-project",
+  );
+  check("projection hides activation until table-opening evidence",
+    projected.accepted === true
+    && projected.modelProjection?.data?.activation_operation === undefined
+    && projected.modelProjection?.data?.activation_allowed === false
+    && projected.modelProjection?.data?.next_operation?.operation
+      === "evidence.table_opening"
+    && projected.modelProjection?.data?.opening_gate?.phase
+      === "opening_table_evidence_required");
+
+  const openingText = "[in_game]\n来源约束下的准确开场。\n[/in_game]";
+  const evidenceParams = {
+    operation: "evidence.table_opening",
+    campaign: campaignId,
+    arguments: {
+      text: openingText,
+      run_id: "opening-activation-run",
+      presented_roll_ids: [],
+      decision_id: "opening-activation-evidence",
+    },
+  };
+  check("exact table-opening card is admitted before activation",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      evidenceParams,
+      "opening-activation-evidence",
+    ) === null);
+  const evidenced = gate.observeOpeningSetupInvocation(
+    "evidence.table_opening",
+    evidenceParams,
+    {
+      ok: true,
+      tool: "evidence.table_opening",
+      data: {
+        turn: 0,
+        text: openingText,
+        text_sha256: `sha256:${createHash("sha256").update(
+          JSON.stringify(openingText),
+        ).digest("hex")}`,
+        authoritative_time_anchor: {
+          schema_version: 1,
+          display: "冬日清晨",
+          rendered_line: "【开场时间】冬日清晨",
+        },
+      },
+    },
+    "opening-activation-evidence",
+  );
+  check("table-opening receipt returns the exact retained activation card",
+    evidenced.accepted === true
+    && JSON.stringify(evidenced.modelProjection?.data?.activation_operation)
+      === JSON.stringify(activationCard)
+    && JSON.stringify(evidenced.modelProjection?.data?.next_operation)
+      === JSON.stringify(activationCard)
+    && gate.openingSetupToolError("coc_invoke", {
+      operation: "state.move_scene",
+      campaign: campaignId,
+      arguments: {
+        ...activationCard.prefilled_arguments,
+        decision_id: "opening-activation-move",
+      },
+    }, "opening-activation-move") === null);
+}
+
 // If no agent turn owns the fulfilled terminal after link, the terminal wake
 // claims the same release token and carries the exact route itself. A failed
 // projection restores the original bootstrap retry card.

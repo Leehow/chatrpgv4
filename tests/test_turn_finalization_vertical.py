@@ -1197,6 +1197,38 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
         is None
     )
 
+    first_paragraph_args = {
+        "draft": result_par,
+        "coverage": coverage_rows("档案员盯着他看了几秒"),
+        "decision_id": "collect-first-paragraph",
+    }
+    first_paragraph_preflight = coc_toolbox.run_tool(
+        "turn.finalize",
+        workspace,
+        campaign_id,
+        {**first_paragraph_args, "validate_only": True},
+    )
+    first_paragraph_commit = coc_toolbox.run_tool(
+        "turn.finalize",
+        workspace,
+        campaign_id,
+        first_paragraph_args,
+    )
+    assert first_paragraph_preflight["ok"] is False
+    assert first_paragraph_commit["ok"] is False
+    assert (
+        first_paragraph_preflight["error"]["code"]
+        == first_paragraph_commit["error"]["code"]
+        == "default_mechanics_placement_unavailable"
+    )
+    assert "paragraph zero" in first_paragraph_commit["error"]["message"]
+    assert (
+        coc_turn_finalization.finalization_by_decision(
+            campaign_dir, "collect-first-paragraph"
+        )
+        is None
+    )
+
     bad_coverage = coverage_rows("这句摘录不在草稿里。")
     bad_placements = [
         {"after_paragraph": 0, "segment_type": "public_check", "source_ids": ["fake-roll-id"]},

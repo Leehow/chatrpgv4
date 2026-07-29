@@ -1841,7 +1841,7 @@ def _normalize_mechanics_placements(
         source_ids = row.get("source_ids")
         if (
             isinstance(after, bool) or not isinstance(after, int)
-            or after < -1 or after >= paragraph_count
+            or after < 0 or after >= paragraph_count
         ):
             raise TurnContractError(
                 "invalid_mechanics_placement",
@@ -1914,10 +1914,10 @@ def _default_mechanics_placements(
     """Derive a safe causal layout without making a narrative decision.
 
     Public checks are inserted immediately before the first paragraph that
-    contains their already-KP-authored causal excerpt.  When the consequence
-    is in paragraph zero the roll is placed at after_paragraph=-1 (before
-    the first paragraph).  Other authoritative changes are grouped after the
-    final fictional paragraph.
+    contains their already-KP-authored causal excerpt.  A consequence in
+    paragraph zero has no valid fiction-first insertion point and is rejected
+    with an actionable contract error.  Other authoritative changes are
+    grouped after the final fictional paragraph.
     """
     coverage_by_id = {row["obligation_id"]: row for row in coverage}
     grouped: dict[tuple[int, str], list[str]] = {}
@@ -1933,7 +1933,13 @@ def _default_mechanics_placements(
             raise TurnContractError(
                 "default_mechanics_placement_unavailable",
                 f"public roll {source_id} has no safe preceding paragraph; "
-                "provide mechanics_placements explicitly or split setup and result prose",
+                "split action/setup and result prose into separate paragraphs",
+            )
+        if result_indices[0] == 0:
+            raise TurnContractError(
+                "default_mechanics_placement_unavailable",
+                f"public roll {source_id} consequence is in paragraph zero; "
+                "add a separate action/setup paragraph before the result paragraph",
             )
         grouped.setdefault(
             (result_indices[0] - 1, "public_check"), []
@@ -2149,7 +2155,17 @@ def _collect_default_placements(
                 "code": "default_mechanics_placement_unavailable",
                 "message": (
                     f"public roll {source_id} has no safe preceding paragraph; "
-                    "provide mechanics_placements explicitly or split setup and result prose"
+                    "split action/setup and result prose into separate paragraphs"
+                ),
+            })
+            continue
+        if result_indices[0] == 0:
+            violations.append({
+                "stage": "mechanics_placements",
+                "code": "default_mechanics_placement_unavailable",
+                "message": (
+                    f"public roll {source_id} consequence is in paragraph zero; "
+                    "add a separate action/setup paragraph before the result paragraph"
                 ),
             })
             continue
@@ -2210,7 +2226,7 @@ def _collect_placements_violations(
         row_usable = True
         if (
             isinstance(after, bool) or not isinstance(after, int)
-            or after < -1 or after >= paragraph_count
+            or after < 0 or after >= paragraph_count
         ):
             add(
                 "invalid_mechanics_placement",

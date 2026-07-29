@@ -1152,7 +1152,8 @@ def _error_recovery_hints(code: str) -> list[str]:
             "the roll block auto-inserts BEFORE the paragraph containing exact_excerpt; restructure your draft so the action/attempt is in an earlier paragraph and the consequence/result is in a LATER paragraph, then set exact_excerpt to a verbatim substring of that later consequence paragraph"
         ],
         "default_mechanics_placement_unavailable": [
-            "the consequence paragraph (containing exact_excerpt) is paragraph 0, leaving no insertion point before it; add an action/attempt paragraph BEFORE the consequence paragraph so the roll block can insert between them"
+            "the consequence paragraph (containing exact_excerpt) is paragraph 0, leaving no insertion point before it; add an action/attempt paragraph BEFORE the consequence paragraph so the roll block can insert between them",
+            "retry turn.finalize with the corrected draft and same pending turn; do not call session.resume unless the host context was actually lost",
         ],
         "excerpt_mismatch": [
             "exact_excerpt must be a character-for-character substring of the draft string; copy-paste it directly from your draft text — do not retype, paraphrase, or alter punctuation"
@@ -7713,7 +7714,7 @@ def _resource_receipt_integrity(data: dict[str, Any]) -> str:
 
 @tool(
     "rules.check",
-    "Run the active ruleset's generic deterministic check primitive and persist canonical public roll evidence. The request follows the package signature; the kernel binds actor, package version, idempotency, rolls.jsonl, and finalization.",
+    "Low-level ruleset-package integration primitive, not an investigator skill or characteristic check. Live Keepers use rules.roll for ordinary investigator checks and rules.psychology_observe for concealed Psychology observation; rules.skill_check does not exist. This primitive persists canonical public roll evidence from an exact package-native request signature.",
     {
         "actor": {
             "type": "string",
@@ -7723,7 +7724,7 @@ def _resource_receipt_integrity(data: dict[str, Any]) -> str:
         "request": {
             "type": "object",
             "required": True,
-            "desc": "package-defined check keyword arguments (rng is injected by the kernel)",
+            "desc": "exact package-native low-level check kwargs (rng is injected); do not pass investigator skill or skill_id here",
         },
         "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {
@@ -7754,7 +7755,13 @@ def _tool_rules_check(ctx: Ctx, args: dict[str, Any]):
     try:
         result = resolver.check(**deepcopy(operation["request"]), rng=_rng(args))
     except (TypeError, ValueError) as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
+        raise ToolError(
+            "invalid_param",
+            "rules.check package primitive rejected request: "
+            f"{exc}; investigator skill/characteristic checks use rules.roll, "
+            "concealed Psychology observation uses rules.psychology_observe, "
+            "and rules.skill_check does not exist",
+        ) from exc
     if not isinstance(result, dict):
         raise ToolError("invalid_ruleset", "ruleset check must return an object")
     resolution = _generic_check_resolution(result, operation["request"])

@@ -865,6 +865,20 @@ def test_mcp_contract_archive_matches_toolbox_and_is_deterministic():
     resume_description = on_disk["operations"]["session.resume"]["description"]
     assert "predates this host startup" in resume_description
     assert "do not call it after creating" in resume_description
+    generic_check_description = on_disk["operations"]["rules.check"][
+        "description"
+    ]
+    assert "not an investigator skill or characteristic check" in (
+        generic_check_description
+    )
+    assert "rules.roll" in generic_check_description
+    assert "rules.psychology_observe" in generic_check_description
+    assert "rules.skill_check does not exist" in generic_check_description
+    assert "do not pass investigator skill or skill_id" in (
+        on_disk["operations"]["rules.check"]["inputSchema"]["properties"][
+            "request"
+        ]["description"]
+    )
     status_description = on_disk["operations"]["progressive.status"][
         "description"
     ]
@@ -1705,6 +1719,71 @@ def test_historical_setup_receipt_cannot_replace_active_campaign(
     })
     assert resumed["ok"] is True
     assert server._PROCESS_ACTIVE_CAMPAIGN == (root_key, "historical-b")
+
+
+def test_opening_resume_gate_acknowledges_mcp_campaign_context(
+    monkeypatch, tmp_path,
+):
+    server = _load_server()
+    root_key = os.fspath(tmp_path.resolve())
+    campaign_id = "opening-resume-context"
+    monkeypatch.setattr(server, "_PROCESS_ACTIVE_CAMPAIGN", None)
+    monkeypatch.setattr(server, "_PROCESS_FRESH_CAMPAIGNS", set())
+
+    def fake_run(name, _root, campaign, _args):
+        if name == "session.resume":
+            return {
+                "ok": False,
+                "tool": "session.resume",
+                "error": {
+                    "code": "opening_setup_incomplete",
+                    "details": {
+                        "schema_version": 1,
+                        "status": "blocked",
+                        "hard_gate": True,
+                        "activation_allowed": False,
+                        "phase": "opening_selection",
+                        "campaign_id": campaign,
+                        "next_operation": {
+                            "operation": "progressive.prepare_opening",
+                        },
+                        "instruction": (
+                            "invoke the exact retained "
+                            "progressive.prepare_opening route"
+                        ),
+                    },
+                },
+            }
+        return {
+            "ok": True,
+            "tool": name,
+            "data": {"status": "ready"},
+            "warnings": [],
+            "hints": [],
+        }
+
+    monkeypatch.setattr(server.toolbox, "run_tool", fake_run)
+    resumed = server._call_tool("coc_invoke", {
+        "operation": "session.resume",
+        "root": root_key,
+        "campaign": campaign_id,
+        "arguments": {},
+    })
+    assert resumed["ok"] is False
+    assert resumed["error"]["code"] == "opening_setup_incomplete"
+    assert server._PROCESS_ACTIVE_CAMPAIGN == (root_key, campaign_id)
+
+    prepared = server._call_tool("coc_invoke", {
+        "operation": "progressive.prepare_opening",
+        "root": root_key,
+        "campaign": campaign_id,
+        "arguments": {},
+    })
+    assert prepared["ok"] is True
+    assert "context_rehydration" not in prepared
+    assert not any(
+        "session.resume" in hint for hint in prepared.get("hints", [])
+    )
 
 
 def test_nonpass_bind_receipt_does_not_emit_receipt_first_hint(

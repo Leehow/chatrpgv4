@@ -342,6 +342,7 @@ type OpeningSetupState = {
   characterSetupComplete: boolean;
   guidedCreateReceipts: Map<string, OpeningGuidedCreateReceipt>;
   projectionCard: JsonObject | null;
+  activationCard: JsonObject | null;
   bootstrapRetryCard: JsonObject | null;
   continuationReleaseOwner: "route" | "terminal" | null;
   backgroundTerminalReceipt: JsonObject | null;
@@ -1106,6 +1107,57 @@ export class OpeningTerminalContinuationGate {
     };
   }
 
+  private exactOpeningActivationCard(value: unknown): JsonObject | null {
+    const card = objectOrNull(value);
+    const prefilled = objectOrNull(card?.prefilled_arguments);
+    const missing = card?.missing_arguments;
+    return (
+      card !== null
+      && card.operation === "state.move_scene"
+      && card.invoke_via === "coc_invoke"
+      && prefilled !== null
+      && typeof prefilled.scene_id === "string"
+      && prefilled.scene_id.length > 0
+      && prefilled.defer_initial_progressive_on_enter === true
+      && Array.isArray(missing)
+      && missing.length === 1
+      && missing[0] === "decision_id"
+      && card.authority === "advisory"
+      && card.hard_gate === false
+    )
+      ? structuredClone(card)
+      : null;
+  }
+
+  private projectOpeningEvidenceRoute(
+    envelope: JsonObject,
+    route: OpeningSetupRoute,
+  ): JsonObject {
+    const projected = structuredClone(envelope);
+    const projectedData = objectOrNull(projected.data);
+    if (projectedData !== null) {
+      delete projectedData.activation_operation;
+      projectedData.activation_allowed = false;
+      projectedData.next_operation = structuredClone(route.next_operation);
+      projectedData.opening_gate = structuredClone(route);
+    }
+    return projected;
+  }
+
+  private projectOpeningActivation(
+    envelope: JsonObject,
+    activationCard: JsonObject | null,
+  ): JsonObject {
+    if (activationCard === null) return envelope;
+    const projected = structuredClone(envelope);
+    const projectedData = objectOrNull(projected.data);
+    if (projectedData !== null) {
+      projectedData.activation_operation = structuredClone(activationCard);
+      projectedData.next_operation = structuredClone(activationCard);
+    }
+    return projected;
+  }
+
   private armOpeningEvidenceRoute(state: OpeningSetupState): void {
     state.phase = "opening_evidence";
     state.route = {
@@ -1637,6 +1689,7 @@ export class OpeningTerminalContinuationGate {
       characterSetupComplete: false,
       guidedCreateReceipts: new Map<string, OpeningGuidedCreateReceipt>(),
       projectionCard: null,
+      activationCard: null,
       bootstrapRetryCard: null,
       continuationReleaseOwner: null,
       backgroundTerminalReceipt: null,
@@ -2347,6 +2400,10 @@ export class OpeningTerminalContinuationGate {
     if (operation === "evidence.table_opening") {
       this.finalizeOpeningSetupAttempt(invocationId);
       if (this.exactTableOpeningReceipt(envelope)) {
+        const modelProjection = this.projectOpeningActivation(
+          envelope!,
+          state.activationCard,
+        );
         this.clearOpeningSetupRoute(
           attempt.campaignId,
           state.generation,
@@ -2355,6 +2412,7 @@ export class OpeningTerminalContinuationGate {
           accepted: true,
           dispatchAllowed: false,
           reason: "opening_table_evidence_current",
+          modelProjection,
         };
       }
       this.recordOpeningSetupAudit({
@@ -2389,6 +2447,7 @@ export class OpeningTerminalContinuationGate {
           phase: "bootstrap",
           dispatchIdentity: null,
           projectionCard: null,
+          activationCard: null,
           bootstrapRetryCard: null,
           continuationReleaseOwner: null,
           backgroundTerminalReceipt: null,
@@ -2502,6 +2561,9 @@ export class OpeningTerminalContinuationGate {
         envelope?.ok === true
         && (data?.status === "complete" || data?.status === "current")
       ) {
+        state.activationCard = this.exactOpeningActivationCard(
+          data.activation_operation,
+        );
         if (state.characterSetupComplete) {
           this.armOpeningEvidenceRoute(state);
         } else {
@@ -2523,6 +2585,16 @@ export class OpeningTerminalContinuationGate {
           reason: state.characterSetupComplete
             ? "opening_projection_current"
             : "opening_projection_current_waiting_for_character",
+          ...(
+            state.characterSetupComplete
+              ? {
+                  modelProjection: this.projectOpeningEvidenceRoute(
+                    envelope,
+                    state.route,
+                  ),
+                }
+              : {}
+          ),
         };
       }
       if (state.bootstrapRetryCard !== null) {
@@ -2865,6 +2937,7 @@ export class OpeningTerminalContinuationGate {
     state.phase = "submitting";
     state.continuationReleaseOwner = null;
     state.backgroundTerminalReceipt = null;
+    state.activationCard = null;
     state.bootstrapRetryCard = state.route.next_operation;
     state.projectionCard = {
       operation: "progressive.project_opening",
@@ -3011,6 +3084,7 @@ export class OpeningTerminalContinuationGate {
     };
     state.dispatchIdentity = null;
     state.projectionCard = null;
+    state.activationCard = null;
     state.continuationReleaseOwner = null;
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
   }
