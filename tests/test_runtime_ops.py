@@ -67,10 +67,16 @@ def _complete_quick_fire_skills() -> tuple[dict[str, int], dict]:
         (80, 70, 60, 60, 50, 50, 50, 40),
         strict=True,
     ))
-    catalog = ops.coc_character.coc_rules.skills_table()
+    rule_table = ops.coc_character.coc_rules.load_rule_table("skills")
+    catalog = rule_table["skills"]
+    required = set(
+        rule_table["standard_sheet"]["1920s"]["default_skill_ids"]
+    ) | set(_QUICK_FIRE_OCCUPATION_ALLOCATIONS) | set(
+        _QUICK_FIRE_INTEREST_ALLOCATIONS
+    )
     skills: dict[str, int] = {}
     for skill_id, spec in catalog.items():
-        if spec.get("modern_only") is True or spec.get("uncommon") is True:
+        if skill_id not in required:
             continue
         base = spec["base_chance"]
         if base == "half_DEX":
@@ -2529,8 +2535,75 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     assert stored["derived"]["Luck"] == luck["data"]["total"] * 5
     assert stored["derived"]["DB"] == "none"
     assert stored["skills"] == complete_skills
+    assert "Fighting (Brawl)" in stored["skills"]
+    assert "Firearms (Handgun)" in stored["skills"]
+    assert "Pilot" in stored["skills"]
+    assert "Science" in stored["skills"]
+    assert "Survival" in stored["skills"]
+    assert "Fighting (Axe)" not in stored["skills"]
+    assert "Art and Craft (Acting)" not in stored["skills"]
     assert len(stored["player_facing_sheet_zh"]["skills"]) == len(complete_skills)
     assert stored["player_facing_sheet_zh"]["skills"][0]["label"] == "会计"
+
+
+def test_guided_quick_fire_selected_specialization_is_added(tmp_path):
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id="selected-specialization",
+        decision_id="selected-specialization-luck",
+    )
+    occupation = payload["creation"]["skill_budget"]["occupation_points"][
+        "allocations"
+    ]
+    occupation["History"] -= 10
+    occupation["Fighting (Axe)"] = 10
+    payload["sheet"]["skills"]["History"] -= 10
+    payload["sheet"]["skills"]["Fighting (Axe)"] = 25
+    receipt = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.create",
+        "payload": payload,
+    })
+    assert receipt["status"] == "PASS"
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "selected-specialization"
+         / "character.json").read_text(encoding="utf-8")
+    )
+    assert stored["skills"]["Fighting (Axe)"] == 25
+    assert any(
+        row["key"] == "Fighting (Axe)" and row["label"] == "格斗（斧）"
+        for row in stored["player_facing_sheet_zh"]["skills"]
+    )
+
+
+def test_guided_quick_fire_rejects_package_starting_skill_cap_before_write(
+    tmp_path,
+):
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id="over-cap",
+        decision_id="over-cap-luck",
+    )
+    occupation = payload["creation"]["skill_budget"]["occupation_points"][
+        "allocations"
+    ]
+    for skill_id, delta in list(occupation.items()):
+        payload["sheet"]["skills"][skill_id] -= delta
+    occupation.clear()
+    occupation["Credit Rating"] = 200
+    payload["sheet"]["skills"]["Credit Rating"] = 200
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="starting-skill cap 75",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / "over-cap"
+    ).exists()
 
 
 def test_guided_quick_fire_rejects_sparse_machine_and_localized_skills_before_write(

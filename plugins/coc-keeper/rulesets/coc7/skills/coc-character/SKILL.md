@@ -65,9 +65,15 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   sums those maps, requires each derived sum to equal `spent` and `budget`,
   requires personal-interest budget to equal `INT*2`, resolves flat,
   `half_DEX`, and `EDU` catalog bases, and requires every final machine value
-  to equal base plus both deltas. The sheet must include the complete
-  era-appropriate standard catalog; allocated uncommon/specialized skills are
-  added explicitly. The Keeper still selects occupation eligibility and point
+  to equal base plus both deltas. This package selects the optional starting
+  skill cap of 75 from Keeper Rulebook p.48; guided creation rejects any
+  reconciled final above 75 before writing. The required default set is the
+  package-owned standard 1920s sheet classification from the reviewed
+  investigator sheet (PDF index 441): fixed Brawl, Handgun, Rifle/Shotgun, and
+  Language (Own) remain; generic Pilot, Science, and Survival represent their
+  printed player-selected group rows; other grouped/uncommon variants appear
+  only when an allocation explicitly selects them. Blank sheet rows remain
+  untyped. The Keeper still selects occupation eligibility and point
   destinations semantically. This is a deterministic reconciliation gate, not
   a second occupation-allocation engine. An already complete external sheet is
   accepted outside an owned Pi live-opening route only through the explicit

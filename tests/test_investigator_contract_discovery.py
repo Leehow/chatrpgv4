@@ -64,10 +64,14 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
         "Listen": 40, "Stealth": 40, "Occult": 30, "First Aid": 30,
     }
     skills = {}
-    for skill_id, spec in (
-        coc_runtime_ops.coc_character.coc_rules.skills_table().items()
-    ):
-        if spec.get("modern_only") is True or spec.get("uncommon") is True:
+    skill_rules = coc_runtime_ops.coc_character.coc_rules.load_rule_table(
+        "skills"
+    )
+    required = set(
+        skill_rules["standard_sheet"]["1920s"]["default_skill_ids"]
+    ) | set(occupation_allocations) | set(interest_allocations)
+    for skill_id, spec in skill_rules["skills"].items():
+        if skill_id not in required:
             continue
         base = spec["base_chance"]
         if base == "half_DEX":
@@ -181,10 +185,20 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
     compact_catalog = contract["guided_quick_fire_skill_catalog"]
     assert compact_catalog["columns"] == [
         "skill_id", "base_chance", "zh-Hans", "modern_only", "uncommon",
+        "standard_sheet_1920s",
     ]
     assert next(
         row for row in compact_catalog["rows"] if row[0] == "Dodge"
     )[1:3] == ["half_DEX", "闪避"]
+    assert compact_catalog["starting_skill_cap"] == 75
+    assert next(
+        row for row in compact_catalog["rows"]
+        if row[0] == "Fighting (Brawl)"
+    )[-1] is True
+    assert next(
+        row for row in compact_catalog["rows"]
+        if row[0] == "Fighting (Axe)"
+    )[-1] is False
 
     schema = contract["payload_schema"]
     assert [branch["title"] for branch in schema["oneOf"]] == [
@@ -228,7 +242,7 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         "skills",
     ]
     assert defs["skills"]["required"] == ["Credit Rating"]
-    assert "complete era-appropriate standard" in defs["skills"]["description"]
+    assert "standard 1920s sheet classification" in defs["skills"]["description"]
     assert defs["skill_budget_account"]["required"] == [
         "budget", "spent", "allocations",
     ]

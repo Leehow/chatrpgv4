@@ -442,6 +442,19 @@ def _skill_catalog() -> dict[str, dict]:
     }
 
 
+def _guided_skill_policy() -> dict[str, Any]:
+    try:
+        table = coc_rules.load_rule_table("skills")
+    except (OSError, KeyError, json.JSONDecodeError):
+        return {}
+    if not isinstance(table, dict):
+        return {}
+    return {
+        "guided_creation_policy": table.get("guided_creation_policy"),
+        "standard_sheet": table.get("standard_sheet"),
+    }
+
+
 def _guided_skill_base(
     skill_id: str,
     spec: dict[str, Any],
@@ -471,6 +484,7 @@ def _guided_quick_fire_skill_reconciliation(
     """
     errors: list[str] = []
     catalog = _skill_catalog()
+    policy = _guided_skill_policy()
     characteristics = sheet.get("characteristics")
     submitted = sheet.get("skills")
     if not catalog:
@@ -487,11 +501,43 @@ def _guided_quick_fire_skill_reconciliation(
         for skill_id, spec in catalog.items()
         if modern or spec.get("modern_only") is not True
     }
-    required = {
-        skill_id
-        for skill_id, spec in available.items()
-        if spec.get("uncommon") is not True
-    }
+    creation_policy = policy.get("guided_creation_policy")
+    starting_cap = (
+        creation_policy.get("starting_skill_cap")
+        if isinstance(creation_policy, dict)
+        else None
+    )
+    sheet_policy = policy.get("standard_sheet")
+    sheet_1920s = (
+        sheet_policy.get("1920s")
+        if isinstance(sheet_policy, dict)
+        else None
+    )
+    default_ids = (
+        sheet_1920s.get("default_skill_ids")
+        if isinstance(sheet_1920s, dict)
+        else None
+    )
+    if (
+        isinstance(starting_cap, bool)
+        or not isinstance(starting_cap, int)
+        or starting_cap <= 0
+    ):
+        return {}, ["guided creation starting-skill cap policy is invalid"]
+    if (
+        not isinstance(default_ids, list)
+        or not default_ids
+        or any(not isinstance(skill_id, str) for skill_id in default_ids)
+        or len(default_ids) != len(set(default_ids))
+    ):
+        return {}, ["guided creation standard-sheet policy is invalid"]
+    required = set(default_ids)
+    missing_policy_ids = sorted(required - set(available))
+    if missing_policy_ids:
+        return {}, [
+            "guided creation standard-sheet policy contains unavailable "
+            f"skills: {missing_policy_ids}"
+        ]
     budget = creation.get("skill_budget")
     if not isinstance(budget, dict) or set(budget) != {
         "occupation_points", "personal_interest_points",
@@ -592,6 +638,12 @@ def _guided_quick_fire_skill_reconciliation(
             + allocations_by_account["occupation_points"].get(skill_id, 0)
             + allocations_by_account["personal_interest_points"].get(skill_id, 0)
         )
+        if expected[skill_id] > starting_cap:
+            errors.append(
+                f"guided Quick Fire skill {skill_id!r} final value "
+                f"{expected[skill_id]} exceeds the package starting-skill "
+                f"cap {starting_cap}"
+            )
     if set(submitted) != set(expected):
         missing = sorted(set(expected) - set(submitted))
         extra = sorted(set(submitted) - set(expected))

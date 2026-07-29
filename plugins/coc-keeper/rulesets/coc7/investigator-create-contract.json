@@ -179,7 +179,7 @@
           "type": "integer",
           "minimum": 0
         },
-        "description": "Canonical English machine skill keys mapped to non-negative integers, including exact Credit Rating. For guided Quick Fire, runtime requires the complete era-appropriate standard skills.json catalog plus explicitly allocated optional skills, and reconciles every value to catalog base plus allocation deltas."
+        "description": "Canonical English machine skill keys mapped to non-negative integers, including exact Credit Rating. For guided Quick Fire, runtime requires the package-owned standard 1920s sheet classification plus explicitly allocated optional grouped/uncommon skills, reconciles every value to catalog base plus allocation deltas, and rejects final starting values above the selected package cap of 75."
       },
       "quick_fire_sheet": {
         "type": "object",
@@ -428,7 +428,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Narrow guided Quick Fire accounting gate. Runtime derives spent from both per-skill allocation maps, requires complete catalog/base reconciliation, and checks personal-interest budget against INT*2. Occupation eligibility remains semantic Keeper judgment; this does not introduce a second occupation engine."
+        "description": "Narrow guided Quick Fire accounting gate. Runtime derives spent from both per-skill allocation maps, requires package standard-sheet/base reconciliation, checks personal-interest budget against INT*2, and applies the package-owned 75 starting-skill cap. Occupation eligibility remains semantic Keeper judgment; this does not introduce a second occupation engine."
       }
     }
   }

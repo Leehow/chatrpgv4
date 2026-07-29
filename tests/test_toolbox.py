@@ -13543,9 +13543,13 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     interest_allocations = {
         "Listen": 40, "Stealth": 40, "Occult": 30, "First Aid": 30,
     }
+    skill_rules = coc_toolbox.coc_rules.load_rule_table("skills")
+    required_skill_ids = set(
+        skill_rules["standard_sheet"]["1920s"]["default_skill_ids"]
+    ) | set(occupation_allocations) | set(interest_allocations)
     complete_skills = {}
-    for skill_id, spec in coc_toolbox.coc_rules.skills_table().items():
-        if spec.get("modern_only") is True or spec.get("uncommon") is True:
+    for skill_id, spec in skill_rules["skills"].items():
+        if skill_id not in required_skill_ids:
             continue
         base = spec["base_chance"]
         if base == "half_DEX":

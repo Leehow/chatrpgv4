@@ -7,6 +7,12 @@
     "uncommon": "true when the rulebook marks the skill with T (not on the standard investigator sheet)",
     "localized_labels": "display aliases keyed by BCP-47 play_language (currently only 'zh-Hans'); data only - machine keys stay canonical English, and selectors may resolve an alias back to its canonical skill name"
   },
+  "guided_creation_policy": {
+    "starting_skill_cap": 75,
+    "selection": "package-selected optional creation cap",
+    "source_ref": "Keeper Rulebook p.48 / PDF index 59",
+    "source_note": "The optional rule permits a starting-skill upper limit such as 75%; this package selects 75 for guided creation."
+  },
   "specialization_groups": {
     "Art and Craft": {
       "base_chance": 5,
@@ -64,6 +70,91 @@
       "base_chance": 10,
       "specializations": ["any terrain"],
       "note": "G: pick one terrain type; base chance 10%."
+    }
+  },
+  "standard_sheet": {
+    "1920s": {
+      "default_skill_ids": [
+        "Accounting",
+        "Anthropology",
+        "Appraise",
+        "Archaeology",
+        "Charm",
+        "Climb",
+        "Credit Rating",
+        "Cthulhu Mythos",
+        "Disguise",
+        "Dodge",
+        "Drive Auto",
+        "Electrical Repair",
+        "Fast Talk",
+        "Fighting (Brawl)",
+        "Firearms (Handgun)",
+        "Firearms (Rifle/Shotgun)",
+        "First Aid",
+        "History",
+        "Intimidate",
+        "Jump",
+        "Language (Own)",
+        "Law",
+        "Library Use",
+        "Listen",
+        "Locksmith",
+        "Mechanical Repair",
+        "Medicine",
+        "Natural World",
+        "Navigate",
+        "Occult",
+        "Operate Heavy Machinery",
+        "Persuade",
+        "Pilot",
+        "Psychoanalysis",
+        "Psychology",
+        "Ride",
+        "Science",
+        "Sleight of Hand",
+        "Spot Hidden",
+        "Stealth",
+        "Survival",
+        "Swim",
+        "Throw",
+        "Track"
+      ],
+      "fixed_specialization_ids": [
+        "Fighting (Brawl)",
+        "Firearms (Handgun)",
+        "Firearms (Rifle/Shotgun)",
+        "Language (Own)"
+      ],
+      "player_selected_group_rows": [
+        {
+          "group": "Art and Craft",
+          "catalog_skill_id": null,
+          "base_chance": 5
+        },
+        {
+          "group": "Language (Other)",
+          "catalog_skill_id": null,
+          "base_chance": 1
+        },
+        {
+          "group": "Pilot",
+          "catalog_skill_id": "Pilot",
+          "base_chance": 1
+        },
+        {
+          "group": "Science",
+          "catalog_skill_id": "Science",
+          "base_chance": 1
+        },
+        {
+          "group": "Survival",
+          "catalog_skill_id": "Survival",
+          "base_chance": 10
+        }
+      ],
+      "source_ref": "1920s Era Investigator sheet / PDF index 441",
+      "source_note": "Default ids reproduce printed fixed rows. Art/Craft and Language (Other) have no generic machine key in this catalog; Pilot, Science, and Survival do represent their printed player-selected group row. Blank underlined rows are intentionally untyped."
     }
   },
   "skills": {

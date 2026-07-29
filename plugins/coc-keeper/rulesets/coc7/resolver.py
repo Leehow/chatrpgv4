@@ -381,15 +381,29 @@ def investigator_create_contract() -> dict[str, Any]:
     )
     if not isinstance(contract, dict):
         raise ValueError("investigator create contract must be an object")
-    catalog = coc_rules.skills_table()
+    skill_rules = coc_rules.load_rule_table("skills")
+    catalog = skill_rules["skills"]
+    standard_1920s = set(
+        skill_rules["standard_sheet"]["1920s"]["default_skill_ids"]
+    )
     contract["guided_quick_fire_skill_catalog"] = {
         "source": "rules-json/skills.json",
+        "starting_skill_cap": (
+            skill_rules["guided_creation_policy"]["starting_skill_cap"]
+        ),
+        "starting_skill_cap_source_ref": (
+            skill_rules["guided_creation_policy"]["source_ref"]
+        ),
+        "standard_sheet_source_ref": (
+            skill_rules["standard_sheet"]["1920s"]["source_ref"]
+        ),
         "columns": [
             "skill_id",
             "base_chance",
             "zh-Hans",
             "modern_only",
             "uncommon",
+            "standard_sheet_1920s",
         ],
         "rows": [
             [
@@ -398,6 +412,7 @@ def investigator_create_contract() -> dict[str, Any]:
                 (spec.get("localized_labels") or {}).get("zh-Hans", skill_id),
                 spec.get("modern_only") is True,
                 spec.get("uncommon") is True,
+                skill_id in standard_1920s,
             ]
             for skill_id, spec in catalog.items()
         ],
