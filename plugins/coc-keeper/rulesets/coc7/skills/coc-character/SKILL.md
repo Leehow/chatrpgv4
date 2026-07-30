@@ -84,10 +84,12 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   and Language (Own) remain; generic Pilot, Science, and Survival represent their
   printed player-selected group rows; other grouped/uncommon variants appear
   only when an allocation explicitly selects them. Blank sheet rows remain
-  untyped. This is currently a closed 1920s policy: omit `sheet.era` for the
-  canonical `1920s` default or set it exactly to `"1920s"`. Do not submit
-  `modern` or another era until that era has its own authoritative
-  package-owned standard-sheet policy. The Keeper still selects occupation
+  untyped. The campaign-bound investigator contract returns
+  `campaign_binding.era` and `guided_quick_fire_campaign_era`. Continue only
+  when that era contract reports `supported=true`, and set `sheet.era` exactly
+  to its `required_sheet_era`. This is currently a closed 1920s policy; a
+  medieval, modern, or other unsupported campaign must stop before rolling or
+  creating rather than borrow the 1920s sheet. The Keeper still selects occupation
   eligibility and point
   destinations semantically. This is a deterministic reconciliation gate, not
   a second occupation-allocation engine. An already complete external sheet is
@@ -109,8 +111,10 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   assignment, occupation, backstory, and final character craft remain live
   semantic Keeper work.
 - During this guided setup window, `rules.cash_assets` is the only additional
-  rules query admitted. Use it with the confirmed canonical `Credit Rating`
-  (and optional period) to materialize cash/assets; do not estimate them.
+  rules query admitted. Use it with the confirmed canonical `Credit Rating`;
+  omit `period` to bind the lookup to the canonical campaign era. An explicit
+  period must match that era, and a campaign era without an authoritative
+  table fails closed rather than falling back to 1920s. Do not estimate it.
 - After the player confirms the final parameters, reuse the canonical
   `setup.invoke` card already returned by setup inspection and construct its
   `investigator.create` payload from the retained

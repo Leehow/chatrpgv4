@@ -383,6 +383,11 @@ def investigator_create_contract() -> dict[str, Any]:
         raise ValueError("investigator create contract must be an object")
     skill_rules = coc_rules.load_rule_table("skills")
     catalog = skill_rules["skills"]
+    supported_eras = sorted(
+        str(era)
+        for era, spec in skill_rules["standard_sheet"].items()
+        if isinstance(spec, dict)
+    )
     standard_1920s = set(
         skill_rules["standard_sheet"]["1920s"]["default_skill_ids"]
     )
@@ -401,7 +406,7 @@ def investigator_create_contract() -> dict[str, Any]:
             skill_rules["guided_creation_policy"]["source_ref"]
         ),
         "default_era": "1920s",
-        "supported_eras": ["1920s"],
+        "supported_eras": supported_eras,
         "standard_sheet_source_ref": (
             skill_rules["standard_sheet"]["1920s"]["source_ref"]
         ),

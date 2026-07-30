@@ -8249,7 +8249,7 @@ def _tool_rules_skill_describe(ctx: Ctx, args: dict[str, Any]):
     "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter.",
     {
         "credit_rating": {"type": "integer", "required": True, "desc": "the investigator's Credit Rating skill value"},
-        "period": {"type": "string", "desc": "finance period from cash-assets.json (default '1920s')"},
+        "period": {"type": "string", "desc": "finance period from cash-assets.json; with a campaign it must equal the canonical campaign era, otherwise defaults to '1920s'"},
     },
     needs_campaign=False,
 )
@@ -8257,14 +8257,41 @@ def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
     credit_rating = args.get("credit_rating")
     if isinstance(credit_rating, bool) or not isinstance(credit_rating, int):
         raise ToolError("invalid_param", "credit_rating must be an integer")
-    period = str(args.get("period") or "1920s").strip() or "1920s"
+    requested_period = str(args.get("period") or "").strip()
+    campaign_era = ""
+    if ctx.campaign_dir is not None:
+        campaign = coc_state.load_campaign_state(ctx.campaign_dir)
+        campaign_era = str(campaign.get("era") or "").strip()
+        if not campaign_era:
+            raise ToolError(
+                "invalid_param",
+                "campaign has no canonical era for rules.cash_assets",
+            )
+        if requested_period and requested_period != campaign_era:
+            raise ToolError(
+                "invalid_param",
+                "rules.cash_assets period must exactly match canonical "
+                f"campaign era {campaign_era!r}; got {requested_period!r}",
+            )
+    period = requested_period or campaign_era or "1920s"
     try:
         data = _rules_resolver(ctx, "cash_assets").cash_assets(
             credit_rating, period=period
         )
     except ValueError as exc:
+        if campaign_era:
+            raise ToolError(
+                "invalid_param",
+                f"campaign era {campaign_era!r} has no authoritative "
+                "cash-assets table; no 1920s fallback was applied",
+            ) from exc
         raise ToolError("invalid_param", str(exc)) from exc
     return data, [], [
+        (
+            f"finance period is bound to canonical campaign era {campaign_era!r}"
+            if campaign_era
+            else "campaign-less lookup uses the package 1920s default"
+        ),
         "living standard is descriptive, not a ledger: items matching the investigator's station are simply owned; only spending beyond the daily level touches cash (p.45-47, p.95-97)",
         "wealth-based first impressions use the pair-bound public npc.reaction D100 (p.191); this lookup never rolls",
     ]
@@ -14750,6 +14777,7 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
                 key: root_info[key]
                 for key in ("source_id", "file_sha256", "page_count", "producer")
             },
+            "module_identity": deepcopy(root_info["module_identity"]),
             "start_candidates": [location_id],
             "locations": [{
                 "location_id": location_id,

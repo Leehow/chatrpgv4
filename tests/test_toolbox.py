@@ -10934,6 +10934,9 @@ def _opening_component_workspace(
     extra_pdf_indices: tuple[int, ...] = (),
     page_body: str | None = None,
     source_page_count: int | None = None,
+    source_id: str = "pdf:opening-component",
+    source_title: str = "Opening Component",
+    canonical_title: str | None = None,
 ) -> dict:
     workspace = tmp_path / "opening-workspace"
     campaign_id = "opening-component"
@@ -10972,8 +10975,8 @@ def _opening_component_workspace(
         "schema_version": 1,
         "producer": "codex-pdf-skill",
         "source": {
-            "source_id": "pdf:opening-component",
-            "title": "Opening Component",
+            "source_id": source_id,
+            "title": source_title,
             "path": str(pdf),
             "file_sha256": file_sha,
             "page_count": source_page_count or max(page_indices) + 1,
@@ -10985,7 +10988,14 @@ def _opening_component_workspace(
         workspace,
         bundle,
         asset_root_id="opening-component",
-        module_identity={"canonical_module_id": "opening-component"},
+        module_identity={
+            "canonical_module_id": "opening-component",
+            **(
+                {"canonical_title": canonical_title}
+                if canonical_title is not None
+                else {}
+            ),
+        },
     )
     identity = json.loads(
         (
@@ -13874,6 +13884,108 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
     assert reviewed["data"]["next_operation"]["operation"] == (
         "progressive.opening_bootstrap"
     )
+
+
+def test_pi_reviewed_bind_identity_survives_bootstrap_and_exact_claim(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(
+        tmp_path,
+        source_id="pdf:raw-upload-identity",
+        source_title="Raw Upload Title",
+        canonical_title="Canonical Reviewed Scenario",
+    )
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario.update({
+        "scenario_id": ws["asset_root_id"],
+        "title": "Canonical Reviewed Scenario",
+        "opening_source_provenance": "selection_hint_only_not_provenance",
+    })
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
+    )
+    _install_opening_review_task(ws, scenario)
+    _write_json(scenario_path, scenario)
+    campaign_path = ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["active_scenario_id"] = ws["asset_root_id"]
+    _write_json(campaign_path, campaign)
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": ws["asset_root_id"],
+        "source_bundle_path": scenario["source"]["source_bundle_path"],
+        "result_delivery": "task_return_to_parent",
+    }
+    review_receipt = (
+        coc_toolbox.coc_runtime_ops
+        ._build_opening_source_review_fulfillment(
+            ws["workspace"],
+            continuation=continuation,
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
+    )
+    coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        ws["workspace"], review_receipt,
+    )
+    reviewed_before = json.loads(
+        scenario_path.read_text(encoding="utf-8")
+    )
+
+    bootstrap = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+
+    assert bootstrap["ok"] is True, bootstrap
+    projected = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert projected["scenario_id"] == ws["asset_root_id"]
+    assert projected["title"] == "Canonical Reviewed Scenario"
+    assert projected["opening_source_review_task"] == (
+        reviewed_before["opening_source_review_task"]
+    )
+    assert projected["opening_source_review_receipt"] == (
+        reviewed_before["opening_source_review_receipt"]
+    )
+    assert projected["opening_source_provenance"] == (
+        "coordinator_reviewed_playable_opening"
+    )
+    assert json.loads(campaign_path.read_text(encoding="utf-8"))[
+        "active_scenario_id"
+    ] == ws["asset_root_id"]
+    assert bootstrap["data"]["sparse_projection"]["asset_root_id"] == (
+        ws["asset_root_id"]
+    )
+    module_meta = json.loads(
+        (
+            ws["campaign_dir"] / "scenario" / "module-meta.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert module_meta["scenario_id"] == ws["asset_root_id"]
+    assert module_meta["title"] == "Canonical Reviewed Scenario"
+
+    claim = (
+        bootstrap["data"]["source_work"]["background_takeover"]
+        ["next_host_action"]["task"]["packet"]["claim_operation"]
+        ["prefilled_arguments"]
+    )
+    claimed = _run(ws, "progressive.claim_host_work", claim)
+    assert claimed["ok"] is True, claimed
+    assert claimed["data"]["dispatch_task_count"] == 1
+    assert claimed["data"]["dispatch_tasks"][0]["packet"][
+        "asset_root_id"
+    ] == ws["asset_root_id"]
 
 
 def test_pi_reviewed_provenance_requires_receipt_and_matching_copies(

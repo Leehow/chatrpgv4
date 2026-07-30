@@ -498,10 +498,12 @@ def _guided_quick_fire_skill_reconciliation(
     era = "1920s" if raw_era is None else (
         raw_era.strip().casefold() if isinstance(raw_era, str) else ""
     )
-    if era != "1920s":
+    supported_eras = guided_quick_fire_supported_eras()
+    if era not in supported_eras:
         return {}, [
             f"guided Quick Fire era {raw_era!r} is unsupported; "
-            "the package currently owns only standard_sheet.1920s"
+            "the package currently owns only "
+            + ", ".join(f"standard_sheet.{value}" for value in supported_eras)
         ]
     available = {
         skill_id: spec
@@ -692,6 +694,18 @@ def _guided_quick_fire_skill_reconciliation(
                     f"allocation deltas ({expected_value})"
                 )
     return expected, errors
+
+
+def guided_quick_fire_supported_eras() -> tuple[str, ...]:
+    """Return eras with an authoritative package-owned guided sheet policy."""
+    policy = _guided_skill_policy().get("standard_sheet")
+    if not isinstance(policy, dict):
+        return ()
+    return tuple(sorted(
+        str(era).strip().casefold()
+        for era, spec in policy.items()
+        if str(era).strip() and isinstance(spec, dict)
+    ))
 
 
 def _localized_skill_rows(skills: dict[str, int]) -> list[dict[str, Any]]:

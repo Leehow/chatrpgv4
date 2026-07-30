@@ -24,6 +24,7 @@ def _create_campaign(
     *,
     campaign_id: str = "contract-campaign",
     ruleset_id: str = "coc7",
+    era: str = "1920s",
 ) -> None:
     receipt = coc_runtime_ops.execute_setup_operation(
         workspace,
@@ -34,6 +35,7 @@ def _create_campaign(
                 "campaign_id": campaign_id,
                 "title": "Investigator Contract",
                 "ruleset_id": ruleset_id,
+                "era": era,
             },
         },
     )
@@ -90,6 +92,7 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
             "id": investigator_id,
             "name": "Quick Fire Investigator",
             "age": 29,
+            "era": "1920s",
             "skills": skills,
             "player_facing_sheet_zh": {
                 "display_name": "速建调查员",
@@ -176,6 +179,16 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
     assert contract["ruleset_id"] == "coc7"
     assert contract["ruleset_version"] == "1.0.0"
     assert contract["investigator_schema_version"] == 2
+    assert contract["campaign_binding"] == {
+        "campaign_id": "contract-campaign",
+        "era": "1920s",
+    }
+    assert contract["guided_quick_fire_campaign_era"] == {
+        "supported": True,
+        "required_sheet_era": "1920s",
+        "supported_eras": ["1920s"],
+        "failure_code": None,
+    }
     assert contract["runtime_authority"]["schema_role"] == (
         "upfront machine-readable construction guidance"
     )
@@ -225,7 +238,8 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         {"required": ["characteristics"]},
         {"required": ["derived"]},
     ]
-    assert defs["quick_fire_sheet"]["properties"]["era"]["enum"] == ["1920s"]
+    assert "era" in defs["quick_fire_sheet"]["required"]
+    assert defs["quick_fire_sheet"]["properties"]["era"]["const"] == "1920s"
     assert defs["quick_fire_creation"]["properties"]["luck_roll_total"] == {
         "type": "integer",
         "minimum": 3,
@@ -269,6 +283,128 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
     contract["payload_schema"]["title"] = "caller mutation"
     assert _query(tmp_path)["result"]["payload_schema"]["title"] == (
         "COC7 investigator.create payload"
+    )
+
+
+def test_medieval_contract_and_creation_fail_closed_before_1920s_drift(
+    tmp_path: Path,
+) -> None:
+    _create_campaign(tmp_path, era="medieval")
+
+    contract = _query(tmp_path)["result"]
+
+    assert contract["campaign_binding"] == {
+        "campaign_id": "contract-campaign",
+        "era": "medieval",
+    }
+    assert contract["guided_quick_fire_campaign_era"] == {
+        "supported": False,
+        "required_sheet_era": "medieval",
+        "supported_eras": ["1920s"],
+        "failure_code": "guided_quick_fire_unsupported_campaign_era",
+    }
+    assert [
+        branch["title"] for branch in contract["payload_schema"]["oneOf"]
+    ] == ["Explicit complete-sheet import"]
+    quick_sheet = contract["payload_schema"]["$defs"]["quick_fire_sheet"]
+    assert quick_sheet["properties"]["era"]["const"] == "medieval"
+    assert "era" in quick_sheet["required"]
+
+    payload = _quick_fire_payload("medieval-drift")
+    with pytest.raises(
+        coc_runtime_ops.RuntimeOperationError,
+        match=(
+            r"sheet\.era must exactly match campaign era 'medieval'; "
+            r"got '1920s'"
+        ),
+    ):
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": payload,
+            },
+        )
+    assert not (
+        tmp_path / ".coc" / "investigators" / "medieval-drift"
+    ).exists()
+
+    payload["sheet"].pop("era")
+    with pytest.raises(
+        coc_runtime_ops.RuntimeOperationError,
+        match=(
+            r"guided Quick Fire is unsupported for campaign era 'medieval'; "
+            r"package-owned standard sheet eras: 1920s"
+        ),
+    ):
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": payload,
+            },
+        )
+    assert not (
+        tmp_path / ".coc" / "investigators" / "medieval-drift"
+    ).exists()
+
+    no_default = coc_toolbox.run_tool(
+        "rules.cash_assets",
+        tmp_path,
+        "contract-campaign",
+        {"credit_rating": 20},
+    )
+    assert no_default["ok"] is False
+    assert no_default["error"] == {
+        "code": "invalid_param",
+        "message": (
+            "campaign era 'medieval' has no authoritative cash-assets table; "
+            "no 1920s fallback was applied"
+        ),
+    }
+    mismatched_period = coc_toolbox.run_tool(
+        "rules.cash_assets",
+        tmp_path,
+        "contract-campaign",
+        {"credit_rating": 20, "period": "1920s"},
+    )
+    assert mismatched_period["ok"] is False
+    assert mismatched_period["error"] == {
+        "code": "invalid_param",
+        "message": (
+            "rules.cash_assets period must exactly match canonical campaign "
+            "era 'medieval'; got '1920s'"
+        ),
+    }
+
+
+def test_campaign_cash_assets_uses_existing_modern_table_without_1920s_default(
+    tmp_path: Path,
+) -> None:
+    _create_campaign(
+        tmp_path,
+        campaign_id="modern-contract",
+        era="modern",
+    )
+
+    result = coc_toolbox.run_tool(
+        "rules.cash_assets",
+        tmp_path,
+        "modern-contract",
+        {"credit_rating": 20},
+    )
+
+    assert result["ok"] is True, result
+    assert result["data"]["period"] == "modern"
+    assert result["data"]["cash"] == {
+        "amount": 800,
+        "currency": "USD",
+        "formula": "CR x 40",
+    }
+    assert result["hints"][0] == (
+        "finance period is bound to canonical campaign era 'modern'"
     )
 
 

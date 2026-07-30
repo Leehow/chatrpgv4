@@ -671,6 +671,10 @@ export class OpeningTerminalContinuationGate {
         campaign: campaignId,
         required: ["credit_rating"],
         optional: ["period"],
+        period_policy: (
+          "omit to use the canonical campaign era; any explicit period must "
+          + "equal setup.investigator_contract.result.campaign_binding.era"
+        ),
       },
       {
         operation: "setup.invoke",
@@ -1333,6 +1337,29 @@ export class OpeningTerminalContinuationGate {
     const envelope = objectOrNull(value);
     const data = objectOrNull(envelope?.data);
     const contract = objectOrNull(data?.result);
+    const eraContract = objectOrNull(
+      contract?.guided_quick_fire_campaign_era,
+    );
+    if (eraContract?.supported === false) {
+      return {
+        ok: false,
+        tool: "setup.investigator_contract",
+        error: {
+          code: "guided_quick_fire_unsupported_campaign_era",
+          message: (
+            "guided Quick Fire has no authoritative package-owned standard "
+            + `sheet for campaign era ${String(
+              eraContract.required_sheet_era ?? "",
+            )}`
+          ),
+          details: {
+            campaign_id: campaignId,
+            campaign_era: eraContract.required_sheet_era,
+            supported_eras: eraContract.supported_eras,
+          },
+        },
+      };
+    }
     const payloadSchema = objectOrNull(contract?.payload_schema);
     const branches = Array.isArray(payloadSchema?.oneOf)
       ? payloadSchema.oneOf

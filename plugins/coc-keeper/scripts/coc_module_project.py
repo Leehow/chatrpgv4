@@ -1136,9 +1136,12 @@ def write_ir_to_campaign(
             if asset_root_id:
                 sc["progressive_asset_root_id"] = asset_root_id
             if isinstance(meta, dict):
-                if meta.get("title"):
+                if meta.get("title") and not str(sc.get("title") or "").strip():
                     sc["title"] = meta["title"]
-                if meta.get("scenario_id"):
+                if (
+                    meta.get("scenario_id")
+                    and not str(sc.get("scenario_id") or "").strip()
+                ):
                     sc["scenario_id"] = meta["scenario_id"]
             _write_json(sc_path, sc)
     if isinstance(meta, dict):
@@ -1316,6 +1319,11 @@ def resolve_opening_preparation_root(
         "page_count": identity_source.get("page_count"),
         "producer": identity_source.get("producer"),
         "bundle_pdf_indices": sorted(bundle_row.get("pdf_indices") or []),
+        "module_identity": json.loads(json.dumps(
+            identity.get("module_identity")
+            if isinstance(identity.get("module_identity"), dict)
+            else {}
+        )),
     }
 
 

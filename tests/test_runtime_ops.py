@@ -2644,7 +2644,7 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     ]
     assert stored["derived"]["Luck"] == luck["data"]["total"] * 5
     assert stored["derived"]["DB"] == "none"
-    assert "era" not in stored
+    assert stored["era"] == "1920s"
     assert stored["skills"] == complete_skills
     assert "Fighting (Brawl)" in stored["skills"]
     assert "Firearms (Handgun)" in stored["skills"]
@@ -2804,7 +2804,10 @@ def test_guided_quick_fire_rejects_unsupported_era_before_write(
     payload["sheet"]["era"] = era
     with pytest.raises(
         ops.RuntimeOperationError,
-        match=r"unsupported.*standard_sheet\.1920s",
+        match=(
+            rf"sheet\.era must exactly match campaign era '1920s'; "
+            rf"got '{era}'"
+        ),
     ):
         ops.execute_setup_operation(tmp_path, operation={
             "schema_version": 1,

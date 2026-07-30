@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:c1e0e018a80f390e9dcf5eab1746445f26407b4acb1ea30a5127034304979cc4",
+  "content_sha256": "sha256:a56418e08df0573719bf0f3bd911cf5e0ed068468eedf59d89b7a87e63435ff6",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1763,7 +1763,7 @@
             "type": "integer"
           },
           "period": {
-            "description": "finance period from cash-assets.json (default '1920s')",
+            "description": "finance period from cash-assets.json; with a campaign it must equal the canonical campaign era, otherwise defaults to '1920s'",
             "type": "string"
           },
           "root": {

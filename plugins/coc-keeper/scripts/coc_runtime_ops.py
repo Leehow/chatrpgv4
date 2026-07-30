@@ -3710,6 +3710,84 @@ def execute_setup_operation(
             raise RuntimeOperationError(
                 f"ruleset {ruleset_id!r} investigator contract identity is invalid"
             )
+        campaign_era = str(campaign.get("era") or "").strip()
+        if not campaign_era:
+            raise RuntimeOperationError(
+                f"campaign {campaign_id!r} has no canonical era"
+            )
+        quick_fire_catalog = contract.get("guided_quick_fire_skill_catalog")
+        supported_eras = (
+            quick_fire_catalog.get("supported_eras")
+            if isinstance(quick_fire_catalog, dict)
+            else None
+        )
+        if (
+            not isinstance(supported_eras, list)
+            or any(
+                not isinstance(value, str) or not value.strip()
+                for value in supported_eras
+            )
+        ):
+            raise RuntimeOperationError(
+                f"ruleset {ruleset_id!r} investigator contract era policy is invalid"
+            )
+        campaign_era_supported = campaign_era in supported_eras
+        contract["campaign_binding"] = {
+            "campaign_id": campaign_id,
+            "era": campaign_era,
+        }
+        contract["guided_quick_fire_campaign_era"] = {
+            "supported": campaign_era_supported,
+            "required_sheet_era": campaign_era,
+            "supported_eras": list(supported_eras),
+            "failure_code": (
+                None
+                if campaign_era_supported
+                else "guided_quick_fire_unsupported_campaign_era"
+            ),
+        }
+        payload_schema = contract["payload_schema"]
+        definitions = payload_schema.get("$defs")
+        branches = payload_schema.get("oneOf")
+        quick_fire_sheet = (
+            definitions.get("quick_fire_sheet")
+            if isinstance(definitions, dict)
+            else None
+        )
+        if (
+            not isinstance(definitions, dict)
+            or not isinstance(branches, list)
+            or not isinstance(quick_fire_sheet, dict)
+            or not isinstance(quick_fire_sheet.get("properties"), dict)
+            or not isinstance(quick_fire_sheet.get("required"), list)
+        ):
+            raise RuntimeOperationError(
+                f"ruleset {ruleset_id!r} investigator contract era schema is invalid"
+            )
+        quick_fire_sheet["properties"]["era"] = {
+            "type": "string",
+            "const": campaign_era,
+            "description": (
+                "Exact canonical campaign era from campaign_binding.era; "
+                "the campaign-bound schema requires it and investigator.create "
+                "binds omitted legacy input to it while rejecting drift."
+            ),
+        }
+        if "era" not in quick_fire_sheet["required"]:
+            quick_fire_sheet["required"].append("era")
+        if not campaign_era_supported:
+            payload_schema["oneOf"] = [
+                branch for branch in branches
+                if (
+                    isinstance(branch, dict)
+                    and (
+                        branch.get("properties", {})
+                        .get("creation", {})
+                        .get("$ref")
+                        != "#/$defs/quick_fire_creation"
+                    )
+                )
+            ]
         return {
             "schema_version": 1,
             "status": "PASS",
@@ -3807,7 +3885,27 @@ def execute_setup_operation(
                 raise FileNotFoundError(
                     f"unknown campaign: {current_campaign_id}"
                 )
-            coc_state.load_campaign_state(campaign_dir)
+            campaign = coc_state.load_campaign_state(campaign_dir)
+            campaign_era = str(campaign.get("era") or "").strip()
+            submitted_era = sheet.get("era")
+            if submitted_era is None:
+                sheet = deepcopy(sheet)
+                sheet["era"] = campaign_era
+            elif submitted_era != campaign_era:
+                raise RuntimeOperationError(
+                    "guided Quick Fire sheet.era must exactly match campaign "
+                    f"era {campaign_era!r}; got {submitted_era!r}"
+                )
+            supported_eras = (
+                coc_character.guided_quick_fire_supported_eras()
+            )
+            if campaign_era not in supported_eras:
+                supported = ", ".join(supported_eras) or "none"
+                raise RuntimeOperationError(
+                    "guided Quick Fire is unsupported for campaign era "
+                    f"{campaign_era!r}; package-owned standard sheet eras: "
+                    f"{supported}"
+                )
             _validate_quick_fire_luck_receipt(
                 root,
                 creation,

@@ -2459,6 +2459,45 @@ async function exerciseFailureDrain(mode) {
       === undefined
     && projectedContract.data.result.payload_schema.$defs
       .complete_sheet_creation === undefined);
+  const unsupportedEraContract = gate.projectGuidedCharacterContract(
+    "setup.investigator_contract",
+    contractParams,
+    {
+      ok: true,
+      tool: "setup.investigator_contract",
+      data: {
+        schema_version: 1,
+        status: "PASS",
+        kind: "investigator.contract",
+        result: {
+          campaign_binding: {
+            campaign_id: campaignId,
+            era: "medieval",
+          },
+          guided_quick_fire_campaign_era: {
+            supported: false,
+            required_sheet_era: "medieval",
+            supported_eras: ["1920s"],
+            failure_code: "guided_quick_fire_unsupported_campaign_era",
+          },
+          payload_schema: {
+            oneOf: [],
+            $defs: {},
+          },
+        },
+      },
+    },
+  );
+  check("Pi contract projection fails closed for unsupported campaign era",
+    unsupportedEraContract.ok === false
+    && unsupportedEraContract.error.code
+      === "guided_quick_fire_unsupported_campaign_era"
+    && unsupportedEraContract.error.details.campaign_id === campaignId
+    && unsupportedEraContract.error.details.campaign_era === "medieval"
+    && unsupportedEraContract.error.details.supported_eras[0] === "1920s"
+    && !JSON.stringify(unsupportedEraContract).includes(
+      "import_complete_sheet",
+    ));
   const contractObserved = gate.observeOpeningSetupInvocation(
     "setup.investigator_contract",
     contractParams,
