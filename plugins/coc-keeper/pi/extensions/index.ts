@@ -332,6 +332,7 @@ type OpeningSetupState = {
   phase:
     | "selection"
     | "source_review"
+    | "reviewed"
     | "bootstrap"
     | "submitting"
     | "materializing"
@@ -837,6 +838,7 @@ export class OpeningTerminalContinuationGate {
         "submitting",
         "materializing",
         "source_review",
+        "reviewed",
         "retry",
         "projection",
         "ready",
@@ -1180,6 +1182,52 @@ export class OpeningTerminalContinuationGate {
     };
     state.continuationReleaseOwner = null;
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+  }
+
+  private armOpeningSelectionRoute(state: OpeningSetupState): void {
+    state.phase = "selection";
+    state.route = {
+      ...state.route,
+      phase: "opening_selection",
+      next_operation: {
+        schema_version: 1,
+        operation: "progressive.prepare_opening",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {},
+        missing_arguments: [],
+        hard_gate: true,
+        authority: "canonical_setup",
+        reason: (
+          "Select the shortest sufficient reviewed source opening before play."
+        ),
+      },
+      allowed_actions: undefined,
+      instruction: (
+        "the reviewed source is ready; invoke this exact retained "
+        + "progressive.prepare_opening card before projection or narration"
+      ),
+    };
+    state.continuationReleaseOwner = null;
+    this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+  }
+
+  private retainReviewedSourceUntilCharacterLink(
+    state: OpeningSetupState,
+  ): void {
+    state.phase = "reviewed";
+    state.route = {
+      ...state.route,
+      phase: "opening_character_setup_required",
+      next_operation: null,
+      allowed_actions: this.characterSetupAllowedActions(
+        state.route.campaign_id,
+      ),
+      instruction: (
+        "opening source review is complete; finish the exact canonical "
+        + "investigator link, then continue with opening preparation"
+      ),
+    };
+    state.continuationReleaseOwner = null;
   }
 
   private retainOpeningProjectionUntilCharacterLink(
@@ -2408,7 +2456,9 @@ export class OpeningTerminalContinuationGate {
         && this.linkMatchesCurrentGuidedCreates(params, state)
       ) {
         state.characterSetupComplete = true;
-        if (state.phase === "ready") {
+        if (state.phase === "reviewed") {
+          this.armOpeningSelectionRoute(state);
+        } else if (state.phase === "ready") {
           this.armOpeningEvidenceRoute(state);
         } else if (
           state.phase === "projection"
@@ -3155,7 +3205,11 @@ export class OpeningTerminalContinuationGate {
     const state = this.openingSetupStates.get(campaignId);
     if (state === undefined || state.phase !== "source_review") return null;
     if (receipt.status === "reviewed") {
-      this.armOpeningEvidenceRoute(state);
+      if (state.characterSetupComplete) {
+        this.armOpeningSelectionRoute(state);
+      } else {
+        this.retainReviewedSourceUntilCharacterLink(state);
+      }
       return structuredClone(state.route);
     }
     this.markOpeningSetupTerminalBlocker(
@@ -4374,8 +4428,8 @@ async function piCoordinatorEnabled(): Promise<boolean> {
 function locatorEnvironment(): NodeJS.ProcessEnv {
   const allowed = [
     "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
-    "LOGNAME", "SHELL", "CODEX_HOME", "COC_CODEX_COMMAND",
-    "COC_CODEX_PDF_SKILL",
+    "LOGNAME", "SHELL", "CODEX_HOME", "PI_CODING_AGENT_DIR",
+    "COC_PI_COMMAND", "COC_PI_PDF_SKILL",
   ];
   return Object.fromEntries(
     allowed.flatMap((key) => (
@@ -4399,7 +4453,7 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     task.schema_version !== 1
     || task.contract_id !== "coc.pi-source-scope-locator-task.v1"
     || task.adapter_mode !== "pi_external_pdf_skill_lifecycle"
-    || task.model_policy !== "external_codex_cli_configured_default"
+    || task.model_policy !== "pinned_xai_grok_4_5_thinking_low"
     || task.max_selected_pages !== 3
     || task.result_delivery !== "natural_completion_notification_only"
   ) throw new Error("Pi source-scope locator task contract drift");
@@ -4636,15 +4690,19 @@ async function runPiOpeningSourceReviewTransport(
     "schema_version", "contract_id", "status", "campaign_id", "scenario_id",
     "opening_review_generation", "failure_class",
   ], "opening source review transport receipt");
+  const expectedGeneration = receipt.status === "reviewed"
+    ? Number(task.opening_review_generation) + 1
+    : Number(task.opening_review_generation);
   if (
     receipt.schema_version !== 1
     || receipt.contract_id
       !== "coc.pi-opening-source-review-transport-result.v1"
     || !["reviewed", "failed"].includes(String(receipt.status))
     || receipt.campaign_id !== task.campaign_id
-    || receipt.opening_review_generation !== task.opening_review_generation
-    || typeof receipt.scenario_id !== "string"
-    || !receipt.scenario_id
+    || receipt.scenario_id !== task.scenario_id
+    || !Number.isInteger(receipt.opening_review_generation)
+    || Number(receipt.opening_review_generation)
+      !== expectedGeneration
     || (receipt.status === "reviewed"
       ? receipt.failure_class !== null
       : typeof receipt.failure_class !== "string")
@@ -5393,13 +5451,14 @@ export function findPiOpeningSourceReviewTrigger(
     ?? objectOrNull(objectOrNull(envelope?.error)?.details);
   return gate?.phase === "opening_source_review_required"
     && gate.hard_gate === true && gate.activation_allowed === false
-    && gate.character_setup_complete === true
     && typeof gate.campaign_id === "string" && !!gate.campaign_id
+    && typeof gate.scenario_id === "string" && !!gate.scenario_id
     && Number.isInteger(gate.opening_review_generation)
     && Number(gate.opening_review_generation) >= 1 ? {
     schema_version: 1,
     contract_id: "coc.pi-opening-source-review-transport.v1",
     campaign_id: gate.campaign_id,
+    scenario_id: gate.scenario_id,
     opening_review_generation: gate.opening_review_generation,
   } : null;
 }
@@ -6787,6 +6846,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       || details.activation_allowed !== false
       || details.phase !== "opening_source_review_required"
       || details.campaign_id !== campaignId
+      || typeof details.scenario_id !== "string"
+      || !details.scenario_id
       || details.source_provenance
         !== "selection_hint_only_not_provenance"
       || details.required_source_owner
@@ -6803,6 +6864,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       activation_allowed: false,
       phase: "opening_source_review_required",
       campaign_id: campaignId,
+      scenario_id: details.scenario_id,
       source_provenance: "selection_hint_only_not_provenance",
       required_source_owner: "coc-opening-source-coordinator",
       opening_review_generation: details.opening_review_generation,

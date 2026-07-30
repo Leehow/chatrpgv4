@@ -134,6 +134,18 @@ its bundle through `plugins/coc-keeper/scripts/coc_pdf_bundle.py`.
 - Repository code may check the original PDF's existence, suffix, and SHA-256;
   it must not open the PDF for page count, metadata, layout, images, or text.
 
+### Pi subprocess mode evidence
+
+Do not infer that a Pi image/tool workflow requires RPC merely because the
+model performs several internal tool calls. A single `pi -p` task may run its
+own model-tool loop, including reading a local image, before returning one
+terminal result. Use `-p` only when one initial prompt can complete the closed
+job and the outer controller needs only that terminal result. Evaluate and
+test `--mode rpc` when the controller must append images or instructions after
+launch, observe structured progress or state, steer or follow up, or request a
+protocol-level abort. Every mode choice requires executable evidence for the
+needed behavior; terminology such as “multi-turn” is not evidence by itself.
+
 ## COC Plugin Single-Track Law
 
 `plugins/coc-keeper/` is the sole plugin for every host. Never create a

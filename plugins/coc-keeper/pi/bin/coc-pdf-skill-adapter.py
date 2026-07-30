@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Thin transport from Pi to an external Codex PDF-skill worker.
+"""Thin Pi transport for the external PDF skill.
 
-This adapter deliberately contains no PDF parser, renderer, OCR, text search,
-or source-bundle compiler.  It validates the closed transport envelope, invokes
-an installed Codex CLI that owns the external PDF skill, and forwards one
-strict producer receipt.
+The child is one isolated Grok coding turn. It may render/read the PDF and
+write one reviewed source bundle. This trusted adapter validates that bundle,
+binds it through the canonical setup operation, and consumes the exact new
+private opening-review task. It contains no PDF parser or OCR fallback.
 """
 from __future__ import annotations
 
@@ -23,18 +23,13 @@ from typing import Any, NoReturn
 
 MAX_INPUT_BYTES = 256 * 1024
 MAX_OUTPUT_BYTES = 256 * 1024
-MAX_VISUAL_REVIEW_IMAGES = 3
-MAX_VISUAL_REVIEW_IMAGE_BYTES = 16 * 1024 * 1024
-MAX_VISUAL_REVIEW_TOTAL_BYTES = 32 * 1024 * 1024
-CODEX_TIMEOUT_SECONDS = 240
-# The outer Pi locator owner allows 1.5s for TERM and another 1.5s for KILL.
-# Keep this nested Codex process-group budget well inside that first window so
-# the adapter can reap its own start_new_session child before Pi escalates.
+PI_TIMEOUT_SECONDS = 900
 TERMINATION_GRACE_SECONDS = 0.35
-OPENING_REVIEW_TIMEOUT_SECONDS = 900
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
-OPENING_COORDINATOR_INSTRUCTION = PLUGIN_ROOT / "agents" / "coc-opening-source-coordinator.md"
-OPENING_COORDINATOR_CONTRACT = PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
+PI_MODEL = "xai/grok-4.5"
+PI_THINKING = "low"
+PI_TOOLS = "read,bash,write"
+
 
 def _fail(message: str) -> NoReturn:
     raise RuntimeError(message)
@@ -46,44 +41,43 @@ def _object(value: Any, label: str) -> dict[str, Any]:
     return value
 
 
-def _command() -> str:
-    configured = os.environ.get("COC_CODEX_COMMAND", "").strip()
-    command = configured or shutil.which("codex") or ""
+def _pi_command() -> str:
+    configured = os.environ.get("COC_PI_COMMAND", "").strip()
+    command = configured or shutil.which("pi") or ""
     if not command or not Path(command).is_absolute():
-        _fail("external Codex CLI is unavailable")
+        _fail("Pi CLI is unavailable")
     return command
 
 
 def _pdf_skill() -> Path:
-    configured = os.environ.get("COC_CODEX_PDF_SKILL", "").strip()
-    path = Path(
-        configured
-        or Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-        / "skills"
-        / "pdf"
-        / "SKILL.md"
-    ).expanduser().resolve()
-    if not path.is_file():
-        _fail("external Codex PDF skill is unavailable")
-    return path
+    configured = os.environ.get("COC_PI_PDF_SKILL", "").strip()
+    default = (
+        Path(os.environ.get("CODEX_HOME", "")).expanduser()
+        if os.environ.get("CODEX_HOME", "").strip()
+        else Path.home() / ".codex"
+    ) / "skills" / "pdf"
+    path = Path(configured or default).expanduser().resolve()
+    skill_file = path if path.name == "SKILL.md" else path / "SKILL.md"
+    if not skill_file.is_file():
+        _fail("external PDF skill is unavailable")
+    return skill_file.parent
 
 
 def _capabilities() -> dict[str, Any]:
-    command = _command()
-    _pdf_skill()
     subprocess.run(
-        [command, "--version"],
+        [_pi_command(), "--version"],
         check=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=10,
     )
+    _pdf_skill()
     return {
         "schema_version": 1,
         "contract_id": "coc.pi-source-scope-locator-producer-capabilities.v1",
         "capability": "bounded_pdf_visual_locator",
-        "producer": "external-codex-pdf-skill",
+        "producer": "pi-grok-pdf-skill",
         "max_selected_pages": 3,
         "writes_canonical_bundle": True,
         "visual_review": True,
@@ -94,20 +88,12 @@ def _capabilities() -> dict[str, Any]:
 
 def _opening_review_capabilities() -> dict[str, Any]:
     _capabilities()
-    if (
-        not OPENING_COORDINATOR_INSTRUCTION.is_file()
-        or not OPENING_COORDINATOR_CONTRACT.is_file()
-        or not (PLUGIN_ROOT / "mcp" / "launch").is_file()
-    ):
-        _fail("canonical opening source coordinator is unavailable")
     return {
         "schema_version": 1,
         "contract_id": "coc.pi-opening-source-review-transport-capabilities.v1",
-        "capability": "canonical_codex_opening_source_coordinator",
-        "coordinator_contract_id": "coc.codex-opening-source-task.v1",
-        "continuation_contract_id": "coc.opening-source-continue.v1",
+        "capability": "pi_grok_pdf_skill_one_shot",
+        "producer_contract_id": "coc.pi-opening-pdf-producer-result.v1",
         "private_fulfillment": True,
-        "durable_same_thread_resume": True,
         "repository_pdf_parser": False,
     }
 
@@ -119,16 +105,12 @@ def _validate_task(value: Any) -> dict[str, Any]:
         or task.get("contract_id") != "coc.pi-source-scope-locator-task.v1"
         or task.get("adapter_mode") != "pi_external_pdf_skill_lifecycle"
         or task.get("model_policy")
-        != "external_codex_cli_configured_default"
+        != "pinned_xai_grok_4_5_thinking_low"
         or task.get("max_selected_pages") != 3
     ):
         _fail("task contract mismatch")
     for key in (
-        "workspace_root",
-        "job_id",
-        "kind",
-        "target_id",
-        "target_label",
+        "workspace_root", "job_id", "kind", "target_id", "target_label",
         "source_bundle_path",
     ):
         if not isinstance(task.get(key), str) or not task[key].strip():
@@ -138,12 +120,12 @@ def _validate_task(value: Any) -> dict[str, Any]:
         _fail("task.source contract mismatch")
     if not Path(str(source.get("path") or "")).is_absolute():
         _fail("task source path must be absolute")
-    for key in ("source_id", "title"):
-        if not isinstance(source.get(key), str) or not source[key].strip():
-            _fail(f"task.source.{key} required")
-    if not isinstance(source.get("file_sha256"), str) or not re.fullmatch(
-        r"[a-f0-9]{64}", source["file_sha256"],
+    if any(
+        not isinstance(source.get(key), str) or not source[key].strip()
+        for key in ("source_id", "title")
     ):
+        _fail("task source identity required")
+    if re.fullmatch(r"[a-f0-9]{64}", str(source.get("file_sha256") or "")) is None:
         _fail("task.source.file_sha256 invalid")
     if not Path(task["workspace_root"]).is_absolute():
         _fail("task workspace_root must be absolute")
@@ -151,17 +133,17 @@ def _validate_task(value: Any) -> dict[str, Any]:
         _fail("task source_bundle_path must be absolute")
     workspace = Path(task["workspace_root"]).resolve()
     bundle_root = (workspace / ".tmp" / "coc-source-scope").resolve()
-    bundle_path = Path(task["source_bundle_path"]).resolve()
-    if not bundle_path.is_relative_to(bundle_root):
+    if not Path(task["source_bundle_path"]).resolve().is_relative_to(bundle_root):
         _fail("task source_bundle_path escapes the bounded locator root")
     return task
 
 
 def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
     task = _object(value, "opening review transport")
-    fields = {"schema_version", "contract_id", "workspace_root", "campaign_id",
-              "opening_review_generation"}
-    if set(task) != fields:
+    if set(task) != {
+        "schema_version", "contract_id", "workspace_root", "campaign_id",
+        "scenario_id", "opening_review_generation",
+    }:
         _fail("opening review transport fields mismatch")
     generation = task.get("opening_review_generation")
     if (
@@ -173,15 +155,20 @@ def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
         or generation < 1
     ):
         _fail("opening review transport contract mismatch")
-    if any(not isinstance(task.get(key), str) or not task[key].strip()
-           for key in ("workspace_root", "campaign_id")):
+    if any(
+        not isinstance(task.get(key), str) or not task[key].strip()
+        for key in ("workspace_root", "campaign_id", "scenario_id")
+    ):
         _fail("opening review transport identity required")
     workspace = Path(task["workspace_root"])
-    if not workspace.is_absolute():
-        _fail("opening review workspace_root must be absolute")
     campaign_id = task["campaign_id"]
-    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", campaign_id) is None:
-        _fail("opening review campaign_id invalid")
+    if (
+        not workspace.is_absolute()
+        or re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", campaign_id,
+        ) is None
+    ):
+        _fail("opening review transport identity invalid")
     resolved = workspace.resolve()
     if (
         resolved != Path.cwd().resolve()
@@ -190,30 +177,6 @@ def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
     ):
         _fail("opening review transport workspace drift")
     return task
-
-
-def _prompt(task: dict[str, Any], pdf_skill: Path) -> str:
-    return (
-        "You are an external PDF-skill producer, not a Keeper or source-pack "
-        "compiler. Read the PDF skill at this exact path completely before any "
-        f"action: {pdf_skill}\n"
-        "Use that real PDF skill to locate the structured target in the exact "
-        "source. Render and visually review only the smallest 1..3 page window. "
-        "Do not use OCR. Do not read campaign saves or player transcripts. Do "
-        "not call COC tools. Do not edit repository files outside the exact "
-        "source_bundle_path. Write the canonical reviewed bundle required by "
-        "source_bundle_manifest_contract, including manifest.source.title "
-        "copied exactly from task.source.title. If not located, write nothing. Return "
-        "only one strict JSON object with contract_id "
-        "coc.pi-source-scope-locator-producer-result.v1 and exact fields "
-        "schema_version, contract_id, job_id, status, kind, target_id, "
-        "pdf_indices, source_bundle_path, failure_class. status is located, "
-        "not_located, or failed. For located, source_bundle_path must equal the "
-        "task and pdf_indices must be 1..3 unique ascending zero-based pages; "
-        "otherwise pdf_indices=[], source_bundle_path=null.\n\n"
-        "Closed task JSON follows:\n"
-        + json.dumps(task, ensure_ascii=False, separators=(",", ":"))
-    )
 
 
 def _terminate_process_group(process: subprocess.Popen[str]) -> None:
@@ -234,16 +197,94 @@ def _terminate_process_group(process: subprocess.Popen[str]) -> None:
     try:
         process.wait(timeout=TERMINATION_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
-        _fail("external Codex process group did not terminate")
+        _fail("Pi process group did not terminate")
 
 
-def _runtime_modules() -> tuple[Any, Any]:
+def _run_pi(prompt: str, cwd: Path, *, timeout: int) -> dict[str, Any]:
+    args = [
+        _pi_command(),
+        "--mode", "text", "-p", "--no-session",
+        "--no-extensions", "--no-skills", "--no-prompt-templates",
+        "--no-context-files", "--approve",
+        "--tools", PI_TOOLS,
+        "--model", PI_MODEL,
+        "--thinking", PI_THINKING,
+        "--skill", str(_pdf_skill()),
+        prompt,
+    ]
+    process: subprocess.Popen[str] | None = None
+    handlers: dict[int, Any] = {}
+
+    def interrupted(signum: int, _frame: Any) -> NoReturn:
+        if process is not None:
+            _terminate_process_group(process)
+        _fail(f"Pi lifecycle interrupted by signal {signum}")
+
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, interrupted)
+        process = subprocess.Popen(
+            args,
+            cwd=cwd,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            env={
+                key: value
+                for key, value in os.environ.items()
+                if key in {
+                    "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL",
+                    "USER", "LOGNAME", "SHELL", "PI_CODING_AGENT_DIR",
+                }
+            },
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _terminate_process_group(process)
+            _fail("Pi PDF lifecycle timed out")
+        if process.returncode != 0:
+            _fail(
+                "Pi PDF lifecycle failed; stderr redacted "
+                f"({len((stderr or '').encode())} bytes)"
+            )
+        payload = (stdout or "").encode()
+        if len(payload) > MAX_OUTPUT_BYTES:
+            _fail("Pi PDF producer receipt exceeds output limit")
+        return _object(json.loads(payload), "Pi PDF receipt")
+    finally:
+        if process is not None and process.poll() is None:
+            _terminate_process_group(process)
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
+
+
+def _locator_prompt(task: dict[str, Any]) -> str:
+    return (
+        "Use the loaded PDF skill. You are only a document producer, never a "
+        "Keeper. Locate the exact target in task.source.path, render and "
+        "visually inspect the smallest 1..3 page window, and write a standard "
+        "codex-pdf-skill source bundle at task.source_bundle_path. Do not use "
+        "OCR, read campaign saves/transcripts, call gameplay tools, or edit "
+        "anything outside that bundle. Return only strict JSON with exact "
+        "fields schema_version, contract_id, job_id, status, kind, target_id, "
+        "pdf_indices, source_bundle_path, failure_class and contract_id "
+        "coc.pi-source-scope-locator-producer-result.v1.\n"
+        + json.dumps(task, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def _runtime_modules() -> tuple[Any, Any, Any]:
     scripts = PLUGIN_ROOT / "scripts"
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
     import coc_fileio  # type: ignore[import-not-found]
+    import coc_pdf_bundle  # type: ignore[import-not-found]
     import coc_runtime_ops  # type: ignore[import-not-found]
-    return coc_fileio, coc_runtime_ops
+    return coc_fileio, coc_pdf_bundle, coc_runtime_ops
 
 
 def _json(path: Path, label: str) -> dict[str, Any]:
@@ -253,353 +294,140 @@ def _json(path: Path, label: str) -> dict[str, Any]:
         _fail(f"{label} unavailable: {type(exc).__name__}")
 
 
-def _codex_turn(
-    prompt: str | dict[str, Any],
-    workspace: Path,
-    *,
-    resume: str | None = None,
-    images: list[Path] | None = None,
-    isolated: bool = False,
-    timeout: int = CODEX_TIMEOUT_SECONDS,
-) -> tuple[dict[str, Any], str | None]:
-    workspace.joinpath(".tmp").mkdir(exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        prefix="coc-codex-", suffix=".json", dir=workspace / ".tmp",
-        delete=False,
-    ) as output:
-        output_path = Path(output.name)
-    common = ["--output-last-message", str(output_path)]
-    if isolated:
-        launch = str((PLUGIN_ROOT / "mcp" / "launch").resolve())
-        env = (
-            "{ COC_HOST = \"codex\", "
-            f"COC_PROJECT_ROOT = {json.dumps(str(workspace))}, "
-            f"COC_RUNTIME_ROOT = {json.dumps(str(workspace / 'runtime'))} }}"
-        )
-        common = [
-            "--json", "--ignore-user-config", "--ignore-rules",
-            "-c", f"mcp_servers.coc-keeper.command={json.dumps(launch)}",
-            "-c", f"mcp_servers.coc-keeper.cwd={json.dumps(str(workspace))}",
-            "-c", f"mcp_servers.coc-keeper.env={env}",
-            "-c", "mcp_servers.coc-keeper.enabled=true", *common,
-        ]
-    image_args = [
-        item
-        for path in images or []
-        for item in ("-i", str(path))
-    ]
-    if image_args and not resume:
-        _fail("visual-review images require a resumed Codex thread")
-    args = (
-        [_command(), "exec", "resume", *common, *image_args, resume, "-"]
-        if resume else
-        [_command(), "exec", "-", *(
-            [] if isolated else ["--ephemeral"]
-        ), "--sandbox", "workspace-write", "--cd", str(workspace), *common]
-    )
-    process: subprocess.Popen[str] | None = None
-    handlers: dict[int, Any] = {}
-
-    def interrupted(signum: int, _frame: Any) -> NoReturn:
-        if process is not None:
-            _terminate_process_group(process)
-        _fail(f"external Codex lifecycle interrupted by signal {signum}")
-
-    try:
-        for signum in (signal.SIGTERM, signal.SIGINT):
-            handlers[signum] = signal.getsignal(signum)
-            signal.signal(signum, interrupted)
-        process = subprocess.Popen(
-            args, text=True, stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE if isolated else subprocess.DEVNULL,
-            stderr=subprocess.PIPE, start_new_session=True,
-            env={key: value for key, value in os.environ.items() if key in {
-                "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL",
-                "USER", "LOGNAME", "SHELL", "CODEX_HOME",
-            }},
-        )
-        try:
-            stdout, stderr = process.communicate(
-                input=(
-                    prompt if isinstance(prompt, str) else
-                    json.dumps(prompt, ensure_ascii=False, separators=(",", ":"))
-                ),
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            _terminate_process_group(process)
-            _fail("external Codex lifecycle timed out")
-        if process.returncode != 0:
-            _fail(
-                "external Codex lifecycle failed; stderr redacted "
-                f"({len((stderr or '').encode())} bytes)"
-            )
-        thread = resume
-        for line in (stdout or "").splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if event.get("type") == "thread.started":
-                thread = str(event.get("thread_id") or "") or thread
-                break
-        payload = output_path.read_bytes()
-        if len(payload) > MAX_OUTPUT_BYTES:
-            _fail("Codex receipt exceeds output limit")
-        return _object(json.loads(payload), "Codex receipt"), thread
-    finally:
-        if process is not None and process.poll() is None:
-            _terminate_process_group(process)
-        for signum, handler in handlers.items():
-            signal.signal(signum, handler)
-        output_path.unlink(missing_ok=True)
-
-
-def _opening_state(
-    workspace: Path, campaign_id: str,
-) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
+def _opening_paths(workspace: Path, campaign_id: str) -> tuple[Path, Path]:
     campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
-    scenario = _json(
-        campaign_dir / "scenario" / "scenario.json", "campaign scenario",
-    )
     return (
-        campaign_dir / "opening-source-review-transport.json",
         campaign_dir / "opening-source-review-transport.lock",
-        scenario,
-        _json(campaign_dir / "campaign.json", "campaign"),
+        campaign_dir,
     )
 
 
-def _coordinator_task(
-    workspace: Path, request: dict[str, Any],
-) -> tuple[dict[str, Any], str]:
-    _state, _lock, scenario, campaign = _opening_state(
-        workspace, request["campaign_id"],
-    )
-    _fileio, runtime_ops = _runtime_modules()
-    private = runtime_ops._validate_opening_review_task(
-        scenario, expected_status="pending",
-    )
-    if private["generation"] != request["opening_review_generation"]:
-        _fail("opening review generation drift")
+def _opening_producer_task(
+    workspace: Path,
+    request: dict[str, Any],
+    scenario: dict[str, Any],
+    campaign: dict[str, Any],
+    private: dict[str, Any],
+) -> dict[str, Any]:
     source = _object(scenario.get("source"), "scenario source")
-    scenario_id = str(scenario.get("scenario_id") or "")
+    output_root = (
+        workspace / ".tmp" / "coc-opening-source-review"
+        / request["campaign_id"]
+    )
+    output_root.mkdir(parents=True, exist_ok=True)
+    output_root = output_root.resolve()
+    if not output_root.is_relative_to(workspace):
+        _fail("opening source bundle root escapes workspace")
+    output = Path(tempfile.mkdtemp(
+        prefix="reviewed-", dir=output_root,
+    )).resolve()
     task = {
         "schema_version": 1,
-        "contract_id": "coc.codex-opening-source-task.v1",
-        "bootstrap_instruction": (
-            "Before any response or tool call, read instruction_ref completely, "
-            "then execute this closed task under that instruction."
-        ),
-        "instruction_ref": str(OPENING_COORDINATOR_INSTRUCTION.resolve()),
-        "contract_ref": str(OPENING_COORDINATOR_CONTRACT.resolve()),
-        "adapter_mode": "codex_context_free_inline_source",
-        "model_policy": "inherit_parent",
+        "contract_id": "coc.pi-opening-pdf-producer-task.v1",
         "workspace_root": str(workspace),
-        "pdf_path": str(Path(str(source.get("path") or "")).resolve()),
-        "pdf_sha256": source.get("file_sha256"),
         "campaign_id": request["campaign_id"],
-        "scenario_id": scenario_id,
+        "scenario_id": private["scenario_id"],
         "title": scenario.get("title"),
         "era": campaign.get("era") or "1920s",
         "play_language": campaign.get("play_language") or "zh-Hans",
-        "source_bundle_id": private["source_bundle_id"],
-        "source_bundle_path": private["source_bundle_path"],
+        "source": {
+            "path": str(Path(str(source.get("path") or "")).resolve()),
+            "source_id": private["source_id"],
+            "file_sha256": private["source_file_sha256"],
+        },
         "opening_locator_pdf_indices": private["allowed_pdf_indices"],
         "max_selected_opening_pages": 3,
-        "visual_review_transport": {
-            "request_contract_id": "coc.opening-visual-review-request.v1",
-            "resume_contract_id": "coc.opening-visual-review-resume.v1",
-            "render_root": str(
-                (
-                    Path(private["source_bundle_path"]).resolve().parent
-                    / "opening-visual-review"
-                ).resolve()
-            ),
-            "max_images": MAX_VISUAL_REVIEW_IMAGES,
-            "result_delivery": "same_thread_image_resume",
-        },
-        "instruction_refs": {"pdf_skill": str(_pdf_skill())},
-        "result_delivery": "task_return_to_parent",
+        "source_bundle_path": str(output),
     }
-    if not scenario_id or re.fullmatch(
-        r"[a-f0-9]{64}", str(task["pdf_sha256"] or ""),
-    ) is None:
-        _fail("opening review source identity invalid")
-    return task, scenario_id
-
-
-def _visual_review_request(
-    result: dict[str, Any], task: dict[str, Any],
-) -> dict[str, Any] | None:
-    if result.get("contract_id") != "coc.opening-visual-review-request.v1":
-        return None
-    fields = {
-        "schema_version", "contract_id", "status", "campaign_id",
-        "scenario_id", "render_root", "pdf_indices", "image_paths",
-        "failure_class",
-    }
-    transport = _object(
-        task.get("visual_review_transport"), "visual review transport",
-    )
-    indices = result.get("pdf_indices")
-    image_paths = result.get("image_paths")
     if (
-        set(result) != fields
+        not isinstance(task["title"], str)
+        or not task["title"].strip()
+        or re.fullmatch(
+            r"[a-f0-9]{64}", str(task["source"]["file_sha256"]),
+        ) is None
+    ):
+        _fail("opening review source identity invalid")
+    return task
+
+
+def _opening_prompt(task: dict[str, Any]) -> str:
+    return (
+        "Use the loaded PDF skill directly. You are one isolated document "
+        "producer, not a Keeper and not a gameplay agent. Locate the named "
+        "scenario's complete current player-facing opening beat, using the "
+        "locator pages only as hints. Select the smallest contiguous 1..3 page "
+        "window that includes authored time/place, every materially present "
+        "NPC, the full briefing or pressure, and actionable routes when they "
+        "exist. Render and visually inspect every selected page yourself with "
+        "the read tool. Write one standard schema-v1 codex-pdf-skill bundle at "
+        "the exact source_bundle_path: manifest.json plus one Markdown file per "
+        "selected page, exact hashes, manual_accepted review state, honest "
+        "confidence, and verbatim grep anchors. manifest.source.source_id, "
+        "path, and file_sha256 must exactly match task.source; "
+        "manifest.source.title must exactly match task.title. "
+        "Do not use OCR. Do not read .coc, saves, "
+        "transcripts, AGENTS.md, or repository source. Do not call gameplay "
+        "tools or write outside source_bundle_path. Return only one strict JSON "
+        "object with exact fields schema_version, contract_id, status, "
+        "campaign_id, scenario_id, selected_opening_pdf_indices, "
+        "source_bundle_path, failure_class. contract_id is "
+        "coc.pi-opening-pdf-producer-result.v1; status is reviewed or failed. "
+        "For reviewed, indices are unique ascending contiguous and failure_class "
+        "is null. For failed, indices=[], source_bundle_path=null, and "
+        "failure_class is non-empty.\n"
+        + json.dumps(task, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def _validate_opening_result(
+    value: Any, task: dict[str, Any],
+) -> dict[str, Any]:
+    result = _object(value, "opening PDF producer result")
+    indices = result.get("selected_opening_pdf_indices")
+    if (
+        set(result) != {
+            "schema_version", "contract_id", "status", "campaign_id",
+            "scenario_id", "selected_opening_pdf_indices",
+            "source_bundle_path", "failure_class",
+        }
         or result.get("schema_version") != 1
-        or result.get("status") != "visual_review_required"
+        or result.get("contract_id")
+        != "coc.pi-opening-pdf-producer-result.v1"
         or result.get("campaign_id") != task["campaign_id"]
         or result.get("scenario_id") != task["scenario_id"]
-        or result.get("render_root") != transport.get("render_root")
-        or result.get("failure_class") is not None
+        or result.get("status") not in {"reviewed", "failed"}
         or not isinstance(indices, list)
         or any(
             not isinstance(index, int) or isinstance(index, bool) or index < 0
             for index in indices
         )
-        or not 1 <= len(indices) <= MAX_VISUAL_REVIEW_IMAGES
-        or indices != list(range(indices[0], indices[0] + len(indices)))
-        or not isinstance(image_paths, list)
-        or len(image_paths) != len(indices)
-        or any(
-            not isinstance(path, str) or not path
-            for path in image_paths
-        )
-        or len(set(image_paths)) != len(image_paths)
+        or indices != sorted(set(indices))
     ):
-        _fail("opening visual-review request invalid")
-    render_root = Path(str(transport["render_root"]))
-    if (
-        not render_root.is_absolute()
-        or not render_root.is_dir()
-        or render_root.is_symlink()
-        or render_root.resolve(strict=True) != render_root
-    ):
-        _fail("opening visual-review render root invalid")
-    total_bytes = 0
-    validated_paths: list[str] = []
-    for raw_path in image_paths:
-        path = Path(raw_path)
+        _fail("opening PDF producer result invalid")
+    if result["status"] == "reviewed":
         if (
-            not path.is_absolute()
-            or path.is_symlink()
-            or path.resolve(strict=True) != path
-            or path.parent != render_root
-            or not path.is_file()
-            or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}
+            not 1 <= len(indices) <= 3
+            or indices != list(range(indices[0], indices[0] + len(indices)))
+            or result.get("source_bundle_path") != task["source_bundle_path"]
+            or result.get("failure_class") is not None
         ):
-            _fail("opening visual-review image path invalid")
-        size = path.stat().st_size
-        total_bytes += size
-        if (
-            size <= 0
-            or size > MAX_VISUAL_REVIEW_IMAGE_BYTES
-            or total_bytes > MAX_VISUAL_REVIEW_TOTAL_BYTES
-        ):
-            _fail("opening visual-review image size invalid")
-        with path.open("rb") as image:
-            prefix = image.read(8)
-        if (
-            path.suffix.lower() == ".png"
-            and prefix != b"\x89PNG\r\n\x1a\n"
-        ) or (
-            path.suffix.lower() in {".jpg", ".jpeg"}
-            and not prefix.startswith(b"\xff\xd8\xff")
-        ):
-            _fail("opening visual-review image content invalid")
-        validated_paths.append(str(path))
-    return {
-        "schema_version": 1,
-        "contract_id": "coc.opening-visual-review-request.v1",
-        "status": "visual_review_required",
-        "campaign_id": task["campaign_id"],
-        "scenario_id": task["scenario_id"],
-        "render_root": str(render_root),
-        "pdf_indices": indices,
-        "image_paths": validated_paths,
-        "failure_class": None,
-    }
-
-
-def _visual_review_resume(request: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "schema_version": 1,
-        "contract_id": "coc.opening-visual-review-resume.v1",
-        "campaign_id": request["campaign_id"],
-        "scenario_id": request["scenario_id"],
-        "pdf_indices": request["pdf_indices"],
-        "image_count": len(request["image_paths"]),
-        "result_delivery": "same_thread_image_resume",
-    }
-
-
-def _coordinator_failure(
-    result: dict[str, Any], task: dict[str, Any],
-    continuation: dict[str, Any] | None,
-) -> str | None:
-    if (
-        result.get("contract_id")
-        != "coc.opening-source-coordinator-result.v1"
+            _fail("reviewed opening PDF producer result invalid")
+    elif (
+        indices
+        or result.get("source_bundle_path") is not None
+        or not isinstance(result.get("failure_class"), str)
+        or not result["failure_class"].strip()
     ):
-        return None
-    _fileio, ops = _runtime_modules()
-    allowed = {
-        "invalid_packet", "pdf_scope_failed", "bundle_validation_failed",
-        "bind_failed", "skeleton_failed", "source_dispatch_failed",
-        "source_result_invalid", "fulfill_failed", "projection_failed",
-    }
-    failure = result.get("failure_class")
-    selected = (
-        continuation["selected_opening_pdf_indices"]
-        if continuation else []
-    )
-    if (
-        set(result) != ops._OPENING_COORDINATOR_RESULT_FIELDS
-        or result.get("schema_version") != 1
-        or result.get("status") not in {"source_pending", "failed"}
-        or result.get("campaign_id") != task["campaign_id"]
-        or result.get("scenario_id") != task["scenario_id"]
-        or result.get("selected_opening_pdf_indices") != selected
-        or failure not in allowed
-        or result.get("source_bundle_sha256") is not None
-        or result.get("opening_job_id") is not None
-        or result.get("opening_projection_ref") is not None
-        or result.get("initial_move_operation") is not None
-        or result.get("opening_delivery_boundary")
-        != ops._OPENING_DELIVERY_BOUNDARY
-    ):
-        _fail("opening coordinator failure result invalid")
-    return str(failure)
-
-
-def _continuation(result: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
-    indices = result.get("selected_opening_pdf_indices")
-    continuation = _object(result.get("continue_task"), "opening continuation")
-    expected = {
-        "schema_version": 1,
-        "contract_id": "coc.opening-source-continue.v1",
-        "campaign_id": task["campaign_id"],
-        "scenario_id": task["scenario_id"],
-        "selected_opening_pdf_indices": indices,
-        "source_bundle_id": task["source_bundle_id"],
-        "source_bundle_path": task["source_bundle_path"],
-        "result_delivery": "task_return_to_parent",
-    }
-    if (
-        result.get("contract_id") != "coc.opening-character-concepts.v1"
-        or result.get("status") != "concepts_ready"
-        or not isinstance(indices, list)
-        or not 1 <= len(indices) <= 3
-        or indices != list(range(indices[0], indices[0] + len(indices)))
-        or continuation != expected
-    ):
-        _fail("opening coordinator continuation invalid")
-    return continuation
+        _fail("failed opening PDF producer result invalid")
+    return result
 
 
 def _opening_receipt(
-    request: dict[str, Any], scenario_id: str,
-    status: str, failure: str | None,
+    request: dict[str, Any],
+    scenario_id: str,
+    generation: int,
+    status: str,
+    failure: str | None,
 ) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -607,32 +435,9 @@ def _opening_receipt(
         "status": status,
         "campaign_id": request["campaign_id"],
         "scenario_id": scenario_id,
-        "opening_review_generation": request["opening_review_generation"],
+        "opening_review_generation": generation,
         "failure_class": failure,
     }
-
-
-def _consume_failure(
-    workspace: Path, request: dict[str, Any], scenario_id: str,
-    failure: str, continuation: dict[str, Any] | None,
-) -> None:
-    _fileio, ops = _runtime_modules()
-    try:
-        receipt = ops._build_opening_source_review_fulfillment(
-            workspace, continuation=continuation, status="failed",
-            selected_opening_pdf_indices=(
-                continuation["selected_opening_pdf_indices"]
-                if continuation else None
-            ),
-            failure_class=failure, error_code="transport_terminal",
-        )
-    except (ops.RuntimeOperationError, TypeError):
-        receipt = ops._build_opening_source_review_transport_failure(
-            workspace, campaign_id=request["campaign_id"],
-            scenario_id=scenario_id, failure_class=failure,
-            error_code="transport_terminal",
-        )
-    ops._apply_opening_source_review_fulfillment(workspace, receipt)
 
 
 def _run_opening_review() -> dict[str, Any]:
@@ -641,219 +446,121 @@ def _run_opening_review() -> dict[str, Any]:
         _fail("opening review transport exceeds input limit")
     request = _validate_opening_review_transport(json.loads(raw))
     workspace = Path(request["workspace_root"]).resolve()
-    state_path, lock_path, scenario, _campaign = _opening_state(
+    lock_path, campaign_dir = _opening_paths(
         workspace, request["campaign_id"],
     )
-    fileio, ops = _runtime_modules()
+    fileio, pdf_bundle, ops = _runtime_modules()
     with fileio.advisory_file_lock(lock_path):
-        private = _object(
-            scenario.get("opening_source_review_task"), "opening review task",
+        scenario = _json(
+            campaign_dir / "scenario" / "scenario.json", "campaign scenario",
         )
-        scenario_id = str(scenario.get("scenario_id") or "")
-        if private.get("generation") != request["opening_review_generation"]:
+        campaign = _json(campaign_dir / "campaign.json", "campaign")
+        private = ops._validate_opening_review_task(
+            scenario, expected_status="pending",
+        )
+        if (
+            private["generation"] != request["opening_review_generation"]
+            or private["scenario_id"] != request["scenario_id"]
+        ):
             _fail("opening review generation drift")
-        if private.get("status") in {"fulfilled", "failed"}:
-            failure = None
-            if private["status"] == "failed":
-                failure = str(_object(
-                    _object(
-                        scenario.get("opening_source_review_failure"),
-                        "opening failure",
-                    ).get("failure"), "opening failure identity",
-                ).get("failure_class") or "opening_review_failed")
+        task = _opening_producer_task(
+            workspace, request, scenario, campaign, private,
+        )
+        result = _validate_opening_result(
+            _run_pi(
+                _opening_prompt(task),
+                Path(task["source_bundle_path"]).parent,
+                timeout=PI_TIMEOUT_SECONDS,
+            ),
+            task,
+        )
+        if result["status"] != "reviewed":
             return _opening_receipt(
-                request, scenario_id,
-                "reviewed" if private["status"] == "fulfilled" else "failed",
-                failure,
+                request, private["scenario_id"], private["generation"],
+                "failed", result["failure_class"],
             )
-        lifecycle = _json(state_path, "opening transport") if state_path.exists() else None
-        if lifecycle and lifecycle.get("opening_review_generation") != request[
-            "opening_review_generation"
-        ]:
-            _consume_failure(
-                workspace, request, scenario_id,
-                "opening_source_coordinator_interrupted", None,
-            )
-            return _opening_receipt(
-                request, scenario_id, "failed",
-                "opening_source_coordinator_interrupted",
-            )
-        if lifecycle and lifecycle.get("status") == "terminal":
-            return _object(lifecycle.get("receipt"), "terminal receipt")
-        task, scenario_id = _coordinator_task(workspace, request)
-        base = {
+        bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+        selected = result["selected_opening_pdf_indices"]
+        if (
+            [row["pdf_index"] for row in bundle["pages"]] != selected
+            or bundle["source"]["source_id"] != private["source_id"]
+            or bundle["source"]["path"] != task["source"]["path"]
+            or bundle["source"]["file_sha256"]
+            != private["source_file_sha256"]
+            or bundle["source"]["title"] != task["title"]
+        ):
+            _fail("opening source bundle identity drift")
+        bind = ops.execute_setup_operation(
+            workspace,
+            operation={
+                "schema_version": 1,
+                "kind": "scenario.bind_pdf",
+                "payload": {
+                    "campaign_id": request["campaign_id"],
+                    "scenario_id": task["scenario_id"],
+                    "title": task["title"],
+                    "source_bundle_path": task["source_bundle_path"],
+                },
+            },
+        )
+        if bind.get("status") != "PASS":
+            _fail("canonical opening source bind failed")
+        current = _json(
+            workspace / ".coc" / "campaigns" / request["campaign_id"]
+            / "scenario" / "scenario.json",
+            "rebound campaign scenario",
+        )
+        exact = ops._validate_opening_review_task(
+            current, expected_status="pending",
+        )
+        rebound_source = _object(current.get("source"), "rebound source")
+        if (
+            exact["generation"] != request["opening_review_generation"] + 1
+            or exact["campaign_id"] != request["campaign_id"]
+            or exact["scenario_id"] != task["scenario_id"]
+            or exact["source_bundle_path"] != task["source_bundle_path"]
+            or exact["source_id"] != task["source"]["source_id"]
+            or exact["source_file_sha256"] != task["source"]["file_sha256"]
+            or exact["allowed_pdf_indices"] != selected
+            or rebound_source.get("path") != task["source"]["path"]
+            or rebound_source.get("bundle_sha256")
+            != exact["source_bundle_sha256"]
+        ):
+            _fail("rebound opening review authority drift")
+        continuation = {
             "schema_version": 1,
-            "contract_id": "coc.pi-opening-source-review-lifecycle.v1",
-            "campaign_id": request["campaign_id"],
-            "scenario_id": scenario_id,
-            "opening_review_generation": request["opening_review_generation"],
+            "contract_id": "coc.opening-source-continue.v1",
+            "campaign_id": exact["campaign_id"],
+            "scenario_id": exact["scenario_id"],
+            "selected_opening_pdf_indices": selected,
+            "source_bundle_id": exact["source_bundle_id"],
+            "source_bundle_path": exact["source_bundle_path"],
+            "result_delivery": "task_return_to_parent",
         }
-        continuation = (
-            _object(lifecycle.get("continuation"), "retained continuation")
-            if lifecycle and lifecycle.get("status") == "phase1_ready" else None
+        fulfillment = ops._build_opening_source_review_fulfillment(
+            workspace,
+            continuation=continuation,
+            status="reviewed",
+            selected_opening_pdf_indices=selected,
         )
-        receipt: dict[str, Any] | None = None
-        try:
-            if continuation is None:
-                visual_request: dict[str, Any] | None = None
-                if lifecycle is None:
-                    fileio.write_json_atomic(
-                        state_path, {**base, "status": "phase1_started"},
-                    )
-                    concepts, thread = _codex_turn(
-                        task, workspace, isolated=True,
-                        timeout=OPENING_REVIEW_TIMEOUT_SECONDS,
-                    )
-                    failure = _coordinator_failure(
-                        concepts, task, continuation=None,
-                    )
-                    if failure is not None:
-                        _consume_failure(
-                            workspace, request, scenario_id, failure, None,
-                        )
-                        receipt = _opening_receipt(
-                            request, scenario_id, "failed", failure,
-                        )
-                    else:
-                        visual_request = _visual_review_request(concepts, task)
-                        if visual_request is not None:
-                            if not thread:
-                                _fail(
-                                    "opening coordinator thread identity missing"
-                                )
-                            lifecycle = {
-                                **base,
-                                "status": "visual_review_ready",
-                                "thread_id": thread,
-                                "visual_review_request": visual_request,
-                            }
-                            fileio.write_json_atomic(state_path, lifecycle)
-                        else:
-                            continuation = _continuation(concepts, task)
-                            lifecycle = {
-                                **base, "status": "phase1_ready",
-                                "thread_id": thread,
-                                "continuation": continuation,
-                            }
-                            fileio.write_json_atomic(state_path, lifecycle)
-                elif lifecycle.get("status") == "visual_review_ready":
-                    visual_request = _visual_review_request(
-                        _object(
-                            lifecycle.get("visual_review_request"),
-                            "retained visual-review request",
-                        ),
-                        task,
-                    )
-                else:
-                    _fail("opening source coordinator was interrupted")
-                if receipt is None and continuation is None:
-                    if visual_request is None:
-                        _fail("opening visual-review request missing")
-                    thread = str((lifecycle or {}).get("thread_id") or "")
-                    if not thread:
-                        _fail("opening coordinator thread identity missing")
-                    fileio.write_json_atomic(
-                        state_path,
-                        {**(lifecycle or base), "status": "visual_review_started"},
-                    )
-                    concepts, resumed_thread = _codex_turn(
-                        _visual_review_resume(visual_request),
-                        workspace,
-                        resume=thread,
-                        images=[
-                            Path(path)
-                            for path in visual_request["image_paths"]
-                        ],
-                        isolated=True,
-                        timeout=OPENING_REVIEW_TIMEOUT_SECONDS,
-                    )
-                    if resumed_thread != thread:
-                        _fail("opening coordinator thread identity drift")
-                    failure = _coordinator_failure(
-                        concepts, task, continuation=None,
-                    )
-                    if failure is not None:
-                        _consume_failure(
-                            workspace, request, scenario_id, failure, None,
-                        )
-                        receipt = _opening_receipt(
-                            request, scenario_id, "failed", failure,
-                        )
-                    else:
-                        continuation = _continuation(concepts, task)
-                        lifecycle = {
-                            **base, "status": "phase1_ready",
-                            "thread_id": thread,
-                            "continuation": continuation,
-                        }
-                        fileio.write_json_atomic(state_path, lifecycle)
-            if receipt is None:
-                thread = str((lifecycle or {}).get("thread_id") or "")
-                if not thread:
-                    _fail("opening coordinator thread identity missing")
-                fileio.write_json_atomic(
-                    state_path, {**(lifecycle or base), "status": "phase2_started"},
-                )
-                final, resumed_thread = _codex_turn(
-                    continuation, workspace, resume=thread, isolated=True,
-                    timeout=OPENING_REVIEW_TIMEOUT_SECONDS,
-                )
-                if resumed_thread != thread:
-                    _fail("opening coordinator thread identity drift")
-                if final.get("status") == "opening_ready":
-                    ops._validate_opening_source_coordinator_ready_result(
-                        workspace, continuation=continuation, result=final,
-                    )
-                    fulfillment = ops._build_opening_source_review_fulfillment(
-                        workspace, continuation=continuation, status="reviewed",
-                        selected_opening_pdf_indices=continuation[
-                            "selected_opening_pdf_indices"
-                        ],
-                    )
-                    ops._apply_opening_source_review_fulfillment(
-                        workspace, fulfillment,
-                    )
-                    receipt = _opening_receipt(
-                        request, scenario_id, "reviewed", None,
-                    )
-                else:
-                    failure = _coordinator_failure(
-                        final, task, continuation,
-                    )
-                    if failure is None:
-                        _fail("opening coordinator final result invalid")
-                    _consume_failure(
-                        workspace, request, scenario_id, failure, continuation,
-                    )
-                    receipt = _opening_receipt(
-                        request, scenario_id, "failed", failure,
-                    )
-        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError):
-            failure = "opening_source_coordinator_transport_failed"
-            _consume_failure(
-                workspace, request, scenario_id, failure, continuation,
-            )
-            receipt = _opening_receipt(
-                request, scenario_id, "failed", failure,
-            )
-        fileio.write_json_atomic(
-            state_path, {**base, "status": "terminal", "receipt": receipt},
+        ops._apply_opening_source_review_fulfillment(workspace, fulfillment)
+        return _opening_receipt(
+            request, exact["scenario_id"], exact["generation"],
+            "reviewed", None,
         )
-        return _object(receipt, "opening review receipt")
 
 
 def _run() -> dict[str, Any]:
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
         _fail("task exceeds input limit")
-    task = _validate_task(json.loads(raw.decode("utf-8")))
+    task = _validate_task(json.loads(raw.decode()))
     workspace = Path(task["workspace_root"]).resolve()
     if not workspace.is_dir():
         _fail("workspace_root is unavailable")
-    receipt, _thread = _codex_turn(
-        _prompt(task, _pdf_skill()), workspace,
+    return _run_pi(
+        _locator_prompt(task), workspace, timeout=240,
     )
-    return receipt
 
 
 def main() -> int:
@@ -874,10 +581,7 @@ def main() -> int:
         print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
         return 0
     except (
-        RuntimeError,
-        OSError,
-        ValueError,
-        subprocess.SubprocessError,
+        RuntimeError, OSError, ValueError, subprocess.SubprocessError,
     ) as exc:
         print(f"coc-pdf-skill-adapter: {exc}", file=sys.stderr)
         return 1

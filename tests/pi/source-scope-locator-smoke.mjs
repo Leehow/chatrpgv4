@@ -34,7 +34,7 @@ function task() {
     contract_ref: path.join(root, "plugins/coc-keeper/references/source-scope-locator-v1.json"),
     contract_revision: `sha256:${"a".repeat(64)}`,
     adapter_mode: "pi_external_pdf_skill_lifecycle",
-    model_policy: "external_codex_cli_configured_default",
+    model_policy: "pinned_xai_grok_4_5_thinking_low",
     workspace_root: workspace,
     campaign_id: "camp",
     asset_root_id: "asset",

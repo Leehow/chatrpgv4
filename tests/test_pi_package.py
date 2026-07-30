@@ -1417,8 +1417,11 @@ def test_pi_opening_source_review_transport_lifecycle():
     assert result == {
         "ok": True,
         "checks": {
-            "character_completion_trigger": True,
+            "pre_character_background_trigger": True,
+            "post_character_wait_without_duplicate": True,
             "private_task_not_model_visible": True,
+            "exact_next_generation_same_scenario_only": True,
+            "valid_failed_receipt_is_terminal": True,
             "duplicate_suppressed": True,
             "restart_reconciled_without_duplicate_launch": True,
             "outer_failures_remain_retryable": True,
@@ -1427,13 +1430,13 @@ def test_pi_opening_source_review_transport_lifecycle():
     }
 
 
-def test_pdf_skill_adapter_reaps_term_resistant_codex_process_group(
+def test_pdf_skill_adapter_reaps_term_resistant_pi_process_group(
     tmp_path: Path,
 ):
-    started = tmp_path / "codex-started"
+    started = tmp_path / "pi-started"
     child_pid_path = tmp_path / "child-pid"
     survivor = tmp_path / "descendant-survived"
-    fake_codex = tmp_path / "fake-codex"
+    fake_pi = tmp_path / "fake-pi"
     child_code = (
         "import os,signal,time,pathlib;"
         "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
@@ -1441,7 +1444,7 @@ def test_pdf_skill_adapter_reaps_term_resistant_codex_process_group(
         "time.sleep(1.2);"
         f"pathlib.Path({str(survivor)!r}).write_text('survived')"
     )
-    fake_codex.write_text(
+    fake_pi.write_text(
         f"""#!{os.fspath(Path(os.sys.executable).resolve())}
 import os
 import signal
@@ -1458,14 +1461,14 @@ time.sleep(10)
 """,
         encoding="utf-8",
     )
-    fake_codex.chmod(0o755)
+    fake_pi.chmod(0o755)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     task = {
         "schema_version": 1,
         "contract_id": "coc.pi-source-scope-locator-task.v1",
         "adapter_mode": "pi_external_pdf_skill_lifecycle",
-        "model_policy": "external_codex_cli_configured_default",
+        "model_policy": "pinned_xai_grok_4_5_thinking_low",
         "max_selected_pages": 3,
         "workspace_root": str(workspace),
         "job_id": "job-adapter-termination",
@@ -1489,14 +1492,14 @@ time.sleep(10)
     }
     env = {
         **os.environ,
-        "COC_CODEX_COMMAND": str(fake_codex),
+        "COC_PI_COMMAND": str(fake_pi),
     }
-    # This test owns only process-tree termination. The fake Codex never reads
+    # This test owns only process-tree termination. The fake Pi never reads
     # the adapter's required external-skill path, so keep the fixture hermetic.
     pdf_skill = tmp_path / "pdf-skill" / "SKILL.md"
     pdf_skill.parent.mkdir()
     pdf_skill.write_text("# process-tree fixture\n", encoding="utf-8")
-    env["COC_CODEX_PDF_SKILL"] = str(pdf_skill)
+    env["COC_PI_PDF_SKILL"] = str(pdf_skill)
     adapter = PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
     process = subprocess.Popen(
         [os.sys.executable, str(adapter), "--run"],
@@ -1524,48 +1527,92 @@ time.sleep(10)
         os.kill(child_pid, 0)
 
 
-def test_pdf_skill_adapter_preserves_image_argv_order_on_same_thread_resume(
+def test_pdf_skill_adapter_uses_one_shot_pi_grok_pdf_skill_argv(
     tmp_path: Path, monkeypatch,
 ):
     argv_path = tmp_path / "argv.json"
-    fake_codex = tmp_path / "fake-codex"
-    fake_codex.write_text(
+    fake_pi = tmp_path / "fake-pi"
+    fake_pi.write_text(
         f"""#!{os.fspath(Path(os.sys.executable).resolve())}
 import json
 import sys
 from pathlib import Path
 args = sys.argv[1:]
 Path({str(argv_path)!r}).write_text(json.dumps(args))
-output = Path(args[args.index("--output-last-message") + 1])
-output.write_text('{{"status":"ok"}}')
-print('{{"type":"thread.started","thread_id":"thread-a"}}')
+print('{{"status":"ok"}}')
 """,
         encoding="utf-8",
     )
-    fake_codex.chmod(0o755)
-    monkeypatch.setenv("COC_CODEX_COMMAND", str(fake_codex))
+    fake_pi.chmod(0o755)
+    monkeypatch.setenv("COC_PI_COMMAND", str(fake_pi))
+    skill = tmp_path / "pdf"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("# fixture\n", encoding="utf-8")
+    monkeypatch.setenv("COC_PI_PDF_SKILL", str(skill))
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    image_two = tmp_path / "page-02.png"
-    image_one = tmp_path / "page-01.png"
-    image_two.write_bytes(b"\x89PNG\r\n\x1a\nsecond")
-    image_one.write_bytes(b"\x89PNG\r\n\x1a\nfirst")
-    adapter = _load_pdf_adapter("coc_pdf_adapter_image_argv_test")
+    adapter = _load_pdf_adapter("coc_pdf_adapter_pi_argv_test")
 
-    result, thread = adapter._codex_turn(
-        {"contract_id": "coc.opening-visual-review-resume.v1"},
-        workspace,
-        resume="thread-a",
-        images=[image_two, image_one],
-        isolated=True,
-    )
+    result = adapter._run_pi("closed task", workspace, timeout=10)
 
     assert result == {"status": "ok"}
-    assert thread == "thread-a"
     argv = json.loads(argv_path.read_text(encoding="utf-8"))
-    assert argv[-6:] == [
-        "-i", str(image_two), "-i", str(image_one), "thread-a", "-",
+    assert argv == [
+        "--mode", "text", "-p", "--no-session",
+        "--no-extensions", "--no-skills", "--no-prompt-templates",
+        "--no-context-files", "--approve",
+        "--tools", "read,bash,write",
+        "--model", "xai/grok-4.5",
+        "--thinking", "low",
+        "--skill", str(skill.resolve()),
+        "closed task",
     ]
+    assert "resume" not in argv
+    assert all("codex" not in arg.lower() for arg in argv)
+
+
+def test_pdf_skill_adapter_resolves_default_skill_from_codex_home(
+    tmp_path: Path, monkeypatch,
+):
+    codex_home = tmp_path / "portable-codex-home"
+    skill = codex_home / "skills" / "pdf"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# portable fixture\n", encoding="utf-8")
+    monkeypatch.delenv("COC_PI_PDF_SKILL", raising=False)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    adapter = _load_pdf_adapter("coc_pdf_adapter_portable_skill_test")
+
+    assert adapter._pdf_skill() == skill.resolve()
+
+
+def test_pdf_skill_adapter_rejects_invalid_opening_producer_receipt(tmp_path: Path):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_strict_receipt_test")
+    task = {
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source_bundle_path": str(tmp_path / "bundle"),
+    }
+    valid = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+        "status": "reviewed",
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "selected_opening_pdf_indices": [3, 4],
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "failure_class": None,
+    }
+    assert adapter._validate_opening_result(valid, task) == valid
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_result({
+            **valid,
+            "selected_opening_pdf_indices": [3, 5],
+        }, task)
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_result({
+            **valid,
+            "scenario_id": "foreign",
+        }, task)
 
 
 def test_secrets_example_contains_key_name_only():

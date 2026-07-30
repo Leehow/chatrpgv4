@@ -227,19 +227,24 @@ chmod +x <repo>/plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter
 export COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND=<repo>/plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter
 ```
 
-The bundled thin adapter invokes an already installed and logged-in Codex CLI
-plus its existing `pdf` skill. Override their absolute locations with
-`COC_CODEX_COMMAND` and `COC_CODEX_PDF_SKILL` when needed. The adapter contains
-no PDF parser, renderer, OCR, page-text scanner, queue, or fulfillment engine.
-It uses the Codex CLI's configured default model; it does not inherit the main
-Pi/Grok model or its reasoning setting.
+The bundled thin adapter starts one isolated, logged-in Pi child in one-shot
+`pi -p` mode and loads the installed external `pdf` skill explicitly. Override
+the Pi executable with `COC_PI_COMMAND` and the skill directory or `SKILL.md`
+path with `COC_PI_PDF_SKILL` when needed. The child pins
+`xai/grok-4.5` with `thinking low` and receives only the
+`read,bash,write` tool allowlist. Sessions, implicit skills/extensions, prompt
+templates, and context files stay disabled. The main KP receives no PDF/image
+tools or child built-ins.
+
+The adapter contains no PDF parser, renderer, OCR, page-text scanner, queue, or
+fulfillment engine.
 
 Pi runs `--capabilities` before every closed task, then `--run` with one bounded
 JSON packet. The producer may only locate, render, visually review, and write
 the exact canonical 1..3-page bundle. The Pi extension validates its versioned
 receipt, calls canonical `progressive.resolve_source_scope`, and hands the
 replacement to the existing source coordinator. The main Keeper never receives
-PDF bytes, source pages, bash/read tools, or producer output.
+PDF bytes, source pages, bash/read/write tools, or raw producer output.
 Any action that actually depends on the unresolved body remains under the
 existing current-dependency blocker until that replacement is fulfilled;
 unrelated play may continue, but the Keeper must not invent the missing source.

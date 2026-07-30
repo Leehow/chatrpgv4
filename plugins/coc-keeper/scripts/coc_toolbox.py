@@ -1448,6 +1448,7 @@ def _pi_opening_setup_gate(
             "activation_allowed": False,
             "phase": "opening_source_review_required",
             "campaign_id": str(campaign_id),
+            "scenario_id": pending_review["scenario_id"],
             "source_provenance": opening_source_provenance,
             "required_source_owner": "coc-opening-source-coordinator",
             "opening_review_generation": pending_review["generation"],
@@ -11588,7 +11589,7 @@ def _source_scope_locator_dispatch(
             else "codex_background_pdf_locator"
         ),
         "model_policy": (
-            "external_codex_cli_configured_default"
+            "pinned_xai_grok_4_5_thinking_low"
             if host_adapter == "pi"
             else "inherit_parent"
         ),
