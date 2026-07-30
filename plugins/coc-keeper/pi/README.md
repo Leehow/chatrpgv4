@@ -79,7 +79,8 @@ cat > "$COC_HOME/settings.json" <<EOF
 {
   "defaultProvider": "xai",
   "defaultModel": "grok-4.5",
-  "defaultThinkingLevel": "off",
+  "defaultThinkingLevel": "low",
+  "hideThinkingBlock": true,
   "packages": ["$REPO"],
   "theme": "light",
   "quietStartup": true
@@ -231,12 +232,14 @@ The bundled thin adapter starts one isolated, logged-in Pi child in one-shot
 `pi -p` mode and loads the installed external `pdf` skill explicitly. Override
 the Pi executable with `COC_PI_COMMAND` and the skill directory or `SKILL.md`
 path with `COC_PI_PDF_SKILL` when needed. The child pins
-`xai/grok-4.5` with `thinking off` and receives only the
+`xai/grok-4.5` with `thinking low` and receives only the
 `read,bash,write` tool allowlist. Sessions, implicit skills/extensions, prompt
 templates, and context files stay disabled. The main KP receives no PDF/image
-tools or child built-ins. `off` is the requested Pi reasoning policy for this
-closed job; a provider may still report hidden reasoning tokens, so it is not a
-claim that the provider performed zero internal reasoning.
+tools or child built-ins. xAI Grok 4.5 does not support true thinking-off: Pi
+would clamp a direct `off` request to `low`. The matching
+`hideThinkingBlock: true` setting keeps reasoning summaries out of the table UI
+to reduce spoiler exposure, but it does not disable provider reasoning or its
+latency.
 
 The adapter contains no PDF parser, renderer, OCR, page-text scanner, queue, or
 fulfillment engine.
@@ -328,9 +331,10 @@ request to `low` and may stream typed thinking blocks. `pi-coc` therefore
 refuses that combination instead of silently downgrading it. True Grok
 thinking-off is an upstream model/provider capability boundary, not a
 repository adapter mode, and must not be claimed from the launch argument
-alone. A user may deliberately select `--thinking low` and set
-`hideThinkingBlock: true` to hide thought summaries from the table UI, but
-that does not disable provider reasoning or its latency. Grok promotion remains
+alone. The bundled bootstrap and PDF adapter therefore deliberately use
+`--thinking low` with `hideThinkingBlock: true`; hiding thought summaries from
+the table UI reduces spoiler exposure but does not disable provider reasoning
+or its latency. Grok promotion remains
 pending the lead's fresh provider-authenticated lifecycle run. Neither that
 future probe nor the existing component suite alone establishes product parity
 or window-equivalent play acceptance. The dispatch tool still fails closed

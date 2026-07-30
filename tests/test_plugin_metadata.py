@@ -1164,7 +1164,8 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
         "openai/gpt-5.6-luna",
         "xai/grok-4.5",
         '"defaultProvider": "xai"',
-        '"defaultThinkingLevel": "off"',
+        '"defaultThinkingLevel": "low"',
+        '"hideThinkingBlock": true',
         "must never discover",
     ):
         assert phrase in readme

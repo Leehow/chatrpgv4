@@ -11405,7 +11405,7 @@ def test_pi_source_scope_locator_projects_only_body_work(
     )
     task = takeover["next_host_action"]["task"]
     assert task["contract_id"] == "coc.pi-source-scope-locator-task.v1"
-    assert task["model_policy"] == "pinned_xai_grok_4_5_thinking_off"
+    assert task["model_policy"] == "pinned_xai_grok_4_5_thinking_low"
     assert task["job_id"] == "job-body"
     assert task["kind"] == "location"
     assert task["source"]["title"] == "Module Title"
