@@ -1468,7 +1468,7 @@ time.sleep(10)
         "schema_version": 1,
         "contract_id": "coc.pi-source-scope-locator-task.v1",
         "adapter_mode": "pi_external_pdf_skill_lifecycle",
-        "model_policy": "pinned_xai_grok_4_5_thinking_low",
+        "model_policy": "pinned_xai_grok_4_5_thinking_off",
         "max_selected_pages": 3,
         "workspace_root": str(workspace),
         "job_id": "job-adapter-termination",
@@ -1563,7 +1563,7 @@ print('{{"status":"ok"}}')
         "--no-context-files", "--approve",
         "--tools", "read,bash,write",
         "--model", "xai/grok-4.5",
-        "--thinking", "low",
+        "--thinking", "off",
         "--skill", str(skill.resolve()),
         "closed task",
     ]

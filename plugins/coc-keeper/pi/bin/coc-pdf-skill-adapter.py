@@ -30,7 +30,7 @@ OPENING_COORDINATOR_CONTRACT = (
     PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
 )
 PI_MODEL = "xai/grok-4.5"
-PI_THINKING = "low"
+PI_THINKING = "off"
 PI_TOOLS = "read,bash,write"
 
 
@@ -108,7 +108,7 @@ def _validate_task(value: Any) -> dict[str, Any]:
         or task.get("contract_id") != "coc.pi-source-scope-locator-task.v1"
         or task.get("adapter_mode") != "pi_external_pdf_skill_lifecycle"
         or task.get("model_policy")
-        != "pinned_xai_grok_4_5_thinking_low"
+        != "pinned_xai_grok_4_5_thinking_off"
         or task.get("max_selected_pages") != 3
     ):
         _fail("task contract mismatch")

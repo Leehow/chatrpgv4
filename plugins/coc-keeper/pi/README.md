@@ -231,10 +231,12 @@ The bundled thin adapter starts one isolated, logged-in Pi child in one-shot
 `pi -p` mode and loads the installed external `pdf` skill explicitly. Override
 the Pi executable with `COC_PI_COMMAND` and the skill directory or `SKILL.md`
 path with `COC_PI_PDF_SKILL` when needed. The child pins
-`xai/grok-4.5` with `thinking low` and receives only the
+`xai/grok-4.5` with `thinking off` and receives only the
 `read,bash,write` tool allowlist. Sessions, implicit skills/extensions, prompt
 templates, and context files stay disabled. The main KP receives no PDF/image
-tools or child built-ins.
+tools or child built-ins. `off` is the requested Pi reasoning policy for this
+closed job; a provider may still report hidden reasoning tokens, so it is not a
+claim that the provider performed zero internal reasoning.
 
 The adapter contains no PDF parser, renderer, OCR, page-text scanner, queue, or
 fulfillment engine.

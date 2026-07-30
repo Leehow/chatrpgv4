@@ -11616,7 +11616,7 @@ def _source_scope_locator_dispatch(
             else "codex_background_pdf_locator"
         ),
         "model_policy": (
-            "pinned_xai_grok_4_5_thinking_low"
+            "pinned_xai_grok_4_5_thinking_off"
             if host_adapter == "pi"
             else "inherit_parent"
         ),

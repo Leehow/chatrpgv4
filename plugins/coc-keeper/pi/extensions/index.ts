@@ -4480,7 +4480,7 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     task.schema_version !== 1
     || task.contract_id !== "coc.pi-source-scope-locator-task.v1"
     || task.adapter_mode !== "pi_external_pdf_skill_lifecycle"
-    || task.model_policy !== "pinned_xai_grok_4_5_thinking_low"
+    || task.model_policy !== "pinned_xai_grok_4_5_thinking_off"
     || task.max_selected_pages !== 3
     || task.result_delivery !== "natural_completion_notification_only"
   ) throw new Error("Pi source-scope locator task contract drift");

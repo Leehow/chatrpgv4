@@ -80,7 +80,7 @@
       "status": "unavailable_dynamic_preflight",
       "adapter_mode": "pi_external_pdf_skill_lifecycle",
       "task_contract_id": "coc.pi-source-scope-locator-task.v1",
-      "model_policy": "pinned_xai_grok_4_5_thinking_low",
+      "model_policy": "pinned_xai_grok_4_5_thinking_off",
       "producer_command_env": "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND",
       "projection_gate": "configured_absolute_executable",
       "main_keeper_tool_access": false
