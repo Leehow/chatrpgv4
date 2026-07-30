@@ -14005,6 +14005,28 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         assert "challenge" not in prompt
         task = json.loads(prompt.splitlines()[-1])
+        manifest_contract = json.loads(
+            (
+                REPO / "plugins/coc-keeper/references"
+                / "opening-source-coordinator-v1.json"
+            ).read_text(encoding="utf-8")
+        )["source_bundle_manifest_contract"]
+        assert task["source_bundle_manifest_contract"] == manifest_contract
+        template = task["source_bundle_manifest_contract"]["template"]
+        assert set(template) == {
+            "schema_version", "producer", "source", "pages", "assets",
+        }
+        assert template["producer"] == "codex-pdf-skill"
+        assert set(template["source"]) == {
+            "source_id", "title", "path", "file_sha256", "page_count",
+        }
+        assert set(template["pages"][0]) == {
+            "pdf_index", "markdown_path", "text_sha256", "review_state",
+            "parse_confidence", "grep_anchors",
+        }
+        assert task["source_bundle_manifest_contract"][
+            "forbidden_shortcut_fields"
+        ] == ["source_bundle_id", "pdf_sha256", "pages[].path"]
         captured.update({"task": task, "cwd": cwd, "calls": 1})
         output = Path(task["source_bundle_path"])
         assert output != ws["workspace"] / "opening-source"
@@ -14066,6 +14088,66 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
     assert consumed["opening_source_provenance"] == (
         "coordinator_reviewed_playable_opening"
     )
+
+
+def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
+    tmp_path: Path, monkeypatch,
+):
+    ws, request, scenario_path = _pi_opening_review_adapter_fixture(tmp_path)
+    adapter = _load(
+        "coc_pdf_skill_adapter_opening_legacy_bundle_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    monkeypatch.setattr(
+        adapter, "_validate_opening_review_transport", lambda value: value,
+    )
+
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        task = json.loads(prompt.splitlines()[-1])
+        output = Path(task["source_bundle_path"])
+        page = b"# Legacy shortcut\n\nThis shape is unsupported.\n"
+        (output / "page-0000.md").write_bytes(page)
+        (output / "manifest.json").write_text(json.dumps({
+            "schema_version": 1,
+            "contract_id": "coc.codex-pdf-skill-bundle.v1",
+            "source": {
+                "source_id": task["source"]["source_id"],
+                "title": task["title"],
+                "path": task["source"]["path"],
+                "file_sha256": task["source"]["file_sha256"],
+            },
+            "pages": [{
+                "pdf_index": 0,
+                "markdown_file": "page-0000.md",
+                "file_sha256": hashlib.sha256(page).hexdigest(),
+                "confidence": 0.99,
+            }],
+        }), encoding="utf-8")
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "status": "reviewed",
+            "campaign_id": task["campaign_id"],
+            "scenario_id": task["scenario_id"],
+            "selected_opening_pdf_indices": [0],
+            "source_bundle_path": task["source_bundle_path"],
+            "failure_class": None,
+        }
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+
+    class AdapterInput:
+        def __init__(self):
+            self.buffer = io.BytesIO(json.dumps(request).encode())
+
+    monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    with pytest.raises(ValueError, match="manifest.producer"):
+        adapter._run_opening_review()
+    current = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert current["opening_source_review_task"]["generation"] == 1
+    assert current["opening_source_review_task"]["status"] == "pending"
+    assert "opening_source_review_receipt" not in current
 
 
 def test_pi_opening_review_adapter_failed_producer_does_not_forge_fulfillment(

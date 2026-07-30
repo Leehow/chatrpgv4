@@ -26,6 +26,9 @@ MAX_OUTPUT_BYTES = 256 * 1024
 PI_TIMEOUT_SECONDS = 900
 TERMINATION_GRACE_SECONDS = 0.35
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+OPENING_COORDINATOR_CONTRACT = (
+    PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
+)
 PI_MODEL = "xai/grok-4.5"
 PI_THINKING = "low"
 PI_TOOLS = "read,bash,write"
@@ -302,6 +305,17 @@ def _opening_paths(workspace: Path, campaign_id: str) -> tuple[Path, Path]:
     )
 
 
+def _opening_manifest_contract() -> dict[str, Any]:
+    reference = _json(
+        OPENING_COORDINATOR_CONTRACT,
+        "opening source coordinator contract",
+    )
+    return _object(
+        reference.get("source_bundle_manifest_contract"),
+        "opening source bundle manifest contract",
+    )
+
+
 def _opening_producer_task(
     workspace: Path,
     request: dict[str, Any],
@@ -338,6 +352,7 @@ def _opening_producer_task(
         "opening_locator_pdf_indices": private["allowed_pdf_indices"],
         "max_selected_opening_pages": 3,
         "source_bundle_path": str(output),
+        "source_bundle_manifest_contract": _opening_manifest_contract(),
     }
     if (
         not isinstance(task["title"], str)
@@ -359,10 +374,12 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "window that includes authored time/place, every materially present "
         "NPC, the full briefing or pressure, and actionable routes when they "
         "exist. Render and visually inspect every selected page yourself with "
-        "the read tool. Write one standard schema-v1 codex-pdf-skill bundle at "
-        "the exact source_bundle_path: manifest.json plus one Markdown file per "
-        "selected page, exact hashes, manual_accepted review state, honest "
-        "confidence, and verbatim grep anchors. manifest.source.source_id, "
+        "the read tool. Write exactly the canonical schema-v1 bundle defined by "
+        "task.source_bundle_manifest_contract.template at source_bundle_path. "
+        "That template's manifest.json keys and page keys are required. Legacy "
+        "task-oriented coc.codex-pdf-skill-bundle.v1 shortcut manifests and "
+        "alternate page keys markdown_file, file_sha256, or confidence are "
+        "unsupported and will be rejected. manifest.source.source_id, "
         "path, and file_sha256 must exactly match task.source; "
         "manifest.source.title must exactly match task.title. "
         "Do not use OCR. Do not read .coc, saves, "
