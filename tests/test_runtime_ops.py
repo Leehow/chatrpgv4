@@ -2457,6 +2457,10 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     briefing_path = metadata["character_creation"]["briefing_path"]
     assert (tmp_path / briefing_path).is_file()
     assert bound["result"]["character_creation_briefing"]["briefing_path"] == briefing_path
+    briefing_markdown = (tmp_path / briefing_path).read_text(encoding="utf-8")
+    assert "图书馆使用" in briefing_markdown
+    assert "快速数组：80、70、60、60、50、50、50、40" in briefing_markdown
+    assert "当前自动快速建卡不匹配" not in briefing_markdown
 
     rerendered = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
@@ -2465,6 +2469,9 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     })
     assert rerendered["status"] == "PASS"
     assert rerendered["result"]["briefing_path"] == briefing_path
+    assert (tmp_path / briefing_path).read_text(encoding="utf-8") == (
+        briefing_markdown
+    )
 
     continuation = {
         "schema_version": 1,
@@ -2551,6 +2558,95 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
         match="does not match pending task",
     ):
         ops._apply_opening_source_review_fulfillment(tmp_path, receipt)
+
+
+def test_medieval_pdf_bind_and_rerender_write_fail_closed_briefing(tmp_path):
+    created = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "medieval-briefing",
+            "title": "Medieval Campaign",
+            "era": "medieval",
+            "play_language": "zh-Hans",
+        },
+    })
+    assert created["status"] == "PASS"
+
+    pdf = tmp_path / "medieval-chronicle.pdf"
+    pdf.write_bytes(b"%PDF host-owned medieval fixture")
+    source_bundle = tmp_path / "medieval-source"
+    source_bundle.mkdir()
+    page = b"# Medieval Chronicle\n\nA player-safe medieval premise.\n"
+    (source_bundle / "page-0000.md").write_bytes(page)
+    (source_bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:medieval-chronicle",
+            "title": "Medieval Chronicle",
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 1,
+        },
+        "pages": [{
+            "pdf_index": 0,
+            "markdown_path": "page-0000.md",
+            "text_sha256": hashlib.sha256(page).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.96,
+            "grep_anchors": ["A player-safe medieval premise."],
+        }],
+    }), encoding="utf-8")
+
+    bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "medieval-briefing",
+            "scenario_id": "medieval-chronicle",
+            "title": "Medieval Chronicle",
+            "source_bundle_path": str(source_bundle),
+            "compile_now": False,
+        },
+    })
+    assert bound["status"] == "PASS"
+    briefing_path = bound["result"]["character_creation_briefing"][
+        "briefing_path"
+    ]
+
+    def assert_fail_closed(markdown: str) -> None:
+        assert "**年代**：medieval" in markdown
+        assert "Medieval Chronicle" in markdown
+        assert "当前自动快速建卡可靠支持的年代：1920年代" in markdown
+        assert "当前自动快速建卡不匹配" in markdown
+        assert (
+            "不能把属于1920年代的角色卡中的职业、技能、金钱或装备"
+            "直接套到本战役" in markdown
+        )
+        assert "交给守秘人确认后使用" in markdown
+        assert "暂不生成数值" in markdown
+        for misplaced in (
+            "新闻", "考古", "警务", "射击", "旧报", "图书馆使用",
+            "快速数组：80、70、60、60、50、50、50、40",
+        ):
+            assert misplaced not in markdown
+        for jargon in ("规则包", "宿主", "导入流程", "creation.input_mode"):
+            assert jargon not in markdown
+
+    bound_markdown = (tmp_path / briefing_path).read_text(encoding="utf-8")
+    assert_fail_closed(bound_markdown)
+
+    rerendered = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.render_briefing",
+        "payload": {"campaign_id": "medieval-briefing"},
+    })
+    assert rerendered["status"] == "PASS"
+    assert rerendered["result"]["briefing_path"] == briefing_path
+    rerendered_markdown = (tmp_path / briefing_path).read_text(encoding="utf-8")
+    assert rerendered_markdown == bound_markdown
+    assert_fail_closed(rerendered_markdown)
 
 
 def test_investigator_create_rejects_localized_machine_skills_before_write(tmp_path):

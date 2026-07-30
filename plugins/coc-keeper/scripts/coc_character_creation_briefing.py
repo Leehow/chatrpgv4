@@ -18,6 +18,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import coc_character
 import coc_fileio
 import coc_rulesets
 
@@ -351,6 +352,8 @@ def _safe_summary(
     title: str,
     era: str,
     language: str,
+    *,
+    guided_quick_fire_supported: bool,
 ) -> str:
     player_safe_summary = scenario.get("player_safe_summary")
     if (
@@ -369,6 +372,12 @@ def _safe_summary(
     structure_type = str(module_meta.get("structure_type") or "")
     if language == "zh-Hans":
         era_context = f"{era}，" if era else ""
+        if not guided_quick_fire_supported:
+            return (
+                f"{title} 的开卡阶段只呈现玩家安全信息：{era_context}"
+                "请根据模组公开来源，构思一个属于该时代与地点的人物；"
+                "此处不补写职业、技能、金钱或装备数值。"
+            )
         if structure_type == "hybrid_mega":
             return (
                 f"{title}适合创建能承受长线调查压力的调查员。故事的公开气质是"
@@ -381,6 +390,12 @@ def _safe_summary(
             "请优先考虑你的调查员为什么会接触到委托、档案、异常传闻或危险的人际关系。"
         )
     era_context = f"{era}, " if era else ""
+    if not guided_quick_fire_supported:
+        return (
+            f"{title} character creation uses player-safe setup only: "
+            f"{era_context}build a person who belongs to the source's era and "
+            "place without inventing occupation, skill, money, or equipment values."
+        )
     return (
         f"{title} character creation uses player-safe setup only: {era_context}investigation-first, "
         "with no Keeper-only solution or secret revealed."
@@ -451,6 +466,84 @@ def _generation_method_lines(language: str) -> list[str]:
     ]
 
 
+def _unsupported_era_creation_lines(
+    era: str,
+    supported_eras: tuple[str, ...],
+    language: str,
+) -> list[str]:
+    supported_labels = tuple(
+        label
+        for label in (_era_label(value, language) for value in supported_eras)
+        if label
+    )
+    supported = "、".join(supported_labels) if supported_labels else "无"
+    current = era or ("未确定" if language == "zh-Hans" else "unspecified")
+    if language == "zh-Hans":
+        support_boundary = (
+            f"不能把属于{supported}的角色卡中的职业、技能、金钱或装备"
+            "直接套到本战役。"
+            if supported_labels
+            else "当前没有可借用的自动快速建卡模板；不要自行补写职业、技能、金钱或装备数值。"
+        )
+        return [
+            "## 年代说明",
+            "",
+            (
+                f"- 当前自动快速建卡可靠支持的年代：{supported}。"
+            ),
+            (
+                f"- 本战役年代为 **{current}**，与当前自动快速建卡不匹配；"
+                f"{support_boundary}"
+            ),
+            (
+                "- 如果已有经权威来源核对、与本年代相符的完整角色卡，"
+                "可以交给守秘人确认后使用；否则先确定人物概念和背景，"
+                "暂不生成数值。"
+            ),
+            "",
+            "## 角色概念（暂不生成数值）",
+            "",
+            "- 这个人物如何属于当前时代、地点与社会关系？",
+            "- 来源公开背景中的什么人、责任或事件会把 TA 带入故事？",
+            "- 先记录概念与背景，不选择职业、技能或装备数值。",
+        ]
+    supported = ", ".join(supported_labels) if supported_labels else "none"
+    sheet_label = "character sheet" if len(supported_labels) == 1 else "character sheets"
+    support_boundary = (
+        "Do not copy occupations, skills, money, or equipment from the "
+        f"currently supported {supported} {sheet_label} into this campaign."
+        if supported_labels
+        else (
+            "There is no reliable automatic quick-creation template to borrow; "
+            "do not invent occupation, skill, money, or equipment values."
+        )
+    )
+    return [
+        "## Era Note",
+        "",
+        (
+            "- Reliable automatic quick character creation currently supports: "
+            f"{supported}."
+        ),
+        (
+            f"- This campaign era is **{current}**, which does not match. "
+            f"{support_boundary}"
+        ),
+        (
+            "- If you already have a complete character sheet verified against "
+            "an authoritative source and suited to this era, give it to the "
+            "Keeper for confirmation. Otherwise, establish the character's "
+            "concept and background without generating numbers yet."
+        ),
+        "",
+        "## Character Concept (No Numbers Yet)",
+        "",
+        "- How does this person belong to the campaign's era, place, and society?",
+        "- What person, duty, or event in the public source background draws them in?",
+        "- Record concept and background only; do not choose occupation, skill, or equipment values yet.",
+    ]
+
+
 def render_briefing(
     campaign: dict[str, Any],
     scenario: dict[str, Any],
@@ -460,7 +553,11 @@ def render_briefing(
     language: str = "zh-Hans",
 ) -> str:
     title = _scenario_title(campaign, scenario, module_meta, source_map, language)
-    era = _era_label(module_meta.get("era") or campaign.get("era"), language)
+    campaign_era = str(campaign.get("era") or "").strip()
+    raw_era = campaign_era or str(module_meta.get("era") or "").strip()
+    era = _era_label(raw_era, language)
+    supported_eras = coc_character.guided_quick_fire_supported_eras()
+    guided_quick_fire_supported = raw_era.casefold() in supported_eras
     structure = _structure_label(module_meta.get("structure_type"), language)
     source_label = _source_label(source_map, scenario)
     source = (
@@ -470,9 +567,43 @@ def render_briefing(
         if source_label
         else ""
     )
-    summary = _safe_summary(scenario, module_meta, title, era, language)
+    summary = _safe_summary(
+        scenario,
+        module_meta,
+        title,
+        era,
+        language,
+        guided_quick_fire_supported=guided_quick_fire_supported,
+    )
     flags = _content_flags(module_meta.get("content_flags"), language)
     if language != "zh-Hans":
+        if not guided_quick_fire_supported:
+            setup_lines = [
+                line
+                for line in (
+                    f"- Era: {era}" if era else "",
+                    f"- Structure: {structure}" if structure else "",
+                    f"- Source: {source}" if source else "",
+                )
+                if line
+            ]
+            return "\n".join(
+                [
+                    f"# Character Creation Briefing: {title}",
+                    "",
+                    "This player-safe briefing preserves public source and era context without inventing character details that lack era-appropriate support.",
+                    "",
+                    *setup_lines,
+                    "",
+                    "## Mood",
+                    "",
+                    summary,
+                    "",
+                    *_unsupported_era_creation_lines(
+                        era, supported_eras, language
+                    ),
+                ]
+            ).rstrip() + "\n"
         skill_lines = [f"- **{name}**: {reason}" for name, reason in _recommended_skills(language)]
         setup_lines = [
             line
@@ -531,6 +662,26 @@ def render_briefing(
         )
         if line
     ]
+    if not guided_quick_fire_supported:
+        return "\n".join(
+            [
+                f"# {title}：开卡序章",
+                "",
+                "> 这是一份玩家安全的开卡序章，只保留公开的来源与时代背景；不会擅自补写这个年代尚无依据的建卡内容。",
+                "",
+                "## 模组窗口",
+                "",
+                *setup_lines,
+                "",
+                "## 氛围",
+                "",
+                summary,
+                "",
+                *_unsupported_era_creation_lines(
+                    era, supported_eras, language
+                ),
+            ]
+        ).rstrip() + "\n"
     return "\n".join(
         [
             f"# {title}：开卡序章",

@@ -796,7 +796,13 @@ def test_generated_briefing_summary_uses_effective_campaign_era():
     )
     assert "**年代**：medieval" in markdown
     assert "玩家安全信息：medieval" in markdown
-    assert "1920" not in markdown
+    assert "当前自动快速建卡不匹配" in markdown
+    assert (
+        "不能把属于1920年代的角色卡中的职业、技能、金钱或装备直接套到本战役"
+        in markdown
+    )
+    assert "新闻" not in markdown
+    assert "射击" not in markdown
 
 
 def test_project_skeleton_carries_module_daylight_clock_into_campaign(tmp_path: Path):
