@@ -316,12 +316,76 @@ def _opening_manifest_contract() -> dict[str, Any]:
     )
 
 
+def _copy_validated_bundle_file(
+    source_root: Path,
+    output_root: Path,
+    relative: str,
+) -> None:
+    source = (source_root / relative).resolve()
+    target = (output_root / relative).resolve()
+    if (
+        not source.is_relative_to(source_root)
+        or not target.is_relative_to(output_root)
+        or not source.is_file()
+    ):
+        _fail("reusable bound source file is invalid")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+
+
+def _preseed_reusable_bound_source(
+    output: Path,
+    private: dict[str, Any],
+    pdf_bundle: Any,
+) -> dict[str, Any]:
+    bound = pdf_bundle.load_host_bundle(private["source_bundle_path"])
+    if (
+        bound["bundle_sha256"] != private["source_bundle_sha256"]
+        or bound["source"]["source_id"] != private["source_id"]
+        or bound["source"]["file_sha256"] != private["source_file_sha256"]
+        or [row["pdf_index"] for row in bound["pages"]]
+        != private["allowed_pdf_indices"]
+    ):
+        _fail("reusable bound source authority drift")
+    source_root = Path(bound["source"]["source_bundle_path"]).resolve()
+    manifest = _json(source_root / "manifest.json", "bound source manifest")
+    raw_pages = manifest.get("pages")
+    raw_assets = manifest.get("assets", [])
+    if not isinstance(raw_pages, list) or not isinstance(raw_assets, list):
+        _fail("reusable bound source manifest is invalid")
+    for page in bound["pages"]:
+        _copy_validated_bundle_file(
+            source_root, output, str(page["markdown_path"]),
+        )
+        structured = page.get("structured_data")
+        if isinstance(structured, dict):
+            _copy_validated_bundle_file(
+                source_root, output, str(structured["path"]),
+            )
+    for asset in bound["assets"]:
+        _copy_validated_bundle_file(
+            source_root, output, str(asset["path"]),
+        )
+    _copy_validated_bundle_file(
+        source_root, output, "manifest.json",
+    )
+    return {
+        "source_bundle_path": str(source_root),
+        "bundle_sha256": bound["bundle_sha256"],
+        "manifest": manifest,
+        "normalized_pages": [
+            _reusable_page_row(page) for page in bound["pages"]
+        ],
+    }
+
+
 def _opening_producer_task(
     workspace: Path,
     request: dict[str, Any],
     scenario: dict[str, Any],
     campaign: dict[str, Any],
     private: dict[str, Any],
+    pdf_bundle: Any,
 ) -> dict[str, Any]:
     source = _object(scenario.get("source"), "scenario source")
     output_root = (
@@ -335,6 +399,9 @@ def _opening_producer_task(
     output = Path(tempfile.mkdtemp(
         prefix="reviewed-", dir=output_root,
     )).resolve()
+    reusable_bound_source = _preseed_reusable_bound_source(
+        output, private, pdf_bundle,
+    )
     task = {
         "schema_version": 1,
         "contract_id": "coc.pi-opening-pdf-producer-task.v1",
@@ -353,6 +420,7 @@ def _opening_producer_task(
         "max_selected_opening_pages": 3,
         "source_bundle_path": str(output),
         "source_bundle_manifest_contract": _opening_manifest_contract(),
+        "reusable_bound_source": reusable_bound_source,
     }
     if (
         not isinstance(task["title"], str)
@@ -379,7 +447,14 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "That template's manifest.json keys and page keys are required. Legacy "
         "task-oriented coc.codex-pdf-skill-bundle.v1 shortcut manifests and "
         "alternate page keys markdown_file, file_sha256, or confidence are "
-        "unsupported and will be rejected. manifest.source.source_id, "
+        "unsupported and will be rejected. The output is preseeded from "
+        "task.reusable_bound_source; that retained source path is read-only. "
+        "If the selected window overlaps one of those manifest pages, keep "
+        "that exact markdown_path, Markdown bytes, and complete page evidence "
+        "row; do not retranscribe, rewrite, or alter the retained source. "
+        "New selected pages may be added normally. Final manifest.pages must "
+        "equal the selected result window exactly; unselected preseed files may "
+        "remain unreferenced. manifest.source.source_id, "
         "path, and file_sha256 must exactly match task.source; "
         "manifest.source.title must exactly match task.title. "
         "Do not use OCR. Do not read .coc, saves, "
@@ -439,6 +514,89 @@ def _validate_opening_result(
     return result
 
 
+def _reusable_page_row(page: dict[str, Any]) -> dict[str, Any]:
+    row = {
+        "pdf_index": page["pdf_index"],
+        "markdown_path": page["markdown_path"],
+        "text_sha256": page.get(
+            "producer_text_sha256", page.get("text_sha256"),
+        ),
+        "review_state": page["review_state"],
+        "parse_confidence": page["parse_confidence"],
+        "grep_anchors": list(page["grep_anchors"]),
+    }
+    for key in ("printed_page", "printed_label", "ocr_revision"):
+        if key in page:
+            row[key] = page[key]
+    structured = page.get("structured_data")
+    if isinstance(structured, dict):
+        row["structured_data"] = {
+            key: structured[key]
+            for key in ("path", "sha256", "format", "producer", "model")
+        }
+    return row
+
+
+def _validate_reused_bound_pages(
+    bundle: dict[str, Any],
+    final_manifest: dict[str, Any],
+    task: dict[str, Any],
+) -> None:
+    reusable = _object(
+        task.get("reusable_bound_source"),
+        "reusable bound source",
+    )
+    manifest = _object(
+        reusable.get("manifest"),
+        "reusable bound source manifest",
+    )
+    retained_raw_pages = manifest.get("pages")
+    final_raw_pages = final_manifest.get("pages")
+    normalized_pages = reusable.get("normalized_pages")
+    if (
+        not isinstance(retained_raw_pages, list)
+        or not isinstance(final_raw_pages, list)
+        or not isinstance(normalized_pages, list)
+    ):
+        _fail("reusable bound source pages are invalid")
+    retained_raw = {
+        int(row["pdf_index"]): row
+        for row in retained_raw_pages
+        if isinstance(row, dict)
+        and isinstance(row.get("pdf_index"), int)
+        and not isinstance(row.get("pdf_index"), bool)
+    }
+    final_raw = {
+        int(row["pdf_index"]): row
+        for row in final_raw_pages
+        if isinstance(row, dict)
+        and isinstance(row.get("pdf_index"), int)
+        and not isinstance(row.get("pdf_index"), bool)
+    }
+    retained_normalized = {
+        int(row["pdf_index"]): row
+        for row in normalized_pages
+        if isinstance(row, dict)
+        and isinstance(row.get("pdf_index"), int)
+        and not isinstance(row.get("pdf_index"), bool)
+    }
+    if (
+        len(retained_raw) != len(retained_raw_pages)
+        or len(final_raw) != len(final_raw_pages)
+        or len(retained_normalized) != len(normalized_pages)
+    ):
+        _fail("reusable bound source pages are invalid")
+    for page in bundle["pages"]:
+        pdf_index = int(page["pdf_index"])
+        if pdf_index not in retained_raw:
+            continue
+        if (
+            final_raw.get(pdf_index) != retained_raw[pdf_index]
+            or _reusable_page_row(page) != retained_normalized.get(pdf_index)
+        ):
+            _fail(f"reusable bound page {pdf_index} drift")
+
+
 def _opening_receipt(
     request: dict[str, Any],
     scenario_id: str,
@@ -481,7 +639,7 @@ def _run_opening_review() -> dict[str, Any]:
         ):
             _fail("opening review generation drift")
         task = _opening_producer_task(
-            workspace, request, scenario, campaign, private,
+            workspace, request, scenario, campaign, private, pdf_bundle,
         )
         result = _validate_opening_result(
             _run_pi(
@@ -497,6 +655,10 @@ def _run_opening_review() -> dict[str, Any]:
                 "failed", result["failure_class"],
             )
         bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+        final_manifest = _json(
+            Path(task["source_bundle_path"]) / "manifest.json",
+            "opening source manifest",
+        )
         selected = result["selected_opening_pdf_indices"]
         if (
             [row["pdf_index"] for row in bundle["pages"]] != selected
@@ -507,6 +669,7 @@ def _run_opening_review() -> dict[str, Any]:
             or bundle["source"]["title"] != task["title"]
         ):
             _fail("opening source bundle identity drift")
+        _validate_reused_bound_pages(bundle, final_manifest, task)
         bind = ops.execute_setup_operation(
             workspace,
             operation={

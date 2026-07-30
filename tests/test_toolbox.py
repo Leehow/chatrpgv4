@@ -13963,8 +13963,14 @@ def test_pi_opening_coordinator_terminal_failure_survives_restart(
         )
 
 
-def _pi_opening_review_adapter_fixture(tmp_path: Path) -> tuple[dict, dict, Path]:
-    ws = _opening_component_workspace(tmp_path)
+def _pi_opening_review_adapter_fixture(
+    tmp_path: Path,
+    *,
+    source_page_count: int | None = None,
+) -> tuple[dict, dict, Path]:
+    ws = _opening_component_workspace(
+        tmp_path, source_page_count=source_page_count,
+    )
     scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
     scenario.update({
@@ -14000,6 +14006,14 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         adapter, "_validate_opening_review_transport", lambda value: value,
     )
     captured: dict = {}
+    cached_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "pages" / "0000.md"
+    )
+    cached_before = cached_path.read_bytes()
+    expected_bundle_sha256 = json.loads(
+        scenario_path.read_text(encoding="utf-8")
+    )["source"]["bundle_sha256"]
 
     def fake_pi(prompt: str, cwd: Path, *, timeout: int) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
@@ -14027,6 +14041,12 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         assert task["source_bundle_manifest_contract"][
             "forbidden_shortcut_fields"
         ] == ["source_bundle_id", "pdf_sha256", "pages[].path"]
+        reusable = task["reusable_bound_source"]
+        assert reusable["source_bundle_path"] == str(
+            ws["workspace"] / "opening-source"
+        )
+        assert reusable["bundle_sha256"] == expected_bundle_sha256
+        assert [row["pdf_index"] for row in reusable["manifest"]["pages"]] == [0]
         captured.update({"task": task, "cwd": cwd, "calls": 1})
         output = Path(task["source_bundle_path"])
         assert output != ws["workspace"] / "opening-source"
@@ -14035,17 +14055,12 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
             / ws["campaign_id"]
         )
         assert cwd == output.parent
-        old_bundle = ws["workspace"] / "opening-source"
-        manifest = json.loads(
-            (old_bundle / "manifest.json").read_text(encoding="utf-8")
+        preseeded = json.loads(
+            (output / "manifest.json").read_text(encoding="utf-8")
         )
-        for page in manifest["pages"]:
-            relative = Path(page["markdown_path"])
-            (output / relative).parent.mkdir(parents=True, exist_ok=True)
-            (output / relative).write_bytes((old_bundle / relative).read_bytes())
-        (output / "manifest.json").write_text(
-            json.dumps(manifest), encoding="utf-8",
-        )
+        assert preseeded == reusable["manifest"]
+        relative = Path(preseeded["pages"][0]["markdown_path"])
+        assert (output / relative).read_bytes() == cached_before
         return {
             "schema_version": 1,
             "contract_id": "coc.pi-opening-pdf-producer-result.v1",
@@ -14079,6 +14094,14 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
     assert captured["task"]["source_bundle_path"] != (
         str(ws["workspace"] / "opening-source")
     )
+    assert cached_path.read_bytes() == cached_before
+    output = Path(captured["task"]["source_bundle_path"])
+    output_manifest = json.loads(
+        (output / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert (
+        output / output_manifest["pages"][0]["markdown_path"]
+    ).read_bytes() == cached_before
     consumed = json.loads(scenario_path.read_text(encoding="utf-8"))
     assert consumed["opening_source_review_task"]["generation"] == 2
     assert consumed["opening_source_review_task"]["status"] == "fulfilled"
@@ -14088,6 +14111,259 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
     assert consumed["opening_source_provenance"] == (
         "coordinator_reviewed_playable_opening"
     )
+
+
+def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
+    tmp_path: Path, monkeypatch,
+):
+    ws, request, scenario_path = _pi_opening_review_adapter_fixture(
+        tmp_path, source_page_count=2,
+    )
+    adapter = _load(
+        "coc_pdf_skill_adapter_opening_mixed_reuse_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    monkeypatch.setattr(
+        adapter, "_validate_opening_review_transport", lambda value: value,
+    )
+    cached_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "pages" / "0000.md"
+    )
+    cached_before = cached_path.read_bytes()
+
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        task = json.loads(prompt.splitlines()[-1])
+        output = Path(task["source_bundle_path"])
+        manifest_path = output / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert [row["pdf_index"] for row in manifest["pages"]] == [0]
+        reused = manifest["pages"][0]
+        assert (output / reused["markdown_path"]).read_bytes() == cached_before
+        new_bytes = b"# Opening continuation\n\nA new adjacent page.\n"
+        new_relative = "page-0001.md"
+        (output / new_relative).write_bytes(new_bytes)
+        manifest["pages"].append({
+            "pdf_index": 1,
+            "markdown_path": new_relative,
+            "text_sha256": hashlib.sha256(new_bytes).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.98,
+            "grep_anchors": ["A new adjacent page."],
+        })
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "status": "reviewed",
+            "campaign_id": task["campaign_id"],
+            "scenario_id": task["scenario_id"],
+            "selected_opening_pdf_indices": [0, 1],
+            "source_bundle_path": task["source_bundle_path"],
+            "failure_class": None,
+        }
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+
+    class AdapterInput:
+        def __init__(self):
+            self.buffer = io.BytesIO(json.dumps(request).encode())
+
+    monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    receipt = adapter._run_opening_review()
+    assert receipt["status"] == "reviewed"
+    assert receipt["opening_review_generation"] == 2
+    assert cached_path.read_bytes() == cached_before
+    new_cached = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "pages" / "0001.md"
+    )
+    assert new_cached.read_bytes() == (
+        b"# Opening continuation\n\nA new adjacent page.\n"
+    )
+    consumed = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert consumed["opening_source_review_task"]["status"] == "fulfilled"
+    assert consumed["opening_source_review_receipt"]["source_scope"][
+        "pdf_indices"
+    ] == [0, 1]
+
+
+def test_pi_opening_review_adapter_rejects_changed_reused_page(
+    tmp_path: Path, monkeypatch,
+):
+    ws, request, scenario_path = _pi_opening_review_adapter_fixture(tmp_path)
+    adapter = _load(
+        "coc_pdf_skill_adapter_opening_reuse_drift_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    monkeypatch.setattr(
+        adapter, "_validate_opening_review_transport", lambda value: value,
+    )
+    cached_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "pages" / "0000.md"
+    )
+    cached_before = cached_path.read_bytes()
+
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        task = json.loads(prompt.splitlines()[-1])
+        output = Path(task["source_bundle_path"])
+        manifest_path = output / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        page = manifest["pages"][0]
+        changed = b"# Opening\n\nA changed retranscription.\n"
+        (output / page["markdown_path"]).write_bytes(changed)
+        page["text_sha256"] = hashlib.sha256(changed).hexdigest()
+        page["grep_anchors"] = ["A changed retranscription."]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "status": "reviewed",
+            "campaign_id": task["campaign_id"],
+            "scenario_id": task["scenario_id"],
+            "selected_opening_pdf_indices": [0],
+            "source_bundle_path": task["source_bundle_path"],
+            "failure_class": None,
+        }
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+
+    class AdapterInput:
+        def __init__(self):
+            self.buffer = io.BytesIO(json.dumps(request).encode())
+
+    monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
+        adapter._run_opening_review()
+    assert cached_path.read_bytes() == cached_before
+    current = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert current["opening_source_review_task"]["generation"] == 1
+    assert current["opening_source_review_task"]["status"] == "pending"
+    assert "opening_source_review_receipt" not in current
+
+
+def test_pi_opening_review_adapter_rejects_equivalent_raw_page_row_rewrite(
+    tmp_path: Path, monkeypatch,
+):
+    ws, request, scenario_path = _pi_opening_review_adapter_fixture(tmp_path)
+    adapter = _load(
+        "coc_pdf_skill_adapter_opening_raw_row_drift_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    monkeypatch.setattr(
+        adapter, "_validate_opening_review_transport", lambda value: value,
+    )
+    cached_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "pages" / "0000.md"
+    )
+    cached_before = cached_path.read_bytes()
+
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        task = json.loads(prompt.splitlines()[-1])
+        manifest_path = Path(task["source_bundle_path"]) / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest["pages"][0]["markdown_path"] == "page-0000.md"
+        manifest["pages"][0]["markdown_path"] = "./page-0000.md"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "status": "reviewed",
+            "campaign_id": task["campaign_id"],
+            "scenario_id": task["scenario_id"],
+            "selected_opening_pdf_indices": [0],
+            "source_bundle_path": task["source_bundle_path"],
+            "failure_class": None,
+        }
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+
+    class AdapterInput:
+        def __init__(self):
+            self.buffer = io.BytesIO(json.dumps(request).encode())
+
+    monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
+        adapter._run_opening_review()
+    assert cached_path.read_bytes() == cached_before
+    current = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert current["opening_source_review_task"]["status"] == "pending"
+    assert "opening_source_review_receipt" not in current
+
+
+def test_pi_opening_review_adapter_accepts_untouched_normalized_raw_page_row(
+    tmp_path: Path, monkeypatch,
+):
+    ws, request, scenario_path = _pi_opening_review_adapter_fixture(tmp_path)
+    retained_manifest_path = ws["workspace"] / "opening-source" / "manifest.json"
+    retained_manifest = json.loads(
+        retained_manifest_path.read_text(encoding="utf-8")
+    )
+    retained_manifest["pages"][0]["markdown_path"] = "./page-0000.md"
+    retained_manifest_path.write_text(
+        json.dumps(retained_manifest), encoding="utf-8",
+    )
+    adapter = _load(
+        "coc_pdf_skill_adapter_opening_raw_row_untouched_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    monkeypatch.setattr(
+        adapter, "_validate_opening_review_transport", lambda value: value,
+    )
+    cached_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "pages" / "0000.md"
+    )
+    cached_before = cached_path.read_bytes()
+    captured: dict = {}
+
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        task = json.loads(prompt.splitlines()[-1])
+        output_manifest = json.loads(
+            (
+                Path(task["source_bundle_path"]) / "manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert output_manifest["pages"][0]["markdown_path"] == (
+            "./page-0000.md"
+        )
+        captured.update(task)
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "status": "reviewed",
+            "campaign_id": task["campaign_id"],
+            "scenario_id": task["scenario_id"],
+            "selected_opening_pdf_indices": [0],
+            "source_bundle_path": task["source_bundle_path"],
+            "failure_class": None,
+        }
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+
+    class AdapterInput:
+        def __init__(self):
+            self.buffer = io.BytesIO(json.dumps(request).encode())
+
+    monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    receipt = adapter._run_opening_review()
+    assert receipt["status"] == "reviewed"
+    assert receipt["opening_review_generation"] == 2
+    assert cached_path.read_bytes() == cached_before
+    output_manifest = json.loads(
+        (
+            Path(captured["source_bundle_path"]) / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert output_manifest["pages"][0]["markdown_path"] == "./page-0000.md"
+    consumed = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert consumed["opening_source_review_task"]["status"] == "fulfilled"
 
 
 def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
