@@ -4606,6 +4606,10 @@ async function piCoordinatorEnabled(): Promise<boolean> {
   return asObject(document.pi, "Pi capabilities").coc_source_coordinator_v1 === true;
 }
 
+function locatorDiagnostic(value: string): string {
+  return value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 512);
+}
+
 function locatorEnvironment(): NodeJS.ProcessEnv {
   const allowed = [
     "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
@@ -4708,6 +4712,7 @@ async function runLocatorProcess(
     env: locatorEnvironment(),
   });
   let stdout = "";
+  let stderr = "";
   let stderrBytes = 0;
   const code = await new Promise<number | null>((resolveClose, rejectClose) => {
     let settled = false;
@@ -4745,6 +4750,7 @@ async function runLocatorProcess(
     child.stderr.on("data", (chunk) => {
       if (settled) return;
       stderrBytes += chunk.length;
+      stderr += chunk.toString();
       if (stderrBytes > MAX_BYTES) {
         finishError(new Error("source-scope locator stderr exceeded limit"));
       }
@@ -4761,7 +4767,14 @@ async function runLocatorProcess(
     if (signal?.aborted) abort();
     else signal?.addEventListener("abort", abort, { once: true });
   });
-  if (code !== 0) throw new Error("source-scope locator producer failed");
+  if (code !== 0) {
+    const diagnostic = locatorDiagnostic(stderr);
+    throw new Error(
+      `source-scope locator producer failed (exit ${String(code)})${
+        diagnostic ? `: ${diagnostic}` : ""
+      }`,
+    );
+  }
   let parsed: unknown;
   try { parsed = JSON.parse(stdout.trim()); }
   catch { throw new Error("source-scope locator producer must return strict JSON"); }
@@ -6138,23 +6151,25 @@ interface RawPdfBindBundleDispatchDeps {
 }
 
 function rawPdfBindFailure(value: unknown, params: JsonObject): JsonObject | null {
-  if (params.operation !== "scenario.bind_pdf") return null;
-  const envelope = objectOrNull(value);
+  if (params.operation !== "setup.invoke") return null;
+  const setupArguments = objectOrNull(params.arguments);
+  const payload = objectOrNull(setupArguments?.payload);
+  if (setupArguments?.kind !== "scenario.bind_pdf" || payload === null) return null;
+  const envelope = value instanceof CanonicalToolError
+    ? objectOrNull(value.envelope)
+    : objectOrNull(value);
   const error = objectOrNull(envelope?.error);
-  const argumentsValue = objectOrNull(params.arguments);
-  const sourceBundlePath = typeof argumentsValue?.source_bundle_path === "string"
-    ? argumentsValue.source_bundle_path.trim()
+  const sourceBundlePath = typeof payload.source_bundle_path === "string"
+    ? payload.source_bundle_path.trim()
     : "";
   const campaignId = typeof params.campaign === "string"
     ? params.campaign.trim()
-    : typeof argumentsValue?.campaign_id === "string"
-      ? argumentsValue.campaign_id.trim()
+    : typeof payload.campaign_id === "string"
+      ? payload.campaign_id.trim()
       : "";
-  // Run1's cited evidence file is not present in this worktree. The canonical
-  // failure envelope therefore has no usable machine-readable discriminator
-  // available here; use the stable coc_pdf_bundle contract message only.
   if (
     envelope?.ok !== false
+    || envelope.tool !== "setup.invoke"
     || !sourceBundlePath
     || !campaignId
     || typeof error?.message !== "string"
@@ -6296,6 +6311,7 @@ export async function autoDispatchPiRawPdfBindBundle(
           : message.includes("capability")
             ? "raw_pdf_bind_bundle_preflight_failed"
             : "raw_pdf_bind_bundle_failed",
+      ...(message ? { producer_error: locatorDiagnostic(message) } : {}),
     });
   } finally {
     if (deps.controllers.get(key) === controller) deps.controllers.delete(key);
@@ -6999,6 +7015,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           schema_version: 1,
           status: "terminal_failure",
           failure_class: terminal.failure_class,
+          ...(typeof terminal.producer_error === "string"
+            ? { producer_error: terminal.producer_error }
+            : {}),
           instruction: "raw PDF 首包产出失败。请如实告诉玩家当前环境无法现场解析 PDF，不要自动或反复重试 scenario.bind_pdf。",
         };
       try {
@@ -7600,6 +7619,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     try {
       value = await client(ctx).callTool(name, params, signal);
     } catch (error) {
+      const rawPdfBindRun = autoDispatchPiRawPdfBindBundle(
+        rawPdfBindBundleDispatchDeps(ctx, epoch), name, error, params,
+      );
+      rawPdfBindBundleRuns.add(rawPdfBindRun);
+      void rawPdfBindRun.catch(() => {}).finally(() => {
+        rawPdfBindBundleRuns.delete(rawPdfBindRun);
+      });
       const canonicalFailure = startupResumeAttempt
         ? startupCanonicalFailureProjection(error, name, params)
         : { kind: "not_canonical" as const };

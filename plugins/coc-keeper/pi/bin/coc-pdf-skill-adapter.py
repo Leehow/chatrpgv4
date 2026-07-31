@@ -214,7 +214,13 @@ def _terminate_process_group(process: subprocess.Popen[str]) -> None:
         _fail("Pi process group did not terminate")
 
 
-def _run_pi(prompt: str, cwd: Path, *, timeout: int) -> dict[str, Any]:
+def _run_pi(
+    prompt: str,
+    cwd: Path,
+    *,
+    timeout: int,
+    allow_non_json_receipt: bool = False,
+) -> dict[str, Any] | None:
     args = [
         _pi_command(),
         "--mode", "text", "-p", "--no-session",
@@ -268,7 +274,17 @@ def _run_pi(prompt: str, cwd: Path, *, timeout: int) -> dict[str, Any]:
         payload = (stdout or "").encode()
         if len(payload) > MAX_OUTPUT_BYTES:
             _fail("Pi PDF producer receipt exceeds output limit")
-        return _object(json.loads(payload), "Pi PDF receipt")
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            if allow_non_json_receipt:
+                return None
+            raise
+        if not isinstance(parsed, dict):
+            if allow_non_json_receipt:
+                return None
+            return _object(parsed, "Pi PDF receipt")
+        return parsed
     finally:
         if process is not None and process.poll() is None:
             _terminate_process_group(process)
@@ -299,6 +315,40 @@ def _runtime_modules() -> tuple[Any, Any, Any]:
     import coc_pdf_bundle  # type: ignore[import-not-found]
     import coc_runtime_ops  # type: ignore[import-not-found]
     return coc_fileio, coc_pdf_bundle, coc_runtime_ops
+
+
+def _locator_receipt(task: dict[str, Any]) -> dict[str, Any]:
+    """Derive the transport receipt from the validated bundle, not LLM prose."""
+    _, pdf_bundle, _ = _runtime_modules()
+    bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+    source = _object(bundle.get("source"), "located bundle source")
+    if (
+        source.get("source_id") != task["source"]["source_id"]
+        or source.get("path") != task["source"]["path"]
+        or source.get("file_sha256") != task["source"]["file_sha256"]
+    ):
+        _fail("located source bundle identity drift")
+    indices = [page.get("pdf_index") for page in bundle.get("pages", [])]
+    if (
+        not 1 <= len(indices) <= task["max_selected_pages"]
+        or any(
+            not isinstance(index, int) or isinstance(index, bool) or index < 0
+            for index in indices
+        )
+        or indices != sorted(set(indices))
+    ):
+        _fail("located source bundle page scope is invalid")
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+        "job_id": task["job_id"],
+        "status": "located",
+        "kind": task["kind"],
+        "target_id": task["target_id"],
+        "pdf_indices": indices,
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
+    }
 
 
 def _json(path: Path, label: str) -> dict[str, Any]:
@@ -914,9 +964,11 @@ def _run() -> dict[str, Any]:
     workspace = Path(task["workspace_root"]).resolve()
     if not workspace.is_dir():
         _fail("workspace_root is unavailable")
-    return _run_pi(
+    _run_pi(
         _locator_prompt(task), workspace, timeout=240,
+        allow_non_json_receipt=True,
     )
+    return _locator_receipt(task)
 
 
 def main() -> int:
