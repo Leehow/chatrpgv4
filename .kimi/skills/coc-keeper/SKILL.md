@@ -40,7 +40,7 @@ same tree Codex uses; do not improvise a thinner Kimi path):
 
 Then route as needed to `coc-campaign-state`, `coc-character`,
 `coc-scenario-import`, `coc-meta`, `coc-combat`, `coc-chase`, `coc-sanity`,
-`coc-magic`, `coc-development`, `coc-playtest`, `coc-export-battle-report`,
+`coc-magic`, `coc-development`, `coc-export-battle-report`,
 and other skills under `plugins/coc-keeper/skills/`.
 
 Runtime scripts and rules JSON also stay under `plugins/coc-keeper/`

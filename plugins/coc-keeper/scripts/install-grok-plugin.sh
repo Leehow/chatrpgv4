@@ -29,10 +29,6 @@ if [[ ! -f "$SRC/agents/coc-keeper-kp.md" ]]; then
   echo "error: missing focused Grok main KP profile at $SRC/agents/coc-keeper-kp.md" >&2
   exit 1
 fi
-if [[ ! -f "$SRC/agents/coc-playtest-player.md" ]]; then
-  echo "error: missing protocol-isolated Grok player profile at $SRC/agents/coc-playtest-player.md" >&2
-  exit 1
-fi
 if [[ ! -f "$SRC/references/grok-focused-config.toml" ]]; then
   echo "error: missing focused Grok configuration template" >&2
   exit 1
@@ -319,7 +315,7 @@ skills:    $skill_count directories under skills/ (must include coc-main, coc-ke
 MCP:       coc-keeper gateway + lease-bound coc-source-submit healthy in Grok
 hooks:     startup/compaction resume guard discovered in Grok
             global fallback: $grok_hook_bridge
-agents:    coc-keeper-kp + coc-playtest-player + coc-scene-adviser
+agents:    coc-keeper-kp + coc-scene-adviser
             focused source worker: $focused_source_agent
 focused:   $focused_home (persistent sessions; COC-only MCP/skill discovery)
 next:

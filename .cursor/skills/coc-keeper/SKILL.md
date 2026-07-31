@@ -45,7 +45,7 @@ After activation, **read these files before the first in-game play turn**
 
 Then route as needed to `coc-campaign-state`, `coc-character`,
 `coc-scenario-import`, `coc-meta`, `coc-combat`, `coc-chase`, `coc-sanity`,
-`coc-magic`, `coc-development`, `coc-playtest`, `coc-export-battle-report`,
+`coc-magic`, `coc-development`, `coc-export-battle-report`,
 and other skills under `plugins/coc-keeper/skills/`.
 
 Runtime scripts and rules JSON also stay under `plugins/coc-keeper/`
@@ -71,12 +71,6 @@ Do **not** nest another Keeper for ordinary play:
 Pi/headless remains a separate host surface for the same plugin; it is not the
 turn engine underneath Cursor KP.
 
-Acceptance / “测完” / player-experience claims on Cursor follow the repository
-`Playtest Experience Constitution` in `AGENTS.md` and
-`plugins/coc-keeper/skills/coc-playtest/SKILL.md`: same skill path as a player
-loading the plugin, no schedule-driven thinning, no rules/state shell as
-acceptance play. `battle-report` `COMPLETE` alone does not certify experience
-parity.
 
 ## Cursor / Codex KP craft parity
 
@@ -230,8 +224,7 @@ Deterministic contract tests may run on Cursor, but whole-product acceptance is
 Codex-only: the main Codex opens this canonical plugin as KP and a collaboration
 subagent created with `fork_turns: "none"` acts as the player. Only player-safe
 content crosses that boundary, and every run starts in a fresh exact-schema
-workspace. Follow root `AGENTS.md` and
-`plugins/coc-keeper/skills/coc-playtest/SKILL.md`; do not create a Cursor-
+workspace. Follow root `AGENTS.md`; do not create a Cursor-
 specific player, test harness, or evaluation skill.
 
 Only `coc-export-battle-report` may produce the final readable

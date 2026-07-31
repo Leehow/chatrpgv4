@@ -248,8 +248,7 @@ PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest \
    `artifacts/battle-report.md` 和完整性证据。没有通过完整性检查就不能宣称战报完整。
 
 subagent 与主 Codex 共享工作区，因此这是一种受协议约束的无上下文玩家隔离，
-不是密码学沙箱。验收报告必须如实说明这一点。详细流程见
-`plugins/coc-keeper/skills/coc-playtest/SKILL.md`。
+不是密码学沙箱。验收报告必须如实说明这一点。
 
 ## 仓库结构 / Layout
 

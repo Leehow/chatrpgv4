@@ -5,9 +5,7 @@ KP prose. It is a render step after structured planning: it does not adjudicate
 rules, mutate campaign state, choose player actions, or invent outcomes.
 
 It is not a scripted playtest driver and is not the whole-product test entry
-point. Global acceptance opens the real Codex plugin and uses a no-context
-collaboration subagent as the player; see
-`plugins/coc-keeper/skills/coc-playtest/SKILL.md`.
+point.
 
 ## Install
 

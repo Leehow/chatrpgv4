@@ -110,7 +110,6 @@ def test_grok_plugin_is_full_canonical_skill_tree():
         "coc-main",
         "coc-keeper-play",
         "coc-story-director",
-        "coc-playtest",
         "coc-export-battle-report",
     }
     present = {
@@ -199,7 +198,6 @@ def test_grok_plugin_exposes_shared_mcp_and_safe_host_contract():
     assert "coc-scene-adviser" in install
     assert "coc-source-pack-worker" in install
     assert "coc-keeper-kp" in install
-    assert "coc-playtest-player" in install
     assert "agent dir" in install
 
 
@@ -1461,7 +1459,6 @@ def test_fresh_raw_pdf_skill_catalog_routes_only_through_coc_main():
         "coc-keeper-play",
         "coc-scenario-import",
         "coc-campaign-state",
-        "coc-playtest",
     ):
         text = _text(PLUGIN_ROOT / "skills" / name / "SKILL.md")
         frontmatter = text.split("---", 2)[1]
@@ -1482,7 +1479,6 @@ def test_fresh_raw_pdf_skill_catalog_routes_only_through_coc_main():
     assert "must not select this skill merely to create a campaign" in descriptions[
         "coc-campaign-state"
     ]
-    assert "select coc-main first" in descriptions["coc-playtest"]
 
 
 def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
@@ -1847,23 +1843,6 @@ def test_grok_main_keeper_profile_narrows_host_surface_without_thinning_kp():
     assert '--require-source-agent "$focused_source_agent"' in install
 
 
-def test_grok_playtest_player_is_protocol_isolated_and_not_a_fake_keeper():
-    player = _text(PLUGIN_ROOT / "agents" / "coc-playtest-player.md")
-    compact = " ".join(player.split()).lower()
-    for phrase in (
-        "name: coc-playtest-player",
-        "agents_md: false",
-        "tools: []",
-        "mcpinheritance: none",
-        "player at a live call of cthulhu table",
-        "never a keeper",
-        "only the exact player-visible keeper text",
-        "do not call tools",
-        "exactly one player message",
-        "do not guess module secrets",
-        "no analysis",
-    ):
-        assert phrase in compact, phrase
 
 
 def test_plugin_bundles_cross_host_continuation_hooks():
@@ -2074,7 +2053,6 @@ def test_required_canonical_skills_are_present():
     assert {
         "coc-main",
         "coc-keeper-play",
-        "coc-playtest",
         "coc-export-battle-report",
         "coc-campaign-state",
         "trpg-pdf-ingest",
@@ -2112,96 +2090,6 @@ def test_host_native_image_generation_is_explicitly_gated():
     assert "Codex-only and must remain" not in agents
 
 
-def test_playtest_skill_defines_real_plugin_context_free_player_acceptance():
-    text = _text(PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md")
-    compact = " ".join(text.split()).lower()
-    for phrase in (
-        "main codex",
-        "canonical `coc-keeper` plugin",
-        "fork_turns: none",
-        "player-safe",
-        "fresh isolated workspace",
-        "coc-export-battle-report",
-        "structured ending",
-        "references/playtest-model-lanes-v1.json",
-        "gpt-5.6-luna",
-        "fast_iteration",
-        "quality_confirmation",
-        "selected_before_activation",
-        "switched_during_run",
-        "background_model_policy",
-        "inherit_parent",
-        "no model override",
-        "three observations",
-        "design issue",
-        "native `xai/grok-4.5`",
-        "`grok-relay` is a separate relay/compatibility probe only",
-        "fresh pi session and a fresh campaign",
-        "real authenticated provider response",
-        "target canonical coc tool or lifecycle boundary",
-        "never splice transcripts",
-        "host-observed user-message submission event",
-        "an in-turn `date` call",
-        "latency boundary as unverified",
-        "defer `coc-keeper-play` until character/source readiness",
-        "the main kp does not load `coc-scenario-import`, `trpg-pdf-ingest`, or `coc-campaign-state`",
-    ):
-        assert phrase in compact
-
-    contract = _json(
-        PLUGIN_ROOT / "references" / "playtest-model-lanes-v1.json"
-    )
-    assert contract["contract_id"] == "coc.playtest-model-lanes.v1"
-    assert contract["authority"]["advisory_only"] is True
-    assert contract["authority"]["runtime_gate"] is False
-    assert contract["authority"]["player_output_gate"] is False
-    assert contract["window_contract"]["model_locked_for_run"] is True
-    assert contract["window_contract"]["mid_run_switch_policy"] == (
-        "record_mixed_model_and_do_not_claim_single_model_acceptance"
-    )
-    assert contract["window_contract"]["player_model_policy"] == "inherit_parent"
-    assert contract["window_contract"]["source_coordinator_model_policy"] == (
-        "inherit_parent"
-    )
-    assert contract["window_contract"]["source_leaf_model_policy"] == (
-        "inherit_parent"
-    )
-    assert contract["lanes"]["fast_iteration"]["recommended_model_ids"] == [
-        "gpt-5.6-luna"
-    ]
-    assert contract["lanes"]["quality_confirmation"][
-        "recommended_model_ids"
-    ] == ["gpt-5.6-sol", "gpt-5.6-terra"]
-    assert contract["failure_policy"]["same_failure_escalation_threshold"] == 3
-    assert contract["failure_policy"]["threshold_outcome"] == "design_issue"
-    pi_grok = contract["pi_coc_grok_provider_acceptance"]
-    assert pi_grok == {
-        "default_provider": "xai",
-        "native_model_id": "grok-4.5",
-        "native_reasoning_policy": "record_exact_effort_before_activation",
-        "native_claim_kind": "provider_authenticated_acceptance",
-        "relay_provider": "grok-relay",
-        "relay_claim_kind": "relay_compatibility_probe_only",
-        "relay_substitutes_for_native_acceptance": False,
-        "provider_switch_requires": ["fresh_pi_session", "fresh_campaign"],
-        "cross_provider_evidence_splicing": False,
-        "model_catalog_visibility_is_acceptance": False,
-        "required_native_evidence": [
-            "real_authenticated_provider_response",
-            "target_canonical_tool_or_lifecycle_evidence",
-        ],
-    }
-    assert {
-        "provider", "model_id", "reasoning_effort",
-    } <= set(contract["run_metadata"]["required_for_model_scoped_claim"])
-    for obsolete in (
-        "coc_eval.py",
-        "haunting_module",
-        "chase_drill",
-        "coc_playtest_harness.py",
-        "coc_interactive_playtest.py",
-    ):
-        assert obsolete not in text
 
 
 def test_final_report_skill_is_the_single_readable_report_owner():
@@ -2224,8 +2112,7 @@ def test_final_report_skill_is_the_single_readable_report_owner():
 def test_pdf_ingest_is_an_external_skill_source_bundle_boundary():
     main = _text(PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md")
     ingest = _text(PLUGIN_ROOT / "skills" / "trpg-pdf-ingest" / "SKILL.md")
-    playtest = _text(PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md")
-    combined = "\n".join((main, ingest, playtest)).lower()
+    combined = "\n".join((main, ingest)).lower()
     compact = " ".join(combined.split())
     assert "external pdf skill" in combined
     assert "source bundle" in combined or "source-bundle" in combined
@@ -2243,11 +2130,10 @@ def test_pdf_ingest_is_an_external_skill_source_bundle_boundary():
 def test_current_skills_reject_legacy_or_mismatched_runtime_state():
     combined = "\n".join(
         _text(PLUGIN_ROOT / "skills" / name / "SKILL.md").lower()
-        for name in ("coc-main", "coc-campaign-state", "coc-playtest")
+        for name in ("coc-main", "coc-campaign-state")
     )
     assert "exact-schema" in combined or "exact current" in combined
     assert "legacy" in combined or "mismatched" in combined
-    assert "start fresh" in combined or "fresh campaign" in combined
 
 
 def test_keeper_play_professional_inference_boundary_is_always_on():

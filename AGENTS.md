@@ -10,7 +10,6 @@ Skills own procedure; this file owns product law and cannot be relaxed.
 | --- | --- |
 | Activate, create, or resume COC mode | `plugins/coc-keeper/skills/coc-main/SKILL.md` |
 | Run live Keeper turns or change KP craft | `plugins/coc-keeper/skills/coc-keeper-play/SKILL.md` |
-| Run acceptance, playtest, “测完”, long play, or experience-parity work | `plugins/coc-keeper/skills/coc-playtest/SKILL.md` |
 | Import a scenario or compile authored source | `plugins/coc-keeper/skills/coc-scenario-import/SKILL.md` |
 | Ingest a PDF source bundle | `plugins/coc-keeper/skills/trpg-pdf-ingest/SKILL.md` |
 | Inspect or mutate campaign state | `plugins/coc-keeper/skills/coc-campaign-state/SKILL.md` |
@@ -110,34 +109,6 @@ hollow even if files, tests, turns, or reports look complete.
   Success looks like ___. Hollow delivery would be ___.” Summaries emphasizing
   “finish N turns” or “export a report” are suspect until rechecked.
 
-## Standing Memory: Never Self-Authorize A Different Playtest Method
-
-This is permanent project law. **Slow is fine. Fake is forbidden.**
-
-1. The default for playtest, acceptance, “100 轮”, “跑完”, long-play, and
-   experience claims is window-equivalent play: the main session is the live KP
-   using normal skills/toolbox; a human or exactly one isolated player supplies
-   one natural table reply at a time.
-2. Before acting, say plainly that this correct method is slow and that a
-   settle/batch substitute is not product testing. If any alternative is being
-   considered, wait for an explicit method choice.
-3. Never create, run, resume, or improve a fake-KP settle/batch harness,
-   intent-regex router, canned scene bank, parallel thin Keeper, or multi-turn
-   factory to manufacture turns, coverage, or reports.
-4. The only exception is an exact current-turn user order for that engineering
-   path, explicitly labeled `smoke` or `engineering-probe` and forbidden from
-   supporting acceptance, experience, or “played N turns” claims.
-5. If a prior turn or compaction already used the wrong method, stop it
-   immediately, disclose the error, mark its artifacts
-   `invalid-for-acceptance` / `invalid-for-experience`, and do not export or
-   repair them into experience evidence.
-6. Carry this constraint through compaction and handoffs. An old apology, an
-   existing `kp_settle_turn`-class script, speed pressure, or an overnight goal
-   never restores permission.
-
-Grok / Grok Build must re-read this and `Playtest Experience Constitution`
-before any playtest toolbox call or `*settle*` / `*batch*play*` artifact. It
-must refuse deliverable theater rather than silently change methodology.
 
 ## Python Interpreter Contract
 
@@ -452,43 +423,20 @@ source-traceable numbers; zero rolls requires an explicit zero count. Missing,
 duplicate, malformed, or untraced markers/source logs are hard failures. Never
 reconstruct a roll from memory or prose or remove a failed completeness finding.
 
-## Playtest Experience Constitution
+## Pi-Coc Playtest Method
 
-Acceptance and “测完 / 玩家体验等价” claims must match a real player loading the
-plugin. The full procedure belongs to `coc-playtest`; these invariants remain
-always active:
+Pi-Coc 验收/体验测试的唯一方法：
 
-- Use the ordinary skill path and unified toolbox. The main session remains the
-  full KP; the player agent only types player lines. Pi/headless and other hosts
-  are the same product surface, not reduced acceptance facades.
-- Never thin KP craft to finish modules, meet a schedule, hit turn/scene counts,
-  or make a report `COMPLETE`.
-- A path dominated by `rules.*` / `state.*` / `scene.move` plus log prose is not
-  acceptance. Advisory capabilities must be discoverable and actually used
-  where fitting across the run; one turn may need none, but systematic zero-call
-  evidence cannot establish parity. Record consulted-method disposition with
-  `evidence.record_adoption`.
-- Table text stays in `play_language` with action uptake and readable public
-  rolls. Never dump tool envelopes, source-language manuscript blocks, English
-  outcome enums, chain-audit labels, or CRPG option lists as narration.
-- The absolute fake-KP ban and Grok preflight near the top of this file apply
-  without exception. Prefer a short honest live run to long synthetic volume.
-- `battle-report` `COMPLETE` / `INCOMPLETE` describes report-source evidence,
-  not prose, KP craft, advisory use, integration, or parity. Label probes
-  precisely.
+1. 通过 pi-coc **RPC 模式**启动插件。
+2. **Grok 当 KP**（Keeper），驱动全部 Keeper 判断、叙事、NPC、规则调用。
+3. **主会话（或指定代理）当唯一玩家**，一次一句自然回复，从头跑到尾。
+4. 沿途覆盖需要测试的能力点（建卡、开场、线索、战斗、SAN、结局等），
+   不预设固定脚本，由 KP 正常推进。
+5. 慢可以，假不行。不得用批处理、工厂、canned scene 制造回合数。
+6. 跑完后用 `coc-export-battle-report` 出战报；战报是实际游玩证据。
 
-## Playtest Battle Report Evidence Standard
-
-“战报” is actual-play evidence, not a formatter sample or fixture.
-
-- Read `battle-report.md` end to end and inspect
-  `battle-report-evidence.json` before quoting or summarizing.
-- Evidence includes context, exact transcript, relevant rolls, clues,
-  progression, and evaluated effects.
-- State missing/failed evidence; never substitute a formatter sample, fixture,
-  or unavailable run as “the battle report.”
-- Scope claims precisely. Dice/source completeness is not whole-product
-  completeness; missing evidence never becomes a pass.
+此方法替代已删除的 `coc-playtest` skill。任何声称"测完"或"体验等价"
+的工作必须匹配上述流程，否则标记 `invalid-for-acceptance`。
 
 ## Validation And Evidence
 
