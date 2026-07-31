@@ -10,6 +10,7 @@ import {
   rename,
   rm,
   rmdir,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -47,6 +48,9 @@ const emptySchema = { type: "object", properties: {}, additionalProperties: fals
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
 const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 5 * 60 * 1000;
 const OPENING_SOURCE_REVIEW_TIMEOUT_MS = 20 * 60 * 1000;
+const RAW_PDF_BIND_BUNDLE_ERROR = (
+  "host source bundle must be a directory (not a file) containing manifest.json"
+);
 const SOURCE_SCOPE_PUBLICATION_MARKER = ".coc-source-scope-publication.json";
 const SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS = 30_000;
 const SOURCE_SCOPE_PUBLISH_LOCK_OWNER = "owner.json";
@@ -6122,6 +6126,182 @@ interface OpeningSourceReviewDispatchDeps {
   timeoutMs?: number;
 }
 
+interface RawPdfBindBundleDispatchDeps {
+  isCurrent(): boolean;
+  workspaceRoot: string;
+  command(): string | undefined;
+  states: Map<string, JsonObject>;
+  controllers: Map<string, AbortController>;
+  onTerminal(result: JsonObject): void;
+  audit(entry: JsonObject): void;
+  timeoutMs?: number;
+}
+
+function rawPdfBindFailure(value: unknown, params: JsonObject): JsonObject | null {
+  if (params.operation !== "scenario.bind_pdf") return null;
+  const envelope = objectOrNull(value);
+  const error = objectOrNull(envelope?.error);
+  const argumentsValue = objectOrNull(params.arguments);
+  const sourceBundlePath = typeof argumentsValue?.source_bundle_path === "string"
+    ? argumentsValue.source_bundle_path.trim()
+    : "";
+  const campaignId = typeof params.campaign === "string"
+    ? params.campaign.trim()
+    : typeof argumentsValue?.campaign_id === "string"
+      ? argumentsValue.campaign_id.trim()
+      : "";
+  // Run1's cited evidence file is not present in this worktree. The canonical
+  // failure envelope therefore has no usable machine-readable discriminator
+  // available here; use the stable coc_pdf_bundle contract message only.
+  if (
+    envelope?.ok !== false
+    || !sourceBundlePath
+    || !campaignId
+    || typeof error?.message !== "string"
+    || !error.message.includes(RAW_PDF_BIND_BUNDLE_ERROR)
+  ) return null;
+  return { campaign_id: campaignId, source_bundle_path: sourceBundlePath };
+}
+
+async function executableAbsoluteFile(command: string | undefined): Promise<string | null> {
+  if (!command || !isAbsolute(command)) return null;
+  try {
+    const resolved = await realpath(command);
+    const fileStat = await stat(resolved);
+    return fileStat.isFile() && (fileStat.mode & 0o111) !== 0 ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function autoDispatchPiRawPdfBindBundle(
+  deps: RawPdfBindBundleDispatchDeps,
+  toolName: string,
+  value: unknown,
+  params: JsonObject,
+): Promise<JsonObject | null> {
+  if (toolName !== "coc_invoke") return null;
+  const failedBind = rawPdfBindFailure(value, params);
+  if (failedBind === null) return null;
+  const suppliedPath = isAbsolute(failedBind.source_bundle_path)
+    ? resolve(failedBind.source_bundle_path)
+    : resolve(deps.workspaceRoot, failedBind.source_bundle_path);
+  const key = `raw-pdf-bind:${suppliedPath}`;
+  const previous = deps.states.get(key);
+  if (previous !== undefined) return previous;
+  const finish = (entry: JsonObject) => {
+    deps.states.set(key, entry);
+    deps.audit(entry);
+    if (deps.isCurrent()) deps.onTerminal(entry);
+    return entry;
+  };
+  if (!deps.isCurrent()) {
+    return finish({ status: "failed", dispatch_key: key, failure_class: "session_closed" });
+  }
+  let pdfStat;
+  try { pdfStat = await stat(suppliedPath); }
+  catch { return finish({ status: "failed", dispatch_key: key, failure_class: "raw_pdf_bind_source_unavailable" }); }
+  if (!pdfStat.isFile() || !suppliedPath.toLowerCase().endsWith(".pdf")) {
+    return finish({ status: "failed", dispatch_key: key, failure_class: "raw_pdf_bind_source_not_pdf_file" });
+  }
+  const command = await executableAbsoluteFile(deps.command());
+  if (command === null) {
+    return finish({ status: "failed", dispatch_key: key, failure_class: "source_scope_locator_command_unavailable" });
+  }
+  let fileSha256: string;
+  try { fileSha256 = createHash("sha256").update(await readFile(suppliedPath)).digest("hex"); }
+  catch { return finish({ status: "failed", dispatch_key: key, failure_class: "raw_pdf_bind_source_unreadable" }); }
+  const safeCampaign = failedBind.campaign_id.replace(/[^A-Za-z0-9._:-]/g, "_");
+  const jobId = `raw-pdf-bind-${fileSha256.slice(0, 16)}`;
+  const task = {
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-task.v1",
+    bootstrap_instruction: "produce a minimal reviewed source bundle for a raw PDF bind retry",
+    instruction_ref: "pi.raw-pdf-bind.first-bundle.v1",
+    contract_ref: "coc.pi-source-scope-locator-task.v1",
+    contract_revision: "1",
+    adapter_mode: "pi_external_pdf_skill_lifecycle",
+    model_policy: "pinned_xai_grok_4_5_thinking_low",
+    workspace_root: resolve(deps.workspaceRoot),
+    campaign_id: failedBind.campaign_id,
+    asset_root_id: `raw-pdf-bind:${safeCampaign}`,
+    job_id: jobId,
+    job_kind: "raw_pdf_bind_first_bundle",
+    kind: "raw_pdf_bind_first_bundle",
+    target_id: `pdf:${fileSha256}`,
+    target_label: basename(suppliedPath),
+    reason: "scenario.bind_pdf received a raw PDF instead of a source bundle",
+    source: {
+      path: suppliedPath,
+      source_id: `pdf:${fileSha256}`,
+      title: basename(suppliedPath),
+      file_sha256: fileSha256,
+    },
+    source_bundle_path: join(
+      resolve(deps.workspaceRoot), ".tmp", "coc-source-scope", safeCampaign,
+      `${fileSha256.slice(0, 16)}-first-bundle`,
+    ),
+    cached_pdf_indices: [],
+    max_selected_pages: 3,
+    source_bundle_manifest_contract: {
+      schema_version: 1,
+      contract_id: "codex-pdf-skill-source-bundle.v1",
+    },
+    resolve_operation: {
+      operation: "progressive.resolve_source_scope",
+      invoke_via: "coc_invoke",
+      prefilled_arguments: {
+        job_id: jobId,
+        kind: "raw_pdf_bind_first_bundle",
+        target_id: `pdf:${fileSha256}`,
+      },
+      missing_arguments: ["pdf_indices", "source_bundle_path"],
+      authority: "canonical_source_scope_locator",
+      hard_gate: false,
+    },
+    result_delivery: "natural_completion_notification_only",
+  };
+  let validatedTask: JsonObject;
+  try { validatedTask = validatePiSourceScopeLocatorTask(task); }
+  catch { return finish({ status: "failed", dispatch_key: key, failure_class: "raw_pdf_bind_task_invalid" }); }
+  try { await mkdir(dirname(String(validatedTask.source_bundle_path)), { recursive: true }); }
+  catch { return finish({ status: "failed", dispatch_key: key, failure_class: "raw_pdf_bind_output_unavailable" }); }
+  const controller = new AbortController();
+  deps.controllers.set(key, controller);
+  try {
+    const receipt = await runPiSourceScopeProducer(validatedTask, {
+      command,
+      timeoutMs: deps.timeoutMs,
+      signal: controller.signal,
+    });
+    if (receipt.status !== "located") {
+      return finish({
+        status: "failed", dispatch_key: key,
+        failure_class: typeof receipt.failure_class === "string"
+          ? receipt.failure_class : "raw_pdf_bind_bundle_not_produced",
+      });
+    }
+    return finish({
+      status: "located", dispatch_key: key,
+      source_bundle_path: receipt.source_bundle_path,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    return finish({
+      status: "failed", dispatch_key: key,
+      failure_class: controller.signal.aborted
+        ? "raw_pdf_bind_bundle_aborted"
+        : message.includes("timed out")
+          ? "raw_pdf_bind_bundle_timeout"
+          : message.includes("capability")
+            ? "raw_pdf_bind_bundle_preflight_failed"
+            : "raw_pdf_bind_bundle_failed",
+    });
+  } finally {
+    if (deps.controllers.get(key) === controller) deps.controllers.delete(key);
+  }
+}
+
 export async function autoDispatchPiOpeningSourceReview(
   deps: OpeningSourceReviewDispatchDeps,
   toolName: string,
@@ -6623,6 +6803,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sourceScopeLocatorStates = new Map<string, JsonObject>();
   let sourceScopeLocatorControllers = new Map<string, AbortController>();
   let sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+  let rawPdfBindBundleStates = new Map<string, JsonObject>();
+  let rawPdfBindBundleControllers = new Map<string, AbortController>();
+  let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const kpActiveTools = [
@@ -6795,6 +6978,43 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* audit is best effort */ }
     },
   });
+  const rawPdfBindBundleDispatchDeps = (
+    ctx: ExtensionContext,
+    epoch: number,
+  ): RawPdfBindBundleDispatchDeps => ({
+    isCurrent: () => isCurrent(epoch),
+    workspaceRoot: resolve(ctx.cwd),
+    command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
+    states: rawPdfBindBundleStates,
+    controllers: rawPdfBindBundleControllers,
+    onTerminal: (terminal) => {
+      const content = terminal.status === "located"
+        ? {
+          schema_version: 1,
+          status: "located",
+          source_bundle_path: terminal.source_bundle_path,
+          instruction: "首包已产出。请立刻使用该 source_bundle_path 重试 scenario.bind_pdf；不要再把 raw PDF 路径传给 bind。",
+        }
+        : {
+          schema_version: 1,
+          status: "terminal_failure",
+          failure_class: terminal.failure_class,
+          instruction: "raw PDF 首包产出失败。请如实告诉玩家当前环境无法现场解析 PDF，不要自动或反复重试 scenario.bind_pdf。",
+        };
+      try {
+        pi.sendMessage({
+          customType: "coc-raw-pdf-bind-first-bundle-terminal",
+          content: JSON.stringify(content),
+          display: false,
+          details: content,
+        }, { triggerTurn: true, deliverAs: "followUp" });
+      } catch { /* hidden retry guidance is best effort */ }
+    },
+    audit: (entry) => {
+      try { pi.appendEntry("coc-raw-pdf-bind-first-bundle-lifecycle", entry); }
+      catch { /* lifecycle audit is best effort */ }
+    },
+  });
   const flushOpeningSetupAudits = () => {
     for (const audit of openingContinuationGate.takeOpeningSetupAudits()) {
       try { pi.appendEntry("coc-opening-setup-route-audit", audit); }
@@ -6836,6 +7056,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceScopeLocatorStates = new Map<string, JsonObject>();
     sourceScopeLocatorControllers = new Map<string, AbortController>();
     sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+    rawPdfBindBundleStates = new Map<string, JsonObject>();
+    rawPdfBindBundleControllers = new Map<string, AbortController>();
+    rawPdfBindBundleRuns = new Set<Promise<unknown>>();
     const startupCampaignId = overrides.startupCampaignId === undefined
       ? explicitPiStartupCampaignId()
       : overrides.startupCampaignId();
@@ -7434,6 +7657,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           setupVisibleOutput,
         )
       );
+      const rawPdfBindRun = autoDispatchPiRawPdfBindBundle(
+        rawPdfBindBundleDispatchDeps(ctx, epoch), name, value, params,
+      );
+      rawPdfBindBundleRuns.add(rawPdfBindRun);
+      void rawPdfBindRun.catch(() => {}).finally(() => {
+        rawPdfBindBundleRuns.delete(rawPdfBindRun);
+      });
       const openingReviewRun = autoDispatchPiOpeningSourceReview(
         openingSourceReviewDispatchDeps(ctx, epoch),
         name,
@@ -8119,10 +8349,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     for (const controller of sourceScopeLocatorControllers.values()) {
       controller.abort("session_shutdown");
     }
-    await Promise.allSettled([...sourceScopeLocatorRuns]);
+    for (const controller of rawPdfBindBundleControllers.values()) {
+      controller.abort("session_shutdown");
+    }
+    await Promise.allSettled([
+      ...sourceScopeLocatorRuns,
+      ...rawPdfBindBundleRuns,
+    ]);
     sourceScopeLocatorControllers.clear();
     sourceScopeLocatorRuns.clear();
     sourceScopeLocatorStates.clear();
+    rawPdfBindBundleControllers.clear();
+    rawPdfBindBundleRuns.clear();
+    rawPdfBindBundleStates.clear();
     const ownedManager = manager;
     const ownedMcp = mcp;
     manager = null;
@@ -8140,6 +8379,7 @@ export const __test = {
   findCurrentDependencyLifecycle,
   autoDispatchCoordinator,
   autoDispatchPiOpeningSourceReview,
+  autoDispatchPiRawPdfBindBundle,
   autoDispatchPiSourceScopeLocator,
   findPiOpeningSourceReviewTrigger,
   findPiSourceScopeLocatorTask,
