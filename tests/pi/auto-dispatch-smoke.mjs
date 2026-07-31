@@ -9173,7 +9173,12 @@ process.stdout.write(JSON.stringify({
     { operation: "session.resume", campaign: campaignId, arguments: {} },
     undefined, undefined, contextA.ctx,
   );
-  for (let index = 0; index < 20; index += 1) await nextTurn();
+  for (let index = 0; index < 20; index += 1) {
+    if (contextA.sent.some((entry) => (
+      entry.message?.customType === "coc-opening-source-review-terminal"
+    ))) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   const originalCards = contextA.sent.filter((entry) => (
     entry.message?.customType === "coc-opening-source-review-terminal"
     && entry.message?.details?.status === "reviewed"
@@ -9247,21 +9252,20 @@ process.stdout.write(JSON.stringify({
     coordinatorEnabled: async () => false,
   });
   await contextB.startAll();
-  await contextB.registered.get("coc_invoke").execute(
+  const resumeBResult = await contextB.registered.get("coc_invoke").execute(
     "facts-b-resume",
     { operation: "session.resume", root, campaign: campaignId, arguments: {} },
     undefined, undefined, contextB.ctx,
   );
-  const recoveredCards = contextB.sent.filter((entry) => (
-    entry.message?.customType === "coc-opening-source-review-terminal"
-    && entry.message?.details?.status === "reviewed"
-  ));
-  check("fresh context B receives one exact hidden recovered facts card",
-    recoveredCards.length === 1
-    && recoveredCards[0].options?.triggerTurn === true
-    && recoveredCards[0].options?.deliverAs === "followUp"
-    && JSON.stringify(recoveredCards[0].message.details.next_operation)
-      === JSON.stringify(factsGate().next_operation));
+  const resumeBEnvelope = JSON.parse(resumeBResult.content[0].text);
+  const resumeBText = JSON.stringify(resumeBEnvelope);
+  check("fresh context B receives one exact recovered facts card only in resume",
+    JSON.stringify(resumeBEnvelope.error?.details?.next_operation)
+      === JSON.stringify(factsGate().next_operation)
+    && resumeBText.split("setup.adopt_source_facts").length - 1 === 1
+    && contextB.sent.every((entry) => (
+      entry.message?.customType !== "coc-opening-source-review-terminal"
+    )));
   check("fresh context B does not call prepare before facts adoption",
     contextB.calls.every((call) => (
       call.params.operation !== "progressive.prepare_opening"

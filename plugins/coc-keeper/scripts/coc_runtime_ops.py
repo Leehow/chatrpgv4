@@ -612,13 +612,43 @@ def _canonicalize_opening_fast_facts(
                 if answer["status"] == "source"
                 else "inspected_source_refs"
             )
-            answer[refs_key] = coc_module_assets.canonical_campaign_source_refs(
+            supplied_refs = answer[refs_key]
+            selectors = [
+                {
+                    "source_id": ref["source_id"],
+                    "pdf_index": ref["pdf_index"],
+                }
+                for ref in supplied_refs
+            ]
+            current_refs = coc_module_assets.canonical_campaign_source_refs(
                 root,
                 source_root["asset_root_id"],
                 source_root["bundle_sha256"],
-                answer[refs_key],
+                selectors,
                 field=f"source_fast_facts.{name}.{refs_key}",
             )
+            projected_refs: list[dict[str, Any]] = []
+            for supplied, selector, current in zip(
+                supplied_refs, selectors, current_refs, strict=True
+            ):
+                # grep anchors prove that bundle extraction/review was valid,
+                # but they are snippets of source content rather than campaign
+                # provenance. Validate against the live canonical bundle, then
+                # retain only identity and review metadata in campaign/public
+                # facts. Accept already-projected records on revalidation and
+                # full current records long enough to safely project them.
+                projected = {
+                    key: deepcopy(value)
+                    for key, value in current.items()
+                    if key not in {"grep_anchors", "grep_anchor"}
+                }
+                if supplied not in (selector, current, projected):
+                    raise RuntimeOperationError(
+                        "opening fast facts source evidence is stale or does "
+                        "not match the current source cache"
+                    )
+                projected_refs.append(projected)
+            answer[refs_key] = projected_refs
         return canonical
     except (
         coc_module_project.OpeningPreparationError,
@@ -651,7 +681,14 @@ def _validate_opening_source_facts_transport(
     root = Path(workspace).resolve()
     campaign = _id(campaign_id, "campaign_id")
     campaign_dir = root / ".coc" / "campaigns" / campaign
-    scenario = _read_object(campaign_dir / "scenario" / "scenario.json")
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    if record is None and not scenario_path.exists():
+        # An unbound campaign has no pending transport. Let the established
+        # source-binding validator below produce its canonical error; do not
+        # create or infer scenario state here. Existing malformed files remain
+        # fail-closed through _read_object.
+        return None
+    scenario = _read_object(scenario_path)
     transport = (
         scenario.get("opening_source_facts_transport")
         if record is None else record

@@ -3354,6 +3354,54 @@ def test_adopt_source_facts_is_idempotent_and_refuses_conflicting_era(tmp_path):
         _adopt(tmp_path, "raw-pdf", _fast_facts(era=_answer("1920s")))
 
 
+def test_adopt_source_facts_projects_source_content_out_of_campaign_and_result(
+    tmp_path,
+):
+    campaign_id = "projected-provenance"
+    source_body = "SOURCE-BODY-MUST-NOT-PERSIST-7f02d9"
+    _created_campaign(tmp_path, campaign_id)
+    _bind_fast_facts_source(
+        tmp_path,
+        campaign_id,
+        page_text=(
+            "# Source\n\nAccepted setup evidence.\n"
+            f"{source_body}\n"
+        ),
+    )
+
+    adopted = _adopt(tmp_path, campaign_id, _fast_facts())
+    returned_facts = adopted["result"]["facts"]
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    stored_facts = campaign["source_fast_facts"]
+
+    for facts in (returned_facts, stored_facts):
+        serialized = json.dumps(facts, ensure_ascii=False)
+        assert "grep_anchors" not in serialized
+        assert "grep_anchor" not in serialized
+        assert "raw_excerpt" not in serialized
+        assert source_body not in serialized
+        ref = facts["place"]["source_refs"][0]
+        assert ref["source_id"] == "pdf:raw"
+        assert len(ref["file_sha256"]) == 64
+        assert len(ref["bundle_sha256"]) == 64
+        assert len(ref["text_sha256"]) == 64
+        assert ref["review_state"] == "manual_accepted"
+        assert ref["parse_confidence"] == 0.93
+
+    # Projected persisted facts still validate against the live canonical
+    # bundle and therefore remain usable at the normal character gate.
+    ops._require_established_source_facts(tmp_path, campaign, campaign_id)
+    contract = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.contract",
+        "payload": {"campaign_id": campaign_id},
+    })
+    assert contract["status"] == "PASS"
+
+
 @pytest.mark.parametrize("operation", ["contract", "create", "link"])
 def test_later_unresolved_era_revokes_authored_era_at_every_campaign_gate(
     tmp_path, operation

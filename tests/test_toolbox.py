@@ -13781,6 +13781,106 @@ def _minimal_opening_source_facts(source_id: str) -> dict:
     }
 
 
+def _stage_reviewed_facts_transport(ws: dict) -> tuple[Path, dict]:
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario.update({
+        "scenario_id": ws["asset_root_id"],
+        "opening_source_provenance": "selection_hint_only_not_provenance",
+    })
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
+    )
+    _install_opening_review_task(ws, scenario)
+    _write_json(scenario_path, scenario)
+    receipt = coc_toolbox.coc_runtime_ops._build_opening_source_review_fulfillment(
+        ws["workspace"],
+        continuation={
+            "schema_version": 1,
+            "contract_id": "coc.opening-source-continue.v1",
+            "campaign_id": ws["campaign_id"],
+            "scenario_id": ws["asset_root_id"],
+            "selected_opening_pdf_indices": [0],
+            "source_bundle_id": ws["asset_root_id"],
+            "source_bundle_path": scenario["source"]["source_bundle_path"],
+            "result_delivery": "task_return_to_parent",
+        },
+        status="reviewed",
+        selected_opening_pdf_indices=[0],
+    )
+    facts = _minimal_opening_source_facts("pdf:opening-component")
+    coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        ws["workspace"], receipt, source_facts=facts,
+    )
+    return scenario_path, facts
+
+
+def test_pi_facts_adoption_and_rebind_share_one_source_lock(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path, facts = _stage_reviewed_facts_transport(ws)
+    entered = Event()
+    release = Event()
+    original = coc_toolbox.coc_runtime_ops._canonicalize_opening_fast_facts
+    blocked_once = False
+
+    def blocking_canonicalize(*args, **kwargs):
+        nonlocal blocked_once
+        result = original(*args, **kwargs)
+        if not blocked_once:
+            blocked_once = True
+            entered.set()
+            assert release.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "_canonicalize_opening_fast_facts",
+        blocking_canonicalize,
+    )
+    adopt_operation = {
+        "schema_version": 1,
+        "kind": "campaign.adopt_source_facts",
+        "payload": {"campaign_id": ws["campaign_id"], "facts": facts},
+    }
+    bind_operation = {
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": ws["campaign_id"],
+            "scenario_id": ws["asset_root_id"],
+            "title": "Opening Component",
+            "source_bundle_path": str(ws["workspace"] / "opening-source"),
+            "compile_now": False,
+        },
+    }
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        adopting = pool.submit(
+            coc_toolbox.coc_runtime_ops.execute_setup_operation,
+            ws["workspace"], operation=adopt_operation,
+        )
+        assert entered.wait(timeout=5)
+        rebinding = pool.submit(
+            coc_toolbox.coc_runtime_ops.execute_setup_operation,
+            ws["workspace"], operation=bind_operation,
+        )
+        time.sleep(0.05)
+        assert not rebinding.done()
+        release.set()
+        assert adopting.result(timeout=5)["status"] == "PASS"
+        assert rebinding.result(timeout=5)["status"] == "PASS"
+
+    campaign = json.loads(
+        (ws["campaign_dir"] / "campaign.json").read_text(encoding="utf-8")
+    )
+    rebound = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert "source_fast_facts" not in campaign
+    assert campaign["era_source"] == "unestablished"
+    assert "opening_source_facts_transport" not in rebound
+    assert rebound["opening_source_review_task"]["status"] == "pending"
+
+
 def test_pi_reviewed_facts_transport_replays_before_selection_and_consumes(
     tmp_path: Path, monkeypatch,
 ):
@@ -13845,6 +13945,31 @@ def test_pi_reviewed_facts_transport_replays_before_selection_and_consumes(
     assert blocked["ok"] is False
     assert blocked["error"]["details"]["phase"] == (
         "opening_source_facts_adoption_required"
+    )
+
+    original_adopt_source_era = (
+        coc_toolbox.coc_runtime_ops.coc_module_project.adopt_source_era
+    )
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops.coc_module_project,
+        "adopt_source_era",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("injected era side-effect failure")
+        ),
+    )
+    with pytest.raises(RuntimeError, match="injected era side-effect failure"):
+        _run(ws, "setup.adopt_source_facts", card["arguments"])
+    assert "opening_source_facts_transport" in json.loads(
+        scenario_path.read_text(encoding="utf-8")
+    )
+    resumed_partial = _run(ws, "session.resume")
+    assert resumed_partial["error"]["details"]["phase"] == (
+        "opening_source_facts_adoption_required"
+    )
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops.coc_module_project,
+        "adopt_source_era",
+        original_adopt_source_era,
     )
 
     wrong = deepcopy(facts)

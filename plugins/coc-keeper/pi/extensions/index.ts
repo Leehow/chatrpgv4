@@ -6623,7 +6623,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sourceScopeLocatorStates = new Map<string, JsonObject>();
   let sourceScopeLocatorControllers = new Map<string, AbortController>();
   let sourceScopeLocatorRuns = new Set<Promise<unknown>>();
-  let deliveredOpeningSourceFactsCards = new Set<string>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const kpActiveTools = [
@@ -6802,32 +6801,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* opening setup audit is best effort */ }
     }
   };
-  const sendOpeningSourceFactsCardOnce = (content: JsonObject): boolean => {
-    const card = objectOrNull(content.next_operation);
-    const args = objectOrNull(card?.arguments);
-    if (
-      content.schema_version !== 1
-      || content.status !== "reviewed"
-      || typeof content.campaign_id !== "string"
-      || card === null
-      || card.operation !== "setup.adopt_source_facts"
-      || card.invoke_via !== "coc_invoke"
-      || card.campaign !== content.campaign_id
-      || args === null
-      || args.campaign_id !== content.campaign_id
-      || !validOpeningTransportFacts(args.facts)
-    ) return false;
-    const key = canonicalJsonValueSha256(card);
-    if (deliveredOpeningSourceFactsCards.has(key)) return false;
-    pi.sendMessage({
-      customType: "coc-opening-source-review-terminal",
-      content: JSON.stringify(content),
-      display: false,
-      details: content,
-    }, { triggerTurn: true, deliverAs: "followUp" });
-    deliveredOpeningSourceFactsCards.add(key);
-    return true;
-  };
   const openingSourceReviewDispatchDeps = (
     ctx: ExtensionContext,
     epoch: number,
@@ -6843,15 +6816,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       );
       flushOpeningSetupAudits();
       const content = openingSourceReviewTerminalFollowUp(receipt, route);
-      if (!sendOpeningSourceFactsCardOnce(content)) {
-        if (content.status === "reviewed") return;
-        pi.sendMessage({
-          customType: "coc-opening-source-review-terminal",
-          content: JSON.stringify(content),
-          display: false,
-          details: content,
-        }, { triggerTurn: true, deliverAs: "followUp" });
-      }
+      pi.sendMessage({
+        customType: "coc-opening-source-review-terminal",
+        content: JSON.stringify(content),
+        display: false,
+        details: content,
+      }, { triggerTurn: true, deliverAs: "followUp" });
     },
     audit: (entry) => {
       try { pi.appendEntry("coc-opening-source-review-lifecycle", entry); }
@@ -6866,7 +6836,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceScopeLocatorStates = new Map<string, JsonObject>();
     sourceScopeLocatorControllers = new Map<string, AbortController>();
     sourceScopeLocatorRuns = new Set<Promise<unknown>>();
-    deliveredOpeningSourceFactsCards = new Set<string>();
     const startupCampaignId = overrides.startupCampaignId === undefined
       ? explicitPiStartupCampaignId()
       : overrides.startupCampaignId();
@@ -7483,21 +7452,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         );
         if (disposition.accepted) {
           startupResumeGate = null;
-          const resumeEnvelope = objectOrNull(value);
-          const resumeError = objectOrNull(resumeEnvelope?.error);
-          const resumeDetails = objectOrNull(resumeError?.details);
-          if (
-            resumeDetails?.phase
-              === "opening_source_facts_adoption_required"
-            && resumeDetails.campaign_id === selectedCampaignId
-          ) {
-            sendOpeningSourceFactsCardOnce({
-              schema_version: 1,
-              status: "reviewed",
-              campaign_id: selectedCampaignId,
-              next_operation: resumeDetails.next_operation,
-            });
-          }
         } else {
           terminalizeStartupResume(disposition.failureClass);
         }
