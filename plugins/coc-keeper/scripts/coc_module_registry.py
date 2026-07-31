@@ -991,6 +991,7 @@ def install_to_campaign(
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
     campaign["active_scenario_id"] = scenario_id
     campaign["era"] = meta.get("era", campaign.get("era", "1920s"))
+    coc_state.stamp_authored_campaign_era(campaign, meta.get("era"))
     campaign["updated_at"] = _now_iso()
     coc_fileio.write_json_atomic(
         campaign_path, campaign, indent=2, ensure_ascii=False, trailing_newline=True

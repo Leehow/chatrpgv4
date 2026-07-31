@@ -341,6 +341,35 @@ def test_revision_bundle_bind_deepen_projects_immutable_path_to_pi_preload(
     materialized = worker.run_worker_once(tmp_path, parallel=1)
     assert materialized["claimed"] == 1
 
+    # Binding arms the canonical opening-source review gate. On Pi that gate is
+    # hard, so complete the coordinator review the product actually requires
+    # before any Pi dispatch rather than reaching around it.
+    scenario_path = (
+        tmp_path / ".coc" / "campaigns" / campaign_id / "scenario" / "scenario.json"
+    )
+    scenario_json = json.loads(scenario_path.read_text(encoding="utf-8"))
+    pending_task = scenario_json["opening_source_review_task"]
+    review_receipt = (
+        toolbox.coc_runtime_ops._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation={
+                "schema_version": 1,
+                "contract_id": pending_task["continuation_contract_id"],
+                "campaign_id": campaign_id,
+                "scenario_id": asset_root_id,
+                "selected_opening_pdf_indices": [1],
+                "source_bundle_id": asset_root_id,
+                "source_bundle_path": scenario_json["source"]["source_bundle_path"],
+                "result_delivery": "task_return_to_parent",
+            },
+            status="reviewed",
+            selected_opening_pdf_indices=[1],
+        )
+    )
+    toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        tmp_path, review_receipt,
+    )
+
     monkeypatch.setenv("COC_HOST", "pi")
     claimed = toolbox.run_tool(
         "progressive.claim_host_work", tmp_path, campaign_id,

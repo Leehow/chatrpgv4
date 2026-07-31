@@ -251,8 +251,12 @@ def test_install_starter_copies_scenario_files_and_character_creation_briefing(t
     briefing = (root.parent / briefing_path).read_text("utf-8")
     assert "开卡序章" in briefing
     assert "意大利阿尔卑斯" in briefing
-    assert "玩家可以自己创建调查员" in briefing
-    assert "不要使用内置预设调查员" in briefing
+    # This starter ships no pregens, and ww1 is outside guided Quick Fire's
+    # supported eras, so the briefing must send the player to build their own
+    # concept instead of offering numbers it has no era-appropriate basis for.
+    assert "本战役年代为 **ww1**" in briefing
+    assert "先确定人物概念和背景，暂不生成数值" in briefing
+    assert "角色概念（暂不生成数值）" in briefing
 
 
 def test_white_war_starter_does_not_ship_pregen_investigators():

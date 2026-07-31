@@ -21,6 +21,50 @@ Do not duplicate a workflow into a new engine, facade, plugin tree, harness, or
 policy source. If a required source is missing or conflicts with this file,
 stop and report the boundary instead of improvising a replacement.
 
+## Codex And Pi-Coc Development Track Lock
+
+This repository has two distinct host development tracks:
+
+1. **Codex track** — the Codex-hosted COC workflow.
+2. **Pi-Coc track** — the Pi-hosted workflow launched through `pi-coc`.
+
+They share one canonical plugin and rules kernel, but they are separate
+development scopes. Never treat work requested for one track as permission to
+modify, repair, synchronize, or redesign the other track.
+
+Before resuming or starting any implementation, repair, refactor, test-writing,
+or integration work that could affect either track, ask the user exactly:
+`继续开发 Codex 版还是 pi-coc 版？`
+Do not make code-affecting changes until the user answers. Prior conversation,
+an existing dirty tree, a previous worker handoff, an apparently obvious
+target, or a request to “继续” does not substitute for this explicit choice.
+
+After the user chooses, declare `ACTIVE_IMPLEMENTATION_TRACK=codex` or
+`ACTIVE_IMPLEMENTATION_TRACK=pi-coc` and keep that track locked for the entire
+task:
+
+- With `ACTIVE_IMPLEMENTATION_TRACK=codex`, Pi-Coc implementation, adapters,
+  prompts, launchers, tests, and documentation are off-limits.
+- With `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`, Codex-host implementation,
+  adapters, prompts, launchers, tests, and documentation are off-limits.
+- Shared kernel, state, registry, contract, or skill files are **cross-track
+  scope**. They are off-limits by default after either selection. If the chosen
+  track cannot be completed without changing a shared file, stop, name the
+  exact file and reason, and obtain explicit user authorization before editing
+  it.
+- Every worker prompt, handoff, review, and validation report must state the
+  active track and its off-limits opposite track.
+- Tests may inspect the opposite track only for non-regression when necessary;
+  they must not update its fixtures, expectations, snapshots, or behavior.
+- Never switch tracks mid-task. If a new request appears to target the other
+  track, stop and ask the user to confirm a new track lock before continuing.
+- If the worktree already contains unknown or concurrent edits from the
+  opposite or cross-track scope, do not absorb, clean, revert, complete, or
+  commit them. Report the conflict and wait for direction.
+
+Any result produced without the required explicit track choice is
+`invalid-for-integration` for both tracks, even if component tests pass.
+
 ## Standing Memory: Never Destroy Playtest Evidence Without Authorization
 
 This is permanent project law. A playtest run's campaign state, logs, tool

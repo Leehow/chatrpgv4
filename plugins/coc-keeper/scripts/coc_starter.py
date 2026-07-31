@@ -518,6 +518,7 @@ def _update_campaign_json(campaign_dir: Path, scenario_id: str) -> None:
     if meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         campaign["era"] = meta.get("era", campaign.get("era", "1920s"))
+        coc_state.stamp_authored_campaign_era(campaign, meta.get("era"))
     else:
         meta = {}
     campaign["updated_at"] = _now_iso()

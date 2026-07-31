@@ -6,6 +6,7 @@ import "./_lib/preload-embedded-pi.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -2401,6 +2402,67 @@ async function exerciseFailureDrain(mode) {
     && !projectedText.includes("current_turn")
     && !projectedText.includes("location")
     && !projectedText.includes("task"));
+
+  const inspected = [{ source_id: "pdf:minimal", pdf_index: 0 }];
+  const unresolvedAnswer = {
+    status: "unresolved", inspected_source_refs: inspected,
+  };
+  const transportedFacts = {
+    schema_version: 1,
+    contract_id: "coc.opening-fast-facts.v1",
+    era: unresolvedAnswer,
+    place: unresolvedAnswer,
+    investigator_hook: unresolvedAnswer,
+    investigator_constraints: unresolvedAnswer,
+    player_safe_summary: unresolvedAnswer,
+    content_flags: unresolvedAnswer,
+  };
+  const transported = main.openingSourceReviewTerminalFollowUp({
+    status: "reviewed",
+    campaign_id: campaignId,
+    failure_class: null,
+    facts: transportedFacts,
+  }, {});
+  const unresolvedFactsParams = transported.next_operation;
+  check("hidden producer card sequences facts adoption before contract",
+    unresolvedFactsParams.operation === "setup.adopt_source_facts"
+    && unresolvedFactsParams.campaign === campaignId
+    && unresolvedFactsParams.arguments.facts === transportedFacts);
+  check("character overlap admits dedicated unresolved facts receipt",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      unresolvedFactsParams,
+      "minimal-opening-unresolved-facts",
+    ) === null);
+  const unresolvedFactsObserved = gate.observeOpeningSetupInvocation(
+    "setup.adopt_source_facts",
+    unresolvedFactsParams,
+    {
+      ok: true,
+      tool: "setup.adopt_source_facts",
+      data: {
+        schema_version: 1,
+        status: "PASS",
+        kind: "campaign.adopt_source_facts",
+        result: {
+          campaign_id: campaignId,
+          facts: unresolvedFactsParams.arguments.facts,
+          unresolved_blocking_facts: ["era", "place"],
+          character_creation_unblocked: false,
+        },
+      },
+    },
+    "minimal-opening-unresolved-facts",
+  );
+  check("unresolved facts receipt names blockers and does not invite contract",
+    unresolvedFactsObserved.accepted === true
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal("现在读取调查员契约。"),
+      (
+        "来源事实已记录，但 年代（era）、地点（place） 仍未解决；"
+        + "继续检查当前已绑定来源，暂不要调用调查员构建契约。"
+      ),
+    ));
 
   const contractParams = {
     operation: "setup.investigator_contract",
@@ -6375,6 +6437,49 @@ for (const terminalCase of [
         === "opening_source_review_required"
       && bound.data.opening_gate.next_operation === null);
 
+    const sourceRef = [{ source_id: "pdf:r12-module", pdf_index: 0 }];
+    const unresolved = {
+      status: "unresolved",
+      inspected_source_refs: sourceRef,
+    };
+    const adopted = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r12-real-adopt-source-facts",
+      {
+        operation: "setup.adopt_source_facts",
+        campaign: campaignId,
+        arguments: {
+          campaign_id: campaignId,
+          facts: {
+            schema_version: 1,
+            contract_id: "coc.opening-fast-facts.v1",
+            era: {
+              status: "source",
+              value: "1920s",
+              source_refs: sourceRef,
+            },
+            place: {
+              status: "source",
+              value: "Boston",
+              source_refs: sourceRef,
+            },
+            investigator_hook: unresolved,
+            investigator_constraints: unresolved,
+            player_safe_summary: unresolved,
+            content_flags: unresolved,
+          },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    check("source-review overlap admits dedicated facts without completing character",
+      adopted.ok === true
+      && adopted.data.kind === "campaign.adopt_source_facts"
+      && adopted.data.result.character_creation_unblocked === true);
+
     const callsBeforeBlockedPrepare = harness.calls.length;
     let blockedPrepareRejected = false;
     try {
@@ -8995,6 +9100,238 @@ for (const operationalClass of ["awaiting_scope", "awaiting_cache"]) {
     )).length === 1
     && harness.sent.length === 0);
   await harness.shutdown();
+}
+
+// Reviewed facts survive true extension/session re-instantiation. Each
+// harness owns a distinct extension closure; only canonical pending/consumed
+// campaign state is shared between contexts.
+{
+  const campaignId = "facts-restart-campaign";
+  const scenarioId = "facts-restart-scenario";
+  const refs = [{ source_id: "pdf:facts-restart", pdf_index: 0 }];
+  const source = (value) => ({ status: "source", value, source_refs: refs });
+  const unresolved = { status: "unresolved", inspected_source_refs: refs };
+  const facts = {
+    schema_version: 1,
+    contract_id: "coc.opening-fast-facts.v1",
+    era: source("1920s"),
+    place: source("Boston"),
+    investigator_hook: unresolved,
+    investigator_constraints: unresolved,
+    player_safe_summary: unresolved,
+    content_flags: source(["haunting"]),
+  };
+  const reviewGate = {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_source_review_required",
+    campaign_id: campaignId,
+    scenario_id: scenarioId,
+    source_provenance: "selection_hint_only_not_provenance",
+    required_source_owner: "coc-opening-source-coordinator",
+    opening_review_generation: 7,
+    character_setup_complete: false,
+    next_operation: null,
+    instruction: "review current source",
+  };
+  const temp = mkdtempSync(path.join(tmpdir(), "pi-facts-restart-"));
+  const producer = path.join(temp, "producer.mjs");
+  writeFileSync(producer, `#!/usr/bin/env node
+let input = ""; for await (const chunk of process.stdin) input += chunk;
+const task = JSON.parse(input);
+process.stdout.write(JSON.stringify({
+  schema_version: 1,
+  contract_id: "coc.pi-opening-source-review-transport-result.v1",
+  status: "reviewed",
+  campaign_id: task.campaign_id,
+  scenario_id: task.scenario_id,
+  opening_review_generation: task.opening_review_generation + 1,
+  failure_class: null,
+  facts: ${JSON.stringify(facts)},
+}));
+`);
+  chmodSync(producer, 0o755);
+  const previousCommand = process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND;
+  process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND = producer;
+  let pending = false;
+
+  const contextA = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "session.resume") {
+      return {
+        ok: false,
+        tool: "session.resume",
+        error: { code: "opening_setup_incomplete", details: reviewGate },
+      };
+    }
+    throw new Error(`unexpected context A call ${name}:${params.operation}`);
+  }, { sessionId: "facts-context-a", coordinatorEnabled: async () => false });
+  await contextA.startAll();
+  await contextA.registered.get("coc_invoke").execute(
+    "facts-a-resume",
+    { operation: "session.resume", campaign: campaignId, arguments: {} },
+    undefined, undefined, contextA.ctx,
+  );
+  for (let index = 0; index < 20; index += 1) await nextTurn();
+  const originalCards = contextA.sent.filter((entry) => (
+    entry.message?.customType === "coc-opening-source-review-terminal"
+    && entry.message?.details?.status === "reviewed"
+  ));
+  check("context A completes review and sends original exact facts card once",
+    originalCards.length === 1
+    && JSON.stringify(originalCards[0].message.details.next_operation.arguments.facts)
+      === JSON.stringify(facts));
+  pending = originalCards.length === 1;
+  await contextA.shutdown();
+
+  const factsGate = (packet = facts) => ({
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_source_facts_adoption_required",
+    campaign_id: campaignId,
+    scenario_id: scenarioId,
+    opening_review_generation: 8,
+    next_operation: {
+      operation: "setup.adopt_source_facts",
+      invoke_via: "coc_invoke",
+      campaign: campaignId,
+      arguments: { campaign_id: campaignId, facts: packet },
+    },
+    instruction: "adopt exact sealed facts before opening selection",
+  });
+  const throwResumeGate = (details) => {
+    const envelope = {
+      ok: false,
+      tool: "session.resume",
+      error: { code: "opening_setup_incomplete", details },
+    };
+    throw new runtime.CanonicalToolError(
+      "coc_invoke", "opening_setup_incomplete",
+      "canonical session.resume opening setup gate",
+      details, envelope,
+    );
+  };
+  const contextB = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "session.resume") {
+      return pending
+        ? throwResumeGate(factsGate())
+        : { ok: true, tool: "session.resume", data: {
+          schema_version: 1, campaign_id: campaignId, mode: "awaiting_player",
+        } };
+    }
+    if (name === "coc_invoke" && params.operation === "setup.adopt_source_facts") {
+      pending = false;
+      return {
+        ok: true,
+        tool: "setup.adopt_source_facts",
+        data: {
+          schema_version: 1,
+          status: "PASS",
+          kind: "campaign.adopt_source_facts",
+          result: {
+            campaign_id: campaignId,
+            facts,
+            unresolved_blocking_facts: [],
+            character_creation_unblocked: true,
+          },
+        },
+      };
+    }
+    throw new Error(`unexpected context B call ${name}:${params.operation}`);
+  }, {
+    startupCampaignId: campaignId,
+    sessionId: "facts-context-b",
+    coordinatorEnabled: async () => false,
+  });
+  await contextB.startAll();
+  await contextB.registered.get("coc_invoke").execute(
+    "facts-b-resume",
+    { operation: "session.resume", root, campaign: campaignId, arguments: {} },
+    undefined, undefined, contextB.ctx,
+  );
+  const recoveredCards = contextB.sent.filter((entry) => (
+    entry.message?.customType === "coc-opening-source-review-terminal"
+    && entry.message?.details?.status === "reviewed"
+  ));
+  check("fresh context B receives one exact hidden recovered facts card",
+    recoveredCards.length === 1
+    && recoveredCards[0].options?.triggerTurn === true
+    && recoveredCards[0].options?.deliverAs === "followUp"
+    && JSON.stringify(recoveredCards[0].message.details.next_operation)
+      === JSON.stringify(factsGate().next_operation));
+  check("fresh context B does not call prepare before facts adoption",
+    contextB.calls.every((call) => (
+      call.params.operation !== "progressive.prepare_opening"
+    )));
+  await contextB.registered.get("coc_invoke").execute(
+    "facts-b-adopt", factsGate().next_operation,
+    undefined, undefined, contextB.ctx,
+  );
+  check("public exact adoption consumes pending canonical state", !pending);
+  await contextB.shutdown();
+
+  const contextC = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "session.resume") {
+      return throwResumeGate(openingSetupGate(undefined, campaignId));
+    }
+    throw new Error(`unexpected context C call ${name}:${params.operation}`);
+  }, {
+    startupCampaignId: campaignId,
+    sessionId: "facts-context-c",
+    coordinatorEnabled: async () => false,
+  });
+  await contextC.startAll();
+  await contextC.registered.get("coc_invoke").execute(
+    "facts-c-resume",
+    { operation: "session.resume", root, campaign: campaignId, arguments: {} },
+    undefined, undefined, contextC.ctx,
+  );
+  check("fresh context C after adoption gets no facts replay",
+    contextC.sent.every((entry) => (
+      entry.message?.customType !== "coc-opening-source-review-terminal"
+    ))
+    && contextC.calls.every((call) => (
+      call.params.operation !== "progressive.prepare_opening"
+    )));
+  await contextC.shutdown();
+
+  const tampered = structuredClone(facts);
+  tampered.player_safe_summary = {
+    ...tampered.player_safe_summary,
+    raw_excerpt: "SECRET_RAW_PAGE_TEXT",
+  };
+  const contextD = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "session.resume") {
+      return throwResumeGate(factsGate(tampered));
+    }
+    throw new Error(`unexpected context D call ${name}:${params.operation}`);
+  }, {
+    startupCampaignId: campaignId,
+    sessionId: "facts-context-d",
+    coordinatorEnabled: async () => false,
+  });
+  await contextD.startAll();
+  await contextD.registered.get("coc_invoke").execute(
+    "facts-d-resume",
+    { operation: "session.resume", root, campaign: campaignId, arguments: {} },
+    undefined, undefined, contextD.ctx,
+  );
+  check("tampered fresh-session record never replays or leaks raw source",
+    contextD.sent.every((entry) => (
+      entry.message?.customType !== "coc-opening-source-review-terminal"
+    ))
+    && !JSON.stringify(contextD.sent).includes("SECRET_RAW_PAGE_TEXT"));
+  await contextD.shutdown();
+
+  if (previousCommand === undefined) {
+    delete process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND;
+  } else {
+    process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND = previousCommand;
+  }
+  rmSync(temp, { recursive: true, force: true });
 }
 
 // Actual extension lifecycle: a capability read that resolves after shutdown

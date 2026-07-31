@@ -10941,7 +10941,8 @@ def _opening_component_workspace(
     workspace = tmp_path / "opening-workspace"
     campaign_id = "opening-component"
     coc_state.create_campaign(
-        workspace, campaign_id, "Opening Component", play_language="zh-Hans",
+        workspace, campaign_id, "Opening Component", era="1920s",
+        play_language="zh-Hans",
     )
     pdf = workspace / "opening-module.pdf"
     pdf.parent.mkdir(parents=True, exist_ok=True)
@@ -11972,6 +11973,20 @@ def test_grok_parent_flat_fanout_isolated_claim_dispatch_and_fulfill(
         "skeleton": ws["skeleton"],
     })
     assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    for target_id, pdf_index in (("alley", 1), ("cellar", 2)):
+        # A body deepen only becomes dispatchable background work once its body
+        # scope is resolved; a skeleton source_span alone leaves it awaiting the
+        # scope locator lane.
+        assets.ensure_stub(
+            ws["workspace"],
+            ws["asset_root_id"],
+            "location",
+            target_id,
+            title=target_id.title(),
+            source_scope={"source_page_indices": [pdf_index]},
+            body_source_scope={"source_page_indices": [pdf_index]},
+        )
     for target_id in ("alley", "cellar"):
         dig = _run(ws, "progressive.request_deepen", {
             "kind": "location",
@@ -12373,6 +12388,10 @@ def test_request_deepen_returns_pi_auto_dispatch_takeover_after_local_materializ
         "destination",
         title="Destination",
         source_scope={"source_page_indices": [0, 1, 2]},
+        # Body deepening only reaches background dispatch once its body scope is
+        # resolved; without it the job stays awaiting_scope for the locator lane.
+        # It must match the entity scope, or every repeat re-enqueues fresh work.
+        body_source_scope={"source_page_indices": [0, 1, 2]},
     )
 
     requested = _run(ws, "progressive.request_deepen", {
@@ -13740,6 +13759,195 @@ def _install_opening_review_task(ws: dict, scenario: dict) -> None:
             generation=1,
         )
     )
+
+
+def _minimal_opening_source_facts(source_id: str) -> dict:
+    refs = [{"source_id": source_id, "pdf_index": 0}]
+    source = lambda value: {
+        "status": "source", "value": value, "source_refs": refs,
+    }
+    unresolved = {
+        "status": "unresolved", "inspected_source_refs": refs,
+    }
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": source("1920s"),
+        "place": source("Boston"),
+        "investigator_hook": unresolved,
+        "investigator_constraints": unresolved,
+        "player_safe_summary": unresolved,
+        "content_flags": source(["haunting"]),
+    }
+
+
+def test_pi_reviewed_facts_transport_replays_before_selection_and_consumes(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario.update({
+        "scenario_id": ws["asset_root_id"],
+        "opening_source_provenance": "selection_hint_only_not_provenance",
+    })
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
+    )
+    _install_opening_review_task(ws, scenario)
+    _write_json(scenario_path, scenario)
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": ws["asset_root_id"],
+        "source_bundle_path": scenario["source"]["source_bundle_path"],
+        "result_delivery": "task_return_to_parent",
+    }
+    receipt = coc_toolbox.coc_runtime_ops._build_opening_source_review_fulfillment(
+        ws["workspace"],
+        continuation=continuation,
+        status="reviewed",
+        selected_opening_pdf_indices=[0],
+    )
+    facts = _minimal_opening_source_facts("pdf:opening-component")
+    coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        ws["workspace"], receipt, source_facts=facts,
+    )
+    persisted = json.loads(scenario_path.read_text(encoding="utf-8"))
+    transport = persisted["opening_source_facts_transport"]
+    assert set(transport) == {
+        "schema_version", "contract_id", "status", "campaign_id",
+        "scenario_id", "opening_review_generation", "source_id",
+        "file_sha256", "bundle_sha256", "review_receipt_sha256",
+        "facts_sha256", "facts",
+    }
+    assert transport["facts"] == facts
+    persisted_text = json.dumps(persisted)
+    for forbidden in ("raw_excerpt", "grep_anchors", "reasoning", "page_text"):
+        assert forbidden not in json.dumps(transport)
+
+    monkeypatch.setenv("COC_HOST", "pi")
+    resumed = _run(ws, "session.resume")
+    assert resumed["ok"] is False
+    gate = resumed["error"]["details"]
+    assert gate["phase"] == "opening_source_facts_adoption_required"
+    card = gate["next_operation"]
+    assert card == {
+        "operation": "setup.adopt_source_facts",
+        "invoke_via": "coc_invoke",
+        "campaign": ws["campaign_id"],
+        "arguments": {"campaign_id": ws["campaign_id"], "facts": facts},
+    }
+    blocked = _run(ws, "progressive.prepare_opening")
+    assert blocked["ok"] is False
+    assert blocked["error"]["details"]["phase"] == (
+        "opening_source_facts_adoption_required"
+    )
+
+    wrong = deepcopy(facts)
+    wrong["place"]["value"] = "Arkham"
+    rejected = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"], "facts": wrong,
+    })
+    assert rejected["ok"] is False
+    assert rejected["error"]["details"]["phase"] == (
+        "opening_source_facts_adoption_required"
+    )
+    assert "opening_source_facts_transport" in json.loads(
+        scenario_path.read_text(encoding="utf-8")
+    )
+    with pytest.raises(
+        coc_toolbox.coc_runtime_ops.RuntimeOperationError,
+        match="does not match the current pending",
+    ):
+        coc_toolbox.coc_runtime_ops.execute_setup_operation(
+            ws["workspace"],
+            operation={
+                "schema_version": 1,
+                "kind": "campaign.adopt_source_facts",
+                "payload": {
+                    "campaign_id": ws["campaign_id"], "facts": wrong,
+                },
+            },
+        )
+
+    adopted = _run(ws, "setup.adopt_source_facts", card["arguments"])
+    assert adopted["ok"] is True, adopted
+    after = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert "opening_source_facts_transport" not in after
+    restarted = _run(ws, "session.resume")
+    assert restarted["ok"] is False
+    assert restarted["error"]["details"]["phase"] == "opening_selection"
+
+
+def test_pi_opening_facts_transport_tamper_fails_closed_without_raw_leak(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario.update({
+        "scenario_id": ws["asset_root_id"],
+        "opening_source_provenance": "selection_hint_only_not_provenance",
+    })
+    scenario["source"]["source_bundle_path"] = str(
+        ws["workspace"] / "opening-source"
+    )
+    _install_opening_review_task(ws, scenario)
+    _write_json(scenario_path, scenario)
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": ws["asset_root_id"],
+        "source_bundle_path": scenario["source"]["source_bundle_path"],
+        "result_delivery": "task_return_to_parent",
+    }
+    receipt = coc_toolbox.coc_runtime_ops._build_opening_source_review_fulfillment(
+        ws["workspace"], continuation=continuation, status="reviewed",
+        selected_opening_pdf_indices=[0],
+    )
+    coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        ws["workspace"], receipt,
+        source_facts=_minimal_opening_source_facts("pdf:opening-component"),
+    )
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["opening_source_facts_transport"]["facts"][
+        "player_safe_summary"
+    ]["raw_excerpt"] = "SECRET_RAW_PAGE_TEXT"
+    _write_json(scenario_path, scenario)
+    monkeypatch.setenv("COC_HOST", "pi")
+    blocked = _run(ws, "session.resume")
+    assert blocked["ok"] is False
+    details = blocked["error"]["details"]
+    assert details["phase"] == "opening_source_contract_invalid"
+    assert details["source_contract_error"]["code"] == (
+        "opening_source_facts_transport_invalid"
+    )
+    assert "SECRET_RAW_PAGE_TEXT" not in json.dumps(blocked)
+    coc_toolbox.coc_runtime_ops.execute_setup_operation(
+        ws["workspace"],
+        operation={
+            "schema_version": 1,
+            "kind": "scenario.bind_pdf",
+            "payload": {
+                "campaign_id": ws["campaign_id"],
+                "scenario_id": ws["asset_root_id"],
+                "title": "Opening Component",
+                "source_bundle_path": str(
+                    ws["workspace"] / "opening-source"
+                ),
+                "compile_now": False,
+            },
+        },
+    )
+    rebound = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert "opening_source_facts_transport" not in rebound
 
 
 def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
@@ -17191,3 +17399,105 @@ def test_campaign_local_pack_stays_local_across_prepare_project_and_defer(
     assert deferred["error"]["code"] == "initial_progressive_deferral_invalid"
     assert world_path.read_bytes() == world_before
     assert entity_path.read_bytes() == entity_before
+
+
+def _bind_progressive_source_for_opening_gate(
+    campaign_ws: dict, watch: dict | None
+) -> None:
+    """Make the campaign look source-bound with an explicit source-lane state."""
+    scenario_path = campaign_ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = (
+        json.loads(scenario_path.read_text(encoding="utf-8"))
+        if scenario_path.is_file()
+        else {}
+    )
+    scenario["source_cache_asset_root_id"] = "opening-gate-module"
+    scenario.pop("opening_projection_receipt", None)
+    scenario.pop("opening_projection_watch", None)
+    if watch is not None:
+        scenario["opening_projection_watch"] = watch
+    _write_json(scenario_path, scenario)
+    # Cold compilation would exempt the campaign from the progressive lane.
+    (campaign_ws["campaign_dir"] / "scenario" / "resolution-receipt.json").unlink(
+        missing_ok=True
+    )
+
+
+def _table_opening_error(campaign_ws: dict, decision_id: str) -> dict:
+    envelope = _run(
+        campaign_ws,
+        "evidence.table_opening",
+        {
+            "text": "[in_game]\n未经来源投影的开场。\n[/in_game]",
+            "run_id": "opening-gate-run",
+            "presented_roll_ids": [],
+            "decision_id": decision_id,
+        },
+    )
+    assert envelope["ok"] is False, envelope
+    return envelope["error"]
+
+
+def test_table_opening_blocks_while_background_source_parse_is_pending(campaign_ws):
+    _bind_progressive_source_for_opening_gate(
+        campaign_ws, {"schema_version": 1, "status": "pending"}
+    )
+    error = _table_opening_error(campaign_ws, "opening-gate-pending")
+    assert error["code"] == "opening_source_pending"
+
+
+def test_table_opening_reports_failed_source_parse_instead_of_inventing(campaign_ws):
+    _bind_progressive_source_for_opening_gate(campaign_ws, {
+        "schema_version": 1,
+        "status": "refused_terminal",
+        "last_error": {
+            "code": "opening_projection_watch_stale",
+            "message": "campaign/source binding no longer matches the watch",
+        },
+    })
+    error = _table_opening_error(campaign_ws, "opening-gate-failed")
+    assert error["code"] == "opening_source_failed"
+    assert "opening_projection_watch_stale" in error["message"]
+
+
+def test_table_opening_blocks_source_bound_campaign_with_no_opening_projection(
+    campaign_ws,
+):
+    _bind_progressive_source_for_opening_gate(campaign_ws, None)
+    error = _table_opening_error(campaign_ws, "opening-gate-unprepared")
+    assert error["code"] == "opening_source_not_prepared"
+
+
+def test_table_opening_allows_projected_source_opening(campaign_ws):
+    _bind_progressive_source_for_opening_gate(
+        campaign_ws, {"schema_version": 1, "status": "complete"}
+    )
+    opening = _run(
+        campaign_ws,
+        "evidence.table_opening",
+        {
+            "text": "[in_game]\n来源已投影后的开场。\n[/in_game]",
+            "run_id": "opening-gate-run",
+            "presented_roll_ids": [],
+            "decision_id": "opening-gate-complete",
+        },
+    )
+    assert opening["ok"] is True, opening
+
+
+def test_table_opening_is_not_gated_without_a_source_binding(campaign_ws):
+    readiness = coc_toolbox.coc_module_project.opening_source_readiness(
+        campaign_ws["campaign_dir"]
+    )
+    assert readiness["state"] == "not_source_gated"
+    opening = _run(
+        campaign_ws,
+        "evidence.table_opening",
+        {
+            "text": "[in_game]\n非 PDF 场景的正式开场。\n[/in_game]",
+            "run_id": "opening-gate-built-in-control",
+            "presented_roll_ids": [],
+            "decision_id": "opening-gate-not-source-bound",
+        },
+    )
+    assert opening["ok"] is True, opening

@@ -27,7 +27,7 @@ def _seed_workspace(workspace: Path, *, brain: str = "debug") -> Path:
     )
     (campaign / "campaign.json").write_text(
         json.dumps({
-            "schema_version": 2,
+            "schema_version": 3,
             "campaign_id": "camp-1",
             "ruleset_id": "coc7",
         }), encoding="utf-8"

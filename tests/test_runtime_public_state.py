@@ -28,7 +28,7 @@ def _seed_campaign(workspace: Path, campaign_id: str = "camp-1") -> Path:
     )
     (campaign / "campaign.json").write_text(
         json.dumps({
-            "schema_version": 2,
+            "schema_version": 3,
             "campaign_id": campaign_id,
             "ruleset_id": "coc7",
             "play_language": "zh-CN",
@@ -352,7 +352,7 @@ def test_public_state_drops_untyped_fields_and_raw_legacy_pending_choice(tmp_pat
     )
     (campaign / "campaign.json").write_text(
         json.dumps({
-            "schema_version": 2,
+            "schema_version": 3,
             "campaign_id": "camp-1",
             "ruleset_id": "coc7",
             "play_language": ["not", "a", "string"],

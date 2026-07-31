@@ -880,11 +880,16 @@ def _sync_campaign_era_clock_from_meta(
         return
     camp_id = str(camp.get("campaign_id") or campaign_dir.name)
     era_key = coc_state.normalize_era(
-        str(era_raw) if authored_era else str(camp.get("era") or "1920s")
+        str(era_raw) if authored_era else str(camp.get("era") or "")
     )
-    changed = authored_era and camp.get("era") != era_key
+    changed = authored_era and (
+        camp.get("era") != era_key
+        or camp.get("era_source") != coc_state.ERA_SOURCE_AUTHORED
+    )
     if authored_era:
         camp["era"] = era_key
+        # Source-projected era is the only evidence character creation accepts.
+        camp["era_source"] = coc_state.ERA_SOURCE_AUTHORED
     # Prefer module identity era field to stay canonical for later readers.
     if authored_era and isinstance(identity, dict) and not identity.get("era"):
         identity = dict(identity)
@@ -2245,6 +2250,80 @@ def current_opening_projection_receipt(campaign_dir: Path) -> dict[str, Any] | N
     scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
     receipt = scenario.get("opening_projection_receipt") if isinstance(scenario, dict) else None
     return json.loads(json.dumps(receipt)) if isinstance(receipt, dict) else None
+
+
+def adopt_source_era(campaign_dir: Path, era: str) -> dict[str, Any]:
+    """Bind a source-established era onto the campaign and seed its clock.
+
+    This is the fast source-parse lane's only write. It reuses the same authored
+    era/clock owner the later skeleton projection uses, so both lanes agree on
+    one canonical era key and one pristine civil clock, and it refreshes the
+    player-facing setup briefing that was rendered while the period was unknown.
+    """
+    campaign_dir = Path(campaign_dir)
+    _sync_campaign_era_clock_from_meta(campaign_dir, {"era": era})
+    camp = _load_json(campaign_dir / "campaign.json", {})
+    return {
+        "era": str(camp.get("era") or "") if isinstance(camp, dict) else "",
+        "briefing_path": _refresh_character_creation_briefing_if_stale(
+            campaign_dir
+        ),
+    }
+
+
+OPENING_SOURCE_NOT_GATED = "not_source_gated"
+OPENING_SOURCE_READY = "ready"
+OPENING_SOURCE_PENDING = "pending"
+OPENING_SOURCE_FAILED = "failed"
+OPENING_SOURCE_NOT_PREPARED = "not_prepared"
+
+
+def opening_source_readiness(campaign_dir: Path) -> dict[str, Any]:
+    """Report whether the source-bound opening is parsed, verified, and projected.
+
+    This is the authority the table-opening boundary consumes so a Keeper cannot
+    narrate an opening while the background source lane is still running or has
+    already failed. Campaigns with no PDF/progressive binding — built-in
+    starters and cold-compiled scenarios — are not gated by this lane at all.
+    """
+    campaign_dir = Path(campaign_dir)
+    scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
+    if not isinstance(scenario, dict):
+        scenario = {}
+    source_bound = bool(
+        str(scenario.get("source_cache_asset_root_id") or "").strip()
+        or str(scenario.get("progressive_asset_root_id") or "").strip()
+    )
+    if not source_bound:
+        return {"state": OPENING_SOURCE_NOT_GATED, "reason": "no_source_binding"}
+    if (campaign_dir / "scenario" / "resolution-receipt.json").is_file():
+        # Cold compilation already published the whole scenario IR.
+        return {"state": OPENING_SOURCE_NOT_GATED, "reason": "cold_compiled"}
+    if isinstance(scenario.get("opening_projection_receipt"), dict):
+        return {"state": OPENING_SOURCE_READY, "reason": "opening_projected"}
+    watch = scenario.get("opening_projection_watch")
+    if not isinstance(watch, dict):
+        return {
+            "state": OPENING_SOURCE_NOT_PREPARED,
+            "reason": "no_opening_projection_watch",
+        }
+    status = str(watch.get("status") or "")
+    if status == "complete":
+        return {"state": OPENING_SOURCE_READY, "reason": "watch_complete"}
+    if status == "refused_terminal":
+        last_error = watch.get("last_error")
+        return {
+            "state": OPENING_SOURCE_FAILED,
+            "reason": "watch_refused_terminal",
+            "last_error": (
+                json.loads(json.dumps(last_error))
+                if isinstance(last_error, dict) else None
+            ),
+        }
+    return {
+        "state": OPENING_SOURCE_PENDING,
+        "reason": "watch_status:" + (status or "unknown"),
+    }
 
 
 def current_opening_projection_source_binding(

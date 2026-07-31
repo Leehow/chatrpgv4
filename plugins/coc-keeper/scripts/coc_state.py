@@ -27,8 +27,9 @@ import coc_rulesets
 # matches these versions exactly. This project intentionally has no migration
 # registry or legacy reader.
 CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
-    # campaign 2: campaigns persist ruleset_id from creation (seam 1b).
-    "campaign": 2,
+    # campaign 3: campaigns persist era provenance (``era_source``) so a raw-PDF
+    # campaign cannot present a placeholder era as source-established fact.
+    "campaign": 3,
     "world": 2,
     "pacing": 1,
     "investigator": 1,
@@ -234,6 +235,65 @@ def write_json_atomic(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     _fileio_write_json_atomic(
         path, payload, indent=2, ensure_ascii=True, trailing_newline=True
     )
+
+
+ERA_SOURCE_UNESTABLISHED = "unestablished"
+ERA_SOURCE_DECLARED = "declared"
+ERA_SOURCE_AUTHORED = "authored"
+ESTABLISHED_ERA_SOURCES = frozenset({ERA_SOURCE_DECLARED, ERA_SOURCE_AUTHORED})
+
+
+def campaign_era_source(campaign: dict[str, Any]) -> str:
+    """Return how this campaign's ``era`` was obtained.
+
+    ``declared`` is an explicit caller/starter value, ``authored`` comes from
+    projected module source, and ``unestablished`` means ``era`` is only the
+    placeholder ``create_campaign`` needs to seed a clock. The placeholder is
+    never evidence about the module's period.
+    """
+    if not isinstance(campaign, dict):
+        return ERA_SOURCE_UNESTABLISHED
+    value = str(campaign.get("era_source") or "").strip()
+    return value if value in ESTABLISHED_ERA_SOURCES else ERA_SOURCE_UNESTABLISHED
+
+
+def campaign_era_is_established(campaign: dict[str, Any]) -> bool:
+    """True when ``era`` is source-established rather than a seeding placeholder."""
+    return campaign_era_source(campaign) in ESTABLISHED_ERA_SOURCES
+
+
+def campaign_place_is_established(campaign: dict[str, Any]) -> bool:
+    """True when the source parse answered where this module is set.
+
+    Only source-bound (``authored`` era) campaigns are held to this: a starter
+    or an explicitly declared campaign never had a source parse to ask.
+    """
+    if not isinstance(campaign, dict):
+        return False
+    if campaign_era_source(campaign) != ERA_SOURCE_AUTHORED:
+        return True
+    facts = campaign.get("source_fast_facts")
+    place = facts.get("place") if isinstance(facts, dict) else None
+    return (
+        isinstance(place, dict)
+        and place.get("status") == "source"
+        and bool(str(place.get("value") or "").strip())
+    )
+
+
+def stamp_authored_campaign_era(
+    campaign: dict[str, Any], authored_era: Any
+) -> bool:
+    """Mark ``era`` as module-authored when scenario source supplies one.
+
+    The caller keeps owning the ``era`` value itself; this only records that the
+    value stopped being a creation-time placeholder.
+    """
+    raw = str(authored_era or "").strip()
+    if not raw or raw.lower() in {"unknown", "none", "null"}:
+        return False
+    campaign["era_source"] = ERA_SOURCE_AUTHORED
+    return True
 
 
 def normalize_era(era: str | None, *, default: str = "1920s") -> str:
@@ -1379,7 +1439,7 @@ def _create_campaign_at(
     campaign_dir: Path,
     campaign_id: str,
     title: str,
-    era: str = "1920s",
+    era: str | None = None,
     play_language: str = DEFAULT_PLAY_LANGUAGE,
     start_clock: dict[str, Any] | None = None,
     *,
@@ -1388,6 +1448,9 @@ def _create_campaign_at(
 ) -> Path:
     """Build a complete campaign generation at an explicit directory."""
     campaign_dir = Path(campaign_dir)
+    # An omitted era still needs a canonical clock key, but the placeholder is
+    # recorded as unestablished so character creation cannot treat it as fact.
+    era_declared = bool(str(era or "").strip())
     era_key = normalize_era(era)
     ruleset_id = coc_rulesets.require_registered_ruleset(
         ruleset_id,
@@ -1404,6 +1467,9 @@ def _create_campaign_at(
         "mode": "keeper",
         "status": "setup",
         "era": era_key,
+        "era_source": (
+            ERA_SOURCE_DECLARED if era_declared else ERA_SOURCE_UNESTABLISHED
+        ),
         "active_scenario_id": None,
         "active_scene_id": None,
         "dice_mode": "codex",
@@ -1429,7 +1495,7 @@ def create_campaign(
     root: Path,
     campaign_id: str,
     title: str,
-    era: str = "1920s",
+    era: str | None = None,
     play_language: str = DEFAULT_PLAY_LANGUAGE,
     start_clock: dict[str, Any] | None = None,
     *,
@@ -1452,7 +1518,7 @@ def create_campaign(
         campaign_dir,
         campaign_id,
         title,
-        era=normalize_era(era),
+        era=era,
         play_language=play_language,
         start_clock=start_clock,
         ruleset_id=ruleset_id,

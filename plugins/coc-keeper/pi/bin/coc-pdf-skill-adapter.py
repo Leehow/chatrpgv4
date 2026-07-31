@@ -29,9 +29,20 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 OPENING_COORDINATOR_CONTRACT = (
     PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
 )
+MCP_OPERATION_CONTRACTS = (
+    PLUGIN_ROOT / "references" / "mcp-operation-contracts.json"
+)
 PI_MODEL = "xai/grok-4.5"
 PI_THINKING = "low"
 PI_TOOLS = "read,bash,write"
+MAX_FACT_EVIDENCE_PAGES = 8
+OPENING_FACT_VALUE_LIMITS = {
+    "era": 128,
+    "place": 256,
+    "investigator_hook": 512,
+    "investigator_constraints": 512,
+    "player_safe_summary": 768,
+}
 
 
 def _fail(message: str) -> NoReturn:
@@ -409,7 +420,6 @@ def _opening_producer_task(
         "campaign_id": request["campaign_id"],
         "scenario_id": private["scenario_id"],
         "title": scenario.get("title"),
-        "era": campaign.get("era") or "1920s",
         "play_language": campaign.get("play_language") or "zh-Hans",
         "source": {
             "path": str(Path(str(source.get("path") or "")).resolve()),
@@ -418,8 +428,10 @@ def _opening_producer_task(
         },
         "opening_locator_pdf_indices": private["allowed_pdf_indices"],
         "max_selected_opening_pages": 3,
+        "max_fact_evidence_pages": MAX_FACT_EVIDENCE_PAGES,
         "source_bundle_path": str(output),
         "source_bundle_manifest_contract": _opening_manifest_contract(),
+        "opening_fast_facts_schema": _opening_fast_facts_schema(),
         "reusable_bound_source": reusable_bound_source,
     }
     if (
@@ -431,6 +443,20 @@ def _opening_producer_task(
     ):
         _fail("opening review source identity invalid")
     return task
+
+
+def _opening_fast_facts_schema() -> dict[str, Any]:
+    archive = _json(MCP_OPERATION_CONTRACTS, "MCP operation contracts")
+    operations = _object(archive.get("operations"), "MCP operations")
+    operation = _object(
+        operations.get("setup.adopt_source_facts"),
+        "setup.adopt_source_facts contract",
+    )
+    input_schema = _object(operation.get("inputSchema"), "facts input schema")
+    properties = _object(input_schema.get("properties"), "facts input properties")
+    return json.loads(json.dumps(
+        _object(properties.get("facts"), "opening facts schema")
+    ))
 
 
 def _opening_prompt(task: dict[str, Any]) -> str:
@@ -452,9 +478,14 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "If the selected window overlaps one of those manifest pages, keep "
         "that exact markdown_path, Markdown bytes, and complete page evidence "
         "row; do not retranscribe, rewrite, or alter the retained source. "
-        "New selected pages may be added normally. Final manifest.pages must "
-        "equal the selected result window exactly; unselected preseed files may "
-        "remain unreferenced. manifest.source.source_id, "
+        "Separately select the smallest fact-evidence set from cover, front "
+        "matter, or Keeper background needed for the six opening facts. It may "
+        "be non-contiguous, is bounded by task.max_fact_evidence_pages, and "
+        "must not widen or alter the contiguous playable opening window. New "
+        "selected pages may be added normally. Final manifest.pages must equal "
+        "the union of selected_opening_pdf_indices and "
+        "fact_evidence_pdf_indices exactly; unselected preseed files may remain "
+        "unreferenced. manifest.source.source_id, "
         "path, and file_sha256 must exactly match task.source; "
         "manifest.source.title must exactly match task.title. "
         "Do not use OCR. Do not read .coc, saves, "
@@ -462,13 +493,121 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "tools or write outside source_bundle_path. Return only one strict JSON "
         "object with exact fields schema_version, contract_id, status, "
         "campaign_id, scenario_id, selected_opening_pdf_indices, "
-        "source_bundle_path, failure_class. contract_id is "
+        "fact_evidence_pdf_indices, source_bundle_path, failure_class, facts. "
+        "contract_id is "
         "coc.pi-opening-pdf-producer-result.v1; status is reviewed or failed. "
         "For reviewed, indices are unique ascending contiguous and failure_class "
-        "is null. For failed, indices=[], source_bundle_path=null, and "
-        "failure_class is non-empty.\n"
+        "is null. facts must exactly satisfy task.opening_fast_facts_schema: "
+        "answer all six questions only from fact_evidence_pdf_indices; "
+        "source answers use minimal {source_id,pdf_index} source_refs and "
+        "unresolved answers use minimal inspected_source_refs for pages actually "
+        "checked. Never use a campaign era, default era, title hint, or task "
+        "placeholder as evidence. Return concise values only: no source text, "
+        "excerpts, manifest body, or reasoning. For failed, both index arrays "
+        "are empty, source_bundle_path=null, failure_class is non-empty, and "
+        "facts=null.\n"
         + json.dumps(task, ensure_ascii=False, separators=(",", ":"))
     )
+
+
+_OPENING_FACT_QUESTIONS = {
+    "era": "string",
+    "place": "string",
+    "investigator_hook": "string",
+    "investigator_constraints": "string",
+    "player_safe_summary": "string",
+    "content_flags": "list",
+}
+
+
+def _validate_opening_facts(
+    value: Any,
+    *,
+    source_id: str,
+    selected_pdf_indices: list[int],
+) -> dict[str, Any]:
+    facts = _object(value, "opening fast facts")
+    expected = {"schema_version", "contract_id", *_OPENING_FACT_QUESTIONS}
+    if (
+        set(facts) != expected
+        or facts.get("schema_version") != 1
+        or facts.get("contract_id") != "coc.opening-fast-facts.v1"
+    ):
+        _fail("opening fast facts contract invalid")
+    selected = set(selected_pdf_indices)
+    validated = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+    }
+    for name, value_kind in _OPENING_FACT_QUESTIONS.items():
+        answer = _object(facts.get(name), f"opening fact {name}")
+        status = answer.get("status")
+        if status == "source":
+            if set(answer) != {"status", "value", "source_refs"}:
+                _fail(f"opening fact {name} source shape invalid")
+            raw_value = answer.get("value")
+            if value_kind == "list":
+                if (
+                    not isinstance(raw_value, list)
+                    or not raw_value
+                    or len(raw_value) > 16
+                    or any(
+                        not isinstance(item, str)
+                        or not item.strip()
+                        or len(item) > 128
+                        for item in raw_value
+                    )
+                    or len(raw_value) != len(set(raw_value))
+                ):
+                    _fail(f"opening fact {name} value invalid")
+                normalized_value: Any = [item.strip() for item in raw_value]
+            else:
+                if (
+                    not isinstance(raw_value, str)
+                    or not raw_value.strip()
+                    or len(raw_value) > OPENING_FACT_VALUE_LIMITS[name]
+                ):
+                    _fail(f"opening fact {name} value invalid")
+                normalized_value = raw_value.strip()
+            refs_key = "source_refs"
+        elif status == "unresolved":
+            if set(answer) != {"status", "inspected_source_refs"}:
+                _fail(f"opening fact {name} unresolved shape invalid")
+            normalized_value = None
+            refs_key = "inspected_source_refs"
+        else:
+            _fail(f"opening fact {name} status invalid")
+        refs = answer.get(refs_key)
+        if not isinstance(refs, list) or not refs or len(refs) > 3:
+            _fail(f"opening fact {name} refs invalid")
+        canonical_refs = []
+        seen: set[tuple[str, int]] = set()
+        for ref in refs:
+            if (
+                not isinstance(ref, dict)
+                or set(ref) != {"source_id", "pdf_index"}
+                or ref.get("source_id") != source_id
+                or len(str(ref.get("source_id") or "")) > 256
+                or not isinstance(ref.get("pdf_index"), int)
+                or isinstance(ref.get("pdf_index"), bool)
+                or ref["pdf_index"] not in selected
+            ):
+                _fail(f"opening fact {name} ref outside final reviewed bundle")
+            key = (ref["source_id"], ref["pdf_index"])
+            if key in seen:
+                _fail(f"opening fact {name} duplicate ref")
+            seen.add(key)
+            canonical_refs.append(dict(ref))
+        validated_answer = {"status": status, refs_key: canonical_refs}
+        if status == "source":
+            validated_answer["value"] = normalized_value
+            validated_answer = {
+                "status": status,
+                "value": normalized_value,
+                refs_key: canonical_refs,
+            }
+        validated[name] = validated_answer
+    return validated
 
 
 def _validate_opening_result(
@@ -476,11 +615,13 @@ def _validate_opening_result(
 ) -> dict[str, Any]:
     result = _object(value, "opening PDF producer result")
     indices = result.get("selected_opening_pdf_indices")
+    fact_indices = result.get("fact_evidence_pdf_indices")
     if (
         set(result) != {
             "schema_version", "contract_id", "status", "campaign_id",
             "scenario_id", "selected_opening_pdf_indices",
-            "source_bundle_path", "failure_class",
+            "fact_evidence_pdf_indices", "source_bundle_path",
+            "failure_class", "facts",
         }
         or result.get("schema_version") != 1
         or result.get("contract_id")
@@ -489,26 +630,41 @@ def _validate_opening_result(
         or result.get("scenario_id") != task["scenario_id"]
         or result.get("status") not in {"reviewed", "failed"}
         or not isinstance(indices, list)
+        or not isinstance(fact_indices, list)
         or any(
             not isinstance(index, int) or isinstance(index, bool) or index < 0
             for index in indices
         )
         or indices != sorted(set(indices))
+        or any(
+            not isinstance(index, int) or isinstance(index, bool) or index < 0
+            for index in fact_indices
+        )
+        or fact_indices != sorted(set(fact_indices))
     ):
         _fail("opening PDF producer result invalid")
     if result["status"] == "reviewed":
         if (
             not 1 <= len(indices) <= 3
             or indices != list(range(indices[0], indices[0] + len(indices)))
+            or not 1 <= len(fact_indices) <= MAX_FACT_EVIDENCE_PAGES
             or result.get("source_bundle_path") != task["source_bundle_path"]
             or result.get("failure_class") is not None
         ):
             _fail("reviewed opening PDF producer result invalid")
+        result = dict(result)
+        result["facts"] = _validate_opening_facts(
+            result.get("facts"),
+            source_id=str(task["source"]["source_id"]),
+            selected_pdf_indices=fact_indices,
+        )
     elif (
         indices
+        or fact_indices
         or result.get("source_bundle_path") is not None
         or not isinstance(result.get("failure_class"), str)
         or not result["failure_class"].strip()
+        or result.get("facts") is not None
     ):
         _fail("failed opening PDF producer result invalid")
     return result
@@ -586,12 +742,24 @@ def _validate_reused_bound_pages(
         or len(retained_normalized) != len(normalized_pages)
     ):
         _fail("reusable bound source pages are invalid")
+
+    def _raw_page_for_reuse_equality(row: dict[str, Any]) -> dict[str, Any]:
+        canonical = dict(row)
+        # The bundle validator canonically accepts both spellings for a page
+        # with no assets. Normalize only that empty optional field here; a
+        # non-empty assets declaration and every other raw field remain exact.
+        if canonical.get("assets") == []:
+            canonical.pop("assets")
+        return canonical
+
     for page in bundle["pages"]:
         pdf_index = int(page["pdf_index"])
         if pdf_index not in retained_raw:
             continue
         if (
-            final_raw.get(pdf_index) != retained_raw[pdf_index]
+            not isinstance(final_raw.get(pdf_index), dict)
+            or _raw_page_for_reuse_equality(final_raw[pdf_index])
+            != _raw_page_for_reuse_equality(retained_raw[pdf_index])
             or _reusable_page_row(page) != retained_normalized.get(pdf_index)
         ):
             _fail(f"reusable bound page {pdf_index} drift")
@@ -603,6 +771,7 @@ def _opening_receipt(
     generation: int,
     status: str,
     failure: str | None,
+    facts: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -612,6 +781,7 @@ def _opening_receipt(
         "scenario_id": scenario_id,
         "opening_review_generation": generation,
         "failure_class": failure,
+        "facts": facts,
     }
 
 
@@ -652,7 +822,7 @@ def _run_opening_review() -> dict[str, Any]:
         if result["status"] != "reviewed":
             return _opening_receipt(
                 request, private["scenario_id"], private["generation"],
-                "failed", result["failure_class"],
+                "failed", result["failure_class"], None,
             )
         bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
         final_manifest = _json(
@@ -660,8 +830,10 @@ def _run_opening_review() -> dict[str, Any]:
             "opening source manifest",
         )
         selected = result["selected_opening_pdf_indices"]
+        fact_evidence = result["fact_evidence_pdf_indices"]
+        bundle_indices = sorted(set(selected) | set(fact_evidence))
         if (
-            [row["pdf_index"] for row in bundle["pages"]] != selected
+            [row["pdf_index"] for row in bundle["pages"]] != bundle_indices
             or bundle["source"]["source_id"] != private["source_id"]
             or bundle["source"]["path"] != task["source"]["path"]
             or bundle["source"]["file_sha256"]
@@ -701,7 +873,7 @@ def _run_opening_review() -> dict[str, Any]:
             or exact["source_bundle_path"] != task["source_bundle_path"]
             or exact["source_id"] != task["source"]["source_id"]
             or exact["source_file_sha256"] != task["source"]["file_sha256"]
-            or exact["allowed_pdf_indices"] != selected
+            or exact["allowed_pdf_indices"] != bundle_indices
             or rebound_source.get("path") != task["source"]["path"]
             or rebound_source.get("bundle_sha256")
             != exact["source_bundle_sha256"]
@@ -723,10 +895,14 @@ def _run_opening_review() -> dict[str, Any]:
             status="reviewed",
             selected_opening_pdf_indices=selected,
         )
-        ops._apply_opening_source_review_fulfillment(workspace, fulfillment)
+        ops._apply_opening_source_review_fulfillment(
+            workspace,
+            fulfillment,
+            source_facts=result["facts"],
+        )
         return _opening_receipt(
             request, exact["scenario_id"], exact["generation"],
-            "reviewed", None,
+            "reviewed", None, result["facts"],
         )
 
 

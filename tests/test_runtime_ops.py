@@ -111,7 +111,11 @@ def _guided_quick_fire_payload(
     ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
         "kind": "campaign.create",
-        "payload": {"campaign_id": "guided", "title": "Guided"},
+        "payload": {
+            "campaign_id": "guided",
+            "title": "Guided",
+            "era": "1920s",
+        },
     })
     luck = toolbox.run_tool(
         "rules.roll_dice",
@@ -2684,7 +2688,11 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
         "kind": "campaign.create",
-        "payload": {"campaign_id": "quick-fire", "title": "Quick Fire"},
+        "payload": {
+            "campaign_id": "quick-fire",
+            "title": "Quick Fire",
+            "era": "1920s",
+        },
     })
     luck = toolbox.run_tool(
         "rules.roll_dice",
@@ -3063,3 +3071,430 @@ def test_suffocation_lifecycle_is_persisted_and_roll_traced(tmp_path):
         tmp_path / ".coc" / "campaigns" / "camp" / "logs" / "rolls.jsonl"
     ).read_text(encoding="utf-8")
     assert '"skill":"CON"' in rolls
+
+
+def _created_campaign(tmp_path: Path, campaign_id: str, **extra) -> dict:
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {"campaign_id": campaign_id, "title": campaign_id, **extra},
+    })
+    return json.loads(
+        (tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+
+
+def _answer(value, *, pdf_index: int = 1) -> dict:
+    return {
+        "status": "source",
+        "value": value,
+        "source_refs": [{"source_id": "pdf:raw", "pdf_index": pdf_index}],
+    }
+
+
+def _unresolved(*, pdf_index: int = 1) -> dict:
+    return {
+        "status": "unresolved",
+        "inspected_source_refs": [
+            {"source_id": "pdf:raw", "pdf_index": pdf_index}
+        ],
+    }
+
+
+_UNRESOLVED = _unresolved()
+
+
+def _bind_fast_facts_source(
+    tmp_path: Path,
+    campaign_id: str,
+    *,
+    source_id: str = "pdf:raw",
+    scenario_id: str | None = None,
+    page_text: str = "# Source\n\nAccepted setup evidence.\n",
+) -> dict:
+    scenario_id = scenario_id or f"{campaign_id}-source"
+    pdf = tmp_path / f"{scenario_id}.pdf"
+    pdf.write_bytes(
+        f"%PDF host-owned fast facts fixture {scenario_id}".encode()
+    )
+    bundle = tmp_path / f"{scenario_id}-bundle"
+    bundle.mkdir()
+    pages = []
+    for pdf_index in (0, 1):
+        data = f"{page_text}\nPage {pdf_index}.\n".encode()
+        markdown_path = f"page-{pdf_index:04d}.md"
+        (bundle / markdown_path).write_bytes(data)
+        pages.append({
+            "pdf_index": pdf_index,
+            "markdown_path": markdown_path,
+            "text_sha256": hashlib.sha256(data).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93,
+            "grep_anchors": ["Accepted setup evidence."],
+        })
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": source_id,
+            "title": scenario_id,
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 2,
+        },
+        "pages": pages,
+    }), encoding="utf-8")
+    return ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": campaign_id,
+            "scenario_id": scenario_id,
+            "title": scenario_id,
+            "source_bundle_path": str(bundle),
+            "compile_now": False,
+        },
+    })
+
+
+def _fast_facts(**overrides) -> dict:
+    facts = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": _answer("1890s"),
+        "place": _answer("英格兰惠特比"),
+        "investigator_hook": _answer("一封旧友来信请你去港口小镇查一桩失踪案。"),
+        "investigator_constraints": _UNRESOLVED,
+        "player_safe_summary": _answer("一场从港口失踪案开始的调查。"),
+        "content_flags": _answer(["失踪", "海难"]),
+    }
+    facts.update(overrides)
+    return facts
+
+
+def _fast_facts_for_source(source_id: str, **overrides) -> dict:
+    facts = _fast_facts(**overrides)
+    for name in (
+        "era",
+        "place",
+        "investigator_hook",
+        "investigator_constraints",
+        "player_safe_summary",
+        "content_flags",
+    ):
+        answer = facts[name]
+        refs_key = (
+            "source_refs"
+            if answer["status"] == "source"
+            else "inspected_source_refs"
+        )
+        for ref in answer[refs_key]:
+            ref["source_id"] = source_id
+    return facts
+
+
+def _adopt(tmp_path: Path, campaign_id: str, facts: dict) -> dict:
+    return ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.adopt_source_facts",
+        "payload": {"campaign_id": campaign_id, "facts": facts},
+    })
+
+
+def test_campaign_create_records_omitted_era_as_unestablished(tmp_path):
+    campaign = _created_campaign(tmp_path, "raw-pdf")
+    assert campaign["era_source"] == "unestablished"
+    assert state.campaign_era_is_established(campaign) is False
+
+
+def test_campaign_create_records_declared_era_as_established(tmp_path):
+    campaign = _created_campaign(tmp_path, "declared", era="1890s")
+    assert campaign["era"] == "1890s"
+    assert campaign["era_source"] == "declared"
+    assert state.campaign_era_is_established(campaign) is True
+    # A declared campaign never had a source parse to ask about place.
+    assert state.campaign_place_is_established(campaign) is True
+
+
+def test_adopt_source_facts_fails_before_scenario_bind(tmp_path):
+    _created_campaign(tmp_path, "raw-pdf")
+    with pytest.raises(
+        ops.RuntimeOperationError, match="campaign has no source-bound"
+    ):
+        _adopt(tmp_path, "raw-pdf", _fast_facts())
+
+
+def test_fast_facts_unblock_character_creation_and_reach_the_briefing(tmp_path):
+    _created_campaign(tmp_path, "raw-pdf")
+    with pytest.raises(ops.RuntimeOperationError, match="era is not source-established"):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.contract",
+            "payload": {"campaign_id": "raw-pdf"},
+        })
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    adopted = _adopt(tmp_path, "raw-pdf", _fast_facts())
+    assert adopted["status"] == "PASS"
+    assert adopted["result"]["era"] == "1890s"
+    assert adopted["result"]["era_source"] == "authored"
+    assert adopted["result"]["unresolved_blocking_facts"] == []
+    assert adopted["result"]["character_creation_unblocked"] is True
+
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "raw-pdf" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign["era"] == "1890s"
+    assert campaign["era_source"] == "authored"
+    assert campaign["source_fast_facts"]["place"]["value"] == "英格兰惠特比"
+    canonical_ref = campaign["source_fast_facts"]["place"]["source_refs"][0]
+    assert canonical_ref["source_id"] == "pdf:raw"
+    assert len(canonical_ref["file_sha256"]) == 64
+    assert len(canonical_ref["bundle_sha256"]) == 64
+    assert len(canonical_ref["text_sha256"]) == 64
+    assert canonical_ref["review_state"] == "manual_accepted"
+
+    contract = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.contract",
+        "payload": {"campaign_id": "raw-pdf"},
+    })
+    assert contract["status"] == "PASS"
+    assert contract["result"]["campaign_binding"]["era"] == "1890s"
+
+    briefing_path = adopted["result"]["character_creation_briefing_path"]
+    assert briefing_path
+    briefing = (tmp_path / briefing_path).read_text(encoding="utf-8")
+    assert "英格兰惠特比" in briefing
+    assert "一封旧友来信请你去港口小镇查一桩失踪案。" in briefing
+    assert "海难" in briefing
+
+
+@pytest.mark.parametrize("gate", ["era", "place"])
+def test_unresolved_gating_fact_keeps_character_creation_blocked(tmp_path, gate):
+    _created_campaign(tmp_path, "raw-pdf")
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    adopted = _adopt(tmp_path, "raw-pdf", _fast_facts(**{gate: _UNRESOLVED}))
+    # An honest "unresolved" is accepted and recorded, never rejected: it must
+    # never be harder to submit than a fabricated answer.
+    assert adopted["status"] == "PASS"
+    assert adopted["result"]["unresolved_blocking_facts"] == [gate]
+    assert adopted["result"]["character_creation_unblocked"] is False
+    with pytest.raises(ops.RuntimeOperationError, match="not source-established"):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.contract",
+            "payload": {"campaign_id": "raw-pdf"},
+        })
+
+
+def test_unresolved_non_gating_facts_do_not_block_creation(tmp_path):
+    _created_campaign(tmp_path, "raw-pdf")
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    adopted = _adopt(tmp_path, "raw-pdf", _fast_facts(
+        investigator_hook=_UNRESOLVED,
+        player_safe_summary=_UNRESOLVED,
+        content_flags=_UNRESOLVED,
+    ))
+    assert adopted["result"]["character_creation_unblocked"] is True
+    assert ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.contract",
+        "payload": {"campaign_id": "raw-pdf"},
+    })["status"] == "PASS"
+
+
+def test_link_investigator_blocks_until_fast_facts_answer_the_gates(tmp_path):
+    _created_campaign(tmp_path, "raw-pdf")
+    with pytest.raises(ops.RuntimeOperationError, match="not source-established"):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "campaign.link_investigator",
+            "payload": {
+                "campaign_id": "raw-pdf",
+                "investigator_ids": ["someone"],
+            },
+        })
+
+
+@pytest.mark.parametrize("facts,match", [
+    (_fast_facts(era={"status": "source", "value": "  ",
+                      "source_refs": [{"source_id": "pdf:raw", "pdf_index": 0}]}),
+     "'era' value must be a non-empty string"),
+    (_fast_facts(place={"status": "source", "value": "X", "source_refs": []}),
+     "'place' requires non-empty source evidence"),
+    (_fast_facts(era={"status": "source", "value": "1920s",
+                      "source_refs": [{"source_id": "pdf:raw", "pdf_index": -1}]}),
+     "zero-based pdf_index"),
+    (_fast_facts(place={"status": "unresolved"}),
+     "'place' is unresolved and requires"),
+    (_fast_facts(place={"status": "unresolved", "inspected_source_refs": []}),
+     "'place' requires non-empty source evidence"),
+    (_fast_facts(era={"status": "guessed", "value": "1920s"}),
+     "'era' status must be source or unresolved"),
+    ({"schema_version": 1, "contract_id": "coc.opening-fast-facts.v1"},
+     "must answer every"),
+])
+def test_adopt_source_facts_rejects_malformed_answer_sets(tmp_path, facts, match):
+    _created_campaign(tmp_path, "raw-pdf")
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    with pytest.raises(ops.RuntimeOperationError, match=match):
+        _adopt(tmp_path, "raw-pdf", facts)
+
+
+def test_adopt_source_facts_is_idempotent_and_refuses_conflicting_era(tmp_path):
+    _created_campaign(tmp_path, "raw-pdf")
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    assert _adopt(tmp_path, "raw-pdf", _fast_facts())["status"] == "PASS"
+    repeated = _adopt(tmp_path, "raw-pdf", _fast_facts())
+    assert repeated["result"]["already_established"] is True
+    assert repeated["result"]["era"] == "1890s"
+    with pytest.raises(ops.RuntimeOperationError, match="already established"):
+        _adopt(tmp_path, "raw-pdf", _fast_facts(era=_answer("1920s")))
+
+
+@pytest.mark.parametrize("operation", ["contract", "create", "link"])
+def test_later_unresolved_era_revokes_authored_era_at_every_campaign_gate(
+    tmp_path, operation
+):
+    _created_campaign(tmp_path, "raw-pdf")
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    _adopt(tmp_path, "raw-pdf", _fast_facts())
+    downgraded = _adopt(
+        tmp_path,
+        "raw-pdf",
+        _fast_facts(era=_unresolved()),
+    )
+    assert downgraded["result"]["character_creation_unblocked"] is False
+    assert downgraded["result"]["unresolved_blocking_facts"] == ["era"]
+    assert downgraded["result"]["era"] == ""
+    assert downgraded["result"]["era_source"] == "unestablished"
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "raw-pdf" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign["era_source"] == "unestablished"
+    assert campaign["source_fast_facts"]["era"]["status"] == "unresolved"
+
+    payloads = {
+        "contract": {
+            "kind": "investigator.contract",
+            "payload": {"campaign_id": "raw-pdf"},
+        },
+        "create": {
+            "kind": "investigator.create",
+            "payload": {
+                "campaign_id": "raw-pdf",
+                "investigator_id": "blocked-create",
+                "sheet": {},
+                "creation": {
+                    "input_mode": "guided_quick_fire",
+                    "characteristic_assignment_order": [],
+                },
+            },
+        },
+        "link": {
+            "kind": "campaign.link_investigator",
+            "payload": {
+                "campaign_id": "raw-pdf",
+                "investigator_ids": ["someone"],
+            },
+        },
+    }
+    with pytest.raises(ops.RuntimeOperationError, match="era is not source-established"):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            **payloads[operation],
+        })
+
+
+@pytest.mark.parametrize(
+    "bad_ref,match",
+    [
+        ({"source_id": "pdf:foreign", "pdf_index": 1}, "different source_id"),
+        ({"source_id": "pdf:raw", "pdf_index": 9}, "uncached pdf_index 9"),
+    ],
+)
+def test_adopt_source_facts_rejects_foreign_or_uncached_refs(
+    tmp_path, bad_ref, match
+):
+    _created_campaign(tmp_path, "raw-pdf")
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    facts = _fast_facts()
+    facts["place"]["source_refs"] = [bad_ref]
+    with pytest.raises(ops.RuntimeOperationError, match=match):
+        _adopt(tmp_path, "raw-pdf", facts)
+
+
+def test_source_rebind_invalidates_old_facts_and_allows_fresh_different_era(
+    tmp_path,
+):
+    _created_campaign(tmp_path, "raw-pdf")
+    _bind_fast_facts_source(tmp_path, "raw-pdf")
+    _adopt(tmp_path, "raw-pdf", _fast_facts())
+    rebound = _bind_fast_facts_source(
+        tmp_path,
+        "raw-pdf",
+        source_id="pdf:replacement",
+        scenario_id="replacement-source",
+        page_text="# Replacement\n\nAccepted setup evidence.\n",
+    )
+    campaign_path = (
+        tmp_path / ".coc" / "campaigns" / "raw-pdf" / "campaign.json"
+    )
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    assert "source_fast_facts" not in campaign
+    assert campaign["era_source"] == "unestablished"
+    briefing = (
+        tmp_path
+        / rebound["result"]["character_creation_briefing"]["briefing_path"]
+    ).read_text(encoding="utf-8")
+    assert "英格兰惠特比" not in briefing
+    assert "一封旧友来信请你去港口小镇查一桩失踪案。" not in briefing
+    with pytest.raises(ops.RuntimeOperationError, match="era is not source-established"):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.contract",
+            "payload": {"campaign_id": "raw-pdf"},
+        })
+
+    readopted = _adopt(
+        tmp_path,
+        "raw-pdf",
+        _fast_facts_for_source(
+            "pdf:replacement",
+            era={
+                "status": "source",
+                "value": "1920s",
+                "source_refs": [
+                    {"source_id": "pdf:replacement", "pdf_index": 1}
+                ],
+            },
+            place={
+                "status": "source",
+                "value": "美国波士顿",
+                "source_refs": [
+                    {"source_id": "pdf:replacement", "pdf_index": 1}
+                ],
+            },
+        ),
+    )
+    assert readopted["result"]["era"] == "1920s"
+    assert readopted["result"]["character_creation_unblocked"] is True
+    assert ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.contract",
+        "payload": {"campaign_id": "raw-pdf"},
+    })["status"] == "PASS"
+
+
+def test_pdf_bind_preserves_explicitly_declared_era_provenance(tmp_path):
+    _created_campaign(tmp_path, "declared-pdf", era="1920s")
+    _bind_fast_facts_source(tmp_path, "declared-pdf")
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "declared-pdf" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign["era"] == "1920s"
+    assert campaign["era_source"] == "declared"

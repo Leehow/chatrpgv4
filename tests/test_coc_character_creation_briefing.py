@@ -185,6 +185,7 @@ def test_medieval_campaign_briefing_fails_closed_without_modern_guidance():
         {
             "title": "Medieval Campaign",
             "era": "medieval",
+            "era_source": "declared",
             "play_language": "zh-Hans",
         },
         {
@@ -226,6 +227,7 @@ def test_modern_campaign_briefing_names_supported_era_without_contradiction():
     campaign = {
         "title": "Modern Campaign",
         "era": "modern",
+        "era_source": "declared",
         "play_language": "zh-Hans",
     }
     scenario = {"title": "Modern Mystery"}
@@ -689,3 +691,23 @@ def test_unicode_controls_separators_and_compatibility_delimiters_are_rejected()
         assert title not in markdown
         assert "token=private" not in markdown
         assert "private@example.com" not in markdown
+
+
+def test_unestablished_campaign_era_never_reaches_the_player_briefing():
+    briefing = _load_briefing_script()
+    markdown = briefing.render_briefing(
+        {
+            "title": "Raw PDF Campaign",
+            # Placeholder written by create_campaign only to seed a clock.
+            "era": "1920s",
+            "era_source": "unestablished",
+            "play_language": "zh-Hans",
+        },
+        {"title": "Unknown Period"},
+        {},
+        {},
+        language="zh-Hans",
+    )
+    # The module window states no period, and the era note says so outright.
+    assert "**年代**：" not in markdown
+    assert "本战役年代为 **未确定**" in markdown

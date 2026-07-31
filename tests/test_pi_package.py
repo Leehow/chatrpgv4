@@ -1259,6 +1259,33 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
     }
 
 
+def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
+    result = _node(ROOT / "tests/pi/invoke-string-arguments.mjs", str(ROOT))
+    assert result == {
+        "schemaTypes": ["object", "string"],
+        "stringifiedDeliveredExact": True,
+        "objectPathIdentityUnchanged": True,
+        "stringResultOk": True,
+        "objectResultOk": True,
+        "clientCallCount": 2,
+        "rejected": {
+            "malformed": (
+                "coc_invoke arguments JSON string must be valid JSON "
+                "encoding a plain object"
+            ),
+            "array": (
+                "coc_invoke arguments JSON string must encode a plain object"
+            ),
+            "null": (
+                "coc_invoke arguments JSON string must encode a plain object"
+            ),
+            "scalar": (
+                "coc_invoke arguments JSON string must encode a plain object"
+            ),
+        },
+    }
+
+
 def test_pi_auto_dispatch_uses_named_paths_and_bounded_pending_queues():
     completed = subprocess.run(
         ["node", "--experimental-strip-types", str(ROOT / "tests/pi/auto-dispatch-smoke.mjs"), str(ROOT)],
@@ -1426,6 +1453,8 @@ def test_pi_opening_source_review_transport_lifecycle():
             "restart_reconciled_without_duplicate_launch": True,
             "outer_failures_remain_retryable": True,
             "timeout_and_abort_remain_retryable": True,
+            "exact_hidden_facts_card": True,
+            "no_raw_source_leakage": True,
         },
     }
 
@@ -1585,12 +1614,30 @@ def test_pdf_skill_adapter_resolves_default_skill_from_codex_home(
     assert adapter._pdf_skill() == skill.resolve()
 
 
-def test_pdf_skill_adapter_rejects_invalid_opening_producer_receipt(tmp_path: Path):
+def test_pdf_skill_adapter_validates_bundle_bound_opening_facts(tmp_path: Path):
     adapter = _load_pdf_adapter("coc_pdf_adapter_strict_receipt_test")
     task = {
         "campaign_id": "campaign-a",
         "scenario_id": "scenario-a",
         "source_bundle_path": str(tmp_path / "bundle"),
+        "source": {"source_id": "pdf:scenario-a"},
+    }
+    refs = [{"source_id": "pdf:scenario-a", "pdf_index": 3}]
+    source = lambda value: {
+        "status": "source", "value": value, "source_refs": refs,
+    }
+    unresolved = {
+        "status": "unresolved", "inspected_source_refs": refs,
+    }
+    facts = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": source("1920s"),
+        "place": source("Boston"),
+        "investigator_hook": unresolved,
+        "investigator_constraints": unresolved,
+        "player_safe_summary": unresolved,
+        "content_flags": source(["haunting"]),
     }
     valid = {
         "schema_version": 1,
@@ -1598,21 +1645,200 @@ def test_pdf_skill_adapter_rejects_invalid_opening_producer_receipt(tmp_path: Pa
         "status": "reviewed",
         "campaign_id": "campaign-a",
         "scenario_id": "scenario-a",
-        "selected_opening_pdf_indices": [3, 4],
+        "selected_opening_pdf_indices": [10, 11],
+        "fact_evidence_pdf_indices": [3, 4],
         "source_bundle_path": str(tmp_path / "bundle"),
         "failure_class": None,
+        "facts": facts,
     }
     assert adapter._validate_opening_result(valid, task) == valid
     with pytest.raises(RuntimeError, match="invalid"):
         adapter._validate_opening_result({
             **valid,
-            "selected_opening_pdf_indices": [3, 5],
+            "selected_opening_pdf_indices": [10, 12],
         }, task)
     with pytest.raises(RuntimeError, match="invalid"):
         adapter._validate_opening_result({
             **valid,
             "scenario_id": "foreign",
         }, task)
+    with pytest.raises(RuntimeError, match="shape invalid"):
+        adapter._validate_opening_result({
+            **valid,
+            "facts": {
+                **facts,
+                "era": {
+                    **facts["era"],
+                    "raw_excerpt": "RAW_SOURCE_TEXT must never cross",
+                },
+            },
+        }, task)
+    with pytest.raises(RuntimeError, match="outside final reviewed bundle"):
+        adapter._validate_opening_result({
+            **valid,
+            "facts": {
+                **facts,
+                "place": {
+                    "status": "source",
+                    "value": "Boston",
+                    "source_refs": [
+                        {"source_id": "pdf:foreign", "pdf_index": 3}
+                    ],
+                },
+            },
+        }, task)
+    with pytest.raises(RuntimeError, match="value invalid"):
+        adapter._validate_opening_result({
+            **valid,
+            "facts": {
+                **facts,
+                "era": {
+                    "status": "source",
+                    "value": "x" * 129,
+                    "source_refs": refs,
+                },
+            },
+        }, task)
+    with pytest.raises(RuntimeError, match="reviewed.*invalid"):
+        adapter._validate_opening_result({
+            **valid,
+            "fact_evidence_pdf_indices": list(range(9)),
+        }, task)
+    with pytest.raises(RuntimeError, match="outside final reviewed bundle"):
+        adapter._validate_opening_result({
+            **valid,
+            "facts": {
+                **facts,
+                "place": {
+                    "status": "source",
+                    "value": "Boston",
+                    "source_refs": [
+                        {"source_id": "pdf:scenario-a", "pdf_index": 8}
+                    ],
+                },
+            },
+        }, task)
+    failed = {
+        **valid,
+        "status": "failed",
+        "selected_opening_pdf_indices": [],
+        "fact_evidence_pdf_indices": [],
+        "source_bundle_path": None,
+        "failure_class": "pdf_failed",
+        "facts": None,
+    }
+    assert adapter._validate_opening_result(failed, task) == failed
+    with pytest.raises(RuntimeError, match="failed.*invalid"):
+        adapter._validate_opening_result({
+            **failed, "facts": facts,
+        }, task)
+
+
+def test_opening_producer_task_does_not_launder_placeholder_era(
+    tmp_path: Path, monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_no_placeholder_era_test")
+    monkeypatch.setattr(
+        adapter,
+        "_preseed_reusable_bound_source",
+        lambda output, private, pdf_bundle: {"manifest": {}, "normalized_pages": []},
+    )
+    task = adapter._opening_producer_task(
+        tmp_path,
+        {"campaign_id": "campaign-a"},
+        {
+            "title": "Scenario A",
+            "source": {"path": str(tmp_path / "source.pdf")},
+        },
+        {
+            "era": "1920s",
+            "era_source": "unestablished",
+            "play_language": "zh-Hans",
+        },
+        {
+            "scenario_id": "scenario-a",
+            "source_id": "pdf:scenario-a",
+            "source_file_sha256": "a" * 64,
+            "allowed_pdf_indices": [0],
+        },
+        object(),
+    )
+    assert "era" not in task
+    assert task["max_fact_evidence_pages"] == 8
+    assert task["opening_fast_facts_schema"]["additionalProperties"] is False
+    assert task["opening_fast_facts_schema"]["properties"]["era"][
+        "additionalProperties"
+    ] is False
+
+
+def test_reused_page_accepts_absent_and_empty_assets_as_equivalent():
+    adapter = _load_pdf_adapter("coc_pdf_adapter_empty_assets_reuse_test")
+    page = {
+        "pdf_index": 0,
+        "markdown_path": "pages/0000.md",
+        "text_sha256": "a" * 64,
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.9,
+        "grep_anchors": ["accepted"],
+    }
+    retained = {**page, "assets": []}
+    task = {
+        "reusable_bound_source": {
+            "manifest": {"pages": [retained]},
+            "normalized_pages": [adapter._reusable_page_row(page)],
+        },
+    }
+    adapter._validate_reused_bound_pages(
+        {"pages": [page]},
+        {"pages": [dict(page)]},
+        task,
+    )
+
+
+@pytest.mark.parametrize(
+    "final_page",
+    [
+        {
+            "pdf_index": 0,
+            "markdown_path": "pages/0000.md",
+            "text_sha256": "a" * 64,
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.9,
+            "grep_anchors": ["accepted"],
+            "assets": [{"path": "assets/map.png", "sha256": "b" * 64}],
+        },
+        {
+            "pdf_index": 0,
+            "markdown_path": "pages/changed.md",
+            "text_sha256": "a" * 64,
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.9,
+            "grep_anchors": ["accepted"],
+        },
+    ],
+)
+def test_reused_page_still_rejects_nonempty_assets_or_other_drift(final_page):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_reuse_drift_test")
+    page = {
+        "pdf_index": 0,
+        "markdown_path": "pages/0000.md",
+        "text_sha256": "a" * 64,
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.9,
+        "grep_anchors": ["accepted"],
+    }
+    task = {
+        "reusable_bound_source": {
+            "manifest": {"pages": [{**page, "assets": []}]},
+            "normalized_pages": [adapter._reusable_page_row(page)],
+        },
+    }
+    with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
+        adapter._validate_reused_bound_pages(
+            {"pages": [page]},
+            {"pages": [final_page]},
+            task,
+        )
 
 
 def test_secrets_example_contains_key_name_only():

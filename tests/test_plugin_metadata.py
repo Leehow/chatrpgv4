@@ -2134,6 +2134,12 @@ def test_playtest_skill_defines_real_plugin_context_free_player_acceptance():
         "no model override",
         "three observations",
         "design issue",
+        "native `xai/grok-4.5`",
+        "`grok-relay` is a separate relay/compatibility probe only",
+        "fresh pi session and a fresh campaign",
+        "real authenticated provider response",
+        "target canonical coc tool or lifecycle boundary",
+        "never splice transcripts",
         "host-observed user-message submission event",
         "an in-turn `date` call",
         "latency boundary as unverified",
@@ -2168,6 +2174,26 @@ def test_playtest_skill_defines_real_plugin_context_free_player_acceptance():
     ] == ["gpt-5.6-sol", "gpt-5.6-terra"]
     assert contract["failure_policy"]["same_failure_escalation_threshold"] == 3
     assert contract["failure_policy"]["threshold_outcome"] == "design_issue"
+    pi_grok = contract["pi_coc_grok_provider_acceptance"]
+    assert pi_grok == {
+        "default_provider": "xai",
+        "native_model_id": "grok-4.5",
+        "native_reasoning_policy": "record_exact_effort_before_activation",
+        "native_claim_kind": "provider_authenticated_acceptance",
+        "relay_provider": "grok-relay",
+        "relay_claim_kind": "relay_compatibility_probe_only",
+        "relay_substitutes_for_native_acceptance": False,
+        "provider_switch_requires": ["fresh_pi_session", "fresh_campaign"],
+        "cross_provider_evidence_splicing": False,
+        "model_catalog_visibility_is_acceptance": False,
+        "required_native_evidence": [
+            "real_authenticated_provider_response",
+            "target_canonical_tool_or_lifecycle_evidence",
+        ],
+    }
+    assert {
+        "provider", "model_id", "reasoning_effort",
+    } <= set(contract["run_metadata"]["required_for_model_scoped_claim"])
     for obsolete in (
         "coc_eval.py",
         "haunting_module",

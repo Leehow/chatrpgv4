@@ -3440,6 +3440,82 @@ def _cached_source_refs(
     return refs
 
 
+def canonical_campaign_source_refs(
+    workspace: Path,
+    asset_root_id: str,
+    bundle_sha256: str,
+    refs: Any,
+    *,
+    field: str,
+) -> list[dict[str, Any]]:
+    """Canonicalize exact page selectors against one campaign-bound bundle.
+
+    Unlike ``validate_opening_source_window``, this evidence helper deliberately
+    has no contiguity or 1..3-page opening semantics. Fast setup facts may cite
+    any non-contiguous accepted pages in the currently bound bundle.
+    """
+    bundle_digest = _require_sha256(bundle_sha256, "bundle_sha256")
+    if not isinstance(refs, list) or not refs:
+        raise ModuleAssetsError(f"{field} must be a non-empty source-ref list")
+    selectors: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for ref in refs:
+        if not isinstance(ref, dict):
+            raise ModuleAssetsError(f"{field} entries must be objects")
+        source_id = str(ref.get("source_id") or "").strip()
+        pdf_index = ref.get("pdf_index")
+        if (
+            not source_id
+            or isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise ModuleAssetsError(
+                f"{field} entries require source_id and a zero-based pdf_index"
+            )
+        key = (source_id, pdf_index)
+        if key in seen:
+            raise ModuleAssetsError(f"{field} must not contain duplicate selectors")
+        seen.add(key)
+        selectors.append({"source_id": source_id, "pdf_index": pdf_index})
+
+    canonical = _cached_source_refs(
+        workspace,
+        asset_root_id,
+        {"source_refs": selectors},
+        field=field,
+    )
+    identity = json.loads(
+        (_module_dir(workspace, asset_root_id) / "identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    file_sha256 = _require_sha256(
+        identity.get("file_sha256"), "identity.file_sha256"
+    )
+    enriched: list[dict[str, Any]] = []
+    for supplied, cached in zip(refs, canonical, strict=True):
+        if bundle_digest not in set(cached.get("bundle_sha256s") or []):
+            raise ModuleAssetsError(
+                f"{field} pdf_index {cached.get('pdf_index')} is not covered by "
+                "the campaign-bound source bundle"
+            )
+        current = {
+            **cached,
+            "file_sha256": file_sha256,
+            "bundle_sha256": bundle_digest,
+        }
+        # Initial callers submit the two-field selector. Stored evidence is
+        # canonical and must match every current identity field on revalidation.
+        if set(supplied) != {"source_id", "pdf_index"} and supplied != current:
+            raise ModuleAssetsError(
+                f"{field} pdf_index {cached.get('pdf_index')} evidence is stale "
+                "or does not match the current source cache"
+            )
+        enriched.append(current)
+    return enriched
+
+
 def accepted_cached_pdf_indices(
     workspace: Path,
     asset_root_id: str,

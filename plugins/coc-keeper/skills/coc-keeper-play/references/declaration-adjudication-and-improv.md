@@ -176,3 +176,14 @@ assertions that would change what is objectively true in the world.
 
 This is adjudication craft, not a hard gate. Tools may surface departures in
 `warnings`/`hints`; the verdict and the prose remain yours.
+
+## Revealing authored source context (`scene.context.source_material`)
+
+For source-backed scenes, `scene.context.source_material` is Keeper-only
+authored context. Opening narration may be a teaser rather than proof that the
+full briefing was delivered. When a player's natural action semantically asks
+to hear the current source-authored briefing, commission, or explanation from a
+fitting present speaker, use every materially relevant fact that speaker can
+reveal from that projection. Decide relevance, secrecy, and phrasing
+semantically—never count fields, treat contextual mentions as present NPCs, or
+dump the projection.

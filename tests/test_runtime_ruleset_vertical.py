@@ -204,7 +204,7 @@ def test_runtime_rejects_manifest_campaign_schema_mismatch(tmp_path: Path) -> No
     campaign = workspace / ".coc" / "campaigns" / "bad"
     campaign.mkdir(parents=True)
     (campaign / "campaign.json").write_text(json.dumps({
-        "schema_version": 2,
+        "schema_version": 3,
         "campaign_id": "bad",
         "ruleset_id": "spark",
     }), encoding="utf-8")

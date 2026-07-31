@@ -22,7 +22,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 | When this case arises | Load before adjudicating |
 | --- | --- |
 | Compound / multi-step player declarations; causal realization; `turn.finalize` coverage / `mechanics_placements` detail | `references/compound-and-causal-finalization.md` |
-| Declaration fact vs attempt; metagame / player-knowledge intercept; controlled improvisation and narrative debt | `references/declaration-adjudication-and-improv.md` |
+| Declaration fact vs attempt; player-knowledge intercept; controlled improvisation and narrative debt; `source_material` | `references/declaration-adjudication-and-improv.md` |
 | Investigator selection / parameters in play; personal horror weaving; first contact, multi-NPC engagement, live relationships | `references/investigators-horror-npc.md` |
 | Style, Table Wit, foreign-language dialogue, action-prompt shape, scene craft | `references/style-scene-craft.md` |
 | Failed SAN table performance; horror craft; content boundaries; ending a story / `state.end_session` | `references/horror-san-content-endings.md` |
@@ -59,15 +59,6 @@ each turn. Prefer a known tool, then describe only it if parameters are unclear.
 `scene.context.action_routes` is the scene-local progressive index. Interpret intent semantically, then pass selected route IDs and reason to `actions.advise`; do not rediscover the catalog or assets. `direct_delivery` earns its fact without a roll via prefilled `state.*` cards; `authored_roll_advice` supplies `rules.roll`. All are advisory (`hard_gate: false`).
 
 **Ordinary-turn hot path:** use typed cards, not host `Read`/search over scenario assets, files, logs, or old calls. Travel uses the exit card—or tight resume's `exit_operation_template` plus selected `exits[].to`—then returned context once; never preview an inactive scene. A full `scene.context` with `working_set.mode=full` and needed `covered_domains` is enough: stop extra reads. Drill down only for a named missing field that materially affects current adjudication—never for reassurance via domain discovery, continuation pagination, `session.delivery_text`, or empty clue/secret reads. After `progressive.request_deepen`, do not confirm in the same player turn with `scene.map`/`progressive.status`; background continues and the player reply comes first. Only typed `current_dependency` blocks; never poll. This is not a fixed call count/order.
-
-For source-backed scenes, `scene.context.source_material` is Keeper-only
-authored context. Opening narration may be a teaser rather than proof that the
-full briefing was delivered. When a player's natural action semantically asks
-to hear the current source-authored briefing, commission, or explanation from a
-fitting present speaker, use every materially relevant fact that speaker can
-reveal from that projection. Decide relevance, secrecy, and phrasing
-semantically—never count fields, treat contextual mentions as present NPCs, or
-dump the projection.
 
 ## Context Recovery (Always Active)
 

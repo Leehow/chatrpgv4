@@ -21,6 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import coc_character
 import coc_fileio
 import coc_rulesets
+import coc_state
 
 STRUCTURE_LABELS_ZH = {
     "linear_investigation": "线性调查",
@@ -109,7 +110,10 @@ def public_setup_sha256(
         "language": language,
         "campaign": {
             key: campaign.get(key)
-            for key in ("title", "era", "play_language", "localized_terms")
+            for key in (
+                "title", "era", "era_source", "source_fast_facts",
+                "play_language", "localized_terms",
+            )
         },
         "scenario": {
             key: scenario.get(key)
@@ -337,6 +341,19 @@ def _source_label(source_map: dict[str, Any], scenario: dict[str, Any]) -> str:
     return ""
 
 
+def _fast_fact(campaign: dict[str, Any], name: str) -> Any:
+    """Return one resolved fast-parse answer, or None when it stays unresolved.
+
+    An `unresolved` answer is deliberately indistinguishable from a missing one
+    here: the briefing simply says nothing rather than filling the blank.
+    """
+    facts = campaign.get("source_fast_facts") if isinstance(campaign, dict) else None
+    answer = facts.get(name) if isinstance(facts, dict) else None
+    if isinstance(answer, dict) and answer.get("status") == "source":
+        return answer.get("value")
+    return None
+
+
 def _era_label(value: Any, language: str) -> str:
     text = str(value or "").strip()
     if text.lower() in {"unknown", "none", "null"}:
@@ -553,11 +570,26 @@ def render_briefing(
     language: str = "zh-Hans",
 ) -> str:
     title = _scenario_title(campaign, scenario, module_meta, source_map, language)
-    campaign_era = str(campaign.get("era") or "").strip()
+    # An unestablished campaign era is a clock placeholder, not a fact about the
+    # module. Never show it to the player; module-authored meta may still speak.
+    campaign_era = (
+        str(campaign.get("era") or "").strip()
+        if coc_state.campaign_era_is_established(campaign)
+        else ""
+    )
     raw_era = campaign_era or str(module_meta.get("era") or "").strip()
     era = _era_label(raw_era, language)
     supported_eras = coc_character.guided_quick_fire_supported_eras()
     guided_quick_fire_supported = raw_era.casefold() in supported_eras
+    # Fast-parse answers are player-safe by contract and outrank module meta:
+    # they were read for exactly these questions.
+    place = str(_fast_fact(campaign, "place") or "").strip()
+    investigator_hook = str(_fast_fact(campaign, "investigator_hook") or "").strip()
+    investigator_constraints = str(
+        _fast_fact(campaign, "investigator_constraints") or ""
+    ).strip()
+    fast_summary = str(_fast_fact(campaign, "player_safe_summary") or "").strip()
+    fast_flags = _fast_fact(campaign, "content_flags")
     structure = _structure_label(module_meta.get("structure_type"), language)
     source_label = _source_label(source_map, scenario)
     source = (
@@ -567,7 +599,7 @@ def render_briefing(
         if source_label
         else ""
     )
-    summary = _safe_summary(
+    summary = fast_summary or _safe_summary(
         scenario,
         module_meta,
         title,
@@ -575,15 +607,32 @@ def render_briefing(
         language,
         guided_quick_fire_supported=guided_quick_fire_supported,
     )
-    flags = _content_flags(module_meta.get("content_flags"), language)
+    flags = _content_flags(fast_flags or module_meta.get("content_flags"), language)
+    # The one line a player most needs to invent a fitting investigator:
+    # why this person ends up in the story at all. Only shown when the
+    # source parse actually found it.
+    hook_lines = (
+        [
+            "## 模组给的切入点" if language == "zh-Hans" else "## How You Get Involved",
+            "",
+            investigator_hook,
+            "",
+        ]
+        if investigator_hook else []
+    )
     if language != "zh-Hans":
         if not guided_quick_fire_supported:
             setup_lines = [
                 line
                 for line in (
                     f"- Era: {era}" if era else "",
+                    f"- Place: {place}" if place else "",
                     f"- Structure: {structure}" if structure else "",
                     f"- Source: {source}" if source else "",
+                    (
+                        f"- Investigator requirements: {investigator_constraints}"
+                        if investigator_constraints else ""
+                    ),
                 )
                 if line
             ]
@@ -599,6 +648,7 @@ def render_briefing(
                     "",
                     summary,
                     "",
+                    *hook_lines,
                     *_unsupported_era_creation_lines(
                         era, supported_eras, language
                     ),
@@ -609,8 +659,13 @@ def render_briefing(
             line
             for line in (
                 f"- Era: {era}" if era else "",
+                f"- Place: {place}" if place else "",
                 f"- Structure: {structure}" if structure else "",
                 f"- Source: {source}" if source else "",
+                (
+                    f"- Investigator requirements: {investigator_constraints}"
+                    if investigator_constraints else ""
+                ),
             )
             if line
         ]
@@ -626,6 +681,7 @@ def render_briefing(
                 "",
                 summary,
                 "",
+                *hook_lines,
                 "## Useful Investigator Directions",
                 "",
                 *skill_lines,
@@ -656,8 +712,13 @@ def render_briefing(
         line
         for line in (
             f"- **年代**：{era}" if era else "",
+            f"- **地点**：{place}" if place else "",
             f"- **结构**：{structure}" if structure else "",
             f"- **来源**：{source}" if source else "",
+            (
+                f"- **调查员要求**：{investigator_constraints}"
+                if investigator_constraints else ""
+            ),
             f"- **内容提示**：{'、'.join(flags)}" if flags else "",
         )
         if line
@@ -677,6 +738,7 @@ def render_briefing(
                 "",
                 summary,
                 "",
+                *hook_lines,
                 *_unsupported_era_creation_lines(
                     era, supported_eras, language
                 ),
@@ -696,6 +758,7 @@ def render_briefing(
             "",
             summary,
             "",
+            *hook_lines,
             "## 适合的调查员",
             "",
             "- 有学术、新闻、医学、考古、法律、警务、旅行、社交或私人委托背景的人，都可以自然进入调查。",

@@ -73,9 +73,11 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
 
    For the one-step starter path use the shared `campaign.quick_start` setup
    operation. For a custom table, use `campaign.create`, bind the accepted
-   source bundle with `scenario.bind_pdf`, then run the investigator
-   confirmation flow; only after confirmation use `investigator.create` and
-   `campaign.link_investigator`. Custom PDFs must first be extracted by an
+   source bundle with `scenario.bind_pdf`, adopt its six opening facts through
+   `setup.adopt_source_facts`, then request `setup.investigator_contract` and
+   run the investigator confirmation flow; only after confirmation use
+   `investigator.create` and `campaign.link_investigator`. Custom PDFs must
+   first be extracted by an
    external host PDF skill into the `trpg-pdf-ingest` source-bundle contract (prefer
    the host's existing PDF tool; if none, recommend the open-source
    `openai/skills` curated `pdf` workflow); bind using
@@ -111,7 +113,14 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    opening gate. For a custom investigator, immediately after
    `campaign.create` succeeds, invoke the exact read-only
    `setup.investigator_contract` operation once with only that
-   `campaign_id`. Retain its ruleset-identity-bound
+   `campaign_id`. On a raw-PDF campaign that call fails closed until the fast
+   source parse has answered the module's era and place: `campaign.create`
+   records an omitted era as unestablished rather than defaulting it, and
+   `investigator.create` and `campaign.link_investigator` refuse an
+   unestablished era or place. Land those answers first with the
+   dedicated typed `setup.adopt_source_facts` operation described below; never supply a
+   guessed era or place, and when the source parse reports either unresolved,
+   say so and wait instead of choosing one. Retain its ruleset-identity-bound
    `result.payload_schema` for the creation flow and use it to construct the
    final `investigator.create` payload; do not guess coc7 fields from the
    kernel `setup.invoke` shell or requery the contract before creation.
@@ -163,7 +172,42 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    `presented_roll_ids=[]` is valid. This closes the setup/opening evidence
    prefix so character-creation rolls cannot leak into the first ordinary turn.
 
-   On hosts without that exact capability, retain the scenario-import
+   On Pi, the tool-less main KP never reads PDF pages or constructs these facts.
+   The private opening-source-review producer reads the reviewed bundle and
+   keeps two independently authenticated scopes in that same current bundle:
+   the contiguous 1–3-page playable opening, and a separately bounded,
+   potentially non-contiguous fact-evidence set from cover/front matter/Keeper
+   background. Never widen the opening window to carry fact evidence.
+   The producer
+   returns one transient, hidden, exact `setup.adopt_source_facts` invocation
+   card. Consume that card exactly once through `coc_invoke` before requesting
+   `setup.investigator_contract`; do not edit, summarize, infer, or reconstruct
+   its facts, and do not treat the hidden card itself as campaign mutation.
+   The public setup receipt remains the sole adoption evidence.
+
+   On another host without the Codex coordinator or Pi hidden transport, the
+   main KP owns the fast lane itself. Ask the host PDF skill one bounded question set
+   over the cover, front matter, and keeper background — the same pages Tier 0
+   already reads for `module_identity` — and answer all six
+   `coc.opening-fast-facts.v1` questions in that one pass: `era`, `place`,
+   `investigator_hook`, `investigator_constraints`, `player_safe_summary`, and
+   `content_flags`. This is a lookup of its own, not a byproduct of choosing the
+   opening window; the opening beat often states no year or place at all.
+   Submit them only after `scenario.bind_pdf`, through
+   `setup.adopt_source_facts`. Each answer is either
+   `source` with a value plus `source_refs` naming the pages that answer it, or
+   `unresolved` with non-empty `inspected_source_refs` naming the accepted bound
+   pages actually checked. The operation persists canonical source, file,
+   bundle, text, and OCR identity; pre-bind, foreign, uncached, or stale refs
+   fail closed. `unresolved` is an honest answer and is never harder to submit
+   than a fabricated one — never take an answer from a title, a `text_preview`,
+   a house default, or the unverified value passed at dispatch. An unresolved
+   `era` or `place` keeps character creation blocked,
+   because those two decide occupation, skills, money, equipment, language, and
+   names; the other four only enrich the setup briefing. Source work continues
+   in the background throughout.
+
+   Retain the scenario-import
    **pre-confirmation opening warm start** after bind. Invoke
    `progressive.prepare_opening`, then semantically choose the shortest
    sufficient accepted contiguous 1–3-page window and one structured
@@ -222,6 +266,14 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    or project it manually. On a terminal failure, surface the returned recovery
    boundary instead of looping. Only that already-running Tier 1 minimum may
    delay opening after final character confirmation.
+
+   On every host, `evidence.table_opening` enforces that boundary rather than
+   trusting this guidance: on a source-bound campaign it refuses to record an
+   opening until the source lane has projected one. `opening_source_pending`
+   means wait here; `opening_source_failed` and `opening_source_not_prepared`
+   are terminal — report the failure to the player and never improvise an
+   opening in its place. Built-in starters and cold-compiled scenarios are not
+   gated by this lane.
 8. Route ordinary play to `coc-keeper-play`.
 9. Route rules questions and challenges to `coc-meta`.
 10. Route combat, chase, sanity, and spell events to their subsystem skills;

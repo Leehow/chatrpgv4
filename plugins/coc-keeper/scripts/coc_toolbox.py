@@ -1204,6 +1204,7 @@ _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
     "progressive.fulfill_host_work",
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
+    "setup.adopt_source_facts",
     "setup.investigator_contract",
     "rules.cash_assets",
 })
@@ -1483,6 +1484,49 @@ def _pi_opening_setup_gate(
                 code="opening_source_review_receipt_invalid",
                 message=str(exc),
             )
+        if scenario.get("opening_source_facts_transport") is not None:
+            try:
+                transport = (
+                    coc_runtime_ops._validate_opening_source_facts_transport(
+                        root, str(campaign_id),
+                    )
+                )
+            except coc_runtime_ops.RuntimeOperationError:
+                return _pi_opening_source_contract_error_gate(
+                    str(campaign_id),
+                    code="opening_source_facts_transport_invalid",
+                    message=(
+                        "the pending opening source facts transport does not "
+                        "match the current reviewed source"
+                    ),
+                )
+            if transport is not None:
+                next_operation = {
+                    "operation": "setup.adopt_source_facts",
+                    "invoke_via": "coc_invoke",
+                    "campaign": str(campaign_id),
+                    "arguments": {
+                        "campaign_id": str(campaign_id),
+                        "facts": deepcopy(transport["facts"]),
+                    },
+                }
+                return {
+                    "schema_version": 1,
+                    "status": "blocked",
+                    "hard_gate": True,
+                    "activation_allowed": False,
+                    "phase": "opening_source_facts_adoption_required",
+                    "campaign_id": str(campaign_id),
+                    "scenario_id": transport["scenario_id"],
+                    "opening_review_generation": transport[
+                        "opening_review_generation"
+                    ],
+                    "next_operation": next_operation,
+                    "instruction": (
+                        "invoke this exact sealed setup.adopt_source_facts "
+                        "card before opening selection or character setup"
+                    ),
+                }
     persisted_root_id = str(
         scenario.get("progressive_asset_root_id")
         or scenario.get("source_cache_asset_root_id")
@@ -1596,6 +1640,15 @@ def _pi_opening_setup_operation_allowed(
         return False
     if (
         isinstance(gate, dict)
+        and gate.get("phase")
+        == "opening_source_facts_adoption_required"
+    ):
+        return (
+            name == "setup.adopt_source_facts"
+            and args == gate.get("next_operation", {}).get("arguments")
+        )
+    if (
+        isinstance(gate, dict)
         and gate.get("phase") == "opening_source_review_required"
     ):
         if name == "setup.invoke":
@@ -1605,7 +1658,11 @@ def _pi_opening_setup_operation_allowed(
             return False
         if name == "rules.roll_dice":
             return _pi_opening_setup_operation_allowed(name, args)
-        return name in {"setup.investigator_contract", "rules.cash_assets"}
+        return name in {
+            "setup.adopt_source_facts",
+            "setup.investigator_contract",
+            "rules.cash_assets",
+        }
     if name == "rules.roll_dice":
         allowed = {"expression", "decision_id", "purpose", "reason"}
         return (
@@ -7561,6 +7618,136 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
     ]
 
 
+def _opening_fast_fact_ref_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required_fields": ["source_id", "pdf_index"],
+        "properties": {
+            "source_id": {"type": "string", "minLength": 1},
+            "pdf_index": {"type": "integer", "minimum": 0},
+        },
+    }
+
+
+def _opening_fast_fact_answer_schema(*, list_value: bool) -> dict[str, Any]:
+    value_schema: dict[str, Any] = (
+        {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": True,
+            "items": {"type": "string", "minLength": 1},
+        }
+        if list_value
+        else {"type": "string", "minLength": 1}
+    )
+    refs = {
+        "type": "array",
+        "minItems": 1,
+        "items": _opening_fast_fact_ref_schema(),
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required_fields": ["status"],
+        "desc": (
+            "Exact status-dependent shape: source requires only status, value, "
+            "and source_refs; unresolved requires only status and non-empty "
+            "inspected_source_refs. References select accepted pages from the "
+            "currently bound campaign source bundle."
+        ),
+        "properties": {
+            "status": {
+                "type": "string",
+                "enum": ["source", "unresolved"],
+            },
+            "value": value_schema,
+            "source_refs": deepcopy(refs),
+            "inspected_source_refs": deepcopy(refs),
+        },
+    }
+
+
+_OPENING_FAST_FACTS_TOOL_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required_fields": [
+        "schema_version",
+        "contract_id",
+        "era",
+        "place",
+        "investigator_hook",
+        "investigator_constraints",
+        "player_safe_summary",
+        "content_flags",
+    ],
+    "properties": {
+        "schema_version": {"type": "integer", "enum": [1]},
+        "contract_id": {
+            "type": "string",
+            "enum": ["coc.opening-fast-facts.v1"],
+        },
+        "era": _opening_fast_fact_answer_schema(list_value=False),
+        "place": _opening_fast_fact_answer_schema(list_value=False),
+        "investigator_hook": _opening_fast_fact_answer_schema(list_value=False),
+        "investigator_constraints": _opening_fast_fact_answer_schema(
+            list_value=False
+        ),
+        "player_safe_summary": _opening_fast_fact_answer_schema(list_value=False),
+        "content_flags": _opening_fast_fact_answer_schema(list_value=True),
+    },
+}
+
+
+@tool(
+    "setup.adopt_source_facts",
+    "Adopt the six source-grounded opening facts after scenario.bind_pdf and "
+    "before investigator construction. Every source or unresolved answer must "
+    "cite accepted pages inspected in the campaign's current bound bundle.",
+    {
+        "campaign_id": {
+            "type": "string",
+            "required": True,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+        },
+        "facts": {
+            **deepcopy(_OPENING_FAST_FACTS_TOOL_SCHEMA),
+            "required": True,
+        },
+    },
+    needs_campaign=False,
+    access="mutation",
+    write_domains=("setup",),
+)
+def _tool_setup_adopt_source_facts(ctx: Ctx, args: dict[str, Any]):
+    if set(args) != {"campaign_id", "facts"}:
+        raise ToolError(
+            "invalid_param",
+            "setup.adopt_source_facts requires exactly campaign_id and facts",
+        )
+    try:
+        receipt = coc_runtime_ops.execute_setup_operation(
+            ctx.root,
+            operation={
+                "schema_version": 1,
+                "kind": "campaign.adopt_source_facts",
+                "payload": {
+                    "campaign_id": args["campaign_id"],
+                    "facts": args["facts"],
+                },
+            },
+        )
+    except (
+        coc_runtime_ops.RuntimeOperationError,
+        FileNotFoundError,
+    ) as exc:
+        raise ToolError("setup_failed", str(exc)) from exc
+    return receipt, [], [
+        "after both era and place resolve, call setup.investigator_contract; "
+        "do not treat this receipt as investigator creation or linkage",
+    ]
+
+
 @tool(
     "setup.invoke",
     "Invoke one existing canonical custom-campaign setup operation. This thin "
@@ -7578,7 +7765,8 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
             "required": True,
             "desc": (
                 "exact payload for the selected kind: campaign.create requires "
-                "campaign_id/title and optionally ruleset_id/era/play_language/start_clock; "
+                "campaign_id/title and optionally ruleset_id/era/play_language/start_clock, "
+                "and an omitted era stays unestablished rather than defaulting; "
                 "actor.create requires campaign_id/actor_id/sheet and delegates "
                 "validation to that campaign's ruleset; "
                 "investigator.create requires investigator_id/sheet and optionally "
@@ -23789,6 +23977,49 @@ def _opening_text_with_time_anchor(
     return before + "\n" + rendered + ("\n\n" + after if after else "")
 
 
+def _require_projected_opening_source(ctx: Ctx) -> None:
+    """Block a fabricated opening while the source lane is pending or failed.
+
+    Character creation runs in parallel with the background source build; this
+    is where the two lanes rejoin. A source-bound campaign may only open from a
+    parsed, verified, projected opening, so a still-running parse blocks here and
+    a failed parse is reported instead of improvised.
+    """
+    if ctx.campaign_dir is None:
+        return
+    readiness = coc_module_project.opening_source_readiness(ctx.campaign_dir)
+    state = str(readiness.get("state") or "")
+    if state in {
+        coc_module_project.OPENING_SOURCE_NOT_GATED,
+        coc_module_project.OPENING_SOURCE_READY,
+    }:
+        return
+    if state == coc_module_project.OPENING_SOURCE_FAILED:
+        last_error = readiness.get("last_error")
+        detail = ""
+        if isinstance(last_error, dict):
+            code = str(last_error.get("code") or "").strip()
+            message = str(last_error.get("message") or "").strip()
+            detail = f" ({code or 'error'}: {message})" if message or code else ""
+        raise ToolError(
+            "opening_source_failed",
+            "the bound source opening failed to parse and project"
+            f"{detail}; report this failure instead of inventing an opening",
+        )
+    if state == coc_module_project.OPENING_SOURCE_NOT_PREPARED:
+        raise ToolError(
+            "opening_source_not_prepared",
+            "this campaign is source-bound but no opening projection was ever "
+            "prepared; run the canonical opening bootstrap before opening the table",
+        )
+    raise ToolError(
+        "opening_source_pending",
+        "the background source parse has not projected the opening yet "
+        f"({readiness.get('reason')}); wait for its terminal lifecycle notice "
+        "rather than opening the table now",
+    )
+
+
 @tool(
     "evidence.table_opening",
     "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix.",
@@ -23861,6 +24092,7 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
             "opening_already_started",
             "the table transcript already contains dialogue; an opening cannot be inserted later",
         )
+    _require_projected_opening_source(ctx)
     entry = _record_table_transcript_entry(
         ctx,
         role="keeper",

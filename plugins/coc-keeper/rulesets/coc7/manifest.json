@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "resolution_model": "percentile",
   "schema_versions": {
-    "campaign": 2,
+    "campaign": 3,
     "world": 2,
     "pacing": 1,
     "investigator": 2

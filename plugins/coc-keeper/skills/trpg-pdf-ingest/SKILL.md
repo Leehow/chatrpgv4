@@ -226,7 +226,36 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_pdf_bundle.py \
    selected page in the content-addressed progressive module cache and returns
    `result.source_cache.asset_root_id`; it does **not** by itself activate the
    progressive play path.
+5. Answer the fast opening question set before character creation.
+   `campaign.create` records an omitted era as `era_source: unestablished`, and
+   `investigator.contract`, campaign-bound guided Quick Fire
+   `investigator.create`, and `campaign.link_investigator` fail closed while
+   `era` or `place` is unestablished. Reusable complete-sheet creation remains
+   campaign-independent; linking it into this campaign is still gated. In one
+   bounded PDF-skill lookup over the cover, front matter,
+   and keeper background — the same pages Tier 0 already reads for
+   `module_identity` — answer every `coc.opening-fast-facts.v1` question and
+   submit them through the dedicated typed `setup.adopt_source_facts` operation:
 
+   | Question | Why character creation needs it | Gates creation |
+   | --- | --- | --- |
+   | `era` | occupation table, skills, money, equipment scale | yes |
+   | `place` | language, names, social position, credentials | yes |
+   | `investigator_hook` | why this person is drawn in at all | no |
+   | `investigator_constraints` | authored party requirements, if any | no |
+   | `player_safe_summary` | the mood section of the setup briefing | no |
+   | `content_flags` | safety tools | no |
+
+   Each answer is `source` with a value plus `source_refs` naming the pages that
+   answer it, or `unresolved` with a non-empty `inspected_source_refs` list
+   naming the accepted pages that were actually checked. The operation
+   canonicalizes and persists current source/file/bundle/text/OCR identity and
+   rejects pre-bind, foreign, uncached, or stale evidence. A title, a text
+   preview, or a dispatch-time hint is not evidence, and `unresolved` is always
+   available — never fabricate an answer to get past the call. Tier 0
+   `module_identity.era` remains the durable copy; this operation only lands the
+   same facts early enough for character creation to run in parallel with the
+   background source build.
 For a later on-demand page window from the same PDF, validate it with the same
 bundle contract and register only that window. The existing asset root and
 unchanged pages are reused by `file_sha256`:

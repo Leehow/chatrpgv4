@@ -984,6 +984,7 @@ def test_investigator_contract_discovery_exposes_only_campaign_identity(tmp_path
                 "payload": {
                     "campaign_id": "contract-discovery",
                     "title": "Contract Discovery",
+                    "era": "1920s",
                 },
             },
         },
@@ -1000,6 +1001,105 @@ def test_investigator_contract_discovery_exposes_only_campaign_identity(tmp_path
     assert queried["ok"] is True, queried
     assert queried["data"]["result"]["ruleset_id"] == "coc7"
     assert queried["data"]["result"]["payload_schema"]["oneOf"]
+
+
+def test_source_facts_discovery_is_closed_typed_and_delegates_canonically(
+    monkeypatch,
+):
+    server = _load_server()
+    discovered = server._call_tool(
+        "coc_discover",
+        {"operation": "setup.adopt_source_facts"},
+    )["data"]
+    schema = discovered["operation"]["inputSchema"]
+    assert schema["required"] == ["campaign_id", "facts"]
+    facts = schema["properties"]["facts"]
+    assert facts["additionalProperties"] is False
+    assert facts["required"] == [
+        "schema_version",
+        "contract_id",
+        "era",
+        "place",
+        "investigator_hook",
+        "investigator_constraints",
+        "player_safe_summary",
+        "content_flags",
+    ]
+    for name in (
+        "era",
+        "place",
+        "investigator_hook",
+        "investigator_constraints",
+        "player_safe_summary",
+        "content_flags",
+    ):
+        answer = facts["properties"][name]
+        assert answer["additionalProperties"] is False
+        assert answer["required"] == ["status"]
+        assert answer["properties"]["status"]["enum"] == [
+            "source", "unresolved",
+        ]
+        for refs_key in ("source_refs", "inspected_source_refs"):
+            refs = answer["properties"][refs_key]
+            assert refs["minItems"] == 1
+            assert refs["items"]["additionalProperties"] is False
+            assert refs["items"]["required"] == ["source_id", "pdf_index"]
+
+    captured = {}
+
+    def fake_execute(root, *, operation):
+        captured["root"] = root
+        captured["operation"] = operation
+        return {
+            "schema_version": 1,
+            "status": "PASS",
+            "kind": "campaign.adopt_source_facts",
+            "result": {
+                "campaign_id": "typed-facts",
+                "facts": operation["payload"]["facts"],
+            },
+            "state_refs": [],
+        }
+
+    monkeypatch.setattr(
+        server.toolbox.coc_runtime_ops,
+        "execute_setup_operation",
+        fake_execute,
+    )
+    selector = [{"source_id": "pdf:typed", "pdf_index": 0}]
+    source = {"status": "source", "value": "1920s", "source_refs": selector}
+    unresolved = {
+        "status": "unresolved",
+        "inspected_source_refs": selector,
+    }
+    payload = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": source,
+        "place": {**source, "value": "Boston"},
+        "investigator_hook": unresolved,
+        "investigator_constraints": unresolved,
+        "player_safe_summary": unresolved,
+        "content_flags": {
+            "status": "source",
+            "value": ["haunting"],
+            "source_refs": selector,
+        },
+    }
+    invoked = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "setup.adopt_source_facts",
+            "root": os.fspath(ROOT),
+            "arguments": {"campaign_id": "typed-facts", "facts": payload},
+        },
+    )
+    assert invoked["ok"] is True, invoked
+    assert captured["operation"] == {
+        "schema_version": 1,
+        "kind": "campaign.adopt_source_facts",
+        "payload": {"campaign_id": "typed-facts", "facts": payload},
+    }
 
 
 def test_opening_selector_and_page_schemas_match_every_mcp_projection():

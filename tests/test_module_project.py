@@ -784,6 +784,7 @@ def test_generated_briefing_summary_uses_effective_campaign_era():
         {
             "title": "Medieval Campaign",
             "era": "medieval",
+            "era_source": "declared",
         },
         {
             "title": "Castle Mystery",

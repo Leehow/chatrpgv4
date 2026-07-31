@@ -51,7 +51,7 @@ def _seed_runtime_workspace(
     (campaign / "save" / "investigator-state").mkdir(parents=True)
     (campaign / "campaign.json").write_text(json.dumps(
         campaign_payload or {
-            "schema_version": 2,
+            "schema_version": 3,
             "campaign_id": "camp-1",
             "ruleset_id": "coc7",
         }
@@ -213,10 +213,10 @@ def test_active_keeper_skills_include_kernel_and_manifest_pack(tmp_path):
 @pytest.mark.parametrize(
     "campaign_payload,match",
     [
-        ({"schema_version": 2, "campaign_id": "camp-1"}, "missing ruleset_id"),
+        ({"schema_version": 3, "campaign_id": "camp-1"}, "missing ruleset_id"),
         (
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "campaign_id": "camp-1",
                 "ruleset_id": "not-installed",
             },

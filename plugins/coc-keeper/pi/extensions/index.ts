@@ -54,7 +54,17 @@ const SOURCE_SCOPE_PUBLISH_RECOVERY_GUARD_SUFFIX = ".recovery.guard";
 const discoverSchema = { type: "object", properties: { operation: { type: "string" }, domain: { type: "string" } }, additionalProperties: false } as const;
 const invokeSchema = {
   type: "object",
-  properties: { operation: { type: "string", minLength: 1 }, root: { type: "string" }, campaign: { type: "string" }, arguments: { type: "object", additionalProperties: true } },
+  properties: {
+    operation: { type: "string", minLength: 1 },
+    root: { type: "string" },
+    campaign: { type: "string" },
+    arguments: {
+      anyOf: [
+        { type: "object", additionalProperties: true },
+        { type: "string" },
+      ],
+    },
+  },
   required: ["operation"], additionalProperties: false,
 } as const;
 const dispatchSchema = { type: "object", properties: { task: { type: "object", additionalProperties: true } }, required: ["task"], additionalProperties: false } as const;
@@ -96,6 +106,39 @@ const ocrSchema = {
 } as const;
 
 function result(value: JsonObject) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; }
+
+function isPlainJsonObject(value: unknown): value is JsonObject {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function normalizePiCocInvokeArguments(params: JsonObject): JsonObject {
+  const supplied = params.arguments;
+  if (supplied === undefined) return params;
+  if (typeof supplied !== "string") {
+    if (!isPlainJsonObject(supplied)) {
+      throw new Error("coc_invoke arguments must be a plain object");
+    }
+    return params;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(supplied);
+  } catch {
+    throw new Error(
+      "coc_invoke arguments JSON string must be valid JSON encoding a plain object",
+    );
+  }
+  if (!isPlainJsonObject(parsed)) {
+    throw new Error(
+      "coc_invoke arguments JSON string must encode a plain object",
+    );
+  }
+  return { ...params, arguments: parsed };
+}
 type AssistantContentPart = { type: string; [key: string]: unknown };
 type AssistantContentMessage = { role: "assistant"; content: AssistantContentPart[] };
 
@@ -649,6 +692,13 @@ export class OpeningTerminalContinuationGate {
   ): JsonObject[] {
     const actions: JsonObject[] = [
       {
+        operation: "setup.adopt_source_facts",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        arguments_contract: "use the fully typed discovered operation schema",
+        lifecycle_effect: "source facts only; not investigator completion",
+      },
+      {
         operation: "setup.investigator_contract",
         invoke_via: "coc_invoke",
         campaign: campaignId,
@@ -889,6 +939,15 @@ export class OpeningTerminalContinuationGate {
         && exactKeysMatch(args, ["campaign_id"])
         && args.campaign_id === route.campaign_id;
     }
+    if (operation === "setup.adopt_source_facts") {
+      const args = objectOrNull(params.arguments);
+      return (
+        args !== null
+        && exactKeysMatch(args, ["campaign_id", "facts"])
+        && args.campaign_id === route.campaign_id
+        && objectOrNull(args.facts) !== null
+      );
+    }
     if (operation === "rules.cash_assets") {
       const args = objectOrNull(params.arguments);
       return (
@@ -958,6 +1017,32 @@ export class OpeningTerminalContinuationGate {
         && result !== null
         && typeof result.ruleset_id === "string"
         && objectOrNull(result.payload_schema) !== null
+      );
+    }
+    if (operation === "setup.adopt_source_facts") {
+      const result = objectOrNull(data.result);
+      const facts = objectOrNull(result?.facts);
+      const unresolved = result?.unresolved_blocking_facts;
+      const unblocked = result?.character_creation_unblocked;
+      const expectedBlocking = ["era", "place"].filter((name) => (
+        objectOrNull(facts?.[name])?.status !== "source"
+      ));
+      return (
+        data.schema_version === 1
+        && data.status === "PASS"
+        && data.kind === "campaign.adopt_source_facts"
+        && result !== null
+        && result.campaign_id === params.campaign
+        && facts !== null
+        && typeof unblocked === "boolean"
+        && Array.isArray(unresolved)
+        && unresolved.length === new Set(unresolved).size
+        && unresolved.every((name) => (
+          name === "era" || name === "place"
+        ))
+        && unresolved.length === expectedBlocking.length
+        && unresolved.every((name, index) => name === expectedBlocking[index])
+        && unblocked === (unresolved.length === 0)
       );
     }
     if (operation === "rules.roll_dice") {
@@ -1044,6 +1129,22 @@ export class OpeningTerminalContinuationGate {
     }
     if (operation === "setup.investigator_contract") {
       return "请选择调查员的特征值生成方式，并继续确认职业与技能。";
+    }
+    if (operation === "setup.adopt_source_facts") {
+      const result = objectOrNull(objectOrNull(envelope?.data)?.result);
+      if (result?.character_creation_unblocked === true) {
+        return "来源事实已绑定并通过校验；现在可以读取调查员构建契约。";
+      }
+      const unresolved = Array.isArray(result?.unresolved_blocking_facts)
+        ? result.unresolved_blocking_facts
+        : [];
+      const labels = unresolved.map((name) => (
+        name === "era" ? "年代（era）" : "地点（place）"
+      ));
+      return (
+        `来源事实已记录，但 ${labels.join("、")} 仍未解决；`
+        + "继续检查当前已绑定来源，暂不要调用调查员构建契约。"
+      );
     }
     if (operation === "rules.roll_dice") {
       const data = objectOrNull(envelope?.data);
@@ -2219,6 +2320,55 @@ export class OpeningTerminalContinuationGate {
       && typeof returnedGate.character_setup_complete === "boolean"
       && returnedGate.next_operation === null
     );
+    const recoveredFactsCard = objectOrNull(returnedGate?.next_operation);
+    const recoveredFactsArguments = objectOrNull(
+      recoveredFactsCard?.arguments,
+    );
+    const canonicalSourceFactsProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "session.resume"
+      && this.unboundAttemptIsFresh(attempt)
+      && exactProjectedResumeError
+      && returnedGate !== null
+      && returnedGate.schema_version === 1
+      && returnedGate.status === "blocked"
+      && returnedGate.hard_gate === true
+      && returnedGate.activation_allowed === false
+      && returnedGate.phase === "opening_source_facts_adoption_required"
+      && returnedGate.campaign_id === attempt.campaignId
+      && recoveredFactsCard !== null
+      && recoveredFactsCard.operation === "setup.adopt_source_facts"
+      && recoveredFactsCard.invoke_via === "coc_invoke"
+      && recoveredFactsCard.campaign === attempt.campaignId
+      && recoveredFactsArguments !== null
+      && exactKeysMatch(recoveredFactsArguments, ["campaign_id", "facts"])
+      && recoveredFactsArguments.campaign_id === attempt.campaignId
+      && validOpeningTransportFacts(recoveredFactsArguments.facts)
+    );
+    if (state === undefined && canonicalSourceFactsProbe) {
+      const route = this.routeFromGate(returnedGate!);
+      if (route === null) {
+        this.finalizeOpeningSetupAttempt(invocationId);
+        return {
+          accepted: false,
+          dispatchAllowed: false,
+          reason: "opening_source_facts_gate_invalid",
+        };
+      }
+      route.allowed_actions = [structuredClone(recoveredFactsCard!)];
+      this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "reviewed",
+        attempt,
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "prebound_opening_source_facts_adoption_required",
+      };
+    }
     if (state === undefined && canonicalSourceReviewProbe) {
       const route = this.routeFromGate(returnedGate!);
       if (route === null) {
@@ -4715,7 +4865,7 @@ async function runPiOpeningSourceReviewTransport(
   );
   exactKeys(receipt, [
     "schema_version", "contract_id", "status", "campaign_id", "scenario_id",
-    "opening_review_generation", "failure_class",
+    "opening_review_generation", "failure_class", "facts",
   ], "opening source review transport receipt");
   const expectedGeneration = receipt.status === "reviewed"
     ? Number(task.opening_review_generation) + 1
@@ -4731,10 +4881,140 @@ async function runPiOpeningSourceReviewTransport(
     || Number(receipt.opening_review_generation)
       !== expectedGeneration
     || (receipt.status === "reviewed"
-      ? receipt.failure_class !== null
-      : typeof receipt.failure_class !== "string")
+      ? (
+        receipt.failure_class !== null
+        || !validOpeningTransportFacts(receipt.facts)
+      )
+      : (
+        typeof receipt.failure_class !== "string"
+        || receipt.facts !== null
+      ))
   ) throw new Error("opening source review transport receipt binding drift");
   return receipt;
+}
+
+function validOpeningTransportFacts(value: unknown): value is JsonObject {
+  const facts = objectOrNull(value);
+  const questions = [
+    "era",
+    "place",
+    "investigator_hook",
+    "investigator_constraints",
+    "player_safe_summary",
+    "content_flags",
+  ];
+  const stringLimits: Record<string, number> = {
+    era: 128,
+    place: 256,
+    investigator_hook: 512,
+    investigator_constraints: 512,
+    player_safe_summary: 768,
+  };
+  if (
+    facts === null
+    || !exactKeysMatch(facts, [
+      "schema_version", "contract_id", ...questions,
+    ])
+    || facts.schema_version !== 1
+    || facts.contract_id !== "coc.opening-fast-facts.v1"
+  ) return false;
+  let retainedSourceId: string | null = null;
+  for (const question of questions) {
+    const answer = objectOrNull(facts[question]);
+    if (answer === null) return false;
+    const status = answer.status;
+    const refsKey = status === "source"
+      ? "source_refs"
+      : status === "unresolved"
+        ? "inspected_source_refs"
+        : null;
+    if (
+      refsKey === null
+      || !exactKeysMatch(
+        answer,
+        status === "source"
+          ? ["status", "value", "source_refs"]
+          : ["status", "inspected_source_refs"],
+      )
+    ) return false;
+    if (status === "source") {
+      const factValue = answer.value;
+      if (question === "content_flags") {
+        if (
+          !Array.isArray(factValue)
+          || factValue.length === 0
+          || factValue.length > 16
+          || factValue.some((item) => (
+            typeof item !== "string"
+            || item.trim().length === 0
+            || item.length > 128
+          ))
+          || new Set(factValue).size !== factValue.length
+        ) return false;
+      } else if (
+        typeof factValue !== "string"
+        || factValue.trim().length === 0
+        || factValue.length > stringLimits[question]
+      ) return false;
+    }
+    const refs = answer[refsKey];
+    if (
+      !Array.isArray(refs)
+      || refs.length === 0
+      || refs.length > 3
+    ) return false;
+    const seen = new Set<string>();
+    for (const candidate of refs) {
+      const ref = objectOrNull(candidate);
+      if (
+        ref === null
+        || !exactKeysMatch(ref, ["source_id", "pdf_index"])
+        || typeof ref.source_id !== "string"
+        || ref.source_id.trim().length === 0
+        || ref.source_id.length > 256
+        || !Number.isInteger(ref.pdf_index)
+        || Number(ref.pdf_index) < 0
+      ) return false;
+      if (retainedSourceId === null) retainedSourceId = ref.source_id;
+      if (ref.source_id !== retainedSourceId) return false;
+      const key = `${ref.source_id}:${String(ref.pdf_index)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+    }
+  }
+  return true;
+}
+
+export function openingSourceReviewTerminalFollowUp(
+  receipt: JsonObject,
+  route: JsonObject | null,
+): JsonObject {
+  if (
+    receipt.status === "reviewed"
+    && route !== null
+    && validOpeningTransportFacts(receipt.facts)
+  ) {
+    return {
+      schema_version: 1,
+      status: "reviewed",
+      campaign_id: receipt.campaign_id,
+      next_operation: {
+        operation: "setup.adopt_source_facts",
+        invoke_via: "coc_invoke",
+        campaign: receipt.campaign_id,
+        arguments: {
+          campaign_id: receipt.campaign_id,
+          facts: receipt.facts,
+        },
+      },
+    };
+  }
+  return {
+    schema_version: 1,
+    status: "terminal_failure",
+    failure_class: receipt.failure_class,
+    campaign_id: receipt.campaign_id,
+  };
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -6343,6 +6623,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sourceScopeLocatorStates = new Map<string, JsonObject>();
   let sourceScopeLocatorControllers = new Map<string, AbortController>();
   let sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+  let deliveredOpeningSourceFactsCards = new Set<string>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const kpActiveTools = [
@@ -6521,6 +6802,32 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* opening setup audit is best effort */ }
     }
   };
+  const sendOpeningSourceFactsCardOnce = (content: JsonObject): boolean => {
+    const card = objectOrNull(content.next_operation);
+    const args = objectOrNull(card?.arguments);
+    if (
+      content.schema_version !== 1
+      || content.status !== "reviewed"
+      || typeof content.campaign_id !== "string"
+      || card === null
+      || card.operation !== "setup.adopt_source_facts"
+      || card.invoke_via !== "coc_invoke"
+      || card.campaign !== content.campaign_id
+      || args === null
+      || args.campaign_id !== content.campaign_id
+      || !validOpeningTransportFacts(args.facts)
+    ) return false;
+    const key = canonicalJsonValueSha256(card);
+    if (deliveredOpeningSourceFactsCards.has(key)) return false;
+    pi.sendMessage({
+      customType: "coc-opening-source-review-terminal",
+      content: JSON.stringify(content),
+      display: false,
+      details: content,
+    }, { triggerTurn: true, deliverAs: "followUp" });
+    deliveredOpeningSourceFactsCards.add(key);
+    return true;
+  };
   const openingSourceReviewDispatchDeps = (
     ctx: ExtensionContext,
     epoch: number,
@@ -6535,18 +6842,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         openingContinuationGate.observeOpeningSourceReviewTransport(receipt)
       );
       flushOpeningSetupAudits();
-      const content = route ?? {
-        schema_version: 1,
-        status: "terminal_failure",
-        failure_class: receipt.failure_class,
-        campaign_id: receipt.campaign_id,
-      };
-      pi.sendMessage({
-        customType: "coc-opening-source-review-terminal",
-        content: JSON.stringify(content),
-        display: false,
-        details: content,
-      }, { triggerTurn: true, deliverAs: "followUp" });
+      const content = openingSourceReviewTerminalFollowUp(receipt, route);
+      if (!sendOpeningSourceFactsCardOnce(content)) {
+        if (content.status === "reviewed") return;
+        pi.sendMessage({
+          customType: "coc-opening-source-review-terminal",
+          content: JSON.stringify(content),
+          display: false,
+          details: content,
+        }, { triggerTurn: true, deliverAs: "followUp" });
+      }
     },
     audit: (entry) => {
       try { pi.appendEntry("coc-opening-source-review-lifecycle", entry); }
@@ -6561,6 +6866,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceScopeLocatorStates = new Map<string, JsonObject>();
     sourceScopeLocatorControllers = new Map<string, AbortController>();
     sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+    deliveredOpeningSourceFactsCards = new Set<string>();
     const startupCampaignId = overrides.startupCampaignId === undefined
       ? explicitPiStartupCampaignId()
       : overrides.startupCampaignId();
@@ -6686,6 +6992,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (
       openingObservation.reason === "prebound_opening_selection"
       || openingObservation.reason
+        === "prebound_opening_source_facts_adoption_required"
+      || openingObservation.reason
         === "prebound_opening_character_setup"
       || openingObservation.reason
         === "prebound_opening_source_materialization"
@@ -6743,6 +7051,40 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     | { kind: "not_canonical" }
     | { kind: "invalid" }
     | { kind: "projected"; envelope: JsonObject };
+  const projectStartupSourceFactsAdoption = (
+    details: JsonObject,
+    campaignId: string,
+  ): JsonObject | null => {
+    const card = objectOrNull(details.next_operation);
+    const args = objectOrNull(card?.arguments);
+    if (
+      !exactKeysMatch(details, [
+        "schema_version", "status", "hard_gate", "activation_allowed",
+        "phase", "campaign_id", "scenario_id",
+        "opening_review_generation", "next_operation", "instruction",
+      ])
+      || details.schema_version !== 1
+      || details.status !== "blocked"
+      || details.hard_gate !== true
+      || details.activation_allowed !== false
+      || details.phase !== "opening_source_facts_adoption_required"
+      || details.campaign_id !== campaignId
+      || typeof details.scenario_id !== "string"
+      || !Number.isInteger(details.opening_review_generation)
+      || card === null
+      || !exactKeysMatch(card, [
+        "operation", "invoke_via", "campaign", "arguments",
+      ])
+      || card.operation !== "setup.adopt_source_facts"
+      || card.invoke_via !== "coc_invoke"
+      || card.campaign !== campaignId
+      || args === null
+      || !exactKeysMatch(args, ["campaign_id", "facts"])
+      || args.campaign_id !== campaignId
+      || !validOpeningTransportFacts(args.facts)
+    ) return null;
+    return structuredClone(details);
+  };
   const projectStartupOpeningSelection = (
     details: JsonObject,
     campaignId: string,
@@ -6968,7 +7310,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && envelopeDetails !== null
     ) {
       projectedDetails = (
-        projectStartupOpeningSelection(envelopeDetails, params.campaign)
+        projectStartupSourceFactsAdoption(
+          envelopeDetails,
+          params.campaign,
+        )
+        ?? projectStartupOpeningSelection(envelopeDetails, params.campaign)
         ?? projectStartupCharacterSetup(envelopeDetails, params.campaign)
         ?? projectStartupSourceMaterialization(
           envelopeDetails,
@@ -6999,6 +7345,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     };
   };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
+    if (name === "coc_invoke") {
+      params = normalizePiCocInvokeArguments(params);
+    }
     const epoch = sessionEpoch;
     const startupResumeError = startupResumeToolError(name, params);
     if (startupResumeError !== null) {
@@ -7134,6 +7483,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         );
         if (disposition.accepted) {
           startupResumeGate = null;
+          const resumeEnvelope = objectOrNull(value);
+          const resumeError = objectOrNull(resumeEnvelope?.error);
+          const resumeDetails = objectOrNull(resumeError?.details);
+          if (
+            resumeDetails?.phase
+              === "opening_source_facts_adoption_required"
+            && resumeDetails.campaign_id === selectedCampaignId
+          ) {
+            sendOpeningSourceFactsCardOnce({
+              schema_version: 1,
+              status: "reviewed",
+              campaign_id: selectedCampaignId,
+              next_operation: resumeDetails.next_operation,
+            });
+          }
         } else {
           terminalizeStartupResume(disposition.failureClass);
         }

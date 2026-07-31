@@ -20,6 +20,25 @@
     "source_coordinator_model_policy": "inherit_parent",
     "source_leaf_model_policy": "inherit_parent"
   },
+  "pi_coc_grok_provider_acceptance": {
+    "default_provider": "xai",
+    "native_model_id": "grok-4.5",
+    "native_reasoning_policy": "record_exact_effort_before_activation",
+    "native_claim_kind": "provider_authenticated_acceptance",
+    "relay_provider": "grok-relay",
+    "relay_claim_kind": "relay_compatibility_probe_only",
+    "relay_substitutes_for_native_acceptance": false,
+    "provider_switch_requires": [
+      "fresh_pi_session",
+      "fresh_campaign"
+    ],
+    "cross_provider_evidence_splicing": false,
+    "model_catalog_visibility_is_acceptance": false,
+    "required_native_evidence": [
+      "real_authenticated_provider_response",
+      "target_canonical_tool_or_lifecycle_evidence"
+    ]
+  },
   "lanes": {
     "fast_iteration": {
       "recommended_model_ids": ["gpt-5.6-luna"],
@@ -54,7 +73,9 @@
       "background_model_policy"
     ],
     "required_for_model_scoped_claim": [
+      "provider",
       "model_id",
+      "reasoning_effort",
       "lane",
       "selected_before_activation",
       "switched_during_run",

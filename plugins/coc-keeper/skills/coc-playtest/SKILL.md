@@ -81,6 +81,23 @@ is authoritative; the repository does not gate model IDs.
   One prompt/model slip may be transient; three observations of the same
   failure class are a design issue under the shared prompt-first policy.
 
+### Pi-Coc Grok provider-authenticated lane
+
+For pi-coc Grok provider-authenticated validation, default to native
+`xai/grok-4.5`. Record `provider: xai`, `model_id: grok-4.5`, and the exact
+`reasoning_effort` in `run.json` before activating `coc-main`. A model appearing
+in a catalog or selector is availability evidence only, never acceptance.
+Native acceptance requires both a real authenticated provider response and
+evidence that the response reached the target canonical COC tool or lifecycle
+boundary.
+
+`grok-relay` is a separate relay/compatibility probe only. Label its run
+accordingly; it cannot substitute for native xAI acceptance or support a
+provider-authenticated xAI claim. Switching provider requires both a fresh Pi
+session and a fresh campaign. Never splice transcripts, tool receipts,
+lifecycle evidence, or report evidence across native and relay runs. Keep each
+provider's `run.json`, campaign, transcript, and artifacts isolated.
+
 ## Experience constitution (acceptance play)
 
 Whole-product acceptance must feel like a real player loading the plugin, not

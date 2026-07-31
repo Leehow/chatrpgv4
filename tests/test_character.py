@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -278,7 +279,8 @@ def _complete_quick_fire_sheet() -> dict:
 
 def test_validate_character_create_sheet_accepts_complete_canonical_sheet():
     assert coc_character.validate_character_create_sheet(
-        _complete_quick_fire_sheet(), {"method": "quick_fire_array"}
+        _complete_quick_fire_sheet(),
+        {"method": "quick_fire_array", "input_mode": "import_complete_sheet"},
     ) == []
 
 
@@ -300,7 +302,8 @@ def test_validate_character_create_sheet_rejects_wrong_quick_fire_array_and_deri
     sheet["derived"]["DB"] = "0"
 
     errors = coc_character.validate_character_create_sheet(
-        sheet, {"method": "quick_fire_array"}
+        sheet,
+        {"method": "quick_fire_array", "input_mode": "guided_quick_fire"},
     )
 
     assert any("quick_fire_array values" in error for error in errors)
@@ -388,20 +391,80 @@ def test_validate_quick_fire_array_accepts_same_values_in_any_assignment():
     assert errors == []
 
 
+_QUICK_FIRE_ORDER = ("DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR")
+_QUICK_FIRE_OCCUPATION_ALLOCATIONS = {
+    "Credit Rating": 20,
+    "Spot Hidden": 40,
+    "Library Use": 40,
+    "Psychology": 30,
+    "Fast Talk": 30,
+    "History": 40,
+}
+_QUICK_FIRE_INTEREST_ALLOCATIONS = {
+    "Listen": 40,
+    "Stealth": 40,
+    "Occult": 30,
+    "First Aid": 30,
+}
+
+
+def _complete_quick_fire_skills() -> tuple[dict, dict]:
+    """Reconciled 1920s standard-sheet skills for the guided Quick Fire path."""
+    characteristics = dict(zip(
+        _QUICK_FIRE_ORDER, (80, 70, 60, 60, 50, 50, 50, 40), strict=True,
+    ))
+    rule_table = coc_character.coc_rules.load_rule_table("skills")
+    catalog = rule_table["skills"]
+    required = (
+        set(rule_table["standard_sheet"]["1920s"]["default_skill_ids"])
+        | set(_QUICK_FIRE_OCCUPATION_ALLOCATIONS)
+        | set(_QUICK_FIRE_INTEREST_ALLOCATIONS)
+    )
+    skills: dict[str, int] = {}
+    for skill_id, spec in catalog.items():
+        if skill_id not in required:
+            continue
+        base = spec["base_chance"]
+        if base == "half_DEX":
+            base = characteristics["DEX"] // 2
+        elif base == "EDU":
+            base = characteristics["EDU"]
+        skills[skill_id] = (
+            int(base)
+            + _QUICK_FIRE_OCCUPATION_ALLOCATIONS.get(skill_id, 0)
+            + _QUICK_FIRE_INTEREST_ALLOCATIONS.get(skill_id, 0)
+        )
+    return skills, {
+        "occupation_points": {
+            "budget": 200,
+            "spent": 200,
+            "allocations": dict(_QUICK_FIRE_OCCUPATION_ALLOCATIONS),
+        },
+        "personal_interest_points": {
+            "budget": 140,
+            "spent": 140,
+            "allocations": dict(_QUICK_FIRE_INTEREST_ALLOCATIONS),
+        },
+    }
+
+
 def test_materialize_quick_fire_sheet_owns_fixed_numbers_and_derived_values():
+    skills, skill_budget = _complete_quick_fire_skills()
     compact = {
         "id": "ada",
         "name": "Ada",
         "age": 29,
-        "skills": {"Credit Rating": 20, "Spot Hidden": 50},
+        "skills": dict(skills),
+        "player_facing_sheet_zh": {"display_name": "艾达"},
     }
     creation = {
         "method": "quick_fire_array",
-        "characteristic_assignment_order": [
-            "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
-        ],
+        "input_mode": "guided_quick_fire",
+        "characteristic_assignment_order": list(_QUICK_FIRE_ORDER),
         "luck_roll_total": 12,
+        "skill_budget": skill_budget,
     }
+    original = json.loads(json.dumps(compact))
 
     sheet = coc_character.materialize_quick_fire_create_sheet(compact, creation)
 
@@ -418,12 +481,8 @@ def test_materialize_quick_fire_sheet_owns_fixed_numbers_and_derived_values():
     assert sheet["derived"] == coc_character.derive_values(
         sheet["characteristics"], luck=60,
     )
-    assert compact == {
-        "id": "ada",
-        "name": "Ada",
-        "age": 29,
-        "skills": {"Credit Rating": 20, "Spot Hidden": 50},
-    }
+    # Materialization never mutates the caller's compact sheet.
+    assert compact == original
     assert coc_character.validate_character_create_sheet(sheet, creation) == []
 
 
@@ -433,6 +492,7 @@ def test_materialize_quick_fire_sheet_owns_fixed_numbers_and_derived_values():
         (
             {
                 "method": "quick_fire_array",
+                "input_mode": "guided_quick_fire",
                 "characteristic_assignment_order": [
                     "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "APP",
                 ],
@@ -443,6 +503,7 @@ def test_materialize_quick_fire_sheet_owns_fixed_numbers_and_derived_values():
         (
             {
                 "method": "quick_fire_array",
+                "input_mode": "guided_quick_fire",
                 "characteristic_assignment_order": list(
                     coc_character.REQUIRED_CHARACTERISTICS
                 ),

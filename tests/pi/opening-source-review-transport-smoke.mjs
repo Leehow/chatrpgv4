@@ -14,6 +14,23 @@ const temp = await mkdtemp(path.join(os.tmpdir(), "coc-opening-review-"));
 const marker = path.join(temp, "coordinator-launches");
 const captured = path.join(temp, "transport-task.json");
 const producer = path.join(temp, "producer.mjs");
+const sourceRef = [{ source_id: "pdf:transport", pdf_index: 0 }];
+const sourceAnswer = (value) => ({
+  status: "source", value, source_refs: sourceRef,
+});
+const unresolvedAnswer = {
+  status: "unresolved", inspected_source_refs: sourceRef,
+};
+const facts = {
+  schema_version: 1,
+  contract_id: "coc.opening-fast-facts.v1",
+  era: sourceAnswer("1920s"),
+  place: sourceAnswer("Boston"),
+  investigator_hook: unresolvedAnswer,
+  investigator_constraints: unresolvedAnswer,
+  player_safe_summary: unresolvedAnswer,
+  content_flags: sourceAnswer(["haunting"]),
+};
 await writeFile(producer, `#!/usr/bin/env node
 import fs from "node:fs";
 let input = ""; for await (const chunk of process.stdin) input += chunk;
@@ -28,6 +45,7 @@ process.stdout.write(JSON.stringify({
   scenario_id: task.scenario_id,
   opening_review_generation: task.opening_review_generation + 1,
   failure_class: null,
+  facts: ${JSON.stringify(facts)},
 }));
 `, "utf8");
 await chmod(producer, 0o755);
@@ -36,6 +54,27 @@ await writeFile(malformedProducer, `#!/usr/bin/env node
 process.stdout.write("{}");
 `, "utf8");
 await chmod(malformedProducer, 0o755);
+const rawLeakProducer = path.join(temp, "raw-leak.mjs");
+const leakedFacts = structuredClone(facts);
+leakedFacts.player_safe_summary = {
+  ...leakedFacts.player_safe_summary,
+  raw_excerpt: "RAW_SOURCE_TEXT must never cross the transport",
+};
+await writeFile(rawLeakProducer, `#!/usr/bin/env node
+let input = ""; for await (const chunk of process.stdin) input += chunk;
+const task = JSON.parse(input);
+process.stdout.write(JSON.stringify({
+  schema_version: 1,
+  contract_id: "coc.pi-opening-source-review-transport-result.v1",
+  status: "reviewed",
+  campaign_id: task.campaign_id,
+  scenario_id: task.scenario_id,
+  opening_review_generation: task.opening_review_generation + 1,
+  failure_class: null,
+  facts: ${JSON.stringify(leakedFacts)},
+}));
+`, "utf8");
+await chmod(rawLeakProducer, 0o755);
 const failedProducer = path.join(temp, "failed.mjs");
 await writeFile(failedProducer, `#!/usr/bin/env node
 process.exit(7);
@@ -56,6 +95,7 @@ process.stdout.write(JSON.stringify({
   scenario_id: task.scenario_id,
   opening_review_generation: task.opening_review_generation,
   failure_class: "pdf_scope_failed",
+  facts: null,
 }));
 `, "utf8");
 await chmod(terminalFailureProducer, 0o755);
@@ -71,6 +111,7 @@ process.stdout.write(JSON.stringify({
   scenario_id: task.scenario_id,
   opening_review_generation: task.opening_review_generation - 1,
   failure_class: null,
+  facts: ${JSON.stringify(facts)},
 }));
 `, "utf8");
 await chmod(staleProducer, 0o755);
@@ -86,6 +127,7 @@ process.stdout.write(JSON.stringify({
   scenario_id: "foreign-scenario",
   opening_review_generation: task.opening_review_generation + 1,
   failure_class: null,
+  facts: ${JSON.stringify(facts)},
 }));
 `, "utf8");
 await chmod(foreignProducer, 0o755);
@@ -101,6 +143,7 @@ process.stdout.write(JSON.stringify({
   scenario_id: task.scenario_id,
   opening_review_generation: task.opening_review_generation + 2,
   failure_class: null,
+  facts: ${JSON.stringify(facts)},
 }));
 `, "utf8");
 await chmod(futureProducer, 0o755);
@@ -148,6 +191,7 @@ const first = await extension.autoDispatchPiOpeningSourceReview(
 );
 assert.equal(first.status, "reviewed");
 assert.equal(first.receipt.opening_review_generation, 4);
+assert.deepEqual(first.receipt.facts, facts);
 assert.equal(terminals.length, 1);
 assert.equal(controllers.size, 0);
 const task = JSON.parse(await readFile(captured, "utf8"));
@@ -157,6 +201,26 @@ assert.deepEqual(Object.keys(task).sort(), [
 ]);
 assert.equal(JSON.stringify(task).includes("challenge"), false);
 assert.equal(JSON.stringify(audits).includes("challenge"), false);
+assert.equal(JSON.stringify(audits).includes("RAW_SOURCE_TEXT"), false);
+const hiddenFollowUp = extension.openingSourceReviewTerminalFollowUp(
+  first.receipt,
+  { phase: "opening_character_setup_required" },
+);
+assert.deepEqual(hiddenFollowUp, {
+  schema_version: 1,
+  status: "reviewed",
+  campaign_id: "campaign-a",
+  next_operation: {
+    operation: "setup.adopt_source_facts",
+    invoke_via: "coc_invoke",
+    campaign: "campaign-a",
+    arguments: {
+      campaign_id: "campaign-a",
+      facts,
+    },
+  },
+});
+assert.equal(JSON.stringify(hiddenFollowUp).includes("RAW_SOURCE_TEXT"), false);
 
 const duplicate = await extension.autoDispatchPiOpeningSourceReview(
   deps, "coc_invoke", envelope(),
@@ -251,11 +315,13 @@ const retryCase = async (initialCommand, options = {}) => {
 
 await retryCase(undefined);
 await retryCase(malformedProducer);
+await retryCase(rawLeakProducer);
 await retryCase(failedProducer);
 await retryCase(staleProducer);
 await retryCase(foreignProducer);
 await retryCase(futureProducer);
 await retryCase(hangingProducer, { timeoutMs: 30 });
+assert.equal(JSON.stringify(audits).includes("RAW_SOURCE_TEXT"), false);
 
 const abortStates = new Map();
 const abortControllers = new Map();
@@ -302,5 +368,7 @@ console.log(JSON.stringify({
     restart_reconciled_without_duplicate_launch: true,
     outer_failures_remain_retryable: true,
     timeout_and_abort_remain_retryable: true,
+    exact_hidden_facts_card: true,
+    no_raw_source_leakage: true,
   },
 }));

@@ -88,6 +88,7 @@ SETUP_OPERATION_KINDS = frozenset({
     "campaign.quick_start", "scenario.bind_pdf", "campaign.render_briefing",
     "actor.create", "investigator.create", "investigator.render_card",
     "investigator.contract", "campaign.link_investigator",
+    "campaign.adopt_source_facts",
 })
 
 
@@ -433,6 +434,312 @@ def _setup_operation(value: Any) -> tuple[str, dict[str, Any]]:
     if not isinstance(payload, dict):
         raise RuntimeOperationError("setup operation payload must be an object")
     return str(kind), payload
+
+
+OPENING_FAST_FACTS_CONTRACT_ID = "coc.opening-fast-facts.v1"
+# The fixed question set the fast source parse must answer before a player can
+# build an investigator. Every question needs an explicit answer; "unresolved"
+# is an honest answer and is never harder to submit than a fabricated one.
+_OPENING_FAST_FACT_QUESTIONS: tuple[tuple[str, str], ...] = (
+    ("era", "str"),
+    ("place", "str"),
+    ("investigator_hook", "str"),
+    ("investigator_constraints", "str"),
+    ("player_safe_summary", "str"),
+    ("content_flags", "list"),
+)
+# Only these two decide occupation, skills, money, gear, language, and names,
+# so only these two hold character creation closed when unresolved.
+_OPENING_FAST_FACT_GATES: tuple[str, ...] = ("era", "place")
+
+
+def _validated_source_refs(value: Any, field: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value:
+        raise RuntimeOperationError(
+            f"opening fast fact {field!r} requires non-empty source evidence"
+        )
+    refs: list[dict[str, Any]] = []
+    allowed = {
+        "source_id",
+        "pdf_index",
+        "text_sha256",
+        "bundle_sha256s",
+        "bundle_sha256",
+        "file_sha256",
+        "review_state",
+        "parse_confidence",
+        "grep_anchors",
+        "grep_anchor",
+        "ocr_revision",
+        "structured_data",
+        "printed_page",
+        "printed_label",
+    }
+    for ref in value:
+        if (
+            not isinstance(ref, dict)
+            or not {"source_id", "pdf_index"} <= set(ref)
+            or bool(set(ref) - allowed)
+            or not isinstance(ref.get("source_id"), str)
+            or not ref["source_id"].strip()
+            or not isinstance(ref.get("pdf_index"), int)
+            or isinstance(ref.get("pdf_index"), bool)
+            or int(ref["pdf_index"]) < 0
+        ):
+            raise RuntimeOperationError(
+                f"opening fast fact {field!r} source evidence entries require "
+                "source_id and a zero-based pdf_index"
+            )
+        normalized = deepcopy(ref)
+        normalized["source_id"] = ref["source_id"].strip()
+        normalized["pdf_index"] = int(ref["pdf_index"])
+        refs.append(normalized)
+    return refs
+
+
+def _validated_opening_fast_facts(value: Any) -> dict[str, Any]:
+    """Validate one closed answer set from the fast source parse.
+
+    The shape is deliberately uniform: each question answers `source` with a
+    value plus page refs, or `unresolved` with neither. Nothing here judges
+    whether the answer is *correct* — that stays with the reading agent — only
+    that every question was actually asked and that a claim carries a citation.
+    """
+    if not isinstance(value, dict):
+        raise RuntimeOperationError("facts must be an object")
+    expected = {"schema_version", "contract_id", *(
+        name for name, _ in _OPENING_FAST_FACT_QUESTIONS
+    )}
+    if set(value) != expected:
+        missing = sorted(expected - set(value))
+        unsupported = sorted(set(value) - expected)
+        details = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if unsupported:
+            details.append("unsupported: " + ", ".join(unsupported))
+        raise RuntimeOperationError(
+            f"facts must answer every {OPENING_FAST_FACTS_CONTRACT_ID} question "
+            "exactly once (" + "; ".join(details) + ")"
+        )
+    if value.get("schema_version") != 1:
+        raise RuntimeOperationError("facts schema_version must be 1")
+    if value.get("contract_id") != OPENING_FAST_FACTS_CONTRACT_ID:
+        raise RuntimeOperationError(
+            f"facts contract_id must be {OPENING_FAST_FACTS_CONTRACT_ID}"
+        )
+    validated: dict[str, Any] = {
+        "schema_version": 1,
+        "contract_id": OPENING_FAST_FACTS_CONTRACT_ID,
+    }
+    for name, value_kind in _OPENING_FAST_FACT_QUESTIONS:
+        answer = value.get(name)
+        if not isinstance(answer, dict) or "status" not in answer:
+            raise RuntimeOperationError(
+                f"opening fast fact {name!r} must be an object with a status"
+            )
+        status = answer.get("status")
+        if status == "unresolved":
+            if set(answer) != {"status", "inspected_source_refs"}:
+                raise RuntimeOperationError(
+                    f"opening fast fact {name!r} is unresolved and requires "
+                    "exactly status and inspected_source_refs"
+                )
+            validated[name] = {
+                "status": "unresolved",
+                "inspected_source_refs": _validated_source_refs(
+                    answer.get("inspected_source_refs"), name
+                ),
+            }
+            continue
+        if status != "source":
+            raise RuntimeOperationError(
+                f"opening fast fact {name!r} status must be source or unresolved"
+            )
+        if set(answer) != {"status", "value", "source_refs"}:
+            raise RuntimeOperationError(
+                f"opening fast fact {name!r} with status 'source' requires "
+                "exactly status, value, and source_refs"
+            )
+        raw = answer.get("value")
+        if value_kind == "list":
+            if (
+                not isinstance(raw, list)
+                or not raw
+                or any(
+                    not isinstance(item, str) or not item.strip() for item in raw
+                )
+            ):
+                raise RuntimeOperationError(
+                    f"opening fast fact {name!r} value must be a non-empty list "
+                    "of non-empty strings"
+                )
+            normalized_value: Any = [item.strip() for item in raw]
+            if len(normalized_value) != len(set(normalized_value)):
+                raise RuntimeOperationError(
+                    f"opening fast fact {name!r} value must contain unique strings"
+                )
+        else:
+            if not isinstance(raw, str) or not raw.strip():
+                raise RuntimeOperationError(
+                    f"opening fast fact {name!r} value must be a non-empty string"
+                )
+            normalized_value = raw.strip()
+        validated[name] = {
+            "status": "source",
+            "value": normalized_value,
+            "source_refs": _validated_source_refs(
+                answer.get("source_refs"), name
+            ),
+        }
+    return validated
+
+
+def _canonicalize_opening_fast_facts(
+    root: Path,
+    campaign_id: str,
+    facts: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        source_root = coc_module_project.resolve_opening_preparation_root(
+            root, campaign_id
+        )
+        canonical = deepcopy(facts)
+        for name, _value_kind in _OPENING_FAST_FACT_QUESTIONS:
+            answer = canonical[name]
+            refs_key = (
+                "source_refs"
+                if answer["status"] == "source"
+                else "inspected_source_refs"
+            )
+            answer[refs_key] = coc_module_assets.canonical_campaign_source_refs(
+                root,
+                source_root["asset_root_id"],
+                source_root["bundle_sha256"],
+                answer[refs_key],
+                field=f"source_fast_facts.{name}.{refs_key}",
+            )
+        return canonical
+    except (
+        coc_module_project.OpeningPreparationError,
+        coc_module_assets.ModuleAssetsError,
+        OSError,
+        ValueError,
+    ) as exc:
+        raise RuntimeOperationError(
+            f"opening fast facts source evidence is invalid: {exc}"
+        ) from exc
+
+
+_OPENING_SOURCE_FACTS_TRANSPORT_CONTRACT_ID = (
+    "coc.opening-source-facts-transport.v1"
+)
+_OPENING_SOURCE_FACTS_TRANSPORT_FIELDS = {
+    "schema_version", "contract_id", "status", "campaign_id",
+    "scenario_id", "opening_review_generation", "source_id",
+    "file_sha256", "bundle_sha256", "review_receipt_sha256",
+    "facts_sha256", "facts",
+}
+
+
+def _validate_opening_source_facts_transport(
+    workspace: Path | str,
+    campaign_id: str,
+    record: Any | None = None,
+) -> dict[str, Any] | None:
+    """Validate the closed pending Pi facts packet against current source."""
+    root = Path(workspace).resolve()
+    campaign = _id(campaign_id, "campaign_id")
+    campaign_dir = root / ".coc" / "campaigns" / campaign
+    scenario = _read_object(campaign_dir / "scenario" / "scenario.json")
+    transport = (
+        scenario.get("opening_source_facts_transport")
+        if record is None else record
+    )
+    if transport is None:
+        return None
+    if (
+        not isinstance(transport, dict)
+        or set(transport) != _OPENING_SOURCE_FACTS_TRANSPORT_FIELDS
+        or transport.get("schema_version") != 1
+        or transport.get("contract_id")
+        != _OPENING_SOURCE_FACTS_TRANSPORT_CONTRACT_ID
+        or transport.get("status") != "pending_public_adoption"
+        or transport.get("campaign_id") != campaign
+        or transport.get("scenario_id") != scenario.get("scenario_id")
+    ):
+        raise RuntimeOperationError(
+            "opening source facts transport authority is invalid"
+        )
+    task = _validate_opening_review_task(
+        scenario, expected_status="fulfilled",
+    )
+    receipt = _validate_opening_source_review_fulfillment(
+        root,
+        scenario.get("opening_source_review_receipt"),
+        expected_status="reviewed",
+    )
+    source = (
+        scenario.get("source")
+        if isinstance(scenario.get("source"), dict) else {}
+    )
+    expected_binding = {
+        "scenario_id": task["scenario_id"],
+        "opening_review_generation": task["generation"],
+        "source_id": str(source.get("source_id") or ""),
+        "file_sha256": str(source.get("file_sha256") or ""),
+        "bundle_sha256": str(source.get("bundle_sha256") or ""),
+        "review_receipt_sha256": _opening_review_receipt_digest(receipt),
+    }
+    if any(transport.get(key) != value for key, value in expected_binding.items()):
+        raise RuntimeOperationError(
+            "opening source facts transport source binding is stale"
+        )
+    facts = _validated_opening_fast_facts(transport.get("facts"))
+    if (
+        transport.get("facts") != facts
+        or transport.get("facts_sha256") != _canonical_sha256(facts)
+    ):
+        raise RuntimeOperationError(
+            "opening source facts transport digest is invalid"
+        )
+    # Validate selectors against the current bundle/cache, but deliberately
+    # retain only the producer's minimal two-field selectors in this record.
+    _canonicalize_opening_fast_facts(root, campaign, facts)
+    return deepcopy(transport)
+
+
+def _require_established_source_facts(
+    root: Path, campaign: dict[str, Any], campaign_id: str
+) -> None:
+    """Fail closed until the fast source parse has answered the gating questions.
+
+    A raw-PDF campaign is created before anything is known about the module.
+    Era decides occupation, skills, money, and equipment; place decides
+    language, names, and social position. Both must come from the source parse
+    rather than from the placeholder era ``create_campaign`` seeds a clock with.
+    Built-in starters and any caller that declared an era pass straight through.
+    """
+    stored_facts = campaign.get("source_fast_facts")
+    if stored_facts is not None:
+        validated = _validated_opening_fast_facts(stored_facts)
+        _canonicalize_opening_fast_facts(root, campaign_id, validated)
+    if not coc_state.campaign_era_is_established(campaign):
+        raise RuntimeOperationError(
+            f"campaign {campaign_id!r} era is not source-established "
+            f"(era_source={coc_state.campaign_era_source(campaign)!r}): "
+            "character creation is blocked until the fast source parse answers "
+            f"the {OPENING_FAST_FACTS_CONTRACT_ID} era question through "
+            "setup.adopt_source_facts; do not guess the era"
+        )
+    if not coc_state.campaign_place_is_established(campaign):
+        raise RuntimeOperationError(
+            f"campaign {campaign_id!r} setting place is not source-established: "
+            "character creation is blocked until the fast source parse answers "
+            f"the {OPENING_FAST_FACTS_CONTRACT_ID} place question through "
+            "setup.adopt_source_facts; do not guess the country, city, or "
+            "region"
+        )
 
 
 def _character_values(character: dict[str, Any]) -> dict[str, int]:
@@ -3532,6 +3839,130 @@ def _campaign_summaries(workspace: Path) -> list[dict[str, Any]]:
     return values
 
 
+def _adopt_source_facts_locked(
+    root: Path,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    campaign_id = _id(payload.get("campaign_id"), "campaign_id")
+    supplied_facts = _validated_opening_fast_facts(payload.get("facts"))
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    if not campaign_dir.is_dir():
+        raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+    campaign_path = campaign_dir / "campaign.json"
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    with coc_fileio.advisory_file_lock(
+        campaign_dir / "opening-source-review.lock"
+    ):
+        # The same lock covers scenario.bind_pdf's source+campaign transition.
+        # Validate the current transport only after taking it, before any write.
+        pending_transport = _validate_opening_source_facts_transport(
+            root, campaign_id,
+        )
+        if (
+            pending_transport is not None
+            and (
+                pending_transport["facts"] != supplied_facts
+                or pending_transport["facts_sha256"]
+                != _canonical_sha256(supplied_facts)
+            )
+        ):
+            raise RuntimeOperationError(
+                "campaign.adopt_source_facts does not match the current "
+                "pending opening source facts transport"
+            )
+        facts = _canonicalize_opening_fast_facts(
+            root, campaign_id, supplied_facts,
+        )
+        campaign = _read_object(campaign_path)
+        era_answer = facts["era"]
+        era_resolved = era_answer["status"] == "source"
+        era_key = (
+            coc_state.normalize_era(str(era_answer["value"]))
+            if era_resolved else ""
+        )
+        prior_era_source = coc_state.campaign_era_source(campaign)
+        already = coc_state.campaign_era_is_established(campaign)
+        if (
+            era_resolved
+            and already
+            and str(campaign.get("era") or "") != era_key
+        ):
+            raise RuntimeOperationError(
+                f"campaign {campaign_id!r} era is already established as "
+                f"{campaign.get('era')!r}; refusing to overwrite it with "
+                f"{era_key!r}"
+            )
+        campaign["source_fast_facts"] = facts
+        if (
+            not era_resolved
+            and prior_era_source == coc_state.ERA_SOURCE_AUTHORED
+        ):
+            campaign["era_source"] = coc_state.ERA_SOURCE_UNESTABLISHED
+        campaign["updated_at"] = _now()
+        coc_fileio.write_json_atomic(
+            campaign_path, campaign, indent=2, ensure_ascii=False,
+            trailing_newline=True,
+        )
+        briefing_path: str | None = None
+        if era_resolved:
+            adopted = coc_module_project.adopt_source_era(
+                campaign_dir, str(era_answer["value"])
+            )
+            briefing_path = adopted.get("briefing_path")
+            era_key = adopted.get("era") or era_key
+        else:
+            briefing_path = (
+                coc_module_project._refresh_character_creation_briefing_if_stale(
+                    campaign_dir
+                )
+            )
+        # Transport removal is the completion marker. If any preceding write or
+        # side effect raises/crashes, the pending marker survives and resume
+        # replays the exact idempotent public adoption instead of advancing.
+        if pending_transport is not None:
+            current_transport = _validate_opening_source_facts_transport(
+                root, campaign_id,
+            )
+            if current_transport != pending_transport:
+                raise RuntimeOperationError(
+                    "opening source facts transport changed during adoption"
+                )
+            scenario = _read_object(scenario_path)
+            scenario.pop("opening_source_facts_transport", None)
+            coc_fileio.write_json_atomic(
+                scenario_path, scenario, indent=2, ensure_ascii=False,
+                trailing_newline=True,
+            )
+        campaign = _read_object(campaign_path)
+        blocking = [
+            name for name in _OPENING_FAST_FACT_GATES
+            if facts[name]["status"] != "source"
+        ]
+        return {
+            "schema_version": 1,
+            "status": "PASS",
+            "kind": "campaign.adopt_source_facts",
+            "result": {
+                "campaign_id": campaign_id,
+                "era": (
+                    era_key
+                    if coc_state.campaign_era_is_established(campaign)
+                    else ""
+                ),
+                "era_source": coc_state.campaign_era_source(campaign),
+                "facts": deepcopy(facts),
+                "unresolved_blocking_facts": blocking,
+                "character_creation_unblocked": not blocking,
+                "already_established": already,
+                "character_creation_briefing_path": briefing_path,
+            },
+            "state_refs": [
+                f".coc/campaigns/{campaign_id}/campaign.json",
+                *([briefing_path] if briefing_path else []),
+            ],
+        }
+
+
 def execute_setup_operation(
     workspace: Path | str,
     *,
@@ -3633,7 +4064,10 @@ def execute_setup_operation(
                 root,
                 campaign_id,
                 title.strip(),
-                era=str(payload.get("era") or "1920s"),
+                # Never manufacture an era here: an omitted era stays
+                # unestablished until module source authors one, which is what
+                # blocks character creation on a raw-PDF campaign.
+                era=payload.get("era"),
                 play_language=str(payload.get("play_language") or "zh-Hans"),
                 start_clock=payload.get("start_clock"),
                 ruleset_id=(
@@ -3715,6 +4149,7 @@ def execute_setup_operation(
             raise RuntimeOperationError(
                 f"campaign {campaign_id!r} has no canonical era"
             )
+        _require_established_source_facts(root, campaign, campaign_id)
         quick_fire_catalog = contract.get("guided_quick_fire_skill_catalog")
         supported_eras = (
             quick_fire_catalog.get("supported_eras")
@@ -3886,6 +4321,9 @@ def execute_setup_operation(
                     f"unknown campaign: {current_campaign_id}"
                 )
             campaign = coc_state.load_campaign_state(campaign_dir)
+            _require_established_source_facts(
+                root, campaign, current_campaign_id
+            )
             campaign_era = str(campaign.get("era") or "").strip()
             submitted_era = sheet.get("era")
             if submitted_era is None:
@@ -4020,6 +4458,13 @@ def execute_setup_operation(
             },
             "state_refs": refs,
         }
+    if kind == "campaign.adopt_source_facts":
+        if set(payload) != {"campaign_id", "facts"}:
+            raise RuntimeOperationError(
+                "campaign.adopt_source_facts requires exactly campaign_id and facts"
+            )
+        return _adopt_source_facts_locked(root, payload)
+
     if kind == "campaign.link_investigator":
         if set(payload) != {"campaign_id", "investigator_ids"}:
             raise RuntimeOperationError(
@@ -4032,6 +4477,14 @@ def execute_setup_operation(
         investigator_ids = [_id(value, "investigator_id") for value in raw_ids]
         if len(investigator_ids) != len(set(investigator_ids)):
             raise RuntimeOperationError("investigator_ids must be unique")
+        link_campaign_dir = root / ".coc" / "campaigns" / campaign_id
+        if not link_campaign_dir.is_dir():
+            raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+        _require_established_source_facts(
+            root,
+            coc_state.load_campaign_state(link_campaign_dir),
+            campaign_id,
+        )
         path = coc_state.link_party(root, campaign_id, investigator_ids)
         return {
             "schema_version": 1,
@@ -4153,6 +4606,7 @@ def execute_setup_operation(
         )
         scenario.pop("opening_source_review_receipt", None)
         scenario.pop("opening_source_review_failure", None)
+        scenario.pop("opening_source_facts_transport", None)
         # This locator only means the verified pages are reusable. Cold compile
         # remains valid; progressive play is stamped by explicit projection.
         scenario["source_cache_asset_root_id"] = source_cache["asset_root_id"]
@@ -4160,16 +4614,25 @@ def execute_setup_operation(
             scenario_path, scenario, indent=2, ensure_ascii=False,
             trailing_newline=True,
         )
-    campaign_path = campaign_dir / "campaign.json"
-    campaign = _read_object(campaign_path)
-    campaign["active_scenario_id"] = scenario_id
-    campaign["status"] = "setup"
-    campaign["active_subsystem"] = "setup"
-    campaign["updated_at"] = _now()
-    coc_fileio.write_json_atomic(
-        campaign_path, campaign, indent=2, ensure_ascii=False,
-        trailing_newline=True,
-    )
+        campaign_path = campaign_dir / "campaign.json"
+        campaign = _read_object(campaign_path)
+        campaign.pop("source_fast_facts", None)
+        if (
+            coc_state.campaign_era_source(campaign)
+            == coc_state.ERA_SOURCE_AUTHORED
+        ):
+            # A source-authored era/place belongs to the previous binding.
+            # Preserve explicitly declared eras, but revoke old PDF authority
+            # before any new briefing or hydration can consume it.
+            campaign["era_source"] = coc_state.ERA_SOURCE_UNESTABLISHED
+        campaign["active_scenario_id"] = scenario_id
+        campaign["status"] = "setup"
+        campaign["active_subsystem"] = "setup"
+        campaign["updated_at"] = _now()
+        coc_fileio.write_json_atomic(
+            campaign_path, campaign, indent=2, ensure_ascii=False,
+            trailing_newline=True,
+        )
     hydration: dict[str, Any] | None = None
     if payload.get("compile_now") is True:
         try:
@@ -4773,6 +5236,8 @@ def _build_opening_source_review_transport_failure(
 def _apply_opening_source_review_fulfillment(
     workspace: Path | str,
     receipt: dict[str, Any],
+    *,
+    source_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Private host-adapter mutation; deliberately absent from public tools."""
     root = Path(workspace).resolve()
@@ -4814,12 +5279,40 @@ def _apply_opening_source_review_fulfillment(
             )
             scenario["opening_source_review_receipt"] = validated
             scenario.pop("opening_source_review_failure", None)
+            if source_facts is not None:
+                facts = _validated_opening_fast_facts(source_facts)
+                _canonicalize_opening_fast_facts(root, campaign_id, facts)
+                source = (
+                    scenario.get("source")
+                    if isinstance(scenario.get("source"), dict) else {}
+                )
+                scenario["opening_source_facts_transport"] = {
+                    "schema_version": 1,
+                    "contract_id": (
+                        _OPENING_SOURCE_FACTS_TRANSPORT_CONTRACT_ID
+                    ),
+                    "status": "pending_public_adoption",
+                    "campaign_id": campaign_id,
+                    "scenario_id": task["scenario_id"],
+                    "opening_review_generation": task["generation"],
+                    "source_id": str(source.get("source_id") or ""),
+                    "file_sha256": str(source.get("file_sha256") or ""),
+                    "bundle_sha256": str(source.get("bundle_sha256") or ""),
+                    "review_receipt_sha256": (
+                        _opening_review_receipt_digest(validated)
+                    ),
+                    "facts_sha256": _canonical_sha256(facts),
+                    "facts": facts,
+                }
+            else:
+                scenario.pop("opening_source_facts_transport", None)
         else:
             scenario["opening_source_provenance"] = (
                 "selection_hint_only_not_provenance"
             )
             scenario["opening_source_review_failure"] = validated
             scenario.pop("opening_source_review_receipt", None)
+            scenario.pop("opening_source_facts_transport", None)
         coc_fileio.write_json_atomic(
             scenario_path,
             scenario,

@@ -11,6 +11,27 @@
 
 ### Changed for 0.4.0a
 
+- **原始 PDF 的两道 fail-closed 闸门。** 快速解析挡在建卡前，完整开场解析挡在
+  开场前，两条车道仍然并行推进。
+
+  *闸门 1（建卡）：* `campaign.create` 不再把缺省年代伪造成 `1920s`；
+  `campaign.json`（`schema_version: 3`）新增 `era_source`
+  (`declared` / `authored` / `unestablished`) 与 `source_fast_facts`。
+  快速解析用一次有界 PDF 查询回答固定的 `coc.opening-fast-facts.v1` 六问——
+  `era`、`place`、`investigator_hook`、`investigator_constraints`、
+  `player_safe_summary`、`content_flags`——经新的
+  `campaign.adopt_source_facts` 落地。每个答案要么 `source` 带值与页码
+  `source_refs`，要么 `unresolved` 两者皆无；**`unresolved` 是合法答案，提交
+  难度绝不高于编造**。`era` 或 `place` 未答出时，`investigator.contract`、
+  `investigator.create`、`campaign.link_investigator` 一律 fail closed；另外四
+  问只丰富开卡序章。开卡序章新增「地点」「调查员要求」「模组给的切入点」，且
+  年代未确立时不再显示占位年代。
+
+  *闸门 2（开场）：* `evidence.table_opening` 在来源绑定的战役上，开场投影完成
+  前拒绝写入开场，分别返回 `opening_source_pending`（在此阻塞等待）、
+  `opening_source_failed` 与 `opening_source_not_prepared`（明确报错，不得自行
+  编造开场）。内置剧本与冷编译战役不受这条车道限制。
+
 - **Player Knowledge Boundary（KP 负责拦截）：** 玩家可以猜、可以诱导剧透；
   KP 不得把未赚取的断言当成桌上已知事实，也不得因「猜对了」就跳过发现或
   倾倒模块真相。蒙对也仍是猜测。拦截优先用戏内推回，语气允许时可用
