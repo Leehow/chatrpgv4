@@ -3361,6 +3361,284 @@ def test_mcp_wire_request_deepen_preserves_exact_current_dependency_lifecycle():
     ] == []
 
 
+def test_mcp_wire_request_deepen_keeps_takeovers_when_exceeding_budget():
+    """Play03 regression: >16KB deepen with awaiting_scope must keep the
+    locator/coordinator takeovers instead of collapsing to identity_only."""
+    server = _load_server()
+    dependency_ref = {
+        "operation": "state.journal",
+        "subject": {"kind": "npc", "id": "npc-syl-greybeard"},
+        "decision_id": "journal-ask-village-anomalies-001",
+    }
+    wait = {
+        "schema_version": 1,
+        "contract_id": "coc.source-current-dependency-wait.v1",
+        "campaign_id": "wire-deepen-takeover",
+        "dependency_id": "dependency-greybeard",
+        "job_id": "job-greybeard",
+        "work_group_id": "group-greybeard",
+        "dependency_ref": dependency_ref,
+        "operational_class": "awaiting_scope",
+        "dispatch_attempts": 0,
+    }
+    coordinator = server.toolbox._pi_source_coordinator_dispatch(
+        workspace_root="/workspace",
+        campaign_id="wire-deepen-takeover",
+        asset_root_id="source-root",
+        ready_background=[{
+            "job_id": "job-other-ready",
+            "work_group_id": "group-other",
+        }],
+    )
+    background_takeover = {
+        "schema_version": 1,
+        "kind": "ready_background_source_work",
+        "dispatch_mode": "coordinator_fanout",
+        "host_adapter": "pi",
+        "coordinator_dispatch": coordinator,
+        "next_host_action": {
+            "schema_version": 1,
+            "action": "invoke_coc_dispatch_source_work",
+            "execute_before_any_other_host_operation": True,
+            "task": coordinator["pi_task"],
+            "parent_waits": False,
+            "parent_result_polls": 0,
+            "parent_output_retrieval": False,
+        },
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+    locator_task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-task.v1",
+        "instruction_ref": "/plugin/coc-source-scope-locator.md",
+        "job_id": "job-greybeard",
+        "target_id": "npc-syl-greybeard",
+        "dispatch_key": "source-scope-locator:job-greybeard",
+        "resolve_operation": {
+            "operation": "progressive.resolve_source_scope",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "job_id": "job-greybeard",
+                "kind": "npc",
+                "target_id": "npc-syl-greybeard",
+            },
+            "missing_arguments": ["pdf_indices"],
+        },
+    }
+    source_scope_takeover = {
+        "schema_version": 1,
+        "kind": "awaiting_source_scope",
+        "dispatch_mode": "background_single_locator",
+        "host_adapter": "pi",
+        "authority": "advisory",
+        "hard_gate": False,
+        "next_host_action": {
+            "schema_version": 1,
+            "action": "invoke_coc_dispatch_source_scope_locator",
+            "dispatch_key": "source-scope-locator:job-greybeard",
+            "spawn_once_while_job_open": True,
+            "task": locator_task,
+        },
+        "play_boundary": {
+            "player_action_gate": False,
+            "narrative_gate": False,
+            "output_gate": False,
+        },
+    }
+    # The raw envelope must be well over budget like the play03 29KB result.
+    repeated = "awaiting scope preview " * 600
+    data = {
+        "campaign_id": "wire-deepen-takeover",
+        "asset_root_id": "source-root",
+        "kind": "npc",
+        "target_id": "npc-syl-greybeard",
+        "current_dependency": True,
+        "dependency_ref": dependency_ref,
+        "status": {"deep_ready": False, "preview": repeated},
+        "host_work": {
+            "asset_root_id": "source-root",
+            "campaign_id": "wire-deepen-takeover",
+            "current_dependency_snapshot_complete": True,
+            "open_host_work_count": 2,
+            "awaiting_scope_count": 1,
+            "current_dependency_waits": [wait],
+            "current_dependency_dispatches": [],
+            "source_scope_takeover": source_scope_takeover,
+            "ready_background_requests": [{
+                "job_id": "job-other-ready",
+                "kind": "deepen_location",
+                "target_id": "other",
+                "result_contract": {"description": repeated},
+            }],
+        },
+        "source_scope_takeover": source_scope_takeover,
+        "background_takeover": background_takeover,
+    }
+    envelope = {
+        "ok": True,
+        "tool": "progressive.request_deepen",
+        "data": data,
+        "warnings": [],
+        "hints": [],
+    }
+    assert server.wire_projection.transport_bytes(envelope) > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    projected = server.wire_projection.project_envelope(
+        "progressive.request_deepen",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"]["payload_projected"] is True
+    assert projected["wire"].get("identity_only") is not True
+    assert projected["wire"].get(
+        "current_dependency_projection_blocked"
+    ) is not True
+    data_out = projected["data"]
+    # The locator task must reach the extension dispatch hook.
+    assert data_out["source_scope_takeover"]["next_host_action"]["action"] == (
+        "invoke_coc_dispatch_source_scope_locator"
+    )
+    assert data_out["source_scope_takeover"]["next_host_action"][
+        "task"
+    ]["contract_id"] == "coc.pi-source-scope-locator-task.v1"
+    # The coordinator task must survive via next_host_action.task; the
+    # byte-identical pi_task duplicate under coordinator_dispatch is dropped.
+    bg = data_out["background_takeover"]
+    assert bg["next_host_action"]["task"]["contract_id"] == (
+        "coc.pi-source-coordinator-task.v1"
+    )
+    assert "coordinator_dispatch" not in bg
+    # Exact current-dependency waits survive.
+    host_work = data_out["host_work"]
+    assert host_work["current_dependency_waits"] == [wait]
+    assert "source_scope_takeover" not in host_work
+
+    # The Codex coordinator shape (codex_task, no next_host_action) must not
+    # be deduplicated away: it is the only carrier on that host.
+    codex_coordinator = server.toolbox._source_coordinator_dispatch(
+        workspace_root="/workspace",
+        campaign_id="wire-deepen-takeover",
+        asset_root_id="source-root",
+        ready_background=[{
+            "job_id": "job-codex",
+            "work_group_id": "group-codex",
+        }],
+    )
+    codex_takeover = {
+        "schema_version": 1,
+        "kind": "ready_background_source_work",
+        "dispatch_mode": "coordinator_fanout",
+        "host_adapter": "codex",
+        "coordinator_dispatch": codex_coordinator,
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+    codex_data = {
+        **data,
+        "background_takeover": codex_takeover,
+    }
+    codex_env = {"ok": True, "tool": "progressive.request_deepen",
+                 "data": codex_data, "warnings": [], "hints": []}
+    codex_projected = server.wire_projection.project_envelope(
+        "progressive.request_deepen",
+        codex_env,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    codex_bg = codex_projected["data"]["background_takeover"]
+    assert "coordinator_dispatch" in codex_bg
+    assert codex_bg["coordinator_dispatch"]["codex_task"]["packet"][
+        "claim_operation"
+    ]["discovery_required"] is False
+
+
+def test_mcp_wire_register_source_bundle_keeps_takeover_when_exceeding_budget():
+    server = _load_server()
+    coordinator = server.toolbox._pi_source_coordinator_dispatch(
+        workspace_root="/workspace",
+        campaign_id="wire-register",
+        asset_root_id="source-root",
+        ready_background=[{
+            "job_id": "job-ready",
+            "work_group_id": "group-ready",
+        }],
+    )
+    background_takeover = {
+        "schema_version": 1,
+        "kind": "ready_background_source_work",
+        "dispatch_mode": "coordinator_fanout",
+        "host_adapter": "pi",
+        "coordinator_dispatch": coordinator,
+        "next_host_action": {
+            "schema_version": 1,
+            "action": "invoke_coc_dispatch_source_work",
+            "task": coordinator["pi_task"],
+            "parent_waits": False,
+            "parent_result_polls": 0,
+            "parent_output_retrieval": False,
+        },
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+    repeated = "reviewed page metadata " * 500
+    data = {
+        "asset_root_id": "source-root",
+        "requested_asset_root_id": "source-root",
+        "reused_existing_root": True,
+        "bundle_sha256": "cf2a825de4b2ff5378bef2d5441bc2288d6261297f02f27843a05a4c595a33d9",
+        "cached_pdf_indices": [2, 4],
+        "page_revisions": [{"pdf_index": 2, "text_sha256": "a" * 64}],
+        "new_page_count": 0,
+        "reused_page_count": 2,
+        "bundle_validation_and_cache_ms": 6,
+        "host_work": {
+            "asset_root_id": "source-root",
+            "campaign_id": "wire-register",
+            "current_dependency_snapshot_complete": True,
+            "open_host_work_count": 3,
+            "current_dependency_waits": [],
+            "open_host_work": [{"job_id": "job-a", "detail": repeated}],
+            "background_takeover": background_takeover,
+        },
+        "background_takeover": background_takeover,
+    }
+    envelope = {
+        "ok": True,
+        "tool": "progressive.register_source_bundle",
+        "data": data,
+        "warnings": [],
+        "hints": [],
+    }
+    assert server.wire_projection.transport_bytes(envelope) > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    projected = server.wire_projection.project_envelope(
+        "progressive.register_source_bundle",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"].get("identity_only") is not True
+    data_out = projected["data"]
+    assert data_out["bundle_sha256"] == data["bundle_sha256"]
+    assert data_out["cached_pdf_indices"] == [2, 4]
+    bg = data_out["background_takeover"]
+    assert bg["next_host_action"]["task"]["contract_id"] == (
+        "coc.pi-source-coordinator-task.v1"
+    )
+    assert "coordinator_dispatch" not in bg
+    assert "background_takeover" not in data_out["host_work"]
+
+
 def test_mcp_wire_progressive_status_keeps_coordinator_when_requests_are_large():
     server = _load_server()
     coordinator = server.toolbox._source_coordinator_dispatch(

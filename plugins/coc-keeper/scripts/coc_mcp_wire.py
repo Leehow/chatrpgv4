@@ -1053,6 +1053,33 @@ def _project_source_work_lifecycle(
     return projected
 
 
+def _slim_background_takeover(value: Any) -> Any:
+    """Drop the duplicate Pi coordinator packet from a background takeover.
+
+    The Pi coordinator route embeds ``coordinator_dispatch.pi_task`` and then
+    repeats the identical task as ``next_host_action.task`` (byte-for-byte).
+    The Pi extension dispatches only from ``next_host_action.task``; Codex
+    keeps ``coordinator_dispatch.codex_task`` which is not duplicated there.
+    """
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    coordinator = value.get("coordinator_dispatch")
+    next_action = value.get("next_host_action")
+    if not isinstance(coordinator, dict) or not isinstance(next_action, dict):
+        return deepcopy(value)
+    task = next_action.get("task")
+    pi_task = coordinator.get("pi_task")
+    if (
+        isinstance(task, dict)
+        and isinstance(pi_task, dict)
+        and canonical_digest(task) == canonical_digest(pi_task)
+    ):
+        projected = deepcopy(value)
+        projected.pop("coordinator_dispatch", None)
+        return projected
+    return deepcopy(value)
+
+
 def _project_request_deepen(value: Any) -> Any:
     if not isinstance(value, dict):
         return deepcopy(value)
@@ -1071,6 +1098,13 @@ def _project_request_deepen(value: Any) -> Any:
             "merged_location_ids",
         ),
     )
+    if isinstance(projected.get("background_takeover"), dict):
+        # The Pi coordinator packet is duplicated under coordinator_dispatch;
+        # only next_host_action.task is consumed by the extension. The Codex
+        # coordinator_dispatch.codex_task is never duplicated, so it survives.
+        projected["background_takeover"] = _slim_background_takeover(
+            projected["background_takeover"]
+        )
     if isinstance(value.get("status"), dict):
         projected["status"] = _pick(
             value["status"],
@@ -1098,6 +1132,14 @@ def _project_request_deepen(value: Any) -> Any:
             host_work,
             exact_dependency_ref=dependency_ref,
         )
+        # The same locator takeover is already exposed top-level; the nested
+        # host_work copy is a multi-kilobyte duplicate that pushes deepen
+        # responses over the inline budget.
+        if (
+            projected.get("source_scope_takeover") is not None
+            and isinstance(projected.get("host_work"), dict)
+        ):
+            projected["host_work"].pop("source_scope_takeover", None)
         if (
             value.get("current_dependency") is True
             and projected["host_work"].get(
@@ -1114,6 +1156,43 @@ def _project_request_deepen(value: Any) -> Any:
                     "current_dependency_projection_reason"
                 ),
             }
+    return projected
+
+
+def _project_register_source_bundle(value: Any) -> Any:
+    """Keep the exact registered-bundle receipt and host dispatch core.
+
+    register_source_bundle attaches the same background_takeover both top-level
+    and nested inside host_work; the nested copy plus the duplicated Pi
+    coordinator packet pushes the envelope past the inline budget.
+    """
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    projected = _pick(
+        value,
+        (
+            "asset_root_id",
+            "requested_asset_root_id",
+            "reused_existing_root",
+            "bundle_sha256",
+            "cached_pdf_indices",
+            "page_revisions",
+            "new_page_count",
+            "reused_page_count",
+            "bundle_validation_and_cache_ms",
+            "background_takeover",
+            "source_scope_takeover",
+        ),
+    )
+    host_work = value.get("host_work")
+    if isinstance(host_work, dict):
+        projected["host_work"] = _project_source_work_lifecycle(host_work)
+        projected["host_work"].pop("background_takeover", None)
+        projected["host_work"].pop("source_scope_takeover", None)
+    if isinstance(projected.get("background_takeover"), dict):
+        projected["background_takeover"] = _slim_background_takeover(
+            projected["background_takeover"]
+        )
     return projected
 
 
@@ -1187,6 +1266,17 @@ def _current_dependency_projection_blocker(
             and isinstance(host_work, dict)
             and host_work.get("current_dependency_snapshot_complete") is True
         ) else {}),
+        # The blocker still hands the host its exact locator/coordinator task
+        # so the extension can dispatch even when the exact control packet was
+        # too large to inline.
+        **({
+            "source_scope_takeover": deepcopy(data["source_scope_takeover"])
+        } if isinstance(data.get("source_scope_takeover"), dict) else {}),
+        **({
+            "background_takeover": _slim_background_takeover(
+                data["background_takeover"]
+            )
+        } if isinstance(data.get("background_takeover"), dict) else {}),
         "current_dependency_projection_blocker": {
             "schema_version": 1,
             "contract_id": (
@@ -1959,11 +2049,53 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
         "checkpoint_id",
         "source_digest",
     )
-    return {
+    projected = {
         **_pick(data, identity_fields),
         "projection_sha256": canonical_digest(data),
         "replay_operation": _operation_card(operation),
     }
+    if not isinstance(data, dict):
+        return projected
+    if operation in {
+        "progressive.request_deepen",
+        "progressive.register_source_bundle",
+        "progressive.status",
+    }:
+        # Host dispatch fields are operation-critical: losing them turns an
+        # awaiting_scope/background job into invisible debt the KP cannot
+        # advance. Keep the exact takeovers and dependency waits even in the
+        # last-resort identity projection.
+        if isinstance(data.get("source_scope_takeover"), dict):
+            projected["source_scope_takeover"] = deepcopy(
+                data["source_scope_takeover"]
+            )
+        if isinstance(data.get("background_takeover"), dict):
+            projected["background_takeover"] = _slim_background_takeover(
+                data["background_takeover"]
+            )
+        host_work = data.get("host_work")
+        if isinstance(host_work, dict):
+            waits = [
+                row for row in host_work.get("current_dependency_waits") or []
+                if isinstance(row, dict)
+            ]
+            if waits:
+                projected["current_dependency_waits"] = [
+                    _pick(
+                        row,
+                        (
+                            "schema_version",
+                            "contract_id",
+                            "campaign_id",
+                            "dependency_id",
+                            "job_id",
+                            "dependency_ref",
+                            "operational_class",
+                        ),
+                    )
+                    for row in waits
+                ]
+    return projected
 
 
 def _claim_lease_bindings(data: Any) -> list[dict[str, Any]]:
@@ -2228,6 +2360,8 @@ def project_envelope(
         projector = _project_progressive_status
     elif operation == "progressive.request_deepen":
         projector = _project_request_deepen
+    elif operation == "progressive.register_source_bundle":
+        projector = _project_register_source_bundle
     elif operation == "actions.advise":
         projector = _project_actions
     elif operation == "npc.reaction":
