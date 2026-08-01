@@ -14662,6 +14662,41 @@ def _pi_opening_review_adapter_fixture(
     return ws, request, scenario_path
 
 
+def _pi_opening_adapter_facts(
+    source_id: str, pdf_indices: list[int],
+) -> dict:
+    """Canonical six-question opening fast facts for the producer-result v1
+    contract. All refs point into the declared fact-evidence pages so the
+    adapter's fail-closed facts validation accepts them unchanged."""
+    refs = [{"source_id": source_id, "pdf_index": pdf_indices[0]}]
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": {"status": "source", "value": "1920s", "source_refs": refs},
+        "place": {
+            "status": "source", "value": "Opening Component",
+            "source_refs": refs,
+        },
+        "investigator_hook": {
+            "status": "source", "value": "A sealed letter arrives.",
+            "source_refs": refs,
+        },
+        "investigator_constraints": {
+            "status": "source",
+            "value": "Answer within the opening room.",
+            "source_refs": refs,
+        },
+        "player_safe_summary": {
+            "status": "source", "value": "A bounded player-safe opening.",
+            "source_refs": refs,
+        },
+        "content_flags": {
+            "status": "source", "value": ["none"], "source_refs": refs,
+        },
+    }
+
+
+
 def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_task(
     tmp_path: Path, monkeypatch,
 ):
@@ -14736,6 +14771,10 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
+            "fact_evidence_pdf_indices": [0],
+            "facts": _pi_opening_adapter_facts(
+                task["source"]["source_id"], [0],
+            ),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14756,6 +14795,9 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         "scenario_id": ws["asset_root_id"],
         "opening_review_generation": 2,
         "failure_class": None,
+        "facts": _pi_opening_adapter_facts(
+            captured["task"]["source"]["source_id"], [0],
+        ),
     }
     assert captured["calls"] == 1
     assert "challenge" not in json.dumps(captured["task"])
@@ -14828,6 +14870,10 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0, 1],
+            "fact_evidence_pdf_indices": [1],
+            "facts": _pi_opening_adapter_facts(
+                task["source"]["source_id"], [1],
+            ),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14893,6 +14939,10 @@ def test_pi_opening_review_adapter_rejects_changed_reused_page(
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
+            "fact_evidence_pdf_indices": [0],
+            "facts": _pi_opening_adapter_facts(
+                task["source"]["source_id"], [0],
+            ),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14945,6 +14995,10 @@ def test_pi_opening_review_adapter_rejects_equivalent_raw_page_row_rewrite(
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
+            "fact_evidence_pdf_indices": [0],
+            "facts": _pi_opening_adapter_facts(
+                task["source"]["source_id"], [0],
+            ),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -15009,6 +15063,10 @@ def test_pi_opening_review_adapter_accepts_untouched_normalized_raw_page_row(
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
+            "fact_evidence_pdf_indices": [0],
+            "facts": _pi_opening_adapter_facts(
+                task["source"]["source_id"], [0],
+            ),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -15075,6 +15133,10 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
+            "fact_evidence_pdf_indices": [0],
+            "facts": _pi_opening_adapter_facts(
+                task["source"]["source_id"], [0],
+            ),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -15117,8 +15179,10 @@ def test_pi_opening_review_adapter_failed_producer_does_not_forge_fulfillment(
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [],
+            "fact_evidence_pdf_indices": [],
             "source_bundle_path": None,
             "failure_class": "pdf_scope_failed",
+            "facts": None,
         }
 
     monkeypatch.setattr(adapter, "_run_pi", fake_pi)
