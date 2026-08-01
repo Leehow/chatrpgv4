@@ -4737,7 +4737,8 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     "model_policy", "workspace_root", "campaign_id", "asset_root_id",
     "job_id", "job_kind", "kind", "target_id", "target_label", "reason",
     "source", "source_bundle_path", "cached_pdf_indices",
-    "max_selected_pages", "source_bundle_manifest_contract",
+    "max_selected_pages", "pdf_index_caliber",
+    "source_bundle_manifest_contract",
     "resolve_operation", "result_delivery",
   ], "Pi source-scope locator task");
   if (
@@ -4748,6 +4749,11 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     || task.max_selected_pages !== 3
     || task.result_delivery !== "natural_completion_notification_only"
   ) throw new Error("Pi source-scope locator task contract drift");
+  if (task.pdf_index_caliber !== "printed_page_number_1_based") {
+    throw new Error(
+      "Pi source-scope locator pdf_index_caliber must be printed_page_number_1_based",
+    );
+  }
   for (const field of [
     "workspace_root", "campaign_id", "asset_root_id", "job_id", "job_kind",
     "kind", "target_id", "target_label", "source_bundle_path",
@@ -4953,11 +4959,14 @@ export async function runPiSourceScopeProducer(
   if (
     !Array.isArray(indices)
     || indices.length > 3
-    || indices.some((value) => !Number.isInteger(value) || (value as number) < 0)
+    || indices.some((value) => !Number.isInteger(value) || (value as number) < 1)
     || JSON.stringify(indices) !== JSON.stringify(
       [...new Set(indices as number[])].sort((a, b) => a - b),
     )
-  ) throw new Error("source-scope locator producer pdf_indices are invalid");
+  ) throw new Error(
+    "source-scope locator producer pdf_indices are invalid: must be 1..3 "
+    + "ascending positive integers (printed page numbers, 1-based)",
+  );
   if (status === "located") {
     if (
       indices.length === 0
@@ -5410,7 +5419,7 @@ async function runPiSourceScopeProducerReceiptOnly(
     || receipt.pdf_indices.length < 1
     || receipt.pdf_indices.length > 3
     || receipt.pdf_indices.some(
-      (value) => !Number.isInteger(value) || Number(value) < 0,
+      (value) => !Number.isInteger(value) || Number(value) < 1,
     )
     || JSON.stringify(receipt.pdf_indices) !== JSON.stringify(
       [...new Set(receipt.pdf_indices as number[])].sort((a, b) => a - b),
@@ -6472,6 +6481,7 @@ export async function autoDispatchPiRawPdfBindBundle(
     ),
     cached_pdf_indices: [],
     max_selected_pages: 3,
+    pdf_index_caliber: "printed_page_number_1_based",
     source_bundle_manifest_contract: {
       schema_version: 1,
       contract_id: "codex-pdf-skill-source-bundle.v1",

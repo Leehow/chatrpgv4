@@ -55,6 +55,7 @@ function task() {
     ),
     cached_pdf_indices: [],
     max_selected_pages: 3,
+    pdf_index_caliber: "printed_page_number_1_based",
     source_bundle_manifest_contract: {
       schema_version: 1,
       producer: "codex-pdf-skill",
@@ -664,6 +665,66 @@ await extension.autoDispatchPiSourceScopeLocator({
 }, "coc_invoke", envelope(taskAt("bad-receipt")));
 assert.equal(badReceiptCalls.length, 0);
 
+// Deepen playtest schema-drift regression: the locator task is a closed
+// machine contract with a 6-key resolve_operation. An 8-key card carrying
+// wire decoration (contract_ref/discovery_required) must be rejected as
+// source_scope_locator_task_invalid, never silently dispatched.
+const decoratedTask = {
+  ...task(),
+  resolve_operation: {
+    ...task().resolve_operation,
+    contract_ref: "progressive.resolve_source_scope@abc123",
+    discovery_required: false,
+  },
+};
+const driftCalls = [];
+const driftResult = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  call: async (...args) => { driftCalls.push(args); return {}; },
+}, "coc_invoke", envelope(decoratedTask));
+assert.equal(
+  driftResult.failure_class,
+  "source_scope_locator_task_invalid",
+  JSON.stringify(driftResult),
+);
+assert.equal(driftCalls.length, 0);
+
+// Page-caliber regression: the module cache uses 1-based printed page
+// numbers; a locator receipt containing pdf_index 0 is out-of-caliber and
+// must be rejected before resolve. (An off-by-one window such as [4,5,6]
+// vs cached [5,6,7] remains fail-closed at resolve via content drift.)
+const zeroBasedProducer = await producer("zero-based.mjs", `
+if (process.argv[2] === "--capabilities") process.stdout.write(${JSON.stringify(handshake)});
+else process.stdout.write(JSON.stringify({
+  schema_version: 1,
+  contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+  job_id: "job-locator",
+  status: "located",
+  kind: "location",
+  target_id: "archive",
+  pdf_indices: [0, 1, 2],
+  source_bundle_path: ${JSON.stringify(task().source_bundle_path)},
+  failure_class: null,
+}));
+`);
+await assert.rejects(
+  extension.runPiSourceScopeProducer(task(), {
+    command: zeroBasedProducer,
+  }),
+  /pdf_indices are invalid/,
+);
+const zeroBasedCalls = [];
+await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  command: () => zeroBasedProducer,
+  call: async (...args) => { zeroBasedCalls.push(args); return {}; },
+}, "coc_invoke", envelope(taskAt("zero-based")));
+assert.equal(zeroBasedCalls.length, 0);
+
 const slow = await producer("slow.mjs", `
 if (process.argv[2] === "--capabilities") process.stdout.write(${JSON.stringify(handshake)});
 else setTimeout(() => process.stdout.write(${JSON.stringify(located)}), 500);
@@ -784,5 +845,7 @@ process.stdout.write(JSON.stringify({
     invalid_handshake_no_mutation: true,
     invalid_receipt_no_mutation: true,
     timeout_no_mutation: true,
+    decorated_resolve_operation_rejected: true,
+    zero_based_caliber_rejected: true,
   },
 }) + "\n");

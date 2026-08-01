@@ -4552,3 +4552,110 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
     assert server.wire_projection.transport_bytes(projected) <= (
         server.wire_projection.MAX_INLINE_BYTES
     )
+
+
+def test_mcp_wire_locator_task_envelope_passes_through_verbatim():
+    """Deepen playtest schema-drift regression.
+
+    The locator task's nested ``resolve_operation`` is a closed machine card
+    consumed with exactKeys by the Pi extension.  ``_decorate_cards`` must not
+    add contract_ref/discovery_required to it; that drift produced the
+    ``source_scope_locator_task_invalid`` dispatch block in the deepen
+    playtest (8-key card vs 6-key exactKeys).
+    """
+    server = _load_server()
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-task.v1",
+        "bootstrap_instruction": "closed",
+        "instruction_ref": "/plugin/coc-source-scope-locator.md",
+        "contract_ref": "/plugin/source-scope-locator-v1.json",
+        "contract_revision": "sha256:" + "a" * 64,
+        "adapter_mode": "pi_external_pdf_skill_lifecycle",
+        "model_policy": "pinned_xai_grok_4_5_thinking_low",
+        "workspace_root": "/workspace",
+        "campaign_id": "wire-locator",
+        "asset_root_id": "source-root",
+        "job_id": "job-locator",
+        "job_kind": "deepen_location",
+        "kind": "location",
+        "target_id": "archive",
+        "target_label": "Archive",
+        "reason": "arrival",
+        "source": {
+            "path": "/workspace/module.pdf",
+            "source_id": "pdf:wire-locator",
+            "title": "Wire Locator",
+            "file_sha256": "b" * 64,
+        },
+        "source_bundle_path": "/workspace/.tmp/coc-source-scope/wire-locator/job-locator/contract",
+        "cached_pdf_indices": [1, 2, 3, 4],
+        "max_selected_pages": 3,
+        "pdf_index_caliber": "printed_page_number_1_based",
+        "source_bundle_manifest_contract": {
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source_required": [
+                "source_id", "title", "path", "file_sha256", "page_count",
+            ],
+            "page_required": [
+                "pdf_index", "markdown_path", "text_sha256",
+                "review_state", "parse_confidence", "grep_anchors",
+            ],
+            "review_state": "manual_accepted",
+            "parse_confidence": "number_from_0_through_1",
+            "text_sha256": "sha256_of_exact_markdown_file_bytes",
+            "assets": [],
+        },
+        "resolve_operation": {
+            "operation": "progressive.resolve_source_scope",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "job_id": "job-locator",
+                "kind": "location",
+                "target_id": "archive",
+            },
+            "missing_arguments": [
+                "pdf_indices",
+                "source_bundle_path_if_any_selected_page_is_uncached",
+            ],
+            "authority": "source_scope_only",
+            "hard_gate": False,
+        },
+        "result_delivery": "natural_completion_notification_only",
+    }
+    envelope = {
+        "ok": True,
+        "tool": "progressive.status",
+        "data": {
+            "source_scope_takeover": {
+                "schema_version": 1,
+                "kind": "awaiting_source_scope",
+                "next_host_action": {
+                    "action": "invoke_coc_dispatch_source_scope_locator",
+                    "task": task,
+                },
+            },
+        },
+        "warnings": [],
+        "hints": [],
+    }
+    projected = server.wire_projection.project_envelope(
+        "progressive.status",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+    )
+    returned_task = projected["data"]["source_scope_takeover"][
+        "next_host_action"
+    ]["task"]
+    resolve_operation = returned_task["resolve_operation"]
+    assert set(resolve_operation) == {
+        "operation", "invoke_via", "prefilled_arguments",
+        "missing_arguments", "authority", "hard_gate",
+    }, resolve_operation
+    assert "contract_ref" not in resolve_operation
+    assert "discovery_required" not in resolve_operation
+    assert returned_task["pdf_index_caliber"] == "printed_page_number_1_based"
+    # KP-facing cards still get the discovery decoration elsewhere.
+    # The locator envelope itself remains byte-identical.
+    assert returned_task == task

@@ -1433,6 +1433,8 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
             "invalid_handshake_no_mutation": True,
             "invalid_receipt_no_mutation": True,
             "timeout_no_mutation": True,
+            "decorated_resolve_operation_rejected": True,
+            "zero_based_caliber_rejected": True,
         },
     }
     pi = json.loads(

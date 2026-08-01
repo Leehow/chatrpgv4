@@ -76,6 +76,15 @@ FINALIZE_PLAYER_INPUT_HANDLING_VALUES = (
 )
 INLINE_ARGUMENT_SCHEMA_MARKER = "_inline_argument_schema"
 
+# Closed machine task envelopes pass through the wire verbatim. Their nested
+# operation cards (e.g. the locator task's ``resolve_operation``) are consumed
+# with exactKeys validation by the Pi extension; wire decoration would add
+# contract_ref/discovery_required keys and break that strict machine contract.
+LOCATOR_TASK_CONTRACT_IDS = frozenset({
+    "coc.pi-source-scope-locator-task.v1",
+    "coc.codex-source-scope-locator-task.v1",
+})
+
 
 def transport_bytes(value: Any) -> int:
     """Return bytes for the same non-ASCII JSON shape emitted by the server."""
@@ -1885,6 +1894,14 @@ def _decorate_cards(
         ]
     if not isinstance(value, dict):
         return value
+    if (
+        isinstance(value.get("contract_id"), str)
+        and value["contract_id"] in LOCATOR_TASK_CONTRACT_IDS
+    ):
+        # Closed locator task envelopes are machine contracts, not KP-facing
+        # cards: pass them through byte-for-byte so the Pi extension's
+        # exactKeys validation sees exactly what the toolbox emitted.
+        return deepcopy(value)
     inline_argument_schema = value.get(INLINE_ARGUMENT_SCHEMA_MARKER) is True
     decorated = {
         key: _decorate_cards(

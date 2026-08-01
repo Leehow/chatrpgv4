@@ -11908,6 +11908,7 @@ def _source_scope_locator_dispatch(
         "source_bundle_path": str(bundle_path),
         "cached_pdf_indices": cached_pdf_indices,
         "max_selected_pages": 3,
+        "pdf_index_caliber": "printed_page_number_1_based",
         "source_bundle_manifest_contract": {
             "schema_version": 1,
             "producer": "codex-pdf-skill",
@@ -16164,7 +16165,9 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
         "pdf_indices": {
             "type": "array",
             "required": True,
-            "desc": "exact ascending 1..3 zero-based PDF indices in that bundle",
+            "desc": "exact ascending 1..3 printed page numbers (Page N as "
+            "printed in the PDF, 1-based) identical to the module cache's "
+            "accepted_cached_pdf_indices; never 0-based physical order",
         },
     },
 )

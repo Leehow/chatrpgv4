@@ -18292,6 +18292,23 @@ def test_wire_projections_carry_deepen_locator_and_fate_gate(
     assert takeover["next_host_action"]["task"]["contract_id"] == (
         "coc.pi-source-scope-locator-task.v1"
     )
+    # Schema-drift regression: the locator task envelope is a closed machine
+    # contract consumed with exactKeys by the Pi extension. The wire must
+    # never decorate its nested resolve_operation card with
+    # contract_ref/discovery_required (that drift blocked locator dispatch
+    # in the deepen playtest).
+    resolve_operation = takeover["next_host_action"]["task"][
+        "resolve_operation"
+    ]
+    assert set(resolve_operation) == {
+        "operation", "invoke_via", "prefilled_arguments",
+        "missing_arguments", "authority", "hard_gate",
+    }, resolve_operation
+    assert "contract_ref" not in resolve_operation
+    assert "discovery_required" not in resolve_operation
+    assert takeover["next_host_action"]["task"]["pdf_index_caliber"] == (
+        "printed_page_number_1_based"
+    )
     assert projected_deepen["data"]["status"]["fate_closure_gate"]["status"] == (
         "blocked"
     )

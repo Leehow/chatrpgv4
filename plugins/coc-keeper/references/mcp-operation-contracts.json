@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b931d254159e520f2630fc42b1dfd71e5ff3828c5170784a33e76b46fcf86ca4",
+  "content_sha256": "sha256:a44a1ed898984c22e96a5998af3db5f76293d5d6aa50fb198ff854b87a17de1c",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1656,7 +1656,7 @@
             "type": "string"
           },
           "pdf_indices": {
-            "description": "exact ascending 1..3 zero-based PDF indices in that bundle",
+            "description": "exact ascending 1..3 printed page numbers (Page N as printed in the PDF, 1-based) identical to the module cache's accepted_cached_pdf_indices; never 0-based physical order",
             "type": "array"
           },
           "root": {
