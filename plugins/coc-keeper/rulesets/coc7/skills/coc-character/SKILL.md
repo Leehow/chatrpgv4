@@ -85,14 +85,24 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   printed player-selected group rows; other grouped/uncommon variants appear
   only when an allocation explicitly selects them. Blank sheet rows remain
   untyped. The campaign-bound investigator contract returns
-  `campaign_binding.era` and `guided_quick_fire_campaign_era`. Continue only
-  when that era contract reports `supported=true`, and set `sheet.era` exactly
-  to its `required_sheet_era`. This is currently a closed 1920s policy; a
-  medieval, modern, or other unsupported campaign must stop before rolling or
-  creating rather than borrow the 1920s sheet. The Keeper still selects occupation
-  eligibility and point
-  destinations semantically. This is a deterministic reconciliation gate, not
-  a second occupation-allocation engine. An already complete external sheet is
+  `campaign_binding.era` and `guided_quick_fire_campaign_era`. When that era
+  contract reports `supported=true`, use only standard Quick Fire and set
+  `sheet.era` exactly to its `required_sheet_era`. When it reports
+  `status="kp_guided_era_adaptive_available"` with
+  `fallback.available=true`, do not borrow the 1920s standard sheet and do not
+  stop: select exactly `fallback.input_mode` (currently
+  `kp_guided_era_adaptive`) from the returned schema. In that route, the KP
+  chooses the era-appropriate occupation, omitted skills, reskins, and custom
+  skills semantically; record `sheet.era_adaptive=true`,
+  `sheet.kp_guided=true`, a matching creation record, occupation `reason`,
+  `skill_point_formula`, and `formula_reason`, plus each reskin/custom skill's
+  canonical base source and player-facing zh-Hans name in `skill_provenance`.
+  For rolled methods, bind every characteristic and Luck to the existing
+  `rules.roll_dice` receipts; Luck retains the exact
+  `investigator_creation_luck` receipt. The rules layer still owns catalog
+  bases, skill budgets, starting caps, derived values, age adjustments, and
+  receipt verification. This is a deterministic reconciliation gate, not a
+  second occupation-allocation engine. An already complete external sheet is
   accepted outside an owned Pi live-opening route only through the explicit
   `creation.input_mode="import_complete_sheet"` branch.
 - **Quick-Fire Luck exact recipe:** invoke `coc_invoke` exactly once with
@@ -110,11 +120,18 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   recipe preserves deterministic rolls; investigator concept, characteristic
   assignment, occupation, backstory, and final character craft remain live
   semantic Keeper work.
-- During this guided setup window, `rules.cash_assets` is the only additional
-  rules query admitted. Use it with the confirmed canonical `Credit Rating`;
-  omit `period` to bind the lookup to the canonical campaign era. An explicit
-  period must match that era, and a campaign era without an authoritative
-  table fails closed rather than falling back to 1920s. Do not estimate it.
+- During this guided setup window, use `rules.cash_assets` with the confirmed
+  canonical `Credit Rating`; omit `period` to bind the lookup to the canonical
+  campaign era. An explicit period must match that era. A campaign era without
+  an authoritative table still fails closed—never borrow a 1920s table or
+  estimate a numeric amount—but its error exposes the machine-readable
+  `details.cash_semantic_disposition`. In the active
+  `kp_guided_era_adaptive` route only, follow that exact disposition with
+  `state.cash_semantic`: provide a stable `record_id`, `basis` of
+  `module_pregen` or `kp_era_adaptation`, a semantic `reason`, a `decision_id`,
+  and player-safe `cash_description` and/or `assets`. It records only
+  campaign-local KP bookkeeping with `kp_guided`/`cash_semantic` provenance;
+  it cannot alter rule tables or claim a rules-derived cash amount.
 - After the player confirms the final parameters, reuse the canonical
   `setup.invoke` card already returned by setup inspection and construct its
   `investigator.create` payload from the retained

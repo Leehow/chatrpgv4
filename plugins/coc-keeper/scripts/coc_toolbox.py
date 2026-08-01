@@ -1280,6 +1280,29 @@ def _pi_opening_character_setup_gate(
             or party.get("active_investigator_ids") != []
         ):
             return None
+    try:
+        campaign = coc_state.load_campaign_state(campaign_dir)
+        input_mode = coc_runtime_ops.guided_character_creation_input_mode(
+            str(campaign.get("era") or "")
+        )
+    except (OSError, ValueError):
+        return None
+    if input_mode == "kp_guided_era_adaptive":
+        return {
+            "schema_version": 1,
+            "status": "blocked",
+            "hard_gate": True,
+            "activation_allowed": False,
+            "phase": "opening_character_setup_required",
+            "campaign_id": campaign_id,
+            "character_setup_policy": "kp_guided_era_adaptive",
+            "character_setup_input_mode": input_mode,
+            "next_operation": None,
+            "instruction": (
+                "complete one KP-guided era-adaptive investigator creation and "
+                "exact campaign link before opening play"
+            ),
+        }
     return {
         "schema_version": 1,
         "status": "blocked",
@@ -1665,7 +1688,7 @@ def _pi_opening_setup_operation_allowed(
         }
     if name == "rules.roll_dice":
         allowed = {"expression", "decision_id", "purpose", "reason"}
-        return (
+        quick_fire_luck = (
             set(args) <= allowed
             and {"expression", "decision_id", "purpose"} <= set(args)
             and args.get("expression") == "3D6"
@@ -1676,6 +1699,26 @@ def _pi_opening_setup_operation_allowed(
                 or isinstance(args.get("reason"), str)
             )
             and bool(str(args.get("decision_id") or "").strip())
+        )
+        if quick_fire_luck:
+            return True
+        return (
+            isinstance(gate, dict)
+            and gate.get("character_setup_policy") == "kp_guided_era_adaptive"
+            and set(args) <= {"expression", "decision_id", "reason"}
+            and {"expression", "decision_id"} <= set(args)
+            and args.get("expression") in {"3D6", "2D6+6"}
+            and (
+                "reason" not in args
+                or args.get("reason") is None
+                or isinstance(args.get("reason"), str)
+            )
+            and bool(str(args.get("decision_id") or "").strip())
+        )
+    if name == "state.cash_semantic":
+        return (
+            isinstance(gate, dict)
+            and gate.get("character_setup_policy") == "kp_guided_era_adaptive"
         )
     if name in _PI_OPENING_SETUP_ALLOWED_OPERATIONS:
         return True
@@ -8472,6 +8515,13 @@ def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
                 "invalid_param",
                 f"campaign era {campaign_era!r} has no authoritative "
                 "cash-assets table; no 1920s fallback was applied",
+                details={
+                    "cash_semantic_disposition": (
+                        coc_runtime_ops.kp_guided_cash_semantic_disposition(
+                            campaign_era
+                        )
+                    ),
+                },
             ) from exc
         raise ToolError("invalid_param", str(exc)) from exc
     return data, [], [
@@ -20518,6 +20568,118 @@ def _tool_secrets_briefing(ctx: Ctx, args: dict[str, Any]):
 # --------------------------------------------------------------------------- #
 
 @tool(
+    "state.cash_semantic",
+    "Record one KP-guided, campaign-local starting-cash/assets disposition when the campaign era has no authoritative cash-assets table. This never calculates, replaces, or changes rules-table values.",
+    {
+        "record_id": {"type": "string", "required": True, "desc": "stable campaign-local cash record id"},
+        "investigator_id": {"type": "string", "desc": "optional planned or linked investigator id"},
+        "cash_description": {"type": "string", "desc": "player-safe semantic cash description; not a rules-derived amount"},
+        "assets": {"type": "array", "desc": "player-safe starting assets from a pregen or era adaptation"},
+        "basis": {"type": "string", "required": True, "desc": "module_pregen | kp_era_adaptation"},
+        "reason": {"type": "string", "required": True, "desc": "why this source/pacing-appropriate semantic disposition applies"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+    write_domains=("world",),
+)
+def _tool_state_cash_semantic(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.cash_semantic"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous campaign-local cash disposition"
+        ], []
+    record_id = str(args["record_id"] or "").strip()
+    if _SAFE_ID.fullmatch(record_id) is None:
+        raise ToolError("invalid_param", "record_id must be a stable safe id")
+    campaign = coc_state.load_campaign_state(ctx.campaign_dir)
+    campaign_era = str(campaign.get("era") or "").strip()
+    if (
+        coc_runtime_ops.guided_character_creation_input_mode(campaign_era)
+        != "kp_guided_era_adaptive"
+    ):
+        raise ToolError(
+            "cash_semantic_unavailable",
+            "state.cash_semantic is only available for a KP-guided era-adaptive campaign",
+        )
+    try:
+        _rules_resolver(ctx, "cash_assets").cash_assets(0, period=campaign_era)
+    except ValueError:
+        pass
+    else:
+        raise ToolError(
+            "cash_semantic_unavailable",
+            f"campaign era {campaign_era!r} has an authoritative cash-assets table; use rules.cash_assets",
+        )
+    basis = str(args["basis"] or "").strip()
+    if basis not in {"module_pregen", "kp_era_adaptation"}:
+        raise ToolError(
+            "invalid_param",
+            "basis must be module_pregen or kp_era_adaptation",
+        )
+    reason = str(args["reason"] or "").strip()
+    if not reason:
+        raise ToolError("invalid_param", "reason must be non-empty")
+    raw_cash = args.get("cash_description")
+    cash_description = None
+    if raw_cash is not None:
+        if not isinstance(raw_cash, str) or not raw_cash.strip():
+            raise ToolError("invalid_param", "cash_description must be a non-empty string when supplied")
+        cash_description = raw_cash.strip()
+    raw_assets = args.get("assets", [])
+    if (
+        not isinstance(raw_assets, list)
+        or len(raw_assets) > 32
+        or any(not isinstance(asset, str) or not asset.strip() for asset in raw_assets)
+    ):
+        raise ToolError("invalid_param", "assets must be a list of at most 32 non-empty strings")
+    assets = [asset.strip() for asset in raw_assets]
+    if cash_description is None and not assets:
+        raise ToolError("invalid_param", "supply cash_description and/or assets")
+    raw_investigator_id = args.get("investigator_id")
+    investigator_id = None
+    if raw_investigator_id is not None:
+        investigator_id = str(raw_investigator_id).strip()
+        if _SAFE_ID.fullmatch(investigator_id) is None:
+            raise ToolError("invalid_param", "investigator_id must be a stable safe id when supplied")
+    world = ctx.world()
+    records = world.get("cash_semantic_records")
+    if records is None:
+        records = {}
+    if not isinstance(records, dict):
+        raise ToolError("state_corrupt", "world semantic cash record map is invalid")
+    if record_id in records:
+        raise ToolError(
+            "idempotency_conflict",
+            f"cash semantic record_id {record_id!r} already exists under another decision",
+        )
+    disposition = coc_runtime_ops.kp_guided_cash_semantic_disposition(campaign_era)
+    record = {
+        "record_id": record_id,
+        "campaign_id": ctx.campaign_id,
+        **({"investigator_id": investigator_id} if investigator_id else {}),
+        **({"cash_description": cash_description} if cash_description else {}),
+        "assets": assets,
+        "provenance": {
+            **disposition["provenance"],
+            "basis": basis,
+            "reason": reason,
+            "rules_table_authority": "unavailable_for_campaign_era",
+        },
+        "recorded_at": _now_iso(),
+    }
+    records[record_id] = record
+    world["cash_semantic_records"] = records
+    ctx.save_world(world)
+    ctx.log_event({"event_type": "cash_semantic_recorded", **record})
+    ctx.ledger_record(decision_id, tool_name, record)
+    return record, [], [
+        "this is campaign-local KP semantic bookkeeping, not a rules cash calculation or table edit",
+        "keep source-pregen facts and later spending effects distinct from this starting disposition",
+    ]
+
+
+@tool(
     "state.record_clue",
     "Record a clue as discovered. Idempotent; unlocks any scenes gated on it. Off-design discoveries warn, not block.",
     {
@@ -25390,6 +25552,7 @@ _MUTATING_TOOLS = frozenset({
     "state.backstory_corruption_add",
     "state.threat_tick",
     "state.belief_apply",
+    "state.cash_semantic",
     "state.record_clue",
     "state.move_scene",
     "state.set_flag",

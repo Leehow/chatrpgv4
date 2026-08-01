@@ -2403,6 +2403,57 @@ async function exerciseFailureDrain(mode) {
     && !projectedText.includes("location")
     && !projectedText.includes("task"));
 
+  const adaptiveDetails = {
+    ...characterSetupDetails,
+    campaign_id: "discriminated-medieval-character-setup",
+    character_setup_policy: "kp_guided_era_adaptive",
+    character_setup_input_mode: "kp_guided_era_adaptive",
+  };
+  const adaptiveResumeParams = {
+    ...resumeParams,
+    campaign: adaptiveDetails.campaign_id,
+  };
+  const adaptiveGate = new main.OpeningTerminalContinuationGate();
+  const adaptiveAdmission = adaptiveGate.openingSetupToolError(
+    "coc_invoke",
+    adaptiveResumeParams,
+    "discriminated-medieval-opening-resume",
+  );
+  const adaptiveHydrated = adaptiveGate.observeOpeningSetupInvocation(
+    "session.resume",
+    adaptiveResumeParams,
+    {
+      ok: false,
+      tool: "session.resume",
+      error: {
+        code: "opening_setup_incomplete",
+        details: adaptiveDetails,
+      },
+    },
+    "discriminated-medieval-opening-resume",
+  );
+  const adaptiveProjectedGate = adaptiveHydrated.modelProjection?.data?.opening_gate;
+  check("medieval character discriminator forwards only the adaptive route",
+    adaptiveAdmission === null
+    && adaptiveHydrated.accepted === true
+    && adaptiveHydrated.reason === "prebound_opening_character_setup"
+    && adaptiveProjectedGate?.character_setup_policy
+      === "kp_guided_era_adaptive_no_source"
+    && adaptiveProjectedGate?.character_setup_input_mode
+      === "kp_guided_era_adaptive"
+    && adaptiveProjectedGate?.allowed_actions?.some((action) => (
+      action.kind === "investigator.create"
+      && action.required_creation_input_mode === "kp_guided_era_adaptive"
+    ))
+    && adaptiveProjectedGate?.allowed_actions?.some((action) => (
+      action.operation === "state.cash_semantic"
+      && action.provenance?.kp_guided === true
+      && action.provenance?.cash_semantic === true
+    ))
+    && !adaptiveProjectedGate?.allowed_actions?.some((action) => (
+      action.kind === "campaign.render_briefing"
+    )));
+
   const inspected = [{ source_id: "pdf:minimal", pdf_index: 0 }];
   const unresolvedAnswer = {
     status: "unresolved", inspected_source_refs: inspected,
@@ -2487,6 +2538,13 @@ async function exerciseFailureDrain(mode) {
         kind: "investigator.contract",
         result: {
           ruleset_id: "coc7",
+          guided_quick_fire_campaign_era: {
+            status: "standard_quick_fire_available",
+            supported: true,
+            required_sheet_era: "1920s",
+            supported_eras: ["1920s"],
+            failure_code: null,
+          },
           payload_schema: {
             oneOf: [
               {
@@ -2503,7 +2561,10 @@ async function exerciseFailureDrain(mode) {
               },
             ],
             $defs: {
-              quick_fire_creation: { type: "object" },
+              quick_fire_creation: {
+                type: "object",
+                properties: { input_mode: { const: "guided_quick_fire" } },
+              },
               complete_sheet: { type: "object" },
               complete_sheet_creation: { type: "object" },
             },
@@ -2521,9 +2582,7 @@ async function exerciseFailureDrain(mode) {
       === undefined
     && projectedContract.data.result.payload_schema.$defs
       .complete_sheet_creation === undefined);
-  const unsupportedEraContract = gate.projectGuidedCharacterContract(
-    "setup.investigator_contract",
-    contractParams,
+  const adaptiveEraContract = main.projectPiGuidedCharacterContract(
     {
       ok: true,
       tool: "setup.investigator_contract",
@@ -2537,29 +2596,76 @@ async function exerciseFailureDrain(mode) {
             era: "medieval",
           },
           guided_quick_fire_campaign_era: {
+            status: "kp_guided_era_adaptive_available",
             supported: false,
             required_sheet_era: "medieval",
             supported_eras: ["1920s"],
-            failure_code: "guided_quick_fire_unsupported_campaign_era",
+            failure_code: null,
+            fallback: {
+              status: "available",
+              available: true,
+              route: "kp_guided_era_adaptive",
+              input_mode: "kp_guided_era_adaptive",
+            },
           },
           payload_schema: {
-            oneOf: [],
-            $defs: {},
+            oneOf: [
+              {
+                title: "KP-guided era-adaptive creation",
+                properties: {
+                  creation: {
+                    $ref: "#/$defs/kp_guided_era_adaptive_creation",
+                  },
+                },
+              },
+              {
+                title: "Import",
+                properties: {
+                  creation: { $ref: "#/$defs/complete_sheet_creation" },
+                },
+              },
+            ],
+            $defs: {
+              quick_fire_sheet: { type: "object" },
+              quick_fire_creation: {
+                type: "object",
+                properties: { input_mode: { const: "guided_quick_fire" } },
+              },
+              kp_guided_era_adaptive_creation: {
+                type: "object",
+                properties: {
+                  input_mode: { const: "kp_guided_era_adaptive" },
+                },
+              },
+              complete_sheet: { type: "object" },
+              complete_sheet_creation: { type: "object" },
+            },
           },
         },
       },
     },
+    campaignId,
   );
-  check("Pi contract projection fails closed for unsupported campaign era",
-    unsupportedEraContract.ok === false
-    && unsupportedEraContract.error.code
-      === "guided_quick_fire_unsupported_campaign_era"
-    && unsupportedEraContract.error.details.campaign_id === campaignId
-    && unsupportedEraContract.error.details.campaign_era === "medieval"
-    && unsupportedEraContract.error.details.supported_eras[0] === "1920s"
-    && !JSON.stringify(unsupportedEraContract).includes(
-      "import_complete_sheet",
-    ));
+  check("Pi contract projection exposes the authoritative era-adaptive route",
+    adaptiveEraContract.ok === true
+    && adaptiveEraContract.data.result.applicable_input_mode
+      === "kp_guided_era_adaptive"
+    && adaptiveEraContract.data.result.character_creation_route.route
+      === "kp_guided_era_adaptive"
+    && adaptiveEraContract.data.result.character_creation_route.input_mode
+      === "kp_guided_era_adaptive"
+    && adaptiveEraContract.data.result.payload_schema.oneOf.length === 1
+    && adaptiveEraContract.data.result.payload_schema.oneOf[0].properties
+      .creation.$ref === "#/$defs/kp_guided_era_adaptive_creation"
+    && !JSON.stringify(adaptiveEraContract).includes("import_complete_sheet")
+    && adaptiveEraContract.data.result.payload_schema.$defs.complete_sheet
+      === undefined
+    && adaptiveEraContract.data.result.payload_schema.$defs
+      .complete_sheet_creation === undefined
+    && adaptiveEraContract.data.result.payload_schema.$defs.quick_fire_sheet
+      === undefined
+    && adaptiveEraContract.data.result.payload_schema.$defs.quick_fire_creation
+      === undefined);
   const contractObserved = gate.observeOpeningSetupInvocation(
     "setup.investigator_contract",
     contractParams,
@@ -3120,6 +3226,13 @@ async function exerciseFailureDrain(mode) {
       kind: "investigator.contract",
       result: {
         ruleset_id: "coc7",
+        guided_quick_fire_campaign_era: {
+          status: "standard_quick_fire_available",
+          supported: true,
+          required_sheet_era: "1920s",
+          supported_eras: ["1920s"],
+          failure_code: null,
+        },
         payload_schema: {
           title: "Full investigator contract",
           oneOf: [

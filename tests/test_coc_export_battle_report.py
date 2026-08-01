@@ -768,6 +768,135 @@ def test_initial_skills_prefer_creation_frozen_snapshot(tmp_path):
     assert "initial_skills_validation" not in projected
 
 
+def test_exports_kp_guided_era_adaptive_creation_provenance(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    investigator = run / "sandbox" / ".coc" / "investigators" / "ada"
+    character = json.loads(
+        (investigator / "character.json").read_text(encoding="utf-8")
+    )
+    occupation = {
+        "name": "领主家臣",
+        "reason": "为领主处理文书、巡视封地并随行出行。",
+        "era_adaptive": True,
+        "skill_point_formula": "EDU*4",
+        "formula_reason": "该职位的训练重心是读写、礼法与行政教育。",
+    }
+    character.update({
+        "era": "medieval",
+        "era_adaptive": True,
+        "kp_guided": True,
+        "occupation": occupation,
+        "skill_provenance": {
+            "Drive Auto": {
+                "original_name": "Drive Auto",
+                "reskinned_name": "骑术",
+                "era_adaptive": True,
+            },
+            "Heraldry": {
+                "original_name": "History",
+                "reskinned_name": "纹章学",
+                "era_adaptive": True,
+                "custom": True,
+            },
+        },
+    })
+    _write_json(investigator / "character.json", character)
+    _write_json(investigator / "creation.json", {
+        "input_mode": "kp_guided_era_adaptive",
+        "era": "medieval",
+        "era_adaptive": True,
+        "kp_guided": True,
+        "method": "point_buy_460",
+        "occupation": occupation,
+        "skill_budget": {
+            "occupation_points": {
+                "budget": 260,
+                "spent": 260,
+                "allocations": {"Heraldry": 45, "Drive Auto": 20},
+            },
+            "personal_interest_points": {
+                "budget": 130,
+                "spent": 130,
+                "allocations": {"Stealth": 50, "Ride": 50},
+            },
+        },
+        "keeper_secret": "DO_NOT_EXPORT",
+    })
+
+    report = module.export_battle_report(run)
+
+    investigator_report = report["investigators"][0]
+    projected_character = investigator_report["character"]
+    assert projected_character["era_adaptive"] is True
+    assert projected_character["kp_guided"] is True
+    assert projected_character["skill_provenance"] == {
+        "Drive Auto": {
+            "original_name": "Drive Auto",
+            "reskinned_name": "骑术",
+            "era_adaptive": True,
+        },
+        "Heraldry": {
+            "original_name": "History",
+            "reskinned_name": "纹章学",
+            "era_adaptive": True,
+            "custom": True,
+        },
+    }
+    expected_creation = {
+        "input_mode": "kp_guided_era_adaptive",
+        "era": "medieval",
+        "era_adaptive": True,
+        "kp_guided": True,
+        "method": "point_buy_460",
+        "occupation": occupation,
+        "skill_budget": {
+            "occupation_points": {
+                "budget": 260,
+                "spent": 260,
+                "allocations": {"Heraldry": 45, "Drive Auto": 20},
+            },
+            "personal_interest_points": {
+                "budget": 130,
+                "spent": 130,
+                "allocations": {"Stealth": 50, "Ride": 50},
+            },
+        },
+    }
+    assert investigator_report["creation"] == expected_creation
+    assert projected_character["creation"] == expected_creation
+    evidence = (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    assert "DO_NOT_EXPORT" not in evidence
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    for phrase in (
+        "#### Era-Adaptive Creation",
+        "- Input Mode: kp_guided_era_adaptive",
+        "- Skill Point Formula: EDU*4",
+        "- Skill Budget Provenance:",
+        "  - Occupation Points: 260 / 260",
+        "#### Skill Adaptation Provenance",
+        "- `Drive Auto`: `Drive Auto` → 骑术",
+        "- `Heraldry`: `History` → 纹章学 (custom)",
+    ):
+        assert phrase in markdown
+
+    metadata = json.loads((run / "run.json").read_text(encoding="utf-8"))
+    metadata["play_language"] = "zh-Hans"
+    _write_json(run / "run.json", metadata)
+    module.export_battle_report(run)
+    zh_markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    for phrase in (
+        "#### 年代适配建卡",
+        "- 输入模式: kp_guided_era_adaptive",
+        "- 职业技能点公式: EDU*4",
+        "- 技能点预算来源:",
+        "#### 技能年代适配来源",
+        "- `Heraldry`: `History` → 纹章学（自创）",
+    ):
+        assert phrase in zh_markdown
+
+
 def test_initial_skills_omitted_without_snapshot_or_player_facing_sheet(tmp_path):
     module = _load()
     run = tmp_path / "run"

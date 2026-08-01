@@ -169,8 +169,9 @@ def test_render_briefing_omits_unavailable_machine_fields_and_internal_markers(
     assert "generated_at" not in markdown
     assert "generated_by" not in markdown
     assert "不要使用内置预设调查员" not in markdown
-    assert "当前自动快速建卡不匹配" in markdown
-    assert "交给守秘人确认后使用" in markdown
+    assert "年代适配建卡" in markdown
+    assert "建卡不会因此停止" in markdown
+    assert "预设调查员" in markdown
     assert "creation.input_mode" not in markdown
     assert "规则包" not in markdown
     assert "宿主" not in markdown
@@ -178,7 +179,7 @@ def test_render_briefing_omits_unavailable_machine_fields_and_internal_markers(
     assert "接下来请选择一种属性生成方式" not in markdown
 
 
-def test_medieval_campaign_briefing_fails_closed_without_modern_guidance():
+def test_medieval_campaign_briefing_routes_to_kp_guided_era_adaptation():
     briefing = _load_briefing_script()
 
     markdown = briefing.render_briefing(
@@ -205,14 +206,13 @@ def test_medieval_campaign_briefing_fails_closed_without_modern_guidance():
     assert "- **年代**：medieval" in markdown
     assert "- **来源**：Castle Chronicle" in markdown
     assert "当前自动快速建卡可靠支持的年代：1920年代" in markdown
-    assert "当前自动快速建卡不匹配" in markdown
-    assert (
-        "不能把属于1920年代的角色卡中的职业、技能、金钱或装备直接套到本战役"
-        in markdown
-    )
-    assert "交给守秘人确认后使用" in markdown
+    assert "## 年代适配建卡" in markdown
+    assert "不能直接套用其他年代的标准卡包；但建卡不会因此停止" in markdown
+    assert "属性、幸运、衍生值和年龄调整仍按规则处理" in markdown
+    assert "职业、技能取舍和名称由时代背景决定" in markdown
+    assert "预设调查员" in markdown
     assert "creation.input_mode" not in markdown
-    assert "暂不生成数值" in markdown
+    assert "暂不生成数值" not in markdown
     for jargon in ("规则包", "宿主", "流程", "导入"):
         assert jargon not in markdown
     assert "## 适合的调查员" not in markdown
@@ -241,10 +241,7 @@ def test_modern_campaign_briefing_names_supported_era_without_contradiction():
         language="zh-Hans",
     )
     assert "**年代**：modern" in markdown_zh
-    assert (
-        "不能把属于1920年代的角色卡中的职业、技能、金钱或装备直接套到本战役"
-        in markdown_zh
-    )
+    assert "不能直接套用其他年代的标准卡包；但建卡不会因此停止" in markdown_zh
     assert "不能套用现代" not in markdown_zh
 
     markdown_en = briefing.render_briefing(
@@ -255,11 +252,7 @@ def test_modern_campaign_briefing_names_supported_era_without_contradiction():
         language="en",
     )
     assert "Era: modern" in markdown_en
-    assert (
-        "Do not copy occupations, skills, money, or equipment from the "
-        "currently supported 1920s character sheet into this campaign."
-        in markdown_en
-    )
+    assert "Do not copy another era's standard sheet, but character creation does not stop here." in markdown_en
     assert "Do not borrow modern" not in markdown_en
 
 

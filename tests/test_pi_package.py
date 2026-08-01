@@ -81,6 +81,22 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     assert result["activeToolNames"] == result["toolNames"]
 
 
+def test_pi_opening_forwards_only_contract_selected_era_adaptive_creation():
+    result = _node(
+        ROOT / "tests/pi/guided-character-contract-smoke.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "ok": True,
+        "adaptiveInputMode": "kp_guided_era_adaptive",
+        "standardInputMode": "guided_quick_fire",
+        "unavailableCode": "guided_character_creation_route_unavailable",
+        "adaptiveCashSemanticAdmitted": True,
+        "adaptiveLooseCashSemanticAdmitted": True,
+        "quickFireCashSemanticBlocked": True,
+    }
+
+
 def test_pi_package_metadata_exposes_bounded_opening_preview_compatibility():
     server = _load_mcp_server()
     discovered = server._discover(

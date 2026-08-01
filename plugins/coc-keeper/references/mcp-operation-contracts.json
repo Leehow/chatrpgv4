@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:04af31cea4d12597edfe74c90d7589c869c434490300317d1f83dc8092383b81",
+  "content_sha256": "sha256:b931d254159e520f2630fc42b1dfd71e5ff3828c5170784a33e76b46fcf86ca4",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 99,
+  "operation_count": 100,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -3810,6 +3810,61 @@
       },
       "needs_campaign": true,
       "summary": "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger."
+    },
+    "state.cash_semantic": {
+      "canonical_operation": "state.cash_semantic",
+      "description": "Record one KP-guided, campaign-local starting-cash/assets disposition when the campaign era has no authoritative cash-assets table. This never calculates, replaces, or changes rules-table values. Canonical operation `state.cash_semantic`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "assets": {
+            "description": "player-safe starting assets from a pregen or era adaptation",
+            "type": "array"
+          },
+          "basis": {
+            "description": "module_pregen | kp_era_adaptation",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "cash_description": {
+            "description": "player-safe semantic cash description; not a rules-derived amount",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator_id": {
+            "description": "optional planned or linked investigator id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "why this source/pacing-appropriate semantic disposition applies",
+            "type": "string"
+          },
+          "record_id": {
+            "description": "stable campaign-local cash record id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "record_id",
+          "basis",
+          "reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record one KP-guided, campaign-local starting-cash/assets disposition when the campaign era has no authoritative cash-assets table. This never calculates, replaces, or changes rules-table values."
     },
     "state.clear_transient_condition": {
       "canonical_operation": "state.clear_transient_condition",

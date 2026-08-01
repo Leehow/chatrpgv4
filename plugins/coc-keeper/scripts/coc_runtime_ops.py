@@ -205,19 +205,163 @@ def _canonical_sha256(value: Any) -> str:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
+def _authoritative_dice_roll_total(
+    root: Path,
+    reference: Any,
+    *,
+    current_campaign_id: str,
+    expression: str,
+    purpose: str | None,
+    label: str,
+) -> int:
+    """Verify one existing campaign dice receipt and return its authoritative total."""
+    if not isinstance(reference, dict) or set(reference) != {
+        "campaign_id", "decision_id", "roll_id",
+    }:
+        raise RuntimeOperationError(
+            f"{label} roll receipt requires exactly campaign_id, decision_id, and roll_id"
+        )
+    campaign_id = _id(reference.get("campaign_id"), f"{label}_roll_receipt.campaign_id")
+    if campaign_id != current_campaign_id:
+        raise RuntimeOperationError(
+            f"{label} roll receipt campaign_id must equal the declared current campaign_id"
+        )
+    decision_id = reference.get("decision_id")
+    roll_id = reference.get("roll_id")
+    if not isinstance(decision_id, str) or not decision_id.strip():
+        raise RuntimeOperationError(f"{label} roll receipt decision_id must be non-empty")
+    if not isinstance(roll_id, str) or not roll_id.strip():
+        raise RuntimeOperationError(f"{label} roll receipt roll_id must be non-empty")
+    normalized_expression = expression.strip().upper()
+    match = coc_roll.ROLL_PATTERN.fullmatch(normalized_expression)
+    if match is None:
+        raise RuntimeOperationError(f"{label} dice expression is invalid")
+    expected_resolution = {
+        "expression": normalized_expression,
+        "count": int(match.group("count")),
+        "sides": int(match.group("sides")),
+        "modifier": int(match.group("modifier") or 0),
+    }
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    campaign_path = campaign_dir / "campaign.json"
+    receipt_path = campaign_dir / "save" / "roll-operation-receipts.json"
+    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+    coc_root = root / ".coc"
+    if (
+        not campaign_path.is_file()
+        or not _target_kind_is_safe(coc_root, campaign_path)
+        or not receipt_path.is_file()
+        or not _target_kind_is_safe(coc_root, receipt_path)
+        or not rolls_path.is_file()
+        or not _target_kind_is_safe(coc_root, rolls_path)
+    ):
+        raise RuntimeOperationError(f"{label} source receipt is unavailable for campaign: {campaign_id}")
+    document = _read_object(receipt_path)
+    if (
+        set(document) != {"schema_version", "receipts", "pending_side_effects", "luck_spends"}
+        or document.get("schema_version") != 6
+        or not isinstance(document.get("receipts"), dict)
+        or not isinstance(document.get("pending_side_effects"), dict)
+        or not isinstance(document.get("luck_spends"), dict)
+    ):
+        raise RuntimeOperationError(f"{label} source receipt document is invalid")
+    by_tool = document["receipts"].get("rules.roll_dice")
+    receipt = by_tool.get(decision_id) if isinstance(by_tool, dict) else None
+    operation = receipt.get("operation") if isinstance(receipt, dict) else None
+    resolution = receipt.get("resolution") if isinstance(receipt, dict) else None
+    data = receipt.get("data") if isinstance(receipt, dict) else None
+    record = receipt.get("roll_record") if isinstance(receipt, dict) else None
+    payload = record.get("payload") if isinstance(record, dict) else None
+    rolls = data.get("rolls") if isinstance(data, dict) else None
+    reason = operation.get("reason") if isinstance(operation, dict) else None
+    expected_operation = {"expression": normalized_expression, "reason": reason}
+    if purpose is not None:
+        expected_operation["purpose"] = purpose
+    receipt_body = (
+        {key: deepcopy(value) for key, value in receipt.items() if key != "integrity_digest"}
+        if isinstance(receipt, dict) else None
+    )
+    purpose_matches = (
+        all(candidate.get("purpose") == purpose for candidate in (data, record, payload))
+        if purpose is not None and all(isinstance(candidate, dict) for candidate in (data, record, payload))
+        else purpose is None and all(
+            isinstance(candidate, dict) and "purpose" not in candidate
+            for candidate in (operation, data, record, payload)
+        )
+    )
+    reason_matches = (
+        all(candidate.get("reason") == reason for candidate in (data, record, payload))
+        if isinstance(reason, str) and all(isinstance(candidate, dict) for candidate in (data, record, payload))
+        else reason is None and all(
+            isinstance(candidate, dict) and "reason" not in candidate
+            for candidate in (data, record, payload)
+        )
+    )
+    valid = bool(
+        isinstance(receipt, dict)
+        and set(receipt) == set(_QUICK_FIRE_ROLL_RECEIPT_FIELDS)
+        and receipt.get("schema_version") == 5
+        and receipt.get("tool") == "rules.roll_dice"
+        and receipt.get("decision_id") == decision_id
+        and receipt.get("roll_id") == roll_id
+        and operation == expected_operation
+        and resolution == expected_resolution
+        and receipt.get("fingerprint") == _canonical_sha256({"tool": "rules.roll_dice", "operation": expected_operation})
+        and receipt.get("integrity_digest") == _canonical_sha256(receipt_body)
+        and isinstance(data, dict)
+        and isinstance(record, dict)
+        and isinstance(payload, dict)
+        and data.get("expression") == normalized_expression
+        and data.get("count") == expected_resolution["count"]
+        and data.get("sides") == expected_resolution["sides"]
+        and data.get("modifier") == expected_resolution["modifier"]
+        and reason_matches
+        and purpose_matches
+        and data.get("roll_id") == roll_id
+        and isinstance(rolls, list)
+        and len(rolls) == expected_resolution["count"]
+        and all(
+            isinstance(face, int) and not isinstance(face, bool)
+            and 1 <= face <= expected_resolution["sides"]
+            for face in rolls
+        )
+        and isinstance(data.get("total"), int)
+        and not isinstance(data.get("total"), bool)
+        and data.get("total") == sum(rolls) + expected_resolution["modifier"]
+        and record.get("roll_id") == roll_id
+        and record.get("visibility") == "public"
+        and record.get("event_type") == "roll"
+        and all(record.get(key) == value for key, value in data.items())
+        and all(payload.get(key) == value for key, value in data.items())
+        and payload.get("die_expression") == normalized_expression
+        and payload.get("individual_faces") == rolls
+        and payload.get("final_total") == data.get("total")
+        and payload.get("roll") == data.get("total")
+    )
+    if not valid:
+        raise RuntimeOperationError(
+            f"{label} source receipt does not match the exact campaign, "
+            f"{normalized_expression} recipe, and roll_id"
+        )
+    try:
+        roll_rows = [
+            json.loads(line) for line in rolls_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeOperationError(f"{label} roll log is unreadable") from exc
+    if [row for row in roll_rows if row.get("roll_id") == roll_id] != [record]:
+        raise RuntimeOperationError(f"{label} roll log does not contain exactly the referenced authoritative roll")
+    return int(data["total"])
+
+
 def _validate_quick_fire_luck_receipt(
     root: Path,
     creation: dict[str, Any] | None,
     *,
     current_campaign_id: str,
 ) -> None:
-    """Bind deterministic Quick Fire Luck to one current campaign roll.
-
-    The canonical dice tool already freezes a source receipt before returning.
-    Investigator creation consumes only a compact reference and revalidates
-    the immutable receipt plus its one durable roll row; callers cannot submit
-    an otherwise plausible 3D6 total.
-    """
+    """Bind deterministic Quick Fire Luck to the shared authoritative dice verifier."""
     if not isinstance(creation, dict):
         return
     assignment = creation.get("characteristic_assignment_order")
@@ -235,164 +379,79 @@ def _validate_quick_fire_luck_receipt(
     campaign_id = _id(reference.get("campaign_id"), "luck_roll_receipt.campaign_id")
     if campaign_id != current_campaign_id:
         raise RuntimeOperationError(
-            "luck_roll_receipt.campaign_id must equal the declared current "
-            "campaign_id"
+            "luck_roll_receipt.campaign_id must equal the declared current campaign_id"
         )
-    decision_id = reference.get("decision_id")
-    roll_id = reference.get("roll_id")
-    if not isinstance(decision_id, str) or not decision_id.strip():
-        raise RuntimeOperationError(
-            "luck_roll_receipt.decision_id must be a non-empty string"
-        )
-    if not isinstance(roll_id, str) or not roll_id.strip():
-        raise RuntimeOperationError(
-            "luck_roll_receipt.roll_id must be a non-empty string"
-        )
-    campaign_dir = root / ".coc" / "campaigns" / campaign_id
-    campaign_path = campaign_dir / "campaign.json"
-    receipt_path = campaign_dir / "save" / "roll-operation-receipts.json"
-    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
-    coc_root = root / ".coc"
-    if (
-        not campaign_path.is_file()
-        or not _target_kind_is_safe(coc_root, campaign_path)
-        or not receipt_path.is_file()
-        or not _target_kind_is_safe(coc_root, receipt_path)
-        or not rolls_path.is_file()
-        or not _target_kind_is_safe(coc_root, rolls_path)
-    ):
-        raise RuntimeOperationError(
-            "Quick Fire Luck source receipt is unavailable for the referenced "
-            f"campaign: {campaign_id}"
-        )
-    document = _read_object(receipt_path)
-    if (
-        set(document) != {
-            "schema_version", "receipts", "pending_side_effects", "luck_spends",
-        }
-        or document.get("schema_version") != 6
-        or not isinstance(document.get("receipts"), dict)
-        or not isinstance(document.get("pending_side_effects"), dict)
-        or not isinstance(document.get("luck_spends"), dict)
-    ):
-        raise RuntimeOperationError(
-            "Quick Fire Luck source receipt document is invalid"
-        )
-    by_tool = document["receipts"].get("rules.roll_dice")
-    receipt = (
-        by_tool.get(decision_id)
-        if isinstance(by_tool, dict)
-        else None
-    )
-    operation = receipt.get("operation") if isinstance(receipt, dict) else None
-    resolution = receipt.get("resolution") if isinstance(receipt, dict) else None
-    data = receipt.get("data") if isinstance(receipt, dict) else None
-    record = receipt.get("roll_record") if isinstance(receipt, dict) else None
-    payload = record.get("payload") if isinstance(record, dict) else None
-    rolls = data.get("rolls") if isinstance(data, dict) else None
-    typed_reason = (
-        operation.get("reason")
-        if isinstance(operation, dict)
-        else None
-    )
-    expected_operation = {
-        "expression": "3D6",
-        "reason": typed_reason,
-        "purpose": "investigator_creation_luck",
-    }
-    expected_resolution = {
-        "expression": "3D6",
-        "count": 3,
-        "sides": 6,
-        "modifier": 0,
-    }
-    receipt_body = (
-        {key: deepcopy(value) for key, value in receipt.items()
-         if key != "integrity_digest"}
-        if isinstance(receipt, dict)
-        else None
-    )
-    valid = bool(
-        isinstance(receipt, dict)
-        and set(receipt) == set(_QUICK_FIRE_ROLL_RECEIPT_FIELDS)
-        and receipt.get("schema_version") == 5
-        and receipt.get("tool") == "rules.roll_dice"
-        and receipt.get("decision_id") == decision_id
-        and receipt.get("roll_id") == roll_id
-        and operation == expected_operation
-        and resolution == expected_resolution
-        and receipt.get("fingerprint") == _canonical_sha256({
-            "tool": "rules.roll_dice",
-            "operation": expected_operation,
-        })
-        and receipt.get("integrity_digest") == _canonical_sha256(receipt_body)
-        and isinstance(data, dict)
-        and isinstance(record, dict)
-        and isinstance(payload, dict)
-        and data.get("expression") == "3D6"
-        and data.get("count") == 3
-        and data.get("sides") == 6
-        and data.get("modifier") == 0
-        and (
-            (
-                typed_reason is None
-                and "reason" not in data
-                and "reason" not in record
-                and "reason" not in payload
-            )
-            or (
-                isinstance(typed_reason, str)
-                and data.get("reason") == typed_reason
-                and record.get("reason") == typed_reason
-                and payload.get("reason") == typed_reason
-            )
-        )
-        and data.get("purpose") == "investigator_creation_luck"
-        and record.get("purpose") == "investigator_creation_luck"
-        and payload.get("purpose") == "investigator_creation_luck"
-        and data.get("roll_id") == roll_id
-        and isinstance(rolls, list)
-        and len(rolls) == 3
-        and all(
-            isinstance(face, int)
-            and not isinstance(face, bool)
-            and 1 <= face <= 6
-            for face in rolls
-        )
-        and isinstance(data.get("total"), int)
-        and not isinstance(data.get("total"), bool)
-        and data.get("total") == sum(rolls)
-        and data.get("total") == luck_total
-        and record.get("roll_id") == roll_id
-        and record.get("visibility") == "public"
-        and record.get("event_type") == "roll"
-        and all(record.get(key) == value for key, value in data.items())
-        and all(payload.get(key) == value for key, value in data.items())
-        and payload.get("die_expression") == "3D6"
-        and payload.get("individual_faces") == rolls
-        and payload.get("final_total") == luck_total
-        and payload.get("roll") == luck_total
-    )
-    if not valid:
-        raise RuntimeOperationError(
-            "Quick Fire Luck source receipt does not match the exact "
-            "campaign, 3D6 recipe, roll_id, and luck_roll_total"
-        )
+    if not isinstance(reference.get("decision_id"), str) or not reference["decision_id"].strip():
+        raise RuntimeOperationError("luck_roll_receipt.decision_id must be a non-empty string")
+    if not isinstance(reference.get("roll_id"), str) or not reference["roll_id"].strip():
+        raise RuntimeOperationError("luck_roll_receipt.roll_id must be a non-empty string")
     try:
-        roll_rows = [
-            json.loads(line)
-            for line in rolls_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise RuntimeOperationError(
-            "Quick Fire Luck roll log is unreadable"
-        ) from exc
-    if [row for row in roll_rows if row.get("roll_id") == roll_id] != [record]:
-        raise RuntimeOperationError(
-            "Quick Fire Luck roll log does not contain exactly the referenced "
-            "authoritative roll"
+        total = _authoritative_dice_roll_total(
+            root, reference, current_campaign_id=current_campaign_id,
+            expression="3D6", purpose="investigator_creation_luck", label="Quick Fire Luck",
         )
+    except RuntimeOperationError as exc:
+        raise RuntimeOperationError(
+            "Quick Fire Luck source receipt does not match the exact campaign, "
+            "3D6 recipe, roll_id, and luck_roll_total"
+        ) from exc
+    if total != luck_total:
+        raise RuntimeOperationError(
+            "Quick Fire Luck source receipt does not match the exact campaign, "
+            "3D6 recipe, roll_id, and luck_roll_total"
+        )
+
+
+def _validate_kp_guided_characteristic_roll_receipts(
+    root: Path,
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+    *,
+    current_campaign_id: str,
+) -> None:
+    """Bind rolled KP-guided characteristics to the shared dice verifier."""
+    method_id = creation.get("method")
+    method = coc_character.characteristic_generation_methods().get(method_id)
+    if not isinstance(method, dict) or method.get("requires_rolls") is not True:
+        return
+    references = creation.get("characteristic_roll_receipts")
+    expressions = coc_character.characteristic_roll_expressions()
+    expected_keys = {*coc_character.REQUIRED_CHARACTERISTICS, "Luck"}
+    if not isinstance(references, dict) or set(references) != expected_keys or set(expressions) != expected_keys:
+        raise RuntimeOperationError("KP-guided characteristic roll recipe is incomplete")
+    try:
+        multiplier = coc_character.characteristic_generation_multiplier()
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    characteristics = sheet.get("characteristics")
+    derived = sheet.get("derived")
+    if not isinstance(characteristics, dict) or not isinstance(derived, dict):
+        raise RuntimeOperationError("KP-guided characteristic roll binding requires complete characteristics and derived values")
+    for characteristic in coc_character.REQUIRED_CHARACTERISTICS:
+        total = _authoritative_dice_roll_total(
+            root, references[characteristic], current_campaign_id=current_campaign_id,
+            expression=expressions[characteristic], purpose=None, label=f"KP-guided {characteristic}",
+        )
+        if characteristics.get(characteristic) != total * multiplier:
+            raise RuntimeOperationError(
+                f"KP-guided {characteristic} must equal its authoritative "
+                f"{expressions[characteristic]} total times {multiplier}"
+            )
+    if references["Luck"] != creation.get("luck_roll_receipt"):
+        raise RuntimeOperationError("KP-guided Luck characteristic_roll_receipts entry must equal luck_roll_receipt")
+    roll_ids = [
+        reference.get("roll_id") if isinstance(reference, dict) else None
+        for reference in references.values()
+    ]
+    if (
+        any(not isinstance(roll_id, str) or not roll_id.strip() for roll_id in roll_ids)
+        or len(set(roll_ids)) != len(expected_keys)
+    ):
+        raise RuntimeOperationError(
+            "KP-guided characteristic roll receipts must use distinct authoritative roll_id values"
+        )
+    if derived.get("Luck") != creation.get("luck_roll_total") * multiplier:
+        raise RuntimeOperationError(f"KP-guided derived Luck must equal its authoritative total times {multiplier}")
 
 
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
@@ -4000,6 +4059,266 @@ def _adopt_source_facts_locked(
         }
 
 
+def guided_character_creation_input_mode(campaign_era: str) -> str:
+    """Select the sole setup creation input mode for one canonical era."""
+    return (
+        "guided_quick_fire"
+        if str(campaign_era).strip() in coc_character.guided_quick_fire_supported_eras()
+        else coc_character.ERA_ADAPTIVE_INPUT_MODE
+    )
+
+
+def kp_guided_cash_semantic_disposition(campaign_era: str) -> dict[str, Any]:
+    """Return the non-arithmetic cash route when no era table applies.
+
+    Canonical consumers: the cash-assets failure envelope and the adaptive
+    investigator contract. The route records campaign-local fiction; it never
+    creates, changes, or substitutes a rules-table cash value.
+    """
+    return {
+        "status": "kp_guided_cash_semantic_available",
+        "available": True,
+        "operation": "state.cash_semantic",
+        "campaign_era": str(campaign_era).strip(),
+        "provenance": {"kp_guided": True, "cash_semantic": True},
+        "authority": "KP semantic campaign-local bookkeeping only",
+        "rules_table_authority": "unavailable_for_campaign_era",
+        "forbids": [
+            "rules_table_mutation",
+            "rule_derived_cash_amount",
+        ],
+    }
+
+
+def _kp_guided_era_adaptive_contract(
+    campaign_era: str,
+    supported_eras: list[str],
+) -> dict[str, Any]:
+    """Build the sole adaptive route contract, parameterized only by era."""
+    methods = coc_character.characteristic_generation_methods()
+    rolled_methods = sorted(
+        method_id for method_id, spec in methods.items()
+        if isinstance(spec, dict) and spec.get("requires_rolls") is True
+    )
+    characteristics = {
+        "type": "object",
+        "required": list(coc_character.REQUIRED_CHARACTERISTICS),
+        "properties": {
+            key: {"type": "integer"}
+            for key in coc_character.REQUIRED_CHARACTERISTICS
+        },
+        "additionalProperties": False,
+    }
+    derived = {
+        "type": "object",
+        "required": ["HP", "MP", "SAN", "Luck", "DB", "Build", "MOV"],
+        "properties": {
+            "HP": {"type": "integer"}, "MP": {"type": "integer"},
+            "SAN": {"type": "integer"}, "Luck": {"type": "integer"},
+            "DB": {"oneOf": [{"type": "integer"}, {"type": "string", "minLength": 1}]},
+            "Build": {"type": "integer"}, "MOV": {"type": "integer"},
+        },
+        "additionalProperties": False,
+    }
+    roll_receipt = {
+        "type": "object",
+        "required": ["campaign_id", "decision_id", "roll_id"],
+        "properties": {
+            "campaign_id": {"$ref": "#/$defs/safe_id"},
+            "decision_id": {"$ref": "#/$defs/name"},
+            "roll_id": {"$ref": "#/$defs/name"},
+        },
+        "additionalProperties": False,
+    }
+    occupation = {
+        "type": "object",
+        "required": ["name", "reason", "era_adaptive", "skill_point_formula", "formula_reason"],
+        "properties": {
+            "name": {"$ref": "#/$defs/name"},
+            "reason": {"$ref": "#/$defs/name"},
+            "era_adaptive": {"const": True},
+            "skill_point_formula": {"$ref": "#/$defs/name"},
+            "formula_reason": {"$ref": "#/$defs/name"},
+        },
+        "additionalProperties": False,
+    }
+    provenance_entry = {
+        "type": "object",
+        "required": list(coc_character.ERA_ADAPTIVE_PROVENANCE_REQUIRED),
+        "properties": {
+            "original_name": {"$ref": "#/$defs/name"},
+            "reskinned_name": {"$ref": "#/$defs/name"},
+            "era_adaptive": {"const": True},
+            "custom": {"type": "boolean"},
+        },
+        "additionalProperties": False,
+    }
+    player_skill_row = {
+        "type": "object",
+        "required": ["key", "label", "value"],
+        "properties": {
+            "key": {"$ref": "#/$defs/name"},
+            "label": {"$ref": "#/$defs/name"},
+            "value": {"type": "integer", "minimum": 0},
+            "half": {"type": "integer", "minimum": 0},
+            "fifth": {"type": "integer", "minimum": 0},
+        },
+        "additionalProperties": False,
+    }
+    definitions: dict[str, Any] = {
+        "kp_guided_characteristics": characteristics,
+        "kp_guided_derived": derived,
+        "kp_guided_roll_receipt": roll_receipt,
+        "kp_guided_characteristic_roll_receipts": {
+            "type": "object",
+            "required": [*coc_character.REQUIRED_CHARACTERISTICS, "Luck"],
+            "properties": {
+                key: {"$ref": "#/$defs/kp_guided_roll_receipt"}
+                for key in (*coc_character.REQUIRED_CHARACTERISTICS, "Luck")
+            },
+            "additionalProperties": False,
+        },
+        "kp_guided_occupation": occupation,
+        "kp_guided_skill_provenance": {
+            "type": "object",
+            "additionalProperties": provenance_entry,
+        },
+        "kp_guided_player_skill_row": player_skill_row,
+        "kp_guided_player_sheet": {
+            "type": "object",
+            "required": ["display_name", "skills"],
+            "properties": {
+                "display_name": {"$ref": "#/$defs/name"},
+                "skills": {"type": "array", "items": {"$ref": "#/$defs/kp_guided_player_skill_row"}},
+            },
+            "additionalProperties": False,
+        },
+        "kp_guided_era_adaptive_sheet": {
+            "type": "object",
+            "required": list(coc_character.ERA_ADAPTIVE_SHEET_REQUIRED),
+            "properties": {
+                "id": {"$ref": "#/$defs/safe_id"},
+                "name": {"$ref": "#/$defs/name"},
+                "age": {"$ref": "#/$defs/age"},
+                "era": {"type": "string", "const": campaign_era},
+                "era_adaptive": {"const": True},
+                "kp_guided": {"const": True},
+                "occupation": {"$ref": "#/$defs/kp_guided_occupation"},
+                "characteristics": {"$ref": "#/$defs/kp_guided_characteristics"},
+                "derived": {"$ref": "#/$defs/kp_guided_derived"},
+                "skills": {"$ref": "#/$defs/skills"},
+                "skill_provenance": {"$ref": "#/$defs/kp_guided_skill_provenance"},
+                "player_facing_sheet_zh": {"$ref": "#/$defs/kp_guided_player_sheet"},
+            },
+            "additionalProperties": False,
+        },
+    }
+    creation_schema: dict[str, Any] = {
+        "type": "object",
+        "required": list(coc_character.ERA_ADAPTIVE_CREATION_REQUIRED),
+        "properties": {
+            "input_mode": {"const": coc_character.ERA_ADAPTIVE_INPUT_MODE},
+            "era": {"type": "string", "const": campaign_era},
+            "era_adaptive": {"const": True},
+            "kp_guided": {"const": True},
+            "method": {"enum": sorted(methods)},
+            "luck_roll_total": {"type": "integer", "minimum": 3, "maximum": 18},
+            "luck_roll_receipt": {"$ref": "#/$defs/kp_guided_roll_receipt"},
+            "characteristic_roll_receipts": {"$ref": "#/$defs/kp_guided_characteristic_roll_receipts"},
+            "occupation": {"$ref": "#/$defs/kp_guided_occupation"},
+            "skill_budget": {"$ref": "#/$defs/skill_budget"},
+        },
+        "additionalProperties": False,
+    }
+    if rolled_methods:
+        creation_schema["allOf"] = [{
+            "if": {"properties": {"method": {"enum": rolled_methods}}, "required": ["method"]},
+            "then": {"required": ["characteristic_roll_receipts"]},
+        }]
+    definitions["kp_guided_era_adaptive_creation"] = creation_schema
+    branch = {
+        "title": "KP-guided era-adaptive creation",
+        "type": "object",
+        "required": ["campaign_id", "investigator_id", "sheet", "creation"],
+        "properties": {
+            "campaign_id": {"$ref": "#/$defs/safe_id"},
+            "investigator_id": {"$ref": "#/$defs/safe_id"},
+            "sheet": {"$ref": "#/$defs/kp_guided_era_adaptive_sheet"},
+            "creation": {"$ref": "#/$defs/kp_guided_era_adaptive_creation"},
+        },
+        "additionalProperties": False,
+    }
+    fallback = {
+        "status": "available",
+        "available": True,
+        "route": coc_character.ERA_ADAPTIVE_INPUT_MODE,
+        "input_mode": coc_character.ERA_ADAPTIVE_INPUT_MODE,
+        "quick_fire_standard_sheet": {
+            "available": False,
+            "supported_eras": list(supported_eras),
+            "reason": "no_package_owned_standard_sheet_for_campaign_era",
+        },
+        "rulebook_principles": [
+            {"source_ref": "Keeper Rulebook 7e L790", "summary": "The Keeper sets the game period."},
+            {"source_ref": "Keeper Rulebook 7e L1640", "summary": "Sample occupations guide creation; occupations need not be listed."},
+            {"source_ref": "Keeper Rulebook 7e L1644", "summary": "The Keeper selects skills appropriate to the setting period."},
+            {"source_ref": "Keeper Rulebook 7e L2299/L2915", "summary": "Skill names may be period-adapted while mechanics remain usable."},
+            {"source_ref": "Keeper Rulebook 7e L2311", "summary": "The Keeper may create a new setting skill."},
+        ],
+        "cash_assets": {
+            "when_no_authoritative_table": kp_guided_cash_semantic_disposition(
+                campaign_era
+            ),
+        },
+        "allowed_mechanics": {
+            "characteristics": {
+                "source": "rules-json/characteristic-dice.json",
+                "generation_methods": sorted(methods),
+                "rolled_methods_require_receipts": True,
+            },
+            "occupation": {"semantic_owner": "Keeper", "catalog_membership_required": False},
+            "skills": {
+                "base_source": "rules-json/skills.json",
+                "standard_sheet_required": False,
+                "period_omission_allowed": True,
+                "reskin_and_custom_provenance_required": True,
+            },
+        },
+        "schema": {
+            "branch_title": branch["title"],
+            "sheet_ref": "#/$defs/kp_guided_era_adaptive_sheet",
+            "creation_ref": "#/$defs/kp_guided_era_adaptive_creation",
+        },
+        "module_pregen_option": {
+            "available": True,
+            "when": "source investigator_constraints indicate a preset investigator",
+            "read_channel": "existing progressive/lookup read-only channel",
+            "new_parser": False,
+            "validation_route": coc_character.ERA_ADAPTIVE_INPUT_MODE,
+        },
+    }
+    return {"definitions": definitions, "branch": branch, "fallback": fallback}
+
+
+def _install_kp_guided_era_adaptive_contract_branch(
+    contract: dict[str, Any],
+    adaptive: dict[str, Any],
+) -> None:
+    """Install the canonical adaptive definitions and replace only Quick Fire."""
+    payload_schema = contract["payload_schema"]
+    definitions = payload_schema["$defs"]
+    definitions.update(deepcopy(adaptive["definitions"]))
+    branch = deepcopy(adaptive["branch"])
+    payload_schema["oneOf"] = [
+        branch if (
+            isinstance(candidate, dict)
+            and candidate.get("properties", {}).get("creation", {}).get("$ref")
+            == "#/$defs/quick_fire_creation"
+        ) else candidate
+        for candidate in payload_schema["oneOf"]
+    ]
+
+
 def execute_setup_operation(
     workspace: Path | str,
     *,
@@ -4203,21 +4522,36 @@ def execute_setup_operation(
             raise RuntimeOperationError(
                 f"ruleset {ruleset_id!r} investigator contract era policy is invalid"
             )
-        campaign_era_supported = campaign_era in supported_eras
+        campaign_era_supported = (
+            guided_character_creation_input_mode(campaign_era)
+            == "guided_quick_fire"
+        )
         contract["campaign_binding"] = {
             "campaign_id": campaign_id,
             "era": campaign_era,
         }
-        contract["guided_quick_fire_campaign_era"] = {
+        adaptive = (
+            _kp_guided_era_adaptive_contract(campaign_era, list(supported_eras))
+            if not campaign_era_supported else None
+        )
+        era_contract = {
+            "status": (
+                "standard_quick_fire_available"
+                if campaign_era_supported else "kp_guided_era_adaptive_available"
+            ),
             "supported": campaign_era_supported,
             "required_sheet_era": campaign_era,
             "supported_eras": list(supported_eras),
-            "failure_code": (
-                None
-                if campaign_era_supported
-                else "guided_quick_fire_unsupported_campaign_era"
-            ),
+            # A fallback route is usable, so this must not tell legacy consumers
+            # that character creation as a whole is terminally unavailable.
+            "failure_code": None,
         }
+        if adaptive is not None:
+            era_contract["legacy_failure_code"] = (
+                "guided_quick_fire_unsupported_campaign_era"
+            )
+            era_contract["fallback"] = deepcopy(adaptive["fallback"])
+        contract["guided_quick_fire_campaign_era"] = era_contract
         payload_schema = contract["payload_schema"]
         definitions = payload_schema.get("$defs")
         branches = payload_schema.get("oneOf")
@@ -4247,19 +4581,8 @@ def execute_setup_operation(
         }
         if "era" not in quick_fire_sheet["required"]:
             quick_fire_sheet["required"].append("era")
-        if not campaign_era_supported:
-            payload_schema["oneOf"] = [
-                branch for branch in branches
-                if (
-                    isinstance(branch, dict)
-                    and (
-                        branch.get("properties", {})
-                        .get("creation", {})
-                        .get("$ref")
-                        != "#/$defs/quick_fire_creation"
-                    )
-                )
-            ]
+        if adaptive is not None:
+            _install_kp_guided_era_adaptive_contract_branch(contract, adaptive)
         return {
             "schema_version": 1,
             "status": "PASS",
@@ -4335,32 +4658,36 @@ def execute_setup_operation(
         creation = payload.get("creation")
         if not isinstance(sheet, dict) or not isinstance(creation, dict):
             raise RuntimeOperationError("investigator.create requires object sheet/creation")
-        quick_fire_materialization = (
-            isinstance(creation, dict)
-            and (
-                creation.get("characteristic_assignment_order") is not None
-                or creation.get("luck_roll_total") is not None
-            )
+        input_mode = creation.get("input_mode")
+        quick_fire_inputs = (
+            creation.get("characteristic_assignment_order") is not None
+            or creation.get("luck_roll_total") is not None
         )
-        if quick_fire_materialization:
-            if creation.get("input_mode") != "guided_quick_fire":
-                raise RuntimeOperationError(
-                    "deterministic Quick Fire investigator.create requires "
-                    "creation.input_mode=guided_quick_fire"
-                )
-            current_campaign_id = _id(
-                payload.get("campaign_id"),
-                "campaign_id",
+        kp_guided_era_adaptive = (
+            input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE
+        )
+        if (
+            quick_fire_inputs
+            and input_mode != "guided_quick_fire"
+            and not kp_guided_era_adaptive
+        ):
+            raise RuntimeOperationError(
+                "deterministic Quick Fire investigator.create requires "
+                "creation.input_mode=guided_quick_fire"
             )
+        quick_fire_materialization = (
+            input_mode == "guided_quick_fire" and quick_fire_inputs
+        )
+        current_campaign_id: str | None = None
+        if quick_fire_materialization:
+            current_campaign_id = _id(payload.get("campaign_id"), "campaign_id")
             campaign_dir = root / ".coc" / "campaigns" / current_campaign_id
             if not campaign_dir.is_dir():
                 raise FileNotFoundError(
                     f"unknown campaign: {current_campaign_id}"
                 )
             campaign = coc_state.load_campaign_state(campaign_dir)
-            _require_established_source_facts(
-                root, campaign, current_campaign_id
-            )
+            _require_established_source_facts(root, campaign, current_campaign_id)
             campaign_era = str(campaign.get("era") or "").strip()
             submitted_era = sheet.get("era")
             if submitted_era is None:
@@ -4371,27 +4698,48 @@ def execute_setup_operation(
                     "guided Quick Fire sheet.era must exactly match campaign "
                     f"era {campaign_era!r}; got {submitted_era!r}"
                 )
-            supported_eras = (
-                coc_character.guided_quick_fire_supported_eras()
-            )
+            supported_eras = coc_character.guided_quick_fire_supported_eras()
             if campaign_era not in supported_eras:
                 supported = ", ".join(supported_eras) or "none"
                 raise RuntimeOperationError(
-                    "guided Quick Fire is unsupported for campaign era "
+                    "guided Quick Fire is unavailable for campaign era "
                     f"{campaign_era!r}; package-owned standard sheet eras: "
-                    f"{supported}"
+                    f"{supported}. Use creation.input_mode="
+                    f"{coc_character.ERA_ADAPTIVE_INPUT_MODE!r}."
                 )
             _validate_quick_fire_luck_receipt(
-                root,
-                creation,
-                current_campaign_id=current_campaign_id,
+                root, creation, current_campaign_id=current_campaign_id,
+            )
+        elif kp_guided_era_adaptive:
+            current_campaign_id = _id(payload.get("campaign_id"), "campaign_id")
+            campaign_dir = root / ".coc" / "campaigns" / current_campaign_id
+            if not campaign_dir.is_dir():
+                raise FileNotFoundError(
+                    f"unknown campaign: {current_campaign_id}"
+                )
+            campaign = coc_state.load_campaign_state(campaign_dir)
+            _require_established_source_facts(root, campaign, current_campaign_id)
+            campaign_era = str(campaign.get("era") or "").strip()
+            if sheet.get("era") != campaign_era:
+                raise RuntimeOperationError(
+                    "KP-guided era-adaptive sheet.era must exactly match campaign "
+                    f"era {campaign_era!r}; got {sheet.get('era')!r}"
+                )
+            supported_eras = coc_character.guided_quick_fire_supported_eras()
+            if campaign_era in supported_eras:
+                raise RuntimeOperationError(
+                    "KP-guided era-adaptive creation is available only when the "
+                    "campaign era has no package-owned guided Quick Fire standard sheet"
+                )
+            _validate_quick_fire_luck_receipt(
+                root, creation, current_campaign_id=current_campaign_id,
             )
         elif "campaign_id" in payload:
             raise RuntimeOperationError(
                 "investigator.create campaign_id is supported only for "
-                "deterministic Quick Fire creation"
+                "deterministic Quick Fire or KP-guided era-adaptive creation"
             )
-        elif creation.get("input_mode") != "import_complete_sheet":
+        elif input_mode != "import_complete_sheet":
             raise RuntimeOperationError(
                 "complete-sheet investigator.create requires explicit "
                 "creation.input_mode=import_complete_sheet"
@@ -4407,6 +4755,14 @@ def execute_setup_operation(
         errors = coc_character.validate_character_create_sheet(sheet, creation)
         if errors:
             raise RuntimeOperationError("invalid investigator sheet: " + "; ".join(errors))
+        if kp_guided_era_adaptive:
+            assert current_campaign_id is not None
+            _validate_kp_guided_characteristic_roll_receipts(
+                root,
+                sheet,
+                creation,
+                current_campaign_id=current_campaign_id,
+            )
         if str(sheet.get("id")) != investigator_id:
             raise RuntimeOperationError("investigator sheet id must match investigator_id")
         path = root / ".coc" / "investigators" / investigator_id / "character.json"

@@ -2564,7 +2564,7 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
         ops._apply_opening_source_review_fulfillment(tmp_path, receipt)
 
 
-def test_medieval_pdf_bind_and_rerender_write_fail_closed_briefing(tmp_path):
+def test_medieval_pdf_bind_and_rerender_write_kp_guided_briefing(tmp_path):
     created = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
         "kind": "campaign.create",
@@ -2619,17 +2619,16 @@ def test_medieval_pdf_bind_and_rerender_write_fail_closed_briefing(tmp_path):
         "briefing_path"
     ]
 
-    def assert_fail_closed(markdown: str) -> None:
+    def assert_kp_guided(markdown: str) -> None:
         assert "**年代**：medieval" in markdown
         assert "Medieval Chronicle" in markdown
         assert "当前自动快速建卡可靠支持的年代：1920年代" in markdown
-        assert "当前自动快速建卡不匹配" in markdown
-        assert (
-            "不能把属于1920年代的角色卡中的职业、技能、金钱或装备"
-            "直接套到本战役" in markdown
-        )
-        assert "交给守秘人确认后使用" in markdown
-        assert "暂不生成数值" in markdown
+        assert "## 年代适配建卡" in markdown
+        assert "不能直接套用其他年代的标准卡包；但建卡不会因此停止" in markdown
+        assert "属性、幸运、衍生值和年龄调整仍按规则处理" in markdown
+        assert "职业、技能取舍和名称由时代背景决定" in markdown
+        assert "预设调查员" in markdown
+        assert "暂不生成数值" not in markdown
         for misplaced in (
             "新闻", "考古", "警务", "射击", "旧报", "图书馆使用",
             "快速数组：80、70、60、60、50、50、50、40",
@@ -2639,7 +2638,7 @@ def test_medieval_pdf_bind_and_rerender_write_fail_closed_briefing(tmp_path):
             assert jargon not in markdown
 
     bound_markdown = (tmp_path / briefing_path).read_text(encoding="utf-8")
-    assert_fail_closed(bound_markdown)
+    assert_kp_guided(bound_markdown)
 
     rerendered = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
@@ -2650,7 +2649,7 @@ def test_medieval_pdf_bind_and_rerender_write_fail_closed_briefing(tmp_path):
     assert rerendered["result"]["briefing_path"] == briefing_path
     rerendered_markdown = (tmp_path / briefing_path).read_text(encoding="utf-8")
     assert rerendered_markdown == bound_markdown
-    assert_fail_closed(rerendered_markdown)
+    assert_kp_guided(rerendered_markdown)
 
 
 def test_investigator_create_rejects_localized_machine_skills_before_write(tmp_path):
@@ -2912,6 +2911,74 @@ def test_guided_quick_fire_rejects_unsupported_era_before_write(
             rf"sheet\.era must exactly match campaign era '1920s'; "
             rf"got '{era}'"
         ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / investigator_id
+    ).exists()
+
+
+def test_kp_guided_era_adaptive_rejects_a_standard_quick_fire_era_before_write(
+    tmp_path,
+):
+    investigator_id = "adaptive-in-1920s"
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id=investigator_id,
+        decision_id="adaptive-in-1920s-luck",
+    )
+    payload["sheet"].update({
+        "era": "1920s",
+        "era_adaptive": True,
+        "kp_guided": True,
+    })
+    payload["creation"].update({
+        "input_mode": "kp_guided_era_adaptive",
+        "era": "1920s",
+        "era_adaptive": True,
+        "kp_guided": True,
+    })
+
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=(
+            "KP-guided era-adaptive creation is available only when the campaign era "
+            "has no package-owned guided Quick Fire standard sheet"
+        ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        })
+    assert not (
+        tmp_path / ".coc" / "investigators" / investigator_id
+    ).exists()
+
+
+
+@pytest.mark.parametrize("bad_input_mode", [None, "import_complete_sheet"])
+def test_quick_fire_shape_requires_guided_mode_before_write(
+    tmp_path, bad_input_mode,
+):
+    investigator_id = "quick-fire-wrong-discriminator"
+    payload = _guided_quick_fire_payload(
+        tmp_path,
+        investigator_id=investigator_id,
+        decision_id="quick-fire-wrong-discriminator-luck",
+    )
+    if bad_input_mode is None:
+        payload["creation"].pop("input_mode")
+    else:
+        payload["creation"]["input_mode"] = bad_input_mode
+
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="deterministic Quick Fire investigator.create requires creation.input_mode=guided_quick_fire",
     ):
         ops.execute_setup_operation(tmp_path, operation={
             "schema_version": 1,

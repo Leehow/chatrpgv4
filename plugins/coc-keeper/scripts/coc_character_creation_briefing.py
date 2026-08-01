@@ -393,7 +393,7 @@ def _safe_summary(
             return (
                 f"{title} 的开卡阶段只呈现玩家安全信息：{era_context}"
                 "请根据模组公开来源，构思一个属于该时代与地点的人物；"
-                "此处不补写职业、技能、金钱或装备数值。"
+                "守秘人会按该时代引导完成职业、技能与数值的建卡。"
             )
         if structure_type == "hybrid_mega":
             return (
@@ -411,7 +411,7 @@ def _safe_summary(
         return (
             f"{title} character creation uses player-safe setup only: "
             f"{era_context}build a person who belongs to the source's era and "
-            "place without inventing occupation, skill, money, or equipment values."
+            "place; the Keeper will guide era-appropriate occupation, skills, and values."
         )
     return (
         f"{title} character creation uses player-safe setup only: {era_context}investigation-first, "
@@ -496,68 +496,57 @@ def _unsupported_era_creation_lines(
     supported = "、".join(supported_labels) if supported_labels else "无"
     current = era or ("未确定" if language == "zh-Hans" else "unspecified")
     if language == "zh-Hans":
-        support_boundary = (
-            f"不能把属于{supported}的角色卡中的职业、技能、金钱或装备"
-            "直接套到本战役。"
-            if supported_labels
-            else "当前没有可借用的自动快速建卡模板；不要自行补写职业、技能、金钱或装备数值。"
-        )
         return [
-            "## 年代说明",
+            "## 年代适配建卡",
             "",
+            f"- 当前自动快速建卡可靠支持的年代：{supported}。",
             (
-                f"- 当前自动快速建卡可靠支持的年代：{supported}。"
+                f"- 本战役年代为 **{current}**，不能直接套用其他年代的标准卡包；"
+                "但建卡不会因此停止。"
             ),
             (
-                f"- 本战役年代为 **{current}**，与当前自动快速建卡不匹配；"
-                f"{support_boundary}"
+                "- 守秘人会按本时代与地点引导建卡：属性、幸运、衍生值和年龄调整"
+                "仍按规则处理；职业、技能取舍和名称由时代背景决定。"
             ),
             (
-                "- 如果已有经权威来源核对、与本年代相符的完整角色卡，"
-                "可以交给守秘人确认后使用；否则先确定人物概念和背景，"
-                "暂不生成数值。"
+                "- 不合时代的技能可以不选；需要时可用同一规则基础改成适合时代的名称。"
+            ),
+            (
+                "- 若模组公开说明建议使用预设调查员，守秘人会先查阅相应公开角色卡，"
+                "再按同一套规则核对并确认。"
             ),
             "",
-            "## 角色概念（暂不生成数值）",
+            "## 先想好这个人",
             "",
             "- 这个人物如何属于当前时代、地点与社会关系？",
             "- 来源公开背景中的什么人、责任或事件会把 TA 带入故事？",
-            "- 先记录概念与背景，不选择职业、技能或装备数值。",
+            "- TA 的职业训练、资源或一项拿手本领，为什么在这个时代说得通？",
         ]
     supported = ", ".join(supported_labels) if supported_labels else "none"
-    sheet_label = "character sheet" if len(supported_labels) == 1 else "character sheets"
-    support_boundary = (
-        "Do not copy occupations, skills, money, or equipment from the "
-        f"currently supported {supported} {sheet_label} into this campaign."
-        if supported_labels
-        else (
-            "There is no reliable automatic quick-creation template to borrow; "
-            "do not invent occupation, skill, money, or equipment values."
-        )
-    )
     return [
-        "## Era Note",
+        "## Era-Adaptive Creation",
         "",
+        f"- Reliable automatic quick character creation currently supports: {supported}.",
         (
-            "- Reliable automatic quick character creation currently supports: "
-            f"{supported}."
+            f"- This campaign era is **{current}**. Do not copy another era's "
+            "standard sheet, but character creation does not stop here."
         ),
         (
-            f"- This campaign era is **{current}**, which does not match. "
-            f"{support_boundary}"
+            "- The Keeper will guide era-appropriate creation: characteristics, "
+            "Luck, derived values, and age adjustments remain rules-owned; "
+            "occupation, skill selection, and period names fit the setting."
         ),
+        "- Era-inappropriate skills may be omitted, and a rules-based skill may be renamed for the period.",
         (
-            "- If you already have a complete character sheet verified against "
-            "an authoritative source and suited to this era, give it to the "
-            "Keeper for confirmation. Otherwise, establish the character's "
-            "concept and background without generating numbers yet."
+            "- If public module guidance recommends a pre-generated investigator, "
+            "the Keeper may review that public card and validate it on this same path."
         ),
         "",
-        "## Character Concept (No Numbers Yet)",
+        "## Character Concept",
         "",
         "- How does this person belong to the campaign's era, place, and society?",
         "- What person, duty, or event in the public source background draws them in?",
-        "- Record concept and background only; do not choose occupation, skill, or equipment values yet.",
+        "- Why do this person's training, resources, or signature capability fit this era?",
     ]
 
 

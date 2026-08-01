@@ -17,7 +17,46 @@ _COC_RULES_SPEC.loader.exec_module(coc_rules)
 
 
 REQUIRED_CHARACTERISTICS = ("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU")
+ERA_ADAPTIVE_INPUT_MODE = "kp_guided_era_adaptive"
+ERA_ADAPTIVE_SHEET_REQUIRED = (
+    "id", "name", "era", "era_adaptive", "kp_guided", "occupation",
+    "characteristics", "derived", "skills", "skill_provenance",
+    "player_facing_sheet_zh",
+)
+ERA_ADAPTIVE_CREATION_REQUIRED = (
+    "input_mode", "era", "era_adaptive", "kp_guided", "method",
+    "luck_roll_total", "luck_roll_receipt", "occupation", "skill_budget",
+)
+ERA_ADAPTIVE_PROVENANCE_REQUIRED = (
+    "original_name", "reskinned_name", "era_adaptive",
+)
 SINGLE_DIE_PATTERN = re.compile(r"^1D(?P<sides>\d+)$")
+
+# Exact literals from rules-json/occupations.json, whose source_note anchors
+# them to Keeper Rulebook Chapter 3 sample occupations (pp. 40–41).  The data
+# has no structured formula AST, so this closed table deliberately fails if a
+# rule-data literal changes instead of silently growing a second parser.
+_OCCUPATION_FORMULA_VARIANTS: dict[str, tuple[tuple[tuple[str, int], ...], ...]] = {
+    "EDU*4": ((("EDU", 4),),),
+    "EDU*2+APP*2": ((("EDU", 2), ("APP", 2)),),
+    "EDU*2+DEX*2": ((("EDU", 2), ("DEX", 2)),),
+    "EDU*2+either APP*2 or POW*2": (
+        (("EDU", 2), ("APP", 2)), (("EDU", 2), ("POW", 2)),
+    ),
+    "EDU*2+either APP*2, DEX*2 or STR*2": (
+        (("EDU", 2), ("APP", 2)), (("EDU", 2), ("DEX", 2)),
+        (("EDU", 2), ("STR", 2)),
+    ),
+    "EDU*2+either DEX*2 or POW*2": (
+        (("EDU", 2), ("DEX", 2)), (("EDU", 2), ("POW", 2)),
+    ),
+    "EDU*2+either DEX*2 or STR*2": (
+        (("EDU", 2), ("DEX", 2)), (("EDU", 2), ("STR", 2)),
+    ),
+    "EDU*2+either POW*2 or DEX*2": (
+        (("EDU", 2), ("POW", 2)), (("EDU", 2), ("DEX", 2)),
+    ),
+}
 
 
 def _single_die_range(expression: str) -> tuple[int, int]:
@@ -34,6 +73,30 @@ def characteristic_generation_methods() -> dict[str, dict[str, Any]]:
     if not isinstance(methods, dict):
         return {}
     return json.loads(json.dumps(methods))
+
+
+def characteristic_roll_expressions() -> dict[str, str]:
+    """Return the rule-owned dice expressions for characteristics and Luck."""
+    rules = coc_rules.load_rule_table("characteristic-dice")
+    entries = rules.get("characteristics", {})
+    if not isinstance(entries, dict):
+        return {}
+    expressions: dict[str, str] = {}
+    for key in (*REQUIRED_CHARACTERISTICS, "Luck"):
+        spec = entries.get(key)
+        expression = spec.get("dice") if isinstance(spec, dict) else None
+        if isinstance(expression, str) and expression.strip():
+            expressions[key] = expression.strip().upper()
+    return expressions
+
+
+def characteristic_generation_multiplier() -> int:
+    """Return the rules-json multiplier used to convert rolls to full values."""
+    rules = coc_rules.load_rule_table("characteristic-dice")
+    multiplier = rules.get("multiplier")
+    if isinstance(multiplier, bool) or not isinstance(multiplier, int) or multiplier <= 0:
+        raise ValueError("characteristic-dice multiplier rule data is invalid")
+    return multiplier
 
 
 def validate_characteristic_generation(method_id: str, characteristics: dict[str, int]) -> list[str]:
@@ -127,6 +190,8 @@ def materialize_quick_fire_create_sheet(
         return materialized
     assignment = creation.get("characteristic_assignment_order")
     luck_roll_total = creation.get("luck_roll_total")
+    if creation.get("input_mode") == ERA_ADAPTIVE_INPUT_MODE:
+        return materialized
     if assignment is None and luck_roll_total is None:
         return materialized
     if creation.get("input_mode") != "guided_quick_fire":
@@ -349,46 +414,48 @@ def validate_character_create_sheet(
     if not isinstance(creation, dict):
         errors.append(
             "creation is required and must declare input_mode as "
-            "guided_quick_fire or import_complete_sheet"
+            "guided_quick_fire, kp_guided_era_adaptive, or import_complete_sheet"
         )
         return errors
     input_mode = creation.get("input_mode")
     if input_mode == "import_complete_sheet":
         return errors
-    if input_mode != "guided_quick_fire":
+    if input_mode == "guided_quick_fire":
+        expected_skills, reconciliation_errors = (
+            _guided_quick_fire_skill_reconciliation(sheet, creation)
+        )
+        errors.extend(reconciliation_errors)
+
+        player_sheet = sheet.get("player_facing_sheet_zh")
+        if not isinstance(player_sheet, dict):
+            errors.append(
+                "guided Quick Fire requires sheet.player_facing_sheet_zh"
+            )
+        else:
+            display_name = player_sheet.get("display_name")
+            localized_skills = player_sheet.get("skills")
+            if not isinstance(display_name, str) or not display_name.strip():
+                errors.append(
+                    "guided Quick Fire player_facing_sheet_zh.display_name must "
+                    "be non-empty"
+                )
+            if not isinstance(localized_skills, list):
+                errors.append(
+                    "guided Quick Fire player_facing_sheet_zh.skills must be a list"
+                )
+            elif localized_skills != _localized_skill_rows(expected_skills):
+                errors.append(
+                    "guided Quick Fire localized skills must be the canonical "
+                    "zh-Hans catalog projection of the reconciled machine skills"
+                )
+    elif input_mode == ERA_ADAPTIVE_INPUT_MODE:
+        errors.extend(_kp_guided_era_adaptive_errors(sheet, creation))
+    else:
         errors.append(
-            "creation.input_mode must be guided_quick_fire or "
-            "import_complete_sheet"
+            "creation.input_mode must be guided_quick_fire, "
+            "kp_guided_era_adaptive, or import_complete_sheet"
         )
         return errors
-
-    expected_skills, reconciliation_errors = (
-        _guided_quick_fire_skill_reconciliation(sheet, creation)
-    )
-    errors.extend(reconciliation_errors)
-
-    player_sheet = sheet.get("player_facing_sheet_zh")
-    if not isinstance(player_sheet, dict):
-        errors.append(
-            "guided Quick Fire requires sheet.player_facing_sheet_zh"
-        )
-    else:
-        display_name = player_sheet.get("display_name")
-        localized_skills = player_sheet.get("skills")
-        if not isinstance(display_name, str) or not display_name.strip():
-            errors.append(
-                "guided Quick Fire player_facing_sheet_zh.display_name must "
-                "be non-empty"
-            )
-        if not isinstance(localized_skills, list):
-            errors.append(
-                "guided Quick Fire player_facing_sheet_zh.skills must be a list"
-            )
-        elif localized_skills != _localized_skill_rows(expected_skills):
-            errors.append(
-                "guided Quick Fire localized skills must be the canonical "
-                "zh-Hans catalog projection of the reconciled machine skills"
-            )
 
     method_id = creation.get("method")
     if not isinstance(method_id, str) or not method_id.strip():
@@ -706,6 +773,342 @@ def guided_quick_fire_supported_eras() -> tuple[str, ...]:
         for era, spec in policy.items()
         if str(era).strip() and isinstance(spec, dict)
     ))
+
+
+def _occupation_formula_source_literals() -> tuple[str, ...]:
+    """Return the exact formula literals currently authored in occupations.json."""
+    try:
+        table = coc_rules.load_rule_table("occupations")
+    except (OSError, KeyError, json.JSONDecodeError):
+        return ()
+    occupations = table.get("occupations") if isinstance(table, dict) else None
+    if not isinstance(occupations, dict):
+        return ()
+    return tuple(sorted({
+        formula
+        for spec in occupations.values()
+        if isinstance(spec, dict)
+        and isinstance((formula := spec.get("skill_point_formula")), str)
+    }))
+
+
+def _occupation_skill_point_formula_options() -> dict[str, tuple[tuple[str, int], ...]]:
+    """Return allowed selected 7e formula variants from pinned rule literals."""
+    if set(_occupation_formula_source_literals()) != set(_OCCUPATION_FORMULA_VARIANTS):
+        return {}
+    return {
+        "+".join(f"{characteristic}*{multiplier}" for characteristic, multiplier in terms): terms
+        for variants in _OCCUPATION_FORMULA_VARIANTS.values()
+        for terms in variants
+    }
+
+
+def _normalized_skill_point_formula(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().upper().replace("×", "*").replace("＋", "+").replace(" ", "")
+
+
+def _valid_kp_guided_roll_reference(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"campaign_id", "decision_id", "roll_id"}
+        and all(
+            isinstance(value.get(key), str) and value[key].strip()
+            for key in ("campaign_id", "decision_id", "roll_id")
+        )
+    )
+
+
+def _kp_guided_identity_errors(sheet: dict[str, Any], creation: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(sheet.get("era"), str) or not sheet["era"].strip():
+        errors.append("KP-guided era-adaptive sheet requires a non-empty era")
+    for field in ("era_adaptive", "kp_guided"):
+        if sheet.get(field) is not True:
+            errors.append(f"KP-guided era-adaptive sheet requires {field}=true")
+        if creation.get(field) is not True:
+            errors.append(f"KP-guided era-adaptive creation requires {field}=true")
+    if creation.get("era") != sheet.get("era"):
+        errors.append("KP-guided era-adaptive creation.era must equal sheet.era")
+    return errors
+
+
+def _kp_guided_occupation_errors(
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+) -> tuple[list[str], tuple[tuple[str, int], ...] | None]:
+    errors: list[str] = []
+    sheet_occupation = sheet.get("occupation")
+    creation_occupation = creation.get("occupation")
+    if not isinstance(sheet_occupation, dict):
+        errors.append("KP-guided era-adaptive sheet requires an occupation object")
+    if not isinstance(creation_occupation, dict):
+        errors.append("KP-guided era-adaptive creation requires an occupation object")
+        return errors, None
+    for field in ("name", "reason", "formula_reason"):
+        if not isinstance(creation_occupation.get(field), str) or not creation_occupation[field].strip():
+            errors.append(f"KP-guided era-adaptive occupation.{field} must be non-empty")
+    if creation_occupation.get("era_adaptive") is not True:
+        errors.append("KP-guided era-adaptive occupation requires era_adaptive=true")
+    if isinstance(sheet_occupation, dict):
+        for field in ("name", "reason"):
+            if not isinstance(sheet_occupation.get(field), str) or not sheet_occupation[field].strip():
+                errors.append(f"KP-guided era-adaptive sheet occupation.{field} must be non-empty")
+            elif sheet_occupation[field] != creation_occupation.get(field):
+                errors.append(f"KP-guided era-adaptive sheet and creation occupation.{field} must agree")
+        if sheet_occupation.get("era_adaptive") is not True:
+            errors.append("KP-guided era-adaptive sheet occupation requires era_adaptive=true")
+    formula = _normalized_skill_point_formula(creation_occupation.get("skill_point_formula"))
+    terms = _occupation_skill_point_formula_options().get(formula)
+    if terms is None:
+        errors.append(
+            "KP-guided era-adaptive occupation.skill_point_formula must select "
+            "a pinned 7e formula from occupations.json"
+        )
+    return errors, terms
+
+
+def _kp_guided_skill_sources(
+    sheet: dict[str, Any],
+) -> tuple[dict[str, str], dict[str, dict[str, Any]], list[str]]:
+    errors: list[str] = []
+    catalog = _skill_catalog()
+    skills = sheet.get("skills")
+    raw_provenance = sheet.get("skill_provenance")
+    if not catalog:
+        return {}, {}, ["canonical COC7 skill catalog is unavailable"]
+    if not isinstance(skills, dict):
+        return {}, {}, errors
+    if not isinstance(raw_provenance, dict):
+        return {}, {}, ["KP-guided era-adaptive sheet requires skill_provenance"]
+    provenance = {
+        key: value for key, value in raw_provenance.items() if isinstance(key, str)
+    }
+    try:
+        assert_unique_canonical_skills(sheet)
+    except ValueError as exc:
+        errors.append(str(exc))
+    sources: dict[str, str] = {}
+    for skill_id in skills:
+        entry = provenance.get(skill_id)
+        if entry is None:
+            if skill_id not in catalog:
+                errors.append(f"KP-guided custom skill {skill_id!r} requires skill_provenance")
+            else:
+                sources[skill_id] = skill_id
+            continue
+        if not isinstance(entry, dict):
+            errors.append(f"skill_provenance.{skill_id!r} must be an object")
+            continue
+        original_name = entry.get("original_name")
+        if not isinstance(original_name, str) or original_name not in catalog:
+            errors.append(f"skill_provenance.{skill_id!r}.original_name must be a canonical catalog skill")
+            continue
+        if not isinstance(entry.get("reskinned_name"), str) or not entry["reskinned_name"].strip():
+            errors.append(f"skill_provenance.{skill_id!r}.reskinned_name must be non-empty")
+        if entry.get("era_adaptive") is not True:
+            errors.append(f"skill_provenance.{skill_id!r}.era_adaptive must be true")
+        if skill_id in catalog and original_name != skill_id:
+            errors.append(f"skill_provenance.{skill_id!r}.original_name must equal its canonical skill key")
+        if skill_id not in catalog and entry.get("custom") is not True:
+            errors.append(f"KP-guided custom skill {skill_id!r} requires skill_provenance.custom=true")
+        sources[skill_id] = original_name
+    for skill_id in provenance:
+        if skill_id not in skills:
+            errors.append(f"skill_provenance contains unselected skill {skill_id!r}")
+    return sources, provenance, errors
+
+
+def _kp_guided_skill_budget_errors(
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+    sources: dict[str, str],
+    formula_terms: tuple[tuple[str, int], ...] | None,
+) -> tuple[dict[str, dict[str, int]], list[str]]:
+    errors: list[str] = []
+    budget = creation.get("skill_budget")
+    if not isinstance(budget, dict) or set(budget) != {
+        "occupation_points", "personal_interest_points",
+    }:
+        return {}, [
+            "KP-guided era-adaptive creation requires skill_budget with exactly "
+            "occupation_points and personal_interest_points"
+        ]
+    characteristics = sheet.get("characteristics")
+    allocations_by_account: dict[str, dict[str, int]] = {}
+    expected_budgets = {
+        "occupation_points": (
+            sum(int(characteristics[characteristic]) * multiplier for characteristic, multiplier in formula_terms)
+            if isinstance(characteristics, dict) and formula_terms else None
+        ),
+        "personal_interest_points": (
+            int(characteristics["INT"]) * 2 if isinstance(characteristics, dict) else None
+        ),
+    }
+    for account_name in ("occupation_points", "personal_interest_points"):
+        account = budget.get(account_name)
+        if not isinstance(account, dict) or set(account) != {"budget", "spent", "allocations"}:
+            errors.append(f"skill_budget.{account_name} must contain exactly budget, spent, and allocations")
+            continue
+        declared_budget = account.get("budget")
+        declared_spent = account.get("spent")
+        allocations = account.get("allocations")
+        if (
+            isinstance(declared_budget, bool) or not isinstance(declared_budget, int) or declared_budget <= 0
+            or isinstance(declared_spent, bool) or not isinstance(declared_spent, int) or declared_spent <= 0
+            or not isinstance(allocations, dict)
+        ):
+            errors.append(f"skill_budget.{account_name} requires positive integer budget/spent and an allocations object")
+            continue
+        normalized: dict[str, int] = {}
+        for skill_id, delta in allocations.items():
+            if skill_id not in sources:
+                errors.append(f"skill_budget.{account_name} allocation uses unselected skill {skill_id!r}")
+            elif isinstance(delta, bool) or not isinstance(delta, int) or delta < 0:
+                errors.append(f"skill_budget.{account_name} allocation for {skill_id!r} must be a non-negative integer")
+            else:
+                normalized[skill_id] = delta
+        derived_spent = sum(normalized.values())
+        if derived_spent != declared_spent or declared_spent != declared_budget:
+            errors.append(
+                f"skill_budget.{account_name} derived allocation total {derived_spent} must equal spent and budget {declared_spent}/{declared_budget}"
+            )
+        expected_budget = expected_budgets[account_name]
+        if expected_budget is not None and declared_budget != expected_budget:
+            errors.append(f"skill_budget.{account_name} budget must equal its rules value {expected_budget}")
+        allocations_by_account[account_name] = normalized
+    return allocations_by_account, errors
+
+
+def _kp_guided_skill_value_errors(
+    sheet: dict[str, Any],
+    sources: dict[str, str],
+    allocations: dict[str, dict[str, int]],
+) -> list[str]:
+    if set(allocations) != {"occupation_points", "personal_interest_points"}:
+        return []
+    errors: list[str] = []
+    catalog = _skill_catalog()
+    skills = sheet["skills"]
+    policy = _guided_skill_policy().get("guided_creation_policy")
+    starting_cap = policy.get("starting_skill_cap") if isinstance(policy, dict) else None
+    if isinstance(starting_cap, bool) or not isinstance(starting_cap, int) or starting_cap <= 0:
+        return ["guided creation starting-skill cap policy is invalid"]
+    for skill_id, source_skill_id in sources.items():
+        try:
+            base = _guided_skill_base(source_skill_id, catalog[source_skill_id], sheet["characteristics"])
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(str(exc))
+            continue
+        delta = allocations["occupation_points"].get(skill_id, 0) + allocations["personal_interest_points"].get(skill_id, 0)
+        expected = base + delta
+        if skills.get(skill_id) != expected:
+            errors.append(
+                f"KP-guided era-adaptive skill {skill_id!r} value {skills.get(skill_id)!r} must equal catalog base plus allocation deltas ({expected})"
+            )
+        if expected <= starting_cap:
+            continue
+        derived_base = catalog[source_skill_id].get("base_chance") in {"half_DEX", "EDU"}
+        if derived_base and base > starting_cap and delta == 0:
+            continue
+        if derived_base and base > starting_cap:
+            errors.append(
+                f"KP-guided era-adaptive skill {skill_id!r} has authoritative characteristic-derived base {base} above the package starting-skill cap {starting_cap}; allocation delta {delta} is not permitted"
+            )
+        else:
+            errors.append(
+                f"KP-guided era-adaptive skill {skill_id!r} final value {expected} exceeds the package starting-skill cap {starting_cap}"
+            )
+    return errors
+
+
+def _kp_guided_localized_skill_errors(
+    sheet: dict[str, Any],
+    sources: dict[str, str],
+    provenance: dict[str, dict[str, Any]],
+) -> list[str]:
+    errors: list[str] = []
+    player_sheet = sheet.get("player_facing_sheet_zh")
+    if not isinstance(player_sheet, dict):
+        return ["KP-guided era-adaptive sheet requires player_facing_sheet_zh"]
+    if not isinstance(player_sheet.get("display_name"), str) or not player_sheet["display_name"].strip():
+        errors.append("KP-guided era-adaptive player_facing_sheet_zh.display_name must be non-empty")
+    rows = player_sheet.get("skills")
+    if not isinstance(rows, list):
+        return [*errors, "KP-guided era-adaptive player_facing_sheet_zh.skills must be a list"]
+    skills = sheet["skills"]
+    rendered: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("key"), str) or row["key"] not in skills:
+            errors.append("KP-guided era-adaptive localized skill row has an unknown key")
+        elif row["key"] in rendered:
+            errors.append(f"KP-guided era-adaptive localized skills duplicate {row['key']!r}")
+        else:
+            rendered[row["key"]] = row
+    if set(rendered) != set(skills):
+        errors.append("KP-guided era-adaptive localized skills must contain every selected machine skill exactly once")
+    catalog = _skill_catalog()
+    for skill_id, row in rendered.items():
+        entry = provenance.get(skill_id)
+        if entry is not None:
+            expected_label = entry.get("reskinned_name")
+        else:
+            labels = catalog[sources[skill_id]].get("localized_labels")
+            expected_label = labels.get("zh-Hans") if isinstance(labels, dict) else None
+        if row.get("value") != skills[skill_id]:
+            errors.append(f"KP-guided era-adaptive localized skill {skill_id!r} value must match machine skill")
+        if not isinstance(expected_label, str) or row.get("label") != expected_label:
+            errors.append(f"KP-guided era-adaptive localized skill {skill_id!r} label must match its zh-Hans provenance")
+    return errors
+
+
+def _kp_guided_roll_provenance_errors(sheet: dict[str, Any], creation: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    method = characteristic_generation_methods().get(creation.get("method"))
+    if isinstance(method, dict) and method.get("requires_rolls") is True:
+        references = creation.get("characteristic_roll_receipts")
+        required = {*REQUIRED_CHARACTERISTICS, "Luck"}
+        if not isinstance(references, dict) or set(references) != required:
+            errors.append("KP-guided rolled characteristics require characteristic_roll_receipts for every characteristic and Luck")
+        elif any(not _valid_kp_guided_roll_reference(references[key]) for key in required):
+            errors.append("KP-guided characteristic_roll_receipts entries require campaign_id, decision_id, and roll_id")
+    luck_roll_total = creation.get("luck_roll_total")
+    if isinstance(luck_roll_total, bool) or not isinstance(luck_roll_total, int) or not 3 <= luck_roll_total <= 18:
+        errors.append("KP-guided era-adaptive luck_roll_total must be an integer from 3 through 18")
+    else:
+        try:
+            multiplier = characteristic_generation_multiplier()
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            derived = sheet.get("derived")
+            if isinstance(derived, dict) and derived.get("Luck") != luck_roll_total * multiplier:
+                errors.append("KP-guided era-adaptive derived Luck must equal luck_roll_total times the rule multiplier")
+    if not _valid_kp_guided_roll_reference(creation.get("luck_roll_receipt")):
+        errors.append("KP-guided era-adaptive luck_roll_receipt requires campaign_id, decision_id, and roll_id")
+    return errors
+
+
+def _kp_guided_era_adaptive_errors(
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+) -> list[str]:
+    """Validate the deterministic data surface of KP-led era adaptation."""
+    errors = _kp_guided_identity_errors(sheet, creation)
+    occupation_errors, formula_terms = _kp_guided_occupation_errors(sheet, creation)
+    errors.extend(occupation_errors)
+    sources, provenance, source_errors = _kp_guided_skill_sources(sheet)
+    errors.extend(source_errors)
+    allocations, budget_errors = _kp_guided_skill_budget_errors(
+        sheet, creation, sources, formula_terms,
+    )
+    errors.extend(budget_errors)
+    if isinstance(sheet.get("skills"), dict) and sources:
+        errors.extend(_kp_guided_skill_value_errors(sheet, sources, allocations))
+        errors.extend(_kp_guided_localized_skill_errors(sheet, sources, provenance))
+    errors.extend(_kp_guided_roll_provenance_errors(sheet, creation))
+    return errors
 
 
 def _localized_skill_rows(skills: dict[str, int]) -> list[dict[str, Any]]:

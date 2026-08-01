@@ -570,3 +570,29 @@ def test_assert_unique_canonical_skills_rejects_compact_fold_duplicate():
 def test_assert_unique_canonical_skills_tolerates_missing_or_invalid_skills():
     assert coc_character.assert_unique_canonical_skills({}) is None
     assert coc_character.assert_unique_canonical_skills({"skills": []}) is None
+
+
+def test_kp_guided_occupation_formula_options_fail_closed_on_rule_literal_drift(
+    monkeypatch,
+):
+    options = coc_character._occupation_skill_point_formula_options()
+    assert options["EDU*4"] == (("EDU", 4),)
+
+    original = coc_character.coc_rules.load_rule_table
+
+    def changed_rule_table(name):
+        table = original(name)
+        if name != "occupations":
+            return table
+        changed = json.loads(json.dumps(table))
+        occupation = next(iter(changed["occupations"].values()))
+        occupation["skill_point_formula"] = "EDU*4+INT*2"
+        return changed
+
+    monkeypatch.setattr(
+        coc_character.coc_rules,
+        "load_rule_table",
+        changed_rule_table,
+    )
+
+    assert coc_character._occupation_skill_point_formula_options() == {}

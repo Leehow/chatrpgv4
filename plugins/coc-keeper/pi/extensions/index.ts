@@ -355,7 +355,11 @@ type OpeningSetupRoute = {
   campaign_id: string;
   next_operation: JsonObject | null;
   allowed_actions?: JsonObject[];
-  character_setup_policy?: "guided_quick_fire_no_source";
+  character_setup_policy?: (
+    | "guided_quick_fire_no_source"
+    | "kp_guided_era_adaptive_no_source"
+  );
+  character_setup_input_mode?: GuidedCharacterCreationInputMode;
   startup_resume_policy?: "source_materialization_wait_only";
   instruction: string;
 };
@@ -363,6 +367,10 @@ type OpeningSetupTerminalBlocker = {
   visibleText: string;
   details: JsonObject;
 };
+type GuidedCharacterCreationInputMode = (
+  | "guided_quick_fire"
+  | "kp_guided_era_adaptive"
+);
 type OpeningGuidedCreateReceipt = {
   campaignId: string;
   investigatorId: string;
@@ -390,6 +398,7 @@ type OpeningSetupState = {
     | "contract_invalid";
   dispatchIdentity: string | null;
   characterSetupComplete: boolean;
+  characterSetupInputMode: GuidedCharacterCreationInputMode | null;
   guidedCreateReceipts: Map<string, OpeningGuidedCreateReceipt>;
   projectionCard: JsonObject | null;
   activationCard: JsonObject | null;
@@ -690,9 +699,35 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private adaptiveCharacteristicRollInvocation(params: JsonObject): boolean {
+    const args = objectOrNull(params.arguments);
+    return (
+      args !== null
+      && Object.keys(args).every((key) => (
+        ["expression", "decision_id", "reason"].includes(key)
+      ))
+      && ["expression", "decision_id"].every((key) => (
+        Object.keys(args).includes(key)
+      ))
+      && (args.expression === "3D6" || args.expression === "2D6+6")
+      && (args.reason === undefined || args.reason === null || typeof args.reason === "string")
+      && typeof args.decision_id === "string"
+      && args.decision_id.trim().length > 0
+    );
+  }
+
+  private adaptiveCashSemanticMode(state: OpeningSetupState): boolean {
+    return (
+      state.characterSetupInputMode === "kp_guided_era_adaptive"
+      || state.route.character_setup_input_mode === "kp_guided_era_adaptive"
+      || state.route.character_setup_policy === "kp_guided_era_adaptive_no_source"
+    );
+  }
+
   private characterSetupAllowedActions(
     campaignId: string,
     includeSourceBriefing = true,
+    inputMode: GuidedCharacterCreationInputMode | null = null,
   ): JsonObject[] {
     const actions: JsonObject[] = [
       {
@@ -736,7 +771,7 @@ export class OpeningTerminalContinuationGate {
         campaign: campaignId,
         kind: "investigator.create",
         contract_source: "setup.investigator_contract.result.payload_schema",
-        required_creation_input_mode: "guided_quick_fire",
+        required_creation_input_mode: (inputMode ?? "guided_quick_fire"),
       },
       {
         operation: "setup.invoke",
@@ -744,7 +779,9 @@ export class OpeningTerminalContinuationGate {
         campaign: campaignId,
         kind: "campaign.link_investigator",
         required_payload_fields: ["campaign_id", "investigator_ids"],
-        requires_current_opening_receipt: "investigator.create:guided_quick_fire",
+        requires_current_opening_receipt: (
+          `investigator.create:${inputMode ?? "guided_quick_fire"}`
+        ),
       },
       {
         operation: "setup.invoke",
@@ -755,6 +792,27 @@ export class OpeningTerminalContinuationGate {
         optional_payload_fields: ["language", "html_mode"],
       },
     ];
+    if (inputMode === "kp_guided_era_adaptive") {
+      actions.splice(3, 0, {
+        operation: "rules.roll_dice",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        exact_recipe: {
+          expression: ["3D6", "2D6+6"],
+          purpose: "omit for characteristic receipts; use the typed Luck action separately",
+          required: ["decision_id"],
+          optional: ["reason"],
+        },
+      }, {
+        operation: "state.cash_semantic",
+        invoke_via: "coc_invoke",
+        campaign: campaignId,
+        required: ["record_id", "basis", "reason", "decision_id"],
+        optional: ["investigator_id", "cash_description", "assets"],
+        provenance: { kp_guided: true, cash_semantic: true },
+        when: "rules.cash_assets reports no authoritative campaign-era table",
+      });
+    }
     if (includeSourceBriefing) {
       actions.splice(1, 0, {
         operation: "setup.invoke",
@@ -770,6 +828,7 @@ export class OpeningTerminalContinuationGate {
   private canonicalSetupInvokeForOpening(
     params: JsonObject,
     route: OpeningSetupRoute,
+    inputMode: GuidedCharacterCreationInputMode | null = null,
   ): boolean {
     const args = objectOrNull(params.arguments);
     if (
@@ -787,39 +846,54 @@ export class OpeningTerminalContinuationGate {
     if (args.kind === "investigator.create") {
       const keys = Object.keys(payload);
       const creation = objectOrNull(payload.creation);
-      const quickFireMaterialization = (
-        creation?.input_mode === "guided_quick_fire"
-      );
-      const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
       const sheet = objectOrNull(payload.sheet);
+      const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
+      const validLuckReceipt = (
+        luckReceipt !== null
+        && exactKeysMatch(luckReceipt, ["campaign_id", "decision_id", "roll_id"])
+        && luckReceipt.campaign_id === route.campaign_id
+        && typeof luckReceipt.decision_id === "string"
+        && luckReceipt.decision_id.trim().length > 0
+        && typeof luckReceipt.roll_id === "string"
+        && luckReceipt.roll_id.trim().length > 0
+      );
+      const quickFireMaterialization = (
+        inputMode !== "kp_guided_era_adaptive"
+        && creation !== null
+        && creation.input_mode === "guided_quick_fire"
+        && creation.method === "quick_fire_array"
+        && Array.isArray(creation.characteristic_assignment_order)
+        && creation.characteristic_assignment_order.length === 8
+        && Number.isInteger(creation.luck_roll_total)
+        && validLuckReceipt
+      );
+      const adaptiveCreation = (
+        inputMode === "kp_guided_era_adaptive"
+        && creation !== null
+        && sheet !== null
+        && creation.input_mode === "kp_guided_era_adaptive"
+        && creation.era_adaptive === true
+        && creation.kp_guided === true
+        && typeof creation.era === "string"
+        && typeof creation.method === "string"
+        && Number.isInteger(creation.luck_roll_total)
+        && validLuckReceipt
+        && sheet.era_adaptive === true
+        && sheet.kp_guided === true
+        && sheet.era === creation.era
+        && objectOrNull(sheet.occupation) !== null
+        && objectOrNull(sheet.skill_provenance) !== null
+      );
       return (
         keys.every((key) => (
           ["campaign_id", "investigator_id", "sheet", "creation"].includes(key)
         ))
-        && ["investigator_id", "sheet"].every((key) => keys.includes(key))
+        && ["campaign_id", "investigator_id", "sheet", "creation"].every((key) => keys.includes(key))
+        && payload.campaign_id === route.campaign_id
         && typeof payload.investigator_id === "string"
         && sheet !== null
         && creation !== null
-        && (
-          (
-            quickFireMaterialization
-            && creation?.method === "quick_fire_array"
-            && Array.isArray(creation.characteristic_assignment_order)
-            && creation.characteristic_assignment_order.length === 8
-            && Number.isInteger(creation.luck_roll_total)
-            && payload.campaign_id === route.campaign_id
-            && luckReceipt !== null
-            && exactKeysMatch(
-              luckReceipt,
-              ["campaign_id", "decision_id", "roll_id"],
-            )
-            && luckReceipt.campaign_id === route.campaign_id
-            && typeof luckReceipt.decision_id === "string"
-            && luckReceipt.decision_id.trim().length > 0
-            && typeof luckReceipt.roll_id === "string"
-            && luckReceipt.roll_id.trim().length > 0
-          )
-        )
+        && (quickFireMaterialization || adaptiveCreation)
       );
     }
     if (args.kind === "campaign.link_investigator") {
@@ -917,12 +991,17 @@ export class OpeningTerminalContinuationGate {
       return (
         operation === "setup.invoke"
         && args?.kind === "investigator.render_card"
-        && this.canonicalSetupInvokeForOpening(params, route)
+        && this.canonicalSetupInvokeForOpening(
+          params, route, state.characterSetupInputMode,
+        )
       );
     }
     const setupArgs = objectOrNull(params.arguments);
     if (
-      state.route.character_setup_policy === "guided_quick_fire_no_source"
+      [
+        "guided_quick_fire_no_source",
+        "kp_guided_era_adaptive_no_source",
+      ].includes(state.route.character_setup_policy ?? "")
       && operation === "setup.invoke"
       && setupArgs?.kind === "campaign.render_briefing"
     ) {
@@ -933,7 +1012,9 @@ export class OpeningTerminalContinuationGate {
       && setupArgs?.kind === "campaign.link_investigator"
     ) {
       return (
-        this.canonicalSetupInvokeForOpening(params, route)
+        this.canonicalSetupInvokeForOpening(
+          params, route, state.characterSetupInputMode,
+        )
         && this.linkMatchesCurrentGuidedCreates(params, state)
       );
     }
@@ -967,11 +1048,23 @@ export class OpeningTerminalContinuationGate {
         )
       );
     }
-    return this.canonicalSetupInvokeForOpening(params, route)
-      || (
-        operation === "rules.roll_dice"
-        && this.quickFireLuckInvocation(params)
-      );
+    if (operation === "state.cash_semantic") {
+      // Last era-adaptive consumer: admit whenever the adaptive route owns
+      // character setup. Do not hard-gate on toolbox-owned shapes.
+      return this.adaptiveCashSemanticMode(state);
+    }
+    return this.canonicalSetupInvokeForOpening(
+      params, route, state.characterSetupInputMode,
+    ) || (
+      operation === "rules.roll_dice"
+      && (
+        this.quickFireLuckInvocation(params)
+        || (
+          state.characterSetupInputMode === "kp_guided_era_adaptive"
+          && this.adaptiveCharacteristicRollInvocation(params)
+        )
+      )
+    );
   }
 
   private exactCanonicalLinkReceipt(
@@ -1330,6 +1423,8 @@ export class OpeningTerminalContinuationGate {
       next_operation: null,
       allowed_actions: this.characterSetupAllowedActions(
         state.route.campaign_id,
+        true,
+        state.characterSetupInputMode,
       ),
       instruction: (
         "opening source review is complete; finish the exact canonical "
@@ -1349,6 +1444,8 @@ export class OpeningTerminalContinuationGate {
       next_operation: null,
       allowed_actions: this.characterSetupAllowedActions(
         state.route.campaign_id,
+        true,
+        state.characterSetupInputMode,
       ),
       instruction: (
         "opening source work is fulfilled, but its projection card remains "
@@ -1363,7 +1460,29 @@ export class OpeningTerminalContinuationGate {
 
   private recoveredCurrentCharacterSetupRoute(
     campaignId: string,
+    inputMode: GuidedCharacterCreationInputMode = "guided_quick_fire",
   ): OpeningSetupRoute {
+    if (inputMode === "kp_guided_era_adaptive") {
+      return {
+        schema_version: 1,
+        status: "blocked",
+        hard_gate: true,
+        activation_allowed: false,
+        phase: "opening_character_setup_required",
+        campaign_id: campaignId,
+        next_operation: null,
+        allowed_actions: this.characterSetupAllowedActions(
+          campaignId, false, inputMode,
+        ),
+        character_setup_policy: "kp_guided_era_adaptive_no_source",
+        character_setup_input_mode: inputMode,
+        instruction: (
+          "the source-bound opening is current but no investigator is linked; "
+          + "complete only the retained KP-guided era-adaptive create and exact "
+          + "campaign.link_investigator sequence before opening play"
+        ),
+      };
+    }
     return {
       schema_version: 1,
       status: "blocked",
@@ -1439,80 +1558,23 @@ export class OpeningTerminalContinuationGate {
     ) {
       return value;
     }
-    const envelope = objectOrNull(value);
-    const data = objectOrNull(envelope?.data);
-    const contract = objectOrNull(data?.result);
-    const eraContract = objectOrNull(
-      contract?.guided_quick_fire_campaign_era,
-    );
-    if (eraContract?.supported === false) {
-      return {
-        ok: false,
-        tool: "setup.investigator_contract",
-        error: {
-          code: "guided_quick_fire_unsupported_campaign_era",
-          message: (
-            "guided Quick Fire has no authoritative package-owned standard "
-            + `sheet for campaign era ${String(
-              eraContract.required_sheet_era ?? "",
-            )}`
-          ),
-          details: {
-            campaign_id: campaignId,
-            campaign_era: eraContract.required_sheet_era,
-            supported_eras: eraContract.supported_eras,
-          },
-        },
-      };
-    }
-    const payloadSchema = objectOrNull(contract?.payload_schema);
-    const branches = Array.isArray(payloadSchema?.oneOf)
-      ? payloadSchema.oneOf
-      : null;
-    const defs = objectOrNull(payloadSchema?.$defs);
-    if (branches === null || defs === null) {
-      return JSON.stringify(value).includes("import_complete_sheet")
-        ? {
-            ok: false,
-            tool: "setup.investigator_contract",
-            error: { code: "guided_contract_projection_failed" },
-          }
-        : value;
-    }
-    const guidedBranch = branches.find((branch) => {
-      const branchObject = objectOrNull(branch);
-      const properties = objectOrNull(branchObject?.properties);
-      const creation = objectOrNull(properties?.creation);
-      return creation?.$ref === "#/$defs/quick_fire_creation";
-    });
-    if (guidedBranch === undefined) {
-      return {
-        ok: false,
-        tool: "setup.investigator_contract",
-        error: { code: "guided_contract_projection_failed" },
-      };
-    }
-    const projected = structuredClone(envelope!);
-    const projectedData = objectOrNull(projected.data)!;
-    const projectedContract = objectOrNull(projectedData.result)!;
-    const projectedSchema = objectOrNull(projectedContract.payload_schema)!;
-    const projectedDefs = objectOrNull(projectedSchema.$defs)!;
-    projectedSchema.oneOf = [structuredClone(guidedBranch)];
-    delete projectedDefs.complete_sheet;
-    delete projectedDefs.complete_sheet_creation;
-    projectedSchema.title = (
-      "COC7 guided Quick Fire investigator.create payload"
-    );
-    projectedSchema.description = (
-      "Pi opening setup permits only the guided_quick_fire branch until "
-      + "the exact current investigator create and campaign link succeed."
-    );
-    projectedContract.applicable_input_mode = "guided_quick_fire";
-    if (JSON.stringify(projected).includes("import_complete_sheet")) {
-      return {
-        ok: false,
-        tool: "setup.investigator_contract",
-        error: { code: "guided_contract_projection_failed" },
+    const projected = projectPiGuidedCharacterContract(value, campaignId);
+    const contract = objectOrNull(objectOrNull(
+      objectOrNull(projected)?.data,
+    )?.result);
+    const inputMode = contract?.applicable_input_mode;
+    if (
+      inputMode === "guided_quick_fire"
+      || inputMode === "kp_guided_era_adaptive"
+    ) {
+      state.characterSetupInputMode = inputMode;
+      state.route = {
+        ...state.route,
+        allowed_actions: this.characterSetupAllowedActions(
+          state.route.campaign_id,
+          true,
+          inputMode,
+        ),
       };
     }
     return projected;
@@ -1568,6 +1630,14 @@ export class OpeningTerminalContinuationGate {
       ? null
       : objectOrNull(gate.next_operation);
     if (gate.next_operation !== null && nextOperation === null) return null;
+    const inputMode = (
+      gate.character_setup_input_mode === "kp_guided_era_adaptive"
+      || gate.character_setup_input_mode === "guided_quick_fire"
+    )
+      ? gate.character_setup_input_mode
+      : gate.character_setup_policy === "kp_guided_era_adaptive"
+        ? "kp_guided_era_adaptive"
+        : null;
     return {
       schema_version: 1,
       status: "blocked",
@@ -1576,6 +1646,12 @@ export class OpeningTerminalContinuationGate {
       phase: gate.phase,
       campaign_id: gate.campaign_id,
       next_operation: nextOperation,
+      ...(inputMode === "kp_guided_era_adaptive"
+        ? {
+            character_setup_policy: "kp_guided_era_adaptive_no_source" as const,
+            character_setup_input_mode: inputMode,
+          }
+        : {}),
       instruction: typeof gate.instruction === "string"
         ? gate.instruction
         : "invoke the exact retained canonical setup route",
@@ -1874,6 +1950,9 @@ export class OpeningTerminalContinuationGate {
       phase,
       dispatchIdentity: null,
       characterSetupComplete: false,
+      characterSetupInputMode: (
+        route.character_setup_input_mode ?? null
+      ),
       guidedCreateReceipts: new Map<string, OpeningGuidedCreateReceipt>(),
       projectionCard: null,
       activationCard: null,
@@ -1899,6 +1978,7 @@ export class OpeningTerminalContinuationGate {
       dispatchIdentity: null,
       continuationReleaseOwner: null,
       backgroundTerminalReceipt: null,
+      characterSetupInputMode: null,
       guidedCreateReceipts: new Map<string, OpeningGuidedCreateReceipt>(),
     };
     this.openingSetupStates.set(state.route.campaign_id, next);
@@ -2025,6 +2105,13 @@ export class OpeningTerminalContinuationGate {
       operation === "rules.roll_dice"
       && this.characterSetupAllowed(state)
     ) {
+      if (state.characterSetupInputMode === "kp_guided_era_adaptive") {
+        return (
+          "rules.roll_dice for the active era-adaptive contract must use "
+          + "3D6 or 2D6+6 with decision_id and optional reason (no purpose), "
+          + "or the typed 3D6 investigator_creation_luck recipe for Luck"
+        );
+      }
       const args = objectOrNull(params.arguments);
       const decisionId = (
         typeof args?.decision_id === "string"
@@ -2253,30 +2340,43 @@ export class OpeningTerminalContinuationGate {
         )
       )
     );
+    const canonicalCharacterSetupInputMode = (
+      returnedGate?.character_setup_policy === "kp_guided_era_adaptive"
+      && returnedGate?.character_setup_input_mode === "kp_guided_era_adaptive"
+    )
+      ? "kp_guided_era_adaptive"
+      : returnedGate?.character_setup_policy === "guided_quick_fire"
+        ? "guided_quick_fire"
+        : null;
     const canonicalCharacterSetupProbe = (
       attempt.attemptClass === "probe"
       && operation === "session.resume"
       && this.unboundAttemptIsFresh(attempt)
       && exactProjectedResumeError
       && returnedGate !== null
-      && exactKeysMatch(returnedGate, [
-        "schema_version",
-        "status",
-        "hard_gate",
-        "activation_allowed",
-        "phase",
-        "campaign_id",
-        "character_setup_policy",
-        "next_operation",
-        "instruction",
-      ])
+      && (
+        (
+          canonicalCharacterSetupInputMode === "guided_quick_fire"
+          && exactKeysMatch(returnedGate, [
+            "schema_version", "status", "hard_gate", "activation_allowed",
+            "phase", "campaign_id", "character_setup_policy", "next_operation",
+            "instruction",
+          ])
+        ) || (
+          canonicalCharacterSetupInputMode === "kp_guided_era_adaptive"
+          && exactKeysMatch(returnedGate, [
+            "schema_version", "status", "hard_gate", "activation_allowed",
+            "phase", "campaign_id", "character_setup_policy",
+            "character_setup_input_mode", "next_operation", "instruction",
+          ])
+        )
+      )
       && returnedGate.schema_version === 1
       && returnedGate.status === "blocked"
       && returnedGate.hard_gate === true
       && returnedGate.activation_allowed === false
       && returnedGate.phase === "opening_character_setup_required"
       && returnedGate.campaign_id === attempt.campaignId
-      && returnedGate.character_setup_policy === "guided_quick_fire"
       && returnedGate.next_operation === null
     );
     const canonicalMaterializationProbe = (
@@ -2412,6 +2512,7 @@ export class OpeningTerminalContinuationGate {
     if (state === undefined && canonicalCharacterSetupProbe) {
       const route = this.recoveredCurrentCharacterSetupRoute(
         attempt.campaignId,
+        canonicalCharacterSetupInputMode ?? "guided_quick_fire",
       );
       this.initializeOpeningSetupState(
         attempt.campaignId,
@@ -2422,7 +2523,9 @@ export class OpeningTerminalContinuationGate {
       this.finalizeOpeningSetupAttempt(invocationId);
       this.recordOpeningSetupAudit({
         status: "transitioned",
-        transition: "canonical_character_setup_guided_gate_rehydrated",
+        transition: (
+          `canonical_character_setup_${canonicalCharacterSetupInputMode}_gate_rehydrated`
+        ),
         campaign_id: attempt.campaignId,
         generation: attempt.generation,
         invocation_id: invocationId,
@@ -2604,10 +2707,13 @@ export class OpeningTerminalContinuationGate {
         const investigatorId = typeof payload?.investigator_id === "string"
           ? payload.investigator_id
           : "";
+        const expectedInputMode = (
+          state.characterSetupInputMode ?? "guided_quick_fire"
+        );
         if (
           investigatorId
           && payload?.campaign_id === attempt.campaignId
-          && creation?.input_mode === "guided_quick_fire"
+          && creation?.input_mode === expectedInputMode
         ) {
           state.guidedCreateReceipts.set(investigatorId, {
             campaignId: attempt.campaignId,
@@ -2622,7 +2728,7 @@ export class OpeningTerminalContinuationGate {
           });
           this.recordOpeningSetupAudit({
             status: "retained",
-            reason: "guided_quick_fire_create_current",
+            reason: `${expectedInputMode}_create_current`,
             campaign_id: attempt.campaignId,
             investigator_id: investigatorId,
             generation: state.generation,
@@ -5693,6 +5799,114 @@ function objectOrNull(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : null;
 }
 
+export function projectPiGuidedCharacterContract(
+  value: unknown,
+  campaignId: string,
+): unknown {
+  const envelope = objectOrNull(value);
+  const data = objectOrNull(envelope?.data);
+  const contract = objectOrNull(data?.result);
+  const eraContract = objectOrNull(contract?.guided_quick_fire_campaign_era);
+  if (envelope?.ok !== true || data === null || contract === null || eraContract === null) {
+    return value;
+  }
+  let inputMode: GuidedCharacterCreationInputMode | null = null;
+  let route = "guided_quick_fire";
+  if (
+    eraContract.status === "standard_quick_fire_available"
+    && eraContract.supported === true
+  ) {
+    inputMode = "guided_quick_fire";
+  } else {
+    const fallback = objectOrNull(eraContract.fallback);
+    if (
+      eraContract.status === "kp_guided_era_adaptive_available"
+      && fallback?.status === "available"
+      && fallback?.available === true
+      && fallback.route === "kp_guided_era_adaptive"
+      && fallback.input_mode === "kp_guided_era_adaptive"
+    ) {
+      inputMode = "kp_guided_era_adaptive";
+      route = "kp_guided_era_adaptive";
+    }
+  }
+  if (inputMode === null) {
+    return {
+      ok: false,
+      tool: "setup.investigator_contract",
+      error: {
+        code: "guided_character_creation_route_unavailable",
+        message: "the current campaign exposes no usable guided character-creation route",
+        details: {
+          campaign_id: campaignId,
+          route_status: eraContract.status,
+          campaign_era: eraContract.required_sheet_era,
+        },
+      },
+    };
+  }
+  const payloadSchema = objectOrNull(contract.payload_schema);
+  const definitions = objectOrNull(payloadSchema?.$defs);
+  const branches = Array.isArray(payloadSchema?.oneOf) ? payloadSchema.oneOf : null;
+  if (definitions === null || branches === null) {
+    return {
+      ok: false,
+      tool: "setup.investigator_contract",
+      error: { code: "guided_contract_projection_failed" },
+    };
+  }
+  const candidates = branches.filter((branch) => {
+    const branchObject = objectOrNull(branch);
+    const properties = objectOrNull(branchObject?.properties);
+    const creation = objectOrNull(properties?.creation);
+    const ref = typeof creation?.$ref === "string" ? creation.$ref : "";
+    const definition = ref.startsWith("#/$defs/")
+      ? objectOrNull(definitions[ref.slice("#/$defs/".length)])
+      : null;
+    const definitionProperties = objectOrNull(definition?.properties);
+    const mode = objectOrNull(definitionProperties?.input_mode);
+    return mode?.const === inputMode;
+  });
+  if (candidates.length !== 1) {
+    return {
+      ok: false,
+      tool: "setup.investigator_contract",
+      error: { code: "guided_contract_projection_failed" },
+    };
+  }
+  const projected = structuredClone(envelope);
+  const projectedData = objectOrNull(projected.data)!;
+  const projectedContract = objectOrNull(projectedData.result)!;
+  const projectedSchema = objectOrNull(projectedContract.payload_schema)!;
+  const projectedDefinitions = objectOrNull(projectedSchema.$defs)!;
+  projectedSchema.oneOf = [structuredClone(candidates[0])];
+  delete projectedDefinitions.complete_sheet;
+  delete projectedDefinitions.complete_sheet_creation;
+  if (inputMode === "kp_guided_era_adaptive") {
+    delete projectedDefinitions.quick_fire_sheet;
+    delete projectedDefinitions.quick_fire_creation;
+    // Adaptive create does not consume Quick Fire skill-catalog rows; drop the
+    // bulk so a host that already applied keeper_hot_v1 still retains schema.
+    const catalog = objectOrNull(projectedContract.guided_quick_fire_skill_catalog);
+    if (catalog !== null && "rows" in catalog) {
+      const { rows: _rows, ...catalogMeta } = catalog;
+      projectedContract.guided_quick_fire_skill_catalog = catalogMeta;
+    }
+  }
+  projectedSchema.title = `COC7 ${inputMode} investigator.create payload`;
+  projectedSchema.description = (
+    "Pi opening setup permits only the contract-selected investigator.create "
+    + "branch until the exact current investigator create and campaign link succeed."
+  );
+  projectedContract.applicable_input_mode = inputMode;
+  projectedContract.character_creation_route = {
+    status: "available",
+    route,
+    input_mode: inputMode,
+  };
+  return projected;
+}
+
 function findAutoDispatchTakeover(value: unknown): JsonObject | null {
   const envelope = objectOrNull(value);
   if (envelope?.ok !== true) return null;
@@ -7343,6 +7557,39 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     details: JsonObject,
     campaignId: string,
   ): JsonObject | null => {
+    if (details.character_setup_policy === "kp_guided_era_adaptive") {
+      if (
+        !exactKeysMatch(details, [
+          "schema_version", "status", "hard_gate", "activation_allowed",
+          "phase", "campaign_id", "character_setup_policy",
+          "character_setup_input_mode", "next_operation", "instruction",
+        ])
+        || details.schema_version !== 1
+        || details.status !== "blocked"
+        || details.hard_gate !== true
+        || details.activation_allowed !== false
+        || details.phase !== "opening_character_setup_required"
+        || details.campaign_id !== campaignId
+        || details.character_setup_input_mode !== "kp_guided_era_adaptive"
+        || details.next_operation !== null
+        || typeof details.instruction !== "string"
+      ) return null;
+      return {
+        schema_version: 1,
+        status: "blocked",
+        hard_gate: true,
+        activation_allowed: false,
+        phase: "opening_character_setup_required",
+        campaign_id: campaignId,
+        character_setup_policy: "kp_guided_era_adaptive",
+        character_setup_input_mode: "kp_guided_era_adaptive",
+        next_operation: null,
+        instruction: (
+          "complete the retained KP-guided era-adaptive investigator creation "
+          + "and exact campaign link before opening play"
+        ),
+      };
+    }
     if (
       !exactKeysMatch(details, [
         "schema_version",

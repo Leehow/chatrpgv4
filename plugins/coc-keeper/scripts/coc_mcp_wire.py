@@ -2043,6 +2043,147 @@ def _claim_projection_failure(data: Any) -> dict[str, Any]:
     return projected
 
 
+_GUIDED_QUICK_FIRE_INPUT_MODE = "guided_quick_fire"
+_KP_GUIDED_ERA_ADAPTIVE_INPUT_MODE = "kp_guided_era_adaptive"
+_INVESTIGATOR_CONTRACT_BRANCH_DEF_KEYS = {
+    _GUIDED_QUICK_FIRE_INPUT_MODE: (
+        "quick_fire_sheet",
+        "quick_fire_creation",
+    ),
+    _KP_GUIDED_ERA_ADAPTIVE_INPUT_MODE: (
+        "kp_guided_era_adaptive_sheet",
+        "kp_guided_era_adaptive_creation",
+        "kp_guided_characteristics",
+        "kp_guided_derived",
+        "kp_guided_roll_receipt",
+        "kp_guided_characteristic_roll_receipts",
+        "kp_guided_occupation",
+        "kp_guided_skill_provenance",
+        "kp_guided_player_skill_row",
+        "kp_guided_player_sheet",
+    ),
+}
+_INVESTIGATOR_CONTRACT_IMPORT_DEF_KEYS = (
+    "complete_sheet",
+    "complete_sheet_creation",
+)
+
+
+def _investigator_contract_input_mode(result: dict[str, Any]) -> str | None:
+    """Resolve the sole guided create route encoded on the contract result."""
+    era_contract = result.get("guided_quick_fire_campaign_era")
+    if not isinstance(era_contract, dict):
+        return None
+    if (
+        era_contract.get("status") == "standard_quick_fire_available"
+        and era_contract.get("supported") is True
+    ):
+        return _GUIDED_QUICK_FIRE_INPUT_MODE
+    fallback = era_contract.get("fallback")
+    if (
+        era_contract.get("status") == "kp_guided_era_adaptive_available"
+        and isinstance(fallback, dict)
+        and fallback.get("status") == "available"
+        and fallback.get("available") is True
+        and fallback.get("route") == _KP_GUIDED_ERA_ADAPTIVE_INPUT_MODE
+        and fallback.get("input_mode") == _KP_GUIDED_ERA_ADAPTIVE_INPUT_MODE
+    ):
+        return _KP_GUIDED_ERA_ADAPTIVE_INPUT_MODE
+    return None
+
+
+def _investigator_contract_branch_input_mode(
+    branch: Any,
+    definitions: dict[str, Any],
+) -> str | None:
+    if not isinstance(branch, dict):
+        return None
+    properties = branch.get("properties")
+    if not isinstance(properties, dict):
+        return None
+    creation = properties.get("creation")
+    if not isinstance(creation, dict):
+        return None
+    ref = creation.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
+        return None
+    definition = definitions.get(ref[len("#/$defs/"):])
+    if not isinstance(definition, dict):
+        return None
+    definition_properties = definition.get("properties")
+    if not isinstance(definition_properties, dict):
+        return None
+    mode = definition_properties.get("input_mode")
+    if not isinstance(mode, dict):
+        return None
+    const = mode.get("const")
+    return const if isinstance(const, str) and const else None
+
+
+def _project_investigator_contract(data: Any) -> Any:
+    """Keep the create payload schema core under the hot transport budget.
+
+    The full investigator contract is archived via ``full_result_sha256``.
+    Adaptive results also carry the unused Quick Fire sheet/catalog bulk that
+    pushes the complete envelope past 16 KiB; without a typed projector the
+    host collapses to identity-only and the KP loses ``payload_schema``.
+    """
+    if not isinstance(data, dict):
+        return {}
+    projected = deepcopy(data)
+    result = projected.get("result")
+    if not isinstance(result, dict):
+        return projected
+    input_mode = _investigator_contract_input_mode(result)
+    schema = result.get("payload_schema")
+    definitions = schema.get("$defs") if isinstance(schema, dict) else None
+    branches = schema.get("oneOf") if isinstance(schema, dict) else None
+    if (
+        input_mode is None
+        or not isinstance(schema, dict)
+        or not isinstance(definitions, dict)
+        or not isinstance(branches, list)
+    ):
+        return projected
+
+    # 1920s Quick Fire already fits the hot budget with the full archive shape
+    # (both create branches + skill catalog rows). Keep that byte-stable and
+    # only slim the adaptive route that otherwise identity-collapses.
+    if input_mode == _GUIDED_QUICK_FIRE_INPUT_MODE:
+        return projected
+
+    selected = [
+        deepcopy(branch)
+        for branch in branches
+        if _investigator_contract_branch_input_mode(branch, definitions)
+        == input_mode
+    ]
+    if len(selected) != 1:
+        return projected
+    schema["oneOf"] = selected
+
+    drop_keys = set(_INVESTIGATOR_CONTRACT_IMPORT_DEF_KEYS)
+    for mode, keys in _INVESTIGATOR_CONTRACT_BRANCH_DEF_KEYS.items():
+        if mode != input_mode:
+            drop_keys.update(keys)
+    for key in drop_keys:
+        definitions.pop(key, None)
+
+    # Quick Fire skill rows are construction data only for that route. Adaptive
+    # create uses base skills + provenance; keep catalog metadata only.
+    catalog = result.get("guided_quick_fire_skill_catalog")
+    if isinstance(catalog, dict):
+        result["guided_quick_fire_skill_catalog"] = {
+            key: deepcopy(value)
+            for key, value in catalog.items()
+            if key != "rows"
+        }
+
+    # Drop prose annotations from the remaining structural schema.
+    result["payload_schema"] = _without_schema_annotations(schema)
+    return projected
+
+
 def project_envelope(
     operation: str,
     envelope: dict[str, Any],
@@ -2072,6 +2213,8 @@ def project_envelope(
         projector = _compact_output_context
     elif operation == "turn.finalize":
         projector = _project_finalize
+    elif operation == "setup.investigator_contract":
+        projector = _project_investigator_contract
 
     projected_data = projector(data) if projector is not None else deepcopy(data)
     result: dict[str, Any] = {

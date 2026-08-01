@@ -339,17 +339,87 @@ def _pick(mapping: Any, keys: tuple[str, ...]) -> dict[str, Any]:
     return {key: mapping[key] for key in keys if key in mapping}
 
 
+def _occupation_provenance_projection(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    projected = _pick(
+        value,
+        ("name", "reason", "era_adaptive", "skill_point_formula", "formula_reason"),
+    )
+    return projected or None
+
+
+def _skill_provenance_projection(value: Any) -> dict[str, dict[str, Any]] | None:
+    if not isinstance(value, dict):
+        return None
+    projected: dict[str, dict[str, Any]] = {}
+    for skill_id, entry in value.items():
+        if not isinstance(skill_id, str) or not isinstance(entry, dict):
+            continue
+        safe_entry = _pick(
+            entry,
+            ("original_name", "reskinned_name", "era_adaptive", "custom"),
+        )
+        if safe_entry:
+            projected[skill_id] = safe_entry
+    return projected or None
+
+
+def _skill_budget_provenance_projection(value: Any) -> dict[str, dict[str, Any]] | None:
+    if not isinstance(value, dict):
+        return None
+    projected: dict[str, dict[str, Any]] = {}
+    for account_name in ("occupation_points", "personal_interest_points"):
+        account = value.get(account_name)
+        if not isinstance(account, dict):
+            continue
+        safe_account = _pick(account, ("budget", "spent", "allocations"))
+        allocations = safe_account.get("allocations")
+        if isinstance(allocations, dict):
+            safe_account["allocations"] = {
+                skill_id: points
+                for skill_id, points in allocations.items()
+                if isinstance(skill_id, str) and _is_numeric(points)
+            }
+        if safe_account:
+            projected[account_name] = safe_account
+    return projected or None
+
+
+def _creation_projection(creation: Any) -> dict[str, Any] | None:
+    if not isinstance(creation, dict):
+        return None
+    projected = _pick(
+        creation,
+        ("input_mode", "method", "status", "age", "era", "era_adaptive", "kp_guided"),
+    )
+    occupation = _occupation_provenance_projection(creation.get("occupation"))
+    if occupation is not None:
+        projected["occupation"] = occupation
+    skill_budget = _skill_budget_provenance_projection(creation.get("skill_budget"))
+    if skill_budget is not None:
+        projected["skill_budget"] = skill_budget
+    return projected
+
+
 def _character_projection(character: Any, creation: Any) -> dict[str, Any] | None:
     if not isinstance(character, dict):
         return None
     projected = _pick(character, (
         "id", "name", "display_name", "occupation", "profession", "era", "age",
-        "sex", "residence", "birthplace", "characteristics", "derived", "skills",
-        "weapons", "equipment", "backstory", "credit_rating", "cash",
-        "player_facing_sheet_zh",
+        "era_adaptive", "kp_guided", "sex", "residence", "birthplace",
+        "characteristics", "derived", "skills", "weapons", "equipment",
+        "backstory", "credit_rating", "cash", "player_facing_sheet_zh",
     ))
-    if isinstance(creation, dict):
-        projected["creation"] = _pick(creation, ("method", "status", "age"))
+    occupation = _occupation_provenance_projection(character.get("occupation"))
+    if occupation is not None:
+        projected["occupation"] = occupation
+    skill_provenance = _skill_provenance_projection(character.get("skill_provenance"))
+    if skill_provenance is not None:
+        projected["skill_provenance"] = skill_provenance
+    creation_projection = _creation_projection(creation)
+    if creation_projection is not None:
+        projected["creation"] = creation_projection
     snapshot = character.get("initial_skills_snapshot")
     if isinstance(snapshot, dict) and snapshot:
         projected["initial_skills"] = {
@@ -815,7 +885,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             {
                 "investigator_id": investigator_id,
                 "character": _character_projection(character, creation),
-                "creation": _pick(creation, ("method", "status", "age")) if isinstance(creation, dict) else None,
+                "creation": _creation_projection(creation),
                 "state": _state_projection(state),
                 "source_status": {
                     "character": _card_status(character),
@@ -1745,6 +1815,8 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "#### Characteristics": "#### 属性",
         "#### Initial Derived Values": "#### 初始衍生数值",
         "#### Initial Skills": "#### 初始技能",
+        "#### Era-Adaptive Creation": "#### 年代适配建卡",
+        "#### Skill Adaptation Provenance": "#### 技能年代适配来源",
         "#### Weapons": "#### 武器",
         "#### Equipment": "#### 装备",
         "#### Backstory and Traits": "#### 背景与特质",
@@ -1785,6 +1857,16 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "- Final MP:": "- 最终魔法值:",
         "- Final Luck:": "- 最终幸运:",
         "- Conditions:": "- 状态:",
+        "- Era Adaptive:": "- 年代适配:",
+        "- KP Guided:": "- KP 引导:",
+        "- Input Mode:": "- 输入模式:",
+        "- Creation Method:": "- 建卡方法:",
+        "- Occupation Rationale:": "- 职业依据:",
+        "- Skill Point Formula:": "- 职业技能点公式:",
+        "- Formula Rationale:": "- 公式依据:",
+        "- Skill Budget Provenance:": "- 技能点预算来源:",
+        "  - Occupation Points:": "  - 职业技能点:",
+        "  - Personal Interest Points:": "  - 兴趣技能点:",
         "Public roll count:": "公开骰点数量:",
         "Dice completeness:": "骰点完整性:",
         "- Actor:": "- 行动者:",
@@ -1828,6 +1910,9 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "explicit per-source allowlists applied": "已应用逐来源显式白名单",
         " — not recorded as woven": " — 未记录已融入剧情",
         " · payoff recorded": " · 已记录回收",
+        " (custom)": "（自创）",
+        "; allocations: none": "; 分配：无",
+        "; allocations:": "; 分配：",
     }
     output: list[str] = []
     in_table_transcript = False
@@ -1939,11 +2024,18 @@ def _markdown(report: dict[str, Any]) -> str:
     for investigator in report["investigators"]:
         character = investigator.get("character") or {}
         state = investigator.get("state") or {}
+        creation = investigator.get("creation")
+        if not isinstance(creation, dict):
+            creation = character.get("creation") if isinstance(character, dict) else None
         name = _first(character, ("name", "display_name")) or _first(state, ("name", "display_name")) or investigator["investigator_id"]
+        occupation = _first(character, ("occupation", "profession"))
+        occupation_name = (
+            occupation.get("name") if isinstance(occupation, dict) else occupation
+        )
         lines.extend([f"### {name}", ""])
         fields = (
             ("ID", investigator["investigator_id"]),
-            ("Occupation", _first(character, ("occupation", "profession"))),
+            ("Occupation", occupation_name),
             ("Age", _first(character, ("age",))),
             ("Sex", _first(character, ("sex",))),
             ("Nationality", _first(character, ("nationality",))),
@@ -1982,6 +2074,82 @@ def _markdown(report: dict[str, Any]) -> str:
             value = character.get(key)
             if isinstance(value, dict) and value:
                 lines.extend([f"#### {heading}", "", " | ".join(f"{k}: {_display(v)}" for k, v in value.items()), ""])
+        is_era_adaptive = (
+            character.get("era_adaptive") is True
+            or character.get("kp_guided") is True
+            or isinstance(creation, dict) and (
+                creation.get("era_adaptive") is True
+                or creation.get("kp_guided") is True
+                or creation.get("input_mode") == "kp_guided_era_adaptive"
+            )
+        )
+        if is_era_adaptive:
+            lines.extend(["#### Era-Adaptive Creation", ""])
+            adaptation_fields = (
+                ("Era Adaptive", character.get("era_adaptive")),
+                ("KP Guided", character.get("kp_guided")),
+                ("Input Mode", creation.get("input_mode") if isinstance(creation, dict) else None),
+                ("Creation Method", creation.get("method") if isinstance(creation, dict) else None),
+            )
+            lines.extend(
+                f"- {label}: {_display(value)}"
+                for label, value in adaptation_fields
+                if value not in (None, "")
+            )
+            creation_occupation = (
+                creation.get("occupation") if isinstance(creation, dict) else None
+            )
+            if not isinstance(creation_occupation, dict):
+                creation_occupation = occupation if isinstance(occupation, dict) else None
+            if isinstance(creation_occupation, dict):
+                occupation_fields = (
+                    ("Occupation Rationale", creation_occupation.get("reason")),
+                    ("Skill Point Formula", creation_occupation.get("skill_point_formula")),
+                    ("Formula Rationale", creation_occupation.get("formula_reason")),
+                )
+                lines.extend(
+                    f"- {label}: {_display(value)}"
+                    for label, value in occupation_fields
+                    if value not in (None, "")
+                )
+            skill_budget = creation.get("skill_budget") if isinstance(creation, dict) else None
+            if isinstance(skill_budget, dict):
+                lines.append("- Skill Budget Provenance:")
+                for account_name, label in (
+                    ("occupation_points", "Occupation Points"),
+                    ("personal_interest_points", "Personal Interest Points"),
+                ):
+                    account = skill_budget.get(account_name)
+                    if not isinstance(account, dict):
+                        continue
+                    allocations = account.get("allocations")
+                    allocation_text = (
+                        ", ".join(
+                            f"`{skill_id}` +{points}"
+                            for skill_id, points in allocations.items()
+                        )
+                        if isinstance(allocations, dict) and allocations else "none"
+                    )
+                    lines.append(
+                        f"  - {label}: {_display(account.get('spent'))} / "
+                        f"{_display(account.get('budget'))}; allocations: {allocation_text}"
+                    )
+            lines.append("")
+        skill_provenance = character.get("skill_provenance")
+        if isinstance(skill_provenance, dict) and skill_provenance:
+            lines.extend(["#### Skill Adaptation Provenance", ""])
+            for skill_id, provenance in skill_provenance.items():
+                if not isinstance(provenance, dict):
+                    continue
+                original = provenance.get("original_name")
+                reskinned = provenance.get("reskinned_name")
+                if not isinstance(original, str) or not isinstance(reskinned, str):
+                    continue
+                custom = " (custom)" if provenance.get("custom") is True else ""
+                lines.append(
+                    f"- `{skill_id}`: `{original}` → {reskinned}{custom}"
+                )
+            lines.append("")
         skill_rows = character.get("initial_skill_rows")
         if isinstance(skill_rows, list) and skill_rows:
             lines.extend(["#### Initial Skills", "", "| Skill | Full | Half | Fifth |", "|---|---:|---:|---:|"])
