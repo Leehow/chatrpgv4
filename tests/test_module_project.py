@@ -395,6 +395,15 @@ def _deep_opening_pack():
     }
 
 
+def _deep_opening_pack_with_obvious_delivery_kind():
+    pack = _deep_opening_pack()
+    for clue in pack.get("clues") or []:
+        clue["delivery_kind"] = "obvious"
+        clue["visibility"] = "player-safe"
+        clue["parse_state"] = "deep"
+    return pack
+
+
 def _ready_selected_opening_projection(
     tmp_path: Path,
     *,
@@ -1339,6 +1348,96 @@ def test_selected_opening_projection_refuses_stale_non_pristine_slice(
 
     assert raised.value.code == "opening_projection_non_pristine"
     assert graph_path.read_bytes() == before
+
+
+def test_delivered_opening_freshness_pins_receipt_after_payload_drift(
+    tmp_path: Path,
+):
+    """Delivered opening receipts are pinned to the content slice.
+
+    Before delivery the strict whole-payload receipt must hold (no play against
+    a drifting projection). After play evidence exists, re-projection is
+    forbidden, so payload drift from post-projection pack deepen no longer
+    invalidates the delivered receipt; a genuinely stale content anchor still
+    fails closed.
+    """
+    ready = _ready_selected_opening_projection(
+        tmp_path,
+        pack=_deep_opening_pack_with_obvious_delivery_kind(),
+    )
+    camp = ready["campaign_dir"]
+    scenario_path = camp / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    stored_receipt = scenario["opening_projection_receipt"]
+
+    assert project.opening_projection_state_is_fresh(
+        tmp_path, camp, "prog-demo", "opening", ready["source_scope"],
+    ) is True
+
+    # Background deepen rewrites the durable pack: the embedded clue row loses
+    # delivery_kind/visibility/parse_state, exactly the playtest drift class
+    # (whole-payload hash moves; canonical slice and content evidence stay).
+    drifted_pack = assets.get_entity(
+        tmp_path, "prog-demo", "location", "opening",
+    )
+    for clue in drifted_pack.get("clues") or []:
+        clue.pop("delivery_kind", None)
+        clue.pop("visibility", None)
+        clue.pop("parse_state", None)
+    assets.put_entity(
+        tmp_path, "prog-demo", "location", "opening", drifted_pack,
+    )
+    payload = project.build_opening_projection_payload(
+        tmp_path, "prog-demo", "opening", ready["source_scope"],
+    )
+    recomputed = project.opening_projection_receipt(
+        "prog-demo", "opening", payload,
+    )
+    assert recomputed["projection_input_sha256"] != stored_receipt[
+        "projection_input_sha256"
+    ]
+    assert recomputed["source_evidence_sha256"] == stored_receipt[
+        "source_evidence_sha256"
+    ]
+    assert project._selected_opening_projection_is_fresh_for_payload(
+        camp, "opening", payload,
+    ) is True
+
+    # Still pristine: drift is not fresh; re-projection is the legal refresh.
+    assert project.opening_projection_state_is_fresh(
+        tmp_path, camp, "prog-demo", "opening", ready["source_scope"],
+    ) is False
+
+    # Delivered: play evidence exists, the receipt is pinned by content anchor.
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["visited_scene_ids"] = ["opening"]
+    world_path.write_text(
+        json.dumps(world, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    assert project.opening_projection_state_is_fresh(
+        tmp_path, camp, "prog-demo", "opening", ready["source_scope"],
+    ) is True
+
+    # Genuinely stale content anchor still refuses even after delivery.
+    graph_path = camp / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    opening = next(
+        row for row in graph["scenes"] if row["scene_id"] == "opening"
+    )
+    evidence = opening["source_evidence"]
+    assert isinstance(evidence, dict)
+    evidence["page_text_sha256"] = [
+        "0" * 64 for _ in evidence["page_text_sha256"]
+    ]
+    graph_path.write_text(
+        json.dumps(graph, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    assert project.opening_projection_state_is_fresh(
+        tmp_path, camp, "prog-demo", "opening", ready["source_scope"],
+    ) is False
 
 
 def test_required_opening_npc_must_be_present_in_selected_pack(

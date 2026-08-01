@@ -3221,7 +3221,16 @@ def opening_projection_state_is_fresh(
     start_location_id: str,
     required_source_scope: dict[str, Any],
 ) -> bool:
-    """Require durable binding, five-field receipt, and source slice agreement."""
+    """Require durable binding, five-field receipt, and source slice agreement.
+
+    Pristine campaigns (pre-delivery) keep the strict whole-payload receipt
+    match so no play starts against a drifting projection. Once the opening has
+    been delivered into play (campaign no longer pristine), re-projection is
+    forbidden, so the delivered receipt is pinned: freshness anchors on the
+    content slice (``source_evidence_sha256`` plus its presence in campaign
+    IR), never on the whole-payload input hash that background deepen legally
+    rewrites. A genuine content change still fails closed.
+    """
     try:
         payload = build_opening_projection_payload(
             workspace,
@@ -3234,16 +3243,61 @@ def opening_projection_state_is_fresh(
         )
     except (ModuleProjectError, KeyError, TypeError, ValueError, OSError):
         return False
-    return bool(
-        current_opening_projection_source_binding(campaign_dir)
-        == payload.get("source_binding")
-        and current_opening_projection_receipt(campaign_dir) == receipt
+    current_binding = current_opening_projection_source_binding(campaign_dir)
+    stored_receipt = current_opening_projection_receipt(campaign_dir)
+    if (
+        current_binding == payload.get("source_binding")
+        and stored_receipt == receipt
         and _selected_opening_projection_is_fresh_for_payload(
             campaign_dir,
             start_location_id,
             payload,
         )
+    ):
+        return True
+    if campaign_is_pristine_for_opening(campaign_dir):
+        return False
+    if not isinstance(stored_receipt, dict) or not isinstance(
+        current_binding, dict
+    ):
+        return False
+    return bool(
+        stored_receipt.get("schema_version") == 1
+        and stored_receipt.get("asset_root_id") == receipt["asset_root_id"]
+        and stored_receipt.get("start_location_id")
+        == receipt["start_location_id"]
+        and stored_receipt.get("source_evidence_sha256")
+        == receipt["source_evidence_sha256"]
+        and current_binding == payload.get("source_binding")
+        and _opening_delivered_slice_anchor_present(
+            campaign_dir,
+            start_location_id,
+            stored_receipt.get("source_evidence_sha256"),
+        )
     )
+
+
+def _opening_delivered_slice_anchor_present(
+    campaign_dir: Path,
+    start_location_id: str,
+    source_evidence_sha256: str,
+) -> bool:
+    """Prove the delivered opening scene still carries its content evidence."""
+    try:
+        ir = load_campaign_ir(campaign_dir)
+    except (ModuleProjectError, KeyError, TypeError, ValueError, OSError):
+        return False
+    scenes = (ir.get("story-graph.json") or {}).get("scenes") or []
+    matches = [
+        row for row in scenes
+        if isinstance(row, dict)
+        and str(row.get("scene_id") or "") == start_location_id
+    ]
+    if len(matches) != 1:
+        return False
+    return _canonical_sha256(
+        matches[0].get("source_evidence") or {}
+    ) == source_evidence_sha256
 
 
 def register_opening_projection_watch(

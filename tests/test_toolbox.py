@@ -13123,6 +13123,229 @@ def test_opening_setup_source_clock_preserves_relative_precision(
     assert time_state["clock"]["day_phase_hint"] == "morning"
 
 
+def _gate4_opening_component_pack() -> dict:
+    """Deep opening pack with one embedded clue row whose later deepen rewrite
+    mirrors the playtest drift: the row loses delivery_kind/visibility/
+    parse_state, moving the whole-payload receipt hash while the canonical
+    opening slice and the content evidence anchor stay identical."""
+    pack = _opening_component_pack()
+    pack["clues"] = [{
+        "clue_id": "clue-early",
+        "delivery_kind": "obvious",
+        "visibility": "player-safe",
+        "parse_state": "deep",
+        "player_safe_summary": "An early clue in the opening room.",
+        "source_page_indices": [0],
+        "discovery": {"mode": "automatic", "skill": None, "difficulty": None},
+        "provenance": {
+            "authority": "source_authored",
+            "source_refs": [{"pdf_index": 0}],
+        },
+        "source_refs": [{"pdf_index": 0}],
+    }]
+    return pack
+
+
+def _gate4_project_opening_with_completed_watch(ws: dict) -> dict:
+    """Publish, store the deep opening pack, project, and persist a completed
+    projection watch exactly like the drain leaves after foreground
+    fulfillment, so the gate's materialization phase is exercised."""
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+        _gate4_opening_component_pack(),
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["opening_projection_watch"] = {
+        "schema_version": 1,
+        "campaign_id": ws["campaign_id"],
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "bundle_sha256": scenario["source"]["bundle_sha256"],
+        "start_location_id": "opening",
+        "source_scope": scenario[
+            "opening_projection_source_binding"]["source_scope"],
+        "source_scope_signature": scenario[
+            "opening_projection_source_binding"]["source_scope_signature"],
+        "created_at": "2026-08-01T00:00:00+00:00",
+        "status": "complete",
+    }
+    _write_json(scenario_path, scenario)
+    return scenario
+
+
+def _gate4_deepen_opening_pack(ws: dict) -> tuple[dict, dict]:
+    """Simulate the background deepen lane legally rewriting the durable pack.
+
+    Mirrors the playtest evidence: the embedded clue row loses
+    delivery_kind/visibility/parse_state, so the whole-payload receipt hash
+    drifts while the canonical opening slice and the content evidence anchor
+    stay identical.
+    """
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    pack = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    for clue in pack.get("clues") or []:
+        clue.pop("delivery_kind", None)
+        clue.pop("visibility", None)
+        clue.pop("parse_state", None)
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening", pack,
+    )
+    scenario = json.loads(
+        (ws["campaign_dir"] / "scenario" / "scenario.json")
+        .read_text(encoding="utf-8")
+    )
+    stored_receipt = scenario["opening_projection_receipt"]
+    payload = coc_toolbox.coc_module_project.build_opening_projection_payload(
+        ws["workspace"], ws["asset_root_id"], "opening",
+        scenario["opening_projection_source_binding"]["source_scope"],
+    )
+    recomputed = coc_toolbox.coc_module_project.opening_projection_receipt(
+        ws["asset_root_id"], "opening", payload,
+    )
+    assert recomputed["projection_input_sha256"] != stored_receipt[
+        "projection_input_sha256"
+    ]
+    assert recomputed["source_evidence_sha256"] == stored_receipt[
+        "source_evidence_sha256"
+    ]
+    assert coc_toolbox.coc_module_project._selected_opening_projection_is_fresh_for_payload(
+        ws["campaign_dir"], "opening", payload,
+    ) is True
+    return recomputed, stored_receipt
+
+
+def test_delivered_opening_play_survives_post_activation_pack_deepen(
+    tmp_path: Path, monkeypatch,
+):
+    """Gate4 deadlock regression: after the opening is projected and the scene
+    activated, the background deepen lane legitimately rewrites durable packs
+    and drifts the whole-payload projection_input_sha256. The delivered opening
+    receipt must stay pinned (content anchor unchanged), so the next live-play
+    operation passes instead of deadlocking in opening_source_materialization.
+    """
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    # Projection-side setup runs on the codex host surface (publish_skeleton is
+    # not a Pi live-play operation); the gate only governs Pi live play.
+    monkeypatch.setenv("COC_HOST", "codex")
+    _gate4_project_opening_with_completed_watch(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    activated = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "gate4-opening-activation",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert activated["ok"] is True, activated
+    assert activated["data"]["to_scene_id"] == "opening"
+
+    _gate4_deepen_opening_pack(ws)
+
+    # Live play continues: pre-fix this deadlocked with opening_setup_incomplete.
+    context = _run(ws, "scene.context")
+    assert context["ok"] is True, context
+
+
+def test_completed_watch_stale_projection_emits_explicit_refresh_card(
+    tmp_path: Path, monkeypatch,
+):
+    """A completed watch whose whole-payload receipt drifted must never leave
+    next_operation null: the gate re-issues the explicit projection card, and
+    that card heals the pristine pre-delivery campaign."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "codex")
+    _gate4_project_opening_with_completed_watch(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    _gate4_deepen_opening_pack(ws)
+
+    blocked = _run(ws, "scene.map")
+    assert blocked["ok"] is False, blocked
+    assert blocked["error"]["code"] == "opening_setup_incomplete"
+    details = blocked["error"]["details"]
+    assert details["phase"] == "opening_source_materialization"
+    next_operation = details["next_operation"]
+    assert isinstance(next_operation, dict)
+    assert next_operation["operation"] == "progressive.project_opening"
+    assert next_operation["prefilled_arguments"]["start_location_id"] == "opening"
+
+    refreshed = _run(
+        ws, next_operation["operation"], next_operation["prefilled_arguments"],
+    )
+    assert refreshed["ok"] is True, refreshed
+    assert refreshed["data"]["status"] == "complete"
+
+    resumed = _run(ws, "scene.map")
+    assert resumed["ok"] is True, resumed
+
+
+def test_delivered_opening_still_refuses_genuine_content_anchor_staleness(
+    tmp_path: Path, monkeypatch,
+):
+    """Post-delivery deepen must not brick play, but a genuinely stale content
+    anchor still fails closed: the delivered scene's source evidence no longer
+    matches the pinned receipt, so the gate blocks and re-projection over
+    played state stays forbidden."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "codex")
+    _gate4_project_opening_with_completed_watch(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+    activated = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "gate4-stale-activation",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert activated["ok"] is True, activated
+    _gate4_deepen_opening_pack(ws)
+
+    graph_path = ws["campaign_dir"] / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    scene = next(
+        row for row in graph["scenes"] if row["scene_id"] == "opening"
+    )
+    evidence = scene["source_evidence"]
+    assert isinstance(evidence, dict)
+    evidence["page_text_sha256"] = [
+        "0" * 64 for _ in evidence["page_text_sha256"]
+    ]
+    _write_json(graph_path, graph)
+
+    context = _run(ws, "scene.context")
+    assert context["ok"] is False, context
+    assert context["error"]["code"] == "opening_setup_incomplete"
+    details = context["error"]["details"]
+    assert details["phase"] == "opening_source_materialization"
+    assert details["next_operation"]["operation"] == (
+        "progressive.project_opening"
+    )
+
+    refused = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert refused["ok"] is False
+    assert refused["error"]["code"] == "opening_projection_non_pristine"
+
+
 def _opening_state_bytes_without_audit(workspace: Path) -> dict[Path, bytes]:
     return {
         path.relative_to(workspace): path.read_bytes()

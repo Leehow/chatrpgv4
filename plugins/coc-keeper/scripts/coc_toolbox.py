@@ -1606,7 +1606,8 @@ def _pi_opening_setup_gate(
         else None
     )
     if watch is not None:
-        return {
+        watch_status = str(watch.get("status") or "pending")
+        gate = {
             "schema_version": 1,
             "status": "blocked",
             "hard_gate": True,
@@ -1614,7 +1615,7 @@ def _pi_opening_setup_gate(
             "phase": "opening_source_materialization",
             "campaign_id": str(campaign_id),
             "asset_root_id": asset_root_id,
-            "source_lifecycle_status": str(watch.get("status") or "pending"),
+            "source_lifecycle_status": watch_status,
             "next_operation": None,
             "instruction": (
                 "retain the accepted opening_bootstrap receipt and wait for its "
@@ -1622,6 +1623,42 @@ def _pi_opening_setup_gate(
                 "poll, move a scene, or narrate an opening"
             ),
         }
+        if watch_status == "complete":
+            # A completed watch whose projection no longer recomputes against
+            # current repository evidence (e.g. background deepen rewrote the
+            # durable packs) must never leave the Keeper with a null
+            # next_operation: re-issue the explicit projection refresh card.
+            # Post-delivery the delivered receipt is pinned and this branch is
+            # unreachable for legitimate deepen drift.
+            refresh = _opening_card(
+                "progressive.project_opening",
+                {
+                    "asset_root_id": asset_root_id,
+                    "source_file_sha256": str(
+                        watch.get("source_file_sha256") or ""
+                    ),
+                    "start_location_id": str(
+                        watch.get("start_location_id") or ""
+                    ),
+                },
+                [],
+            )
+            refresh.update({
+                "hard_gate": True,
+                "authority": "canonical_setup",
+                "reason": (
+                    "the delivered opening projection no longer recomputes "
+                    "against current repository evidence; re-project it "
+                    "explicitly before any live-play operation"
+                ),
+            })
+            gate["next_operation"] = refresh
+            gate["instruction"] = (
+                "invoke this exact progressive.project_opening card to refresh "
+                "the opening projection; do not rebind, rediscover, resume, "
+                "move a scene, or narrate an opening first"
+            )
+        return gate
     next_operation = _opening_card("progressive.prepare_opening", {}, [])
     next_operation.update({
         "hard_gate": True,
