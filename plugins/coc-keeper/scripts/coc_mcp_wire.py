@@ -372,6 +372,8 @@ def _compact_npc(value: Any) -> dict[str, Any]:
             "trust",
             "fear",
             "suspicion",
+            "parse_state",
+            "evidence_gap",
         ),
     )
     social_role = value.get("social_role")
@@ -874,6 +876,7 @@ def _project_progressive_status(value: Any) -> Any:
             "source_cache",
             "start_clock_status",
             "background_takeover",
+            "source_scope_takeover",
             "entity",
         ),
     )
@@ -928,6 +931,7 @@ def _project_source_work_lifecycle(
             "blocking_micro_ready_count",
             "claim_operation",
             "background_takeover",
+            "source_scope_takeover",
             "pi_coordinator_dispatch_status",
             "pi_coordinator_max_attempts",
             "pi_coordinator_retry_exhausted_count",
@@ -1054,6 +1058,7 @@ def _project_request_deepen(value: Any) -> Any:
             "dependency_ref",
             "source_lifecycle",
             "background_takeover",
+            "source_scope_takeover",
             "merged_location_ids",
         ),
     )
@@ -1069,6 +1074,7 @@ def _project_request_deepen(value: Any) -> Any:
                 "deep_ready",
                 "title",
                 "ingest_timing",
+                "fate_closure_gate",
             ),
         )
     host_work = value.get("host_work")

@@ -125,7 +125,15 @@ def skeleton_scene_from_location(loc: dict[str, Any], *, is_start: bool) -> dict
         "allowed_improvisation": list(loc.get("allowed_improvisation") or []),
         "scene_edges": [],
         "parse_state": parse_state,
-        "evidence_gap": bool(loc.get("evidence_gap")),
+        # A named_only/toc_only/partial skeleton scene has no parsed source
+        # body: it is evidence-gap by definition until a deep pack lands.  Only
+        # deep/body_parsed rows (or an explicit skeleton claim) may mark the
+        # scene closed, so scene.context never presents stub refs as complete.
+        "evidence_gap": (
+            bool(loc.get("evidence_gap"))
+            if _is_deep_state(parse_state)
+            else True
+        ),
         "source_span": loc.get("source_span"),
         "source_refs": json.loads(json.dumps(loc.get("source_refs") or [])),
         "source_page_indices": list(loc.get("source_page_indices") or []),
@@ -4570,6 +4578,9 @@ def _entity_status(
                 or (roster_row.get("names") or [None])[0],
                 "source_evidence": None,
                 "ingest_timing": None,
+                "fate_closure_gate": _fate_closure_gate(
+                    kind, entity_id, gap=True, deep_ready=False,
+                ),
             }
         return {
             "kind": kind,
@@ -4578,6 +4589,9 @@ def _entity_status(
             "parse_state": None,
             "evidence_gap": True,
             "deep_ready": False,
+            "fate_closure_gate": _fate_closure_gate(
+                kind, entity_id, gap=True, deep_ready=False,
+            ),
         }
     parse_state = str(pack.get("parse_state") or "named_only")
     gap = bool(pack.get("evidence_gap"))
@@ -4595,6 +4609,70 @@ def _entity_status(
         or (pack.get("names") or [None])[0],
         "source_evidence": json.loads(json.dumps(pack.get("source_evidence"))),
         "ingest_timing": json.loads(json.dumps(pack.get("ingest_timing"))),
+        "fate_closure_gate": _fate_closure_gate(
+            kind, entity_id, gap=gap, deep_ready=deep_ready,
+        ),
+    }
+
+
+_FATE_CLOSURE_GATE_CONTRACT = "coc.progressive-fate-closure-gate.v1"
+
+
+def _fate_closure_gate(
+    kind: str,
+    entity_id: str,
+    *,
+    gap: bool,
+    deep_ready: bool,
+) -> dict[str, Any]:
+    """Structured fate-closure gate for evidence-gap entities.
+
+    A high-consequence fate settlement (declared death, final villain
+    resolution, irreversible ending) for an entity whose source body is still
+    an evidence-gap stub must never be settled while the deepen request is
+    unfulfilled.  The gate is advisory (the Keeper owns fiction), but it is
+    never null: it always names the exact next operation — wait for the deepen
+    material through ``progressive.request_deepen``, or record an explicit
+    skip decision in the canonical journal first.
+    """
+    open_gate = {
+        "schema_version": 1,
+        "contract_id": _FATE_CLOSURE_GATE_CONTRACT,
+        "status": "open",
+        "blocked": False,
+    }
+    if not gap or deep_ready:
+        return open_gate
+    return {
+        **open_gate,
+        "status": "blocked",
+        "blocked": True,
+        "reason": "evidence_gap_deepen_pending",
+        "policy": (
+            "do not settle a closed fate (declared death, final villain "
+            "resolution, irreversible ending) for this entity while "
+            "evidence_gap is set and the deepen request is unfulfilled; wait "
+            "for the deepen material or record the explicit skip decision "
+            "first"
+        ),
+        "next_operation": {
+            "operation": "progressive.request_deepen",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {"kind": kind, "target_id": entity_id},
+            "missing_arguments": ["reason"],
+        },
+        "explicit_skip_operation": {
+            "operation": "state.journal",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "decision_id": f"fate-closure-skip:{entity_id}",
+                "summary": (
+                    f"explicit fate-closure skip for {kind}:{entity_id}: "
+                    "settling this entity's fate without deepen evidence"
+                ),
+            },
+            "missing_arguments": [],
+        },
     }
 
 

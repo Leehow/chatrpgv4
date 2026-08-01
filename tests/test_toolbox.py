@@ -17913,3 +17913,405 @@ def test_table_opening_is_not_gated_without_a_source_binding(campaign_ws):
         },
     )
     assert opening["ok"] is True, opening
+
+
+def test_request_deepen_pi_exposes_source_scope_takeover_for_awaiting_scope(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """Deepen on an unknown-scope entity must hand the awaiting_scope locator
+    task to the Pi host on the same top-level channel as progressive.status.
+
+    Playtest root cause: the locator task was only nested inside host_work and
+    never surfaced on a channel the Pi extension scans, so deepen jobs stayed
+    awaiting_scope forever and the KP only ever saw page4 skeleton refs.
+    """
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    producer = tmp_path / "fake-locator"
+    producer.write_text("#!/bin/sh\necho '{}'\n")
+    producer.chmod(0o755)
+    monkeypatch.setenv("COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND", str(producer))
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["locations"].append({
+        "location_id": "village",
+        "title": "Village",
+        "parse_state": "named_only",
+    })
+    monkeypatch.setenv("COC_HOST", "codex")
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+        _opening_component_pack(),
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    dig = _run(ws, "progressive.request_deepen", {
+        "kind": "location", "target_id": "village", "title": "Village",
+        "reason": "player arrives at the village",
+    })
+    assert dig["ok"] is True, dig
+    assert dig["data"]["status"]["evidence_gap"] is True
+    assert dig["data"]["status"]["deep_ready"] is False
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_scope_pi_deepen",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1, materialized
+
+    again = _run(ws, "progressive.request_deepen", {
+        "kind": "location", "target_id": "village", "title": "Village",
+        "reason": "player arrives at the village",
+    })
+    assert again["ok"] is True, again
+    takeover = again["data"]["source_scope_takeover"]
+    assert takeover["dispatch_mode"] == "background_single_locator"
+    assert takeover["host_adapter"] == "pi"
+    assert takeover["hard_gate"] is False
+    action = takeover["next_host_action"]
+    assert action["action"] == "invoke_coc_dispatch_source_scope_locator"
+    assert action["dispatch_key"].startswith("source-scope-locator:job-")
+    assert action["spawn_once_while_job_open"] is True
+    assert action["parent_waits"] is False
+    task = action["task"]
+    assert task["contract_id"] == "coc.pi-source-scope-locator-task.v1"
+    assert task["adapter_mode"] == "pi_external_pdf_skill_lifecycle"
+    assert task["kind"] == "location"
+    assert task["target_id"] == "village"
+    assert task["job_id"] == action["dispatch_key"].removeprefix(
+        "source-scope-locator:"
+    )
+    assert task["resolve_operation"]["operation"] == (
+        "progressive.resolve_source_scope"
+    )
+    assert any(
+        "source_scope_takeover is a nonblocking document-locator task"
+        in hint
+        for hint in again["hints"]
+    )
+    # The task is the exact one the Pi extension would spawn; the nested
+    # host_work copy stays consistent.
+    assert (
+        again["data"]["host_work"]["source_scope_takeover"]
+        == takeover
+    )
+    # Repeated dig while the job remains open must re-expose the same stable
+    # dispatch_key (the extension dedupes by it).
+    again2 = _run(ws, "progressive.request_deepen", {
+        "kind": "location", "target_id": "village", "title": "Village",
+        "reason": "player arrives at the village",
+    })
+    assert again2["ok"] is True, again2
+    assert (
+        again2["data"]["source_scope_takeover"]["next_host_action"][
+            "dispatch_key"
+        ]
+        == action["dispatch_key"]
+    )
+
+
+def test_progressive_status_entity_carries_fate_closure_gate(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """evidence_gap entities get a non-null fate-closure gate on the status
+    surface: wait for deepen via request_deepen, or an explicit journal skip.
+    A deepened entity's gate opens."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["locations"].append({
+        "location_id": "village",
+        "title": "Village",
+        "parse_state": "named_only",
+    })
+    monkeypatch.setenv("COC_HOST", "codex")
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+        _opening_component_pack(),
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    monkeypatch.setenv("COC_HOST", "pi")
+
+    status = _run(ws, "progressive.status", {
+        "kind": "location", "target_id": "village",
+    })
+    assert status["ok"] is True, status
+    gate = status["data"]["entity"]["fate_closure_gate"]
+    assert gate["contract_id"] == "coc.progressive-fate-closure-gate.v1"
+    assert gate["status"] == "blocked"
+    assert gate["blocked"] is True
+    assert gate["reason"] == "evidence_gap_deepen_pending"
+    assert gate["next_operation"]["operation"] == "progressive.request_deepen"
+    assert gate["next_operation"]["prefilled_arguments"] == {
+        "kind": "location", "target_id": "village",
+    }
+    assert gate["explicit_skip_operation"]["operation"] == "state.journal"
+    assert gate["explicit_skip_operation"]["prefilled_arguments"][
+        "decision_id"
+    ].startswith("fate-closure-skip:")
+
+    # Deepen + fulfill + merge opens the gate.
+    dig = _run(ws, "progressive.request_deepen", {
+        "kind": "location", "target_id": "village", "title": "Village",
+        "reason": "player approaches the village",
+    })
+    assert dig["ok"] is True, dig
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_scope_fate_gate",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    open_rows = assets.list_host_work_requests(
+        ws["workspace"], ws["asset_root_id"], limit=None,
+    )
+    village_row = next(
+        row for row in open_rows
+        if str(row.get("target_id")) == "village"
+    )
+    assert assets.host_work_operational_class(village_row) == "awaiting_scope"
+    resolved = coc_toolbox.coc_module_project.resolve_source_scope(
+        ws["workspace"],
+        ws["campaign_id"],
+        job_id=village_row["job_id"],
+        kind="location",
+        target_id="village",
+        source_bundle_path=None,
+        pdf_indices=[0],
+    )
+    assert resolved["lifecycle"]["runnable_count"] == 1
+    claimed = _run(ws, "progressive.claim_host_work", {
+        "executor_id": "fate-gate-test",
+        "limit": 1,
+        "result_delivery": "task_return_to_parent",
+    })
+    assert claimed["ok"] is True, claimed
+    packet = claimed["data"]["dispatch_tasks"][0]["packet"]
+    request = packet["requests"][0]
+    deep_pack = _opening_component_pack()
+    deep_pack["location_id"] = "village"
+    deep_pack["title"] = "Village"
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": request["job_id"],
+            "pack": deep_pack,
+            "related_packs": [],
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    after = _run(ws, "progressive.status", {
+        "kind": "location", "target_id": "village",
+    })
+    assert after["ok"] is True, after
+    assert after["data"]["entity"]["deep_ready"] is True
+    assert after["data"]["entity"]["fate_closure_gate"]["status"] == "open"
+    assert after["data"]["entity"]["fate_closure_gate"]["blocked"] is False
+
+
+def test_scene_context_npc_rows_carry_source_readiness(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """scene.context NPC rows must never present a named_only stub as fully
+    parsed: parse_state + evidence_gap travel with the identity on the hot
+    path, and flip to deep/False once the deep pack lands in the archive."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+        _opening_component_pack(),
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+
+    moved = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "npc-readiness-move",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert moved["ok"] is True, moved
+
+    # A stub NPC is authored into the active scene's IR (named_only, no deep
+    # pack yet) and the archive is republished exactly like a deepen-pending
+    # skeleton roster entry would be.
+    project_mod = coc_toolbox.coc_module_project
+    ir = project_mod.load_campaign_ir(ws["campaign_dir"])
+    scene = next(
+        s for s in ir["story-graph.json"]["scenes"]
+        if s["scene_id"] == "opening"
+    )
+    scene["npc_ids"] = ["npc-patron"]
+    ir["npc-agendas.json"]["npcs"].append({
+        "npc_id": "npc-patron",
+        "name": "Patron",
+        "display_name": "Patron",
+        "agenda": "Patron has not been deep-parsed yet.",
+        "parse_state": "named_only",
+        "origin": "source",
+    })
+    project_mod.write_ir_to_campaign(
+        ws["campaign_dir"], ir, asset_root_id=ws["asset_root_id"],
+    )
+
+    context = _run(ws, "scene.context")
+    assert context["ok"] is True, context
+    row = next(
+        r for r in context["data"]["npcs_present"]
+        if r["npc_id"] == "npc-patron"
+    )
+    assert row["parse_state"] == "named_only"
+    assert row["evidence_gap"] is True
+
+    # A deep NPC pack merged into the IR/archive flips the row.
+    ir = project_mod.load_campaign_ir(ws["campaign_dir"])
+    ir = project_mod.merge_deep_entity_into_ir(ir, "npc", {
+        "npc_id": "npc-patron",
+        "name": "Patron",
+        "display_name": "Patron",
+        "title": "Patron",
+        "parse_state": "deep",
+        "evidence_gap": False,
+        "agenda_public": "Keep the commission quiet.",
+        "player_safe_summary": "A quiet old man.",
+    })
+    project_mod.write_ir_to_campaign(
+        ws["campaign_dir"], ir, asset_root_id=ws["asset_root_id"],
+    )
+    context2 = _run(ws, "scene.context")
+    assert context2["ok"] is True, context2
+    row2 = next(
+        r for r in context2["data"]["npcs_present"]
+        if r["npc_id"] == "npc-patron"
+    )
+    assert row2["parse_state"] == "deep"
+    assert row2["evidence_gap"] is False
+
+
+def test_wire_projections_carry_deepen_locator_and_fate_gate(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """The Pi wire projection must not strip the deepen locator task or the
+    fate-closure gate: request_deepen/status keep source_scope_takeover, and
+    the status entity keeps fate_closure_gate, end to end through the wire."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["locations"].append({
+        "location_id": "village",
+        "title": "Village",
+        "parse_state": "named_only",
+    })
+    monkeypatch.setenv("COC_HOST", "codex")
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+        _opening_component_pack(),
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    monkeypatch.setenv("COC_HOST", "pi")
+    producer = tmp_path / "fake-locator"
+    producer.write_text("#!/bin/sh\necho '{}'\n")
+    producer.chmod(0o755)
+    monkeypatch.setenv("COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND", str(producer))
+
+    dig = _run(ws, "progressive.request_deepen", {
+        "kind": "location", "target_id": "village", "title": "Village",
+        "reason": "player arrives at the village",
+    })
+    assert dig["ok"] is True, dig
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_scope_wire_gate",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+
+    again = _run(ws, "progressive.request_deepen", {
+        "kind": "location", "target_id": "village", "title": "Village",
+        "reason": "player arrives at the village",
+    })
+    assert again["ok"] is True, again
+    wire = _load("coc_mcp_wire_toolbox_gate_test", SCRIPTS / "coc_mcp_wire.py")
+    projected_deepen = wire.project_envelope(
+        "progressive.request_deepen",
+        {"ok": True, "tool": "progressive.request_deepen",
+         "data": again["data"], "warnings": [], "hints": []},
+        contract_digest="sha256:" + "f" * 64,
+    )
+    takeover = projected_deepen["data"]["source_scope_takeover"]
+    assert takeover["next_host_action"]["action"] == (
+        "invoke_coc_dispatch_source_scope_locator"
+    )
+    assert takeover["next_host_action"]["task"]["contract_id"] == (
+        "coc.pi-source-scope-locator-task.v1"
+    )
+    assert projected_deepen["data"]["status"]["fate_closure_gate"]["status"] == (
+        "blocked"
+    )
+    assert projected_deepen["data"]["status"]["fate_closure_gate"][
+        "next_operation"
+    ]["operation"] == "progressive.request_deepen"
+
+    status = _run(ws, "progressive.status", {
+        "kind": "location", "target_id": "village",
+    })
+    assert status["ok"] is True, status
+    projected_status = wire.project_envelope(
+        "progressive.status",
+        {"ok": True, "tool": "progressive.status",
+         "data": status["data"], "warnings": [], "hints": []},
+        contract_digest="sha256:" + "f" * 64,
+    )
+    assert projected_status["data"]["source_scope_takeover"][
+        "next_host_action"
+    ]["dispatch_key"].startswith("source-scope-locator:job-")
+    assert projected_status["data"]["entity"]["fate_closure_gate"][
+        "status"
+    ] == "blocked"

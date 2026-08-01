@@ -170,6 +170,9 @@ def test_entity_status_recognizes_skeleton_roster_before_deep_pack(tmp_path: Pat
         "title": "Patron",
         "source_evidence": None,
         "ingest_timing": None,
+        "fate_closure_gate": project._fate_closure_gate(
+            "npc", "npc-patron", gap=True, deep_ready=False,
+        ),
     }
 
 
@@ -3539,3 +3542,72 @@ def test_source_bound_deep_npc_projects_one_canonical_mechanics_evidence_boundar
         projected["mechanics"]["profile"]["source_characteristic_scale"]
         == "coc_3_18"
     )
+
+
+def test_entity_status_fate_closure_gate_blocks_evidence_gap_and_opens_when_deep(
+    tmp_path: Path,
+):
+    """Fate-closure gate: blocked with a non-null next_operation while an
+    entity is an evidence_gap stub, open once the pack is deep."""
+    assets.init_module_root(
+        tmp_path, asset_root_id="prog-demo", identity={}, file_sha256=FAKE_SHA,
+    )
+    skeleton = _skeleton()
+    skeleton["locations"].append({
+        "location_id": "village",
+        "title": "Village",
+        "parse_state": "named_only",
+    })
+    assets.put_skeleton(tmp_path, "prog-demo", skeleton)
+    _make_campaign(tmp_path)
+
+    gated = project._entity_status(
+        tmp_path, "prog-demo", "location", "village",
+    )
+    gate = gated["fate_closure_gate"]
+    assert gate["status"] == "blocked"
+    assert gate["blocked"] is True
+    assert gate["reason"] == "evidence_gap_deepen_pending"
+    assert gate["next_operation"]["operation"] == "progressive.request_deepen"
+    assert gate["next_operation"]["prefilled_arguments"] == {
+        "kind": "location", "target_id": "village",
+    }
+    assert gate["next_operation"]["missing_arguments"] == ["reason"]
+    assert gate["explicit_skip_operation"]["operation"] == "state.journal"
+    assert gate["explicit_skip_operation"]["prefilled_arguments"][
+        "decision_id"
+    ] == "fate-closure-skip:village"
+    assert gate["explicit_skip_operation"]["missing_arguments"] == []
+
+    # Roster-only entity (no pack at all) is gated the same way.
+    roster_gated = project._entity_status(
+        tmp_path, "prog-demo", "npc", "npc-patron",
+    )
+    assert roster_gated["fate_closure_gate"]["status"] == "blocked"
+
+    # Unknown entity stays gated too (evidence_gap=True).
+    unknown = project._entity_status(
+        tmp_path, "prog-demo", "npc", "npc-ghost",
+    )
+    assert unknown["exists"] is False
+    assert unknown["fate_closure_gate"]["status"] == "blocked"
+
+    # A deep, gap-free pack opens the gate.
+    assets.put_entity(
+        tmp_path, "prog-demo", "location", "village",
+        {
+            "location_id": "village",
+            "title": "Village",
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "source_page_indices": [2, 3],
+            "player_safe_summary": "Deep village pack.",
+        },
+    )
+    deep_status = project._entity_status(
+        tmp_path, "prog-demo", "location", "village",
+    )
+    assert deep_status["deep_ready"] is True
+    assert deep_status["fate_closure_gate"]["status"] == "open"
+    assert deep_status["fate_closure_gate"]["blocked"] is False
+    assert "next_operation" not in deep_status["fate_closure_gate"]

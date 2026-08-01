@@ -12887,6 +12887,10 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                     "source_refs": deepcopy(
                         (npc_shard.get("provenance") or {}).get("source_refs") or []
                     ),
+                    # Source readiness travels with the identity so the hot
+                    # path never presents a stub NPC as fully parsed.
+                    "parse_state": npc_shard.get("parse_state"),
+                    "evidence_gap": bool(npc_shard.get("evidence_gap")),
                     "npc_id": npc_shard["entity_id"],
                 }
             for clue_shard in archive_packet.get("clues") or []:
@@ -13017,6 +13021,16 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             ),
             "mechanics_status": mechanics_status,
             "mechanics_ref": f"npc:{npc_id}",
+            # Source-readiness is authoritative identity data, not decoration:
+            # a named_only/evidence_gap NPC must never read as a fully parsed
+            # source NPC on the hot path (deepen-pending stubs are not
+            # complete). Improvised NPCs (no agenda row) stay unmarked — their
+            # origin already says so. Non-progressive campaigns whose IR rows
+            # carry no parse_state are never marked as gapped.
+            "parse_state": agenda.get("parse_state") if agenda else None,
+            "evidence_gap": (
+                not (str(agenda.get("parse_state") or "named_only") in {"deep", "body_parsed"})
+            ) if agenda and agenda.get("parse_state") else False,
         })
     if name_conflicts & set(present_npc_ids):
         warnings.append(
@@ -15925,10 +15939,12 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
             None,
         )
         worker_kick = (enqueue_result or {}).get("worker_kick") or {}
-        if open_request is None and (
-            worker_kick.get("started") is True
-            or worker_kick.get("already_running") is True
-        ):
+        if open_request is None and not (worker_kick.get("disabled") is True):
+            # The just-enqueued job must hand its locator/ready takeover to the
+            # host on this exact response whenever the local worker can
+            # materialize it.  Wait a bounded grace for the durable host-work
+            # request regardless of which kick shape the enqueue returned;
+            # only a disabled worker (deterministic tests / headless) skips.
             deadline = time.monotonic() + 1.0
             while time.monotonic() < deadline:
                 time.sleep(0.05)
@@ -15951,6 +15967,7 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
                 all_open_host_work=all_open_host_work,
             )
             takeover = host_projection.get("background_takeover")
+            locator_takeover = host_projection.get("source_scope_takeover")
             result["host_work"] = {
                 key: value
                 for key, value in host_projection.items()
@@ -15970,6 +15987,11 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
                 }
             elif takeover is not None:
                 result["background_takeover"] = takeover
+            if locator_takeover is not None:
+                # Mirror progressive.status / _attach_source_host_projection:
+                # the awaiting_scope locator task is a nonblocking host dispatch
+                # handoff on the same level as the ready background takeover.
+                result["source_scope_takeover"] = locator_takeover
     hints = list(result.get("host_hints") or [])
     if result.get("skipped"):
         hints.append("campaign is not on the progressive asset track")
@@ -15992,6 +16014,12 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
                 "nondependent play may continue with skeleton/stub; do not fabricate "
                 "handout/secret bodies while evidence_gap or dig_pending is set"
             )
+    if result.get("source_scope_takeover"):
+        hints.append(
+            "source_scope_takeover is a nonblocking document-locator task; spawn "
+            "its stable dispatch_key at most once while the job remains open and "
+            "continue player-facing play without waiting or polling"
+        )
     return result, [], hints
 
 
