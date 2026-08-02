@@ -1837,6 +1837,118 @@ def test_reused_page_still_rejects_nonempty_assets_or_other_drift(final_page):
         )
 
 
+_PLAYTEST_ORIGINAL_ANCHORS = [
+    "CALL OF CTHULHU", "23134", "RIPPLES FROM CARCOSA",
+    "THREE SCENARIOS EXPLORING HASTUR, CARCOSA, & THE KING IN YELLOW",
+    "OSCAR RIOS",
+]
+_PLAYTEST_CACHE_SORTED_ANCHORS = [
+    "23134", "CALL OF CTHULHU", "OSCAR RIOS",
+    "RIPPLES FROM CARCOSA",
+    "THREE SCENARIOS EXPLORING HASTUR, CARCOSA, & THE KING IN YELLOW",
+]
+
+
+def _reuse_page(anchors):
+    return {
+        "pdf_index": 0,
+        "markdown_path": "pages/0000.md",
+        "text_sha256": "a" * 64,
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.93,
+        "grep_anchors": anchors,
+    }
+
+
+def _reuse_task(adapter, retained_raw, retained_normalized):
+    return {
+        "reusable_bound_source": {
+            "manifest": {"pages": [retained_raw]},
+            "normalized_pages": [retained_normalized],
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "retained_anchors,final_anchors",
+    [
+        (_PLAYTEST_ORIGINAL_ANCHORS, _PLAYTEST_CACHE_SORTED_ANCHORS),
+        (_PLAYTEST_CACHE_SORTED_ANCHORS, _PLAYTEST_ORIGINAL_ANCHORS),
+        (["b", "a", "c"], ["a", "b", "c"]),
+        (["anchor", "anchor"], ["anchor"]),
+    ],
+)
+def test_reused_page_accepts_grep_anchor_order_shuffle(
+    retained_anchors, final_anchors,
+):
+    """grep_anchors are set-semantic; ordering/duplicate spelling must not
+    trigger transport drift, matching the bundle identity digest and the
+    module cache canonical form sorted(set(...))."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_anchor_shuffle_test")
+    retained = _reuse_page(retained_anchors)
+    final = _reuse_page(final_anchors)
+    task = _reuse_task(
+        adapter, retained, adapter._reusable_page_row(retained),
+    )
+    adapter._validate_reused_bound_pages(
+        {"pages": [final]},
+        {"pages": [dict(final)]},
+        task,
+    )
+    # Both orientations of the final manifest are accepted.
+    task = _reuse_task(
+        adapter, final, adapter._reusable_page_row(final),
+    )
+    adapter._validate_reused_bound_pages(
+        {"pages": [retained]},
+        {"pages": [dict(retained)]},
+        task,
+    )
+
+
+@pytest.mark.parametrize(
+    "final_anchors",
+    [
+        ["a", "c"],
+        ["a"],
+        ["a", "b", "c"],
+        ["a", "a", "c"],
+    ],
+)
+def test_reused_page_rejects_grep_anchor_membership_drift(final_anchors):
+    """A genuinely different anchor set is real drift and must be rejected;
+    ordering normalization must not mask membership changes."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_anchor_membership_drift_test")
+    retained = _reuse_page(["a", "b"])
+    final = _reuse_page(final_anchors)
+    task = _reuse_task(
+        adapter, retained, adapter._reusable_page_row(retained),
+    )
+    with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
+        adapter._validate_reused_bound_pages(
+            {"pages": [final]},
+            {"pages": [dict(final)]},
+            task,
+        )
+
+
+def test_reused_page_accepts_play08_sample_replay():
+    """Replay the .tmp/pi-coc-full-20260802 evidence: first bundle keeps
+    original anchor order while the reviewed bundle copied the module-cache
+    sorted rows; the transport must accept the reuse."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_play08_replay_test")
+    first_bundle = _reuse_page(_PLAYTEST_ORIGINAL_ANCHORS)
+    reviewed_bundle = _reuse_page(_PLAYTEST_CACHE_SORTED_ANCHORS)
+    task = _reuse_task(
+        adapter, first_bundle, adapter._reusable_page_row(first_bundle),
+    )
+    adapter._validate_reused_bound_pages(
+        {"pages": [reviewed_bundle]},
+        {"pages": [dict(reviewed_bundle)]},
+        task,
+    )
+
+
 def test_secrets_example_contains_key_name_only():
     assert (PLUGIN / "pi/secrets.env.example").read_text(encoding="utf-8") == "BAIDUOCR_TOKEN=\n"
 

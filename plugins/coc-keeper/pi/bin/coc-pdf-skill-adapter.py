@@ -825,7 +825,13 @@ def _reusable_page_row(page: dict[str, Any]) -> dict[str, Any]:
         ),
         "review_state": page["review_state"],
         "parse_confidence": page["parse_confidence"],
-        "grep_anchors": list(page["grep_anchors"]),
+        # grep_anchors are set-semantic review evidence: the bundle identity
+        # digest (_canonical_digest) and the module cache canonicalization
+        # both normalize them to sorted(set(...)), so the reusable-page
+        # rows must use that same canonical form. Anchor ordering (and
+        # duplicates of an already-present anchor) carry no meaning; a
+        # different anchor membership still fails the drift check.
+        "grep_anchors": sorted(set(page["grep_anchors"])),
     }
     for key in ("printed_page", "printed_label", "ocr_revision"):
         if key in page:
@@ -896,6 +902,15 @@ def _validate_reused_bound_pages(
         # non-empty assets declaration and every other raw field remain exact.
         if canonical.get("assets") == []:
             canonical.pop("assets")
+        # grep_anchors are set-semantic review evidence (the bundle identity
+        # digest and module cache canonicalization both normalize them to
+        # sorted(set(...))). Normalize before the raw comparison so a
+        # producer that copied page evidence from the module cache (sorted)
+        # matches the retained bundle (original order); a genuinely different
+        # anchor set still fails.
+        anchors = canonical.get("grep_anchors")
+        if isinstance(anchors, list):
+            canonical["grep_anchors"] = sorted(set(anchors))
         return canonical
 
     for page in bundle["pages"]:
