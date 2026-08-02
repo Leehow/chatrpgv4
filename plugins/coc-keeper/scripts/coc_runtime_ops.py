@@ -5026,6 +5026,44 @@ def execute_setup_operation(
             campaign_path, campaign, indent=2, ensure_ascii=False,
             trailing_newline=True,
         )
+    # S1: after a successful bind, queue the whole-book background parse for
+    # this module root.  One full_parse job per asset root, forever: repeated
+    # binds (opening-review rebind, cache-hit rebind, second campaign) all
+    # coalesce onto the same durable job/queue/host-work lane and never block
+    # the opening projection.
+    full_parse: dict[str, Any] = {"triggered": False}
+    try:
+        root_id = str(source_cache.get("asset_root_id") or "")
+        if root_id:
+            queued = coc_module_assets.enqueue_job(
+                root,
+                root_id,
+                kind="full_parse",
+                target_id=root_id,
+                priority=5,
+                reason="bind_full_parse",
+                consumer_refs=[
+                    coc_module_assets.campaign_consumer_ref(
+                        root,
+                        campaign_id,
+                        root_id,
+                        intent_kind="full_parse",
+                    )
+                ],
+            )
+            full_parse = {
+                "triggered": True,
+                "enqueued": bool(queued.get("enqueued")),
+                "deduped": bool(queued.get("deduped")),
+                "dedupe_state": str(queued.get("dedupe_state") or ""),
+                "job_id": str((queued.get("job") or {}).get("job_id") or ""),
+                "worker_kick": queued.get("worker_kick"),
+            }
+    except Exception as exc:  # noqa: BLE001 — full_parse must never block bind
+        full_parse = {
+            "triggered": False,
+            "error": f"full_parse_enqueue_failed: {type(exc).__name__}: {exc}",
+        }
     hydration: dict[str, Any] | None = None
     if payload.get("compile_now") is True:
         try:
@@ -5059,6 +5097,7 @@ def execute_setup_operation(
                 key: value for key, value in source.items() if key != "path"
             },
             "source_cache": source_cache,
+            "full_parse": full_parse,
             "compile": hydration,
             "character_creation_briefing": briefing,
         },

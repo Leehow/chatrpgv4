@@ -1093,6 +1093,227 @@ def _run_opening_review() -> dict[str, Any]:
         )
 
 
+def _validate_full_parse_task(value: Any) -> dict[str, Any]:
+    task = _object(value, "full-parse render task")
+    if (
+        task.get("schema_version") != 1
+        or task.get("contract_id") != "coc.pi-full-parse-render-task.v1"
+    ):
+        _fail("full-parse render task contract mismatch")
+    for key in (
+        "workspace_root", "campaign_id", "asset_root_id", "job_id",
+        "source_bundle_path",
+    ):
+        if not isinstance(task.get(key), str) or not task[key].strip():
+            _fail(f"task.{key} required")
+    source = _object(task.get("source"), "task.source")
+    if set(source) != {"path", "source_id", "title", "file_sha256"}:
+        _fail("task.source contract mismatch")
+    if not Path(str(source.get("path") or "")).is_absolute():
+        _fail("task source path must be absolute")
+    if any(
+        not isinstance(source.get(key), str) or not source[key].strip()
+        for key in ("source_id", "title")
+    ):
+        _fail("task source identity required")
+    if re.fullmatch(r"[a-f0-9]{64}", str(source.get("file_sha256") or "")) is None:
+        _fail("task.source.file_sha256 invalid")
+    page_count = task.get("page_count")
+    if isinstance(page_count, bool) or not isinstance(page_count, int) or page_count < 1:
+        _fail("task.page_count must be a positive integer")
+    batch_limit = task.get("batch_limit")
+    if isinstance(batch_limit, bool) or not isinstance(batch_limit, int) or not 1 <= batch_limit <= 32:
+        _fail("task.batch_limit must be an integer from 1 through 32")
+
+    def _unique_ascending_indices(value: Any, field: str) -> list[int]:
+        if (
+            not isinstance(value, list)
+            or any(
+                isinstance(index, bool) or not isinstance(index, int)
+                or not 0 <= index < page_count
+                for index in value
+            )
+        ):
+            _fail(f"task.{field} must be unique ascending page indices")
+        return sorted(set(value))
+
+    requested = _unique_ascending_indices(
+        task.get("requested_pdf_indices"), "requested_pdf_indices",
+    )
+    if requested != list(range(page_count)):
+        _fail("task.requested_pdf_indices must be the complete page range")
+    cached = _unique_ascending_indices(
+        task.get("cached_pdf_indices"), "cached_pdf_indices",
+    )
+    if not set(cached).issubset(set(requested)):
+        _fail("task.cached_pdf_indices must stay inside the request scope")
+    workspace = Path(task["workspace_root"]).resolve()
+    bundle_root = (workspace / ".tmp" / "coc-full-parse").resolve()
+    bundle_path = Path(task["source_bundle_path"]).resolve()
+    if (
+        not workspace.is_dir()
+        or not bundle_path.is_relative_to(bundle_root)
+    ):
+        _fail("task source_bundle_path escapes the full-parse root")
+    manifest_contract = _object(
+        task.get("source_bundle_manifest_contract"),
+        "full-parse manifest contract",
+    )
+    if manifest_contract.get("schema_version") != 1:
+        _fail("full-parse manifest contract mismatch")
+    for op in ("register_operation", "fulfill_operation"):
+        operation = _object(task.get(op), f"task.{op}")
+        if not isinstance(operation.get("operation"), str) or not operation[
+            "operation"
+        ].strip():
+            _fail(f"task.{op}.operation required")
+    return task
+
+
+_FULL_PARSE_PROMPT = (
+    "Use the loaded PDF skill. You are one isolated document producer, never "
+    "a Keeper. Render every page in task.missing_pdf_indices from "
+    "task.source.path as UTF-8 Markdown, one page per manifest row, and write "
+    "exactly the canonical schema-v1 bundle defined by "
+    "task.source_bundle_manifest_contract at task.source_bundle_path. "
+    "manifest.source.source_id, path, file_sha256, and page_count must exactly "
+    "match task.source and task.page_count; manifest.source.title must exactly "
+    "match task.source.title. Do not render, transcribe, or rewrite any page "
+    "in task.cached_pdf_indices. Do not use OCR, read .coc, campaign saves, "
+    "transcripts, AGENTS.md, or repository source; do not call gameplay tools "
+    "or write outside task.source_bundle_path. Return only one strict JSON "
+    "object with exact fields schema_version, contract_id, status, "
+    "rendered_pdf_indices, failure_class, source_bundle_path. contract_id is "
+    "coc.pi-full-parse-render-producer-result.v1; status is reviewed or failed. "
+    "For reviewed, rendered_pdf_indices lists every page you actually rendered "
+    "(ascending, unique, all inside task.missing_pdf_indices), failure_class "
+    "is null, and manifest.pages exactly covers those indices. For failed, "
+    "rendered_pdf_indices is empty, source_bundle_path=null, and "
+    "failure_class is non-empty. Never invent content that you did not see.\n"
+)
+
+
+def _run_full_parse_batch() -> dict[str, Any]:
+    raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
+    if len(raw) > MAX_INPUT_BYTES:
+        _fail("full-parse render task exceeds input limit")
+    task = _validate_full_parse_task(json.loads(raw.decode()))
+    workspace = Path(task["workspace_root"]).resolve()
+    if not workspace.is_dir():
+        _fail("workspace_root is unavailable")
+    requested = set(int(index) for index in task["requested_pdf_indices"])
+    cached = set(int(index) for index in task["cached_pdf_indices"])
+    missing = sorted(requested - cached)
+    if not missing:
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.source-pack-worker.v1",
+            "packet_id": f"full-parse:{task['job_id']}",
+            "work_group_id": f"source-work-full-{task['asset_root_id']}",
+            "status": "usable",
+            "results": [{
+                "job_id": task["job_id"],
+                "pack": {
+                    "status": "complete",
+                    "rendered_pdf_indices": sorted(requested),
+                    "failed_pdf_indices": [],
+                    "failure_class": None,
+                },
+                "related_packs": [],
+            }],
+        }
+    batch = missing[: int(task["batch_limit"])]
+    output = Path(task["source_bundle_path"]).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    producer_prompt = _FULL_PARSE_PROMPT + json.dumps({
+        **task,
+        "missing_pdf_indices": batch,
+    }, ensure_ascii=False, separators=(",", ":"))
+    producer = _run_pi(producer_prompt, workspace, timeout=PI_TIMEOUT_SECONDS)
+    if not isinstance(producer, dict):
+        _fail("full-parse render producer result is unavailable")
+    if (
+        set(producer) != {
+            "schema_version", "contract_id", "status", "rendered_pdf_indices",
+            "failure_class", "source_bundle_path",
+        }
+        or producer.get("schema_version") != 1
+        or producer.get("contract_id")
+        != "coc.pi-full-parse-render-producer-result.v1"
+        or producer.get("status") not in {"reviewed", "failed"}
+    ):
+        _fail("full-parse render producer result invalid")
+    if producer["status"] == "failed":
+        failure_class = producer.get("failure_class")
+        if not isinstance(failure_class, str) or not failure_class.strip():
+            _fail("failed render producer result must carry failure_class")
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.source-pack-worker.v1",
+            "packet_id": f"full-parse:{task['job_id']}",
+            "work_group_id": f"source-work-full-{task['asset_root_id']}",
+            "status": "usable",
+            "results": [{
+                "job_id": task["job_id"],
+                "pack": {
+                    "status": "failed",
+                    "failure_class": str(failure_class)[:256],
+                },
+                "related_packs": [],
+            }],
+        }
+    rendered = producer.get("rendered_pdf_indices")
+    if (
+        not isinstance(rendered, list)
+        or not rendered
+        or any(
+            isinstance(index, bool) or not isinstance(index, int)
+            for index in rendered
+        )
+        or rendered != sorted(set(rendered))
+        or not set(rendered).issubset(set(batch))
+        or producer.get("source_bundle_path") != task["source_bundle_path"]
+        or producer.get("failure_class") is not None
+    ):
+        _fail("reviewed full-parse render producer result invalid")
+    _, pdf_bundle, _, assets = _runtime_modules()
+    bundle = pdf_bundle.load_host_bundle(output)
+    if (
+        bundle["source"]["source_id"] != task["source"]["source_id"]
+        or bundle["source"]["path"] != task["source"]["path"]
+        or bundle["source"]["file_sha256"] != task["source"]["file_sha256"]
+        or bundle["source"]["page_count"] != int(task["page_count"])
+        or [row["pdf_index"] for row in bundle["pages"]] != rendered
+    ):
+        _fail("full-parse bundle identity or page scope drift")
+    assets.register_source_bundle(
+        workspace,
+        output,
+        asset_root_id=str(task["asset_root_id"]),
+        record_drift=True,
+    )
+    state = assets.read_full_parse_state(
+        workspace, str(task["asset_root_id"]),
+    )
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.source-pack-worker.v1",
+        "packet_id": f"full-parse:{task['job_id']}",
+        "work_group_id": f"source-work-full-{task['asset_root_id']}",
+        "status": "usable",
+        "results": [{
+            "job_id": task["job_id"],
+            "pack": {
+                "status": "complete" if state.get("complete") else "partial",
+                "rendered_pdf_indices": list(rendered),
+                "failed_pdf_indices": [],
+                "failure_class": None,
+            },
+            "related_packs": [],
+        }],
+    }
+
+
 def _run() -> dict[str, Any]:
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
@@ -1118,10 +1339,13 @@ def main() -> int:
             value = _run()
         elif sys.argv[1:] == ["--run-opening-review"]:
             value = _run_opening_review()
+        elif sys.argv[1:] == ["--run-full-parse-batch"]:
+            value = _run_full_parse_batch()
         else:
             _fail(
                 "expected --capabilities, --run, "
-                "--opening-review-capabilities, or --run-opening-review"
+                "--opening-review-capabilities, --run-opening-review, "
+                "or --run-full-parse-batch"
             )
         print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
         return 0

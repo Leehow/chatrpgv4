@@ -1,0 +1,3 @@
+interface:
+  display_name: "Coc Steward"
+  short_description: "Feeds module text to the Keeper's hand via deliveries and the notebook"

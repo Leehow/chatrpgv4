@@ -68,6 +68,7 @@ EXPECTED_NAMESPACES = {
     "state",
     "progressive",
     "mechanics",
+    "steward",
     "turn",
 }
 

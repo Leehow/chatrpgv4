@@ -1873,3 +1873,373 @@ def restore_snapshot(root: Path, campaign_id: str, label: str) -> Path:
             shutil.copytree(source_dir, target_dir)
     _upsert_campaign_index(root, campaign_id)
     return campaign_dir
+
+
+# --------------------------------------------------------------------------- #
+# Steward state: deliveries + notebook (0.5.1a S2)
+# --------------------------------------------------------------------------- #
+# The steward (coc-steward role, host-agnostic) feeds module text to the KP by
+# writing delivery records and maintaining a notebook of pre-cut segments per
+# expected scene.  This document is the steward's own state surface; it never
+# holds rules/state authority and is written only through the transactional
+# ``steward.*`` toolbox operations (idempotent via decision_id).
+
+STEWARD_STATE_DOCUMENT_SCHEMA_VERSION = 1
+STEWARD_SECRECY_LEVELS = frozenset({"keeper_only", "player_safe"})
+
+_STEWARD_SEGMENT_FIELDS = frozenset({"text", "page", "source_refs"})
+_STEWARD_DELIVERY_FIELDS = frozenset({
+    "delivery_id",
+    "created_turn",
+    "segments",
+    "why_now",
+    "scene_annotation",
+    "secrecy",
+    "consumed",
+    "consumed_turn",
+    "decision_id",
+    "notebook_entry_ids",
+    "ts",
+})
+_STEWARD_NOTEBOOK_ENTRY_FIELDS = frozenset({
+    "entry_id",
+    "scene_annotation",
+    "segments",
+    "note",
+    "paid",
+    "paid_turn",
+    "paid_delivery_id",
+    "created_turn",
+    "updated_turn",
+    "decision_id",
+})
+_STEWARD_MAX_SEGMENTS = 128
+_STEWARD_MAX_SEGMENT_TEXT_CHARS = 100_000
+_STEWARD_MAX_SOURCE_REFS = 32
+_STEWARD_MAX_SOURCE_REF_CHARS = 400
+_STEWARD_MAX_ANNOTATION_CHARS = 200
+_STEWARD_MAX_NOTE_CHARS = 2_000
+_STEWARD_MAX_WHY_NOW_CHARS = 2_000
+_STEWARD_MAX_ID_CHARS = 160
+_STEWARD_MAX_TURN_REF_CHARS = 200
+
+
+def steward_state_path(campaign_dir: Path) -> Path:
+    """Exact path of the steward state document inside a campaign save."""
+    return Path(campaign_dir) / "save" / "steward-state.json"
+
+
+def empty_steward_state(campaign_id: str) -> dict[str, Any]:
+    """Fresh exact-current steward document for a campaign."""
+    return {
+        "schema_version": STEWARD_STATE_DOCUMENT_SCHEMA_VERSION,
+        "campaign_id": str(campaign_id),
+        "deliveries": {},
+        "notebook": {},
+    }
+
+
+def _validated_optional_text(value: Any, field: str, *, maximum: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string or null")
+    text = value.strip()
+    if not text:
+        return None
+    if len(text) > maximum:
+        raise ValueError(f"{field} exceeds {maximum} characters")
+    return text
+
+
+def validated_steward_segments(segments: Any, *, field: str) -> list[dict[str, Any]]:
+    """Validate one steward segment list; returns a normalized deep copy."""
+    if not isinstance(segments, list) or not segments:
+        raise ValueError(f"{field} must be a non-empty array of segments")
+    if len(segments) > _STEWARD_MAX_SEGMENTS:
+        raise ValueError(f"{field} exceeds {_STEWARD_MAX_SEGMENTS} segments")
+    normalized: list[dict[str, Any]] = []
+    for position, segment in enumerate(segments):
+        if not isinstance(segment, dict) or set(segment) != _STEWARD_SEGMENT_FIELDS:
+            raise ValueError(
+                f"{field}[{position}] must be exactly {{text, page, source_refs}}"
+            )
+        text = segment["text"]
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or len(text) > _STEWARD_MAX_SEGMENT_TEXT_CHARS
+        ):
+            raise ValueError(
+                f"{field}[{position}].text must be a non-empty string "
+                f"within {_STEWARD_MAX_SEGMENT_TEXT_CHARS} characters"
+            )
+        page = segment["page"]
+        if page is not None and (
+            isinstance(page, bool)
+            or not isinstance(page, int)
+            or page < 0
+        ):
+            raise ValueError(
+                f"{field}[{position}].page must be a non-negative integer or null"
+            )
+        refs = segment["source_refs"]
+        if (
+            not isinstance(refs, list)
+            or not refs
+            or len(refs) > _STEWARD_MAX_SOURCE_REFS
+        ):
+            raise ValueError(
+                f"{field}[{position}].source_refs must be a non-empty array "
+                f"of at most {_STEWARD_MAX_SOURCE_REFS} strings"
+            )
+        normalized_refs: list[str] = []
+        for ref in refs:
+            if not isinstance(ref, str) or not ref.strip():
+                raise ValueError(
+                    f"{field}[{position}].source_refs entries must be non-empty strings"
+                )
+            if len(ref) > _STEWARD_MAX_SOURCE_REF_CHARS:
+                raise ValueError(
+                    f"{field}[{position}].source_refs entry exceeds "
+                    f"{_STEWARD_MAX_SOURCE_REF_CHARS} characters"
+                )
+            normalized_refs.append(ref)
+        normalized.append({
+            "text": text,
+            "page": page,
+            "source_refs": normalized_refs,
+        })
+    return normalized
+
+
+def _validated_identifier(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    text = value.strip()
+    if len(text) > _STEWARD_MAX_ID_CHARS:
+        raise ValueError(f"{field} exceeds {_STEWARD_MAX_ID_CHARS} characters")
+    return text
+
+
+def _validated_turn_ref(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    text = value.strip()
+    if len(text) > _STEWARD_MAX_TURN_REF_CHARS:
+        raise ValueError(f"{field} exceeds {_STEWARD_MAX_TURN_REF_CHARS} characters")
+    return text
+
+
+def _validated_annotation(value: Any, field: str) -> str:
+    text = _validated_optional_text(value, field, maximum=_STEWARD_MAX_ANNOTATION_CHARS)
+    if not text:
+        raise ValueError(f"{field} must be a non-empty string")
+    return text
+
+
+def validate_steward_state_document(
+    data: Any, campaign_id: str,
+) -> dict[str, Any]:
+    """Fail-closed structural validation of one steward state document.
+
+    Raises ``ValueError`` on any drift; returns a normalized deep copy on
+    success.  Cross-references between deliveries and notebook entries are
+    enforced so the document can never become internally inconsistent.
+    """
+    if not isinstance(data, dict) or set(data) != {
+        "schema_version", "campaign_id", "deliveries", "notebook",
+    }:
+        raise ValueError(
+            "save/steward-state.json does not match the current schema-v1 document"
+        )
+    if data.get("schema_version") != STEWARD_STATE_DOCUMENT_SCHEMA_VERSION:
+        raise ValueError(
+            "save/steward-state.json schema_version mismatch: "
+            f"expected {STEWARD_STATE_DOCUMENT_SCHEMA_VERSION}, "
+            f"got {data.get('schema_version')!r}"
+        )
+    campaign = str(data.get("campaign_id") or "").strip()
+    expected_campaign = str(campaign_id or "").strip()
+    if not campaign or campaign != expected_campaign:
+        raise ValueError(
+            "save/steward-state.json campaign identity is invalid: "
+            f"expected {expected_campaign!r}, got {campaign!r}"
+        )
+
+    deliveries_raw = data["deliveries"]
+    notebook_raw = data["notebook"]
+    if not isinstance(deliveries_raw, dict) or not isinstance(notebook_raw, dict):
+        raise ValueError(
+            "save/steward-state.json deliveries/notebook must be objects"
+        )
+
+    deliveries: dict[str, Any] = {}
+    for key, record in deliveries_raw.items():
+        if not isinstance(record, dict) or set(record) != _STEWARD_DELIVERY_FIELDS:
+            raise ValueError(f"delivery {key!r} does not match the current schema")
+        delivery_id = _validated_identifier(record["delivery_id"], "delivery_id")
+        if delivery_id != str(key):
+            raise ValueError(f"delivery map key must equal delivery_id for {key!r}")
+        created_turn = _validated_turn_ref(record["created_turn"], "created_turn")
+        why_now = _validated_optional_text(
+            record["why_now"], "why_now", maximum=_STEWARD_MAX_WHY_NOW_CHARS
+        )
+        if not why_now:
+            raise ValueError("why_now must be a non-empty string")
+        scene_annotation = _validated_optional_text(
+            record["scene_annotation"],
+            "scene_annotation",
+            maximum=_STEWARD_MAX_ANNOTATION_CHARS,
+        )
+        secrecy = record["secrecy"]
+        if secrecy not in STEWARD_SECRECY_LEVELS:
+            raise ValueError(
+                f"delivery {key!r} secrecy must be one of "
+                f"{sorted(STEWARD_SECRECY_LEVELS)}"
+            )
+        consumed = record["consumed"]
+        consumed_turn = record["consumed_turn"]
+        if not isinstance(consumed, bool):
+            raise ValueError(f"delivery {key!r} consumed must be a boolean")
+        if consumed_turn is not None and (
+            not isinstance(consumed_turn, str) or not consumed_turn.strip()
+        ):
+            raise ValueError(f"delivery {key!r} consumed_turn must be a string or null")
+        if not consumed and consumed_turn is not None:
+            raise ValueError(f"delivery {key!r} has consumed_turn while not consumed")
+        if consumed and consumed_turn is None:
+            raise ValueError(f"delivery {key!r} is consumed without a consumed_turn")
+        decision_id = _validated_identifier(record["decision_id"], "decision_id")
+        ts = record["ts"]
+        if not isinstance(ts, str) or not ts.strip():
+            raise ValueError(f"delivery {key!r} ts must be a non-empty string")
+        notebook_refs = record["notebook_entry_ids"]
+        if (
+            not isinstance(notebook_refs, list)
+            or any(
+                not isinstance(ref, str) or not ref.strip()
+                for ref in notebook_refs
+            )
+        ):
+            raise ValueError(
+                f"delivery {key!r} notebook_entry_ids must be an array of strings"
+            )
+        deliveries[str(key)] = {
+            "delivery_id": delivery_id,
+            "created_turn": created_turn,
+            "segments": validated_steward_segments(
+                record["segments"], field=f"delivery {key!r} segments"
+            ),
+            "why_now": why_now,
+            "scene_annotation": scene_annotation,
+            "secrecy": secrecy,
+            "consumed": consumed,
+            "consumed_turn": consumed_turn,
+            "decision_id": decision_id,
+            "notebook_entry_ids": list(notebook_refs),
+            "ts": ts,
+        }
+
+    notebook: dict[str, Any] = {}
+    for key, entry in notebook_raw.items():
+        if not isinstance(entry, dict) or set(entry) != _STEWARD_NOTEBOOK_ENTRY_FIELDS:
+            raise ValueError(f"notebook entry {key!r} does not match the current schema")
+        entry_id = _validated_identifier(entry["entry_id"], "entry_id")
+        if entry_id != str(key):
+            raise ValueError(f"notebook map key must equal entry_id for {key!r}")
+        scene_annotation = _validated_annotation(
+            entry["scene_annotation"], "scene_annotation"
+        )
+        note = _validated_optional_text(entry["note"], "note", maximum=_STEWARD_MAX_NOTE_CHARS)
+        paid = entry["paid"]
+        paid_turn = entry["paid_turn"]
+        paid_delivery_id = entry["paid_delivery_id"]
+        if not isinstance(paid, bool):
+            raise ValueError(f"notebook entry {key!r} paid must be a boolean")
+        if paid_turn is not None and (
+            not isinstance(paid_turn, str) or not paid_turn.strip()
+        ):
+            raise ValueError(f"notebook entry {key!r} paid_turn must be a string or null")
+        if paid_delivery_id is not None and (
+            not isinstance(paid_delivery_id, str) or not paid_delivery_id.strip()
+        ):
+            raise ValueError(
+                f"notebook entry {key!r} paid_delivery_id must be a string or null"
+            )
+        if not paid and (paid_turn is not None or paid_delivery_id is not None):
+            raise ValueError(
+                f"notebook entry {key!r} has pay markers while not paid"
+            )
+        if paid and paid_turn is None:
+            raise ValueError(f"notebook entry {key!r} is paid without a paid_turn")
+        if paid_delivery_id is not None and paid_delivery_id not in deliveries:
+            raise ValueError(
+                f"notebook entry {key!r} paid_delivery_id references an "
+                f"unknown delivery {paid_delivery_id!r}"
+            )
+        notebook[str(key)] = {
+            "entry_id": entry_id,
+            "scene_annotation": scene_annotation,
+            "segments": validated_steward_segments(
+                entry["segments"], field=f"notebook entry {key!r} segments"
+            ),
+            "note": note,
+            "paid": paid,
+            "paid_turn": paid_turn,
+            "paid_delivery_id": paid_delivery_id,
+            "created_turn": _validated_turn_ref(entry["created_turn"], "created_turn"),
+            "updated_turn": _validated_turn_ref(entry["updated_turn"], "updated_turn"),
+            "decision_id": _validated_identifier(entry["decision_id"], "decision_id"),
+        }
+
+    # Cross-reference: every delivery-linked notebook entry must be paid by
+    # exactly that delivery.
+    for delivery_id, record in deliveries.items():
+        for entry_id in record["notebook_entry_ids"]:
+            entry = notebook.get(entry_id)
+            if entry is None:
+                raise ValueError(
+                    f"delivery {delivery_id!r} references unknown notebook entry "
+                    f"{entry_id!r}"
+                )
+            if entry["paid_delivery_id"] != delivery_id:
+                raise ValueError(
+                    f"delivery {delivery_id!r} references notebook entry {entry_id!r} "
+                    "which is not paid by this delivery"
+                )
+
+    return {
+        "schema_version": STEWARD_STATE_DOCUMENT_SCHEMA_VERSION,
+        "campaign_id": campaign,
+        "deliveries": deliveries,
+        "notebook": notebook,
+    }
+
+
+def load_steward_state(campaign_dir: Path) -> dict[str, Any]:
+    """Load the exact-current steward document; missing file -> empty state."""
+    campaign_dir = Path(campaign_dir)
+    path = steward_state_path(campaign_dir)
+    if not path.is_file():
+        return empty_steward_state(campaign_dir.name)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(
+            f"save/steward-state.json is unreadable: {exc}"
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "save/steward-state.json is not valid JSON; refusing to replace it"
+        ) from exc
+    return validate_steward_state_document(data, campaign_dir.name)
+
+
+def save_steward_state(campaign_dir: Path, payload: dict[str, Any]) -> None:
+    """Validate then atomically persist one steward state document."""
+    campaign_dir = Path(campaign_dir)
+    normalized = validate_steward_state_document(payload, campaign_dir.name)
+    write_json_atomic(steward_state_path(campaign_dir), normalized)

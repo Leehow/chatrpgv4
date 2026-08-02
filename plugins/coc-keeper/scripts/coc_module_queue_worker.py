@@ -36,6 +36,21 @@ DEFAULT_STALE_IN_FLIGHT_S = 30.0
 DEFAULT_POLL_S = 0.4
 
 
+def _full_parse_render_result_contract() -> dict[str, Any]:
+    """Closed render contract for the whole-book background parse lane."""
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.full-parse-render-result.v1",
+        "closed": True,
+        "render": {
+            "max_pages_per_batch": coc_module_assets.FULL_PARSE_BATCH_LIMIT,
+            "register_operation": "progressive.register_source_bundle",
+            "fulfill_operation": "progressive.fulfill_host_work",
+            "drift_policy": "first_writer_wins_record_provenance",
+        },
+    }
+
+
 def _foreground_opening_result_contract() -> dict[str, Any]:
     """Return the compact closed result shape carried by opening host work."""
     return {
@@ -1253,6 +1268,22 @@ def _write_host_work_request(
                 f"{job_kind} job source scope signature is stale"
             )
         requested_indices = list(requested_scope["pdf_indices"])
+    elif job_kind == "full_parse":
+        requested_indices = coc_module_assets.full_parse_requested_indices(
+            workspace, asset_root_id,
+        )
+        if not requested_indices:
+            raise QueueWorkerError(
+                "full_parse job has no bound PDF page count"
+            )
+        requested_scope = {
+            "scope_kind": "full_pdf",
+            "source_file_sha256": (
+                source.get("file_sha256") or identity.get("file_sha256")
+            ),
+            "page_count": len(requested_indices),
+            "pdf_indices": list(requested_indices),
+        }
     else:
         requested_scope = _target_source_scope(
             workspace,
@@ -1279,6 +1310,10 @@ def _write_host_work_request(
     scope_complete = (
         set(requested_indices) <= cached_indices if requested_indices else None
     )
+    if job_kind == "full_parse" and scope_complete is True:
+        # Whole-book cache hit: every page is already accepted, so no render
+        # handoff exists.  The caller closes the job as complete immediately.
+        return None
     batch_subjects: list[dict[str, Any]] = []
     requested_set = set(requested_indices)
     if requested_set and str(job.get("kind") or "").startswith("resolve_"):
@@ -1300,6 +1335,8 @@ def _write_host_work_request(
     source_aspect = (
         "mechanics"
         if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
+        else "full"
+        if job_kind == "full_parse"
         else "body"
     )
     group_material = json.dumps(
@@ -1336,7 +1373,7 @@ def _write_host_work_request(
         "awaiting_scope"
         if not requested_indices
         else "ready"
-        if scope_complete is True
+        if job_kind == "full_parse" or scope_complete is True
         else "awaiting_cache"
     )
     payload = {
@@ -1483,6 +1520,37 @@ def _write_host_work_request(
             "fulfillment operation binds the request transiently, and later "
             "questions must query that pack rather than reopen the same PDF "
             "scope. Do not invent handout/secret bodies without page evidence."
+            if job_kind == "deepen_location"
+            else
+            "Full-parse renderer: this request covers the entire PDF page range "
+            "from the bound source manifest (requested_pdf_indices is the full "
+            "0-based page list; page_count is its length). cached_page_refs are "
+            "the already accepted immutable pages: never re-render, transcribe, "
+            "or rewrite them. Render the missing pages in source order with the "
+            "external pdf skill, in batches no larger than the closed "
+            "result_contract render.max_pages_per_batch (32), each batch as one "
+            "validated schema-v1 source bundle carrying only newly rendered "
+            "pages. Register every batch through progressive.register_source_bundle "
+            "(content-addressed put_page: identical pages skip, drifted pages keep "
+            "the existing first writer and are recorded as provenance without "
+            "blocking). When every requested page is accepted, submit one "
+            "progressive.fulfill_host_work worker_result row with pack.status=complete "
+            "and the exact rendered_pdf_indices; otherwise submit pack.status=partial "
+            "so the same open request can be claimed again for the next batch. "
+            "Do not compile entity packs, read campaign state, or invent page "
+            "content that the pdf skill did not render."
+            if job_kind == "full_parse"
+            else
+            "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
+            "is true, do not reopen the PDF for this scope. Register a new "
+            "validated source bundle window only for missing pdf_indices, then "
+            "deep-extract this entity once into a reusable entity pack. Submit the "
+            "complete outer result through the named source transport, or return it "
+            "unchanged to the exact fallback parent, with parse_state=deep and "
+            "evidence_gap=false, source_page_indices, and host_timing; the "
+            "fulfillment operation binds the request transiently, and later "
+            "questions must query that pack rather than reopen the same PDF "
+            "scope. Do not invent handout/secret bodies without page evidence."
         ),
     }
     if payload["consumer_refs"] is None:
@@ -1503,6 +1571,8 @@ def _write_host_work_request(
             file_sha256=str(payload.get("file_sha256") or ""),
             requested_pdf_indices=requested_indices,
         )
+    elif job_kind == "full_parse":
+        payload["result_contract"] = _full_parse_render_result_contract()
     elif job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
         payload["result_contract"] = _mechanics_resolution_result_contract(
             job_id=jid,
@@ -1620,6 +1690,49 @@ def process_claimed_job(
     tid = str(job.get("target_id") or "")
     detail: dict[str, Any] = {"kind": kind, "target_id": tid}
     try:
+        if kind == "full_parse":
+            if not coc_module_assets.full_parse_requested_indices(
+                workspace, asset_root_id,
+            ):
+                detail["error"] = "full_parse job has no bound PDF page count"
+                _finish_job(
+                    workspace, asset_root_id, job,
+                    result="error", detail=detail, failed=True,
+                )
+                return {"ok": False, "error": detail["error"], **detail}
+            request_path = _write_host_work_request(
+                workspace, asset_root_id, job,
+            )
+            if request_path is None:
+                # Whole-book cache hit: every page is already accepted, so the
+                # render handoff is skipped and the job completes immediately.
+                coc_module_assets.close_full_parse_request(
+                    workspace, asset_root_id,
+                    job_id=str(job.get("job_id") or ""),
+                    result="complete",
+                )
+                detail["result"] = "complete"
+                detail["cached_page_count"] = len(
+                    coc_module_assets.accepted_cached_pdf_indices(
+                        workspace, asset_root_id,
+                    )
+                )
+                _finish_job(
+                    workspace, asset_root_id, job,
+                    result="complete", detail=detail,
+                )
+                return {"ok": True, "result": "complete", **detail}
+            detail["host_work_request"] = str(request_path)
+            coc_module_assets.update_full_parse_state(
+                workspace, asset_root_id, status="in_progress",
+                job_id=str(job.get("job_id") or ""),
+            )
+            _finish_job(
+                workspace, asset_root_id, job,
+                result="awaiting_host_pack", detail=detail,
+            )
+            return {"ok": True, "result": "awaiting_host_pack", **detail}
+
         if kind == "locate_mechanics_index":
             req = _write_host_work_request(workspace, asset_root_id, job)
             detail["host_work_request"] = str(req)

@@ -45,7 +45,10 @@ JOB_KINDS = frozenset({
     "resolve_npc_mechanics", "resolve_item_mechanics",
     "locate_mechanics_index",
     "partial_neighbor", "partial_opening", "ensure_stub",
+    "full_parse",
 })
+FULL_PARSE_BATCH_LIMIT = 32
+FULL_PARSE_MAX_RENDER_FAILURES = 3
 FOREGROUND_OPENING_PURPOSE = "foreground_opening_slice"
 MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
 MECHANICS_LOCATOR_TARGET_ID = "mechanics-index"
@@ -68,7 +71,7 @@ HOST_WORK_CONSUMER_FIELDS = frozenset({
 })
 HOST_WORK_CONSUMER_INTENTS = frozenset({
     "opening", "scene_enter", "player_dig", "neighbor_prefetch",
-    "mechanics", "source_scope_reattach",
+    "mechanics", "source_scope_reattach", "full_parse",
 })
 OPENING_CLOCK_REQUIRED_FIELDS = frozenset({
     "calendar_mode",
@@ -240,7 +243,13 @@ def _job_aspect(job_kind: str) -> str:
 
 def _default_host_work_level(job_kind: str) -> str:
     """Return advisory urgency only; never infer an exact current dependency."""
-    return "bounded_warm" if job_kind == "locate_mechanics_index" else "near_term"
+    if job_kind == "locate_mechanics_index":
+        return "bounded_warm"
+    if job_kind == "full_parse":
+        # Whole-book background parse is the lowest-urgency host lane; it must
+        # never compete with opening/entity work for coordinator dispatches.
+        return "bounded_warm"
+    return "near_term"
 
 
 def validate_host_work_dependency_ref(value: Any) -> dict[str, Any]:
@@ -1267,6 +1276,319 @@ def assets_root(workspace: Path) -> Path:
 
 def registry_path(workspace: Path) -> Path:
     return assets_root(workspace) / REGISTRY_NAME
+
+
+def full_parse_state_path(workspace: Path, asset_root_id: str) -> Path:
+    """Durable full_parse progress document for one module asset root."""
+    return _module_dir(workspace, asset_root_id) / "full-parse.json"
+
+
+def read_full_parse_state(
+    workspace: Path, asset_root_id: str,
+) -> dict[str, Any]:
+    path = full_parse_state_path(workspace, asset_root_id)
+    if not path.is_file():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def full_parse_page_count(
+    workspace: Path, asset_root_id: str,
+) -> int | None:
+    """Return the bound PDF's total page count from the canonical identity."""
+    identity_path = _module_dir(workspace, asset_root_id) / "identity.json"
+    if not identity_path.is_file():
+        return None
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    source = identity.get("source") if isinstance(identity, dict) else None
+    if not isinstance(source, dict):
+        return None
+    page_count = source.get("page_count")
+    if isinstance(page_count, bool) or not isinstance(page_count, int):
+        return None
+    return page_count
+
+
+def full_parse_requested_indices(
+    workspace: Path, asset_root_id: str,
+) -> list[int]:
+    """The whole-PDF page list full_parse must eventually cache."""
+    page_count = full_parse_page_count(workspace, asset_root_id)
+    if not page_count or page_count < 1:
+        return []
+    return list(range(page_count))
+
+
+def write_full_parse_state(
+    workspace: Path,
+    asset_root_id: str,
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    path = full_parse_state_path(workspace, asset_root_id)
+    _write_json(path, state)
+    return state
+
+
+def update_full_parse_state(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    status: str | None = None,
+    parsed_indices: list[int] | None = None,
+    job_id: str | None = None,
+    failure_class: str | None = None,
+    provenance: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Refresh the full_parse progress document from authoritative facts."""
+    current = read_full_parse_state(workspace, asset_root_id)
+    requested = full_parse_requested_indices(workspace, asset_root_id)
+    accepted = set(accepted_cached_pdf_indices(workspace, asset_root_id))
+    parsed = sorted(accepted & set(requested))
+    if parsed_indices is not None:
+        parsed = sorted(set(parsed) | set(parsed_indices))
+    page_count = full_parse_page_count(workspace, asset_root_id)
+    complete = bool(page_count) and len(parsed) >= page_count
+    merged_provenance = list(current.get("provenance") or [])
+    if provenance:
+        merged_provenance.extend(provenance)
+    merged: dict[str, Any] = {
+        "schema_version": 1,
+        "asset_root_id": asset_root_id,
+        "source_file_sha256": current.get("source_file_sha256")
+        or _module_identity_file_sha256(workspace, asset_root_id),
+        "page_count": page_count,
+        "job_id": job_id or current.get("job_id"),
+        "status": status or current.get("status") or "queued",
+        "parsed_pdf_indices": parsed,
+        "complete": complete or current.get("complete") is True,
+        "started_at": current.get("started_at"),
+        "completed_at": current.get("completed_at"),
+        "failure_class": failure_class
+        if failure_class is not None
+        else current.get("failure_class"),
+        "provenance": merged_provenance[-64:],
+        "updated_at": _now_iso(),
+    }
+    if not merged["started_at"] and status in {"in_progress", "complete"}:
+        merged["started_at"] = merged["updated_at"]
+    if merged["complete"]:
+        merged["status"] = "complete"
+        merged["failure_class"] = None
+        if not merged["completed_at"]:
+            merged["completed_at"] = _now_iso()
+    return write_full_parse_state(workspace, asset_root_id, merged)
+
+
+def close_full_parse_request(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    job_id: str,
+    result: str,
+    failure_class: str | None = None,
+) -> dict[str, Any]:
+    """Terminally close one full_parse host-work request and its queue row.
+
+    ``result`` is ``complete`` (all pages cached; request fulfilled) or
+    ``failed`` (renderer exhausted its bounded retries; request cancelled).
+    The module full_parse progress document is refreshed from authoritative
+    cache facts in the same transition.
+    """
+    module_root = _module_dir(workspace, asset_root_id)
+    request_path = module_root / "host-work" / f"{job_id}.json"
+    now = _now_iso()
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        if request_path.is_file():
+            try:
+                request = json.loads(request_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                request = {}
+            if isinstance(request, dict) and str(
+                request.get("status") or "open",
+            ) not in HOST_WORK_CLOSED_STATUSES:
+                request["result"] = result
+                request["closed_at"] = now
+                if result == "complete":
+                    request["status"] = "fulfilled"
+                    request["fulfilled_at"] = now
+                else:
+                    request["status"] = "cancelled"
+                    request["cancelled_at"] = now
+                    request["failure_class"] = failure_class
+                request.pop("dispatch_state", None)
+                for key in (
+                    "lease_id", "leased_at", "lease_expires_at", "executor_id",
+                ):
+                    request.pop(key, None)
+                _write_json(request_path, request)
+    _close_full_parse_queue_row(module_root, job_id, result=result)
+    if result == "complete":
+        return update_full_parse_state(
+            workspace, asset_root_id, status="complete", job_id=job_id,
+        )
+    return update_full_parse_state(
+        workspace, asset_root_id, status="failed", job_id=job_id,
+        failure_class=failure_class or "full_parse_failed",
+    )
+
+
+def _close_full_parse_queue_row(
+    module_root: Path,
+    job_id: str,
+    *,
+    result: str,
+) -> None:
+    """Update one full_parse done-row result without re-locking host-work."""
+    queue_path = module_root / "parse-queue.json"
+    if not queue_path.is_file():
+        return
+    with coc_fileio.advisory_file_lock(module_root / "parse-queue.lock"):
+        try:
+            queue = json.loads(queue_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        done = list(queue.get("done") or [])
+        changed = False
+        now = _now_iso()
+        for row in done:
+            if str(row.get("job_id") or "") == job_id:
+                row["result"] = result
+                row["completed_at"] = now
+                changed = True
+        if changed:
+            queue["done"] = done
+            _write_json(queue_path, queue)
+
+
+def record_full_parse_render_result(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    job_id: str,
+    status: str,
+    rendered_pdf_indices: list[int],
+    failed_pdf_indices: list[int],
+    failure_class: str | None = None,
+) -> dict[str, Any]:
+    """Record one render-batch outcome and transition the full_parse lane.
+
+    - ``partial``: progress is recorded; the open host-work request stays
+      claimable for the next batch (an expired lease is released in place).
+    - ``complete``: the request is fulfilled and the queue row closed.
+    - ``failed``: render failures are bounded; after the configured maximum
+      the request is cancelled and the progress document marks failure.
+    """
+    module_root = _module_dir(workspace, asset_root_id)
+    request_path = module_root / "host-work" / f"{job_id}.json"
+    requested = full_parse_requested_indices(workspace, asset_root_id)
+    requested_set = set(requested)
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value not in requested_set
+        for value in rendered_pdf_indices
+    ):
+        raise ModuleAssetsError(
+            "full_parse rendered_pdf_indices must stay inside the request scope"
+        )
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value not in requested_set
+        for value in failed_pdf_indices
+    ):
+        raise ModuleAssetsError(
+            "full_parse failed_pdf_indices must stay inside the request scope"
+        )
+    state = update_full_parse_state(
+        workspace,
+        asset_root_id,
+        status="in_progress" if status != "failed" else None,
+        job_id=job_id,
+        parsed_indices=rendered_pdf_indices,
+        failure_class=(
+            failure_class if status == "failed" else None
+        ),
+    )
+    if status == "complete":
+        return close_full_parse_request(
+            workspace, asset_root_id, job_id=job_id, result="complete",
+        )
+    if status == "failed":
+        # Failure-path closure happens inside the host-work lock below so the
+        # bounded retry transition is one atomic row write.
+        pass
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        if not request_path.is_file():
+            return state
+        try:
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return state
+        if not isinstance(request, dict) or str(
+            request.get("status") or "open",
+        ) in HOST_WORK_CLOSED_STATUSES:
+            return state
+        if status == "failed":
+            request["render_failure_count"] = int(
+                request.get("render_failure_count") or 0
+            ) + 1
+            request["last_render_failure_class"] = failure_class
+            request["last_render_failure_at"] = _now_iso()
+            if (
+                request["render_failure_count"]
+                >= FULL_PARSE_MAX_RENDER_FAILURES
+            ):
+                request["result"] = "failed"
+                request["closed_at"] = _now_iso()
+                request["status"] = "cancelled"
+                request["cancelled_at"] = request["closed_at"]
+                request["failure_class"] = (
+                    failure_class or "render_failed"
+                )
+                request.pop("dispatch_state", None)
+                for key in (
+                    "lease_id", "leased_at", "lease_expires_at", "executor_id",
+                ):
+                    request.pop(key, None)
+                _write_json(request_path, request)
+                _close_full_parse_queue_row(
+                    module_root, job_id, result="failed",
+                )
+                return update_full_parse_state(
+                    workspace,
+                    asset_root_id,
+                    status="failed",
+                    job_id=job_id,
+                    failure_class=failure_class or "render_failed",
+                )
+        # partial or retryable failure: keep the request open and claimable.
+        for key in (
+            "lease_id", "leased_at", "lease_expires_at", "executor_id",
+        ):
+            request.pop(key, None)
+        _sync_host_work_dispatch_state(request)
+        _write_json(request_path, request)
+    return update_full_parse_state(
+        workspace, asset_root_id, job_id=job_id,
+        status=(
+            None if status == "failed" else "in_progress"
+        ),
+        failure_class=failure_class if status == "failed" else None,
+    )
+
+
+def _module_identity_file_sha256(workspace: Path, asset_root_id: str) -> str:
+    identity_path = _module_dir(workspace, asset_root_id) / "identity.json"
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str((identity or {}).get("file_sha256") or "")
+
 
 
 def resolve_asset_root_id(
@@ -2833,12 +3155,20 @@ def register_source_bundle(
     *,
     asset_root_id: str | None = None,
     module_identity: dict[str, Any] | None = None,
+    record_drift: bool = False,
 ) -> dict[str, Any]:
     """Bridge one validated host PDF window into the progressive page cache.
 
     Repeated registration is content-addressed and idempotent.  A second
     campaign using the same PDF reuses the existing asset root, while another
     host bundle window for that PDF adds only its previously unseen pages.
+
+    ``record_drift`` is the full_parse batch lane.  The whole-book background
+    parse may legitimately re-render a page that a different extraction path
+    (first-pack, opening review, locator) already cached.  Content addressing
+    keeps the cache immutable and first-writer-wins: an identical page is
+    skipped, a drifted page keeps the existing evidence and is recorded in
+    the module's full_parse provenance instead of failing the batch.
     """
     started = time.perf_counter()
     if isinstance(source_bundle, dict):
@@ -2957,33 +3287,66 @@ def register_source_bundle(
                     "structured_data_model": structured.get("model"),
                     **({"_structured_text": structured_text} if revisioned else {}),
                 }
-            page_result = put_page(
-                workspace,
-                target_root_id,
-                pdf_index,
-                page.get("text"),
-                meta={
-                    "source_id": source.get("source_id"),
-                    "file_sha256": file_sha256,
-                    "bundle_sha256": bundle_sha256,
-                    "producer_text_sha256": page.get("producer_text_sha256"),
-                    "review_state": page.get("review_state"),
-                    "parse_confidence": page.get("parse_confidence"),
-                    "grep_anchors": list(page.get("grep_anchors") or []),
-                    "printed_page": page.get("printed_page"),
-                    "printed_label": page.get("printed_label"),
+            page_result = None
+            page_drift: dict[str, Any] | None = None
+            try:
+                page_result = put_page(
+                    workspace,
+                    target_root_id,
+                    pdf_index,
+                    page.get("text"),
+                    meta={
+                        "source_id": source.get("source_id"),
+                        "file_sha256": file_sha256,
+                        "bundle_sha256": bundle_sha256,
+                        "producer_text_sha256": page.get("producer_text_sha256"),
+                        "review_state": page.get("review_state"),
+                        "parse_confidence": page.get("parse_confidence"),
+                        "grep_anchors": list(page.get("grep_anchors") or []),
+                        "printed_page": page.get("printed_page"),
+                        "printed_label": page.get("printed_label"),
+                        "source_bundle_path": source.get("source_bundle_path"),
+                        "markdown_path": page.get("markdown_path"),
+                        "ocr_revision": page.get("ocr_revision"),
+                        **structured_meta,
+                    },
+                )
+            except ModuleAssetsError as exc:
+                if not record_drift:
+                    raise
+                drift_message = str(exc)
+                if "content drift" not in drift_message:
+                    raise
+                existing_ref = cached_page_ref(
+                    workspace, target_root_id, pdf_index,
+                )
+                if existing_ref is None:
+                    raise
+                page_drift = {
+                    "pdf_index": pdf_index,
+                    "incoming_text_sha256": hashlib.sha256(
+                        _normalized_page_text(page.get("text")).encode("utf-8")
+                    ).hexdigest(),
+                    "existing_text_sha256": str(
+                        existing_ref.get("text_sha256") or ""
+                    ),
                     "source_bundle_path": source.get("source_bundle_path"),
-                    "markdown_path": page.get("markdown_path"),
-                    "ocr_revision": page.get("ocr_revision"),
-                    **structured_meta,
-                },
-            )
-            if structured_meta:
-                page_result["structured_data"] = {
-                    key: value for key, value in structured_meta.items()
-                    if not key.startswith("_")
+                    "disposition": "first_writer_wins",
+                    "at": _now_iso(),
                 }
-            page_results.append(page_result)
+                update_full_parse_state(
+                    workspace,
+                    target_root_id,
+                    status="in_progress",
+                    provenance=[page_drift],
+                )
+            if page_result is not None:
+                if structured_meta:
+                    page_result["structured_data"] = {
+                        key: value for key, value in structured_meta.items()
+                        if not key.startswith("_")
+                    }
+                page_results.append(page_result)
 
         identity_path = mod / "identity.json"
         with coc_fileio.advisory_file_lock(bundle_identity_lock):
@@ -3048,6 +3411,12 @@ def register_source_bundle(
         canonical_family = str(
             identity_doc.get("recovery_family_root_id") or target_root_id
         )
+        if record_drift:
+            # Bundle row is now registered, so the authoritative accepted-page
+            # projection includes every page of this batch.
+            update_full_parse_state(
+                workspace, target_root_id, status="in_progress",
+            )
         # Registry publication is the final commit point. A partial staged
         # family member may remain as evidence, but it is never current.
         with coc_fileio.advisory_file_lock(
@@ -3091,6 +3460,19 @@ def register_source_bundle(
     drifted_pdf_index = _first_cached_page_drift(
         workspace, root_id, bundle["pages"],
     )
+    if record_drift and drifted_pdf_index is not None:
+        # Full-parse batch lane: first writer wins per page.  Do not escalate
+        # the pre-pass drift into auto-recovery; put_page records provenance
+        # for each drifted page inside _ingest and keeps the accepted evidence.
+        return _ingest(
+            root_id,
+            identity,
+            reused_existing=bool(existing),
+            recovered_from=None,
+            recovery_family_root_id=_recovery_family_root_id(
+                workspace, root_id,
+            ),
+        )
     if drifted_pdf_index is None:
         try:
             return _ingest(
@@ -4798,6 +5180,12 @@ def host_work_operational_class(request: dict[str, Any]) -> str:
     )
     if not exact_scope:
         return "awaiting_scope"
+    if str(request.get("kind") or "") == "full_parse":
+        # Whole-book background parse is dispatchable while pages are still
+        # missing: the renderer lane itself supplies the missing pages.  The
+        # packet still carries exact cached refs plus the complete request
+        # scope, so claims never widen or re-render accepted evidence.
+        return "runnable"
     if request.get("cached_scope_complete") is not True:
         return "awaiting_cache"
     return "runnable"
@@ -4860,10 +5248,25 @@ def _refresh_host_work_lifecycle(
             if live:
                 request["consumer_refs"] = live
             else:
-                request.pop("consumer_refs", None)
-                request.pop("consumer_state", None)
+                if str(request.get("kind") or "") == "full_parse":
+                    # full_parse is root-scoped: one job per module root serves
+                    # every campaign bound to it.  The binding sha changes when
+                    # the skeleton projection stamps the root (and on review
+                    # rebinds), so stale per-campaign refs must never supersede
+                    # the whole-book parse.  The request closes only through
+                    # completion or its bounded failure cap.
+                    request["consumer_state"] = "owned"
+                    request["root_scoped_consumer"] = True
+                else:
+                    request.pop("consumer_refs", None)
+                    request.pop("consumer_state", None)
             changed = True
-        if not live and str(request.get("status") or "open") not in HOST_WORK_CLOSED_STATUSES:
+        if (
+            not live
+            and str(request.get("status") or "open")
+            not in HOST_WORK_CLOSED_STATUSES
+            and str(request.get("kind") or "") != "full_parse"
+        ):
             request["status"] = "superseded"
             request["superseded_at"] = now.isoformat()
             request["stale_reason"] = "consumer_binding_stale"
@@ -6619,6 +7022,45 @@ def enqueue_job(
                         dedupe_state = "awaiting_host_pack"
                         break
                     continue
+                if (
+                    kind == "full_parse"
+                    and _same_entity_work(row, kind, tid)
+                ):
+                    # One full_parse job per module root, forever.  A rebound
+                    # campaign reuses the same root and the same done row; a
+                    # completed parse returns without creating a second job.
+                    if row.get("result") == "complete":
+                        deduped_job = row
+                        dedupe_state = "done"
+                        break
+                    job_id = str(row.get("job_id") or "")
+                    request_path = (
+                        _module_dir(workspace, asset_root_id)
+                        / "host-work"
+                        / f"{job_id}.json"
+                    )
+                    request = {}
+                    if request_path.is_file():
+                        try:
+                            loaded_request = json.loads(
+                                request_path.read_text(encoding="utf-8")
+                            )
+                            if isinstance(loaded_request, dict):
+                                request = loaded_request
+                        except (OSError, json.JSONDecodeError):
+                            request = {}
+                    if str(request.get("status") or "open") in {
+                        "fulfilled", "cancelled", "superseded",
+                    }:
+                        deduped_job = row
+                        dedupe_state = "done"
+                        break
+                    if merge_consumers(row):
+                        queue["done"] = list(queue.get("done") or [])
+                        _write_json(path, queue)
+                    deduped_job = row
+                    dedupe_state = "awaiting_host_pack"
+                    break
                 still_current = _host_request_still_current(
                     workspace,
                     asset_root_id,
@@ -6693,6 +7135,17 @@ def enqueue_job(
             _write_json(path, queue)
         else:
             job = deduped_job
+    if kind == "full_parse" and dedupe_state not in {"done", "awaiting_host_pack"}:
+        update_full_parse_state(
+            workspace,
+            asset_root_id,
+            status=(
+                "queued"
+                if dedupe_state in {None, "pending"}
+                else "in_progress"
+            ),
+            job_id=str(job.get("job_id") or ""),
+        )
     # Queue updates commit first, then host-work updates under its own lock.
     # Materialization performs the inverse *read* while holding host-work.lock,
     # but enqueue never nests these locks, so no cyclic lock ordering exists.
@@ -6727,6 +7180,8 @@ def enqueue_job(
     kick: dict[str, Any] | None = None
     if dedupe_state == "awaiting_host_pack":
         kick = {"started": False, "reason": "host_request_already_open"}
+    elif dedupe_state == "done":
+        kick = {"started": False, "reason": "full_parse_already_complete"}
     elif not kick_worker:
         kick = {"started": False, "reason": "caller_owns_materialization"}
     else:

@@ -12011,6 +12011,183 @@ def _source_scope_locator_dispatch(
     }
 
 
+def _full_parse_render_dispatch(
+    *,
+    workspace_root: str,
+    campaign_id: str,
+    asset_root_id: str,
+    request: dict[str, Any],
+    host_adapter: str,
+) -> dict[str, Any]:
+    """Build one bounded full-parse batch dispatch for the Pi adapter lane.
+
+    The task names the complete 0-based page range and the already accepted
+    cached subset.  The external pdf-skill adapter renders one batch (no
+    larger than the closed batch limit) of the still-missing pages into a
+    validated schema-v1 bundle, registers it through the canonical source
+    bundle bridge, and returns a coc.source-pack-worker.v1 receipt row that
+    the driver forwards once through progressive.fulfill_host_work.
+    """
+    assets_mod = coc_module_project.coc_module_assets
+    job_id = str(request.get("job_id") or "")
+    if host_adapter not in {"codex", "pi"}:
+        raise ToolError(
+            "invalid_param",
+            f"unsupported full-parse render host adapter {host_adapter!r}",
+        )
+    identity_path = (
+        assets_mod._module_dir(Path(workspace_root), asset_root_id)
+        / "identity.json"
+    )
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ToolError(
+            "source_scope_identity_invalid",
+            "canonical module identity is unavailable for full-parse dispatch",
+        ) from exc
+    canonical_source = (
+        identity.get("source")
+        if isinstance(identity, dict)
+        and isinstance(identity.get("source"), dict)
+        else {}
+    )
+    module_identity = (
+        identity.get("module_identity")
+        if isinstance(identity, dict)
+        and isinstance(identity.get("module_identity"), dict)
+        else {}
+    )
+    source_title = str(
+        canonical_source.get("title")
+        or module_identity.get("canonical_title")
+        or ""
+    ).strip()
+    page_count = canonical_source.get("page_count")
+    if (
+        isinstance(page_count, bool)
+        or not isinstance(page_count, int)
+        or page_count < 1
+    ):
+        raise ToolError(
+            "source_scope_identity_invalid",
+            "canonical module source page_count is required for full-parse dispatch",
+        )
+    canonical_task_source = {
+        "path": str(canonical_source.get("path") or ""),
+        "source_id": str(canonical_source.get("source_id") or ""),
+        "title": source_title,
+        "file_sha256": str(canonical_source.get("file_sha256") or ""),
+    }
+    if (
+        not canonical_task_source["path"]
+        or not canonical_task_source["source_id"]
+        or not re.fullmatch(
+            r"[a-f0-9]{64}",
+            canonical_task_source["file_sha256"],
+        )
+    ):
+        raise ToolError(
+            "source_scope_identity_invalid",
+            "canonical module source identity is incomplete",
+        )
+    bundle_path = (
+        Path(workspace_root)
+        / ".tmp"
+        / "coc-full-parse"
+        / campaign_id
+        / job_id
+    ).resolve()
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-full-parse-render-task.v1",
+        "workspace_root": str(Path(workspace_root).resolve()),
+        "campaign_id": campaign_id,
+        "asset_root_id": asset_root_id,
+        "job_id": job_id,
+        "reason": str(request.get("reason") or ""),
+        "source": canonical_task_source,
+        "page_count": int(page_count),
+        "requested_pdf_indices": list(
+            request.get("requested_pdf_indices") or []
+        ),
+        "cached_pdf_indices": (
+            assets_mod.accepted_cached_pdf_indices(
+                Path(workspace_root), asset_root_id,
+            )
+        ),
+        "batch_limit": assets_mod.FULL_PARSE_BATCH_LIMIT,
+        "source_bundle_path": str(bundle_path),
+        "source_bundle_manifest_contract": {
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source_required": [
+                "source_id", "title", "path", "file_sha256", "page_count",
+            ],
+            "page_required": [
+                "pdf_index", "markdown_path", "text_sha256",
+                "review_state", "parse_confidence", "grep_anchors",
+            ],
+            "review_state": "manual_accepted",
+            "parse_confidence": "number_from_0_through_1",
+            "text_sha256": "sha256_of_exact_markdown_file_bytes",
+            "assets": [],
+        },
+        "register_operation": {
+            "operation": "progressive.register_source_bundle",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {},
+            "missing_arguments": ["source_bundle_path"],
+            "authority": "source_scope_only",
+            "hard_gate": False,
+        },
+        "fulfill_operation": {
+            "operation": "progressive.fulfill_host_work",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "worker_result": {
+                    "job_id": job_id,
+                    "related_packs": [],
+                },
+            },
+            "missing_arguments": ["worker_result.pack"],
+            "authority": "source_scope_only",
+            "hard_gate": False,
+        },
+        "result_delivery": "natural_completion_notification_only",
+    }
+    return {
+        "schema_version": 1,
+        "kind": "full_parse_render",
+        "dispatch_mode": "background_adapter_batch",
+        "host_adapter": host_adapter,
+        "authority": "advisory",
+        "hard_gate": False,
+        "next_host_action": {
+            "action": "invoke_coc_dispatch_full_parse",
+            "execute_before_any_other_host_operation": False,
+            "dispatch_key": f"full-parse:{job_id}",
+            "spawn_once_while_job_open": True,
+            "task": task,
+            "parent_waits": False,
+            "parent_result_polls": 0,
+            "parent_output_retrieval": False,
+            "on_natural_completion": (
+                "notification only; the renderer registers one page batch and "
+                "the driver forwards the exact receipt row through "
+                "progressive.fulfill_host_work; the next ordinary scene.context "
+                "re-emits the open request until complete"
+            ),
+        },
+        "play_boundary": {
+            "player_action_gate": False,
+            "narrative_gate": False,
+            "output_gate": False,
+            "nondependent_play_may_continue": True,
+        },
+    }
+
+
 def _source_pack_dispatch_task(packet: dict[str, Any]) -> dict[str, Any]:
     """Wrap one leased packet as an exact host-dispatchable source task."""
     instruction_ref = str(
@@ -12369,8 +12546,11 @@ def _source_host_work_projection(
             open_rows, compact_host_work, strict=True,
         )
         if row.get("dispatch_state") == "ready"
-        and row.get("cached_scope_complete") is True
         and bool(row.get("requested_pdf_indices"))
+        and (
+            str(row.get("kind") or "") == "full_parse"
+            or row.get("cached_scope_complete") is True
+        )
     ]
     retry_exhausted = [
         row for row in ready_candidates
@@ -12381,6 +12561,19 @@ def _source_host_work_projection(
     ready_background = [
         row for row in ready_candidates
         if row not in retry_exhausted
+    ]
+    # The whole-book parse lane is dispatchable while pages are still missing
+    # (its renderer supplies them), so it must never enter the entity-pack
+    # coordinator route; it gets its own bounded adapter lane below.
+    full_parse_candidates = [
+        row for row in ready_background
+        if str(row.get("kind") or "") == "full_parse"
+        and int(row.get("render_failure_count") or 0)
+        < assets_mod.FULL_PARSE_MAX_RENDER_FAILURES
+    ]
+    ready_background = [
+        row for row in ready_background
+        if str(row.get("kind") or "") != "full_parse"
     ]
     operational_classes = [
         assets_mod.host_work_operational_class(row) for row in open_rows
@@ -12569,6 +12762,14 @@ def _source_host_work_projection(
             target_label=target_label,
             host_adapter=host_adapter,
         )
+    if full_parse_candidates and host_adapter in {"codex", "pi"}:
+        projection["full_parse_dispatch"] = _full_parse_render_dispatch(
+            workspace_root=str(ctx.root),
+            campaign_id=str(ctx.campaign_id),
+            asset_root_id=asset_root_id,
+            request=full_parse_candidates[0],
+            host_adapter=host_adapter,
+        )
     if not dispatch_ready_background:
         return projection
     ready_group_count = len({
@@ -12732,7 +12933,9 @@ def _attach_source_host_projection(
 ) -> dict[str, Any]:
     projection = _source_host_work_projection(ctx, asset_root_id)
     result["host_work"] = projection
-    for field in ("background_takeover", "source_scope_takeover"):
+    for field in (
+        "background_takeover", "source_scope_takeover", "full_parse_dispatch",
+    ):
         if projection.get(field) is not None:
             result[field] = projection[field]
     return projection
@@ -16981,6 +17184,126 @@ def _apply_opening_setup_observation(
     }
 
 
+def _fulfill_full_parse_host_work(
+    ctx: Ctx,
+    *,
+    root_id: str,
+    request: dict[str, Any],
+    job_id: str,
+    pack: dict[str, Any],
+    args: dict[str, Any],
+):
+    """Apply one whole-book render batch receipt to the full_parse lane.
+
+    The closed pack is page-level evidence bookkeeping only: it never writes
+    entity packs, never touches rules/state authority, and never blocks the
+    opening projection.  Authoritative parsed indices are recomputed from the
+    accepted cache inside the module-assets transition.
+    """
+    assets_mod = coc_module_project.coc_module_assets
+    allowed_pack = {
+        "status", "rendered_pdf_indices", "failed_pdf_indices",
+        "failure_class",
+    }
+    if set(pack) - allowed_pack:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "full_parse pack contains unsupported fields",
+        )
+    status = str(pack.get("status") or "")
+    if status not in {"partial", "complete", "failed"}:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "full_parse pack.status must be partial, complete, or failed",
+        )
+    if status == "failed":
+        failure_class = pack.get("failure_class")
+        if (
+            not isinstance(failure_class, str)
+            or not failure_class.strip()
+            or "rendered_pdf_indices" in pack
+            or "failed_pdf_indices" in pack
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "failed full_parse pack requires only failure_class",
+            )
+        try:
+            result = assets_mod.record_full_parse_render_result(
+                ctx.root,
+                root_id,
+                job_id=job_id,
+                status="failed",
+                rendered_pdf_indices=[],
+                failed_pdf_indices=[],
+                failure_class=str(failure_class)[:256],
+            )
+        except assets_mod.ModuleAssetsError as exc:
+            raise ToolError("invalid_param", str(exc)) from exc
+        refreshed = assets_mod.get_host_work_request(ctx.root, root_id, job_id) or {}
+        return {
+            "asset_root_id": root_id,
+            "job_id": job_id,
+            "request_status": refreshed.get("status"),
+            "full_parse": result,
+        }, [], [
+            "render failure recorded; the open request stays visible in "
+            "progressive.status and the batch is re-dispatched on a later "
+            "scene.context until the bounded failure cap",
+        ]
+    rendered = pack.get("rendered_pdf_indices")
+    failed = pack.get("failed_pdf_indices")
+    if (
+        not isinstance(rendered, list)
+        or not isinstance(failed, list)
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in rendered
+        )
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in failed
+        )
+        or rendered != sorted(set(rendered))
+        or failed != sorted(set(failed))
+        or set(rendered) & set(failed)
+        or pack.get("failure_class") is not None
+    ):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "full_parse rendered/failed indices must be unique, ascending, "
+            "disjoint, and failure_class must be null",
+        )
+    try:
+        result = assets_mod.record_full_parse_render_result(
+            ctx.root,
+            root_id,
+            job_id=job_id,
+            status=status,
+            rendered_pdf_indices=rendered,
+            failed_pdf_indices=failed,
+            failure_class=None,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    refreshed = assets_mod.get_host_work_request(ctx.root, root_id, job_id) or {}
+    success_hints = [
+        "full-parse progress is durable; the request stays claimable for the "
+        "next missing batch until progressive.status reports complete",
+    ]
+    if status == "complete":
+        success_hints = [
+            "the whole PDF is parsed: every later consumer reads only the "
+            "immutable markdown page cache and never reopens the PDF",
+        ]
+    return {
+        "asset_root_id": root_id,
+        "job_id": job_id,
+        "request_status": refreshed.get("status"),
+        "full_parse": result,
+    }, [], success_hints
+
+
 def _fulfill_host_work_for_asset_unlocked(
     ctx: Ctx, args: dict[str, Any], *, root_id: str,
 ):
@@ -17057,7 +17380,10 @@ def _fulfill_host_work_for_asset_unlocked(
     }
     entity_kind = assets_mod._job_entity_kind(job_kind)
     target_id = str(request.get("target_id") or "").strip()
-    if job_kind != "locate_mechanics_index" and (not entity_kind or not target_id):
+    if (
+        job_kind not in {"locate_mechanics_index", "full_parse"}
+        and (not entity_kind or not target_id)
+    ):
         raise ToolError("invalid_state", "host-work request has no entity binding")
     pack = deepcopy(args.get("pack"))
     if not isinstance(pack, dict):
@@ -17066,6 +17392,15 @@ def _fulfill_host_work_for_asset_unlocked(
             if job_kind == "locate_mechanics_index" or mechanics_job
             else "invalid_param",
             "pack must be an object",
+        )
+    if job_kind == "full_parse":
+        return _fulfill_full_parse_host_work(
+            ctx,
+            root_id=root_id,
+            request=request,
+            job_id=job_id,
+            pack=pack,
+            args=args,
         )
     # The job already binds the entity kind, so a sole matching wrapper is
     # redundant transport structure rather than semantic source data. Accept
@@ -18256,13 +18591,19 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
             ),
         },
         "start_clock_status": skeleton.get("start_clock_status") or "unbound",
+        "full_parse": assets_mod.read_full_parse_state(ctx.root, root_id),
         "host_work": {
             "open_count": len(all_host_work),
             "requests": all_host_work[:8],
             "ready_for_background_count": sum(
-                row.get("dispatch_state") == "ready"
-                and row.get("cached_scope_complete") is True
-                and bool(row.get("requested_pdf_indices"))
+                (
+                    row.get("dispatch_state") == "ready"
+                    and bool(row.get("requested_pdf_indices"))
+                    and (
+                        row.get("kind") == "full_parse"
+                        or row.get("cached_scope_complete") is True
+                    )
+                )
                 for row in all_host_work
             ),
             "leased_count": sum(
@@ -18294,6 +18635,10 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
     if host_work_projection.get("source_scope_takeover"):
         data["source_scope_takeover"] = host_work_projection[
             "source_scope_takeover"
+        ]
+    if host_work_projection.get("full_parse_dispatch"):
+        data["full_parse_dispatch"] = host_work_projection[
+            "full_parse_dispatch"
         ]
     kind = str(args.get("kind") or "").strip()
     tid = str(args.get("target_id") or "").strip()
@@ -24132,6 +24477,575 @@ def _tool_state_exceptional_effect(ctx: Ctx, args: dict[str, Any]):
     ]
 
 
+# --------------------------------------------------------------------------- #
+# Steward (管家): delivery + notebook state surface (0.5.1a S2)
+# --------------------------------------------------------------------------- #
+# The steward is a host-agnostic role (plugins/coc-keeper/skills/coc-steward)
+# running in its own session.  It feeds module text to the KP by writing
+# delivery records and maintaining a notebook of pre-cut segments per expected
+# scene.  All writes are transactional and idempotent via decision_id; the KP
+# consumes through the read-only steward.deliveries / steward.notebook ops.
+# These records never hold rules/state authority and never modify module text.
+
+
+def _load_steward_state(ctx: Ctx) -> dict[str, Any]:
+    try:
+        return coc_state.load_steward_state(ctx.campaign_dir)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+
+
+def _save_steward_state(ctx: Ctx, payload: dict[str, Any]) -> None:
+    coc_state.save_steward_state(ctx.campaign_dir, payload)
+
+
+def _steward_validated_segments(value: Any) -> list[dict[str, Any]]:
+    try:
+        return coc_state.validated_steward_segments(value, field="segments")
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+
+
+def _steward_optional_text(
+    value: Any, *, field: str, maximum: int,
+) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ToolError("invalid_param", f"{field} must be a string or null")
+    text = value.strip()
+    if not text:
+        return None
+    if len(text) > maximum:
+        raise ToolError(
+            "invalid_param", f"{field} exceeds {maximum} characters"
+        )
+    return text
+
+
+def _steward_required_text(
+    value: Any, *, field: str, maximum: int,
+) -> str:
+    text = _steward_optional_text(value, field=field, maximum=maximum)
+    if not text:
+        raise ToolError("invalid_param", f"{field} must be a non-empty string")
+    return text
+
+
+def _steward_validated_id(value: Any, *, field: str) -> str:
+    return _steward_required_text(
+        value, field=field, maximum=coc_state._STEWARD_MAX_ID_CHARS
+    )
+
+
+@tool(
+    "steward.deliver",
+    "Write one steward delivery: module text segments the KP needs now, with why_now, expected scene annotation, and a keeper_only/player_safe secrecy label. Optionally pays linked notebook entries (即付). The KP reads it through steward.deliveries; this record is canon-candidate feed, never rules/state authority.",
+    {
+        "delivery_id": {"type": "string", "desc": "stable delivery id (defaults to the decision_id)"},
+        "segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "text": {"type": "string", "desc": "verbatim module text (markdown page body excerpt)"},
+                    "page": {"type": "integer", "desc": "zero-based pdf_index of the source page, or null"},
+                    "source_refs": {"type": "array", "items": {"type": "string"}, "desc": "module-assets refs for this excerpt"},
+                },
+                "required_fields": ["text", "page", "source_refs"],
+            },
+            "desc": "module text segments; provide here or derive from notebook_entry_ids",
+        },
+        "why_now": {"type": "string", "required": True, "desc": "why the KP needs this module text at this turn"},
+        "scene_annotation": {"type": "string", "desc": "expected scene this delivery serves (short label)"},
+        "secrecy": {
+            "type": "string",
+            "enum": ["keeper_only", "player_safe"],
+            "required": True,
+            "desc": "keeper_only = KP-internal knowledge, never player-visible; player_safe = verbatim module text the KP may hand to players",
+        },
+        "created_turn": {"type": "string", "required": True, "desc": "campaign turn / event identity this delivery serves"},
+        "notebook_entry_ids": {"type": "array", "items": {"type": "string"}, "desc": "unpaid notebook entries to pay and link to this delivery"},
+        "decision_id": {"type": "string", "desc": "idempotency key and stable source id"},
+    },
+)
+def _tool_steward_deliver(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "steward.deliver"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous delivery receipt"
+        ], []
+
+    delivery_id = _steward_validated_id(
+        args.get("delivery_id"), field="delivery_id"
+    ) if args.get("delivery_id") is not None else decision_id
+    if len(delivery_id) > coc_state._STEWARD_MAX_ID_CHARS:
+        raise ToolError(
+            "invalid_param",
+            f"delivery_id exceeds {coc_state._STEWARD_MAX_ID_CHARS} characters",
+        )
+    why_now = _steward_required_text(
+        args.get("why_now"),
+        field="why_now",
+        maximum=coc_state._STEWARD_MAX_WHY_NOW_CHARS,
+    )
+    created_turn = _steward_required_text(
+        args.get("created_turn"),
+        field="created_turn",
+        maximum=coc_state._STEWARD_MAX_TURN_REF_CHARS,
+    )
+    secrecy = str(args.get("secrecy") or "").strip()
+    if secrecy not in coc_state.STEWARD_SECRECY_LEVELS:
+        raise ToolError(
+            "invalid_param",
+            "secrecy must be one of "
+            + ", ".join(sorted(coc_state.STEWARD_SECRECY_LEVELS)),
+        )
+    scene_annotation = _steward_optional_text(
+        args.get("scene_annotation"),
+        field="scene_annotation",
+        maximum=coc_state._STEWARD_MAX_ANNOTATION_CHARS,
+    )
+
+    notebook_refs_value = args.get("notebook_entry_ids")
+    notebook_entry_ids: list[str] = []
+    if notebook_refs_value is not None:
+        if (
+            not isinstance(notebook_refs_value, list)
+            or any(
+                not isinstance(ref, str) or not ref.strip()
+                for ref in notebook_refs_value
+            )
+        ):
+            raise ToolError(
+                "invalid_param", "notebook_entry_ids must be an array of strings"
+            )
+        notebook_entry_ids = [ref.strip() for ref in notebook_refs_value]
+        if len(notebook_entry_ids) != len(set(notebook_entry_ids)):
+            raise ToolError(
+                "invalid_param", "notebook_entry_ids must not contain duplicates"
+            )
+
+    segments_value = args.get("segments")
+    document = _load_steward_state(ctx)
+    if delivery_id in document["deliveries"]:
+        raise ToolError(
+            "steward_conflict",
+            f"delivery_id {delivery_id!r} already exists; refusing to overwrite",
+        )
+
+    for entry_id in notebook_entry_ids:
+        entry = document["notebook"].get(entry_id)
+        if entry is None:
+            raise ToolError(
+                "invalid_param",
+                f"notebook_entry_id {entry_id!r} is not in the notebook",
+            )
+        if entry["paid"]:
+            raise ToolError(
+                "steward_conflict",
+                f"notebook entry {entry_id!r} is already paid; refusing to re-pay",
+            )
+
+    if segments_value is not None:
+        segments = _steward_validated_segments(segments_value)
+    elif notebook_entry_ids:
+        segments = [
+            deepcopy(segment)
+            for entry_id in notebook_entry_ids
+            for segment in document["notebook"][entry_id]["segments"]
+        ]
+    else:
+        raise ToolError(
+            "invalid_param",
+            "provide segments or at least one notebook_entry_id",
+        )
+
+    now = _now_iso()
+    record = {
+        "delivery_id": delivery_id,
+        "created_turn": created_turn,
+        "segments": segments,
+        "why_now": why_now,
+        "scene_annotation": scene_annotation,
+        "secrecy": secrecy,
+        "consumed": False,
+        "consumed_turn": None,
+        "decision_id": decision_id,
+        "notebook_entry_ids": notebook_entry_ids,
+        "ts": now,
+    }
+    document["deliveries"][delivery_id] = record
+    for entry_id in notebook_entry_ids:
+        entry = document["notebook"][entry_id]
+        entry["paid"] = True
+        entry["paid_turn"] = now
+        entry["paid_delivery_id"] = delivery_id
+        entry["updated_turn"] = now
+    _save_steward_state(ctx, document)
+
+    data = {
+        "delivery_id": delivery_id,
+        "created_turn": created_turn,
+        "secrecy": secrecy,
+        "scene_annotation": scene_annotation,
+        "segment_count": len(segments),
+        "notebook_entries_paid": notebook_entry_ids,
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "the delivery is a canon candidate for the KP; the KP stays free to improvise but must not override it",
+        "keeper_only segments are KP-internal knowledge and must never reach player-visible narration or handouts",
+    ]
+
+
+@tool(
+    "steward.notebook_put",
+    "Add or refine one notebook entry: pre-cut module segments for an expected scene, paid when the scene truly arrives. Unpaid entries may be replaced to refine pre-cuts; paid entries are immutable.",
+    {
+        "entry_id": {"type": "string", "desc": "stable notebook entry id (defaults to the decision_id)"},
+        "scene_annotation": {"type": "string", "required": True, "desc": "expected scene this pre-cut serves (short label)"},
+        "segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "text": {"type": "string", "desc": "verbatim module text (markdown page body excerpt)"},
+                    "page": {"type": "integer", "desc": "zero-based pdf_index of the source page, or null"},
+                    "source_refs": {"type": "array", "items": {"type": "string"}, "desc": "module-assets refs for this excerpt"},
+                },
+                "required_fields": ["text", "page", "source_refs"],
+            },
+            "required": True,
+            "desc": "pre-cut module text segments",
+        },
+        "note": {"type": "string", "desc": "steward note: why this scene is expected / what to watch for"},
+        "decision_id": {"type": "string", "desc": "idempotency key and stable source id"},
+    },
+)
+def _tool_steward_notebook_put(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "steward.notebook_put"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous notebook receipt"
+        ], []
+
+    entry_id = _steward_validated_id(
+        args.get("entry_id"), field="entry_id"
+    ) if args.get("entry_id") is not None else decision_id
+    scene_annotation = _steward_required_text(
+        args.get("scene_annotation"),
+        field="scene_annotation",
+        maximum=coc_state._STEWARD_MAX_ANNOTATION_CHARS,
+    )
+    segments = _steward_validated_segments(args.get("segments"))
+    note = _steward_optional_text(
+        args.get("note"), field="note", maximum=coc_state._STEWARD_MAX_NOTE_CHARS
+    )
+
+    document = _load_steward_state(ctx)
+    existing = document["notebook"].get(entry_id)
+    if existing is not None and existing["paid"]:
+        raise ToolError(
+            "steward_conflict",
+            f"notebook entry {entry_id!r} is already paid; paid content is immutable",
+        )
+    now = _now_iso()
+    entry = {
+        "entry_id": entry_id,
+        "scene_annotation": scene_annotation,
+        "segments": segments,
+        "note": note,
+        "paid": False,
+        "paid_turn": None,
+        "paid_delivery_id": None,
+        "created_turn": existing["created_turn"] if existing is not None else now,
+        "updated_turn": now,
+        "decision_id": decision_id,
+    }
+    document["notebook"][entry_id] = entry
+    _save_steward_state(ctx, document)
+
+    replaced = existing is not None
+    data = {
+        "entry_id": entry_id,
+        "scene_annotation": scene_annotation,
+        "segment_count": len(segments),
+        "replaced": replaced,
+        "paid": False,
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    warnings = (
+        [f"replaced unpaid notebook entry {entry_id!r} with the same entry_id"]
+        if replaced
+        else []
+    )
+    return data, warnings, [
+        "the notebook is a KP-side feed surface; pay entries with steward.deliver (notebook_entry_ids) or steward.notebook_pay when the scene truly arrives",
+    ]
+
+
+@tool(
+    "steward.notebook_pay",
+    "Mark notebook entries for an expected scene as paid when the scene truly arrives (flag only; deliver the text through steward.deliver). Already-paid entries are left unchanged.",
+    {
+        "entry_id": {"type": "string", "desc": "pay exactly one notebook entry (exactly one of entry_id / scene_annotation)"},
+        "scene_annotation": {"type": "string", "desc": "pay every unpaid notebook entry of this expected scene"},
+        "decision_id": {"type": "string", "desc": "idempotency key and stable source id"},
+    },
+)
+def _tool_steward_notebook_pay(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "steward.notebook_pay"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous pay receipt"
+        ], []
+
+    entry_id_value = args.get("entry_id")
+    scene_value = args.get("scene_annotation")
+    if (entry_id_value is None) == (scene_value is None):
+        raise ToolError(
+            "invalid_param",
+            "provide exactly one of entry_id or scene_annotation",
+        )
+
+    document = _load_steward_state(ctx)
+    now = _now_iso()
+    paid_ids: list[str] = []
+    already_paid_ids: list[str] = []
+    if entry_id_value is not None:
+        entry_id = _steward_validated_id(entry_id_value, field="entry_id")
+        entry = document["notebook"].get(entry_id)
+        if entry is None:
+            raise ToolError(
+                "invalid_param", f"notebook entry {entry_id!r} is not in the notebook"
+            )
+        if entry["paid"]:
+            already_paid_ids.append(entry_id)
+        else:
+            entry["paid"] = True
+            entry["paid_turn"] = now
+            entry["updated_turn"] = now
+            paid_ids.append(entry_id)
+    else:
+        scene_annotation = _steward_required_text(
+            scene_value,
+            field="scene_annotation",
+            maximum=coc_state._STEWARD_MAX_ANNOTATION_CHARS,
+        )
+        matched = [
+            entry for entry in document["notebook"].values()
+            if entry["scene_annotation"] == scene_annotation
+        ]
+        if not matched:
+            raise ToolError(
+                "invalid_param",
+                f"no notebook entries carry scene_annotation {scene_annotation!r}",
+            )
+        for entry in matched:
+            if entry["paid"]:
+                already_paid_ids.append(entry["entry_id"])
+            else:
+                entry["paid"] = True
+                entry["paid_turn"] = now
+                entry["updated_turn"] = now
+                paid_ids.append(entry["entry_id"])
+
+    if paid_ids:
+        _save_steward_state(ctx, document)
+    data = {
+        "paid_entries": paid_ids,
+        "already_paid_entries": already_paid_ids,
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    warnings = (
+        ["the listed entries were already paid; nothing changed"]
+        if already_paid_ids and not paid_ids
+        else []
+    )
+    return data, warnings, [
+        "paying is a flag-only disposition; deliver the actual module text through steward.deliver",
+    ]
+
+
+@tool(
+    "steward.mark_consumed",
+    "Mark one delivery as consumed once the scene it served has passed, so steward.deliveries can separate current deliveries from history.",
+    {
+        "delivery_id": {"type": "string", "required": True, "desc": "delivery id to mark consumed"},
+        "decision_id": {"type": "string", "desc": "idempotency key and stable source id"},
+    },
+)
+def _tool_steward_mark_consumed(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "steward.mark_consumed"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous receipt"
+        ], []
+
+    delivery_id = _steward_validated_id(args.get("delivery_id"), field="delivery_id")
+    document = _load_steward_state(ctx)
+    record = document["deliveries"].get(delivery_id)
+    if record is None:
+        raise ToolError(
+            "invalid_param", f"unknown delivery_id {delivery_id!r}"
+        )
+    now = _now_iso()
+    if record["consumed"]:
+        already = True
+        data = {
+            "delivery_id": delivery_id,
+            "consumed": True,
+            "consumed_turn": record["consumed_turn"],
+        }
+    else:
+        already = False
+        record["consumed"] = True
+        record["consumed_turn"] = now
+        _save_steward_state(ctx, document)
+        data = {
+            "delivery_id": delivery_id,
+            "consumed": True,
+            "consumed_turn": now,
+        }
+    ctx.ledger_record(decision_id, tool_name, data)
+    warnings = ["delivery was already consumed; nothing changed"] if already else []
+    return data, warnings, [
+        "consumed deliveries remain readable history through steward.deliveries",
+    ]
+
+
+@tool(
+    "steward.deliveries",
+    "Read steward deliveries: module text the steward judged the KP needs now, with why_now, expected scene annotation, secrecy labels, page and source refs. projection=keeper returns full records; projection=player returns only player_safe segments (never keeper_only text or KP reasoning) and is the only surface from which module text may reach players verbatim.",
+    {
+        "delivery_id": {"type": "string", "desc": "read exactly one delivery"},
+        "projection": {
+            "type": "string",
+            "enum": ["keeper", "player"],
+            "desc": "keeper = full records (default); player = player_safe segments only",
+        },
+        "include_consumed": {
+            "type": "boolean",
+            "desc": "include consumed (historical) deliveries; default true",
+        },
+    },
+    access="query",
+    read_domains=("steward",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+)
+def _tool_steward_deliveries(ctx: Ctx, args: dict[str, Any]):
+    document = _load_steward_state(ctx)
+    rows = [deepcopy(record) for record in document["deliveries"].values()]
+    rows.sort(key=lambda record: (str(record.get("ts") or ""), str(record.get("delivery_id") or "")))
+    delivery_id = args.get("delivery_id")
+    if delivery_id is not None:
+        delivery_id = _steward_validated_id(delivery_id, field="delivery_id")
+        matched = [row for row in rows if row["delivery_id"] == delivery_id]
+        if not matched:
+            raise ToolError("invalid_param", f"unknown delivery_id {delivery_id!r}")
+        rows = matched
+    if args.get("include_consumed", True) is False:
+        rows = [row for row in rows if not row["consumed"]]
+    projection = str(args.get("projection") or "keeper").strip()
+    if projection not in {"keeper", "player"}:
+        raise ToolError("invalid_param", "projection must be 'keeper' or 'player'")
+    if projection == "player":
+        projected: list[dict[str, Any]] = []
+        for row in rows:
+            head = {
+                "delivery_id": row["delivery_id"],
+                "secrecy": row["secrecy"],
+                "scene_annotation": row["scene_annotation"],
+                "created_turn": row["created_turn"],
+                "consumed": row["consumed"],
+                "consumed_turn": row["consumed_turn"],
+            }
+            if row["secrecy"] == "player_safe":
+                head["segments"] = row["segments"]
+            else:
+                head["withheld"] = True
+                head["segment_count"] = len(row["segments"])
+            projected.append(head)
+        rows = projected
+    return {
+        "schema_version": 1,
+        "projection": projection,
+        "count": len(rows),
+        "deliveries": rows,
+    }, [], [
+        "keeper_only segments are KP-internal knowledge; never quote, paraphrase, or hand them to players",
+        "projection=player is the only surface from which module text may reach players verbatim",
+    ]
+
+
+@tool(
+    "steward.notebook",
+    "Read the steward notebook: pre-cut module segments per expected scene with paid status and steward notes. KP-only surface; notebook content is never player-projected.",
+    {
+        "entry_id": {"type": "string", "desc": "read exactly one notebook entry"},
+        "scene_annotation": {"type": "string", "desc": "filter entries by expected scene"},
+        "include_paid": {
+            "type": "boolean",
+            "desc": "include already-paid entries; default true",
+        },
+    },
+    access="query",
+    read_domains=("steward",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+)
+def _tool_steward_notebook(ctx: Ctx, args: dict[str, Any]):
+    document = _load_steward_state(ctx)
+    rows = [deepcopy(entry) for entry in document["notebook"].values()]
+    rows.sort(key=lambda entry: (str(entry.get("created_turn") or ""), str(entry.get("entry_id") or "")))
+    entry_id = args.get("entry_id")
+    if entry_id is not None:
+        entry_id = _steward_validated_id(entry_id, field="entry_id")
+        matched = [row for row in rows if row["entry_id"] == entry_id]
+        if not matched:
+            raise ToolError("invalid_param", f"unknown entry_id {entry_id!r}")
+        rows = matched
+    scene_annotation = args.get("scene_annotation")
+    if scene_annotation is not None:
+        scene_annotation = _steward_required_text(
+            scene_annotation,
+            field="scene_annotation",
+            maximum=coc_state._STEWARD_MAX_ANNOTATION_CHARS,
+        )
+        rows = [
+            row for row in rows
+            if row["scene_annotation"] == scene_annotation
+        ]
+    if args.get("include_paid", True) is False:
+        rows = [row for row in rows if not row["paid"]]
+    return {
+        "schema_version": 1,
+        "count": len(rows),
+        "entries": rows,
+    }, [], [
+        "the notebook is steward-internal preparation; only delivery segments with player_safe secrecy may reach players verbatim",
+    ]
+
+
+
 _TABLE_TRANSCRIPT_RELATIVE = Path("logs") / "table-transcript.jsonl"
 _UNDELIVERED_OUTPUT_REPAIR_RELATIVE = (
     Path("logs") / "undelivered-output-repairs.jsonl"
@@ -25758,6 +26672,10 @@ _MUTATING_TOOLS = frozenset({
     "state.supersede_settlement",
     "state.journal",
     "state.end_session",
+    "steward.deliver",
+    "steward.notebook_put",
+    "steward.notebook_pay",
+    "steward.mark_consumed",
     "turn.finalize",
 })
 for _mutating_tool_name in _MUTATING_TOOLS:

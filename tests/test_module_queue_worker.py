@@ -2508,6 +2508,8 @@ def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
         "work_group_id": request["work_group_id"],
         "dispatch_state": "ready",
         "dispatch_attempts": 0,
+        "locator_failure_count": 0,
+        "last_locator_failure_at": None,
         "cached_scope_complete": True,
     }]
     takeover = progressive["background_takeover"]
@@ -2885,3 +2887,499 @@ def test_improvised_mechanics_are_frozen_and_reused(tmp_path: Path):
     assert first["reused"] is False
     assert second["reused"] is True
     assert second["profile"] == first["profile"]
+
+
+def _full_parse_bundle(
+    tmp_path: Path,
+    *,
+    name: str,
+    source_id: str,
+    title: str,
+    page_count: int,
+    pages: dict[int, str],
+) -> tuple[Path, str]:
+    """Build one validated schema-v1 source bundle for full-parse fixtures."""
+    pdf = tmp_path / f"{name}.pdf"
+    pdf.write_bytes(f"%PDF {name} fixture".encode("utf-8"))
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    bundle = tmp_path / f"{name}-bundle"
+    bundle.mkdir(exist_ok=True)
+    manifest_pages = []
+    for pdf_index, text in sorted(pages.items()):
+        page_bytes = text.encode("utf-8")
+        markdown_path = f"page-{pdf_index:04d}.md"
+        (bundle / markdown_path).write_bytes(page_bytes)
+        anchor = next(
+            line for line in reversed(text.splitlines()) if line.strip()
+        )
+        manifest_pages.append({
+            "pdf_index": pdf_index,
+            "markdown_path": markdown_path,
+            "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.95,
+            "grep_anchors": [anchor],
+        })
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": source_id,
+            "title": title,
+            "path": str(pdf),
+            "file_sha256": file_sha,
+            "page_count": page_count,
+        },
+        "pages": manifest_pages,
+    }), encoding="utf-8")
+    return bundle, file_sha
+
+
+def _full_parse_enqueue(
+    tmp_path: Path,
+    *,
+    asset_root: str = "qw-demo",
+    campaign: str = "qw-camp",
+) -> dict:
+    return assets.enqueue_job(
+        tmp_path,
+        asset_root,
+        kind="full_parse",
+        target_id=asset_root,
+        priority=5,
+        reason="bind_full_parse",
+        consumer_refs=[assets.campaign_consumer_ref(
+            tmp_path, campaign, asset_root, intent_kind="full_parse",
+        )],
+        kick_worker=False,
+    )
+
+
+def test_full_parse_bind_trigger_enqueues_one_idempotent_job(tmp_path: Path):
+    """S1 trigger: a successful bind queues exactly one whole-book parse job."""
+    campaign_id = "fp-bind-camp"
+    bundle, _file_sha = _full_parse_bundle(
+        tmp_path, name="fp-bind", source_id="pdf:fp-bind-module",
+        title="FP Bind Module", page_count=4,
+        pages={0: "# Opening\n\nOpening evidence.\n", 1: "# Cellar\n\nCellar evidence.\n"},
+    )
+    created = toolbox.run_tool("setup.invoke", tmp_path, None, {
+        "kind": "campaign.create",
+        "payload": {"campaign_id": campaign_id, "title": "FP Bind Campaign"},
+    })
+    assert created["ok"] is True, created
+    bound = toolbox.run_tool("setup.invoke", tmp_path, None, {
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": campaign_id,
+            "scenario_id": "fp-bind-module",
+            "title": "FP Bind Module",
+            "source_bundle_path": str(bundle),
+            "compile_now": False,
+        },
+    })
+    assert bound["ok"] is True, bound
+    full_parse = bound["data"]["result"]["full_parse"]
+    assert full_parse["triggered"] is True
+    assert full_parse["enqueued"] is True
+    job_id = full_parse["job_id"]
+    assert job_id
+
+    # Rebind (opening-review style) coalesces onto the same durable job.
+    rebound = toolbox.run_tool("setup.invoke", tmp_path, None, {
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": campaign_id,
+            "scenario_id": "fp-bind-module",
+            "title": "FP Bind Module",
+            "source_bundle_path": str(bundle),
+            "compile_now": False,
+        },
+    })
+    assert rebound["ok"] is True, rebound
+    rebind_parse = rebound["data"]["result"]["full_parse"]
+    assert rebind_parse["triggered"] is True
+    assert rebind_parse["deduped"] is True
+    assert rebind_parse["job_id"] == job_id
+    queue = assets.list_queue(tmp_path, "fp-bind-module")
+    full_parse_rows = [
+        row for row in queue["pending"]
+        if row.get("kind") == "full_parse"
+    ]
+    assert len(full_parse_rows) == 1
+
+
+def test_full_parse_worker_host_request_and_claim_with_missing_pages(tmp_path: Path):
+    """S1 lane: one full_parse job renders a host request for the whole page
+    range, claimable even while pages are missing (the renderer supplies them)."""
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    queued = _full_parse_enqueue(tmp_path)
+    assert queued["enqueued"] is True
+    assert queued["job"]["kind"] == "full_parse"
+    assert queued["job"]["target_id"] == "qw-demo"
+
+    processed = worker.run_worker_once(tmp_path, parallel=1)
+    assert processed["claimed"] == 1
+    assert processed["results"][0]["result"] == "awaiting_host_pack"
+    request_path = Path(processed["results"][0]["host_work_request"])
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request["kind"] == "full_parse"
+    assert request["job_id"] == queued["job"]["job_id"]
+    # Full 0-based page range comes from the bound bundle manifest page_count.
+    assert request["requested_pdf_indices"] == [0, 1, 2, 3]
+    assert [row["pdf_index"] for row in request["cached_page_refs"]] == [0, 1]
+    assert request["cached_scope_complete"] is False
+    assert request["consumer_state"] == "owned"
+    assert request["work_level"] == "bounded_warm"
+    assert request["deadline_class"] == "idle_warm"
+    assert request["source_aspect"] == "full"
+    assert "Full-parse renderer" in request["instruction"]
+    assert request["result_contract"]["contract_id"] == (
+        "coc.full-parse-render-result.v1"
+    )
+    assert request["result_contract"]["render"]["max_pages_per_batch"] == 32
+
+    # Re-enqueue while the request is open must not create a second job.
+    again = _full_parse_enqueue(tmp_path)
+    assert again["deduped"] is True
+    assert again["job"]["job_id"] == queued["job"]["job_id"]
+
+    # Claim works with a partial cache (dispatchable while missing).
+    claimed = assets.claim_host_work_requests(
+        tmp_path, "qw-demo", executor_id="fp-test", limit=1,
+    )
+    assert len(claimed["packets"]) == 1
+    packet = claimed["packets"][0]
+    assert packet["requested_pdf_indices"] == [0, 1, 2, 3]
+    assert packet["cached_scope_complete"] is False
+    assert packet["requests"][0]["kind"] == "full_parse"
+
+
+def test_full_parse_batch_registration_progress_and_first_writer_wins(
+    tmp_path: Path,
+):
+    """S1 batches: registering a later page window advances the progress
+    document; a drifted re-render keeps the first writer and records
+    provenance instead of blocking the batch."""
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    _full_parse_enqueue(tmp_path)
+    worker.run_worker_once(tmp_path, parallel=1)
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "in_progress"
+    assert state["parsed_pdf_indices"] == [0, 1]
+
+    pdf = tmp_path / "qw-demo.pdf"  # same bound PDF identity as the root
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    batch = tmp_path / "qw-batch-bundle"
+    batch.mkdir(exist_ok=True)
+    batch_pages = []
+    for pdf_index, text in {2: "# Attic\n\nAttic evidence.\n",
+                            3: "# Backyard\n\nBackyard evidence.\n"}.items():
+        page_bytes = text.encode("utf-8")
+        (batch / f"page-{pdf_index:04d}.md").write_bytes(page_bytes)
+        batch_pages.append({
+            "pdf_index": pdf_index,
+            "markdown_path": f"page-{pdf_index:04d}.md",
+            "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.95,
+            "grep_anchors": [next(
+                line for line in reversed(text.splitlines()) if line.strip()
+            )],
+        })
+    (batch / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:qw-demo",
+            "title": "Queue Worker Demo",
+            "path": str(pdf),
+            "file_sha256": file_sha,
+            "page_count": 4,
+        },
+        "pages": batch_pages,
+    }), encoding="utf-8")
+    registered = assets.register_source_bundle(
+        tmp_path,
+        batch,
+        asset_root_id="qw-demo",
+        record_drift=True,
+    )
+    assert registered["cached_pdf_indices"] == [2, 3]
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
+    assert state["complete"] is True
+
+    # Drifted re-render of page 1 (already accepted): first writer wins and
+    # the batch records provenance instead of raising.
+    drifted = tmp_path / "qw-drift-bundle"
+    drifted.mkdir(exist_ok=True)
+    drift_text = "# Cellar\n\nDIFFERENT cellar evidence.\n"
+    drift_bytes = drift_text.encode("utf-8")
+    (drifted / "page-0001.md").write_bytes(drift_bytes)
+    (drifted / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:qw-demo",
+            "title": "Queue Worker Demo",
+            "path": str(pdf),
+            "file_sha256": file_sha,
+            "page_count": 4,
+        },
+        "pages": [{
+            "pdf_index": 1,
+            "markdown_path": "page-0001.md",
+            "text_sha256": hashlib.sha256(drift_bytes).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.95,
+            "grep_anchors": ["DIFFERENT cellar evidence."],
+        }],
+    }), encoding="utf-8")
+    assets.register_source_bundle(
+        tmp_path, drifted, asset_root_id="qw-demo", record_drift=True,
+    )
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert len(state["provenance"]) == 1
+    assert state["provenance"][0]["pdf_index"] == 1
+    assert state["provenance"][0]["disposition"] == "first_writer_wins"
+    page = assets.get_page(tmp_path, "qw-demo", 1)
+    assert "# Cellar\n\nCached source scope.\n" in page["text"]
+    assert "DIFFERENT cellar evidence" not in page["text"]
+
+
+def test_full_parse_cache_hit_completes_without_host_work(tmp_path: Path):
+    """S1 cache hit: a fully cached root completes the job directly and never
+    writes a render handoff."""
+    _register_qw_source_pages(tmp_path, {
+        0: "# Opening\n\nAccepted authored clue scope.\n",
+        1: "# Cellar\n\nCached source scope.\n",
+        2: "# Attic\n\nCached attic scope.\n",
+        3: "# Backyard\n\nCached backyard scope.\n",
+    })
+    cid = _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    _full_parse_enqueue(tmp_path, campaign=cid)
+    processed = worker.run_worker_once(tmp_path, parallel=1)
+    result = next(
+        row for row in processed["results"]
+        if row.get("kind") == "full_parse"
+    )
+    assert result["result"] == "complete"
+    host_work_dir = tmp_path / ".coc" / "module-assets" / "qw-demo" / "host-work"
+    assert not host_work_dir.is_dir() or not list(host_work_dir.glob("*.json"))
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "complete"
+    assert state["complete"] is True
+    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
+
+    # Rebind after completion dedupes to the done row without a second job.
+    again = _full_parse_enqueue(tmp_path, campaign=cid)
+    assert again["dedupe_state"] == "done"
+    queue = assets.list_queue(tmp_path, "qw-demo")
+    assert sum(
+        1 for row in queue["done"] if row.get("kind") == "full_parse"
+    ) == 1
+
+
+def test_full_parse_progress_visible_in_progressive_status(
+    tmp_path: Path,
+):
+    """S1 status: progressive.status exposes the full_parse progress document
+    (parsed pdf_indices, complete flag) and the bounded render lane."""
+    cid = _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    _full_parse_enqueue(tmp_path, campaign=cid)
+    worker.run_worker_once(tmp_path, parallel=1)
+
+    status = toolbox.TOOLS["progressive.status"]["handler"](
+        toolbox.Ctx(tmp_path, cid), {},
+    )
+    full_parse = status[0]["full_parse"]
+    assert full_parse["status"] == "in_progress"
+    assert full_parse["page_count"] == 4
+    assert full_parse["complete"] is False
+    assert full_parse["parsed_pdf_indices"] == [0, 1]
+    assert full_parse["job_id"]
+
+    # The renderer registers the batch first (content-addressed), then the
+    # driver forwards the receipt; progress recomputes from accepted pages.
+    pdf = tmp_path / "qw-demo.pdf"
+    batch = tmp_path / "qw-status-batch"
+    batch.mkdir(exist_ok=True)
+    page_bytes = b"# Attic\n\nStatus attic evidence.\n"
+    (batch / "page-0002.md").write_bytes(page_bytes)
+    (batch / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:qw-demo",
+            "title": "Queue Worker Demo",
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 4,
+        },
+        "pages": [{
+            "pdf_index": 2,
+            "markdown_path": "page-0002.md",
+            "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.95,
+            "grep_anchors": ["Status attic evidence."],
+        }],
+    }), encoding="utf-8")
+    assets.register_source_bundle(
+        tmp_path, batch, asset_root_id="qw-demo", record_drift=True,
+    )
+    state = assets.record_full_parse_render_result(
+        tmp_path, "qw-demo",
+        job_id=full_parse["job_id"],
+        status="partial",
+        rendered_pdf_indices=[2],
+        failed_pdf_indices=[],
+    )
+    assert state["parsed_pdf_indices"] == [0, 1, 2]
+    assert state["complete"] is False
+
+
+def test_full_parse_open_request_never_blocks_opening(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """S1 non-blocking: while the whole-book parse is open, the opening lane
+    still prepares, claims, and fulfills its exact cached window."""
+    campaign_id = "fp-open-camp"
+    bundle, _file_sha = _full_parse_bundle(
+        tmp_path, name="fp-open", source_id="pdf:fp-open-module",
+        title="FP Open Module", page_count=4,
+        pages={
+            0: "# Opening\n\nOpening evidence.\n",
+            1: "# Cellar\n\nCellar evidence.\n",
+        },
+    )
+    toolbox.run_tool("setup.invoke", tmp_path, None, {
+        "kind": "campaign.create",
+        "payload": {"campaign_id": campaign_id, "title": "FP Open Campaign"},
+    })
+    bound = toolbox.run_tool("setup.invoke", tmp_path, None, {
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": campaign_id,
+            "scenario_id": "fp-open-module",
+            "title": "FP Open Module",
+            "source_bundle_path": str(bundle),
+            "compile_now": False,
+        },
+    })
+    assert bound["ok"] is True, bound
+    assert bound["data"]["result"]["full_parse"]["triggered"] is True
+
+    # The opening-source review is the canonical setup gate (unchanged by
+    # full_parse); complete it so the opening lane can proceed.
+    scenario_path = (
+        tmp_path / ".coc" / "campaigns" / campaign_id / "scenario" / "scenario.json"
+    )
+    scenario_json = json.loads(scenario_path.read_text(encoding="utf-8"))
+    pending_task = scenario_json["opening_source_review_task"]
+    review_receipt = (
+        toolbox.coc_runtime_ops._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation={
+                "schema_version": 1,
+                "contract_id": pending_task["continuation_contract_id"],
+                "campaign_id": campaign_id,
+                "scenario_id": "fp-open-module",
+                "selected_opening_pdf_indices": [0],
+                "source_bundle_id": "fp-open-module",
+                "source_bundle_path": scenario_json["source"]["source_bundle_path"],
+                "result_delivery": "task_return_to_parent",
+            },
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
+    )
+    facts = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": {"status": "source", "value": "1920s",
+                "source_refs": [{"source_id": "pdf:fp-open-module", "pdf_index": 0}]},
+        "place": {"status": "source", "value": "Boston",
+                  "source_refs": [{"source_id": "pdf:fp-open-module", "pdf_index": 0}]},
+        "investigator_hook": {"status": "unresolved",
+                              "inspected_source_refs": [{"source_id": "pdf:fp-open-module", "pdf_index": 0}]},
+        "investigator_constraints": {"status": "unresolved",
+                                     "inspected_source_refs": [{"source_id": "pdf:fp-open-module", "pdf_index": 0}]},
+        "player_safe_summary": {"status": "unresolved",
+                                "inspected_source_refs": [{"source_id": "pdf:fp-open-module", "pdf_index": 0}]},
+        "content_flags": {"status": "source", "value": ["haunting"],
+                          "source_refs": [{"source_id": "pdf:fp-open-module", "pdf_index": 0}]},
+    }
+    toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        tmp_path, review_receipt, source_facts=facts,
+    )
+    # The progressive IR projection stamps the campaign's module root; it is
+    # the normal opening setup step and is not gated by full_parse.
+    skeleton = _skeleton()
+    skeleton["source"] = {
+        "source_id": "pdf:fp-open-module",
+        "path": str(tmp_path / "fp-open.pdf"),
+        "file_sha256": hashlib.sha256(
+            (tmp_path / "fp-open.pdf").read_bytes()
+        ).hexdigest(),
+        "page_count": 4,
+        "producer": "codex-pdf-skill",
+    }
+    skeleton["start_clock_status"] = "unresolved"
+    published = toolbox.run_tool(
+        "progressive.publish_skeleton", tmp_path, campaign_id,
+        {
+            "asset_root_id": "fp-open-module",
+            "source_file_sha256": skeleton["source"]["file_sha256"],
+            "skeleton": skeleton,
+        },
+    )
+    assert published["ok"] is True, published
+    # Prepare opening while full_parse is still queued: never gated by it.
+    prepared = toolbox.run_tool(
+        "progressive.prepare_opening", tmp_path, campaign_id,
+        {"opening_pdf_indices": [0]},
+    )
+    assert prepared["ok"] is True, prepared
+
+    worker.run_worker_once(tmp_path, parallel=2)
+    all_open = assets.list_host_work_requests(tmp_path, "fp-open-module", limit=None)
+    full_parse_rows = [
+        row for row in all_open
+        if row.get("kind") == "full_parse"
+    ]
+    assert len(full_parse_rows) == 1
+    full_parse_row = full_parse_rows[0]
+    assert full_parse_row["work_level"] == "bounded_warm"
+    assert full_parse_row["deadline_class"] == "idle_warm"
+    assert "dependency_ref" not in full_parse_row
+
+    # The full_parse request is never a current-dependency wait and never
+    # enters the coordinator-ready opening surface.  On Pi the projection
+    # carries the bounded adapter-lane dispatch for the open request.
+    monkeypatch.setenv("COC_HOST", "pi")
+    projection = _projection_for_campaign(tmp_path, campaign_id)
+    assert projection["blocking_micro_ready_count"] == 0
+    assert projection["current_dependency_waits"] == []
+    assert "full_parse_dispatch" in projection
+    render_task = projection["full_parse_dispatch"]["next_host_action"]["task"]
+    assert render_task["contract_id"] == "coc.pi-full-parse-render-task.v1"
+    assert render_task["requested_pdf_indices"] == [0, 1, 2, 3]
+    assert render_task["cached_pdf_indices"] == [0, 1]
+
+    # prepare_opening completed while full_parse was still open: the opening
+    # lane was never blocked by the whole-book parse.
+    assert prepared["ok"] is True
+    assert (prepared.get("data") or {}).get("component_ready") in {True, False}
+
+
+def _projection_for_campaign(tmp_path: Path, campaign_id: str) -> dict:
+    ctx = toolbox.Ctx(tmp_path, campaign_id)
+    ctx.campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
+    root_id = project.campaign_asset_root_id(ctx.campaign_dir)
+    return toolbox._source_host_work_projection(ctx, root_id)

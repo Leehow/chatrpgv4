@@ -37,6 +37,26 @@ fact or lucky guess is still only input; it becomes true only if the KP
 independently adopts it within these constraints and records it. No keyword,
 phrase match, or per-turn quota decides when improvisation is valid.
 
+### Steward Deliveries (管家交付)
+
+When a steward session is attached, module facts come through **steward
+deliveries**: query `steward.deliveries` (and `steward.notebook`) when the
+scene needs module text. Delivery segments are verbatim module excerpts with
+`page`/`source_refs` and a `why_now`.
+
+- **模组事实以管家交付为准。** Adjudicate module facts from deliveries when
+  present; do not rescan the module corpus to reconfirm them.
+- **即兴自由，但不得覆盖管家交付。** Improvisation stays free, but it must
+  not override a delivery; a conflict becomes `continuity contradiction` /
+  `narrative debt` per this section — never a silent retcon.
+- **管家没给的书 = 你不知道。** If the delivery/notebook surface has nothing
+  (or marks 未解析), improvise honestly in-fiction or ask the steward through
+  the host session bridge — never reconstruct module text from memory.
+- **Secrecy labels bind.** `keeper_only` segments are KP-internal knowledge:
+  never quote, paraphrase, or hand them to players. Only `player_safe`
+  segments may reach players verbatim, via `steward.deliveries`
+  `projection=player` (the only surface that carries player-safe text).
+
 Deterministic dice and authoritative numeric/state values are the remaining
 hard boundary. An NPC, document, or perception may misreport them in fiction,
 but you must preserve the actual receipt/state and may change it only through

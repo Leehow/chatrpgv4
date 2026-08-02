@@ -1,6 +1,6 @@
 ---
 name: coc-keeper-play
-description: Run immersive COC play after scenario/character readiness. Use for narration, NPCs, actions, clues, pacing, and subsystem transitions; never select during fresh raw-PDF setup owned by coc-main.
+description: Run COC play after scenario/character readiness. Use for narration, NPCs, actions, clues, pacing, and subsystem transitions; never select during fresh raw-PDF setup owned by coc-main.
 ---
 
 # COC Keeper Play
@@ -22,7 +22,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 | When this case arises | Load before adjudicating |
 | --- | --- |
 | Compound / multi-step player declarations; causal realization; `turn.finalize` coverage / `mechanics_placements` detail | `references/compound-and-causal-finalization.md` |
-| Declaration fact vs attempt; player-knowledge intercept; controlled improvisation and narrative debt; `source_material` | `references/declaration-adjudication-and-improv.md` |
+| Declaration fact vs attempt; player-knowledge intercept; controlled improvisation, narrative debt; `source_material`; steward deliveries | `references/declaration-adjudication-and-improv.md` |
 | Investigator selection / parameters in play; personal horror weaving; first contact, multi-NPC engagement, live relationships | `references/investigators-horror-npc.md` |
 | Style, Table Wit, foreign-language dialogue, action-prompt shape, scene craft | `references/style-scene-craft.md` |
 | Failed SAN table performance; horror craft; content boundaries; ending a story / `state.end_session` | `references/horror-san-content-endings.md` |

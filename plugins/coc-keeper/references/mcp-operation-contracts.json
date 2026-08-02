@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:1b39429d4b33f4dd8707dfda7b7b52132232d7d4af05a3119789a057058163a3",
+  "content_sha256": "sha256:caeae5f7a73749c225263bc4e00087b846d888ee6e53b326357c2a4595771285",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 101,
+  "operation_count": 107,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -5257,6 +5257,313 @@
       },
       "needs_campaign": true,
       "summary": "Set, reset, or clear a persistent in-fiction deadline marker. Bookkeeping only; it never auto-fires narrative effects."
+    },
+    "steward.deliver": {
+      "canonical_operation": "steward.deliver",
+      "description": "Write one steward delivery: module text segments the KP needs now, with why_now, expected scene annotation, and a keeper_only/player_safe secrecy label. Optionally pays linked notebook entries (即付). The KP reads it through steward.deliveries; this record is canon-candidate feed, never rules/state authority. Canonical operation `steward.deliver`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "created_turn": {
+            "description": "campaign turn / event identity this delivery serves",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key and stable source id",
+            "type": "string"
+          },
+          "delivery_id": {
+            "description": "stable delivery id (defaults to the decision_id)",
+            "type": "string"
+          },
+          "notebook_entry_ids": {
+            "description": "unpaid notebook entries to pay and link to this delivery",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_annotation": {
+            "description": "expected scene this delivery serves (short label)",
+            "type": "string"
+          },
+          "secrecy": {
+            "description": "keeper_only = KP-internal knowledge, never player-visible; player_safe = verbatim module text the KP may hand to players",
+            "enum": [
+              "keeper_only",
+              "player_safe"
+            ],
+            "type": "string"
+          },
+          "segments": {
+            "description": "module text segments; provide here or derive from notebook_entry_ids",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "page": {
+                  "description": "zero-based pdf_index of the source page, or null",
+                  "type": "integer"
+                },
+                "source_refs": {
+                  "description": "module-assets refs for this excerpt",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "text": {
+                  "description": "verbatim module text (markdown page body excerpt)",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "page",
+                "source_refs"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "why_now": {
+            "description": "why the KP needs this module text at this turn",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "why_now",
+          "secrecy",
+          "created_turn",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Write one steward delivery: module text segments the KP needs now, with why_now, expected scene annotation, and a keeper_only/player_safe secrecy label. Optionally pays linked notebook entries (即付). The KP reads it through steward.deliveries; this record is canon-candidate feed, never rules/state authority."
+    },
+    "steward.deliveries": {
+      "canonical_operation": "steward.deliveries",
+      "description": "Read steward deliveries: module text the steward judged the KP needs now, with why_now, expected scene annotation, secrecy labels, page and source refs. projection=keeper returns full records; projection=player returns only player_safe segments (never keeper_only text or KP reasoning) and is the only surface from which module text may reach players verbatim. Canonical operation `steward.deliveries`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "delivery_id": {
+            "description": "read exactly one delivery",
+            "type": "string"
+          },
+          "include_consumed": {
+            "description": "include consumed (historical) deliveries; default true",
+            "type": "boolean"
+          },
+          "projection": {
+            "description": "keeper = full records (default); player = player_safe segments only",
+            "enum": [
+              "keeper",
+              "player"
+            ],
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read steward deliveries: module text the steward judged the KP needs now, with why_now, expected scene annotation, secrecy labels, page and source refs. projection=keeper returns full records; projection=player returns only player_safe segments (never keeper_only text or KP reasoning) and is the only surface from which module text may reach players verbatim."
+    },
+    "steward.mark_consumed": {
+      "canonical_operation": "steward.mark_consumed",
+      "description": "Mark one delivery as consumed once the scene it served has passed, so steward.deliveries can separate current deliveries from history. Canonical operation `steward.mark_consumed`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key and stable source id",
+            "type": "string"
+          },
+          "delivery_id": {
+            "description": "delivery id to mark consumed",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "delivery_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Mark one delivery as consumed once the scene it served has passed, so steward.deliveries can separate current deliveries from history."
+    },
+    "steward.notebook": {
+      "canonical_operation": "steward.notebook",
+      "description": "Read the steward notebook: pre-cut module segments per expected scene with paid status and steward notes. KP-only surface; notebook content is never player-projected. Canonical operation `steward.notebook`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "entry_id": {
+            "description": "read exactly one notebook entry",
+            "type": "string"
+          },
+          "include_paid": {
+            "description": "include already-paid entries; default true",
+            "type": "boolean"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_annotation": {
+            "description": "filter entries by expected scene",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read the steward notebook: pre-cut module segments per expected scene with paid status and steward notes. KP-only surface; notebook content is never player-projected."
+    },
+    "steward.notebook_pay": {
+      "canonical_operation": "steward.notebook_pay",
+      "description": "Mark notebook entries for an expected scene as paid when the scene truly arrives (flag only; deliver the text through steward.deliver). Already-paid entries are left unchanged. Canonical operation `steward.notebook_pay`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key and stable source id",
+            "type": "string"
+          },
+          "entry_id": {
+            "description": "pay exactly one notebook entry (exactly one of entry_id / scene_annotation)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_annotation": {
+            "description": "pay every unpaid notebook entry of this expected scene",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Mark notebook entries for an expected scene as paid when the scene truly arrives (flag only; deliver the text through steward.deliver). Already-paid entries are left unchanged."
+    },
+    "steward.notebook_put": {
+      "canonical_operation": "steward.notebook_put",
+      "description": "Add or refine one notebook entry: pre-cut module segments for an expected scene, paid when the scene truly arrives. Unpaid entries may be replaced to refine pre-cuts; paid entries are immutable. Canonical operation `steward.notebook_put`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key and stable source id",
+            "type": "string"
+          },
+          "entry_id": {
+            "description": "stable notebook entry id (defaults to the decision_id)",
+            "type": "string"
+          },
+          "note": {
+            "description": "steward note: why this scene is expected / what to watch for",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_annotation": {
+            "description": "expected scene this pre-cut serves (short label)",
+            "type": "string"
+          },
+          "segments": {
+            "description": "pre-cut module text segments",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "page": {
+                  "description": "zero-based pdf_index of the source page, or null",
+                  "type": "integer"
+                },
+                "source_refs": {
+                  "description": "module-assets refs for this excerpt",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "text": {
+                  "description": "verbatim module text (markdown page body excerpt)",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "page",
+                "source_refs"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign",
+          "scene_annotation",
+          "segments",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Add or refine one notebook entry: pre-cut module segments for an expected scene, paid when the scene truly arrives. Unpaid entries may be replaced to refine pre-cuts; paid entries are immutable."
     },
     "storylets.suggest": {
       "canonical_operation": "storylets.suggest",
