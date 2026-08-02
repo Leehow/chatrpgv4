@@ -199,11 +199,12 @@ rewriting module truth or inferring presence from a prior conversation.
 
 **Player dig (not only scene enter):** when the investigator materially pursues
 a place/NPC/clue that is only named or stubbed (ask about it, insist, head there
-in fiction) **without** a scene move yet, call:
+in fiction) **without** a scene move yet, take module text from **steward
+deliveries** (`steward.deliveries` / `steward.notebook`); the steward selects
+the exact pages for this moment and marks what is still unparsed. Then use:
 
 | Tool | When |
 |------|------|
-| `progressive.request_deepen` | KP dig path: structured `{kind, target_id}` only |
 | `progressive.request_mechanics` | Resolve an NPC/item's indexed authored parameters without reparsing its body |
 | `progressive.follow_mentions` | Batch structured `[{kind,ref_id,raw_label?,source_page_indices?}]` |
 | `progressive.status` | Concrete later dig/entity diagnostic only; never a Pi private-coordinator progress poll or terminal wait |
@@ -257,11 +258,9 @@ mentions. Until the host puts a deep pack, play continues with
 - Uncached requests are not leased in v1. The host PDF skill prepares the
   smallest exact page window, registers it with
   `progressive.register_source_bundle`, then claims again. Unknown scopes stay
-  unresolved and never broaden to the whole cache or PDF. On Codex, normal
-  play may instead expose the closed nonblocking `source_scope_takeover`: its
-  dedicated locator registers the reviewed window through
-  `progressive.resolve_source_scope`, which attaches the scope and atomically
-  supersedes the old `awaiting_scope` row. The live KP never reads those pages.
+  unresolved and never broaden to the whole cache or PDF. The live KP never
+  reads those pages; page selection and delivery belong to the steward
+  (`steward.deliveries`) and the S1 full-parse lane.
 
 Tier-1 `mechanics_index` is deliberately a locator, not an eager full parse.
 When a source NPC with armed or combat potential is materially present and

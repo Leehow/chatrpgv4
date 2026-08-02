@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:caeae5f7a73749c225263bc4e00087b846d888ee6e53b326357c2a4595771285",
+  "content_sha256": "sha256:7feb7a854fee07135cc0d34ad6e8978a728b4d552d6a39d775e790a5e8403ad9",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 107,
+  "operation_count": 104,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -1422,95 +1422,6 @@
       "needs_campaign": true,
       "summary": "Host-lifecycle operation that renews only exact leases owned by one executor. It is not a Keeper source-reading operation."
     },
-    "progressive.report_host_work_locator_failure": {
-      "canonical_operation": "progressive.report_host_work_locator_failure",
-      "description": "Durably record one failed source-scope locator dispatch for an exact host-work job. The locator lane excludes jobs at the cooldown bound from selection, so a stale job that repeatedly times out or fails can never starve newer locator work in a shared asset root. It never resolves scope, leases work, or touches player state. Canonical operation `progressive.report_host_work_locator_failure`; the result envelope is authoritative.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "campaign": {
-            "description": "Campaign id. Required for campaign-bound operations.",
-            "type": "string"
-          },
-          "failure_class": {
-            "description": "locator failure class (source_scope_locator_timeout, source_scope_locator_result_invalid, source_scope_bundle_publication_failed, source_scope_registration_failed, ...)",
-            "type": "string"
-          },
-          "job_id": {
-            "description": "exact open host-work job_id whose locator dispatch failed",
-            "type": "string"
-          },
-          "root": {
-            "description": "Project root containing .coc; defaults to the host workspace.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "campaign",
-          "job_id",
-          "failure_class"
-        ],
-        "type": "object"
-      },
-      "needs_campaign": true,
-      "summary": "Durably record one failed source-scope locator dispatch for an exact host-work job. The locator lane excludes jobs at the cooldown bound from selection, so a stale job that repeatedly times out or fails can never starve newer locator work in a shared asset root. It never resolves scope, leases work, or touches player state."
-    },
-    "progressive.request_deepen": {
-      "canonical_operation": "progressive.request_deepen",
-      "description": "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, and return host_hints / evidence_gap status. Use when the investigator materially pursues a place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only). Canonical operation `progressive.request_deepen`; the result envelope is authoritative.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "campaign": {
-            "description": "Campaign id. Required for campaign-bound operations.",
-            "type": "string"
-          },
-          "current_dependency": {
-            "additionalProperties": false,
-            "description": "omit for ordinary nonblocking player dig; include only when the current natural action cannot be resolved honestly without this unpublished authored body. operation names the exact consumer and decision_id names that one pending settlement",
-            "properties": {
-              "decision_id": {
-                "description": "stable identity of this current dependent settlement",
-                "type": "string"
-              },
-              "operation": {
-                "description": "exact canonical consumer operation",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "kind": {
-            "description": "location | npc | clue | handout | threat",
-            "type": "string"
-          },
-          "reason": {
-            "description": "why dig was requested (logged on the queue job)",
-            "type": "string"
-          },
-          "root": {
-            "description": "Project root containing .coc; defaults to the host workspace.",
-            "type": "string"
-          },
-          "target_id": {
-            "description": "stable entity id (e.g. gypsy-hillside-camp, npc-carlos-mendoza)",
-            "type": "string"
-          },
-          "title": {
-            "description": "optional display label for the stub (table language ok)",
-            "type": "string"
-          }
-        },
-        "required": [
-          "campaign",
-          "kind",
-          "target_id"
-        ],
-        "type": "object"
-      },
-      "needs_campaign": true,
-      "summary": "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, and return host_hints / evidence_gap status. Use when the investigator materially pursues a place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only)."
-    },
     "progressive.request_locator_pass": {
       "canonical_operation": "progressive.request_locator_pass",
       "description": "Enqueue one nonblocking mechanics-locator pass over an exact host-selected contiguous 1..3-page accepted window. It never selects pages, scans the bundle, blocks opening readiness, or extracts mechanics profiles. Canonical operation `progressive.request_locator_pass`; the result envelope is authoritative.",
@@ -1669,57 +1580,6 @@
       },
       "needs_campaign": true,
       "summary": "Experimental mutation that enqueues exactly one selected-start partial opening slice over a validated 1..3-page accepted window. The queue kick only materializes host work; it does not perform semantic extraction."
-    },
-    "progressive.resolve_source_scope": {
-      "canonical_operation": "progressive.resolve_source_scope",
-      "description": "Reuse accepted cached pages or register one externally reviewed missing 1..3-page locator window, attach its exact scope to an existing named-only target, and atomically replace that target's awaiting_scope host work with normal claimable work. Locator-declared cache_referenced_pdf_indices bind by content address to accepted cached pages without re-registration; the bundle may then contain only newly rendered pages. This operation never opens PDF bytes or compiles an entity pack. Canonical operation `progressive.resolve_source_scope`; the result envelope is authoritative.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "cache_referenced_pdf_indices": {
-            "description": "locator-declared pages already accepted in the module cache; each entry is an exact {pdf_index, text_sha256} content address and binds to the existing immutable cached page without put_page or text comparison. Omit when no selected page is cache-referenced; when present, source_bundle_path must cover only the remaining newly rendered pages",
-            "type": "array"
-          },
-          "campaign": {
-            "description": "Campaign id. Required for campaign-bound operations.",
-            "type": "string"
-          },
-          "job_id": {
-            "description": "exact open awaiting_scope host-work job id",
-            "type": "string"
-          },
-          "kind": {
-            "description": "location | npc | item | clue | handout | threat",
-            "type": "string"
-          },
-          "pdf_indices": {
-            "description": "exact ascending 1..3 printed page numbers (Page N as printed in the PDF, 1-based) identical to the module cache's accepted_cached_pdf_indices; never 0-based physical order",
-            "type": "array"
-          },
-          "root": {
-            "description": "Project root containing .coc; defaults to the host workspace.",
-            "type": "string"
-          },
-          "source_bundle_path": {
-            "description": "absolute path to the host-produced reviewed OCR bundle; omit when every selected pdf_index is already accepted in cache",
-            "type": "string"
-          },
-          "target_id": {
-            "description": "exact structured target id from the awaiting_scope request",
-            "type": "string"
-          }
-        },
-        "required": [
-          "campaign",
-          "job_id",
-          "kind",
-          "target_id",
-          "pdf_indices"
-        ],
-        "type": "object"
-      },
-      "needs_campaign": true,
-      "summary": "Reuse accepted cached pages or register one externally reviewed missing 1..3-page locator window, attach its exact scope to an existing named-only target, and atomically replace that target's awaiting_scope host work with normal claimable work. Locator-declared cache_referenced_pdf_indices bind by content address to accepted cached pages without re-registration; the bundle may then contain only newly rendered pages. This operation never opens PDF bytes or compiles an entity pack."
     },
     "progressive.status": {
       "canonical_operation": "progressive.status",

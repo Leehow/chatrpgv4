@@ -97,7 +97,6 @@ def _capabilities() -> dict[str, Any]:
         "visual_review": True,
         "repository_pdf_parser": False,
         "ocr": False,
-        "cache_reference": True,
     }
 
 
@@ -310,23 +309,19 @@ def _locator_prompt(task: dict[str, Any]) -> str:
         "Keeper. Locate the exact target in task.source.path and select the "
         "smallest 1..3 page window that covers it. task.cached_pdf_indices are "
         "pages already accepted in the module cache: never render, transcribe, "
-        "or rewrite them; when such a page belongs to the exact scope, include "
-        "it in pdf_indices and in cache_referenced_pdf_indices instead. Render "
-        "and visually inspect only the pages outside task.cached_pdf_indices "
-        "that the scope needs, and write a standard codex-pdf-skill source "
-        "bundle at task.source_bundle_path containing only those newly rendered "
-        "pages. If every selected page is cached, you may leave the bundle "
-        "directory empty. Do not use OCR, read campaign saves/transcripts, call "
+        "or rewrite them. Render and visually inspect every page the scope "
+        "needs, and write a standard codex-pdf-skill source "
+        "bundle at task.source_bundle_path containing exactly the selected "
+        "pages. Do not use OCR, read campaign saves/transcripts, call "
         "gameplay tools, or edit anything outside that bundle. Return only "
         "strict JSON with exact fields schema_version, contract_id, job_id, "
-        "status, kind, target_id, pdf_indices, cache_referenced_pdf_indices, "
+        "status, kind, target_id, pdf_indices, "
         "source_bundle_path, failure_class and contract_id "
         "coc.pi-source-scope-locator-producer-result.v1. pdf_indices is the "
-        "full selected scope; cache_referenced_pdf_indices is the subset of "
-        "pdf_indices you selected from task.cached_pdf_indices without "
-        "rendering. status is located, not_located, or failed; for not_located "
-        "both index arrays are empty, source_bundle_path is null and "
-        "failure_class is null; for failed both index arrays are empty, "
+        "full selected scope. status is located, not_located, or failed; for "
+        "not_located "
+        "the index array is empty, source_bundle_path is null and "
+        "failure_class is null; for failed the index array is empty, "
         "source_bundle_path is null and failure_class is non-empty. Never "
         "invent content that you did not see."
         + json.dumps(task, ensure_ascii=False, separators=(",", ":"))
@@ -350,11 +345,9 @@ def _locator_receipt(
     """Derive the transport receipt from the validated bundle and the
     producer's declared scope, not from LLM prose.
 
-    Cache-referenced indices are pages the producer selected but did not
-    render because the module cache already accepted them.  The adapter
-    verifies each claim against the authoritative accepted cache, checks the
-    bundle contains exactly the remaining rendered pages, and attaches the
-    cache's own immutable text hash as the content address.
+    The adapter verifies the bundle contains exactly the selected pages and
+    that none of them was already accepted in the module cache (an accepted
+    page must never be re-rendered).
     """
     workspace = Path(task["workspace_root"]).resolve()
     if not isinstance(producer_result, dict):
@@ -362,7 +355,7 @@ def _locator_receipt(
     result = producer_result
     if set(result) != {
         "schema_version", "contract_id", "job_id", "status", "kind",
-        "target_id", "pdf_indices", "cache_referenced_pdf_indices",
+        "target_id", "pdf_indices",
         "source_bundle_path", "failure_class",
     }:
         _fail("locator producer result fields mismatch")
@@ -379,7 +372,6 @@ def _locator_receipt(
     if status not in {"located", "not_located", "failed"}:
         _fail("locator producer result status invalid")
     indices = result.get("pdf_indices")
-    cache_referenced = result.get("cache_referenced_pdf_indices")
     if (
         not isinstance(indices, list)
         or not 1 <= len(indices) <= task["max_selected_pages"]
@@ -390,20 +382,9 @@ def _locator_receipt(
         or indices != sorted(set(indices))
     ):
         _fail("locator producer result pdf_indices invalid")
-    if (
-        not isinstance(cache_referenced, list)
-        or any(
-            not isinstance(index, int) or isinstance(index, bool) or index < 0
-            for index in cache_referenced
-        )
-        or cache_referenced != sorted(set(cache_referenced))
-        or not set(cache_referenced) <= set(indices)
-    ):
-        _fail("locator producer result cache_referenced_pdf_indices invalid")
     if status != "located":
         if (
             indices
-            or cache_referenced
             or result.get("source_bundle_path") is not None
         ):
             _fail("non-located locator producer result is invalid")
@@ -421,7 +402,6 @@ def _locator_receipt(
             "kind": task["kind"],
             "target_id": task["target_id"],
             "pdf_indices": [],
-            "cache_referenced_pdf_indices": [],
             "source_bundle_path": None,
             "failure_class": failure_class,
         }
@@ -434,15 +414,9 @@ def _locator_receipt(
     accepted = set(
         assets.accepted_cached_pdf_indices(workspace, cache_root)
     )
-    cache_referenced_set = set(cache_referenced)
-    if not cache_referenced_set <= accepted:
-        _fail(
-            "cache-referenced pdf_index is not accepted in the module cache; "
-            "re-run the locator to render it instead"
-        )
-    rendered = [
-        index for index in indices if index not in cache_referenced_set
-    ]
+    if any(index in accepted for index in indices):
+        _fail("rendered pdf_index is already accepted in the module cache; "
+              "reference it instead of re-rendering")
     bundle_indices: list[int] = []
     bundle_path = Path(task["source_bundle_path"]).resolve()
     if (bundle_path / "manifest.json").is_file():
@@ -457,23 +431,9 @@ def _locator_receipt(
         bundle_indices = [
             int(page["pdf_index"]) for page in bundle.get("pages", [])
         ]
-    if bundle_indices != rendered:
-        _fail("located source bundle page scope is invalid; cache-referenced "
-              "pages must not be re-rendered and every rendered page must be "
-              "included exactly once")
-    if any(index in accepted for index in rendered):
-        _fail("rendered pdf_index is already accepted in the module cache; "
-              "reference it instead of re-rendering")
-    cache_refs: list[dict[str, Any]] = []
-    for index in sorted(cache_referenced_set):
-        page = assets.get_page(workspace, cache_root, index)
-        if not isinstance(page, dict):
-            _fail(f"cached page {index} is unavailable")
-        meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
-        text_sha256 = str(meta.get("text_sha256") or "")
-        if re.fullmatch(r"[a-f0-9]{64}", text_sha256) is None:
-            _fail(f"cached page {index} text_sha256 is unavailable")
-        cache_refs.append({"pdf_index": index, "text_sha256": text_sha256})
+    if bundle_indices != indices:
+        _fail("located source bundle page scope is invalid; every selected "
+              "page must be included exactly once in the bundle")
     return {
         "schema_version": 1,
         "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
@@ -482,7 +442,6 @@ def _locator_receipt(
         "kind": task["kind"],
         "target_id": task["target_id"],
         "pdf_indices": list(indices),
-        "cache_referenced_pdf_indices": cache_refs,
         "source_bundle_path": task["source_bundle_path"],
         "failure_class": None,
     }

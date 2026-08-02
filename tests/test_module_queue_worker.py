@@ -334,8 +334,8 @@ def test_revision_bundle_bind_deepen_projects_immutable_path_to_pi_preload(
     )
     _clear_queue(tmp_path, asset_root_id)
     requested = toolbox.run_tool(
-        "progressive.request_deepen", tmp_path, campaign_id,
-        {"kind": "location", "target_id": "cellar", "reason": "pi preload"},
+        "progressive.follow_mentions", tmp_path, campaign_id,
+        {"mentions": [{"kind": "location", "ref_id": "cellar"}], "reason": "pi preload"},
     )
     assert requested["ok"] is True, requested
     materialized = worker.run_worker_once(tmp_path, parallel=1)
@@ -1468,60 +1468,7 @@ def test_dynamic_mention_stub_keeps_identity_scope_out_of_body_work(
     assert request["cached_page_refs"] == []
 
 
-def test_current_dependency_body_deepen_rejects_named_only_mention_scope(
-    tmp_path: Path,
-):
-    campaign_id = _campaign(tmp_path)
-    _clear_queue(tmp_path)
-    assets.ensure_stub(
-        tmp_path,
-        "qw-demo",
-        "location",
-        "hidden-annex",
-        title="Hidden Annex",
-        reason="mention_from:cellar",
-        source_scope={"source_page_indices": [1]},
-    )
-    assets.enqueue_job(
-        tmp_path,
-        "qw-demo",
-        kind="deepen_location",
-        target_id="hidden-annex",
-        priority=95,
-        reason="player arrives and observes",
-        work_level="current_dependency",
-        dependency_ref={
-            "operation": "scene.context",
-            "subject": {"kind": "location", "id": "hidden-annex"},
-            "decision_id": "settle-hidden-annex-arrival",
-        },
-        consumer_refs=_consumer(tmp_path, intent_kind="scene_enter"),
-    )
 
-    first = worker.run_worker_once(tmp_path, parallel=1)
-    first_request = json.loads(
-        Path(first["results"][0]["host_work_request"]).read_text(encoding="utf-8")
-    )
-    assert first_request["dispatch_state"] == "awaiting_scope"
-    assert first_request["requested_pdf_indices"] == []
-    assert first_request["cached_page_refs"] == []
-
-    resolved = project.resolve_source_scope(
-        tmp_path,
-        campaign_id,
-        job_id=first_request["job_id"],
-        kind="location",
-        target_id="hidden-annex",
-        source_bundle_path=None,
-        pdf_indices=[0],
-    )
-    replacement = resolved["replacement"]
-    assert resolved["stub"]["entity"]["source_page_indices"] == [0, 1]
-    assert resolved["stub"]["entity"]["body_source_page_indices"] == [0]
-    assert replacement["job_id"] != first_request["job_id"]
-    assert replacement["requested_pdf_indices"] == [0]
-    assert replacement["dependency_ref"] == first_request["dependency_ref"]
-    assert replacement["work_level"] == "current_dependency"
 
 
 def test_ordinary_enter_cannot_prepoison_later_exact_body_dependency(
@@ -1563,15 +1510,15 @@ def test_ordinary_enter_cannot_prepoison_later_exact_body_dependency(
         "subject": {"kind": "location", "id": "drixte-village"},
         "decision_id": "settle-drixte-arrival",
     }
-    exact = project.request_deepen(
+    exact = project.follow_structured_mentions(
         tmp_path,
         campaign_id,
-        kind="location",
-        target_id="drixte-village",
+        [{"kind": "location", "ref_id": "drixte-village"}],
         reason="player arrives and observes",
+        work_level="current_dependency",
         dependency_ref=dependency_ref,
     )
-    assert exact["status"]["deep_ready"] is False
+    assert exact["followed"][0]["ref_id"] == "drixte-village"
     if assets.list_queue(tmp_path, "qw-demo")["pending"]:
         worker.run_worker_once(tmp_path, parallel=1)
     requests = [
@@ -1592,100 +1539,10 @@ def test_ordinary_enter_cannot_prepoison_later_exact_body_dependency(
     assert current[0]["operational_class"] == "awaiting_scope"
 
 
-def test_toc_only_body_locator_persists_and_materializes_replacement(
-    tmp_path: Path,
-):
-    campaign_id = _campaign(tmp_path)
-    _clear_queue(tmp_path)
-    assets.put_entity(
-        tmp_path,
-        "qw-demo",
-        "location",
-        "archive",
-        {
-            "parse_state": "toc_only",
-            "title": "Archive",
-            "source_page_indices": [1],
-        },
-    )
-    assets.enqueue_job(
-        tmp_path,
-        "qw-demo",
-        kind="deepen_location",
-        target_id="archive",
-        work_level="current_dependency",
-        dependency_ref={
-            "operation": "scene.context",
-            "subject": {"kind": "location", "id": "archive"},
-            "decision_id": "settle-archive-arrival",
-        },
-        consumer_refs=_consumer(tmp_path, intent_kind="scene_enter"),
-    )
-    first = worker.run_worker_once(tmp_path, parallel=1)
-    first_request = json.loads(
-        Path(first["results"][0]["host_work_request"]).read_text(encoding="utf-8")
-    )
-    assert first_request["dispatch_state"] == "awaiting_scope"
-
-    resolved = project.resolve_source_scope(
-        tmp_path,
-        campaign_id,
-        job_id=first_request["job_id"],
-        kind="location",
-        target_id="archive",
-        source_bundle_path=None,
-        pdf_indices=[0],
-    )
-    assert resolved["stub"]["entity"]["parse_state"] == "toc_only"
-    assert resolved["stub"]["entity"]["source_page_indices"] == [0, 1]
-    assert resolved["stub"]["entity"]["body_source_page_indices"] == [0]
-    assert resolved["replacement"]["requested_pdf_indices"] == [0]
-    assert (
-        resolved["replacement"]["dependency_ref"]
-        == first_request["dependency_ref"]
-    )
 
 
-def test_source_scope_resolution_rejects_mechanics_as_body_scope(
-    tmp_path: Path,
-):
-    campaign_id = _campaign(tmp_path)
-    _clear_queue(tmp_path)
-    assets.ensure_stub(
-        tmp_path,
-        "qw-demo",
-        "npc",
-        "keeper",
-        source_scope={"source_page_indices": [1]},
-    )
-    assets.enqueue_job(
-        tmp_path,
-        "qw-demo",
-        kind="resolve_npc_mechanics",
-        target_id="keeper",
-        consumer_refs=_consumer(tmp_path, intent_kind="mechanics"),
-    )
-    first = worker.run_worker_once(tmp_path, parallel=1)
-    first_request = json.loads(
-        Path(first["results"][0]["host_work_request"]).read_text(encoding="utf-8")
-    )
-    assert first_request["dispatch_state"] == "awaiting_scope"
 
-    with pytest.raises(project.ModuleProjectError, match="body jobs only"):
-        project.resolve_source_scope(
-            tmp_path,
-            campaign_id,
-            job_id=first_request["job_id"],
-            kind="npc",
-            target_id="keeper",
-            source_bundle_path=None,
-            pdf_indices=[0],
-        )
-    unchanged = assets.get_entity(
-        tmp_path, "qw-demo", "npc", "keeper",
-    )
-    assert unchanged is not None
-    assert "body_source_page_indices" not in unchanged
+
 
 
 def test_host_work_preserves_identity_union_without_blessing_body_scope(
@@ -2508,8 +2365,6 @@ def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
         "work_group_id": request["work_group_id"],
         "dispatch_state": "ready",
         "dispatch_attempts": 0,
-        "locator_failure_count": 0,
-        "last_locator_failure_at": None,
         "cached_scope_complete": True,
     }]
     takeover = progressive["background_takeover"]

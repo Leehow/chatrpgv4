@@ -442,14 +442,12 @@ This preserves bounded checkpoint and continuation budgets.
 
 ## Background progressive source packs
 
-An `awaiting_scope` row is advisory locator debt, not claimable source-pack
-work. On Codex, when the scene projection exposes `source_scope_takeover` and
-capabilities advertise `coc_source_scope_locator_v1=true`, launch its exact
-context-free task once using the stable `dispatch_key`. The child performs the
-bounded external-PDF locator and calls `progressive.resolve_source_scope`; the
-main KP never reads pages, waits, polls, or claims while
-`ready_for_background_count=0`. After scope registration, the existing
-claim/leaf/fulfill path handles the replacement row unchanged.
+An `awaiting_scope` row is advisory unparsed-source debt, not claimable
+source-pack work: the pages it needs are not cached yet and the S1 full-parse
+lane supplies them in the background. The live KP never reads pages, waits,
+polls, or claims while `ready_for_background_count=0`; page selection and
+delivery belong to the steward (`steward.deliveries`). Once the pages are
+cached, the existing claim/leaf/fulfill path handles the row unchanged.
 
 `coc.source-pack-worker.v1` is a separate source-compilation contract, not the
 scene adviser and never a second Keeper. Use it only when host capabilities say
@@ -563,10 +561,9 @@ opening packet may become a current `blocking_micro` dependency only after
 final character confirmation; otherwise a `blocking_micro` packet may delay
 only when the current action cannot be resolved honestly without that exact
 authored parameter, handout, or secret. Do not expand its page group while
-waiting. Ordinary `progressive.request_deepen` omits `current_dependency`, so
-nondependent play continues. If the action truly depends, pass exactly
-`current_dependency={operation,decision_id}`; the tool binds the subject and
-reuses `work_level=current_dependency` / `deadline_class=blocking_micro`.
+waiting. Module text for a material dig comes from **steward deliveries**
+(`steward.deliveries` / `steward.notebook`); the steward marks what is still
+unparsed and the KP never digs or re-reads PDF sources itself.
 Keep facts pending across scope/cache replacement. Release only after the same
 campaign/dependency/job's fulfilled terminal is delivered; retry failures, and
 never poll or gate unrelated later output.

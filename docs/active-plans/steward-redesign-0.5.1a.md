@@ -65,3 +65,22 @@
 2. S2 管家角色 + 会话 + 交付/小本本状态 + KP 读取面
 3. S3 退役老管道（index.ts/toolbox/契约/测试）
 4. S4 play07 真实游玩验证
+
+## S3 实施注记（2026-08-02 完成，未提交）
+
+- `progressive.request_deepen` / `progressive.resolve_source_scope` /
+  `progressive.report_host_work_locator_failure` 三个 op 已整体移除（toolbox、
+  module_project、wire 投影、契约注册表、扩展、测试）。resolve_source_scope 的
+  Pi 侧唯一调用方即 locator 派发链，首包 bootstrap 链（raw PDF→bundle→重试
+  bind）不经过它，因此整个 op 拆除而非只拆 locator 路径。
+- `autoDispatchPiSourceScopeLocator` / `findPiSourceScopeLocatorTask` /
+  发布锁、staging/recovery 机制全部退役；adapter `--run` 仅保留首包 bootstrap
+  用途，`cache_referenced_pdf_indices` 契约（TS/adapter/module_project）移除。
+- `fate_closure_gate` 拆除；`evidence_gap` / `deep_ready` 保留为纯信息标记。
+- `_slim_background_takeover` 保留：通用 coordinator 车道（register_source_bundle
+  / progressive.status 预算投影）仍会嵌入重复的 `coordinator_dispatch.pi_task`，
+  该去重是通用投影框架的一部分（retained 测试证明其仍承担预算职责）；
+  locator 专有的 retention（source_scope_takeover 保留、request_deepen blocker、
+  minimal-identity locator 分支）已清理。
+- KP skill/prompt 中指向 request_deepen 的指引已改为 steward deliveries
+  （coc-keeper-play / coc-scenario-import / host-system / coc-keeper-kp）。

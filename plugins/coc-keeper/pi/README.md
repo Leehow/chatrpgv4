@@ -247,12 +247,10 @@ fulfillment engine.
 Pi runs `--capabilities` before every closed task, then `--run` with one bounded
 JSON packet. The producer may only locate, render, visually review, and write
 the exact canonical 1..3-page bundle. The Pi extension validates its versioned
-receipt, calls canonical `progressive.resolve_source_scope`, and hands the
-replacement to the existing source coordinator. The main Keeper never receives
-PDF bytes, source pages, bash/read/write tools, or raw producer output.
-Any action that actually depends on the unresolved body remains under the
-existing current-dependency blocker until that replacement is fulfilled;
-unrelated play may continue, but the Keeper must not invent the missing source.
+receipt and uses the bundle for the raw-PDF first-bundle bind retry; the
+main Keeper never receives PDF bytes, source pages, bash/read/write tools, or
+raw producer output. Module text for play comes from the S1 full-parse lane
+and steward deliveries.
 
 `coc_source_scope_locator_v1` remains statically unavailable because
 `coc_capabilities` cannot prove a process-local command preflight. The hidden

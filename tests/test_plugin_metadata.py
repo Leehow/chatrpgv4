@@ -1403,54 +1403,6 @@ def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
         assert phrase in combined, phrase
 
 
-def test_source_scope_locator_is_bounded_nonblocking_and_prompt_first():
-    contract = json.loads(
-        _text(PLUGIN_ROOT / "references" / "source-scope-locator-v1.json")
-    )
-    assert contract["contract_id"] == "coc.source-scope-locator.v1"
-    assert contract["canonical_caller"]["trigger"] == (
-        "scene.context.progressive.source_scope_takeover"
-    )
-    assert contract["authority"]["may_compile_entity_pack"] is False
-    assert contract["lifecycle"]["main_keeper_waits"] is False
-    assert contract["lifecycle"]["success_wakes_existing_source_pack_lifecycle"] is True
-    assert contract["source_bundle_manifest_contract"] == {
-        "schema_version": 1,
-        "producer": "codex-pdf-skill",
-        "source_required": [
-            "source_id", "title", "path", "file_sha256", "page_count",
-        ],
-        "review_state": "manual_accepted",
-        "parse_confidence": "number_from_0_through_1",
-        "text_sha256": "sha256_of_exact_markdown_file_bytes",
-        "assets": [],
-    }
-    assert contract["failure_policy"]["same_task_retry"] is False
-
-    agent = _text(PLUGIN_ROOT / "agents" / "coc-source-scope-locator.md")
-    compact = " ".join(agent.split()).lower()
-    for phrase in (
-        "name: coc-source-scope-locator",
-        "never the keeper",
-        "locator-only",
-        "one to three zero-based pages",
-        "call no coc operation",
-        "progressive.resolve_source_scope",
-        "`review_state=manual_accepted`",
-        "numeric `parse_confidence` from 0 through 1",
-        "never edit the manifest and call again",
-        "do not claim, fulfill, poll, retry",
-        "three observed occurrences of the same failure class",
-    ):
-        assert phrase in compact, phrase
-
-    play = " ".join(
-        _skill_package_text(PLUGIN_ROOT / "skills" / "coc-keeper-play").split()
-    ).lower()
-    assert "source-scope and background work follow the exact returned takeover" in play
-    assert "`ready_for_background_count=0`" in play
-    assert "using the stable `dispatch_key`" in play
-
 
 def test_fresh_raw_pdf_skill_catalog_routes_only_through_coc_main():
     descriptions = {}

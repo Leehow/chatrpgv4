@@ -1,17 +1,10 @@
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
-  lstat,
   mkdir,
-  open,
-  readdir,
   readFile,
   realpath,
-  rename,
-  rm,
-  rmdir,
   stat,
-  writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -52,10 +45,6 @@ const FULL_PARSE_BATCH_TIMEOUT_MS = 20 * 60 * 1000;
 const RAW_PDF_BIND_BUNDLE_ERROR = (
   "host source bundle must be a directory (not a file) containing manifest.json"
 );
-const SOURCE_SCOPE_PUBLICATION_MARKER = ".coc-source-scope-publication.json";
-const SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS = 30_000;
-const SOURCE_SCOPE_PUBLISH_LOCK_OWNER = "owner.json";
-const SOURCE_SCOPE_PUBLISH_RECOVERY_GUARD_SUFFIX = ".recovery.guard";
 const discoverSchema = { type: "object", properties: { operation: { type: "string" }, domain: { type: "string" } }, additionalProperties: false } as const;
 const invokeSchema = {
   type: "object",
@@ -188,10 +177,6 @@ type CanonicalSetupVisibleOutput = {
 const MAX_CANONICAL_SETUP_VISIBLE_BYTES = 64 * 1024;
 const SAFE_CHARACTER_SETUP_PROMPT = (
   "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
-);
-const CURRENT_DEPENDENCY_PROJECTION_BLOCKER_TEXT = (
-  "当前来源依赖的精确任务超过安全传输上限，无法安全提交。"
-  + "本回合已停止；请重试同一来源请求。"
 );
 
 /**
@@ -444,8 +429,6 @@ type CurrentDependencyWait = {
   terminalReceipt: JsonObject | null;
   terminalDelivered: boolean;
   projectionConfirmed: boolean;
-  projectionBlocked: boolean;
-  projectionBlockerDelivered: boolean;
 };
 type CurrentDependencySuppression = {
   epoch: number;
@@ -3595,7 +3578,6 @@ export class OpeningTerminalContinuationGate {
     campaignId: string,
     waits: JsonObject[],
     snapshotScope: JsonObject | null = null,
-    projectionBlocked = false,
   ): void {
     const retained = new Set<string>();
     const scopedDependencyRef = objectOrNull(
@@ -3658,14 +3640,6 @@ export class OpeningTerminalContinuationGate {
           : false,
         projectionConfirmed: existing?.jobId === jobId
           ? existing.projectionConfirmed
-          : false,
-        projectionBlocked,
-        projectionBlockerDelivered: (
-          projectionBlocked
-          && existing?.jobId === jobId
-          && existing.projectionBlocked
-        )
-          ? existing.projectionBlockerDelivered
           : false,
       });
     }
@@ -3816,19 +3790,6 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
-  armCurrentDependencySuppression(
-    invocationId: string,
-    campaignId: string,
-  ): void {
-    if (!invocationId || !campaignId) return;
-    this.currentDependencySuppression = {
-      epoch: this.playerTurnEpoch,
-      campaignId,
-      invocationId,
-    };
-    this.currentVisibleCampaignId = campaignId;
-  }
-
   private exactDependencyRefMatches(
     wait: CurrentDependencyWait,
     campaignId: string,
@@ -3870,34 +3831,6 @@ export class OpeningTerminalContinuationGate {
       : "";
     if (!campaignId || !operation) return null;
     const args = objectOrNull(params.arguments) ?? {};
-    const blocked = [...this.currentDependencyWaits.values()].filter(
-      (wait) => wait.campaignId === campaignId && wait.projectionBlocked,
-    );
-    if (blocked.length > 0) {
-      const exactRetry = (
-        operation === "progressive.request_deepen"
-        && blocked.some((wait) => {
-          const declared = objectOrNull(args.current_dependency);
-          return (
-            declared !== null
-            && this.exactDependencyRefMatches(
-              wait,
-              campaignId,
-              declared.operation,
-              declared,
-              args.kind,
-              args.target_id,
-            )
-          );
-        })
-      );
-      if (exactRetry) return null;
-      return (
-        `${operation} is blocked because the exact current-dependency `
-        + "projection exceeded the safe transport budget; retry only the "
-        + "same structured progressive.request_deepen request"
-      );
-    }
     const active = [...this.currentDependencyWaits.values()].filter(
       (wait) => wait.campaignId === campaignId && wait.terminalDelivered,
     );
@@ -3910,18 +3843,6 @@ export class OpeningTerminalContinuationGate {
           operation === "progressive.status"
           && args.kind === subject?.kind
           && args.target_id === subject?.id
-        )
-        || (
-          operation === "progressive.request_deepen"
-          && objectOrNull(args.current_dependency) !== null
-          && this.exactDependencyRefMatches(
-            wait,
-            campaignId,
-            objectOrNull(args.current_dependency)?.operation,
-            objectOrNull(args.current_dependency) ?? {},
-            args.kind,
-            args.target_id,
-          )
         )
       );
     });
@@ -3966,32 +3887,6 @@ export class OpeningTerminalContinuationGate {
         : "";
       const subjectId = typeof subject?.id === "string" ? subject.id : "";
       if (!subjectKind || !subjectId) continue;
-      if (
-        operation === "progressive.request_deepen"
-        && args.kind === subjectKind
-        && args.target_id === subjectId
-        && objectOrNull(args.current_dependency) !== null
-        && this.exactDependencyRefMatches(
-          wait,
-          campaignId,
-          objectOrNull(args.current_dependency)?.operation,
-          objectOrNull(args.current_dependency) ?? {},
-          args.kind,
-          args.target_id,
-        )
-      ) {
-        const status = objectOrNull(data?.status);
-        const merged = Array.isArray(data?.merged_location_ids)
-          ? data.merged_location_ids
-          : [];
-        if (
-          subjectKind === "location"
-          && status?.deep_ready === true
-          && merged.includes(subjectId)
-        ) {
-          wait.projectionConfirmed = true;
-        }
-      }
       if (operation === "scene.context" && subjectKind === "location") {
         const scene = objectOrNull(data?.scene);
         if (
@@ -4104,15 +3999,7 @@ export class OpeningTerminalContinuationGate {
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
     this.currentDependencySuppression = null;
-    if (
-      this.currentVisibleCampaignId === null
-      || ![...this.currentDependencyWaits.values()].some((wait) => (
-        wait.campaignId === this.currentVisibleCampaignId
-        && wait.projectionBlocked
-      ))
-    ) {
-      this.currentVisibleCampaignId = null;
-    }
+    this.currentVisibleCampaignId = null;
   }
 
   coordinatorContinuationContext(
@@ -4340,22 +4227,6 @@ export class OpeningTerminalContinuationGate {
       return false;
     }
     const currentSuppression = this.currentDependencySuppression;
-    const projectionBlocker = this.currentVisibleCampaignId === null
-      ? undefined
-      : [...this.currentDependencyWaits.values()].find((wait) => (
-        wait.campaignId === this.currentVisibleCampaignId
-        && wait.projectionBlocked
-      ));
-    if (projectionBlocker !== undefined) {
-      this.nonblockingContinuation = null;
-      if (!projectionBlocker.projectionBlockerDelivered) {
-        projectionBlocker.projectionBlockerDelivered = true;
-        return {
-          replacementText: CURRENT_DEPENDENCY_PROJECTION_BLOCKER_TEXT,
-        };
-      }
-      return false;
-    }
     const terminalConsumptionPending = (
       this.currentVisibleCampaignId !== null
       && [...this.currentDependencyWaits.values()].some((wait) => (
@@ -4740,7 +4611,7 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     "source", "source_bundle_path", "cached_pdf_indices",
     "max_selected_pages", "pdf_index_caliber",
     "source_bundle_manifest_contract",
-    "resolve_operation", "result_delivery",
+    "result_delivery",
   ], "Pi source-scope locator task");
   if (
     task.schema_version !== 1
@@ -4798,22 +4669,6 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
     || !nonEmpty(source.title, "source.title")
     || !/^[a-f0-9]{64}$/.test(nonEmpty(source.file_sha256, "source.file_sha256"))
   ) throw new Error("Pi source-scope locator source identity is invalid");
-  const resolveOperation = asObject(task.resolve_operation, "resolve operation");
-  exactKeys(resolveOperation, [
-    "operation", "invoke_via", "prefilled_arguments", "missing_arguments",
-    "authority", "hard_gate",
-  ], "resolve operation");
-  const prefilled = asObject(
-    resolveOperation.prefilled_arguments,
-    "resolve prefilled arguments",
-  );
-  if (
-    resolveOperation.operation !== "progressive.resolve_source_scope"
-    || resolveOperation.invoke_via !== "coc_invoke"
-    || prefilled.job_id !== task.job_id
-    || prefilled.kind !== task.kind
-    || prefilled.target_id !== task.target_id
-  ) throw new Error("Pi source-scope locator resolve binding drift");
   return structuredClone(task);
 }
 
@@ -4907,47 +4762,6 @@ async function runLocatorProcess(
   return asObject(parsed, "source-scope locator producer result");
 }
 
-async function acceptedCachedPdfIndices(
-  workspaceRoot: string,
-  assetRootId: string,
-): Promise<number[]> {
-  // Conservative fallback fill: the toolbox fills task.cached_pdf_indices
-  // authoritatively; this read is used only when that value is empty so the
-  // adapter still skips rendering pages the module cache already accepted.
-  const pagesDir = join(
-    workspaceRoot, ".coc", "module-assets", assetRootId, "pages",
-  );
-  let entries: string[];
-  try { entries = await readdir(pagesDir); }
-  catch { return []; }
-  const accepted: number[] = [];
-  for (const entry of entries) {
-    const match = /^(\d+)\.md$/.exec(entry);
-    if (match === null) continue;
-    const index = Number(match[1]);
-    let meta: JsonObject;
-    try {
-      meta = asObject(
-        JSON.parse(await readFile(join(pagesDir, `${match[1]}.meta.json`), "utf8")),
-        "cached page meta",
-      );
-    } catch { continue; }
-    if (
-      typeof meta.text_sha256 !== "string"
-      || typeof meta.file_sha256 !== "string"
-      || typeof meta.source_id !== "string"
-    ) continue;
-    let bytes: Buffer;
-    try { bytes = await readFile(join(pagesDir, entry)); }
-    catch { continue; }
-    if (createHash("sha256").update(bytes).digest("hex") !== meta.text_sha256) {
-      continue;
-    }
-    accepted.push(index);
-  }
-  return [...new Set(accepted)].sort((left, right) => left - right);
-}
-
 export async function runPiSourceScopeProducer(
   taskValue: unknown,
   options: {
@@ -4988,7 +4802,6 @@ export async function runPiSourceScopeProducer(
     || handshake.visual_review !== true
     || handshake.repository_pdf_parser !== false
     || handshake.ocr !== false
-    || handshake.cache_reference !== true
   ) throw new Error("source-scope locator producer capability mismatch");
   const receipt = await runLocatorProcess(
     command,
@@ -4999,7 +4812,7 @@ export async function runPiSourceScopeProducer(
   );
   exactKeys(receipt, [
     "schema_version", "contract_id", "job_id", "status", "kind",
-    "target_id", "pdf_indices", "cache_referenced_pdf_indices",
+    "target_id", "pdf_indices",
     "source_bundle_path", "failure_class",
   ], "source-scope locator producer receipt");
   const status = String(receipt.status ?? "");
@@ -5024,23 +4837,6 @@ export async function runPiSourceScopeProducer(
     "source-scope locator producer pdf_indices are invalid: must be 1..3 "
     + "ascending positive integers (printed page numbers, 1-based)",
   );
-  const cacheReferenced = receipt.cache_referenced_pdf_indices;
-  if (
-    !Array.isArray(cacheReferenced)
-    || cacheReferenced.length > 3
-    || cacheReferenced.some(
-      (value) => !Number.isInteger(value) || Number(value) < 1,
-    )
-    || JSON.stringify(cacheReferenced) !== JSON.stringify(
-      [...new Set(cacheReferenced as number[])].sort((a, b) => a - b),
-    )
-    || !(cacheReferenced as number[]).every((value) => (
-      (indices as number[]).includes(value)
-    ))
-  ) throw new Error(
-    "source-scope locator producer cache_referenced_pdf_indices are invalid: "
-    + "must be ascending positive integers within pdf_indices",
-  );
   if (status === "located") {
     if (
       indices.length === 0
@@ -5049,7 +4845,6 @@ export async function runPiSourceScopeProducer(
     ) throw new Error("located source-scope receipt is incomplete");
   } else if (
     indices.length !== 0
-    || cacheReferenced.length !== 0
     || receipt.source_bundle_path !== null
     || (
       status === "not_located"
@@ -5224,686 +5019,6 @@ export function openingSourceReviewTerminalFollowUp(
   };
 }
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-function sha256Json(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
-function sourceScopeTaskDigest(task: JsonObject): string {
-  return sha256Json({
-    schema_version: task.schema_version,
-    contract_id: task.contract_id,
-    contract_revision: task.contract_revision,
-    workspace_root: task.workspace_root,
-    campaign_id: task.campaign_id,
-    asset_root_id: task.asset_root_id,
-    job_id: task.job_id,
-    job_kind: task.job_kind,
-    kind: task.kind,
-    target_id: task.target_id,
-    source: task.source,
-    source_bundle_path: task.source_bundle_path,
-    max_selected_pages: task.max_selected_pages,
-    resolve_operation: task.resolve_operation,
-  });
-}
-
-async function validateStagedSourceBundle(
-  task: JsonObject,
-  receipt: JsonObject,
-): Promise<string> {
-  const root = resolve(nonEmpty(task.source_bundle_path, "source_bundle_path"));
-  const rootStat = await lstat(root);
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
-    throw new Error("staged source bundle root must be a real directory");
-  }
-  const canonicalRoot = await realpath(root);
-  if (
-    canonicalRoot
-    !== join(await realpath(dirname(root)), basename(root))
-  ) {
-    throw new Error("staged source bundle root contains a symlink");
-  }
-  const manifestPath = join(root, "manifest.json");
-  const manifestStat = await lstat(manifestPath);
-  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
-    throw new Error("staged source bundle manifest must be a real file");
-  }
-  if (await realpath(manifestPath) !== join(canonicalRoot, "manifest.json")) {
-    throw new Error("staged source bundle manifest contains a symlink");
-  }
-  const manifestBytes = await readFile(manifestPath);
-  if (manifestBytes.length > MAX_BYTES) {
-    throw new Error("staged source bundle manifest exceeds limit");
-  }
-  const manifest = asObject(
-    JSON.parse(manifestBytes.toString("utf8")),
-    "staged source bundle manifest",
-  );
-  const source = asObject(manifest.source, "staged source identity");
-  const expectedSource = asObject(task.source, "locator source");
-  const pages = manifest.pages;
-  if (
-    manifest.schema_version !== 1
-    || manifest.producer !== "codex-pdf-skill"
-    || source.source_id !== expectedSource.source_id
-    || nonEmpty(source.title, "manifest.source.title")
-      !== nonEmpty(expectedSource.title, "task.source.title")
-    || resolve(String(source.path ?? "")) !== resolve(String(expectedSource.path))
-    || source.file_sha256 !== expectedSource.file_sha256
-    || !Number.isInteger(source.page_count)
-    || Number(source.page_count) <= 0
-    || !Array.isArray(pages)
-  ) throw new Error("staged source bundle identity is invalid");
-  const expectedScope = receipt.pdf_indices as number[];
-  const cacheReferenced = receipt.cache_referenced_pdf_indices as number[];
-  const cacheReferencedSet = new Set(cacheReferenced);
-  // Scope and content are split: the bundle contains only newly rendered
-  // pages; cache-referenced pages stay content-addressed in the module cache.
-  const expectedIndices = expectedScope.filter(
-    (value) => !cacheReferencedSet.has(value),
-  );
-  if (pages.length !== expectedIndices.length) {
-    throw new Error("staged source bundle pages diverge from producer receipt");
-  }
-  const actualIndices: number[] = [];
-  const pageDigests: JsonObject[] = [];
-  for (const [position, rawPage] of pages.entries()) {
-    const page = asObject(rawPage, `staged source page ${position}`);
-    const pdfIndex = page.pdf_index;
-    const markdownPath = String(page.markdown_path ?? "");
-    if (
-      !Number.isInteger(pdfIndex)
-      || Number(pdfIndex) < 0
-      || Number(pdfIndex) >= Number(source.page_count)
-      || !markdownPath
-      || isAbsolute(markdownPath)
-      || page.review_state !== "manual_accepted"
-      || typeof page.parse_confidence !== "number"
-      || Number(page.parse_confidence) < 0
-      || Number(page.parse_confidence) > 1
-      || !Array.isArray(page.grep_anchors)
-      || page.grep_anchors.some(
-        (anchor) => typeof anchor !== "string" || !anchor.trim(),
-      )
-      || !/^[a-f0-9]{64}$/.test(String(page.text_sha256 ?? ""))
-      || cacheReferencedSet.has(Number(pdfIndex))
-    ) throw new Error("staged source bundle page contract is invalid");
-    const pagePath = resolve(root, markdownPath);
-    if (!pagePath.startsWith(`${root}${sep}`)) {
-      throw new Error("staged source bundle page escapes its root");
-    }
-    const pageStat = await lstat(pagePath);
-    if (!pageStat.isFile() || pageStat.isSymbolicLink()) {
-      throw new Error("staged source bundle page must be a real file");
-    }
-    if (
-      await realpath(pagePath)
-      !== resolve(canonicalRoot, markdownPath)
-    ) {
-      throw new Error("staged source bundle page contains a symlink");
-    }
-    const bytes = await readFile(pagePath);
-    if (
-      bytes.length > MAX_BYTES
-      || createHash("sha256").update(bytes).digest("hex")
-        !== page.text_sha256
-    ) throw new Error("staged source bundle page content is invalid");
-    actualIndices.push(Number(pdfIndex));
-    pageDigests.push({
-      pdf_index: Number(pdfIndex),
-      markdown_path: markdownPath,
-      text_sha256: page.text_sha256,
-    });
-  }
-  if (
-    JSON.stringify([...actualIndices].sort((a, b) => a - b))
-    !== JSON.stringify(expectedIndices)
-  ) throw new Error("staged source bundle pages diverge from producer receipt");
-  return sha256Json({
-    manifest_sha256: createHash("sha256").update(manifestBytes).digest("hex"),
-    pages: pageDigests.sort(
-      (left, right) => Number(left.pdf_index) - Number(right.pdf_index),
-    ),
-  });
-}
-
-async function writeSourceScopePublicationMarker(
-  stableTask: JsonObject,
-  stagedTask: JsonObject,
-  receipt: JsonObject,
-  bundleDigest: string,
-): Promise<void> {
-  const source = asObject(stableTask.source, "locator source");
-  const core = {
-    schema_version: 1,
-    contract_id: "coc.pi-source-scope-publication.v1",
-    state: "published_unregistered",
-    task_digest: sourceScopeTaskDigest(stableTask),
-    bundle_digest: bundleDigest,
-    job_id: stableTask.job_id,
-    kind: stableTask.kind,
-    target_id: stableTask.target_id,
-    pdf_indices: structuredClone(receipt.pdf_indices),
-    cache_referenced_pdf_indices: structuredClone(
-      receipt.cache_referenced_pdf_indices,
-    ),
-    source_id: source.source_id,
-    file_sha256: source.file_sha256,
-    stable_path: stableTask.source_bundle_path,
-  };
-  const marker = {
-    ...core,
-    marker_sha256: sha256Json(core),
-  };
-  await writeFile(
-    join(
-      nonEmpty(stagedTask.source_bundle_path, "staging source_bundle_path"),
-      SOURCE_SCOPE_PUBLICATION_MARKER,
-    ),
-    `${JSON.stringify(marker)}\n`,
-    { encoding: "utf8", flag: "wx", mode: 0o600 },
-  );
-}
-
-async function recoverPublishedSourceBundle(
-  task: JsonObject,
-): Promise<JsonObject> {
-  const stablePath = resolve(
-    nonEmpty(task.source_bundle_path, "stable source_bundle_path"),
-  );
-  const markerPath = join(stablePath, SOURCE_SCOPE_PUBLICATION_MARKER);
-  const markerStat = await lstat(markerPath);
-  if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
-    throw new Error("stable source bundle publication marker is invalid");
-  }
-  const markerBytes = await readFile(markerPath);
-  if (markerBytes.length > MAX_BYTES) {
-    throw new Error("stable source bundle publication marker exceeds limit");
-  }
-  const marker = asObject(
-    JSON.parse(markerBytes.toString("utf8")),
-    "stable source bundle publication marker",
-  );
-  exactKeys(marker, [
-    "schema_version", "contract_id", "state", "task_digest",
-    "bundle_digest", "job_id", "kind", "target_id", "pdf_indices",
-    "cache_referenced_pdf_indices", "source_id", "file_sha256",
-    "stable_path", "marker_sha256",
-  ], "stable source bundle publication marker");
-  const {
-    marker_sha256: markerSha256,
-    ...core
-  } = marker;
-  const source = asObject(task.source, "locator source");
-  if (
-    marker.schema_version !== 1
-    || marker.contract_id !== "coc.pi-source-scope-publication.v1"
-    || marker.state !== "published_unregistered"
-    || marker.task_digest !== sourceScopeTaskDigest(task)
-    || marker.job_id !== task.job_id
-    || marker.kind !== task.kind
-    || marker.target_id !== task.target_id
-    || marker.source_id !== source.source_id
-    || marker.file_sha256 !== source.file_sha256
-    || marker.stable_path !== task.source_bundle_path
-    || !/^[a-f0-9]{64}$/.test(String(marker.bundle_digest ?? ""))
-    || !Array.isArray(marker.cache_referenced_pdf_indices)
-    || markerSha256 !== sha256Json(core)
-  ) throw new Error("stable source bundle publication marker binding drift");
-  const receipt = {
-    schema_version: 1,
-    contract_id: "coc.pi-source-scope-locator-producer-result.v1",
-    job_id: task.job_id,
-    status: "located",
-    kind: task.kind,
-    target_id: task.target_id,
-    pdf_indices: structuredClone(marker.pdf_indices),
-    cache_referenced_pdf_indices: structuredClone(
-      marker.cache_referenced_pdf_indices,
-    ),
-    source_bundle_path: task.source_bundle_path,
-    failure_class: null,
-  };
-  const validatedReceipt = await runPiSourceScopeProducerReceiptOnly(
-    task,
-    receipt,
-  );
-  const bundleDigest = await validateStagedSourceBundle(
-    task,
-    validatedReceipt,
-  );
-  if (bundleDigest !== marker.bundle_digest) {
-    throw new Error("stable source bundle content drift");
-  }
-  return validatedReceipt;
-}
-
-async function runPiSourceScopeProducerReceiptOnly(
-  taskValue: unknown,
-  receiptValue: unknown,
-): Promise<JsonObject> {
-  const task = validatePiSourceScopeLocatorTask(taskValue);
-  const receipt = asObject(receiptValue, "source-scope locator receipt");
-  exactKeys(receipt, [
-    "schema_version", "contract_id", "job_id", "status", "kind",
-    "target_id", "pdf_indices", "cache_referenced_pdf_indices",
-    "source_bundle_path", "failure_class",
-  ], "source-scope locator producer receipt");
-  const status = String(receipt.status ?? "");
-  if (
-    receipt.schema_version !== 1
-    || receipt.contract_id
-      !== "coc.pi-source-scope-locator-producer-result.v1"
-    || receipt.job_id !== task.job_id
-    || receipt.kind !== task.kind
-    || receipt.target_id !== task.target_id
-    || status !== "located"
-    || !Array.isArray(receipt.pdf_indices)
-    || receipt.pdf_indices.length < 1
-    || receipt.pdf_indices.length > 3
-    || receipt.pdf_indices.some(
-      (value) => !Number.isInteger(value) || Number(value) < 1,
-    )
-    || JSON.stringify(receipt.pdf_indices) !== JSON.stringify(
-      [...new Set(receipt.pdf_indices as number[])].sort((a, b) => a - b),
-    )
-    || !Array.isArray(receipt.cache_referenced_pdf_indices)
-    || receipt.cache_referenced_pdf_indices.some(
-      (value) => !Number.isInteger(value) || Number(value) < 1,
-    )
-    || !(receipt.cache_referenced_pdf_indices as number[]).every((value) => (
-      (receipt.pdf_indices as number[]).includes(value)
-    ))
-    || receipt.source_bundle_path !== task.source_bundle_path
-    || receipt.failure_class !== null
-  ) throw new Error("source-scope locator recovery receipt binding drift");
-  return receipt;
-}
-
-function processOwnerAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
-  }
-}
-
-async function createPublishLock(
-  lockPath: string,
-  taskDigest: string,
-): Promise<{ owner: JsonObject }> {
-  await mkdir(lockPath, { mode: 0o700 });
-  const owner = {
-    schema_version: 1,
-    contract_id: "coc.pi-source-scope-publish-lock.v1",
-    pid: process.pid,
-    owner_nonce: randomUUID(),
-    created_at_ms: Date.now(),
-    task_digest: taskDigest,
-  };
-  const handle = await open(
-    join(lockPath, SOURCE_SCOPE_PUBLISH_LOCK_OWNER),
-    "wx",
-    0o600,
-  );
-  try {
-    await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  return { owner };
-}
-
-type PublishLockInspection = {
-  stale: boolean;
-  dev: number;
-  ino: number;
-};
-
-async function inspectPublishLock(
-  lockPath: string,
-): Promise<PublishLockInspection> {
-  const stat = await lstat(lockPath);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error("source-scope publish lock is invalid");
-  }
-  const directoryAgeMs = Date.now() - stat.mtimeMs;
-  const ownerPath = join(lockPath, SOURCE_SCOPE_PUBLISH_LOCK_OWNER);
-  let ownerBytes: string;
-  try {
-    const ownerStat = await lstat(ownerPath);
-    if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) {
-      throw new Error("source-scope publish lock owner is invalid");
-    }
-    ownerBytes = await readFile(ownerPath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return {
-      stale: directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
-      dev: stat.dev,
-      ino: stat.ino,
-    };
-  }
-  let existing: JsonObject;
-  try {
-    existing = asObject(
-      JSON.parse(ownerBytes.trim()),
-      "source-scope publish lock",
-    );
-  } catch {
-    // A process can crash while writing the owner record. With no readable
-    // PID, the directory mtime is the only safe bounded recovery signal.
-    return {
-      stale: directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
-      dev: stat.dev,
-      ino: stat.ino,
-    };
-  }
-  try {
-    exactKeys(existing, [
-      "schema_version", "contract_id", "pid", "owner_nonce",
-      "created_at_ms", "task_digest",
-    ], "source-scope publish lock");
-  } catch {
-    const partialPid = Number(existing.pid);
-    return {
-      stale: !(
-        Number.isInteger(partialPid)
-        && partialPid > 0
-        && processOwnerAlive(partialPid)
-      ) && directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
-      dev: stat.dev,
-      ino: stat.ino,
-    };
-  }
-  const pid = Number(existing.pid);
-  const ageMs = Date.now() - Number(existing.created_at_ms);
-  if (
-    existing.schema_version !== 1
-    || existing.contract_id !== "coc.pi-source-scope-publish-lock.v1"
-    || !Number.isInteger(pid)
-    || pid <= 0
-    || !/^[0-9a-f-]{36}$/.test(String(existing.owner_nonce ?? ""))
-    || !Number.isFinite(ageMs)
-    || !/^[a-f0-9]{64}$/.test(String(existing.task_digest ?? ""))
-  ) {
-    return {
-      stale: !(
-        Number.isInteger(pid)
-        && pid > 0
-        && processOwnerAlive(pid)
-      ) && directoryAgeMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
-      dev: stat.dev,
-      ino: stat.ino,
-    };
-  }
-  return {
-    stale: !processOwnerAlive(pid)
-      && ageMs >= SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS,
-    dev: stat.dev,
-    ino: stat.ino,
-  };
-}
-
-function recoveryGuardOwnerName(owner: JsonObject): string {
-  return [
-    "owner-v1",
-    owner.pid,
-    owner.created_at_ms,
-    owner.owner_nonce,
-    owner.task_digest,
-  ].join("__");
-}
-
-function parseRecoveryGuardOwnerName(value: string): JsonObject | null {
-  const parts = value.split("__");
-  if (
-    parts.length !== 5
-    || parts[0] !== "owner-v1"
-    || !/^[0-9]+$/.test(parts[1] ?? "")
-    || !/^[0-9]+$/.test(parts[2] ?? "")
-    || !/^[0-9a-f-]{36}$/.test(parts[3] ?? "")
-    || !/^[a-f0-9]{64}$/.test(parts[4] ?? "")
-  ) return null;
-  return {
-    pid: Number(parts[1]),
-    created_at_ms: Number(parts[2]),
-    owner_nonce: parts[3],
-    task_digest: parts[4],
-  };
-}
-
-async function createPublishRecoveryGuard(
-  guardPath: string,
-  taskDigest: string,
-): Promise<{ owner: JsonObject; ownerPath: string }> {
-  await mkdir(guardPath, { mode: 0o700 });
-  const owner = {
-    pid: process.pid,
-    created_at_ms: Date.now(),
-    owner_nonce: randomUUID(),
-    task_digest: taskDigest,
-  };
-  const ownerPath = join(guardPath, recoveryGuardOwnerName(owner));
-  await mkdir(ownerPath, { mode: 0o700 });
-  return { owner, ownerPath };
-}
-
-async function acquirePublishRecoveryGuard(
-  guardPath: string,
-  taskDigest: string,
-): Promise<{ owner: JsonObject; ownerPath: string }> {
-  try {
-    return await createPublishRecoveryGuard(guardPath, taskDigest);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  const stat = await lstat(guardPath);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error("source-scope publish recovery guard is invalid");
-  }
-  const entries = await readdir(guardPath, { withFileTypes: true });
-  if (entries.length === 0) {
-    if (Date.now() - stat.mtimeMs < SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS) {
-      throw new Error("source-scope publish recovery guard is active");
-    }
-    try {
-      await rmdir(guardPath);
-    } catch (error) {
-      if (!["ENOENT", "ENOTEMPTY"].includes(
-        String((error as NodeJS.ErrnoException).code ?? ""),
-      )) throw error;
-    }
-    try {
-      return await createPublishRecoveryGuard(guardPath, taskDigest);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error("source-scope publish recovery guard is active");
-      }
-      throw error;
-    }
-  }
-  if (
-    entries.length !== 1
-    || !entries[0].isDirectory()
-    || entries[0].isSymbolicLink()
-  ) throw new Error("source-scope publish recovery guard metadata is invalid");
-  const priorOwner = parseRecoveryGuardOwnerName(entries[0].name);
-  if (priorOwner === null) {
-    throw new Error("source-scope publish recovery guard metadata is invalid");
-  }
-  const pid = Number(priorOwner.pid);
-  const ageMs = Date.now() - Number(priorOwner.created_at_ms);
-  if (
-    !Number.isInteger(pid)
-    || pid <= 0
-    || !Number.isFinite(ageMs)
-    || processOwnerAlive(pid)
-    || ageMs < SOURCE_SCOPE_PUBLISH_LOCK_STALE_MS
-  ) throw new Error("source-scope publish recovery guard is active");
-  const priorOwnerPath = join(guardPath, entries[0].name);
-  try {
-    await rmdir(priorOwnerPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error("source-scope publish recovery guard changed");
-    }
-    throw error;
-  }
-  try {
-    await rmdir(guardPath);
-  } catch (error) {
-    if (["ENOENT", "ENOTEMPTY"].includes(
-      String((error as NodeJS.ErrnoException).code ?? ""),
-    )) throw new Error("source-scope publish recovery guard changed");
-    throw error;
-  }
-  try {
-    return await createPublishRecoveryGuard(guardPath, taskDigest);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new Error("source-scope publish recovery guard is active");
-    }
-    throw error;
-  }
-}
-
-async function releasePublishRecoveryGuard(
-  guardPath: string,
-  guard: { owner: JsonObject; ownerPath: string },
-): Promise<void> {
-  try {
-    if (basename(guard.ownerPath) !== recoveryGuardOwnerName(guard.owner)) {
-      return;
-    }
-    await rmdir(guard.ownerPath);
-    await rmdir(guardPath);
-  } catch {
-    // Never remove a guard whose current owner cannot be proven.
-  }
-}
-
-async function acquirePublishLock(
-  lockPath: string,
-  stablePath: string,
-  taskDigest: string,
-): Promise<{ owner: JsonObject }> {
-  try {
-    return await createPublishLock(lockPath, taskDigest);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  if (await pathExists(stablePath)) {
-    throw new Error("publish lock recovery found an existing stable bundle");
-  }
-  const guardPath = `${lockPath}${SOURCE_SCOPE_PUBLISH_RECOVERY_GUARD_SUFFIX}`;
-  const guard = await acquirePublishRecoveryGuard(guardPath, taskDigest);
-  try {
-    if (await pathExists(stablePath)) {
-      throw new Error("publish lock recovery found an existing stable bundle");
-    }
-    const inspected = await inspectPublishLock(lockPath);
-    if (!inspected.stale) {
-      throw new Error("source-scope publish lock is active");
-    }
-    const current = await inspectPublishLock(lockPath);
-    if (
-      !current.stale
-      || current.dev !== inspected.dev
-      || current.ino !== inspected.ino
-    ) throw new Error("source-scope publish lock changed during recovery");
-    await rm(lockPath, { recursive: true });
-    try {
-      return await createPublishLock(lockPath, taskDigest);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error("source-scope stale publish lock takeover lost");
-      }
-      throw error;
-    }
-  } finally {
-    await releasePublishRecoveryGuard(guardPath, guard);
-  }
-}
-
-async function releasePublishLock(
-  lockPath: string,
-  lock: { owner: JsonObject },
-): Promise<void> {
-  try {
-    const ownerPath = join(lockPath, SOURCE_SCOPE_PUBLISH_LOCK_OWNER);
-    const ownerStat = await lstat(ownerPath);
-    if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) return;
-    const current = asObject(
-      JSON.parse((await readFile(ownerPath, "utf8")).trim()),
-      "source-scope publish lock",
-    );
-    if (current.owner_nonce === lock.owner.owner_nonce) {
-      await rm(lockPath, { recursive: true });
-    }
-  } catch {
-    // Never remove a lock whose current owner cannot be proven.
-  }
-}
-
-async function publishStagedSourceBundle(
-  stableTask: JsonObject,
-  stagedTask: JsonObject,
-  receipt: JsonObject,
-): Promise<JsonObject> {
-  const bundleDigest = await validateStagedSourceBundle(stagedTask, receipt);
-  await writeSourceScopePublicationMarker(
-    stableTask,
-    stagedTask,
-    receipt,
-    bundleDigest,
-  );
-  const stablePath = resolve(
-    nonEmpty(stableTask.source_bundle_path, "stable source_bundle_path"),
-  );
-  const stagingPath = resolve(
-    nonEmpty(stagedTask.source_bundle_path, "staging source_bundle_path"),
-  );
-  const stableParent = dirname(stablePath);
-  await mkdir(stableParent, { recursive: true });
-  if (
-    await realpath(stableParent)
-    !== join(await realpath(dirname(stableParent)), basename(stableParent))
-  ) {
-    throw new Error("stable source bundle parent contains a symlink");
-  }
-  const lockPath = `${stablePath}.publish.lock`;
-  const lock = await acquirePublishLock(
-    lockPath,
-    stablePath,
-    sourceScopeTaskDigest(stableTask),
-  );
-  try {
-    if (await pathExists(stablePath)) {
-      throw new Error("stable source bundle already exists");
-    }
-    await rename(stagingPath, stablePath);
-  } finally {
-    await releasePublishLock(lockPath, lock);
-  }
-  return {
-    ...receipt,
-    source_bundle_path: stablePath,
-  };
-}
-
 function objectOrNull(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : null;
 }
@@ -6052,44 +5167,6 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
     : null;
 }
 
-export function findPiSourceScopeLocatorTask(value: unknown): JsonObject | null {
-  const envelope = objectOrNull(value);
-  if (envelope?.ok !== true) return null;
-  const data = objectOrNull(envelope.data);
-  const progressive = objectOrNull(data?.progressive);
-  const sceneContext = objectOrNull(data?.scene_context);
-  const resumeProgressive = objectOrNull(sceneContext?.progressive);
-  const candidates = [
-    objectOrNull(data?.source_scope_takeover),
-    objectOrNull(progressive?.source_scope_takeover),
-    objectOrNull(resumeProgressive?.source_scope_takeover),
-  ].filter((candidate): candidate is JsonObject => candidate !== null);
-  const unique = new Map<string, JsonObject>();
-  for (const candidate of candidates) {
-    const action = objectOrNull(candidate.next_host_action);
-    const dispatchKey = typeof action?.dispatch_key === "string"
-      ? action.dispatch_key.trim()
-      : "";
-    const task = objectOrNull(action?.task);
-    const key = dispatchKey || (
-      typeof task?.job_id === "string" ? `job:${task.job_id}` : ""
-    );
-    if (!key) return null;
-    const previous = unique.get(key);
-    if (previous && JSON.stringify(previous) !== JSON.stringify(candidate)) {
-      return null;
-    }
-    unique.set(key, candidate);
-  }
-  if (unique.size !== 1) return null;
-  const action = objectOrNull([...unique.values()][0].next_host_action);
-  const task = objectOrNull(action?.task);
-  return (
-    action?.action === "invoke_coc_dispatch_source_scope_locator"
-    && task?.contract_id === "coc.pi-source-scope-locator-task.v1"
-  ) ? task : null;
-}
-
 export function findPiOpeningSourceReviewTrigger(
   value: unknown,
 ): JsonObject | null {
@@ -6222,62 +5299,11 @@ function findCurrentDependencyLifecycle(value: unknown): {
   };
 }
 
-function currentDependencyInvocationConsumes(
-  params: JsonObject,
-  lifecycle: {
-    campaignId: string;
-    waits: JsonObject[];
-  },
-): boolean {
-  const campaignId = typeof params.campaign === "string"
-    ? params.campaign.trim()
-    : "";
-  const operation = typeof params.operation === "string"
-    ? params.operation.trim()
-    : "";
-  if (!campaignId || campaignId !== lifecycle.campaignId || !operation) {
-    return false;
-  }
-  const args = objectOrNull(params.arguments) ?? {};
-  const declared = objectOrNull(args.current_dependency);
-  if (operation === "progressive.request_deepen" && declared !== null) {
-    return lifecycle.waits.some((wait) => {
-      const dependencyRef = objectOrNull(wait.dependency_ref);
-      const subject = objectOrNull(dependencyRef?.subject);
-      return (
-        dependencyRef?.operation === declared.operation
-        && subject?.kind === args.kind
-        && subject?.id === args.target_id
-        && ["settlement_id", "decision_id", "source_scope_signature"].some(
-          (field) => (
-            typeof declared[field] === "string"
-            && declared[field] === dependencyRef?.[field]
-          ),
-        )
-      );
-    });
-  }
-  return false;
-}
-
 function currentDependencySubmissionRetained(value: unknown): boolean {
   const result = objectOrNull(value);
   return [
     "activating", "pending", "retrying", "submitted",
   ].includes(String(result?.status ?? ""));
-}
-
-function currentDependencyProjectionBlocked(value: unknown): boolean {
-  const envelope = objectOrNull(value);
-  const data = objectOrNull(envelope?.data);
-  const blocker = objectOrNull(data?.current_dependency_projection_blocker);
-  return (
-    envelope?.ok === true
-    && data?.current_dependency === true
-    && blocker?.status === "blocked"
-    && blocker.contract_id
-      === "coc.source-current-dependency-projection-blocker.v1"
-  );
 }
 
 interface AutoDispatchDeps {
@@ -6299,8 +5325,8 @@ interface AutoDispatchOptions {
 
 // Toolbox results may carry a background_takeover whose next_host_action asks
 // the KP to call coc_dispatch_source_work. Fulfillment must not depend on KP
-// discipline, so the host submits that exact task itself. Ordinary source
-// deepening remains fire-and-forget; only the exact blocking opening path asks
+// discipline, so the host submits that exact task itself. Ordinary source work
+// dispatch remains fire-and-forget; only the exact blocking opening path asks
 // this owner to await its durable terminal state.
 async function autoDispatchCoordinator(
   deps: AutoDispatchDeps,
@@ -6441,27 +5467,6 @@ async function autoDispatchCoordinator(
   return await ownedManager.waitForTerminal(key, options.signal);
 }
 
-interface SourceScopeAutoDispatchDeps {
-  isCurrent(): boolean;
-  command(): string | undefined;
-  call(name: string, args: JsonObject, signal?: AbortSignal): Promise<JsonObject>;
-  onResolved(value: JsonObject): Promise<void>;
-  states: Map<string, JsonObject>;
-  controllers: Map<string, AbortController>;
-  audit(entry: JsonObject): void;
-}
-
-interface OpeningSourceReviewDispatchDeps {
-  isCurrent(): boolean;
-  workspaceRoot: string;
-  command(): string | undefined;
-  states: Map<string, JsonObject>;
-  controllers: Map<string, AbortController>;
-  onTerminal(receipt: JsonObject): void;
-  audit(entry: JsonObject): void;
-  timeoutMs?: number;
-}
-
 interface RawPdfBindBundleDispatchDeps {
   isCurrent(): boolean;
   workspaceRoot: string;
@@ -6585,18 +5590,6 @@ export async function autoDispatchPiRawPdfBindBundle(
     source_bundle_manifest_contract: {
       schema_version: 1,
       contract_id: "codex-pdf-skill-source-bundle.v1",
-    },
-    resolve_operation: {
-      operation: "progressive.resolve_source_scope",
-      invoke_via: "coc_invoke",
-      prefilled_arguments: {
-        job_id: jobId,
-        kind: "raw_pdf_bind_first_bundle",
-        target_id: `pdf:${fileSha256}`,
-      },
-      missing_arguments: ["pdf_indices", "source_bundle_path"],
-      authority: "canonical_source_scope_locator",
-      hard_gate: false,
     },
     result_delivery: "natural_completion_notification_only",
   };
@@ -6971,284 +5964,6 @@ export async function autoDispatchPiFullParse(
   }
 }
 
-export async function autoDispatchPiSourceScopeLocator(
-  deps: SourceScopeAutoDispatchDeps,
-  toolName: string,
-  value: unknown,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<JsonObject | null> {
-  if (toolName !== "coc_invoke") return null;
-  const rawTask = findPiSourceScopeLocatorTask(value);
-  if (rawTask === null) return null;
-  let task: JsonObject;
-  try { task = validatePiSourceScopeLocatorTask(rawTask); }
-  catch {
-    const failure = {
-      status: "validation_failed",
-      failure_class: "source_scope_locator_task_invalid",
-    };
-    deps.audit(failure);
-    return failure;
-  }
-  // Scope/content split: the locator core selects pdf_indices, content prefers
-  // the module cache. When the toolbox did not already fill the accepted
-  // cached page indices, read them from the asset root so the producer skips
-  // re-rendering them.
-  const declaredCached = task.cached_pdf_indices as number[];
-  if (Array.isArray(declaredCached) && declaredCached.length === 0) {
-    const filled = await acceptedCachedPdfIndices(
-      String(task.workspace_root),
-      String(task.asset_root_id),
-    );
-    if (filled.length > 0) {
-      task = { ...task, cached_pdf_indices: filled };
-    }
-  }
-  const key = `source-scope-locator:${nonEmpty(task.job_id, "job_id")}`;
-  const previous = deps.states.get(key);
-  if (previous) return previous;
-  // Durable cooldown feedback: the toolbox projection excludes a job whose
-  // locator lane has failed repeatedly, so a stale failing job can never
-  // starve newer awaiting-scope work in a shared asset root.  The report is
-  // best-effort and never changes the terminal result of this dispatch.
-  // External aborts and session closure are not job failures and are not
-  // counted.
-  const reportLocatorFailure = async (failureClass: string): Promise<void> => {
-    if (typeof task.campaign_id !== "string" || !task.campaign_id.trim()) return;
-    try {
-      await deps.call("coc_invoke", {
-        operation: "progressive.report_host_work_locator_failure",
-        root: task.workspace_root,
-        campaign: task.campaign_id,
-        arguments: {
-          job_id: task.job_id,
-          failure_class: failureClass,
-        },
-      });
-    } catch { /* durable cooldown feedback is best effort */ }
-  };
-  const submitted = { status: "submitted", dispatch_key: key };
-  deps.states.set(key, submitted);
-  deps.audit(submitted);
-  if (!deps.isCurrent()) {
-    const failure = {
-      status: "session_closed",
-      dispatch_key: key,
-      failure_class: "session_closed",
-    };
-    deps.states.set(key, failure);
-    deps.audit(failure);
-    return failure;
-  }
-  const command = deps.command();
-  if (!command || !isAbsolute(command)) {
-    const failure = {
-      status: "capability_unavailable",
-      dispatch_key: key,
-      failure_class: "source_scope_locator_command_unavailable",
-    };
-    deps.states.set(key, failure);
-    deps.audit(failure);
-    return failure;
-  }
-  const stablePath = resolve(
-    nonEmpty(task.source_bundle_path, "source_bundle_path"),
-  );
-  let recoveredReceipt: JsonObject | null = null;
-  if (await pathExists(stablePath)) {
-    try {
-      recoveredReceipt = await recoverPublishedSourceBundle(task);
-    } catch {
-      const failure = {
-        status: "failed",
-        dispatch_key: key,
-        failure_class: "source_scope_stable_bundle_mismatch",
-      };
-      deps.states.set(key, failure);
-      deps.audit(failure);
-      return failure;
-    }
-  }
-  const stagingPath = join(
-    dirname(stablePath),
-    `.locator-staging-${randomUUID()}`,
-  );
-  await mkdir(dirname(stagingPath), { recursive: true });
-  const stagedTask = {
-    ...task,
-    source_bundle_path: stagingPath,
-  };
-  const controller = new AbortController();
-  deps.controllers.set(key, controller);
-  const abort = () => controller.abort(
-    options.signal?.reason ?? "source_scope_locator_interrupted",
-  );
-  if (options.signal?.aborted) abort();
-  else options.signal?.addEventListener("abort", abort, { once: true });
-  try {
-    let receipt: JsonObject;
-    if (recoveredReceipt !== null) {
-      receipt = recoveredReceipt;
-    } else {
-      try {
-        receipt = await runPiSourceScopeProducer(stagedTask, {
-          command,
-          timeoutMs: options.timeoutMs,
-          signal: controller.signal,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "";
-        const failure = {
-          status: "failed",
-          dispatch_key: key,
-          failure_class: message.includes("timed out")
-            ? "source_scope_locator_timeout"
-            : message.includes("aborted")
-              ? "source_scope_locator_aborted"
-              : message.includes("capability")
-                ? "source_scope_locator_preflight_failed"
-                : "source_scope_locator_result_invalid",
-        };
-        if (
-          failure.failure_class !== "source_scope_locator_aborted"
-          && failure.failure_class !== "source_scope_locator_preflight_failed"
-        ) {
-          await reportLocatorFailure(String(failure.failure_class));
-        }
-        deps.states.set(key, failure);
-        deps.audit(failure);
-        return failure;
-      }
-      if (!deps.isCurrent()) {
-        const failure = {
-          status: "session_closed",
-          dispatch_key: key,
-          failure_class: "session_closed_before_scope_registration",
-        };
-        deps.states.set(key, failure);
-        deps.audit(failure);
-        return failure;
-      }
-      if (receipt.status !== "located") {
-        const terminal = {
-          status: receipt.status,
-          dispatch_key: key,
-          failure_class: receipt.failure_class,
-        };
-        await reportLocatorFailure(
-          typeof receipt.failure_class === "string"
-            ? receipt.failure_class
-            : "source_scope_locator_not_located",
-        );
-        deps.states.set(key, terminal);
-        deps.audit(terminal);
-        return terminal;
-      }
-      const cacheReferenced = receipt.cache_referenced_pdf_indices as number[];
-      // When every selected page is cache-referenced the producer rendered
-      // nothing, so there is no staged bundle to publish; scope registration
-      // binds all selected pages to the accepted cache by content address.
-      if (cacheReferenced.length < (receipt.pdf_indices as number[]).length) {
-        try {
-          receipt = await publishStagedSourceBundle(task, stagedTask, receipt);
-        } catch {
-          const failure = {
-            status: "failed",
-            dispatch_key: key,
-            failure_class: "source_scope_bundle_publication_failed",
-          };
-          await reportLocatorFailure("source_scope_bundle_publication_failed");
-          deps.states.set(key, failure);
-          deps.audit(failure);
-          return failure;
-        }
-      }
-    }
-    if (!deps.isCurrent()) {
-      const failure = {
-        status: "session_closed",
-        dispatch_key: key,
-        failure_class: "session_closed_before_scope_registration",
-      };
-      deps.states.set(key, failure);
-      deps.audit(failure);
-      return failure;
-    }
-    const resolveOperation = asObject(
-      task.resolve_operation,
-      "resolve operation",
-    );
-    const prefilled = asObject(
-      resolveOperation.prefilled_arguments,
-      "resolve prefilled arguments",
-    );
-    let resolved: JsonObject;
-    try {
-      const resolveArguments: JsonObject = {
-        ...structuredClone(prefilled),
-        pdf_indices: structuredClone(receipt.pdf_indices),
-        cache_referenced_pdf_indices: structuredClone(
-          receipt.cache_referenced_pdf_indices,
-        ),
-      };
-      if ((receipt.cache_referenced_pdf_indices as number[]).length
-        < (receipt.pdf_indices as number[]).length) {
-        resolveArguments.source_bundle_path = receipt.source_bundle_path;
-      }
-      resolved = await deps.call("coc_invoke", {
-        operation: "progressive.resolve_source_scope",
-        root: task.workspace_root,
-        campaign: task.campaign_id,
-        arguments: resolveArguments,
-      }, controller.signal);
-      if (resolved.ok !== true) {
-        throw new Error("canonical scope resolution rejected");
-      }
-    } catch {
-      const failure = {
-        status: "failed",
-        dispatch_key: key,
-        failure_class: "source_scope_registration_failed",
-      };
-      await reportLocatorFailure("source_scope_registration_failed");
-      deps.states.set(key, failure);
-      deps.audit(failure);
-      return failure;
-    }
-    try {
-      if (deps.isCurrent()) await deps.onResolved(resolved);
-    } catch {
-      const failure = {
-        status: "scope_registered",
-        dispatch_key: key,
-        job_id: task.job_id,
-        pdf_indices: structuredClone(receipt.pdf_indices),
-        failure_class: "source_scope_continuation_failed",
-      };
-      deps.states.set(key, failure);
-      deps.audit(failure);
-      return failure;
-    }
-    const terminal = {
-      status: "scope_registered",
-      dispatch_key: key,
-      job_id: task.job_id,
-      pdf_indices: structuredClone(receipt.pdf_indices),
-    };
-    deps.states.set(key, terminal);
-    deps.audit(terminal);
-    return terminal;
-  } finally {
-    options.signal?.removeEventListener("abort", abort);
-    if (deps.controllers.get(key) === controller) {
-      deps.controllers.delete(key);
-    }
-    if (await pathExists(stagingPath)) {
-      await rm(stagingPath, { recursive: true, force: true });
-    }
-  }
-}
-
 function blockingOpeningProjectionCall(
   originalParams: JsonObject,
   bootstrapValue: unknown,
@@ -7458,9 +6173,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sessionEpoch = 0;
   let sessionClosing = true;
   let continuedCoordinatorDispatches = new Set<string>();
-  let sourceScopeLocatorStates = new Map<string, JsonObject>();
-  let sourceScopeLocatorControllers = new Map<string, AbortController>();
-  let sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+  let sourceProducerStates = new Map<string, JsonObject>();
+  let sourceProducerControllers = new Map<string, AbortController>();
+  let sourceProducerRuns = new Set<Promise<unknown>>();
   let rawPdfBindBundleStates = new Map<string, JsonObject>();
   let rawPdfBindBundleControllers = new Map<string, AbortController>();
   let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
@@ -7560,85 +6275,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     },
     audit: (entry) => { try { pi.appendEntry("coc-source-coordinator-auto-dispatch", entry); } catch { /* audit is best effort */ } },
   });
-  const dispatchResolvedSourceWork = async (
-    resolved: JsonObject,
-    ctx: ExtensionContext,
-    epoch: number,
-  ) => {
-    const lifecycle = findCurrentDependencyLifecycle(resolved);
-    if (lifecycle !== null) {
-      openingContinuationGate.observeCurrentDependencySnapshot(
-        lifecycle.campaignId,
-        lifecycle.waits,
-        lifecycle.snapshotScope,
-        currentDependencyProjectionBlocked(resolved),
-      );
-      for (const dispatch of lifecycle.dispatches) {
-        const dependencyId = String(dispatch.dependency_id ?? "").trim();
-        const jobId = String(dispatch.job_id ?? "").trim();
-        const action = objectOrNull(dispatch.next_host_action);
-        const task = objectOrNull(action?.task);
-        const packet = objectOrNull(task?.packet);
-        const dispatchKey = typeof packet?.packet_id === "string"
-          ? packet.packet_id.trim()
-          : "";
-        if (
-          task === null
-          || !openingContinuationGate.prepareCurrentDependencyDispatch(
-            dependencyId,
-            jobId,
-            dispatchKey,
-          )
-        ) continue;
-        const submission = await autoDispatchCoordinator(
-          autoDispatchDeps(ctx, epoch),
-          "coc_invoke",
-          resolved,
-          { exactTask: task },
-        );
-        if (!currentDependencySubmissionRetained(submission)) {
-          const retained = objectOrNull(submission);
-          const terminal = objectOrNull(retained?.terminal_receipt);
-          const notification = objectOrNull(retained?.notification);
-          if (
-            retained?.status === "completed"
-            && terminal?.status === "fulfilled"
-            && notification?.hidden_continuation !== "failed"
-          ) {
-            openingContinuationGate.markCurrentDependencyTerminalDelivered(
-              dispatchKey,
-            );
-          } else {
-            openingContinuationGate.rollbackCurrentDependencySubmission(
-              dependencyId,
-              jobId,
-              dispatchKey,
-            );
-          }
-        }
-      }
-    }
-    await autoDispatchCoordinator(
-      autoDispatchDeps(ctx, epoch),
-      "coc_invoke",
-      resolved,
-    );
-  };
-  const sourceScopeDispatchDeps = (
-    ctx: ExtensionContext,
-    epoch: number,
-  ): SourceScopeAutoDispatchDeps => ({
-    isCurrent: () => isCurrent(epoch),
-    command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
-    call: (name, args, signal) => client(ctx).callTool(name, args, signal),
-    onResolved: (resolved) => dispatchResolvedSourceWork(resolved, ctx, epoch),
-    states: sourceScopeLocatorStates,
-    controllers: sourceScopeLocatorControllers,
-    audit: (entry) => {
-      try { pi.appendEntry("coc-source-scope-locator-lifecycle", entry); }
-      catch { /* audit is best effort */ }
-    },
-  });
   const rawPdfBindBundleDispatchDeps = (
     ctx: ExtensionContext,
     epoch: number,
@@ -7692,8 +6328,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     isCurrent: () => isCurrent(epoch),
     workspaceRoot: resolve(ctx.cwd),
     command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
-    states: sourceScopeLocatorStates,
-    controllers: sourceScopeLocatorControllers,
+    states: sourceProducerStates,
+    controllers: sourceProducerControllers,
     onTerminal: (receipt) => {
       const route = (
         openingContinuationGate.observeOpeningSourceReviewTransport(receipt)
@@ -7732,9 +6368,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = false;
     openingContinuationGate.reset();
     continuedCoordinatorDispatches = new Set<string>();
-    sourceScopeLocatorStates = new Map<string, JsonObject>();
-    sourceScopeLocatorControllers = new Map<string, AbortController>();
-    sourceScopeLocatorRuns = new Set<Promise<unknown>>();
+    sourceProducerStates = new Map<string, JsonObject>();
+    sourceProducerControllers = new Map<string, AbortController>();
+    sourceProducerRuns = new Set<Promise<unknown>>();
     rawPdfBindBundleStates = new Map<string, JsonObject>();
     rawPdfBindBundleControllers = new Map<string, AbortController>();
     rawPdfBindBundleRuns = new Set<Promise<unknown>>();
@@ -8391,9 +7027,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         name,
         value,
       );
-      sourceScopeLocatorRuns.add(openingReviewRun);
+      sourceProducerRuns.add(openingReviewRun);
       void openingReviewRun.catch(() => {}).finally(() => {
-        sourceScopeLocatorRuns.delete(openingReviewRun);
+        sourceProducerRuns.delete(openingReviewRun);
       });
       const fullParseRun = autoDispatchPiFullParse(
         fullParseDispatchDeps(ctx, epoch),
@@ -8823,33 +7459,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           }
         }
       }
-      if (
-        currentDependencyProjectionBlocked(value)
-        && params.operation === "progressive.request_deepen"
-        && objectOrNull(
-          objectOrNull(params.arguments)?.current_dependency,
-        ) !== null
-        && invocationCampaignId
-      ) {
-        openingContinuationGate.armCurrentDependencySuppression(
-          _id,
-          invocationCampaignId,
-        );
-      }
       void autoDispatchCoordinator(
         autoDispatchDeps(ctx, epoch),
         name,
         value,
       ).catch(() => {});
-      const locatorRun = autoDispatchPiSourceScopeLocator(
-        sourceScopeDispatchDeps(ctx, epoch),
-        name,
-        value,
-      );
-      sourceScopeLocatorRuns.add(locatorRun);
-      void locatorRun.catch(() => {}).finally(() => {
-        sourceScopeLocatorRuns.delete(locatorRun);
-      });
     }
     return result(value);
   };
@@ -9077,19 +7691,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionEpoch += 1;
     startupResumeGate = null;
     openingContinuationGate.reset();
-    for (const controller of sourceScopeLocatorControllers.values()) {
+    for (const controller of sourceProducerControllers.values()) {
       controller.abort("session_shutdown");
     }
     for (const controller of rawPdfBindBundleControllers.values()) {
       controller.abort("session_shutdown");
     }
     await Promise.allSettled([
-      ...sourceScopeLocatorRuns,
+      ...sourceProducerRuns,
       ...rawPdfBindBundleRuns,
     ]);
-    sourceScopeLocatorControllers.clear();
-    sourceScopeLocatorRuns.clear();
-    sourceScopeLocatorStates.clear();
+    sourceProducerControllers.clear();
+    sourceProducerRuns.clear();
+    sourceProducerStates.clear();
     rawPdfBindBundleControllers.clear();
     rawPdfBindBundleRuns.clear();
     rawPdfBindBundleStates.clear();
@@ -9111,9 +7725,7 @@ export const __test = {
   autoDispatchCoordinator,
   autoDispatchPiOpeningSourceReview,
   autoDispatchPiRawPdfBindBundle,
-  autoDispatchPiSourceScopeLocator,
   findPiOpeningSourceReviewTrigger,
-  findPiSourceScopeLocatorTask,
   runPiSourceScopeProducer,
   validatePiSourceScopeLocatorTask,
   MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,

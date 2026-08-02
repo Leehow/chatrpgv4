@@ -1194,7 +1194,6 @@ _PARAM_ALIASES: dict[str, dict[str, str]] = {
 _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION = frozenset({
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
-    "progressive.report_host_work_locator_failure",
 })
 
 _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
@@ -1205,7 +1204,6 @@ _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
     "progressive.fulfill_host_work",
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
-    "progressive.report_host_work_locator_failure",
     "setup.adopt_source_facts",
     "setup.investigator_contract",
     "rules.cash_assets",
@@ -11773,244 +11771,6 @@ def _pi_source_coordinator_dispatch(
     return dispatch
 
 
-def _source_scope_locator_dispatch(
-    *,
-    workspace_root: str,
-    campaign_id: str,
-    asset_root_id: str,
-    request: dict[str, Any],
-    target_label: str,
-    host_adapter: str = "codex",
-) -> dict[str, Any]:
-    """Build one closed Codex task for an unresolved exact PDF locator.
-
-    The task owns only source-page discovery and the reviewed bundle handoff.
-    It cannot compile entity data, read campaign state, or block play.
-    """
-    job_id = str(request.get("job_id") or "")
-    job_kind = str(request.get("kind") or "")
-    entity_kind = str(
-        coc_module_project.coc_module_assets._job_entity_kind(job_kind) or ""
-    )
-    target_id = str(request.get("target_id") or "")
-    if host_adapter not in {"codex", "pi"}:
-        raise ToolError(
-            "invalid_param",
-            f"unsupported source-scope locator host adapter {host_adapter!r}",
-        )
-    codex_root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-    instruction_path = (
-        _HERE.parent / "agents" / "coc-source-scope-locator.md"
-    ).resolve()
-    contract_path = (
-        _HERE.parent / "references" / "source-scope-locator-v1.json"
-    ).resolve()
-    contract_digest = hashlib.sha256(
-        instruction_path.read_bytes() + b"\0" + contract_path.read_bytes()
-    ).hexdigest()
-    bundle_path = (
-        Path(workspace_root)
-        / ".tmp"
-        / "coc-source-scope"
-        / campaign_id
-        / job_id
-        / contract_digest[:16]
-    ).resolve()
-    cached_pdf_indices = (
-        coc_module_project.coc_module_assets.accepted_cached_pdf_indices(
-            Path(workspace_root), asset_root_id,
-        )
-    )
-    assets_mod = coc_module_project.coc_module_assets
-    identity_path = (
-        assets_mod._module_dir(Path(workspace_root), asset_root_id)
-        / "identity.json"
-    )
-    try:
-        identity = json.loads(identity_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ToolError(
-            "source_scope_identity_invalid",
-            "canonical module identity is unavailable for source-scope dispatch",
-        ) from exc
-    canonical_source = (
-        identity.get("source")
-        if isinstance(identity, dict)
-        and isinstance(identity.get("source"), dict)
-        else {}
-    )
-    module_identity = (
-        identity.get("module_identity")
-        if isinstance(identity, dict)
-        and isinstance(identity.get("module_identity"), dict)
-        else {}
-    )
-    source_title = str(
-        canonical_source.get("title")
-        or module_identity.get("canonical_title")
-        or ""
-    ).strip()
-    if not source_title:
-        raise ToolError(
-            "source_scope_identity_invalid",
-            "canonical module source title is required for source-scope dispatch",
-        )
-    canonical_task_source = {
-        "path": str(canonical_source.get("path") or ""),
-        "source_id": str(canonical_source.get("source_id") or ""),
-        "title": source_title,
-        "file_sha256": str(canonical_source.get("file_sha256") or ""),
-    }
-    if (
-        not canonical_task_source["path"]
-        or not canonical_task_source["source_id"]
-        or not re.fullmatch(
-            r"[a-f0-9]{64}",
-            canonical_task_source["file_sha256"],
-        )
-    ):
-        raise ToolError(
-            "source_scope_identity_invalid",
-            "canonical module source identity is incomplete",
-        )
-    task = {
-        "schema_version": 1,
-        "contract_id": (
-            "coc.pi-source-scope-locator-task.v1"
-            if host_adapter == "pi"
-            else "coc.codex-source-scope-locator-task.v1"
-        ),
-        "bootstrap_instruction": (
-            "Before any response or tool call, read instruction_ref completely, "
-            "then execute this closed task under that instruction."
-        ),
-        "instruction_ref": str(instruction_path),
-        "contract_ref": str(contract_path),
-        "contract_revision": f"sha256:{contract_digest}",
-        "adapter_mode": (
-            "pi_external_pdf_skill_lifecycle"
-            if host_adapter == "pi"
-            else "codex_background_pdf_locator"
-        ),
-        "model_policy": (
-            "pinned_xai_grok_4_5_thinking_low"
-            if host_adapter == "pi"
-            else "inherit_parent"
-        ),
-        "workspace_root": workspace_root,
-        "campaign_id": campaign_id,
-        "asset_root_id": asset_root_id,
-        "job_id": job_id,
-        "job_kind": job_kind,
-        "kind": entity_kind,
-        "target_id": target_id,
-        "target_label": target_label or target_id,
-        "reason": str(request.get("reason") or ""),
-        "source": canonical_task_source,
-        "source_bundle_path": str(bundle_path),
-        "cached_pdf_indices": cached_pdf_indices,
-        "max_selected_pages": 3,
-        "pdf_index_caliber": "printed_page_number_1_based",
-        "source_bundle_manifest_contract": {
-            "schema_version": 1,
-            "producer": "codex-pdf-skill",
-            "source_required": [
-                "source_id", "title", "path", "file_sha256", "page_count",
-            ],
-            "page_required": [
-                "pdf_index", "markdown_path", "text_sha256",
-                "review_state", "parse_confidence", "grep_anchors",
-            ],
-            "review_state": "manual_accepted",
-            "parse_confidence": "number_from_0_through_1",
-            "text_sha256": "sha256_of_exact_markdown_file_bytes",
-            "assets": [],
-        },
-        "resolve_operation": {
-            "operation": "progressive.resolve_source_scope",
-            "invoke_via": "coc_invoke",
-            "prefilled_arguments": {
-                "job_id": job_id,
-                "kind": entity_kind,
-                "target_id": target_id,
-            },
-            "missing_arguments": [
-                "pdf_indices",
-                "source_bundle_path_if_any_selected_page_is_uncached",
-            ],
-            "authority": "source_scope_only",
-            "hard_gate": False,
-        },
-        "result_delivery": "natural_completion_notification_only",
-    }
-    if host_adapter == "codex":
-        task["instruction_refs"] = {
-            "pdf_skill": str(
-                (codex_root / "skills" / "pdf" / "SKILL.md").resolve()
-            ),
-            "baiduocr_skill": str(
-                (codex_root / "skills" / "baiduocr" / "SKILL.md").resolve()
-            ),
-            "baiduocr_script": str(
-                (
-                    codex_root
-                    / "skills"
-                    / "baiduocr"
-                    / "scripts"
-                    / "baiduocr.py"
-                ).resolve()
-            ),
-        }
-        task["page_ocr"] = {
-            "provider": "baidu-paddleocr-jobs",
-            "model": "PaddleOCR-VL-1.6",
-            "credential_env": "BAIDUOCR_TOKEN",
-            "structured_data_format": "paddleocr-vl-layout-v1",
-            "blocking": False,
-        }
-    action = (
-        "invoke_coc_dispatch_source_scope_locator"
-        if host_adapter == "pi"
-        else "spawn_background_task"
-    )
-    return {
-        "schema_version": 1,
-        "kind": "awaiting_source_scope",
-        "dispatch_mode": "background_single_locator",
-        "host_adapter": host_adapter,
-        "authority": "advisory",
-        "hard_gate": False,
-        "next_host_action": {
-            "action": action,
-            "execute_before_any_other_host_operation": False,
-            "dispatch_key": f"source-scope-locator:{job_id}",
-            "spawn_once_while_job_open": True,
-            **(
-                {
-                    "agent_type": "coc-source-scope-locator",
-                    "fork_turns": "none",
-                    "model_policy": "inherit_parent",
-                }
-                if host_adapter == "codex" else {}
-            ),
-            "task": task,
-            "parent_waits": False,
-            "parent_result_polls": 0,
-            "parent_output_retrieval": False,
-            "on_natural_completion": (
-                "notification only; the locator calls resolve_source_scope, then "
-                "the next ordinary scene.context exposes normal background_takeover"
-            ),
-        },
-        "play_boundary": {
-            "player_action_gate": False,
-            "narrative_gate": False,
-            "output_gate": False,
-            "nondependent_play_may_continue": True,
-        },
-    }
-
-
 def _full_parse_render_dispatch(
     *,
     workspace_root: str,
@@ -12488,15 +12248,6 @@ def _current_dependency_wait_projection(
     }
 
 
-def _locator_row_campaigns(row: dict[str, Any]) -> set[str]:
-    """Campaign ids that own one open host-work row (consumer_refs)."""
-    return {
-        str(ref.get("campaign_id") or "")
-        for ref in (row.get("consumer_refs") or [])
-        if isinstance(ref, dict) and ref.get("campaign_id")
-    }
-
-
 def _source_host_work_projection(
     ctx: Ctx,
     asset_root_id: str,
@@ -12518,7 +12269,6 @@ def _source_host_work_projection(
         "requested_pdf_indices", "source_aspect", "deadline_class",
         "work_level", "dependency_ref", "work_group_id",
         "dispatch_state", "dispatch_attempts",
-        "locator_failure_count", "last_locator_failure_at",
         "cached_scope_complete",
     )
     compact_host_work = [
@@ -12530,16 +12280,6 @@ def _source_host_work_projection(
         for row in open_rows
     ]
     host_adapter = str(os.environ.get("COC_HOST") or "unknown").lower()
-    pi_locator_command = str(
-        os.environ.get("COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND") or ""
-    ).strip()
-    pi_locator_available = (
-        host_adapter == "pi"
-        and bool(pi_locator_command)
-        and Path(pi_locator_command).is_absolute()
-        and Path(pi_locator_command).is_file()
-        and os.access(pi_locator_command, os.X_OK)
-    )
     ready_candidates = [
         compact
         for row, compact in zip(
@@ -12615,10 +12355,6 @@ def _source_host_work_projection(
         )
         if operational_class == "awaiting_scope"
     ]
-    locator_scope_requests = [
-        row for row in awaiting_scope
-        if assets_mod._job_aspect(str(row.get("kind") or "")) == "body"
-    ]
     projection: dict[str, Any] = {
         "asset_root_id": asset_root_id,
         "campaign_id": str(ctx.campaign_id),
@@ -12684,84 +12420,6 @@ def _source_host_work_projection(
             "pi_coordinator_retry_exhausted_requests": retry_exhausted[:4],
             "automatic_retry_remaining": False,
         })
-    if locator_scope_requests:
-        locator_max_attempts = assets_mod.HOST_WORK_LOCATOR_MAX_ATTEMPTS
-        locator_cooled = [
-            row for row in locator_scope_requests
-            if int(row.get("locator_failure_count") or 0)
-            >= locator_max_attempts
-        ]
-        if locator_cooled:
-            projection.update({
-                "locator_cooldown_count": len(locator_cooled),
-                "locator_max_attempts": locator_max_attempts,
-                "locator_cooldown_requests": [
-                    {
-                        key: deepcopy(row.get(key))
-                        for key in host_work_fields
-                        if key in row
-                    }
-                    for row in locator_cooled[:4]
-                ],
-            })
-        locator_selectable = [
-            row for row in locator_scope_requests
-            if row not in locator_cooled
-        ]
-    else:
-        locator_selectable = []
-    if locator_selectable and (
-        host_adapter == "codex" or pi_locator_available
-    ):
-        # Fair selection: the current campaign's awaiting-scope jobs always
-        # outrank stale jobs left open by other campaigns sharing this asset
-        # root, so a legacy cross-campaign job can never starve the campaign
-        # that is actually playing.  Only when the current campaign has no
-        # locator candidate do we fall back to the other-campaign pool, and
-        # cooled jobs (repeated locator failures) are excluded from both.
-        current_campaign_locator = [
-            row for row in locator_selectable
-            if str(ctx.campaign_id) in _locator_row_campaigns(row)
-        ]
-        other_campaign_locator = [
-            row for row in locator_selectable
-            if str(ctx.campaign_id) not in _locator_row_campaigns(row)
-        ]
-        locator_request = min(
-            current_campaign_locator or other_campaign_locator,
-            key=lambda row: (
-                assets_mod.HOST_WORK_LEVELS.index(
-                    str(row.get("work_level") or "near_term")
-                ),
-                -int(row.get("priority") or 0),
-                str(row.get("created_at") or ""),
-                str(row.get("job_id") or ""),
-            ),
-        )
-        entity_kind = str(
-            assets_mod._job_entity_kind(str(locator_request.get("kind") or ""))
-            or ""
-        )
-        target_id = str(locator_request.get("target_id") or "")
-        entity = (
-            assets_mod.get_entity(ctx.root, asset_root_id, entity_kind, target_id)
-            if entity_kind else None
-        ) or {}
-        names = entity.get("names") if isinstance(entity.get("names"), list) else []
-        target_label = str(
-            entity.get("title")
-            or entity.get("label")
-            or (names[0] if names else "")
-            or target_id
-        )
-        projection["source_scope_takeover"] = _source_scope_locator_dispatch(
-            workspace_root=str(ctx.root),
-            campaign_id=str(ctx.campaign_id),
-            asset_root_id=asset_root_id,
-            request=locator_request,
-            target_label=target_label,
-            host_adapter=host_adapter,
-        )
     if full_parse_candidates and host_adapter in {"codex", "pi"}:
         projection["full_parse_dispatch"] = _full_parse_render_dispatch(
             workspace_root=str(ctx.root),
@@ -12934,7 +12592,7 @@ def _attach_source_host_projection(
     projection = _source_host_work_projection(ctx, asset_root_id)
     result["host_work"] = projection
     for field in (
-        "background_takeover", "source_scope_takeover", "full_parse_dispatch",
+        "background_takeover", "full_parse_dispatch",
     ):
         if projection.get(field) is not None:
             result[field] = projection[field]
@@ -16007,11 +15665,8 @@ def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
             for row in opening_work
         })
         background_takeover = host_projection.get("background_takeover")
-        source_scope_takeover = host_projection.get("source_scope_takeover")
         if isinstance(background_takeover, dict):
             status = "source_recovery_ready"
-        elif isinstance(source_scope_takeover, dict):
-            status = "source_scope_recovery_ready"
         else:
             status = "source_recovery_waiting"
         return {
@@ -16035,10 +15690,6 @@ def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
             **(
                 {"background_takeover": background_takeover}
                 if isinstance(background_takeover, dict) else {}
-            ),
-            **(
-                {"source_scope_takeover": source_scope_takeover}
-                if isinstance(source_scope_takeover, dict) else {}
             ),
         }, [], [
             "this source request has no active lease owner; use the returned "
@@ -16070,213 +15721,6 @@ def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
     return result, [], [
         "selected authored opening projection is current; activation remains an explicit scene mutation"
     ]
-
-
-@tool(
-    "progressive.request_deepen",
-    "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, "
-    "and return host_hints / evidence_gap status. Use when the investigator materially pursues a "
-    "place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. "
-    "Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only).",
-    {
-        "kind": {
-            "type": "string",
-            "required": True,
-            "desc": "location | npc | clue | handout | threat",
-        },
-        "target_id": {
-            "type": "string",
-            "required": True,
-            "desc": "stable entity id (e.g. gypsy-hillside-camp, npc-carlos-mendoza)",
-        },
-        "title": {
-            "type": "string",
-            "desc": "optional display label for the stub (table language ok)",
-        },
-        "reason": {
-            "type": "string",
-            "desc": "why dig was requested (logged on the queue job)",
-        },
-        "current_dependency": {
-            "type": "object",
-            "desc": (
-                "omit for ordinary nonblocking player dig; include only when "
-                "the current natural action cannot be resolved honestly without "
-                "this unpublished authored body. operation names the exact "
-                "consumer and decision_id names that one pending settlement"
-            ),
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "required": True,
-                    "desc": "exact canonical consumer operation",
-                },
-                "decision_id": {
-                    "type": "string",
-                    "required": True,
-                    "desc": "stable identity of this current dependent settlement",
-                },
-            },
-            "additionalProperties": False,
-        },
-    },
-)
-def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
-    if ctx.campaign_dir is None:
-        raise ToolError("invalid_param", "campaign required")
-    current_dependency = args.get("current_dependency")
-    dependency_ref = None
-    if current_dependency is not None:
-        if (
-            not isinstance(current_dependency, dict)
-            or set(current_dependency) != {"operation", "decision_id"}
-        ):
-            raise ToolError(
-                "invalid_param",
-                "current_dependency must contain exactly operation and decision_id",
-            )
-        operation = str(current_dependency.get("operation") or "").strip()
-        decision_id = str(current_dependency.get("decision_id") or "").strip()
-        if not operation or not decision_id:
-            raise ToolError(
-                "invalid_param",
-                "current_dependency operation and decision_id must be non-empty",
-            )
-        dependency_ref = {
-            "operation": operation,
-            "subject": {
-                "kind": str(args["kind"]),
-                "id": str(args["target_id"]),
-            },
-            "decision_id": decision_id,
-        }
-    try:
-        result = coc_module_project.request_deepen(
-            ctx.root,
-            ctx.campaign_id,
-            kind=str(args["kind"]),
-            target_id=str(args["target_id"]),
-            title=str(args["title"]) if args.get("title") else None,
-            reason=str(args.get("reason") or "player_dig"),
-            dependency_ref=dependency_ref,
-        )
-    except coc_module_project.ModuleProjectError as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
-    except Exception as exc:
-        raise ToolError("progressive_error", f"request_deepen failed: {exc}") from exc
-    # request_deepen enqueues and kicks a detached deterministic queue worker.
-    # Pi can auto-dispatch only from a takeover carried by this exact tool
-    # result, so give the local queue->host-work handoff the same bounded grace
-    # used by foreground opening. This is not semantic parsing or status
-    # polling: it waits only for the just-enqueued durable job id to materialize.
-    assets_mod = coc_module_project.coc_module_assets
-    root_id = str(result.get("asset_root_id") or "").strip()
-    enqueue_result = next(
-        (
-            action.get("enqueue")
-            for action in reversed(result.get("actions") or [])
-            if isinstance(action, dict)
-            and isinstance(action.get("enqueue"), dict)
-        ),
-        None,
-    )
-    job_id = str(
-        ((enqueue_result or {}).get("job") or {}).get("job_id") or ""
-    ).strip()
-    if root_id and job_id:
-        all_open_host_work = assets_mod.list_host_work_requests(
-            ctx.root, root_id, limit=None,
-        )
-        open_request = next(
-            (
-                row for row in all_open_host_work
-                if str(row.get("job_id") or "") == job_id
-            ),
-            None,
-        )
-        worker_kick = (enqueue_result or {}).get("worker_kick") or {}
-        if open_request is None and not (worker_kick.get("disabled") is True):
-            # The just-enqueued job must hand its locator/ready takeover to the
-            # host on this exact response whenever the local worker can
-            # materialize it.  Wait a bounded grace for the durable host-work
-            # request regardless of which kick shape the enqueue returned;
-            # only a disabled worker (deterministic tests / headless) skips.
-            deadline = time.monotonic() + 1.0
-            while time.monotonic() < deadline:
-                time.sleep(0.05)
-                all_open_host_work = assets_mod.list_host_work_requests(
-                    ctx.root, root_id, limit=None,
-                )
-                open_request = next(
-                    (
-                        row for row in all_open_host_work
-                        if str(row.get("job_id") or "") == job_id
-                    ),
-                    None,
-                )
-                if open_request is not None:
-                    break
-        if open_request is not None:
-            host_projection = _source_host_work_projection(
-                ctx,
-                root_id,
-                all_open_host_work=all_open_host_work,
-            )
-            takeover = host_projection.get("background_takeover")
-            locator_takeover = host_projection.get("source_scope_takeover")
-            result["host_work"] = {
-                key: value
-                for key, value in host_projection.items()
-                if key != "background_takeover"
-            }
-            if open_request.get("operational_class") == "leased":
-                result["source_lifecycle"] = {
-                    "status": "leased",
-                    "job_id": job_id,
-                    **(
-                        {"dispatch_key": open_request.get("lease_id")}
-                        if open_request.get("lease_id") else {}
-                    ),
-                    "idempotent": True,
-                    "retry_required": False,
-                    "owner": "existing_host_source_coordinator",
-                }
-            elif takeover is not None:
-                result["background_takeover"] = takeover
-            if locator_takeover is not None:
-                # Mirror progressive.status / _attach_source_host_projection:
-                # the awaiting_scope locator task is a nonblocking host dispatch
-                # handoff on the same level as the ready background takeover.
-                result["source_scope_takeover"] = locator_takeover
-    hints = list(result.get("host_hints") or [])
-    if result.get("skipped"):
-        hints.append("campaign is not on the progressive asset track")
-    status = result.get("status") or {}
-    if status.get("deep_ready"):
-        hints.append(
-            f"{args['kind']}:{args['target_id']} already deep — merge/process if not yet in IR"
-        )
-    elif not result.get("skipped"):
-        if result.get("current_dependency"):
-            hints.append(
-                "the current natural action depends on this exact blocking_micro "
-                "source result: do not release source-dependent facts before the "
-                "host terminal notice; do not poll, wait actively, or retrieve "
-                "child output; after terminal consume it through the next natural "
-                "canonical query"
-            )
-        else:
-            hints.append(
-                "nondependent play may continue with skeleton/stub; do not fabricate "
-                "handout/secret bodies while evidence_gap or dig_pending is set"
-            )
-    if result.get("source_scope_takeover"):
-        hints.append(
-            "source_scope_takeover is a nonblocking document-locator task; spawn "
-            "its stable dispatch_key at most once while the job remains open and "
-            "continue player-facing play without waiting or polling"
-        )
-    return result, [], hints
 
 
 @tool(
@@ -16386,139 +15830,6 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
     return result, [], [
         "reviewed pages are now cached; claim background host work again so its "
         "exact cached_page_refs refresh without reopening the PDF",
-    ]
-
-
-@tool(
-    "progressive.resolve_source_scope",
-    "Reuse accepted cached pages or register one externally reviewed missing "
-    "1..3-page locator window, attach its exact "
-    "scope to an existing named-only target, and atomically replace that target's "
-    "awaiting_scope host work with normal claimable work. Locator-declared "
-    "cache_referenced_pdf_indices bind by content address to accepted cached "
-    "pages without re-registration; the bundle may then contain only newly "
-    "rendered pages. This operation never "
-    "opens PDF bytes or compiles an entity pack.",
-    {
-        "job_id": {
-            "type": "string",
-            "required": True,
-            "desc": "exact open awaiting_scope host-work job id",
-        },
-        "kind": {
-            "type": "string",
-            "required": True,
-            "desc": "location | npc | item | clue | handout | threat",
-        },
-        "target_id": {
-            "type": "string",
-            "required": True,
-            "desc": "exact structured target id from the awaiting_scope request",
-        },
-        "source_bundle_path": {
-            "type": "string",
-            "desc": "absolute path to the host-produced reviewed OCR bundle; "
-            "omit when every selected pdf_index is already accepted in cache",
-        },
-        "pdf_indices": {
-            "type": "array",
-            "required": True,
-            "desc": "exact ascending 1..3 printed page numbers (Page N as "
-            "printed in the PDF, 1-based) identical to the module cache's "
-            "accepted_cached_pdf_indices; never 0-based physical order",
-        },
-        "cache_referenced_pdf_indices": {
-            "type": "array",
-            "desc": "locator-declared pages already accepted in the module "
-            "cache; each entry is an exact {pdf_index, text_sha256} content "
-            "address and binds to the existing immutable cached page without "
-            "put_page or text comparison. Omit when no selected page is "
-            "cache-referenced; when present, source_bundle_path must cover "
-            "only the remaining newly rendered pages",
-        },
-    },
-)
-def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
-    if ctx.campaign_dir is None:
-        raise ToolError("invalid_param", "campaign required")
-    try:
-        result = coc_module_project.resolve_source_scope(
-            ctx.root,
-            ctx.campaign_id,
-            job_id=str(args.get("job_id") or ""),
-            kind=str(args.get("kind") or ""),
-            target_id=str(args.get("target_id") or ""),
-            source_bundle_path=(
-                Path(str(args["source_bundle_path"])).expanduser().resolve()
-                if str(args.get("source_bundle_path") or "").strip()
-                else None
-            ),
-            pdf_indices=list(args.get("pdf_indices") or []),
-            cache_referenced_pdf_indices=list(
-                args.get("cache_referenced_pdf_indices") or []
-            ),
-        )
-    except coc_module_project.ModuleProjectError as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
-    except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
-    root_id = str(result.get("asset_root_id") or "")
-    _attach_source_host_projection(ctx, result, root_id)
-    return result, [], [
-        "the exact scope is attached and the old awaiting_scope row is superseded; "
-        "continue play while the existing background_takeover handles the replacement",
-    ]
-
-
-@tool(
-    "progressive.report_host_work_locator_failure",
-    "Durably record one failed source-scope locator dispatch for an exact "
-    "host-work job. The locator lane excludes jobs at the cooldown bound "
-    "from selection, so a stale job that repeatedly times out or fails can "
-    "never starve newer locator work in a shared asset root. It never "
-    "resolves scope, leases work, or touches player state.",
-    {
-        "job_id": {
-            "type": "string",
-            "required": True,
-            "desc": "exact open host-work job_id whose locator dispatch failed",
-        },
-        "failure_class": {
-            "type": "string",
-            "required": True,
-            "desc": "locator failure class (source_scope_locator_timeout, "
-            "source_scope_locator_result_invalid, "
-            "source_scope_bundle_publication_failed, "
-            "source_scope_registration_failed, ...)",
-        },
-    },
-)
-def _tool_progressive_report_host_work_locator_failure(
-    ctx: Ctx, args: dict[str, Any],
-):
-    if ctx.campaign_dir is None:
-        raise ToolError("invalid_param", "campaign required")
-    root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
-    if not root_id:
-        raise ToolError("invalid_param", "campaign is not progressive")
-    assets_mod = coc_module_project.coc_module_assets
-    job_id = str(args.get("job_id") or "").strip()
-    failure_class = str(args.get("failure_class") or "").strip()
-    if not job_id or not failure_class:
-        raise ToolError(
-            "invalid_param", "job_id and failure_class are required"
-        )
-    try:
-        result = assets_mod.report_host_work_locator_failure(
-            ctx.root, root_id, job_id, failure_class,
-        )
-    except assets_mod.ModuleAssetsError as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
-    _attach_source_host_projection(ctx, result, root_id)
-    return result, [], [
-        "the failed locator dispatch is durably counted; the job leaves "
-        "locator selection at the cooldown bound so it cannot starve newer "
-        "source-scope work",
     ]
 
 
@@ -18632,10 +17943,6 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
         data["background_takeover"] = host_work_projection[
             "background_takeover"
         ]
-    if host_work_projection.get("source_scope_takeover"):
-        data["source_scope_takeover"] = host_work_projection[
-            "source_scope_takeover"
-        ]
     if host_work_projection.get("full_parse_dispatch"):
         data["full_parse_dispatch"] = host_work_projection[
             "full_parse_dispatch"
@@ -18662,12 +17969,6 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
             "named-submit host the parent does not wait, retrieve, poll, or "
             "call progressive.fulfill_host_work; only a host without direct "
             "submit uses the exact-forward fallback"
-        )
-    if host_work_projection.get("source_scope_takeover"):
-        hints.append(
-            "source_scope_takeover is a nonblocking document-locator task; spawn "
-            "its stable dispatch_key at most once while the job remains open and "
-            "continue player-facing play without waiting or polling"
         )
     return data, [], hints
 

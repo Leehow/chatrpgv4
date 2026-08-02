@@ -85,11 +85,13 @@ decision's needed domains in `covered_domains` is sufficient grounding: stop
 additional reads. Drill down only when you can name a concrete missing field
 and how it materially changes the current adjudication. Never seek reassurance
 through domain discovery, continuation pagination, prior
-`session.delivery_text`, or empty clue/secret reads. After
-`progressive.request_deepen` returns its result or queue status, do not call
-`scene.map` or `progressive.status` in the same player turn merely to confirm
-it; background work continues and the player reply comes first. This is
-advisory read discipline for KP judgment, not a fixed call count or order.
+`session.delivery_text`, or empty clue/secret reads. Module text for a
+material dig comes from steward deliveries (`steward.deliveries` /
+`steward.notebook`) — the steward selects exact pages and marks what is still
+unparsed; never dig or re-read PDF sources yourself, and do not confirm a
+delivery with `scene.map`/`progressive.status` in the same player turn.
+Background work continues and the player reply comes first. This is advisory
+read discipline for KP judgment, not a fixed call count or order.
 
 `turn.output_context.finalize_operation` is the complete compact handoff to
 the final boundary. Merge its `prefilled_arguments` unchanged and supply only
@@ -199,15 +201,12 @@ or a mission; when the source differs, follow the source. This is semantic KP
 grounding, never a keyword selector, player-action gate, narration judge, or
 output gate.
 
-When `scene.context.progressive.source_scope_takeover` is present and
-capability discovery reports `coc_source_scope_locator_v1=true`, spawn the
-exact returned task once as a context-free background Codex task. Honor its
-stable `dispatch_key`: never duplicate it while the same job remains open.
-The locator alone reads the PDF, registers the smallest reviewed page window,
-and wakes the existing queue. Continue play without waiting, polling, or
-retrieving its source output. When `ready_for_background_count=0`, do not call
+When the current moment needs module text that is not yet delivered, take it
+from steward deliveries (`steward.deliveries` / `steward.notebook`); the
+steward selects the exact pages and marks what is still unparsed. Never spawn
+a PDF-reading dig yourself. When `ready_for_background_count=0`, do not call
 `progressive.claim_host_work`; the next ordinary scene query will expose the
-normal `background_takeover` after scope resolution.
+normal `background_takeover` after the S1 full-parse lane caches the pages.
 
 If the same planner reports `mechanics_locator_pass_pending`, treat its
 `mechanics_locator_page_candidates` as bounded selection hints and semantically choose

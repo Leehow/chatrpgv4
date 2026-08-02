@@ -153,7 +153,7 @@ def test_mcp_hotset_and_no_repeated_full_catalog_guidance():
         "working_set.mode=full",
         "covered_domains",
         "named missing field",
-        "progressive.request_deepen",
+        "steward deliveries",
         "same player turn",
         "background continues and the player reply comes first",
         "not a fixed call count/order",
