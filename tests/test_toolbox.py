@@ -11443,6 +11443,7 @@ const handshake = {
   visual_review: true,
   repository_pdf_parser: false,
   ocr: false,
+  cache_reference: true,
 };
 if (process.argv[2] === "--capabilities") {
   process.stdout.write(JSON.stringify(handshake));
@@ -11486,6 +11487,7 @@ if (process.argv[2] === "--capabilities") {
     kind: task.kind,
     target_id: task.target_id,
     pdf_indices: [2],
+    cache_referenced_pdf_indices: [],
     source_bundle_path: task.source_bundle_path,
     failure_class: null,
   }));

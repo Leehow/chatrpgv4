@@ -4754,6 +4754,19 @@ export function validatePiSourceScopeLocatorTask(input: unknown): JsonObject {
       "Pi source-scope locator pdf_index_caliber must be printed_page_number_1_based",
     );
   }
+  const cachedPdfIndices = task.cached_pdf_indices;
+  if (
+    !Array.isArray(cachedPdfIndices)
+    || cachedPdfIndices.some(
+      (value) => !Number.isInteger(value) || Number(value) < 0,
+    )
+    || JSON.stringify(cachedPdfIndices) !== JSON.stringify(
+      [...new Set(cachedPdfIndices as number[])].sort((a, b) => a - b),
+    )
+  ) throw new Error(
+    "Pi source-scope locator cached_pdf_indices must be unique ascending "
+    + "non-negative page indices",
+  );
   for (const field of [
     "workspace_root", "campaign_id", "asset_root_id", "job_id", "job_kind",
     "kind", "target_id", "target_label", "source_bundle_path",
@@ -4893,6 +4906,47 @@ async function runLocatorProcess(
   return asObject(parsed, "source-scope locator producer result");
 }
 
+async function acceptedCachedPdfIndices(
+  workspaceRoot: string,
+  assetRootId: string,
+): Promise<number[]> {
+  // Conservative fallback fill: the toolbox fills task.cached_pdf_indices
+  // authoritatively; this read is used only when that value is empty so the
+  // adapter still skips rendering pages the module cache already accepted.
+  const pagesDir = join(
+    workspaceRoot, ".coc", "module-assets", assetRootId, "pages",
+  );
+  let entries: string[];
+  try { entries = await readdir(pagesDir); }
+  catch { return []; }
+  const accepted: number[] = [];
+  for (const entry of entries) {
+    const match = /^(\d+)\.md$/.exec(entry);
+    if (match === null) continue;
+    const index = Number(match[1]);
+    let meta: JsonObject;
+    try {
+      meta = asObject(
+        JSON.parse(await readFile(join(pagesDir, `${match[1]}.meta.json`), "utf8")),
+        "cached page meta",
+      );
+    } catch { continue; }
+    if (
+      typeof meta.text_sha256 !== "string"
+      || typeof meta.file_sha256 !== "string"
+      || typeof meta.source_id !== "string"
+    ) continue;
+    let bytes: Buffer;
+    try { bytes = await readFile(join(pagesDir, entry)); }
+    catch { continue; }
+    if (createHash("sha256").update(bytes).digest("hex") !== meta.text_sha256) {
+      continue;
+    }
+    accepted.push(index);
+  }
+  return [...new Set(accepted)].sort((left, right) => left - right);
+}
+
 export async function runPiSourceScopeProducer(
   taskValue: unknown,
   options: {
@@ -4921,7 +4975,7 @@ export async function runPiSourceScopeProducer(
   exactKeys(handshake, [
     "schema_version", "contract_id", "capability", "producer",
     "max_selected_pages", "writes_canonical_bundle", "visual_review",
-    "repository_pdf_parser", "ocr",
+    "repository_pdf_parser", "ocr", "cache_reference",
   ], "source-scope locator producer handshake");
   if (
     handshake.schema_version !== 1
@@ -4933,6 +4987,7 @@ export async function runPiSourceScopeProducer(
     || handshake.visual_review !== true
     || handshake.repository_pdf_parser !== false
     || handshake.ocr !== false
+    || handshake.cache_reference !== true
   ) throw new Error("source-scope locator producer capability mismatch");
   const receipt = await runLocatorProcess(
     command,
@@ -4943,7 +4998,8 @@ export async function runPiSourceScopeProducer(
   );
   exactKeys(receipt, [
     "schema_version", "contract_id", "job_id", "status", "kind",
-    "target_id", "pdf_indices", "source_bundle_path", "failure_class",
+    "target_id", "pdf_indices", "cache_referenced_pdf_indices",
+    "source_bundle_path", "failure_class",
   ], "source-scope locator producer receipt");
   const status = String(receipt.status ?? "");
   if (
@@ -4967,6 +5023,23 @@ export async function runPiSourceScopeProducer(
     "source-scope locator producer pdf_indices are invalid: must be 1..3 "
     + "ascending positive integers (printed page numbers, 1-based)",
   );
+  const cacheReferenced = receipt.cache_referenced_pdf_indices;
+  if (
+    !Array.isArray(cacheReferenced)
+    || cacheReferenced.length > 3
+    || cacheReferenced.some(
+      (value) => !Number.isInteger(value) || Number(value) < 1,
+    )
+    || JSON.stringify(cacheReferenced) !== JSON.stringify(
+      [...new Set(cacheReferenced as number[])].sort((a, b) => a - b),
+    )
+    || !(cacheReferenced as number[]).every((value) => (
+      (indices as number[]).includes(value)
+    ))
+  ) throw new Error(
+    "source-scope locator producer cache_referenced_pdf_indices are invalid: "
+    + "must be ascending positive integers within pdf_indices",
+  );
   if (status === "located") {
     if (
       indices.length === 0
@@ -4975,6 +5048,7 @@ export async function runPiSourceScopeProducer(
     ) throw new Error("located source-scope receipt is incomplete");
   } else if (
     indices.length !== 0
+    || cacheReferenced.length !== 0
     || receipt.source_bundle_path !== null
     || (
       status === "not_located"
@@ -5228,10 +5302,18 @@ async function validateStagedSourceBundle(
     || !Number.isInteger(source.page_count)
     || Number(source.page_count) <= 0
     || !Array.isArray(pages)
-    || pages.length < 1
-    || pages.length > 3
   ) throw new Error("staged source bundle identity is invalid");
-  const expectedIndices = receipt.pdf_indices as number[];
+  const expectedScope = receipt.pdf_indices as number[];
+  const cacheReferenced = receipt.cache_referenced_pdf_indices as number[];
+  const cacheReferencedSet = new Set(cacheReferenced);
+  // Scope and content are split: the bundle contains only newly rendered
+  // pages; cache-referenced pages stay content-addressed in the module cache.
+  const expectedIndices = expectedScope.filter(
+    (value) => !cacheReferencedSet.has(value),
+  );
+  if (pages.length !== expectedIndices.length) {
+    throw new Error("staged source bundle pages diverge from producer receipt");
+  }
   const actualIndices: number[] = [];
   const pageDigests: JsonObject[] = [];
   for (const [position, rawPage] of pages.entries()) {
@@ -5253,6 +5335,7 @@ async function validateStagedSourceBundle(
         (anchor) => typeof anchor !== "string" || !anchor.trim(),
       )
       || !/^[a-f0-9]{64}$/.test(String(page.text_sha256 ?? ""))
+      || cacheReferencedSet.has(Number(pdfIndex))
     ) throw new Error("staged source bundle page contract is invalid");
     const pagePath = resolve(root, markdownPath);
     if (!pagePath.startsWith(`${root}${sep}`)) {
@@ -5310,6 +5393,9 @@ async function writeSourceScopePublicationMarker(
     kind: stableTask.kind,
     target_id: stableTask.target_id,
     pdf_indices: structuredClone(receipt.pdf_indices),
+    cache_referenced_pdf_indices: structuredClone(
+      receipt.cache_referenced_pdf_indices,
+    ),
     source_id: source.source_id,
     file_sha256: source.file_sha256,
     stable_path: stableTask.source_bundle_path,
@@ -5350,7 +5436,8 @@ async function recoverPublishedSourceBundle(
   exactKeys(marker, [
     "schema_version", "contract_id", "state", "task_digest",
     "bundle_digest", "job_id", "kind", "target_id", "pdf_indices",
-    "source_id", "file_sha256", "stable_path", "marker_sha256",
+    "cache_referenced_pdf_indices", "source_id", "file_sha256",
+    "stable_path", "marker_sha256",
   ], "stable source bundle publication marker");
   const {
     marker_sha256: markerSha256,
@@ -5369,6 +5456,7 @@ async function recoverPublishedSourceBundle(
     || marker.file_sha256 !== source.file_sha256
     || marker.stable_path !== task.source_bundle_path
     || !/^[a-f0-9]{64}$/.test(String(marker.bundle_digest ?? ""))
+    || !Array.isArray(marker.cache_referenced_pdf_indices)
     || markerSha256 !== sha256Json(core)
   ) throw new Error("stable source bundle publication marker binding drift");
   const receipt = {
@@ -5379,6 +5467,9 @@ async function recoverPublishedSourceBundle(
     kind: task.kind,
     target_id: task.target_id,
     pdf_indices: structuredClone(marker.pdf_indices),
+    cache_referenced_pdf_indices: structuredClone(
+      marker.cache_referenced_pdf_indices,
+    ),
     source_bundle_path: task.source_bundle_path,
     failure_class: null,
   };
@@ -5404,7 +5495,8 @@ async function runPiSourceScopeProducerReceiptOnly(
   const receipt = asObject(receiptValue, "source-scope locator receipt");
   exactKeys(receipt, [
     "schema_version", "contract_id", "job_id", "status", "kind",
-    "target_id", "pdf_indices", "source_bundle_path", "failure_class",
+    "target_id", "pdf_indices", "cache_referenced_pdf_indices",
+    "source_bundle_path", "failure_class",
   ], "source-scope locator producer receipt");
   const status = String(receipt.status ?? "");
   if (
@@ -5424,6 +5516,13 @@ async function runPiSourceScopeProducerReceiptOnly(
     || JSON.stringify(receipt.pdf_indices) !== JSON.stringify(
       [...new Set(receipt.pdf_indices as number[])].sort((a, b) => a - b),
     )
+    || !Array.isArray(receipt.cache_referenced_pdf_indices)
+    || receipt.cache_referenced_pdf_indices.some(
+      (value) => !Number.isInteger(value) || Number(value) < 1,
+    )
+    || !(receipt.cache_referenced_pdf_indices as number[]).every((value) => (
+      (receipt.pdf_indices as number[]).includes(value)
+    ))
     || receipt.source_bundle_path !== task.source_bundle_path
     || receipt.failure_class !== null
   ) throw new Error("source-scope locator recovery receipt binding drift");
@@ -6632,6 +6731,20 @@ export async function autoDispatchPiSourceScopeLocator(
     deps.audit(failure);
     return failure;
   }
+  // Scope/content split: the locator core selects pdf_indices, content prefers
+  // the module cache. When the toolbox did not already fill the accepted
+  // cached page indices, read them from the asset root so the producer skips
+  // re-rendering them.
+  const declaredCached = task.cached_pdf_indices as number[];
+  if (Array.isArray(declaredCached) && declaredCached.length === 0) {
+    const filled = await acceptedCachedPdfIndices(
+      String(task.workspace_root),
+      String(task.asset_root_id),
+    );
+    if (filled.length > 0) {
+      task = { ...task, cached_pdf_indices: filled };
+    }
+  }
   const key = `source-scope-locator:${nonEmpty(task.job_id, "job_id")}`;
   const previous = deps.states.get(key);
   if (previous) return previous;
@@ -6741,17 +6854,23 @@ export async function autoDispatchPiSourceScopeLocator(
         deps.audit(terminal);
         return terminal;
       }
-      try {
-        receipt = await publishStagedSourceBundle(task, stagedTask, receipt);
-      } catch {
-        const failure = {
-          status: "failed",
-          dispatch_key: key,
-          failure_class: "source_scope_bundle_publication_failed",
-        };
-        deps.states.set(key, failure);
-        deps.audit(failure);
-        return failure;
+      const cacheReferenced = receipt.cache_referenced_pdf_indices as number[];
+      // When every selected page is cache-referenced the producer rendered
+      // nothing, so there is no staged bundle to publish; scope registration
+      // binds all selected pages to the accepted cache by content address.
+      if (cacheReferenced.length < (receipt.pdf_indices as number[]).length) {
+        try {
+          receipt = await publishStagedSourceBundle(task, stagedTask, receipt);
+        } catch {
+          const failure = {
+            status: "failed",
+            dispatch_key: key,
+            failure_class: "source_scope_bundle_publication_failed",
+          };
+          deps.states.set(key, failure);
+          deps.audit(failure);
+          return failure;
+        }
       }
     }
     if (!deps.isCurrent()) {
@@ -6774,15 +6893,22 @@ export async function autoDispatchPiSourceScopeLocator(
     );
     let resolved: JsonObject;
     try {
+      const resolveArguments: JsonObject = {
+        ...structuredClone(prefilled),
+        pdf_indices: structuredClone(receipt.pdf_indices),
+        cache_referenced_pdf_indices: structuredClone(
+          receipt.cache_referenced_pdf_indices,
+        ),
+      };
+      if ((receipt.cache_referenced_pdf_indices as number[]).length
+        < (receipt.pdf_indices as number[]).length) {
+        resolveArguments.source_bundle_path = receipt.source_bundle_path;
+      }
       resolved = await deps.call("coc_invoke", {
         operation: "progressive.resolve_source_scope",
         root: task.workspace_root,
         campaign: task.campaign_id,
-        arguments: {
-          ...structuredClone(prefilled),
-          pdf_indices: structuredClone(receipt.pdf_indices),
-          source_bundle_path: receipt.source_bundle_path,
-        },
+        arguments: resolveArguments,
       }, controller.signal);
       if (resolved.ok !== true) {
         throw new Error("canonical scope resolution rejected");

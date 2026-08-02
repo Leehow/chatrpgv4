@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:a44a1ed898984c22e96a5998af3db5f76293d5d6aa50fb198ff854b87a17de1c",
+  "content_sha256": "sha256:0aafa6ab0d8d237988e945be2840bc344ce735bc57546ede8f5083cda60d3f2f",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1639,10 +1639,14 @@
     },
     "progressive.resolve_source_scope": {
       "canonical_operation": "progressive.resolve_source_scope",
-      "description": "Reuse accepted cached pages or register one externally reviewed missing 1..3-page locator window, attach its exact scope to an existing named-only target, and atomically replace that target's awaiting_scope host work with normal claimable work. This operation never opens PDF bytes or compiles an entity pack. Canonical operation `progressive.resolve_source_scope`; the result envelope is authoritative.",
+      "description": "Reuse accepted cached pages or register one externally reviewed missing 1..3-page locator window, attach its exact scope to an existing named-only target, and atomically replace that target's awaiting_scope host work with normal claimable work. Locator-declared cache_referenced_pdf_indices bind by content address to accepted cached pages without re-registration; the bundle may then contain only newly rendered pages. This operation never opens PDF bytes or compiles an entity pack. Canonical operation `progressive.resolve_source_scope`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "cache_referenced_pdf_indices": {
+            "description": "locator-declared pages already accepted in the module cache; each entry is an exact {pdf_index, text_sha256} content address and binds to the existing immutable cached page without put_page or text comparison. Omit when no selected page is cache-referenced; when present, source_bundle_path must cover only the remaining newly rendered pages",
+            "type": "array"
+          },
           "campaign": {
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
@@ -1682,7 +1686,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Reuse accepted cached pages or register one externally reviewed missing 1..3-page locator window, attach its exact scope to an existing named-only target, and atomically replace that target's awaiting_scope host work with normal claimable work. This operation never opens PDF bytes or compiles an entity pack."
+      "summary": "Reuse accepted cached pages or register one externally reviewed missing 1..3-page locator window, attach its exact scope to an existing named-only target, and atomically replace that target's awaiting_scope host work with normal claimable work. Locator-declared cache_referenced_pdf_indices bind by content address to accepted cached pages without re-registration; the bundle may then contain only newly rendered pages. This operation never opens PDF bytes or compiles an entity pack."
     },
     "progressive.status": {
       "canonical_operation": "progressive.status",

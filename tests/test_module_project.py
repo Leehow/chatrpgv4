@@ -121,6 +121,301 @@ def test_resolve_source_scope_explicit_bundle_can_upgrade_cached_page(
     _exercise_resolve_source_scope_explicit_bundle_upgrade(tmp_path)
 
 
+def _locator_source_bundle(
+    tmp_path: Path, pdf: Path, pages: list[int], texts: list[str],
+    *, name: str = "locator", source_id: str = "pdf:cache-scope",
+    title: str = "Cache Scope", page_count: int = 8,
+) -> Path:
+    """Build one codex-pdf-skill bundle directory with exact pages/texts."""
+    root = tmp_path / name
+    root.mkdir()
+    for index, text in zip(pages, texts, strict=True):
+        (root / f"page-{index:04d}.md").write_text(text, encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": source_id,
+            "title": title,
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": page_count,
+        },
+        "pages": [
+            {
+                "pdf_index": index,
+                "markdown_path": f"page-{index:04d}.md",
+                "text_sha256": hashlib.sha256(
+                    text.encode("utf-8")
+                ).hexdigest(),
+                "review_state": "manual_accepted",
+                "parse_confidence": 0.99,
+                "grep_anchors": [],
+            }
+            for index, text in zip(pages, texts, strict=True)
+        ],
+        "assets": [],
+    }
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return root
+
+
+def _campaign_with_awaiting_scope(
+    tmp_path: Path, root_id: str, *, job_id: str = "job-awaiting-scope",
+) -> str:
+    campaign_id = "cache-ref-campaign"
+    campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
+    (campaign_dir / "scenario").mkdir(parents=True)
+    (campaign_dir / "scenario" / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "progressive_asset_root_id": root_id,
+    }), encoding="utf-8")
+    host_work = tmp_path / ".coc" / "module-assets" / root_id / "host-work"
+    host_work.mkdir(parents=True)
+    job = {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": job_id,
+        "kind": "deepen_location",
+        "target_id": "archive",
+        "priority": 50,
+        "reason": "locator",
+        "status": "open",
+        "dispatch_state": "awaiting_scope",
+        "requested_pdf_indices": [],
+        "cached_page_refs": [],
+        "work_level": "near_term",
+    }
+    (host_work / f"{job_id}.json").write_text(
+        json.dumps(job), encoding="utf-8",
+    )
+    return campaign_id
+
+
+def test_resolve_source_scope_rerendered_cached_pages_fail_closed(tmp_path: Path):
+    """play04 repro: a locator bundle that re-renders accepted cached pages
+    is refused; the accepted page evidence is never overwritten."""
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF cache-scope fixture")
+    cached = _locator_source_bundle(
+        tmp_path, pdf, pages=[2, 3], texts=["cached two\n", "cached three\n"],
+    )
+    registered = assets.register_source_bundle(
+        tmp_path, cached, asset_root_id="cache-scope",
+    )
+    campaign_id = _campaign_with_awaiting_scope(
+        tmp_path, registered["asset_root_id"],
+    )
+    rerendered = _locator_source_bundle(
+        tmp_path, pdf, pages=[2, 3],
+        texts=["adapter two\n", "adapter three\n"], name="rerendered",
+    )
+    with pytest.raises(project.coc_module_assets.ModuleAssetsError, match="content drift"):
+        project.resolve_source_scope(
+            tmp_path, campaign_id, job_id="job-awaiting-scope",
+            kind="location", target_id="archive",
+            source_bundle_path=rerendered, pdf_indices=[2, 3],
+        )
+
+
+def test_resolve_source_scope_cache_referenced_binding_without_put_page(
+    tmp_path: Path,
+):
+    """The locator reuses accepted cached pages by content address and
+    registers only newly rendered pages; the two extraction paths never
+    overwrite each other's text."""
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF cache-scope fixture")
+    cached = _locator_source_bundle(
+        tmp_path, pdf, pages=[2, 3], texts=["cached two\n", "cached three\n"],
+    )
+    registered = assets.register_source_bundle(
+        tmp_path, cached, asset_root_id="cache-scope",
+    )
+    campaign_id = _campaign_with_awaiting_scope(
+        tmp_path, registered["asset_root_id"],
+    )
+    new_page = _locator_source_bundle(
+        tmp_path, pdf, pages=[4], texts=["fresh four\n"], name="new-page",
+    )
+    cached_meta = assets.get_page(
+        tmp_path, registered["asset_root_id"], 2,
+    )
+    assert isinstance(cached_meta, dict)
+    cache_refs = [
+        {
+            "pdf_index": pdf_index,
+            "text_sha256": cached_meta["meta"]["text_sha256"],
+        }
+        for pdf_index in (2, 3)
+    ]
+    cache_refs[1]["text_sha256"] = assets.get_page(
+        tmp_path, registered["asset_root_id"], 3,
+    )["meta"]["text_sha256"]
+    resolved = project.resolve_source_scope(
+        tmp_path, campaign_id, job_id="job-awaiting-scope",
+        kind="location", target_id="archive",
+        source_bundle_path=new_page, pdf_indices=[2, 3, 4],
+        cache_referenced_pdf_indices=cache_refs,
+    )
+    assert resolved["registered_pdf_indices"] == [4]
+    assert sorted(resolved["reused_pdf_indices"]) == [2, 3]
+    assert resolved["cache_referenced_pdf_indices"] == cache_refs
+    refs = assets._cached_source_refs(
+        tmp_path, registered["asset_root_id"],
+        {"source_page_indices": [2, 3, 4]},
+        field="cache_referenced_binding",
+    )
+    assert [row["pdf_index"] for row in refs] == [2, 3, 4]
+    assert [row["text_sha256"] for row in refs] == [
+        cache_refs[0]["text_sha256"],
+        cache_refs[1]["text_sha256"],
+        hashlib.sha256(b"fresh four\n").hexdigest(),
+    ]
+    # The accepted page artifact bytes remain the opening-review extraction.
+    page = assets.get_page(tmp_path, registered["asset_root_id"], 2)
+    assert page["text"] == "cached two\n"
+
+
+def test_resolve_source_scope_all_cached_no_bundle(tmp_path: Path):
+    """A locator that selects only accepted cached pages needs no bundle:
+    scope attaches by content address and no registration occurs."""
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF cache-scope fixture")
+    cached = _locator_source_bundle(
+        tmp_path, pdf, pages=[2, 3], texts=["cached two\n", "cached three\n"],
+    )
+    registered = assets.register_source_bundle(
+        tmp_path, cached, asset_root_id="cache-scope",
+    )
+    campaign_id = _campaign_with_awaiting_scope(
+        tmp_path, registered["asset_root_id"],
+    )
+    cache_refs = [
+        {
+            "pdf_index": pdf_index,
+            "text_sha256": assets.get_page(
+                tmp_path, registered["asset_root_id"], pdf_index,
+            )["meta"]["text_sha256"],
+        }
+        for pdf_index in (2, 3)
+    ]
+    resolved = project.resolve_source_scope(
+        tmp_path, campaign_id, job_id="job-awaiting-scope",
+        kind="location", target_id="archive",
+        source_bundle_path=None, pdf_indices=[2, 3],
+        cache_referenced_pdf_indices=cache_refs,
+    )
+    assert resolved["source_reuse"] is True
+    assert resolved["registered_pdf_indices"] == []
+    assert sorted(resolved["reused_pdf_indices"]) == [2, 3]
+
+
+def test_resolve_source_scope_cache_referenced_content_address_drift_fails(
+    tmp_path: Path,
+):
+    """A cache-reference whose hash no longer addresses the accepted page is
+    refused: evidence never binds to the wrong artifact."""
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF cache-scope fixture")
+    cached = _locator_source_bundle(
+        tmp_path, pdf, pages=[2, 3], texts=["cached two\n", "cached three\n"],
+    )
+    registered = assets.register_source_bundle(
+        tmp_path, cached, asset_root_id="cache-scope",
+    )
+    campaign_id = _campaign_with_awaiting_scope(
+        tmp_path, registered["asset_root_id"],
+    )
+    stale_ref = {
+        "pdf_index": 2,
+        "text_sha256": "f" * 64,
+    }
+    with pytest.raises(project.ModuleProjectError, match="content-address"):
+        project.resolve_source_scope(
+            tmp_path, campaign_id, job_id="job-awaiting-scope",
+            kind="location", target_id="archive",
+            source_bundle_path=None, pdf_indices=[2],
+            cache_referenced_pdf_indices=[stale_ref],
+        )
+
+
+def test_resolve_source_scope_cache_referenced_uncached_index_fails(tmp_path: Path):
+    """A cache-reference to an index the module cache does not accept fails
+    closed instead of silently dropping the page."""
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF cache-scope fixture")
+    cached = _locator_source_bundle(
+        tmp_path, pdf, pages=[2], texts=["cached two\n"],
+    )
+    registered = assets.register_source_bundle(
+        tmp_path, cached, asset_root_id="cache-scope",
+    )
+    campaign_id = _campaign_with_awaiting_scope(
+        tmp_path, registered["asset_root_id"],
+    )
+    not_accepted = {
+        "pdf_index": 3,
+        "text_sha256": "e" * 64,
+    }
+    with pytest.raises(project.ModuleProjectError, match="not accepted"):
+        project.resolve_source_scope(
+            tmp_path, campaign_id, job_id="job-awaiting-scope",
+            kind="location", target_id="archive",
+            source_bundle_path=None, pdf_indices=[2, 3],
+            cache_referenced_pdf_indices=[not_accepted],
+        )
+
+
+def test_resolve_source_scope_bundle_must_cover_exactly_new_pages(tmp_path: Path):
+    """With cache-referenced pages declared, the bundle may register only the
+    remaining newly rendered pages, never the referenced cache pages."""
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF cache-scope fixture")
+    cached = _locator_source_bundle(
+        tmp_path, pdf, pages=[2], texts=["cached two\n"],
+    )
+    registered = assets.register_source_bundle(
+        tmp_path, cached, asset_root_id="cache-scope",
+    )
+    campaign_id = _campaign_with_awaiting_scope(
+        tmp_path, registered["asset_root_id"],
+    )
+    cache_refs = [{
+        "pdf_index": 2,
+        "text_sha256": assets.get_page(
+            tmp_path, registered["asset_root_id"], 2,
+        )["meta"]["text_sha256"],
+    }]
+    # The bundle re-renders the referenced page 2 with different text: the
+    # extraction paths must never overwrite each other, so registration
+    # refuses it even though page 2 is cache-referenced.
+    rerendered = _locator_source_bundle(
+        tmp_path, pdf, pages=[2], texts=["adapter two\n"], name="rerender",
+    )
+    with pytest.raises(project.coc_module_assets.ModuleAssetsError, match="content drift"):
+        project.resolve_source_scope(
+            tmp_path, campaign_id, job_id="job-awaiting-scope",
+            kind="location", target_id="archive",
+            source_bundle_path=rerendered, pdf_indices=[2],
+            cache_referenced_pdf_indices=cache_refs,
+        )
+    # The bundle must contain exactly the new pages: even a byte-identical
+    # copy of a declared cache-referenced page is a protocol violation, because
+    # the two extraction paths never overlap.
+    identical_copy = _locator_source_bundle(
+        tmp_path, pdf, pages=[2], texts=["cached two\n"], name="same-text",
+    )
+    with pytest.raises(
+        project.ModuleProjectError, match="newly rendered pdf_indices",
+    ):
+        project.resolve_source_scope(
+            tmp_path, campaign_id, job_id="job-awaiting-scope",
+            kind="location", target_id="archive",
+            source_bundle_path=identical_copy, pdf_indices=[2],
+            cache_referenced_pdf_indices=cache_refs,
+        )
+
+
 def test_compact_queue_reports_current_open_host_work_not_history():
     queue = {
         "schema_version": 1,

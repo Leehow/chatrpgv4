@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -5169,6 +5170,79 @@ def request_deepen(
     return result
 
 
+def _validate_cache_referenced_indices(
+    workspace: Path,
+    root_id: str,
+    cache_referenced_pdf_indices: list[dict[str, Any]] | None,
+    pdf_indices: list[int],
+    *,
+    accepted: set[int],
+) -> list[dict[str, Any]]:
+    """Canonicalize locator cache-referenced page bindings.
+
+    Each entry must be an exact ``{pdf_index, text_sha256}`` content address
+    inside the selected scope; the referenced page must still be accepted in
+    the immutable module cache, and its cached text hash must equal the
+    reference.  Binding never calls ``put_page`` and never compares newly
+    produced text: the cached artifact is authoritative.
+    """
+    if not cache_referenced_pdf_indices:
+        return []
+    if not isinstance(cache_referenced_pdf_indices, list):
+        raise ModuleProjectError(
+            "cache_referenced_pdf_indices must be a list of {pdf_index, text_sha256}"
+        )
+    selected = set(pdf_indices)
+    canonical: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for position, row in enumerate(cache_referenced_pdf_indices):
+        if not isinstance(row, dict) or set(row) != {"pdf_index", "text_sha256"}:
+            raise ModuleProjectError(
+                f"cache_referenced_pdf_indices[{position}] must be exactly "
+                "{pdf_index, text_sha256}"
+            )
+        pdf_index = row.get("pdf_index")
+        text_sha256 = str(row.get("text_sha256") or "")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+            or re.fullmatch(r"[a-f0-9]{64}", text_sha256) is None
+        ):
+            raise ModuleProjectError(
+                f"cache_referenced_pdf_indices[{position}] content address invalid"
+            )
+        if pdf_index not in selected:
+            raise ModuleProjectError(
+                f"cache_referenced_pdf_index {pdf_index} is outside the selected "
+                "pdf_indices"
+            )
+        if pdf_index in seen:
+            raise ModuleProjectError(
+                f"cache_referenced_pdf_index {pdf_index} is duplicated"
+            )
+        seen.add(pdf_index)
+        if pdf_index not in accepted:
+            raise ModuleProjectError(
+                f"cache-referenced pdf_index {pdf_index} is not accepted in the "
+                "module cache; re-run the locator to render it"
+            )
+        page = coc_module_assets.get_page(workspace, root_id, pdf_index)
+        if not isinstance(page, dict):
+            raise ModuleProjectError(
+                f"cache-referenced pdf_index {pdf_index} has no cached page"
+            )
+        meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+        cached_sha256 = str(meta.get("text_sha256") or "")
+        if cached_sha256 != text_sha256:
+            raise ModuleProjectError(
+                f"cache-referenced pdf_index {pdf_index} content-address drift; "
+                "the reference no longer addresses the accepted cached page"
+            )
+        canonical.append({"pdf_index": pdf_index, "text_sha256": text_sha256})
+    return canonical
+
+
 def resolve_source_scope(
     workspace: Path,
     campaign_id: str,
@@ -5178,6 +5252,7 @@ def resolve_source_scope(
     target_id: str,
     source_bundle_path: Path | None,
     pdf_indices: list[int],
+    cache_referenced_pdf_indices: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Attach one host-located page window and wake existing deep work.
 
@@ -5186,6 +5261,13 @@ def resolve_source_scope(
     pack: it validates the locator's reviewed bundle, enriches the named-only
     stub with the exact page scope, and synchronously materializes the normal
     replacement request so the old ``awaiting_scope`` row cannot be stranded.
+
+    ``cache_referenced_pdf_indices`` are pages the locator selected but did
+    not re-render because the module cache already accepted them.  They bind
+    by content address (``{pdf_index, text_sha256}``) to the existing
+    immutable cached page artifact: no ``put_page``, no text comparison, and
+    the bundle may then contain only the newly rendered pages.  Omission
+    preserves the legacy path where the bundle must cover every selected page.
     """
     campaign_dir = _campaign_dir(workspace, campaign_id)
     root_id = campaign_asset_root_id(campaign_dir)
@@ -5309,8 +5391,19 @@ def resolve_source_scope(
     cached_before = set(
         coc_module_assets.accepted_cached_pdf_indices(workspace, root_id)
     )
+    cache_referenced = _validate_cache_referenced_indices(
+        workspace, root_id, cache_referenced_pdf_indices, pdf_indices,
+        accepted=cached_before,
+    )
+    cache_referenced_indices = {
+        int(row["pdf_index"]) for row in cache_referenced
+    }
     missing_indices = [
         pdf_index for pdf_index in pdf_indices if pdf_index not in cached_before
+    ]
+    expected_registered = [
+        pdf_index for pdf_index in pdf_indices
+        if pdf_index not in cache_referenced_indices
     ]
     registration = None
     if source_bundle_path is not None:
@@ -5322,9 +5415,10 @@ def resolve_source_scope(
         if str(registration.get("asset_root_id") or "") != root_id:
             raise ModuleProjectError("source bundle resolved to another asset root")
         registered_indices = list(registration.get("cached_pdf_indices") or [])
-        if registered_indices != pdf_indices:
+        if registered_indices != expected_registered:
             raise ModuleProjectError(
-                "source bundle pages must exactly match the selected pdf_indices"
+                "source bundle pages must exactly match the newly rendered "
+                "pdf_indices"
             )
     elif missing_indices:
         raise ModuleProjectError(
@@ -5396,10 +5490,11 @@ def resolve_source_scope(
         "target_id": target_id,
         "pdf_indices": pdf_indices,
         "source_reuse": source_bundle_path is None,
+        "cache_referenced_pdf_indices": cache_referenced,
         "reused_pdf_indices": [
             value for value in pdf_indices if value in cached_before
         ],
-        "registered_pdf_indices": pdf_indices if source_bundle_path is not None else [],
+        "registered_pdf_indices": expected_registered if source_bundle_path is not None else [],
         "registration": registration,
         "stub": stub,
         "enqueue": enqueue,

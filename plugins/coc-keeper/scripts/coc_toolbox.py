@@ -16139,7 +16139,10 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
     "Reuse accepted cached pages or register one externally reviewed missing "
     "1..3-page locator window, attach its exact "
     "scope to an existing named-only target, and atomically replace that target's "
-    "awaiting_scope host work with normal claimable work. This operation never "
+    "awaiting_scope host work with normal claimable work. Locator-declared "
+    "cache_referenced_pdf_indices bind by content address to accepted cached "
+    "pages without re-registration; the bundle may then contain only newly "
+    "rendered pages. This operation never "
     "opens PDF bytes or compiles an entity pack.",
     {
         "job_id": {
@@ -16169,6 +16172,15 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
             "printed in the PDF, 1-based) identical to the module cache's "
             "accepted_cached_pdf_indices; never 0-based physical order",
         },
+        "cache_referenced_pdf_indices": {
+            "type": "array",
+            "desc": "locator-declared pages already accepted in the module "
+            "cache; each entry is an exact {pdf_index, text_sha256} content "
+            "address and binds to the existing immutable cached page without "
+            "put_page or text comparison. Omit when no selected page is "
+            "cache-referenced; when present, source_bundle_path must cover "
+            "only the remaining newly rendered pages",
+        },
     },
 )
 def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
@@ -16187,6 +16199,9 @@ def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
                 else None
             ),
             pdf_indices=list(args.get("pdf_indices") or []),
+            cache_referenced_pdf_indices=list(
+                args.get("cache_referenced_pdf_indices") or []
+            ),
         )
     except coc_module_project.ModuleProjectError as exc:
         raise ToolError("invalid_param", str(exc)) from exc

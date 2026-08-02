@@ -9,6 +9,7 @@ import signal
 import shlex
 import shutil
 import subprocess
+import sys
 import tarfile
 import time
 
@@ -1435,6 +1436,9 @@ def test_pi_source_scope_locator_external_lifecycle_is_fail_closed():
             "timeout_no_mutation": True,
             "decorated_resolve_operation_rejected": True,
             "zero_based_caliber_rejected": True,
+            "cache_referenced_scope_content_split": True,
+            "all_cached_needs_no_bundle": True,
+            "cached_pdf_indices_filled_from_asset_root": True,
         },
     }
     pi = json.loads(
@@ -1518,6 +1522,7 @@ time.sleep(10)
         "model_policy": "pinned_xai_grok_4_5_thinking_low",
         "max_selected_pages": 3,
         "workspace_root": str(workspace),
+        "asset_root_id": "adapter-termination",
         "job_id": "job-adapter-termination",
         "kind": "location",
         "target_id": "archive",
@@ -1530,6 +1535,7 @@ time.sleep(10)
             / "job"
             / "staging"
         ),
+        "cached_pdf_indices": [],
         "source": {
             "path": str(tmp_path / "module.pdf"),
             "source_id": "pdf:adapter-termination",
@@ -1630,6 +1636,269 @@ def test_pdf_skill_adapter_resolves_default_skill_from_codex_home(
     adapter = _load_pdf_adapter("coc_pdf_adapter_portable_skill_test")
 
     assert adapter._pdf_skill() == skill.resolve()
+
+
+def _locator_bundle_dir(
+    tmp_path: Path, pdf: Path, pages: list[int], texts: list[str],
+    *, name: str, source_id: str, file_sha256: str,
+) -> Path:
+    root = tmp_path / name
+    root.mkdir()
+    for index, text in zip(pages, texts, strict=True):
+        (root / f"page-{index:04d}.md").write_text(text, encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": source_id,
+            "title": "Adapter Scope",
+            "path": str(pdf),
+            "file_sha256": file_sha256,
+            "page_count": 8,
+        },
+        "pages": [
+            {
+                "pdf_index": index,
+                "markdown_path": f"page-{index:04d}.md",
+                "text_sha256": hashlib.sha256(
+                    text.encode("utf-8")
+                ).hexdigest(),
+                "review_state": "manual_accepted",
+                "parse_confidence": 0.99,
+                "grep_anchors": [],
+            }
+            for index, text in zip(pages, texts, strict=True)
+        ],
+        "assets": [],
+    }
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return root
+
+
+def _load_assets_module():
+    scripts = PLUGIN / "scripts"
+    sys.path.insert(0, str(scripts))
+    import coc_module_assets
+    return coc_module_assets
+
+
+def _adapter_cache_workspace(
+    tmp_path: Path, *, pages: list[int], texts: list[str],
+    source_id: str, root_id: str, prefix: str,
+) -> tuple[Path, Path, str, Path, Any]:
+    """Seed a module-assets cache and a copy-on-write adapter workspace."""
+    assets_mod = _load_assets_module()
+    pdf = tmp_path / f"{prefix}-module.pdf"
+    pdf.write_bytes(f"%PDF {prefix} fixture".encode())
+    file_sha256 = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    cached = _locator_bundle_dir(
+        tmp_path, pdf, pages=pages, texts=texts,
+        name=f"{prefix}-cached", source_id=source_id, file_sha256=file_sha256,
+    )
+    registered = assets_mod.register_source_bundle(
+        tmp_path, cached, asset_root_id=root_id,
+    )
+    workspace = tmp_path / f"{prefix}-workspace"
+    (workspace / ".coc" / "module-assets").mkdir(parents=True)
+    shutil.copytree(
+        tmp_path / ".coc" / "module-assets" / registered["asset_root_id"],
+        workspace / ".coc" / "module-assets" / registered["asset_root_id"],
+    )
+    bundle_path = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_path.mkdir(parents=True)
+    return pdf, workspace, registered["asset_root_id"], bundle_path, assets_mod
+
+
+def _adapter_locator_task(
+    *, workspace: Path, root_id: str, pdf: Path, source_id: str,
+    file_sha256: str, bundle_path: Path, job_id: str,
+) -> dict:
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-task.v1",
+        "adapter_mode": "pi_external_pdf_skill_lifecycle",
+        "model_policy": "pinned_xai_grok_4_5_thinking_low",
+        "max_selected_pages": 3,
+        "workspace_root": str(workspace),
+        "asset_root_id": root_id,
+        "campaign_id": "camp",
+        "job_id": job_id,
+        "kind": "location",
+        "target_id": "archive",
+        "target_label": "Archive",
+        "source_bundle_path": str(bundle_path),
+        "cached_pdf_indices": [2, 3],
+        "source": {
+            "path": str(pdf),
+            "source_id": source_id,
+            "title": "Adapter Scope",
+            "file_sha256": file_sha256,
+        },
+    }
+
+
+def test_pdf_skill_adapter_cache_references_accepted_pages(
+    tmp_path: Path,
+):
+    """The locator adapter reuses accepted module-cache pages by content
+    address: it skips re-rendering them, verifies the bundle contains exactly
+    the remaining rendered pages, and attaches the cache's own text hash."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_cache_ref_test")
+    pdf, workspace, root_id, bundle_path, assets_mod = _adapter_cache_workspace(
+        tmp_path, pages=[2, 3], texts=["cached two\n", "cached three\n"],
+        source_id="pdf:adapter-scope", root_id="adapter-scope", prefix="ref",
+    )
+    file_sha256 = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    new_page = _locator_bundle_dir(
+        tmp_path, pdf, pages=[4], texts=["fresh four\n"],
+        name="ref-new-page", source_id="pdf:adapter-scope",
+        file_sha256=file_sha256,
+    )
+    for entry in new_page.iterdir():
+        if entry.is_file():
+            shutil.copyfile(entry, bundle_path / entry.name)
+    task = _adapter_locator_task(
+        workspace=workspace, root_id=root_id, pdf=pdf,
+        source_id="pdf:adapter-scope", file_sha256=file_sha256,
+        bundle_path=bundle_path, job_id="job-cache-ref",
+    )
+    validated = adapter._validate_task(task)
+    cached_two = assets_mod.get_page(workspace, root_id, 2)
+    cached_three = assets_mod.get_page(workspace, root_id, 3)
+    assert cached_two is not None and cached_three is not None
+    receipt = adapter._locator_receipt(validated, {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+        "job_id": "job-cache-ref",
+        "status": "located",
+        "kind": "location",
+        "target_id": "archive",
+        "pdf_indices": [2, 3, 4],
+        "cache_referenced_pdf_indices": [2, 3],
+        "source_bundle_path": str(bundle_path),
+        "failure_class": None,
+    })
+    assert receipt["status"] == "located"
+    assert receipt["pdf_indices"] == [2, 3, 4]
+    assert receipt["cache_referenced_pdf_indices"] == [
+        {
+            "pdf_index": 2,
+            "text_sha256": cached_two["meta"]["text_sha256"],
+        },
+        {
+            "pdf_index": 3,
+            "text_sha256": cached_three["meta"]["text_sha256"],
+        },
+    ]
+
+
+def test_pdf_skill_adapter_cache_reference_rejects_stale_claims(
+    tmp_path: Path,
+):
+    """Cache-reference claims that are not accepted in the module cache, or
+    bundles that re-render an accepted page, fail closed."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_cache_ref_reject_test")
+    pdf, workspace, root_id, bundle_path, assets_mod = _adapter_cache_workspace(
+        tmp_path, pages=[2], texts=["cached two\n"],
+        source_id="pdf:adapter-reject", root_id="adapter-reject", prefix="rej",
+    )
+    file_sha256 = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    task = _adapter_locator_task(
+        workspace=workspace, root_id=root_id, pdf=pdf,
+        source_id="pdf:adapter-reject", file_sha256=file_sha256,
+        bundle_path=bundle_path, job_id="job-reject",
+    )
+    validated = adapter._validate_task(task)
+    with pytest.raises(RuntimeError, match="not accepted in the module cache"):
+        adapter._locator_receipt(validated, {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+            "job_id": "job-reject",
+            "status": "located",
+            "kind": "location",
+            "target_id": "archive",
+            "pdf_indices": [2, 9],
+            "cache_referenced_pdf_indices": [2, 9],
+            "source_bundle_path": str(bundle_path),
+            "failure_class": None,
+        })
+    rerendered = _locator_bundle_dir(
+        tmp_path, pdf, pages=[2], texts=["adapter two\n"],
+        name="rej-rerendered", source_id="pdf:adapter-reject",
+        file_sha256=file_sha256,
+    )
+    for entry in rerendered.iterdir():
+        if entry.is_file():
+            shutil.copyfile(entry, bundle_path / entry.name)
+    with pytest.raises(RuntimeError, match="already accepted in the module cache"):
+        adapter._locator_receipt(validated, {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+            "job_id": "job-reject",
+            "status": "located",
+            "kind": "location",
+            "target_id": "archive",
+            "pdf_indices": [2],
+            "cache_referenced_pdf_indices": [],
+            "source_bundle_path": str(bundle_path),
+            "failure_class": None,
+        })
+
+
+def test_pdf_skill_adapter_all_cached_needs_no_bundle(tmp_path: Path):
+    """When every selected page is already accepted, the adapter returns a
+    cache-referenced receipt without requiring any rendered bundle."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_all_cached_test")
+    pdf, workspace, root_id, bundle_path, assets_mod = _adapter_cache_workspace(
+        tmp_path, pages=[2, 3], texts=["cached two\n", "cached three\n"],
+        source_id="pdf:adapter-all", root_id="adapter-all", prefix="all",
+    )
+    file_sha256 = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    task = _adapter_locator_task(
+        workspace=workspace, root_id=root_id, pdf=pdf,
+        source_id="pdf:adapter-all", file_sha256=file_sha256,
+        bundle_path=bundle_path, job_id="job-all-cached",
+    )
+    validated = adapter._validate_task(task)
+    cached_two = assets_mod.get_page(workspace, root_id, 2)
+    cached_three = assets_mod.get_page(workspace, root_id, 3)
+    assert cached_two is not None and cached_three is not None
+    receipt = adapter._locator_receipt(validated, {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+        "job_id": "job-all-cached",
+        "status": "located",
+        "kind": "location",
+        "target_id": "archive",
+        "pdf_indices": [2, 3],
+        "cache_referenced_pdf_indices": [2, 3],
+        "source_bundle_path": str(bundle_path),
+        "failure_class": None,
+    })
+    assert receipt["cache_referenced_pdf_indices"] == [
+        {
+            "pdf_index": 2,
+            "text_sha256": cached_two["meta"]["text_sha256"],
+        },
+        {
+            "pdf_index": 3,
+            "text_sha256": cached_three["meta"]["text_sha256"],
+        },
+    ]
+    with pytest.raises(RuntimeError, match="fields mismatch"):
+        adapter._locator_receipt(validated, {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+            "job_id": "job-all-cached",
+            "status": "located",
+            "kind": "location",
+            "target_id": "archive",
+            "pdf_indices": [2, 3],
+            "source_bundle_path": str(bundle_path),
+            "failure_class": None,
+        })
 
 
 def test_pdf_skill_adapter_validates_bundle_bound_opening_facts(tmp_path: Path):

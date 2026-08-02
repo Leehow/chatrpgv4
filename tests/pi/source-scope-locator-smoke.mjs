@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   chmod,
   lstat,
@@ -131,6 +132,7 @@ const handshake = JSON.stringify({
   visual_review: true,
   repository_pdf_parser: false,
   ocr: false,
+  cache_reference: true,
 });
 const located = JSON.stringify({
   schema_version: 1,
@@ -140,6 +142,7 @@ const located = JSON.stringify({
   kind: "location",
   target_id: "archive",
   pdf_indices: [2],
+  cache_referenced_pdf_indices: [],
   source_bundle_path: task().source_bundle_path,
   failure_class: null,
 });
@@ -183,6 +186,7 @@ else {
     kind: task.kind,
     target_id: task.target_id,
     pdf_indices: [2],
+    cache_referenced_pdf_indices: [],
     source_bundle_path: task.source_bundle_path,
     failure_class: null,
   }));
@@ -240,6 +244,7 @@ else {
     kind: task.kind,
     target_id: task.target_id,
     pdf_indices: [2],
+    cache_referenced_pdf_indices: [],
     source_bundle_path: task.source_bundle_path,
     failure_class: null,
   }));
@@ -304,6 +309,11 @@ assert.equal(first.status, "scope_registered");
 assert.equal(calls.length, 1);
 assert.equal(calls[0].args.operation, "progressive.resolve_source_scope");
 assert.deepEqual(calls[0].args.arguments.pdf_indices, [2]);
+assert.deepEqual(calls[0].args.arguments.cache_referenced_pdf_indices, []);
+assert.equal(
+  calls[0].args.arguments.source_bundle_path,
+  task().source_bundle_path,
+);
 assert.equal(chained, 1);
 const beforeDuplicate = (await readFile(marker, "utf8")).split("\n").filter(Boolean).length;
 const duplicate = await extension.autoDispatchPiSourceScopeLocator(
@@ -705,6 +715,7 @@ else process.stdout.write(JSON.stringify({
   kind: "location",
   target_id: "archive",
   pdf_indices: [0, 1, 2],
+  cache_referenced_pdf_indices: [],
   source_bundle_path: ${JSON.stringify(task().source_bundle_path)},
   failure_class: null,
 }));
@@ -760,6 +771,7 @@ else {
     kind: task.kind,
     target_id: task.target_id,
     pdf_indices: [2],
+    cache_referenced_pdf_indices: [],
     source_bundle_path: task.source_bundle_path,
     failure_class: null,
   }));
@@ -825,6 +837,193 @@ await new Promise((resolveWait) => setTimeout(resolveWait, 900));
 await assert.rejects(readFile(descendantMarker));
 await assert.rejects(readFile(abortTask.source_bundle_path));
 
+// Scope/content split: the locator reuses accepted cached pages instead of
+// re-rendering them. The producer skips rendering cached_pdf_indices, marks
+// them cache-referenced in the receipt, and the staged bundle contains only
+// the newly rendered pages; resolve binds the references by content address.
+const cacheRefTask = {
+  ...task(),
+  cached_pdf_indices: [2, 3],
+  source_bundle_path: path.join(
+    workspace, ".tmp", "coc-source-scope", "camp", "cache-ref", "contract",
+  ),
+};
+const cacheRefProducer = await producer("cache-ref.mjs", `
+import crypto from "node:crypto";
+import fs from "node:fs";
+if (process.argv[2] === "--capabilities") process.stdout.write(${JSON.stringify(handshake)});
+else {
+  let input = ""; for await (const chunk of process.stdin) input += chunk;
+  const task = JSON.parse(input);
+  if (JSON.stringify(task.cached_pdf_indices) !== JSON.stringify([2, 3])) {
+    process.stdout.write(JSON.stringify({schema_version:1, contract_id:"wrong"}));
+  } else {
+    fs.mkdirSync(task.source_bundle_path, {recursive:true});
+    const page = "# Page 4\\n\\nFreshly rendered page.\\n";
+    fs.writeFileSync(task.source_bundle_path + "/page-0004.md", page);
+    fs.writeFileSync(task.source_bundle_path + "/manifest.json", JSON.stringify({
+      schema_version: 1,
+      producer: "codex-pdf-skill",
+      source: {
+        source_id: task.source.source_id,
+        title: task.source.title,
+        path: task.source.path,
+        file_sha256: task.source.file_sha256,
+        page_count: 8,
+      },
+      pages: [{
+        pdf_index: 4,
+        markdown_path: "page-0004.md",
+        text_sha256: crypto.createHash("sha256").update(page).digest("hex"),
+        review_state: "manual_accepted",
+        parse_confidence: 0.99,
+        grep_anchors: ["Freshly rendered page."],
+      }],
+      assets: [],
+    }));
+    process.stdout.write(JSON.stringify({
+      schema_version: 1,
+      contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+      job_id: task.job_id,
+      status: "located",
+      kind: task.kind,
+      target_id: task.target_id,
+      pdf_indices: [2, 3, 4],
+      cache_referenced_pdf_indices: [2, 3],
+      source_bundle_path: task.source_bundle_path,
+      failure_class: null,
+    }));
+  }
+}`);
+const cacheRefCalls = [];
+const cacheRef = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  command: () => cacheRefProducer,
+  call: async (name, args) => {
+    cacheRefCalls.push({ name, args });
+    return { ok: true, data: { replacement_job_id: "replacement-cache-ref" } };
+  },
+  onResolved: async () => {},
+}, "coc_invoke", envelope(cacheRefTask));
+assert.equal(cacheRef.status, "scope_registered");
+assert.equal(cacheRefCalls.length, 1);
+assert.deepEqual(
+  cacheRefCalls[0].args.arguments.pdf_indices,
+  [2, 3, 4],
+);
+assert.deepEqual(
+  cacheRefCalls[0].args.arguments.cache_referenced_pdf_indices,
+  [2, 3],
+);
+assert.equal(
+  cacheRefCalls[0].args.arguments.source_bundle_path,
+  cacheRefTask.source_bundle_path,
+);
+
+// All selected pages already cached: no bundle is produced or published, and
+// resolve receives only the content-address references.
+const allCachedTask = taskAt("all-cached");
+const allCachedProducer = await producer("all-cached.mjs", `
+import fs from "node:fs";
+if (process.argv[2] === "--capabilities") process.stdout.write(${JSON.stringify(handshake)});
+else {
+  let input = ""; for await (const chunk of process.stdin) input += chunk;
+  const task = JSON.parse(input);
+  fs.mkdirSync(task.source_bundle_path, {recursive:true});
+  process.stdout.write(JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+    job_id: task.job_id,
+    status: "located",
+    kind: task.kind,
+    target_id: task.target_id,
+    pdf_indices: [2, 3],
+    cache_referenced_pdf_indices: [2, 3],
+    source_bundle_path: task.source_bundle_path,
+    failure_class: null,
+  }));
+}`);
+const allCachedCalls = [];
+const allCached = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  command: () => allCachedProducer,
+  call: async (name, args) => {
+    allCachedCalls.push({ name, args });
+    return { ok: true, data: { replacement_job_id: "replacement-all-cached" } };
+  },
+  onResolved: async () => {},
+}, "coc_invoke", envelope(allCachedTask));
+assert.equal(allCached.status, "scope_registered");
+assert.equal(allCachedCalls.length, 1);
+assert.deepEqual(
+  allCachedCalls[0].args.arguments.cache_referenced_pdf_indices,
+  [2, 3],
+);
+assert.equal(
+  "source_bundle_path" in allCachedCalls[0].args.arguments,
+  false,
+);
+await assert.rejects(readFile(path.join(
+  allCachedTask.source_bundle_path,
+  "manifest.json",
+)));
+
+// The extension fills cached_pdf_indices from the asset root when the task
+// arrives with an empty list (fallback when the toolbox did not fill it).
+const assetRootDir = path.join(
+  workspace, ".coc", "module-assets", "asset", "pages",
+);
+await mkdir(assetRootDir, { recursive: true });
+const cachedBytes = Buffer.from("# Cached page 2\\n");
+await writeFile(path.join(assetRootDir, "0002.md"), cachedBytes);
+await writeFile(path.join(assetRootDir, "0002.meta.json"), JSON.stringify({
+  text_sha256: createHash("sha256").update(cachedBytes).digest("hex"),
+  file_sha256: "b".repeat(64),
+  source_id: "pdf:asset",
+}));
+const fillMarker = path.join(temp, "fill-seen.txt");
+const fillProducer = await producer("fill-cached.mjs", `
+import fs from "node:fs";
+if (process.argv[2] === "--capabilities") process.stdout.write(${JSON.stringify(handshake)});
+else {
+  let input = ""; for await (const chunk of process.stdin) input += chunk;
+  const task = JSON.parse(input);
+  fs.appendFileSync(${JSON.stringify(fillMarker)}, JSON.stringify(task.cached_pdf_indices));
+  fs.mkdirSync(task.source_bundle_path, {recursive:true});
+  process.stdout.write(JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+    job_id: task.job_id,
+    status: "located",
+    kind: task.kind,
+    target_id: task.target_id,
+    pdf_indices: [2],
+    cache_referenced_pdf_indices: [2],
+    source_bundle_path: task.source_bundle_path,
+    failure_class: null,
+  }));
+}`);
+const fillTask = taskAt("fill-cached");
+const fillCalls = [];
+const filled = await extension.autoDispatchPiSourceScopeLocator({
+  ...deps,
+  states: new Map(),
+  controllers: new Map(),
+  command: () => fillProducer,
+  call: async (name, args) => {
+    fillCalls.push({ name, args });
+    return { ok: true, data: { replacement_job_id: "replacement-fill" } };
+  },
+  onResolved: async () => {},
+}, "coc_invoke", envelope(fillTask));
+assert.equal(filled.status, "scope_registered");
+assert.equal((await readFile(fillMarker, "utf8")).trim(), "[2]");
+assert.deepEqual(fillCalls[0].args.arguments.cache_referenced_pdf_indices, [2]);
+
 process.stdout.write(JSON.stringify({
   ok: true,
   checks: {
@@ -847,5 +1046,8 @@ process.stdout.write(JSON.stringify({
     timeout_no_mutation: true,
     decorated_resolve_operation_rejected: true,
     zero_based_caliber_rejected: true,
+    cache_referenced_scope_content_split: true,
+    all_cached_needs_no_bundle: true,
+    cached_pdf_indices_filled_from_asset_root: true,
   },
 }) + "\n");
