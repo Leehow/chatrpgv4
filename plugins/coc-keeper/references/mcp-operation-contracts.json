@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:0aafa6ab0d8d237988e945be2840bc344ce735bc57546ede8f5083cda60d3f2f",
+  "content_sha256": "sha256:1b39429d4b33f4dd8707dfda7b7b52132232d7d4af05a3119789a057058163a3",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 100,
+  "operation_count": 101,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -1421,6 +1421,39 @@
       },
       "needs_campaign": true,
       "summary": "Host-lifecycle operation that renews only exact leases owned by one executor. It is not a Keeper source-reading operation."
+    },
+    "progressive.report_host_work_locator_failure": {
+      "canonical_operation": "progressive.report_host_work_locator_failure",
+      "description": "Durably record one failed source-scope locator dispatch for an exact host-work job. The locator lane excludes jobs at the cooldown bound from selection, so a stale job that repeatedly times out or fails can never starve newer locator work in a shared asset root. It never resolves scope, leases work, or touches player state. Canonical operation `progressive.report_host_work_locator_failure`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "failure_class": {
+            "description": "locator failure class (source_scope_locator_timeout, source_scope_locator_result_invalid, source_scope_bundle_publication_failed, source_scope_registration_failed, ...)",
+            "type": "string"
+          },
+          "job_id": {
+            "description": "exact open host-work job_id whose locator dispatch failed",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "job_id",
+          "failure_class"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Durably record one failed source-scope locator dispatch for an exact host-work job. The locator lane excludes jobs at the cooldown bound from selection, so a stale job that repeatedly times out or fails can never starve newer locator work in a shared asset root. It never resolves scope, leases work, or touches player state."
     },
     "progressive.request_deepen": {
       "canonical_operation": "progressive.request_deepen",

@@ -11423,6 +11423,292 @@ def test_pi_source_scope_locator_projects_only_body_work(
     assert "source_scope_takeover" not in mechanics_only
 
 
+def test_pi_source_scope_locator_prefers_current_campaign_and_cools_stale_jobs(
+    tmp_path: Path, monkeypatch,
+):
+    """play05 regression: cross-campaign locator contention in one asset root.
+
+    A stale current_dependency job left open by an older campaign (priority
+    80, play03) must not starve the playing campaign's near_term job
+    (priority 100, play05) via the global min() key, and a job whose locator
+    lane failed repeatedly must leave selection entirely instead of looping.
+    """
+    monkeypatch.setenv("COC_HOST", "pi")
+    producer = tmp_path / "fake-locator-adapter"
+    producer.write_text("#!/bin/sh\nexit 0\n")
+    producer.chmod(0o755)
+    monkeypatch.setenv("COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND", str(producer))
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="asset-a",
+        identity={
+            "canonical_module_id": "asset-a",
+            "canonical_title": "Module Title",
+        },
+        file_sha256="a" * 64,
+        source={
+            "source_id": "pdf:module",
+            "title": "Module Title",
+            "path": str(tmp_path / "module.pdf"),
+            "file_sha256": "a" * 64,
+            "page_count": 3,
+            "producer": "codex-pdf-skill",
+        },
+    )
+    monkeypatch.setattr(
+        assets,
+        "host_work_operational_class",
+        lambda row: row["test_operational_class"],
+    )
+    monkeypatch.setattr(
+        assets,
+        "accepted_cached_pdf_indices",
+        lambda _root, _asset_root_id: [],
+    )
+    monkeypatch.setattr(
+        assets,
+        "get_entity",
+        lambda _root, _asset_root_id, kind, target_id: {
+            "title": f"{kind}:{target_id}",
+        },
+    )
+
+    def request(
+        *,
+        job_id: str,
+        kind: str,
+        target_id: str,
+        priority: int,
+        work_level: str,
+        campaign_id: str,
+        failures: int = 0,
+    ) -> dict:
+        return {
+            "job_id": job_id,
+            "kind": kind,
+            "target_id": target_id,
+            "priority": priority,
+            "work_level": work_level,
+            "dispatch_state": "ready",
+            "cached_scope_complete": False,
+            "requested_pdf_indices": [],
+            "test_operational_class": "awaiting_scope",
+            "source_pdf": str(tmp_path / "module.pdf"),
+            "source_id": "pdf:module",
+            "file_sha256": "a" * 64,
+            "created_at": "2026-07-28T00:00:00Z",
+            "consumer_refs": [{"campaign_id": campaign_id}],
+            "locator_failure_count": failures,
+        }
+
+    # play05 evidence: stale play03 current_dependency job (priority 80) vs
+    # the playing campaign's near_term job (priority 100).  The old global
+    # min() selected the stale job every time because work_level outranks
+    # priority in its key.
+    stale = request(
+        job_id="job-a4469def5424",
+        kind="deepen_npc",
+        target_id="npc-syl-greybeard",
+        priority=80,
+        work_level="current_dependency",
+        campaign_id="herald-yk-play-03",
+    )
+    current = request(
+        job_id="job-774975c9c5ea",
+        kind="deepen_location",
+        target_id="dreeks-end",
+        priority=100,
+        work_level="near_term",
+        campaign_id="herald-yk-play-05",
+    )
+    ctx = type("ProjectionContext", (), {
+        "root": tmp_path,
+        "campaign_id": "herald-yk-play-05",
+    })()
+    projected = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[stale, current],
+    )
+    takeover = projected["source_scope_takeover"]
+    task = takeover["next_host_action"]["task"]
+    assert task["job_id"] == "job-774975c9c5ea"
+    assert task["campaign_id"] == "herald-yk-play-05"
+
+    # Single-campaign semantics unchanged: with no current-campaign candidate
+    # the other-campaign pool is still selected by the same min() key.
+    fallback = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[stale],
+    )
+    assert fallback["source_scope_takeover"]["next_host_action"]["task"][
+        "job_id"
+    ] == "job-a4469def5424"
+
+    # Cooldown: two recorded locator failures remove a job from selection
+    # even when it would otherwise be the only candidate, and the projection
+    # exposes the cooldown surface for audit.
+    cooled = request(
+        job_id="job-cooled",
+        kind="deepen_npc",
+        target_id="npc-syl-greybeard",
+        priority=80,
+        work_level="current_dependency",
+        campaign_id="herald-yk-play-03",
+        failures=2,
+    )
+    cooled_only = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[cooled],
+    )
+    assert "source_scope_takeover" not in cooled_only
+    assert cooled_only["locator_cooldown_count"] == 1
+    assert cooled_only["locator_max_attempts"] == (
+        assets.HOST_WORK_LOCATOR_MAX_ATTEMPTS
+    )
+    assert [
+        row["job_id"] for row in cooled_only["locator_cooldown_requests"]
+    ] == ["job-cooled"]
+
+    # The playing campaign's job still dispatches when the stale job is both
+    # cross-campaign and cooled, and one failure alone is not cooldown yet.
+    mixed = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[cooled, current],
+    )
+    assert mixed["source_scope_takeover"]["next_host_action"]["task"][
+        "job_id"
+    ] == "job-774975c9c5ea"
+    once = request(
+        job_id="job-once",
+        kind="deepen_location",
+        target_id="once",
+        priority=1,
+        work_level="near_term",
+        campaign_id="herald-yk-play-03",
+        failures=1,
+    )
+    single_failure = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[once],
+    )
+    assert single_failure["source_scope_takeover"]["next_host_action"][
+        "task"
+    ]["job_id"] == "job-once"
+
+
+def test_progressive_report_host_work_locator_failure_cools_durably(
+    tmp_path: Path, monkeypatch,
+):
+    """The canonical failure report counts durably and cools the locator lane.
+
+    Mirrors the play05 retry loop: each failed locator dispatch reports
+    through the canonical op; at the cooldown bound the projection stops
+    offering the job even though the row stays open.
+    """
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "codex")
+    producer = tmp_path / "fake-locator-adapter"
+    producer.write_text("#!/bin/sh\nexit 0\n")
+    producer.chmod(0o755)
+    monkeypatch.setenv("COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND", str(producer))
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(2,))
+    ws["skeleton"]["locations"].append({
+        "location_id": "archive",
+        "title": "Archive",
+        "parse_state": "named_only",
+    })
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    dug = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "archive",
+        "title": "Archive",
+        "reason": "cooldown regression probe",
+    })
+    assert dug["ok"] is True, dug
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_cooldown_test",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1, materialized
+    monkeypatch.setenv("COC_HOST", "pi")
+    ctx = type("ProjectionContext", (), {
+        "root": ws["workspace"],
+        "campaign_id": ws["campaign_id"],
+    })()
+
+    projected = coc_toolbox._source_host_work_projection(
+        ctx, ws["asset_root_id"],
+    )
+    takeover = projected["source_scope_takeover"]
+    job_id = takeover["next_host_action"]["task"]["job_id"]
+    assert job_id.startswith("job-")
+
+    reported = _run(ws, "progressive.report_host_work_locator_failure", {
+        "job_id": job_id,
+        "failure_class": "source_scope_locator_timeout",
+    })
+    assert reported["ok"] is True, reported
+    assert reported["data"]["locator_failure_count"] == 1
+    assert reported["data"]["cooled"] is False
+    assert reported["data"]["host_work"]["open_host_work_count"] >= 1
+    # One failure is not cooldown yet; the job is still offered.
+    after_one = coc_toolbox._source_host_work_projection(
+        ctx, ws["asset_root_id"],
+    )
+    assert after_one["source_scope_takeover"]["next_host_action"][
+        "task"
+    ]["job_id"] == job_id
+
+    for _ in range(2):
+        again = _run(ws, "progressive.report_host_work_locator_failure", {
+            "job_id": job_id,
+            "failure_class": "source_scope_locator_timeout",
+        })
+        assert again["ok"] is True, again
+    assert again["data"]["locator_failure_count"] == 3
+    assert again["data"]["cooled"] is True
+    cooled = coc_toolbox._source_host_work_projection(
+        ctx, ws["asset_root_id"],
+    )
+    assert "source_scope_takeover" not in cooled
+    assert cooled["locator_cooldown_count"] == 1
+    assert cooled["locator_max_attempts"] == (
+        coc_toolbox.coc_module_project.coc_module_assets
+        .HOST_WORK_LOCATOR_MAX_ATTEMPTS
+    )
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    durable_row = assets.get_host_work_request(
+        ws["workspace"], ws["asset_root_id"], job_id,
+    )
+    assert durable_row is not None
+    assert durable_row["locator_failure_count"] == 3
+    assert durable_row["last_locator_failure_class"] == (
+        "source_scope_locator_timeout"
+    )
+    assert (durable_row.get("status") or "open") == "open"
+    row = next(
+        row for row in assets.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"],
+            include_closed=True, limit=None,
+        )
+        if row["job_id"] == job_id
+    )
+    assert row["locator_failure_count"] == 3
+    assert row["last_locator_failure_at"] is not None
+
+
 def test_pi_source_scope_locator_runs_real_canonical_resolution(
     tmp_path: Path, monkeypatch,
 ):

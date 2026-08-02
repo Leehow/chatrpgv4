@@ -1194,6 +1194,7 @@ _PARAM_ALIASES: dict[str, dict[str, str]] = {
 _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION = frozenset({
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
+    "progressive.report_host_work_locator_failure",
 })
 
 _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
@@ -1204,6 +1205,7 @@ _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
     "progressive.fulfill_host_work",
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
+    "progressive.report_host_work_locator_failure",
     "setup.adopt_source_facts",
     "setup.investigator_contract",
     "rules.cash_assets",
@@ -12309,6 +12311,15 @@ def _current_dependency_wait_projection(
     }
 
 
+def _locator_row_campaigns(row: dict[str, Any]) -> set[str]:
+    """Campaign ids that own one open host-work row (consumer_refs)."""
+    return {
+        str(ref.get("campaign_id") or "")
+        for ref in (row.get("consumer_refs") or [])
+        if isinstance(ref, dict) and ref.get("campaign_id")
+    }
+
+
 def _source_host_work_projection(
     ctx: Ctx,
     asset_root_id: str,
@@ -12330,6 +12341,7 @@ def _source_host_work_projection(
         "requested_pdf_indices", "source_aspect", "deadline_class",
         "work_level", "dependency_ref", "work_group_id",
         "dispatch_state", "dispatch_attempts",
+        "locator_failure_count", "last_locator_failure_at",
         "cached_scope_complete",
     )
     compact_host_work = [
@@ -12479,11 +12491,51 @@ def _source_host_work_projection(
             "pi_coordinator_retry_exhausted_requests": retry_exhausted[:4],
             "automatic_retry_remaining": False,
         })
-    if locator_scope_requests and (
+    if locator_scope_requests:
+        locator_max_attempts = assets_mod.HOST_WORK_LOCATOR_MAX_ATTEMPTS
+        locator_cooled = [
+            row for row in locator_scope_requests
+            if int(row.get("locator_failure_count") or 0)
+            >= locator_max_attempts
+        ]
+        if locator_cooled:
+            projection.update({
+                "locator_cooldown_count": len(locator_cooled),
+                "locator_max_attempts": locator_max_attempts,
+                "locator_cooldown_requests": [
+                    {
+                        key: deepcopy(row.get(key))
+                        for key in host_work_fields
+                        if key in row
+                    }
+                    for row in locator_cooled[:4]
+                ],
+            })
+        locator_selectable = [
+            row for row in locator_scope_requests
+            if row not in locator_cooled
+        ]
+    else:
+        locator_selectable = []
+    if locator_selectable and (
         host_adapter == "codex" or pi_locator_available
     ):
+        # Fair selection: the current campaign's awaiting-scope jobs always
+        # outrank stale jobs left open by other campaigns sharing this asset
+        # root, so a legacy cross-campaign job can never starve the campaign
+        # that is actually playing.  Only when the current campaign has no
+        # locator candidate do we fall back to the other-campaign pool, and
+        # cooled jobs (repeated locator failures) are excluded from both.
+        current_campaign_locator = [
+            row for row in locator_selectable
+            if str(ctx.campaign_id) in _locator_row_campaigns(row)
+        ]
+        other_campaign_locator = [
+            row for row in locator_selectable
+            if str(ctx.campaign_id) not in _locator_row_campaigns(row)
+        ]
         locator_request = min(
-            locator_scope_requests,
+            current_campaign_locator or other_campaign_locator,
             key=lambda row: (
                 assets_mod.HOST_WORK_LEVELS.index(
                     str(row.get("work_level") or "near_term")
@@ -16212,6 +16264,58 @@ def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
     return result, [], [
         "the exact scope is attached and the old awaiting_scope row is superseded; "
         "continue play while the existing background_takeover handles the replacement",
+    ]
+
+
+@tool(
+    "progressive.report_host_work_locator_failure",
+    "Durably record one failed source-scope locator dispatch for an exact "
+    "host-work job. The locator lane excludes jobs at the cooldown bound "
+    "from selection, so a stale job that repeatedly times out or fails can "
+    "never starve newer locator work in a shared asset root. It never "
+    "resolves scope, leases work, or touches player state.",
+    {
+        "job_id": {
+            "type": "string",
+            "required": True,
+            "desc": "exact open host-work job_id whose locator dispatch failed",
+        },
+        "failure_class": {
+            "type": "string",
+            "required": True,
+            "desc": "locator failure class (source_scope_locator_timeout, "
+            "source_scope_locator_result_invalid, "
+            "source_scope_bundle_publication_failed, "
+            "source_scope_registration_failed, ...)",
+        },
+    },
+)
+def _tool_progressive_report_host_work_locator_failure(
+    ctx: Ctx, args: dict[str, Any],
+):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+    if not root_id:
+        raise ToolError("invalid_param", "campaign is not progressive")
+    assets_mod = coc_module_project.coc_module_assets
+    job_id = str(args.get("job_id") or "").strip()
+    failure_class = str(args.get("failure_class") or "").strip()
+    if not job_id or not failure_class:
+        raise ToolError(
+            "invalid_param", "job_id and failure_class are required"
+        )
+    try:
+        result = assets_mod.report_host_work_locator_failure(
+            ctx.root, root_id, job_id, failure_class,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    _attach_source_host_projection(ctx, result, root_id)
+    return result, [], [
+        "the failed locator dispatch is durably counted; the job leaves "
+        "locator selection at the cooldown bound so it cannot starve newer "
+        "source-scope work",
     ]
 
 

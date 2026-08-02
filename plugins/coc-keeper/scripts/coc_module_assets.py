@@ -54,6 +54,7 @@ HOST_WORK_CLOSED_STATUSES = frozenset({
     "fulfilled", "cancelled", "superseded", "quarantined",
 })
 HOST_WORK_LEVELS = ("current_dependency", "near_term", "bounded_warm")
+HOST_WORK_LOCATOR_MAX_ATTEMPTS = 2
 HOST_WORK_OPEN_CLASSES = (
     "runnable", "leased", "awaiting_scope", "awaiting_cache", "legacy_unowned",
 )
@@ -5569,6 +5570,10 @@ def _list_host_work_requests_unlocked(
             "dispatch_state": request.get("dispatch_state") or "awaiting_scope",
             "operational_class": host_work_operational_class(request),
             "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
+            "locator_failure_count": int(
+                request.get("locator_failure_count") or 0
+            ),
+            "last_locator_failure_at": request.get("last_locator_failure_at"),
             "executor_id": request.get("executor_id"),
             "lease_id": request.get("lease_id"),
             "leased_at": request.get("leased_at"),
@@ -5657,6 +5662,64 @@ def get_host_work_request(
         if str(request.get("job_id") or "") != jid:
             raise ModuleAssetsError("host-work request identity drift")
         return json.loads(json.dumps(request))
+
+
+def report_host_work_locator_failure(
+    workspace: Path,
+    asset_root_id: str,
+    job_id: str,
+    failure_class: str,
+) -> dict[str, Any]:
+    """Durably record one failed source-scope locator dispatch.
+
+    The locator lane must never let a stale job that repeatedly times out or
+    fails starve newer locator work: each failed dispatch increments the
+    durable ``locator_failure_count`` and the host-work projection excludes
+    jobs at the cooldown bound from locator selection.  The row itself stays
+    open and visible; exact scope may still arrive through any other
+    canonical path (manual resolution, fulfilled source work, cache).
+    Closed or already-scoped rows are a no-op so a racing late report can
+    never mutate a settled lifecycle.
+    """
+    jid = _require_id(job_id, "job_id")
+    failure_class = str(failure_class or "").strip()
+    if not failure_class:
+        raise ModuleAssetsError("locator failure_class is required")
+    module_root = _module_dir(workspace, asset_root_id)
+    path = module_root / "host-work" / f"{jid}.json"
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        if not path.is_file():
+            raise ModuleAssetsError("host-work request is missing")
+        try:
+            request = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModuleAssetsError(
+                f"host-work request {jid!r} is unreadable"
+            ) from exc
+        validate_host_work_request_shape(request)
+        if str(request.get("job_id") or "") != jid:
+            raise ModuleAssetsError("host-work request identity drift")
+        if (
+            str(request.get("status") or "open")
+            not in HOST_WORK_CLOSED_STATUSES
+            and host_work_operational_class(request) == "awaiting_scope"
+        ):
+            request["locator_failure_count"] = int(
+                request.get("locator_failure_count") or 0
+            ) + 1
+            request["last_locator_failure_at"] = _now_iso()
+            request["last_locator_failure_class"] = failure_class
+            _write_json(path, request)
+        failure_count = int(request.get("locator_failure_count") or 0)
+        return {
+            "job_id": jid,
+            "locator_failure_count": failure_count,
+            "last_locator_failure_at": request.get("last_locator_failure_at"),
+            "last_locator_failure_class": request.get(
+                "last_locator_failure_class"
+            ),
+            "cooled": failure_count >= HOST_WORK_LOCATOR_MAX_ATTEMPTS,
+        }
 
 
 def host_work_lifecycle_summary(

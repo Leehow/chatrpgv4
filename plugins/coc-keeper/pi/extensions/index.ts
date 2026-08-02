@@ -6748,6 +6748,26 @@ export async function autoDispatchPiSourceScopeLocator(
   const key = `source-scope-locator:${nonEmpty(task.job_id, "job_id")}`;
   const previous = deps.states.get(key);
   if (previous) return previous;
+  // Durable cooldown feedback: the toolbox projection excludes a job whose
+  // locator lane has failed repeatedly, so a stale failing job can never
+  // starve newer awaiting-scope work in a shared asset root.  The report is
+  // best-effort and never changes the terminal result of this dispatch.
+  // External aborts and session closure are not job failures and are not
+  // counted.
+  const reportLocatorFailure = async (failureClass: string): Promise<void> => {
+    if (typeof task.campaign_id !== "string" || !task.campaign_id.trim()) return;
+    try {
+      await deps.call("coc_invoke", {
+        operation: "progressive.report_host_work_locator_failure",
+        root: task.workspace_root,
+        campaign: task.campaign_id,
+        arguments: {
+          job_id: task.job_id,
+          failure_class: failureClass,
+        },
+      });
+    } catch { /* durable cooldown feedback is best effort */ }
+  };
   const submitted = { status: "submitted", dispatch_key: key };
   deps.states.set(key, submitted);
   deps.audit(submitted);
@@ -6830,6 +6850,12 @@ export async function autoDispatchPiSourceScopeLocator(
                 ? "source_scope_locator_preflight_failed"
                 : "source_scope_locator_result_invalid",
         };
+        if (
+          failure.failure_class !== "source_scope_locator_aborted"
+          && failure.failure_class !== "source_scope_locator_preflight_failed"
+        ) {
+          await reportLocatorFailure(String(failure.failure_class));
+        }
         deps.states.set(key, failure);
         deps.audit(failure);
         return failure;
@@ -6850,6 +6876,11 @@ export async function autoDispatchPiSourceScopeLocator(
           dispatch_key: key,
           failure_class: receipt.failure_class,
         };
+        await reportLocatorFailure(
+          typeof receipt.failure_class === "string"
+            ? receipt.failure_class
+            : "source_scope_locator_not_located",
+        );
         deps.states.set(key, terminal);
         deps.audit(terminal);
         return terminal;
@@ -6867,6 +6898,7 @@ export async function autoDispatchPiSourceScopeLocator(
             dispatch_key: key,
             failure_class: "source_scope_bundle_publication_failed",
           };
+          await reportLocatorFailure("source_scope_bundle_publication_failed");
           deps.states.set(key, failure);
           deps.audit(failure);
           return failure;
@@ -6919,6 +6951,7 @@ export async function autoDispatchPiSourceScopeLocator(
         dispatch_key: key,
         failure_class: "source_scope_registration_failed",
       };
+      await reportLocatorFailure("source_scope_registration_failed");
       deps.states.set(key, failure);
       deps.audit(failure);
       return failure;

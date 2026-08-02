@@ -271,7 +271,17 @@ for (const [name, titleField] of [
     titleResult.failure_class,
     "source_scope_bundle_publication_failed",
   );
-  assert.equal(titleCalls.length, 0);
+  // Publication failure feeds the durable locator cooldown counter.
+  assert.equal(titleCalls.length, 1);
+  assert.equal(
+    titleCalls[0][1].operation,
+    "progressive.report_host_work_locator_failure",
+  );
+  assert.equal(titleCalls[0][1].arguments.job_id, "job-locator");
+  assert.equal(
+    titleCalls[0][1].arguments.failure_class,
+    "source_scope_bundle_publication_failed",
+  );
   await assert.rejects(lstat(titleTask.source_bundle_path));
 }
 
@@ -622,7 +632,25 @@ assert.equal(
   ).length,
   1,
 );
-assert.equal(concurrentCalls.length, 1);
+assert.equal(concurrentCalls.length, 2);
+assert.deepEqual(
+  concurrentCalls
+    .map((args) => args[1].operation)
+    .sort(),
+  [
+    "progressive.report_host_work_locator_failure",
+    "progressive.resolve_source_scope",
+  ],
+);
+const concurrentReport = concurrentCalls.find(
+  (args) => (
+    args[1].operation === "progressive.report_host_work_locator_failure"
+  ),
+);
+assert.equal(
+  concurrentReport[1].arguments.failure_class,
+  "source_scope_bundle_publication_failed",
+);
 await readFile(path.join(concurrentLockTask.source_bundle_path, "manifest.json"));
 await assert.rejects(lstat(
   `${concurrentLockPath}.recovery.guard`,
@@ -673,7 +701,17 @@ await extension.autoDispatchPiSourceScopeLocator({
   command: () => badReceipt,
   call: async (...args) => { badReceiptCalls.push(args); return {}; },
 }, "coc_invoke", envelope(taskAt("bad-receipt")));
-assert.equal(badReceiptCalls.length, 0);
+// A malformed producer result is a locator-lane failure: it feeds the
+// durable cooldown counter instead of looping forever on the same job.
+assert.equal(badReceiptCalls.length, 1);
+assert.equal(
+  badReceiptCalls[0][1].operation,
+  "progressive.report_host_work_locator_failure",
+);
+assert.equal(
+  badReceiptCalls[0][1].arguments.failure_class,
+  "source_scope_locator_result_invalid",
+);
 
 // Deepen playtest schema-drift regression: the locator task is a closed
 // machine contract with a 6-key resolve_operation. An 8-key card carrying
@@ -734,7 +772,18 @@ await extension.autoDispatchPiSourceScopeLocator({
   command: () => zeroBasedProducer,
   call: async (...args) => { zeroBasedCalls.push(args); return {}; },
 }, "coc_invoke", envelope(taskAt("zero-based")));
-assert.equal(zeroBasedCalls.length, 0);
+// A producer result the locator cannot accept is a real locator failure:
+// it must durably report for cooldown so it cannot starve newer jobs.
+assert.equal(zeroBasedCalls.length, 1);
+assert.equal(
+  zeroBasedCalls[0][1].operation,
+  "progressive.report_host_work_locator_failure",
+);
+assert.equal(zeroBasedCalls[0][1].arguments.job_id, "job-locator");
+assert.equal(
+  zeroBasedCalls[0][1].arguments.failure_class,
+  "source_scope_locator_result_invalid",
+);
 
 const slow = await producer("slow.mjs", `
 if (process.argv[2] === "--capabilities") process.stdout.write(${JSON.stringify(handshake)});
@@ -752,7 +801,18 @@ await extension.autoDispatchPiSourceScopeLocator({
   command: () => slow,
   call: async (...args) => { timeoutCalls.push(args); return {}; },
 }, "coc_invoke", envelope(taskAt("timeout")), { timeoutMs: 25 });
-assert.equal(timeoutCalls.length, 0);
+// A timed-out locator run is exactly the failure that must feed the durable
+// cooldown counter; it must never be re-offered to the producer forever.
+assert.equal(timeoutCalls.length, 1);
+assert.equal(
+  timeoutCalls[0][1].operation,
+  "progressive.report_host_work_locator_failure",
+);
+assert.equal(timeoutCalls[0][1].arguments.job_id, "job-locator");
+assert.equal(
+  timeoutCalls[0][1].arguments.failure_class,
+  "source_scope_locator_timeout",
+);
 
 const symlinkOutside = path.join(temp, "symlink-outside");
 await mkdir(symlinkOutside);
@@ -789,7 +849,18 @@ assert.equal(
   symlinkResult.failure_class,
   "source_scope_bundle_publication_failed",
 );
-assert.equal(symlinkCalls.length, 0);
+// Publication failure is a locator-lane failure and must feed the durable
+// cooldown counter instead of silently looping.
+assert.equal(symlinkCalls.length, 1);
+assert.equal(
+  symlinkCalls[0][1].operation,
+  "progressive.report_host_work_locator_failure",
+);
+assert.equal(symlinkCalls[0][1].arguments.job_id, "job-locator");
+assert.equal(
+  symlinkCalls[0][1].arguments.failure_class,
+  "source_scope_bundle_publication_failed",
+);
 await assert.rejects(readFile(symlinkTask.source_bundle_path));
 
 const abortStarted = path.join(temp, "abort-started");
