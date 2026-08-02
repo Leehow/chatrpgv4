@@ -13945,7 +13945,30 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
             self.buffer = io.BytesIO(json.dumps(request).encode())
 
     monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
+    real_runtime_modules = adapter._runtime_modules
+    captured_operations: list[dict] = []
+
+    def capturing_runtime_modules():
+        fileio, pdf_bundle, ops, assets = real_runtime_modules()
+        real_execute = ops.execute_setup_operation
+
+        def capturing_execute(workspace, *, operation):
+            captured_operations.append(json.loads(json.dumps(operation)))
+            return real_execute(workspace, operation=operation)
+
+        monkeypatch.setattr(ops, "execute_setup_operation", capturing_execute)
+        return fileio, pdf_bundle, ops, assets
+
+    monkeypatch.setattr(adapter, "_runtime_modules", capturing_runtime_modules)
     receipt = adapter._run_opening_review()
+    bind_operation = next(
+        operation for operation in captured_operations
+        if operation["kind"] == "scenario.bind_pdf"
+    )
+    # The transport rebind runs the canonical bind on the review lane so
+    # pages the whole-book OCR lane cached first (cross-producer) are bound
+    # by content address instead of failing as text drift.
+    assert bind_operation["payload"]["reference_cached_pages"] is True
     assert receipt == {
         "schema_version": 1,
         "contract_id": "coc.pi-opening-source-review-transport-result.v1",

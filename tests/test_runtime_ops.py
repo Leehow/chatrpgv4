@@ -2273,8 +2273,8 @@ def test_bind_pdf_field_error_names_every_missing_and_unsupported_field(tmp_path
         ops.RuntimeOperationError,
         match=(
             r"missing: scenario_id, title; unsupported: scenario_title; "
-            r"allowed: campaign_id, compile_now, scenario_id, "
-            r"source_bundle_path, title"
+            r"allowed: campaign_id, compile_now, reference_cached_pages, "
+            r"scenario_id, source_bundle_path, title"
         ),
     ):
         ops.execute_setup_operation(tmp_path, operation={
@@ -2304,6 +2304,369 @@ def test_public_bind_pdf_rejects_forged_review_authority(tmp_path):
                 "opening_source_provenance": (
                     "coordinator_reviewed_playable_opening"
                 ),
+            },
+        })
+
+
+def _review_rebind_fixture(tmp_path: Path):
+    """Campaign + first bind (pdf-skill pages 0-1) + an OCR-cached page 2.
+
+    Mirrors the blocker2 scene: pages 0-1 registered by the first bundle,
+    page 2 registered first by the whole-book baiduocr lane, then the review
+    transport rebinds a window whose page 2 was re-extracted by the pdf-skill
+    producer (cross-producer, different text).
+    """
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "custom",
+            "title": "Custom Campaign",
+            "era": "1920s",
+            "play_language": "zh-Hans",
+        },
+    })
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF host-owned review fixture")
+
+    def write_bundle(name: str, texts: dict[int, str]) -> Path:
+        bundle = tmp_path / name
+        bundle.mkdir()
+        pages = []
+        for pdf_index, body in sorted(texts.items()):
+            markdown = f"# Page {pdf_index}\n\n{body}\n".encode()
+            markdown_path = f"page-{pdf_index:04d}.md"
+            (bundle / markdown_path).write_bytes(markdown)
+            pages.append({
+                "pdf_index": pdf_index,
+                "markdown_path": markdown_path,
+                "text_sha256": hashlib.sha256(markdown).hexdigest(),
+                "review_state": "manual_accepted",
+                "parse_confidence": 0.93,
+                "grep_anchors": [f"Page {pdf_index}"],
+            })
+        (bundle / "manifest.json").write_text(json.dumps({
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source": {
+                "source_id": "pdf:custom-module",
+                "title": "Custom Module",
+                "path": str(pdf),
+                "file_sha256": hashlib.sha256(
+                    pdf.read_bytes()
+                ).hexdigest(),
+                "page_count": 4,
+            },
+            "pages": pages,
+        }), encoding="utf-8")
+        return bundle
+
+    first = write_bundle("first-source", {
+        0: "Reviewed opening page.", 1: "Second page.",
+    })
+    first_bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "custom",
+            "scenario_id": "custom-module",
+            "title": "Custom Module",
+            "source_bundle_path": str(first),
+            "compile_now": False,
+        },
+    })
+    assert first_bound["status"] == "PASS"
+    # The whole-book OCR lane registers page 2 first (baiduocr, unreviewed).
+    ocr_text = "# Page 2\n\nOCR corpus page two.\n"
+    ops.coc_module_assets.put_page(
+        tmp_path,
+        "custom-module",
+        2,
+        ocr_text,
+        meta={
+            "source_id": "pdf:custom-module",
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "producer": "baiduocr",
+            "review_state": "unreviewed",
+            "parse_confidence": None,
+            "source": "baiduocr",
+            "unreviewed": True,
+            "doc_ref": "doc_2.md",
+        },
+    )
+    ocr_digest = hashlib.sha256(ocr_text.encode()).hexdigest()
+    reviewed = write_bundle("reviewed-source", {
+        0: "Reviewed opening page.", 1: "Second page.",
+        # Cross-producer re-extraction: same page, pdf-skill text differs
+        # from the cached baiduocr text (blocker2 page-4 pattern).
+        2: "Pdf-skill re-extracted page two.",
+    })
+    return tmp_path, pdf, first_bound, reviewed, ocr_digest
+
+
+def _bind_review(tmp_path: Path, bundle: Path, **extra):
+    return ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "custom",
+            "scenario_id": "custom-module",
+            "title": "Custom Module",
+            "source_bundle_path": str(bundle),
+            "compile_now": False,
+            **extra,
+        },
+    })
+
+
+def test_review_rebind_references_cross_producer_cached_page(tmp_path: Path):
+    """The review transport rebind (reference_cached_pages=True) accepts a
+    reviewed window whose page was re-extracted by a different producer than
+    the cached page: the page is bound by content address (cache identity
+    and producer stay authoritative), not compared as text."""
+    tmp_path, pdf, first_bound, reviewed, ocr_digest = (
+        _review_rebind_fixture(tmp_path)
+    )
+    bound = _bind_review(tmp_path, reviewed, reference_cached_pages=True)
+    assert bound["status"] == "PASS"
+    source_cache = bound["result"]["source_cache"]
+    assert source_cache["referenced_cached_page_count"] == 1
+    assert source_cache["referenced_cached_pdf_indices"] == [2]
+    assert source_cache["new_page_count"] == 0
+    assert source_cache["reused_page_count"] == 3
+    # The cached OCR page 2 keeps its text and producer identity untouched.
+    cached = ops.coc_module_assets.get_page(tmp_path, "custom-module", 2)
+    assert "OCR corpus page two." in cached["text"]
+    assert "re-extracted" not in cached["text"]
+    assert cached["meta"]["producer"] == "baiduocr"
+    assert cached["meta"]["review_state"] == "unreviewed"
+    # The reviewed bundle is now bound to the referenced cached page.
+    assert bound["result"]["source_cache"]["bundle_sha256"] in (
+        cached["meta"].get("bundle_sha256s") or []
+    )
+    # The reference is durable provenance, not a silent retcon.
+    state = ops.coc_module_assets.read_full_parse_state(
+        tmp_path, "custom-module",
+    )
+    reference = next(
+        row for row in (state.get("provenance") or [])
+        if row.get("pdf_index") == 2
+    )
+    assert reference["disposition"] == "review_references_cache"
+    assert reference["source"] == "opening_review_transport"
+    assert reference["incoming_producer"] == "codex-pdf-skill"
+    assert reference["existing_producer"] == "baiduocr"
+    assert reference["existing_text_sha256"] == ocr_digest
+    assert reference["incoming_text_sha256"] != ocr_digest
+    # The bundle row records the referenced (cached) identity, not the
+    # discarded incoming pdf-skill text.
+    identity = json.loads(
+        (
+            tmp_path / ".coc" / "module-assets" / "custom-module"
+            / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    row = next(
+        row for row in identity["source_bundles"]
+        if row["bundle_sha256"] == bound["result"]["source_cache"]["bundle_sha256"]
+    )
+    page_revision = next(
+        rev for rev in row["page_revisions"] if rev["pdf_index"] == 2
+    )
+    assert page_revision["text_sha256"] == ocr_digest
+    assert sorted(row["pdf_indices"]) == [0, 1, 2]
+
+
+def test_review_rebind_rejects_same_producer_page_drift(tmp_path: Path):
+    """Tamper resistance is preserved: a reviewed page that drifts from a
+    cached page of the same extraction pipeline (pdf-skill vs pdf-skill) is
+    real conflict and is rejected even on the review lane; the strict lane
+    rejects it as well."""
+    tmp_path, pdf, first_bound, reviewed, ocr_digest = (
+        _review_rebind_fixture(tmp_path)
+    )
+    tampered = tmp_path / "tampered-source"
+    tampered.mkdir()
+    texts = {
+        0: "Tampered opening text.", 1: "Second page.",
+        2: "Pdf-skill re-extracted page two.",
+    }
+    pages = []
+    for pdf_index, body in sorted(texts.items()):
+        markdown = f"# Page {pdf_index}\n\n{body}\n".encode()
+        markdown_path = f"page-{pdf_index:04d}.md"
+        (tampered / markdown_path).write_bytes(markdown)
+        pages.append({
+            "pdf_index": pdf_index,
+            "markdown_path": markdown_path,
+            "text_sha256": hashlib.sha256(markdown).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93,
+            "grep_anchors": [f"Page {pdf_index}"],
+        })
+    (tampered / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:custom-module",
+            "title": "Custom Module",
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 4,
+        },
+        "pages": pages,
+    }), encoding="utf-8")
+    # Same pipeline (pdf-skill) page 0 drifted -> still refused on the
+    # review lane (campaign references the root, no silent overwrite).
+    with pytest.raises(
+        ops.coc_module_assets.ModuleAssetsError,
+        match=r"cached page 0 content drift",
+    ):
+        _bind_review(tmp_path, tampered, reference_cached_pages=True)
+    # The strict public lane rejects the same bundle unchanged.
+    with pytest.raises(
+        ops.coc_module_assets.ModuleAssetsError,
+        match=r"cached page 0 content drift",
+    ):
+        _bind_review(tmp_path, tampered)
+
+
+def test_review_rebind_rejects_non_boolean_lane_flag(tmp_path):
+    tmp_path, pdf, first_bound, reviewed, ocr_digest = (
+        _review_rebind_fixture(tmp_path)
+    )
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=r"reference_cached_pages must be a boolean",
+    ):
+        _bind_review(tmp_path, reviewed, reference_cached_pages="yes")
+
+
+def test_review_rebind_accepts_blocker2_cross_producer_sample(tmp_path):
+    """Replay of the blocker2 evidence shape (herald-yk-final-01): pdf-skill
+    first bundle holds pages 1-3 (ef994624/96f6d905/c995bd3d), the whole-book
+    OCR lane cached page 4 first (e45307c8, baiduocr), and the reviewed
+    bundle re-extracted page 4 with the pdf-skill producer (76499f01).
+    The review rebind references the cached page instead of failing."""
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "title": "Herald Campaign",
+            "era": "1920s",
+            "play_language": "zh-Hans",
+        },
+    })
+    pdf = tmp_path / "herald.pdf"
+    pdf.write_bytes(b"%PDF herald fixture")
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+
+    def write_bundle(name: str, texts: dict[int, str]) -> Path:
+        bundle = tmp_path / name
+        bundle.mkdir()
+        pages = []
+        for pdf_index, body in sorted(texts.items()):
+            markdown = f"# Page {pdf_index}\n\n{body}\n".encode()
+            markdown_path = f"page-{pdf_index:04d}.md"
+            (bundle / markdown_path).write_bytes(markdown)
+            pages.append({
+                "pdf_index": pdf_index,
+                "markdown_path": markdown_path,
+                "text_sha256": hashlib.sha256(markdown).hexdigest(),
+                "review_state": "manual_accepted",
+                "parse_confidence": 0.93,
+                "grep_anchors": [f"Page {pdf_index}"],
+            })
+        (bundle / "manifest.json").write_text(json.dumps({
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source": {
+                "source_id": "pdf:herald",
+                "title": "Herald of the Yellow King",
+                "path": str(pdf),
+                "file_sha256": file_sha,
+                "page_count": 8,
+            },
+            "pages": pages,
+        }), encoding="utf-8")
+        return bundle
+
+    first = write_bundle("first-bundle", {
+        1: "CALL OF CTHULHU", 2: "RIPPLES FROM CARCOSA",
+        3: "THREE SCENARIOS EXPLORING HASTUR",
+    })
+    first_bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "scenario_id": "herald",
+            "title": "Herald of the Yellow King",
+            "source_bundle_path": str(first),
+            "compile_now": False,
+        },
+    })
+    assert first_bound["status"] == "PASS"
+    ocr_text = "# Page 4\n\n12月的帷幕…谢尔伯思\n"
+    ops.coc_module_assets.put_page(
+        tmp_path,
+        "herald",
+        4,
+        ocr_text,
+        meta={
+            "source_id": "pdf:herald",
+            "file_sha256": file_sha,
+            "producer": "baiduocr",
+            "review_state": "unreviewed",
+            "parse_confidence": None,
+            "source": "baiduocr",
+            "unreviewed": True,
+            "doc_ref": "doc_4.md",
+        },
+    )
+    ocr_digest = hashlib.sha256(ocr_text.encode()).hexdigest()
+    reviewed = write_bundle("reviewed-bundle", {
+        1: "CALL OF CTHULHU", 2: "RIPPLES FROM CARCOSA",
+        3: "THREE SCENARIOS EXPLORING HASTUR",
+        # pdf-skill re-extraction differs from the cached OCR text.
+        4: "# Page 4\n\n12 月的帷幕…谢尔伯恩\n",
+    })
+    bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "scenario_id": "herald",
+            "title": "Herald of the Yellow King",
+            "source_bundle_path": str(reviewed),
+            "compile_now": False,
+            "reference_cached_pages": True,
+        },
+    })
+    assert bound["status"] == "PASS"
+    source_cache = bound["result"]["source_cache"]
+    assert source_cache["referenced_cached_pdf_indices"] == [4]
+    cached = ops.coc_module_assets.get_page(tmp_path, "herald", 4)
+    assert cached["meta"]["text_sha256"] == ocr_digest
+    assert cached["meta"]["producer"] == "baiduocr"
+    assert bound["result"]["source_cache"]["bundle_sha256"] in (
+        cached["meta"].get("bundle_sha256s") or []
+    )
+    # Without the review lane the same window is still refused (regression).
+    with pytest.raises(
+        ops.coc_module_assets.ModuleAssetsError,
+        match=r"cached page 4 content drift",
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "scenario.bind_pdf",
+            "payload": {
+                "campaign_id": "herald-yk-final-01",
+                "scenario_id": "herald",
+                "title": "Herald of the Yellow King",
+                "source_bundle_path": str(reviewed),
+                "compile_now": False,
             },
         })
 

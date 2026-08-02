@@ -3058,10 +3058,24 @@ def cached_page_ref(
     return ref
 
 
+def _cached_page_producer(
+    workspace: Path, asset_root_id: str, pdf_index: int,
+) -> str | None:
+    """Explicit producer label of one cached page, or None for pages the
+    bundle lane registered (same extraction pipeline as incoming bundles)."""
+    page = get_page(workspace, asset_root_id, pdf_index)
+    if page is None:
+        return None
+    meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+    return str(meta.get("producer") or "").strip() or None
+
+
 def _first_cached_page_drift(
     workspace: Path,
     root_id: str,
     pages: list[Any],
+    *,
+    incoming_producer: str | None = None,
 ) -> int | None:
     """Read-only scan: first bundle pdf_index drifting from the cached root.
 
@@ -3071,6 +3085,12 @@ def _first_cached_page_drift(
     would reject (bad index, empty text) are skipped here and still fail
     later at put_page; revision-layer pages use a different integrity class
     and are not scanned.
+
+    ``incoming_producer`` is the review-rebind lane.  A drifted page whose
+    cached evidence declares a different explicit producer (for example the
+    whole-book baiduocr lane) is a cross-producer re-extraction that the
+    ingest loop references by content address instead of treating as a
+    conflict; pages from the same pipeline stay conflicts.
     """
     pages_dir = _module_dir(workspace, root_id) / "pages"
     if not pages_dir.is_dir():
@@ -3098,6 +3118,13 @@ def _first_cached_page_drift(
                     _normalized_page_text(text).encode("utf-8")
                 ).hexdigest()
                 if cached_digest != digest:
+                    if (
+                        incoming_producer is not None
+                        and _is_cross_producer_cached_page(
+                            workspace, root_id, pdf_index, incoming_producer,
+                        )
+                    ):
+                        continue
                     return pdf_index
         structured = page.get("structured_data")
         if isinstance(structured, dict):
@@ -3109,8 +3136,157 @@ def _first_cached_page_drift(
                 and hashlib.sha256(structured_path.read_bytes()).hexdigest()
                 != structured_sha256
             ):
+                if (
+                    incoming_producer is not None
+                    and _is_cross_producer_cached_page(
+                        workspace, root_id, pdf_index, incoming_producer,
+                    )
+                ):
+                    continue
                 return pdf_index
     return None
+
+
+def _is_cross_producer_cached_page(
+    workspace: Path,
+    asset_root_id: str,
+    pdf_index: int,
+    incoming_producer: str,
+) -> bool:
+    """True when an already-cached page was registered by a different,
+    explicitly declared extraction pipeline than the incoming bundle.
+    Pages without an explicit producer label came from the bundle lane (the
+    same pipeline as incoming bundles) and stay hard conflicts."""
+    if not incoming_producer:
+        return False
+    cached = get_page(workspace, asset_root_id, pdf_index)
+    if cached is None:
+        return False
+    meta = cached.get("meta") if isinstance(cached.get("meta"), dict) else {}
+    if isinstance(meta.get("ocr_revision"), dict):
+        return False
+    cached_producer = str(meta.get("producer") or "").strip() or None
+    return bool(cached_producer) and cached_producer != incoming_producer
+
+
+def _reference_cached_page(
+    workspace: Path,
+    asset_root_id: str,
+    pdf_index: int,
+    *,
+    incoming_text_sha256: str,
+    incoming_producer: str,
+    cached_producer: str,
+    bundle_sha256: str,
+) -> dict[str, Any]:
+    """Review-rebind lane: bind an already-cached page produced by a
+    different extraction pipeline into the incoming bundle by content
+    address.  The cached text/evidence stay authoritative and untouched;
+    only the page meta's bundle coverage is extended, and the reference is
+    recorded as durable provenance (disposition ``review_references_cache``).
+    Same-pipeline conflicts never reach here."""
+    mod = _module_dir(workspace, asset_root_id)
+    stem = f"{pdf_index:04d}"
+    md_path = mod / "pages" / f"{stem}.md"
+    meta_path = mod / "pages" / f"{stem}.meta.json"
+    if not md_path.is_file():
+        raise ModuleAssetsError(
+            f"cached page {pdf_index} reference artifact is missing"
+        )
+    meta = (
+        json.loads(meta_path.read_text(encoding="utf-8"))
+        if meta_path.is_file() else {}
+    )
+    cached_text_sha256 = str(meta.get("text_sha256") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", cached_text_sha256):
+        raise ModuleAssetsError(
+            f"cached page {pdf_index} reference identity is invalid"
+        )
+    bundle_hashes = {
+        str(value)
+        for value in (meta.get("bundle_sha256s") or [])
+        if isinstance(value, str) and value
+    }
+    for value in (meta.get("bundle_sha256"), bundle_sha256):
+        if isinstance(value, str) and value:
+            bundle_hashes.add(value)
+    updated = dict(meta)
+    updated["bundle_sha256s"] = sorted(bundle_hashes)
+    updated["updated_at"] = _now_iso()
+    _write_json(meta_path, updated)
+    update_full_parse_state(
+        workspace,
+        asset_root_id,
+        status="in_progress",
+        provenance=[{
+            "pdf_index": pdf_index,
+            "source": "opening_review_transport",
+            "incoming_producer": incoming_producer,
+            "existing_producer": cached_producer,
+            "incoming_text_sha256": incoming_text_sha256,
+            "existing_text_sha256": cached_text_sha256,
+            "disposition": "review_references_cache",
+            "at": _now_iso(),
+        }],
+    )
+    return {
+        "pdf_index": pdf_index,
+        "text_sha256": cached_text_sha256,
+        "path": str(md_path),
+        "reused": True,
+        "referenced_cached": True,
+    }
+
+
+def _reference_cached_page_if_cross_producer(
+    workspace: Path,
+    asset_root_id: str,
+    pdf_index: int,
+    page: dict[str, Any],
+    *,
+    incoming_producer: str | None,
+    bundle_sha256: str,
+) -> dict[str, Any] | None:
+    """Review-rebind lane per-page hook: when the incoming page drifted from
+    an already-cached page that a different extraction pipeline produced,
+    reference the cache identity by content address instead of comparing
+    text.  Returns the referenced page-result row, or None when normal
+    registration continues (uncached, identical, or same-pipeline pages)."""
+    if not incoming_producer or not _is_cross_producer_cached_page(
+        workspace, asset_root_id, pdf_index, incoming_producer,
+    ):
+        return None
+    cached = get_page(workspace, asset_root_id, pdf_index)
+    if cached is None:
+        return None
+    meta = cached.get("meta") if isinstance(cached.get("meta"), dict) else {}
+    cached_text = cached.get("text")
+    incoming_text = page.get("text")
+    if (
+        not isinstance(cached_text, str)
+        or not cached_text.strip()
+        or not isinstance(incoming_text, str)
+        or not incoming_text.strip()
+    ):
+        return None
+    cached_digest = str(meta.get("text_sha256") or "")
+    incoming_digest = hashlib.sha256(
+        _normalized_page_text(incoming_text).encode("utf-8")
+    ).hexdigest()
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", cached_digest)
+        or cached_digest == incoming_digest
+    ):
+        return None
+    return _reference_cached_page(
+        workspace,
+        asset_root_id,
+        pdf_index,
+        incoming_text_sha256=incoming_digest,
+        incoming_producer=incoming_producer,
+        cached_producer=str(meta.get("producer") or "").strip(),
+        bundle_sha256=bundle_sha256,
+    )
 
 
 def _recovery_family_root_id(workspace: Path, asset_root_id: str) -> str:
@@ -3385,6 +3561,7 @@ def register_source_bundle(
     asset_root_id: str | None = None,
     module_identity: dict[str, Any] | None = None,
     record_drift: bool = False,
+    reference_cached_pages: bool = False,
 ) -> dict[str, Any]:
     """Bridge one validated host PDF window into the progressive page cache.
 
@@ -3398,7 +3575,22 @@ def register_source_bundle(
     keeps the cache immutable and first-writer-wins: an identical page is
     skipped, a drifted page keeps the existing evidence and is recorded in
     the module's full_parse provenance instead of failing the batch.
+
+    ``reference_cached_pages`` is the opening-review rebind lane.  The
+    coordinator-owned review transport rebinds a reviewed window against an
+    already-populated cache where the whole-book OCR lane may have
+    registered the same pdf_index first (cross-producer).  A cross-producer
+    cached page is then referenced by content address: the cached text and
+    evidence stay authoritative, the page meta gains the incoming bundle's
+    coverage, and the reference is recorded as durable provenance
+    (``review_references_cache``) instead of failing as text drift.  Pages
+    from the same extraction pipeline stay hard conflicts: a same-producer
+    page with different content is still rejected exactly as before.
     """
+    if record_drift and reference_cached_pages:
+        raise ModuleAssetsError(
+            "register_source_bundle drift lanes are exclusive"
+        )
     started = time.perf_counter()
     if isinstance(source_bundle, dict):
         bundle = source_bundle
@@ -3427,6 +3619,10 @@ def register_source_bundle(
     if not existing:
         identity.setdefault("canonical_module_id", root_id)
         identity.setdefault("canonical_title", source.get("title") or root_id)
+    incoming_producer = (
+        str(bundle.get("producer") or "").strip() or None
+        if reference_cached_pages else None
+    )
     def _ingest(
         target_root_id: str,
         target_identity: dict[str, Any],
@@ -3456,6 +3652,7 @@ def register_source_bundle(
             )
 
         page_results: list[dict[str, Any]] = []
+        referenced_text_sha256s: dict[int, str] = {}
         for page in bundle["pages"]:
             if not isinstance(page, dict):
                 raise ModuleAssetsError("source bundle page must be an object")
@@ -3468,6 +3665,19 @@ def register_source_bundle(
                 raise ModuleAssetsError(
                     "source bundle page pdf_index must be a non-negative integer"
                 )
+            if reference_cached_pages:
+                referenced = _reference_cached_page_if_cross_producer(
+                    workspace,
+                    target_root_id,
+                    pdf_index,
+                    page,
+                    incoming_producer=incoming_producer,
+                    bundle_sha256=bundle_sha256,
+                )
+                if referenced is not None:
+                    referenced_text_sha256s[pdf_index] = referenced["text_sha256"]
+                    page_results.append(referenced)
+                    continue
             structured = (
                 page.get("structured_data")
                 if isinstance(page.get("structured_data"), dict)
@@ -3603,7 +3813,10 @@ def register_source_bundle(
                 "page_revisions": [
                     {
                         "pdf_index": int(page["pdf_index"]),
-                        "text_sha256": str(page.get("text_sha256") or ""),
+                        "text_sha256": str(
+                            referenced_text_sha256s.get(int(page["pdf_index"]))
+                            or page.get("text_sha256") or ""
+                        ),
                         **(
                             {
                                 "ocr_revision": json.loads(
@@ -3683,11 +3896,20 @@ def register_source_bundle(
             ],
             "new_page_count": sum(not row["reused"] for row in page_results),
             "reused_page_count": sum(bool(row["reused"]) for row in page_results),
+            "referenced_cached_page_count": sum(
+                bool(row.get("referenced_cached")) for row in page_results
+            ),
+            "referenced_cached_pdf_indices": sorted(
+                int(row["pdf_index"])
+                for row in page_results
+                if row.get("referenced_cached")
+            ),
             "bundle_validation_and_cache_ms": elapsed_ms,
         }
 
     drifted_pdf_index = _first_cached_page_drift(
         workspace, root_id, bundle["pages"],
+        incoming_producer=incoming_producer,
     )
     if record_drift and drifted_pdf_index is not None:
         # Full-parse batch lane: first writer wins per page.  Do not escalate
@@ -3732,6 +3954,7 @@ def register_source_bundle(
         )
         current_drift = _first_cached_page_drift(
             workspace, current_root_id, bundle["pages"],
+            incoming_producer=incoming_producer,
         )
         if current_drift is None:
             return _ingest(

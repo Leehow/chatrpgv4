@@ -1013,6 +1013,11 @@ def _run_opening_review() -> dict[str, Any]:
                     "scenario_id": task["scenario_id"],
                     "title": task["title"],
                     "source_bundle_path": task["source_bundle_path"],
+                    # Review rebind lane: pdf_indices the whole-book OCR lane
+                    # already cached (cross-producer) are bound by content
+                    # address without comparing text; same-pipeline page
+                    # evidence must still match exactly.
+                    "reference_cached_pages": True,
                 },
             },
         )

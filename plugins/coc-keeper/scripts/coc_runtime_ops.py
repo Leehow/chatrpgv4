@@ -4919,6 +4919,15 @@ def execute_setup_operation(
     allowed = {
         "campaign_id", "scenario_id", "title", "source_bundle_path",
         "compile_now",
+        # Internal opening-review rebind lane, never part of the public setup
+        # contract: the coordinator-owned review transport rebinds the
+        # reviewed window against an already-populated cache where the
+        # whole-book OCR lane may have registered pages first. Cross-producer
+        # cached pages are then referenced by content address instead of
+        # failing as text drift; same-pipeline page evidence must still match
+        # exactly (mcp-operation-contracts.json intentionally does not
+        # advertise this key).
+        "reference_cached_pages",
     }
     required = {"campaign_id", "scenario_id", "title", "source_bundle_path"}
     unsupported = sorted(set(payload) - allowed)
@@ -4933,6 +4942,14 @@ def execute_setup_operation(
         raise RuntimeOperationError(
             "scenario.bind_pdf payload fields invalid (" + "; ".join(details) + ")"
         )
+    reference_cached_pages = payload.get("reference_cached_pages")
+    if reference_cached_pages is not None and not isinstance(
+        reference_cached_pages, bool
+    ):
+        raise RuntimeOperationError(
+            "scenario.bind_pdf reference_cached_pages must be a boolean"
+        )
+    reference_cached_pages = bool(reference_cached_pages)
     campaign_id = _id(payload.get("campaign_id"), "campaign_id")
     scenario_id = _id(payload.get("scenario_id"), "scenario_id")
     title = payload.get("title")
@@ -4971,6 +4988,7 @@ def execute_setup_operation(
             "canonical_module_id": scenario_id,
             "canonical_title": title.strip(),
         },
+        reference_cached_pages=reference_cached_pages,
     )
     source = {
         **host_bundle["source"],
