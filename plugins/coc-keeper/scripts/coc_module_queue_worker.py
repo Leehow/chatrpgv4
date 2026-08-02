@@ -1986,7 +1986,7 @@ def _run_full_parse_ocr_attempt(
         doc_page_count=doc_count,
         status=OCR_MANIFEST_STATUS_INCOMPLETE,
     )
-    missing = sorted(requested - accepted)
+    missing = sorted(requested - cached)
     raise FullParseOcrError(
         "full_parse_ocr_page_gap",
         f"整本 OCR 解析了 {doc_count} 页 doc markdown，但模块仍缺 "

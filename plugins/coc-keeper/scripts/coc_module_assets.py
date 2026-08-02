@@ -1318,11 +1318,19 @@ def full_parse_page_count(
 def full_parse_requested_indices(
     workspace: Path, asset_root_id: str,
 ) -> list[int]:
-    """The whole-PDF page list full_parse must eventually cache."""
+    """The whole-PDF page list full_parse must eventually cache.
+
+    Module ``pdf_index`` values are 1-based physical page numbers: the host
+    PDF skill first pack numbers pages from 1 (cover = 1), and the whole-book
+    baiduocr corpus maps ``doc_N`` (0-based ordinal of the same physical
+    page) to ``pdf_index = doc_N + 1``.  The requested set is therefore
+    ``1..page_count``; index 0 does not exist in this cache and a corpus doc
+    for the final physical page is always inside the requested scope.
+    """
     page_count = full_parse_page_count(workspace, asset_root_id)
     if not page_count or page_count < 1:
         return []
-    return list(range(page_count))
+    return list(range(1, page_count + 1))
 
 
 def ocr_corpus_root(workspace: Path) -> Path:
@@ -1399,9 +1407,11 @@ def register_ocr_corpus(
 
     Mapping and provenance (product design, S1 full-parse lane):
 
-    - OCR page ordinals are 0-based and module ``pdf_index`` is 0-based with
-      the first pack already covering page 0, so ``pdf_index = doc_N + 1``
-      (0-based → 1-based).
+    - OCR page ordinals are 0-based ``doc_N`` and module ``pdf_index`` is
+      1-based physical page number (the host PDF skill first pack numbers
+      pages from 1, cover = 1), so ``pdf_index = doc_N + 1`` and the full
+      book's final physical page (``doc_{page_count-1}``) lands inside the
+      requested scope ``1..page_count``.
     - ``put_page`` content addressing is authoritative: an identical cached
       page is reused silently, a drifted page keeps the existing first writer
       (reviewed first-pack pages win over OCR pages) and records a

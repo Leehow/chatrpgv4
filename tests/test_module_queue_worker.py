@@ -2891,9 +2891,10 @@ def test_full_parse_worker_host_request_and_retryable_ocr_failure(
     request = json.loads(request_path.read_text(encoding="utf-8"))
     assert request["kind"] == "full_parse"
     assert request["job_id"] == queued["job"]["job_id"]
-    # Full 0-based page range comes from the bound bundle manifest page_count.
-    assert request["requested_pdf_indices"] == [0, 1, 2, 3]
-    assert [row["pdf_index"] for row in request["cached_page_refs"]] == [0, 1]
+    # Full 1-based physical page range comes from the bound bundle manifest
+    # page_count (first pack numbers pages from 1).
+    assert request["requested_pdf_indices"] == [1, 2, 3, 4]
+    assert [row["pdf_index"] for row in request["cached_page_refs"]] == [1]
     assert request["cached_scope_complete"] is False
     assert request["consumer_state"] == "owned"
     assert request["work_level"] == "bounded_warm"
@@ -2924,7 +2925,7 @@ def test_full_parse_worker_host_request_and_retryable_ocr_failure(
     )
     assert len(claimed["packets"]) == 1
     packet = claimed["packets"][0]
-    assert packet["requested_pdf_indices"] == [0, 1, 2, 3]
+    assert packet["requested_pdf_indices"] == [1, 2, 3, 4]
     assert packet["cached_scope_complete"] is False
     assert packet["requests"][0]["kind"] == "full_parse"
 
@@ -2954,7 +2955,7 @@ def test_full_parse_batch_registration_progress_and_first_writer_wins(
     worker.run_worker_once(tmp_path, parallel=1)
     state = assets.read_full_parse_state(tmp_path, "qw-demo")
     assert state["status"] == "in_progress"
-    assert state["parsed_pdf_indices"] == [0, 1]
+    assert state["parsed_pdf_indices"] == [1]
 
     pdf = tmp_path / "qw-demo.pdf"  # same bound PDF identity as the root
     file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
@@ -2995,8 +2996,11 @@ def test_full_parse_batch_registration_progress_and_first_writer_wins(
     )
     assert registered["cached_pdf_indices"] == [2, 3]
     state = assets.read_full_parse_state(tmp_path, "qw-demo")
-    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
-    assert state["complete"] is True
+    # Pages 1–3 are cached now; the final physical page (4) is only
+    # registerable through the OCR put_page lane (bundles may never carry
+    # pdf_index == page_count), so the book is still in progress.
+    assert state["parsed_pdf_indices"] == [1, 2, 3]
+    assert state["complete"] is False
 
     # Drifted re-render of page 1 (already accepted): first writer wins and
     # the batch records provenance instead of raising.
@@ -3045,6 +3049,12 @@ def test_full_parse_cache_hit_completes_without_host_work(tmp_path: Path):
         2: "# Attic\n\nCached attic scope.\n",
         3: "# Backyard\n\nCached backyard scope.\n",
     })
+    # The final physical page (pdf_index == page_count) can only be cached
+    # through the OCR put_page lane; bundles never carry it.
+    assets.put_page(
+        tmp_path, "qw-demo", 4, "# Chapel\n\nCached chapel scope.\n",
+        meta={"review_state": "auto_accepted", "source_id": "pdf:qw-demo"},
+    )
     cid = _campaign(tmp_path)
     _clear_queue(tmp_path)
     _full_parse_enqueue(tmp_path, campaign=cid)
@@ -3059,7 +3069,7 @@ def test_full_parse_cache_hit_completes_without_host_work(tmp_path: Path):
     state = assets.read_full_parse_state(tmp_path, "qw-demo")
     assert state["status"] == "complete"
     assert state["complete"] is True
-    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
+    assert state["parsed_pdf_indices"] == [1, 2, 3, 4]
 
     # Rebind after completion dedupes to the done row without a second job.
     again = _full_parse_enqueue(tmp_path, campaign=cid)
@@ -3087,7 +3097,7 @@ def test_full_parse_progress_visible_in_progressive_status(
     assert full_parse["status"] == "in_progress"
     assert full_parse["page_count"] == 4
     assert full_parse["complete"] is False
-    assert full_parse["parsed_pdf_indices"] == [0, 1]
+    assert full_parse["parsed_pdf_indices"] == [1]
     assert full_parse["job_id"]
 
     # The renderer registers the batch first (content-addressed), then the
@@ -3126,7 +3136,7 @@ def test_full_parse_progress_visible_in_progressive_status(
         rendered_pdf_indices=[2],
         failed_pdf_indices=[],
     )
-    assert state["parsed_pdf_indices"] == [0, 1, 2]
+    assert state["parsed_pdf_indices"] == [1, 2]
 
 
 def _fake_ocr_corpus_writer(corpus_pages: dict[int, str]):
@@ -3151,10 +3161,11 @@ def test_full_parse_ocr_corpus_registration_mapping_first_writer_wins_and_proven
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ):
     """Worker-native OCR: the bridge corpus doc_N.md registers as
-    pdf_index = doc_N + 1 (0-based→1-based) with baiduocr/unreviewed
-    provenance; identical cached pages reuse silently; drifted pages keep the
-    first writer and record provenance; out-of-scope docs are skipped; a
-    complete corpus marks the manifest complete and closes the job."""
+    pdf_index = doc_N + 1 (0-based doc ordinal → 1-based physical page,
+    cover = 1) with baiduocr/unreviewed provenance; identical cached pages
+    reuse silently; drifted pages keep the first writer and record
+    provenance; out-of-scope docs are skipped; a complete corpus marks the
+    manifest complete and closes the job."""
     _campaign(tmp_path)
     _clear_queue(tmp_path)
     queued = _full_parse_enqueue(tmp_path)
@@ -3171,11 +3182,13 @@ def test_full_parse_ocr_corpus_registration_mapping_first_writer_wins_and_proven
             # doc_0 → pdf_index 1: drifts from the first-pack reviewed page 1
             # (first writer wins, provenance recorded).
             0: "# Cellar\n\nOCR re-rendered cellar evidence.\n",
-            # doc_1 → pdf_index 2, doc_2 → pdf_index 3: newly cached.
+            # doc_1 → pdf_index 2, doc_2 → pdf_index 3, doc_3 → pdf_index 4
+            # (the final physical page): newly cached and inside the scope.
             1: "# Attic\n\nAttic OCR evidence.\n",
             2: "# Backyard\n\nBackyard OCR evidence.\n",
-            # doc_3 → pdf_index 4: outside the bound 4-page scope → skipped.
-            3: "# Out of scope\n\nShould never register.\n",
+            3: "# Chapel\n\nChapel OCR evidence.\n",
+            # doc_4 → pdf_index 5: outside the bound 4-page scope → skipped.
+            4: "# Out of scope\n\nShould never register.\n",
         }),
     )
     processed = worker.run_worker_once(tmp_path, parallel=1)
@@ -3185,15 +3198,15 @@ def test_full_parse_ocr_corpus_registration_mapping_first_writer_wins_and_proven
     )
     assert result["result"] == "complete", result
     ocr = result["ocr"]
-    assert ocr["doc_page_count"] == 4
+    assert ocr["doc_page_count"] == 5
     # doc_0 drifted from the reviewed first-pack page 1 (first writer wins,
-    # provenance recorded), so only docs 1–2 register new pages.
-    assert ocr["registered_pdf_indices"] == [2, 3]
+    # provenance recorded), so only docs 1–3 register new pages.
+    assert ocr["registered_pdf_indices"] == [2, 3, 4]
     assert ocr["reused_page_count"] == 0
     assert ocr["drifted_page_count"] == 1
     assert ocr["skipped"] == [{
-        "doc_ref": "doc_3.md", "doc_ordinal": 3,
-        "pdf_index": 4, "reason": "outside_requested_scope",
+        "doc_ref": "doc_4.md", "doc_ordinal": 4,
+        "pdf_index": 5, "reason": "outside_requested_scope",
     }]
 
     # First writer wins: the reviewed first-pack page 1 keeps its text.
@@ -3211,12 +3224,15 @@ def test_full_parse_ocr_corpus_registration_mapping_first_writer_wins_and_proven
     page3 = assets.get_page(tmp_path, "qw-demo", 3)
     assert "Backyard OCR evidence." in page3["text"]
     assert page3["meta"]["doc_ref"] == "doc_2.md"
+    page4 = assets.get_page(tmp_path, "qw-demo", 4)
+    assert "Chapel OCR evidence." in page4["text"]
+    assert page4["meta"]["doc_ref"] == "doc_3.md"
 
     # The drift is durable provenance in the full_parse progress document.
     state = assets.read_full_parse_state(tmp_path, "qw-demo")
     assert state["status"] == "complete"
     assert state["complete"] is True
-    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
+    assert state["parsed_pdf_indices"] == [1, 2, 3, 4]
     assert len(state["provenance"]) == 1
     drift = state["provenance"][0]
     assert drift["pdf_index"] == 1
@@ -3235,7 +3251,7 @@ def test_full_parse_ocr_corpus_registration_mapping_first_writer_wins_and_proven
         tmp_path, identity["file_sha256"],
     )
     assert manifest["status"] == "complete"
-    assert manifest["doc_page_count"] == 4
+    assert manifest["doc_page_count"] == 5
     assert manifest["producer"] == "baiduocr"
     queue = assets.list_queue(tmp_path, "qw-demo")
     done = next(
@@ -3270,12 +3286,15 @@ def test_full_parse_ocr_complete_corpus_reuses_without_rerun(
     (corpus / "doc_2.md").write_text(
         "# Backyard\n\nBackyard OCR evidence.\n", encoding="utf-8",
     )
+    (corpus / "doc_3.md").write_text(
+        "# Chapel\n\nChapel OCR evidence.\n", encoding="utf-8",
+    )
     assets.write_ocr_corpus_manifest(
         tmp_path,
         identity["file_sha256"],
         source_path=str(tmp_path / "qw-demo.pdf"),
         page_count=4,
-        doc_page_count=3,
+        doc_page_count=4,
         status="complete",
     )
     monkeypatch.setenv("COC_FULL_PARSE_OCR_DISABLED", "0")
@@ -3293,8 +3312,132 @@ def test_full_parse_ocr_complete_corpus_reuses_without_rerun(
     assert result["result"] == "complete", result
     state = assets.read_full_parse_state(tmp_path, "qw-demo")
     assert state["complete"] is True
-    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
+    assert state["parsed_pdf_indices"] == [1, 2, 3, 4]
     assert state["provenance"] == []
+
+
+def test_full_parse_baiduocr_redraw_of_existing_pdf_skill_page_first_writer_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """Blocker-1 mirror direction (Luna probe page-4 pattern): the whole-book
+    baiduocr lane re-renders a pdf_index that the pdf-skill first-pack/review
+    lane already cached (cross-producer, different text).  put_page is
+    first-writer-wins for the full_parse lane: the existing pdf-skill page
+    keeps its text, the drift is durable provenance, and the batch still
+    completes — never a content-drift rejection or a deadlock."""
+    _campaign(tmp_path)
+    # The pdf-skill lane already owns page 4 (opening window page) with its
+    # own transcription, exactly the Luna record ① layout (page 4 cached by
+    # the first pack / review before the OCR batch redraws it).
+    assets.put_page(
+        tmp_path, "qw-demo", 4, "# Opening\n\nReviewed opening evidence.\n",
+        meta={
+            "source_id": "pdf:qw-demo",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93,
+        },
+    )
+    _clear_queue(tmp_path)
+    queued = _full_parse_enqueue(tmp_path)
+    (tmp_path / "secrets.env").write_text(
+        "BAIDUOCR_TOKEN=test-token\n", encoding="utf-8",
+    )
+    monkeypatch.setenv("COC_KEEPER_ENV_FILE", str(tmp_path / "secrets.env"))
+    monkeypatch.setenv("COC_FULL_PARSE_OCR_DISABLED", "0")
+    monkeypatch.setattr(
+        worker,
+        "_invoke_full_parse_ocr",
+        _fake_ocr_corpus_writer({
+            # doc_0 → pdf_index 1: drifts from the first-pack page 1.
+            0: "# Cellar\n\nOCR re-rendered cellar evidence.\n",
+            # doc_1 → pdf_index 2, doc_2 → pdf_index 3: newly cached.
+            1: "# Attic\n\nAttic OCR evidence.\n",
+            2: "# Backyard\n\nBackyard OCR evidence.\n",
+            # doc_3 → pdf_index 4: redraws the existing pdf-skill page 4 with
+            # a different transcription (Luna: "12月的帷幕…谢尔伯思").
+            3: "# Opening\n\nOCR redraw of the opening page.\n",
+        }),
+    )
+    processed = worker.run_worker_once(tmp_path, parallel=1)
+    result = next(
+        row for row in processed["results"]
+        if row.get("kind") == "full_parse"
+    )
+    # The batch completes despite the cross-producer redraw; the drifted
+    # page keeps its first writer instead of failing the whole parse.
+    assert result["result"] == "complete", result
+    ocr = result["ocr"]
+    assert ocr["drifted_page_count"] == 2
+    assert ocr["registered_pdf_indices"] == [2, 3]
+    page4 = assets.get_page(tmp_path, "qw-demo", 4)
+    assert "Reviewed opening evidence." in page4["text"]
+    assert "OCR redraw" not in page4["text"]
+    # The existing evidence is untouched: bundle-lane pages carry no producer
+    # label at all, and the OCR redraw never replaced them.
+    assert page4["meta"].get("review_state") == "manual_accepted"
+    assert page4["meta"].get("producer") is None
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["complete"] is True
+    assert state["parsed_pdf_indices"] == [1, 2, 3, 4]
+    page4_drift = next(
+        row for row in state["provenance"]
+        if row.get("pdf_index") == 4
+    )
+    assert page4_drift["doc_ref"] == "doc_3.md"
+    assert page4_drift["source"] == "baiduocr"
+    assert page4_drift["disposition"] == "first_writer_wins"
+
+
+def test_full_parse_page_gap_reports_explicit_class_not_name_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """Last-page wrap-up (33/34 play evidence): when the OCR corpus cannot
+    cover every requested page (here the final pdf_index 4 is missing), the
+    worker reports the bounded ``full_parse_ocr_page_gap`` failure class and
+    a retryable retry path — never a bare NameError that strands the job
+    with failure_class=null."""
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    queued = _full_parse_enqueue(tmp_path)
+    first_job_id = queued["job"]["job_id"]
+    (tmp_path / "secrets.env").write_text(
+        "BAIDUOCR_TOKEN=test-token\n", encoding="utf-8",
+    )
+    monkeypatch.setenv("COC_KEEPER_ENV_FILE", str(tmp_path / "secrets.env"))
+    monkeypatch.setenv("COC_FULL_PARSE_OCR_DISABLED", "0")
+    monkeypatch.setattr(
+        worker,
+        "_invoke_full_parse_ocr",
+        _fake_ocr_corpus_writer({
+            # Only docs 0–2: pdf_index 4 (the final physical page) is never
+            # produced — the play-08/luna 33/34 gap.
+            0: "# Cellar\n\nOCR re-rendered cellar evidence.\n",
+            1: "# Attic\n\nAttic OCR evidence.\n",
+            2: "# Backyard\n\nBackyard OCR evidence.\n",
+        }),
+    )
+    processed = worker.run_worker_once(tmp_path, parallel=1)
+    result = next(
+        row for row in processed["results"]
+        if row.get("kind") == "full_parse"
+    )
+    assert result["result"] == "retryable_failure"
+    assert result["failure_class"] == "full_parse_ocr_page_gap"
+    assert "is not defined" not in str(result.get("error") or "")
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "in_progress"
+    assert state["complete"] is False
+    assert state["failure_class"] == "full_parse_ocr_page_gap"
+    assert state["next_operation"]["operation"] == "progressive.retry_full_parse"
+    # The durable request row keeps the bounded failure budget.
+    request = json.loads(
+        (
+            tmp_path / ".coc" / "module-assets" / "qw-demo"
+            / "host-work" / f"{first_job_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert request["render_failure_count"] == 1
+    assert request["last_render_failure_class"] == "full_parse_ocr_page_gap"
 
 
 def test_full_parse_ocr_terminal_failure_marks_class_and_retry_reenqueues(
@@ -3404,6 +3547,7 @@ def test_progressive_retry_full_parse_tool_reenqueues_failed_lane(
             0: "# Cellar\n\nCached source scope.\n",
             1: "# Attic\n\nAttic OCR evidence.\n",
             2: "# Backyard\n\nBackyard OCR evidence.\n",
+            3: "# Chapel\n\nChapel OCR evidence.\n",
         }),
     )
     worker.run_worker_once(tmp_path, parallel=1)
