@@ -39,7 +39,13 @@ import { isCanonicalCampaignId } from "../lib/campaign-id.mjs";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
-const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 5 * 60 * 1000;
+// The locator producer child runs under the adapter's 900s budget; this
+// outer budget must stay above it with margin (same ratio as the opening
+// review and full-parse lanes: 900s child inside a 20min outer budget). The
+// child's wall time is dominated by model-API latency that has been observed
+// from ~80s to well past 240s, so the old 5min/240s pair killed runs the
+// outer budget would have accepted.
+const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 20 * 60 * 1000;
 const OPENING_SOURCE_REVIEW_TIMEOUT_MS = 20 * 60 * 1000;
 const FULL_PARSE_BATCH_TIMEOUT_MS = 20 * 60 * 1000;
 const RAW_PDF_BIND_BUNDLE_ERROR = (
@@ -5483,6 +5489,7 @@ interface RawPdfBindBundleDispatchDeps {
   command(): string | undefined;
   states: Map<string, JsonObject>;
   controllers: Map<string, AbortController>;
+  inflight: Map<string, Promise<JsonObject>>;
   onTerminal(result: JsonObject): void;
   audit(entry: JsonObject): void;
   timeoutMs?: number;
@@ -5542,6 +5549,14 @@ export async function autoDispatchPiRawPdfBindBundle(
   const key = `raw-pdf-bind:${suppliedPath}`;
   const previous = deps.states.get(key);
   if (previous !== undefined) return previous;
+  const inflight = deps.inflight.get(key);
+  if (inflight !== undefined) return inflight;
+  // One producer run per bind path: a retry while the first locator child is
+  // still in flight must await the same run instead of launching a second
+  // concurrent child (two children render the same PDF against the same
+  // provider account and both slow down; the acceptance run observed a
+  // concurrent duplicate timing out at the old 240s budget).
+  const run = (async (): Promise<JsonObject> => {
   const finish = (entry: JsonObject) => {
     deps.states.set(key, entry);
     deps.audit(entry);
@@ -5643,6 +5658,12 @@ export async function autoDispatchPiRawPdfBindBundle(
   } finally {
     if (deps.controllers.get(key) === controller) deps.controllers.delete(key);
   }
+  })();
+  deps.inflight.set(key, run);
+  void run.finally(() => {
+    if (deps.inflight.get(key) === run) deps.inflight.delete(key);
+  });
+  return run;
 }
 
 export async function autoDispatchPiOpeningSourceReview(
@@ -6188,6 +6209,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sourceProducerRuns = new Set<Promise<unknown>>();
   let rawPdfBindBundleStates = new Map<string, JsonObject>();
   let rawPdfBindBundleControllers = new Map<string, AbortController>();
+  let rawPdfBindBundleInflight = new Map<string, Promise<JsonObject>>();
   let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
   let fullParseRenderStates = new Map<string, JsonObject>();
   let fullParseRenderControllers = new Map<string, AbortController>();
@@ -6294,6 +6316,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
     states: rawPdfBindBundleStates,
     controllers: rawPdfBindBundleControllers,
+    inflight: rawPdfBindBundleInflight,
     onTerminal: (terminal) => {
       const content = terminal.status === "located"
         ? {
@@ -6383,6 +6406,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceProducerRuns = new Set<Promise<unknown>>();
     rawPdfBindBundleStates = new Map<string, JsonObject>();
     rawPdfBindBundleControllers = new Map<string, AbortController>();
+    rawPdfBindBundleInflight = new Map<string, Promise<JsonObject>>();
     rawPdfBindBundleRuns = new Set<Promise<unknown>>();
     fullParseRenderStates = new Map<string, JsonObject>();
     fullParseRenderControllers = new Map<string, AbortController>();
@@ -7732,6 +7756,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceProducerStates.clear();
     rawPdfBindBundleControllers.clear();
     rawPdfBindBundleRuns.clear();
+    rawPdfBindBundleInflight.clear();
     rawPdfBindBundleStates.clear();
     const ownedManager = manager;
     const ownedMcp = mcp;

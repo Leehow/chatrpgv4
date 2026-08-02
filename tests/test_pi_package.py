@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -1311,6 +1312,19 @@ def test_pi_auto_dispatch_uses_named_paths_and_bounded_pending_queues():
     assert completed.stdout.strip() == "auto-dispatch smoke OK"
 
 
+def test_pi_raw_pdf_bind_dispatch_deduplicates_concurrent_retries():
+    """Two concurrent raw-PDF-bind retries for the same path share one
+    in-flight locator producer run; a completed retry is served from the
+    finished cache. Regression for the Cold Harvest acceptance observation
+    of a duplicate concurrent locator child timing out while its sibling
+    succeeded."""
+    completed = subprocess.run(
+        ["node", "--experimental-strip-types", str(ROOT / "tests/pi/raw-pdf-bind-dedup-smoke.mjs"), str(ROOT)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    assert completed.stdout.strip() == "raw-pdf-bind dedup smoke OK"
+
+
 def test_real_node22_preactivation_failures_are_owned_and_cleaned():
     result = _node(ROOT / "tests/pi/preactivation-ownership.mjs", str(ROOT))
     assert result["node"].startswith("v22.")
@@ -1591,6 +1605,213 @@ def test_pdf_skill_adapter_resolves_default_skill_from_codex_home(
     adapter = _load_pdf_adapter("coc_pdf_adapter_portable_skill_test")
 
     assert adapter._pdf_skill() == skill.resolve()
+
+
+
+
+def _locator_task(workspace: Path, bundle_dir: Path, pdf: Path) -> dict:
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-task.v1",
+        "adapter_mode": "pi_external_pdf_skill_lifecycle",
+        "model_policy": "pinned_xai_grok_4_5_thinking_low",
+        "max_selected_pages": 3,
+        "workspace_root": str(workspace),
+        "asset_root_id": "raw-pdf-bind:camp",
+        "job_id": "job-locator-receipt",
+        "kind": "raw_pdf_bind_first_bundle",
+        "target_id": "pdf:module",
+        "target_label": "module.pdf",
+        "source_bundle_path": str(bundle_dir),
+        "cached_pdf_indices": [],
+        "source": {
+            "path": str(pdf),
+            "source_id": "pdf:module",
+            "title": "module.pdf",
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+        },
+    }
+
+
+def _locator_bundle(root: Path, pdf: Path, pdf_indices: list[int]) -> None:
+    """Write a load_host_bundle-valid codex-pdf-skill bundle."""
+    pages = root / "pages"
+    pages.mkdir(parents=True)
+    manifest_pages = []
+    for index in pdf_indices:
+        page_bytes = (
+            f"# Page {index + 1}  \r\n\r\nExtracted text {index}.   \r\n"
+        ).encode()
+        (pages / f"{index:04d}.md").write_bytes(page_bytes)
+        manifest_pages.append({
+            "pdf_index": index,
+            "printed_page": index + 1,
+            "markdown_path": f"pages/{index:04d}.md",
+            "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93,
+            "grep_anchors": [f"Extracted text {index}."],
+        })
+    manifest = {
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:module",
+            "title": "module.pdf",
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 48,
+        },
+        "pages": manifest_pages,
+        "assets": [],
+    }
+    (root / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8",
+    )
+
+
+def test_pdf_skill_adapter_locator_run_uses_shared_pi_timeout_budget(
+    tmp_path: Path, monkeypatch,
+):
+    """The locator child shares the 900s producer budget with the opening
+    review and full-parse lanes. The old 240s hard budget killed children
+    whose wall time was dominated by model-API latency (observed 82-380s
+    and past 240s on the same Cold Harvest PDF), always before the
+    extension's outer budget could take over."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_locator_timeout_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _locator_task(workspace, bundle_dir, pdf)
+    captured: dict = {}
+
+    def fake_run_pi(prompt, cwd, *, timeout, allow_non_json_receipt=False):
+        captured["timeout"] = timeout
+        captured["allow_non_json_receipt"] = allow_non_json_receipt
+        return None
+
+    def fake_receipt(task, producer_result):
+        return {"receipt": "ok"}
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_run_pi)
+    monkeypatch.setattr(adapter, "_locator_receipt", fake_receipt)
+
+    class _Stdin:
+        buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    result = adapter._run()
+    assert result == {"receipt": "ok"}
+    assert captured["allow_non_json_receipt"] is True
+    assert captured["timeout"] == adapter.PI_TIMEOUT_SECONDS
+    assert captured["timeout"] > 240
+
+
+def test_pdf_skill_adapter_locator_receipt_emits_printed_scope_from_bundle(
+    tmp_path: Path,
+):
+    """The child declares printed page numbers (1-based, the task's
+    pdf_index_caliber) while the bundle manifest pdf_index is zero-based.
+    The receipt must emit the bundle scope converted to 1-based, and must
+    not reject a valid bundle over the declaration drift (observed in
+    reproduction: child declared [1,2,3] while writing pages [0,1,2])."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_locator_caliber_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    _locator_bundle(bundle_dir, pdf, [0, 1, 2])
+    task = _locator_task(workspace, bundle_dir, pdf)
+    producer = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+        "job_id": task["job_id"],
+        "status": "located",
+        "kind": task["kind"],
+        "target_id": task["target_id"],
+        "pdf_indices": [1, 2, 3],
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
+    }
+
+    receipt = adapter._locator_receipt(task, producer)
+    assert receipt["status"] == "located"
+    assert receipt["pdf_indices"] == [1, 2, 3]
+
+
+def test_pdf_skill_adapter_locator_receipt_trusts_bundle_over_drifted_declaration(
+    tmp_path: Path,
+):
+    """The validated bundle is the authoritative selected scope; a
+    well-formed but drifted self-declaration must not discard a valid
+    bundle (reproduction: child declared [4,5,6]-style set while writing
+    [3,4,5], which hard-failed the whole 102s run under the old raw
+    comparison)."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_locator_authority_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    _locator_bundle(bundle_dir, pdf, [3, 4, 5])
+    task = _locator_task(workspace, bundle_dir, pdf)
+    producer = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+        "job_id": task["job_id"],
+        "status": "located",
+        "kind": task["kind"],
+        "target_id": task["target_id"],
+        "pdf_indices": [4, 5, 6],
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
+    }
+
+    receipt = adapter._locator_receipt(task, producer)
+    assert receipt["status"] == "located"
+    assert receipt["pdf_indices"] == [4, 5, 6]
+
+
+def test_pdf_skill_adapter_locator_receipt_requires_bundle_for_located(
+    tmp_path: Path,
+):
+    """A located claim without a written bundle is still a hard failure."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_locator_no_bundle_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _locator_task(workspace, bundle_dir, pdf)
+    producer = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+        "job_id": task["job_id"],
+        "status": "located",
+        "kind": task["kind"],
+        "target_id": task["target_id"],
+        "pdf_indices": [1],
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
+    }
+
+    with pytest.raises(RuntimeError, match="located result bundle is unavailable"):
+        adapter._locator_receipt(task, producer)
 
 
 

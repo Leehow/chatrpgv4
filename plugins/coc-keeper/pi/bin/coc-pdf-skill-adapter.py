@@ -342,12 +342,17 @@ def _runtime_modules() -> tuple[Any, Any, Any, Any]:
 def _locator_receipt(
     task: dict[str, Any], producer_result: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Derive the transport receipt from the validated bundle and the
-    producer's declared scope, not from LLM prose.
+    """Derive the transport receipt from the validated bundle, not from LLM
+    prose.
 
-    The adapter verifies the bundle contains exactly the selected pages and
-    that none of them was already accepted in the module cache (an accepted
-    page must never be re-rendered).
+    The validated bundle is the authoritative selected scope; the producer's
+    self-declared pdf_indices are advisory only (the child can drift between
+    zero-based and one-based page claims without affecting the pages it
+    actually wrote, so a valid bundle must never be rejected over that drift).
+    The receipt emits printed page numbers (1-based, matching the task's
+    pdf_index_caliber), converted from the bundle's zero-based pdf_index.
+    Accepted cache pages must never be re-rendered; that guard checks the
+    bundle's real pages.
     """
     workspace = Path(task["workspace_root"]).resolve()
     if not isinstance(producer_result, dict):
@@ -410,30 +415,38 @@ def _locator_receipt(
     if result.get("failure_class") is not None:
         _fail("located result must carry a null failure_class")
     _, pdf_bundle, _, assets = _runtime_modules()
+    bundle_path = Path(task["source_bundle_path"]).resolve()
+    if not (bundle_path / "manifest.json").is_file():
+        _fail("located result bundle is unavailable")
+    bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+    source = _object(bundle.get("source"), "located bundle source")
+    if (
+        source.get("source_id") != task["source"]["source_id"]
+        or source.get("path") != task["source"]["path"]
+        or source.get("file_sha256") != task["source"]["file_sha256"]
+    ):
+        _fail("located source bundle identity drift")
+    bundle_indices = [
+        int(page["pdf_index"]) for page in bundle.get("pages", [])
+    ]
+    if (
+        not 1 <= len(bundle_indices) <= task["max_selected_pages"]
+        or any(
+            not isinstance(index, int) or isinstance(index, bool)
+            or index < 0
+            for index in bundle_indices
+        )
+        or bundle_indices != sorted(set(bundle_indices))
+    ):
+        _fail("located source bundle page scope is invalid; every selected "
+              "page must be included exactly once in the bundle")
     cache_root = task["asset_root_id"]
     accepted = set(
         assets.accepted_cached_pdf_indices(workspace, cache_root)
     )
-    if any(index in accepted for index in indices):
+    if any(index in accepted for index in bundle_indices):
         _fail("rendered pdf_index is already accepted in the module cache; "
               "reference it instead of re-rendering")
-    bundle_indices: list[int] = []
-    bundle_path = Path(task["source_bundle_path"]).resolve()
-    if (bundle_path / "manifest.json").is_file():
-        bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
-        source = _object(bundle.get("source"), "located bundle source")
-        if (
-            source.get("source_id") != task["source"]["source_id"]
-            or source.get("path") != task["source"]["path"]
-            or source.get("file_sha256") != task["source"]["file_sha256"]
-        ):
-            _fail("located source bundle identity drift")
-        bundle_indices = [
-            int(page["pdf_index"]) for page in bundle.get("pages", [])
-        ]
-    if bundle_indices != indices:
-        _fail("located source bundle page scope is invalid; every selected "
-              "page must be included exactly once in the bundle")
     return {
         "schema_version": 1,
         "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
@@ -441,7 +454,10 @@ def _locator_receipt(
         "status": "located",
         "kind": task["kind"],
         "target_id": task["target_id"],
-        "pdf_indices": list(indices),
+        # The bundle pdf_index is zero-based page order; the producer receipt
+        # contract is printed page numbers, 1-based (pdf_index_caliber
+        # printed_page_number_1_based).
+        "pdf_indices": [index + 1 for index in bundle_indices],
         "source_bundle_path": task["source_bundle_path"],
         "failure_class": None,
     }
@@ -1302,7 +1318,7 @@ def _run() -> dict[str, Any]:
     if not workspace.is_dir():
         _fail("workspace_root is unavailable")
     producer_result = _run_pi(
-        _locator_prompt(task), workspace, timeout=240,
+        _locator_prompt(task), workspace, timeout=PI_TIMEOUT_SECONDS,
         allow_non_json_receipt=True,
     )
     return _locator_receipt(task, producer_result)
