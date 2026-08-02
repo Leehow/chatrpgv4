@@ -1219,6 +1219,131 @@ def test_wire_passes_sealed_source_facts_adoption_card_verbatim(
     assert transport_facts["investigator_hook"]["status"] == "unresolved"
 
 
+def test_wire_contract_response_carries_persisted_opening_gate_for_recovery(
+    monkeypatch, tmp_path,
+):
+    """setup.investigator_contract must attach the persisted opening gate so a
+    restarted/crashed host can rebuild its in-memory route state from the
+    receipt (mirrors the scenario.bind_pdf receipt). The gate is attached at
+    every phase where the contract is allowed (e.g. opening_selection), and
+    absent for campaigns without an active gate.
+    """
+    server = _load_server()
+    monkeypatch.setenv("COC_HOST", "pi")
+    monkeypatch.setattr(server, "_PROCESS_ACTIVE_CAMPAIGN", None)
+
+    def invoke(kind: str, payload: dict) -> dict:
+        return server._call_tool("coc_invoke", {
+            "operation": "setup.invoke",
+            "root": os.fspath(tmp_path),
+            "arguments": {"kind": kind, "payload": payload},
+        })
+
+    created = invoke("campaign.create", {
+        "campaign_id": "contract-gate",
+        "title": "Contract Gate Campaign",
+        "era": "1920s",
+        "play_language": "zh-Hans",
+    })
+    assert created["ok"] is True, created
+
+    bundle = _custom_setup_source_bundle(tmp_path)
+    bound = invoke("scenario.bind_pdf", {
+        "campaign_id": "contract-gate",
+        "scenario_id": "contract-gate-module",
+        "title": "Contract Gate Module",
+        "source_bundle_path": os.fspath(bundle),
+        "compile_now": False,
+    })
+    assert bound["ok"] is True, bound
+
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": "contract-gate",
+        "scenario_id": "contract-gate-module",
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": "contract-gate-module",
+        "source_bundle_path": os.fspath(bundle.resolve()),
+        "result_delivery": "task_return_to_parent",
+    }
+    review_receipt = (
+        server.toolbox.coc_runtime_ops
+        ._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation=continuation,
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
+    )
+    selector = [{"source_id": "pdf:custom-mcp-module", "pdf_index": 0}]
+    facts = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": {"status": "source", "value": "1920s", "source_refs": selector},
+        "place": {"status": "source", "value": "Boston", "source_refs": selector},
+        "investigator_hook": {"status": "unresolved", "inspected_source_refs": selector},
+        "investigator_constraints": {"status": "unresolved", "inspected_source_refs": selector},
+        "player_safe_summary": {"status": "unresolved", "inspected_source_refs": selector},
+        "content_flags": {"status": "source", "value": ["haunting"], "source_refs": selector},
+    }
+    server.toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        tmp_path, review_receipt, source_facts=facts,
+    )
+    scenario_path = (
+        tmp_path / ".coc" / "campaigns" / "contract-gate"
+        / "scenario" / "scenario.json"
+    )
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    transport_facts = scenario["opening_source_facts_transport"]["facts"]
+
+    adopted = server._call_tool("coc_invoke", {
+        "operation": "setup.adopt_source_facts",
+        "root": os.fspath(tmp_path),
+        "campaign": "contract-gate",
+        "arguments": {"campaign_id": "contract-gate", "facts": transport_facts},
+    })
+    assert adopted["ok"] is True, adopted
+    assert adopted["data"]["result"]["character_creation_unblocked"] is True
+
+    contracted = server._call_tool("coc_invoke", {
+        "operation": "setup.investigator_contract",
+        "root": os.fspath(tmp_path),
+        "campaign": "contract-gate",
+        "arguments": {"campaign_id": "contract-gate"},
+    })
+    assert contracted["ok"] is True, contracted
+    gate = (contracted.get("data") or {}).get("opening_gate")
+    assert gate is not None
+    assert gate["schema_version"] == 1
+    assert gate["hard_gate"] is True
+    assert gate["activation_allowed"] is False
+    assert gate["phase"] == "opening_selection"
+    assert gate["campaign_id"] == "contract-gate"
+    card = gate["next_operation"]
+    assert card["operation"] == "progressive.prepare_opening"
+    assert card["invoke_via"] == "coc_invoke"
+    assert card["hard_gate"] is True
+    assert card["authority"] == "canonical_setup"
+
+    # A campaign without an active gate keeps its plain contract receipt.
+    plain = invoke("campaign.create", {
+        "campaign_id": "contract-gate-plain",
+        "title": "Plain Contract",
+        "era": "1920s",
+        "play_language": "zh-Hans",
+    })
+    assert plain["ok"] is True, plain
+    plain_contract = server._call_tool("coc_invoke", {
+        "operation": "setup.investigator_contract",
+        "root": os.fspath(tmp_path),
+        "campaign": "contract-gate-plain",
+        "arguments": {"campaign_id": "contract-gate-plain"},
+    })
+    assert plain_contract["ok"] is True, plain_contract
+    assert "opening_gate" not in (plain_contract.get("data") or {})
+
+
 def test_opening_selector_and_page_schemas_match_every_mcp_projection():
     archive_mod = _load_archive_module()
     server = _load_server()

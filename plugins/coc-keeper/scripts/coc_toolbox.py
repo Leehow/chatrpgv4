@@ -7690,6 +7690,15 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
         FileNotFoundError,
     ) as exc:
         raise ToolError("setup_failed", str(exc)) from exc
+    # A restart/recovery host that resumes mid-setup has no in-memory route
+    # state; the persisted opening gate on the receipt is the canonical
+    # reconstruction source for the extension (mirrors the bind receipt).
+    opening_setup_gate = _pi_opening_setup_gate(
+        ctx.root, args["campaign_id"],
+    )
+    if opening_setup_gate is not None and isinstance(receipt, dict):
+        receipt = deepcopy(receipt)
+        receipt["opening_gate"] = opening_setup_gate
     return receipt, [], [
         "use result.payload_schema to construct the final investigator.create "
         "payload; deterministic runtime validation remains authoritative",

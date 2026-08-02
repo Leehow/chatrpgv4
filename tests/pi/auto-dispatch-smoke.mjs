@@ -8396,6 +8396,125 @@ process.stdout.write(JSON.stringify({
     && !JSON.stringify(contextD.sent).includes("SECRET_RAW_PAGE_TEXT"));
   await contextD.shutdown();
 
+  // Direct (no startup gate env) resume recovery: after a daemon crash/
+  // restart the KP calls session.resume by itself; the canonical
+  // opening_setup_incomplete error must rebuild the extension in-memory route
+  // state from the persisted gate, not throw and leave the campaign dead.
+  {
+    const directId = "direct-recovery-campaign";
+    const directFactsGate = (packet = facts) => ({
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_source_facts_adoption_required",
+      campaign_id: directId,
+      scenario_id: scenarioId,
+      opening_review_generation: 8,
+      next_operation: {
+        operation: "setup.adopt_source_facts",
+        invoke_via: "coc_invoke",
+        campaign: directId,
+        arguments: { campaign_id: directId, facts: packet },
+      },
+      instruction: "adopt exact sealed facts before opening selection",
+    });
+    const directContext = mainExtensionHarness((name, params) => {
+      if (name === "coc_invoke" && params.operation === "session.resume") {
+        // The real MCP client passes one details object to both the error and
+        // its envelope; the recovery projection requires that identity.
+        const directGate = directFactsGate();
+        throw new runtime.CanonicalToolError(
+          "coc_invoke", "opening_setup_incomplete",
+          "canonical session.resume opening setup gate",
+          directGate,
+          {
+            ok: false,
+            tool: "session.resume",
+            error: {
+              code: "opening_setup_incomplete",
+              details: directGate,
+            },
+          },
+        );
+      }
+      if (name === "coc_invoke" && params.operation === "setup.adopt_source_facts") {
+        const args = (
+          params.arguments
+          && typeof params.arguments === "object"
+          && !Array.isArray(params.arguments)
+        ) ? params.arguments : {};
+        return {
+          ok: true,
+          tool: "setup.adopt_source_facts",
+          data: {
+            schema_version: 1,
+            status: "PASS",
+            kind: "campaign.adopt_source_facts",
+            result: {
+              campaign_id: directId,
+              facts: args.facts ?? facts,
+              unresolved_blocking_facts: [],
+              character_creation_unblocked: true,
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected direct call ${name}:${params.operation}`);
+    }, {
+      // No startupCampaignId: the startup resume gate is NOT armed; recovery
+      // must still rebuild the route from the canonical error alone.
+      sessionId: "direct-recovery-context",
+      coordinatorEnabled: async () => false,
+    });
+    await directContext.startAll();
+    const directResumeResult = await directContext.registered.get("coc_invoke").execute(
+      "direct-resume",
+      { operation: "session.resume", root, campaign: directId, arguments: {} },
+      undefined, undefined, directContext.ctx,
+    );
+    const directEnvelope = JSON.parse(directResumeResult.content[0].text);
+    check("direct resume error is returned as the canonical gate envelope",
+      directEnvelope.ok === false
+      && directEnvelope.tool === "session.resume"
+      && directEnvelope.error?.code === "opening_setup_incomplete"
+      && JSON.stringify(directEnvelope.error?.details?.next_operation)
+        === JSON.stringify(directFactsGate().next_operation));
+    let directOcrBlocked = false;
+    try {
+      await directContext.registered.get("coc_progressive_ocr").execute(
+        "direct-ocr-detour",
+        { operation: "status" },
+        undefined, undefined, directContext.ctx,
+      );
+    } catch (error) {
+      directOcrBlocked = String(error?.message ?? error).includes(
+        "hard gate is active",
+      );
+    }
+    check("direct resume arms the extension route state (OCR detour blocked)",
+      directOcrBlocked);
+    const adoptResult = await directContext.registered.get("coc_invoke").execute(
+      "direct-adopt",
+      {
+        operation: "setup.adopt_source_facts",
+        root,
+        campaign: directId,
+        arguments: directFactsGate().next_operation.arguments,
+      },
+      undefined, undefined, directContext.ctx,
+    );
+    const adoptEnvelope = JSON.parse(adoptResult.content[0].text);
+    check("recovered adopt card executes through the rebuilt route",
+      adoptEnvelope.ok === true
+      && adoptEnvelope.data?.result?.character_creation_unblocked === true);
+    check("direct recovery never replays the review terminal",
+      directContext.sent.every((entry) => (
+        entry.message?.customType !== "coc-opening-source-review-terminal"
+      )));
+    await directContext.shutdown();
+  }
+
   if (previousCommand === undefined) {
     delete process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND;
   } else {

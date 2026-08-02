@@ -6968,7 +6968,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       void rawPdfBindRun.catch(() => {}).finally(() => {
         rawPdfBindBundleRuns.delete(rawPdfBindRun);
       });
-      const canonicalFailure = startupResumeAttempt
+      // Outside the explicit startup gate, a canonical session.resume
+      // recovery error is still the persisted opening gate: feed it through
+      // the same observation path so the extension in-memory route state is
+      // rebuilt from campaign persistent state after a daemon restart or
+      // crash (EPIPE/peer death), exactly like the env-armed startup resume.
+      const directResumeRecovery = (
+        name === "coc_invoke"
+        && params.operation === "session.resume"
+        && error instanceof CanonicalToolError
+        && error.code === "opening_setup_incomplete"
+        && error.details !== null
+      );
+      const canonicalFailure = (
+        startupResumeAttempt || directResumeRecovery
+      )
         ? startupCanonicalFailureProjection(error, name, params)
         : { kind: "not_canonical" as const };
       if (canonicalFailure.kind === "projected") {
@@ -6981,7 +6995,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               : "startup_resume_transport_failed",
           );
         }
-        if (name === "coc_invoke") {
+        if (name === "coc_invoke" && !directResumeRecovery) {
           openingContinuationGate.markOpeningSetupRouteAttemptFailure(
             _id,
             params,
@@ -6996,11 +7010,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           flushOpeningSetupAudits();
         }
         if (canonicalFailure.kind === "invalid") {
-          return result({
-            ok: false,
-            tool: "session.resume",
-            error: { code: "startup_resume_result_invalid" },
-          });
+          if (startupResumeAttempt) {
+            return result({
+              ok: false,
+              tool: "session.resume",
+              error: { code: "startup_resume_result_invalid" },
+            });
+          }
         }
         throw error;
       }
