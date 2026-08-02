@@ -3200,13 +3200,14 @@ def test_full_parse_ocr_corpus_registration_mapping_first_writer_wins_and_proven
     page1 = assets.get_page(tmp_path, "qw-demo", 1)
     assert "Cached source scope." in page1["text"]
     assert "OCR re-rendered cellar" not in page1["text"]
-    # New OCR pages carry the unreviewed baiduocr provenance in page meta.
+    # New OCR pages carry the mechanical auto_accepted tier plus the honest
+    # unreviewed baiduocr provenance in page meta.
     page2 = assets.get_page(tmp_path, "qw-demo", 2)
     assert "Attic OCR evidence." in page2["text"]
     assert page2["meta"]["source"] == "baiduocr"
     assert page2["meta"]["unreviewed"] is True
     assert page2["meta"]["doc_ref"] == "doc_1.md"
-    assert page2["meta"]["review_state"] == "unreviewed"
+    assert page2["meta"]["review_state"] == "auto_accepted"
     page3 = assets.get_page(tmp_path, "qw-demo", 3)
     assert "Backyard OCR evidence." in page3["text"]
     assert page3["meta"]["doc_ref"] == "doc_2.md"

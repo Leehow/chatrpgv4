@@ -2387,7 +2387,7 @@ def _review_rebind_fixture(tmp_path: Path):
             "source_id": "pdf:custom-module",
             "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
             "producer": "baiduocr",
-            "review_state": "unreviewed",
+            "review_state": "auto_accepted",
             "parse_confidence": None,
             "source": "baiduocr",
             "unreviewed": True,
@@ -2439,7 +2439,8 @@ def test_review_rebind_references_cross_producer_cached_page(tmp_path: Path):
     assert "OCR corpus page two." in cached["text"]
     assert "re-extracted" not in cached["text"]
     assert cached["meta"]["producer"] == "baiduocr"
-    assert cached["meta"]["review_state"] == "unreviewed"
+    assert cached["meta"]["review_state"] == "auto_accepted"
+    assert cached["meta"]["unreviewed"] is True
     # The reviewed bundle is now bound to the referenced cached page.
     assert bound["result"]["source_cache"]["bundle_sha256"] in (
         cached["meta"].get("bundle_sha256s") or []
@@ -2618,7 +2619,7 @@ def test_review_rebind_accepts_blocker2_cross_producer_sample(tmp_path):
             "source_id": "pdf:herald",
             "file_sha256": file_sha,
             "producer": "baiduocr",
-            "review_state": "unreviewed",
+            "review_state": "auto_accepted",
             "parse_confidence": None,
             "source": "baiduocr",
             "unreviewed": True,
@@ -2669,6 +2670,266 @@ def test_review_rebind_accepts_blocker2_cross_producer_sample(tmp_path):
                 "compile_now": False,
             },
         })
+
+
+def test_blocker3_ocr_page_enters_opening_source_window(tmp_path: Path):
+    """blocker3 sample: after the reviewed rebind (pages 1-4 with the
+    OCR-cached page 4 referenced), the opening source window may include
+    page 4: its review_state is the mechanical auto_accepted tier and the
+    honest baiduocr/unreviewed provenance stays on the page meta."""
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "title": "Herald Campaign",
+            "era": "1920s",
+            "play_language": "zh-Hans",
+        },
+    })
+    pdf = tmp_path / "herald.pdf"
+    pdf.write_bytes(b"%PDF herald fixture")
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+
+    def write_bundle(name: str, texts: dict[int, str]) -> Path:
+        bundle = tmp_path / name
+        bundle.mkdir()
+        pages = []
+        for pdf_index, body in sorted(texts.items()):
+            markdown = f"# Page {pdf_index}\n\n{body}\n".encode()
+            markdown_path = f"page-{pdf_index:04d}.md"
+            (bundle / markdown_path).write_bytes(markdown)
+            pages.append({
+                "pdf_index": pdf_index,
+                "markdown_path": markdown_path,
+                "text_sha256": hashlib.sha256(markdown).hexdigest(),
+                "review_state": "manual_accepted",
+                "parse_confidence": 0.93,
+                "grep_anchors": [f"Page {pdf_index}"],
+            })
+        (bundle / "manifest.json").write_text(json.dumps({
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source": {
+                "source_id": "pdf:herald",
+                "title": "Herald of the Yellow King",
+                "path": str(pdf),
+                "file_sha256": file_sha,
+                "page_count": 8,
+            },
+            "pages": pages,
+        }), encoding="utf-8")
+        return bundle
+
+    first = write_bundle("first-bundle", {
+        1: "CALL OF CTHULHU", 2: "RIPPLES FROM CARCOSA",
+        3: "THREE SCENARIOS EXPLORING HASTUR",
+    })
+    first_bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "scenario_id": "herald",
+            "title": "Herald of the Yellow King",
+            "source_bundle_path": str(first),
+            "compile_now": False,
+        },
+    })
+    assert first_bound["status"] == "PASS"
+    ocr_text = "# Page 4\n\n12月的帷幕…谢尔伯思\n"
+    ops.coc_module_assets.put_page(
+        tmp_path,
+        "herald",
+        4,
+        ocr_text,
+        meta={
+            "source_id": "pdf:herald",
+            "file_sha256": file_sha,
+            "producer": "baiduocr",
+            "review_state": "auto_accepted",
+            "parse_confidence": None,
+            "source": "baiduocr",
+            "unreviewed": True,
+            "doc_ref": "doc_4.md",
+        },
+    )
+    reviewed = write_bundle("reviewed-bundle", {
+        1: "CALL OF CTHULHU", 2: "RIPPLES FROM CARCOSA",
+        3: "THREE SCENARIOS EXPLORING HASTUR",
+        4: "# Page 4\n\n12 月的帷幕…谢尔伯恩\n",
+    })
+    bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "scenario_id": "herald",
+            "title": "Herald of the Yellow King",
+            "source_bundle_path": str(reviewed),
+            "compile_now": False,
+            "reference_cached_pages": True,
+        },
+    })
+    assert bound["status"] == "PASS"
+    bundle_sha256 = bound["result"]["source_cache"]["bundle_sha256"]
+    # The OCR-only page 4 can now back the opening source window.
+    scope = ops.coc_module_assets.validate_opening_source_window(
+        tmp_path,
+        "herald",
+        bundle_sha256=bundle_sha256,
+        pdf_indices=[2, 3, 4],
+    )
+    assert scope["pdf_indices"] == [2, 3, 4]
+    page4 = next(
+        ref for ref in scope["page_refs"] if ref["pdf_index"] == 4
+    )
+    assert page4["review_state"] == "auto_accepted"
+    assert page4["parse_confidence"] is None
+    # The candidate catalog also carries the OCR page as a selection hint
+    # (text_preview only, no anchors/confidence).
+    catalog = ops.coc_module_assets.opening_page_candidate_catalog(
+        tmp_path, "herald", bundle_sha256=bundle_sha256,
+    )
+    candidates = catalog["opening_page_candidates"]
+    candidate4 = next(
+        row for row in candidates if row["pdf_index"] == 4
+    )
+    assert candidate4["review_state"] == "auto_accepted"
+    assert candidate4["parse_confidence"] is None
+    assert candidate4["grep_anchor_preview"] == ""
+    assert "12月" in candidate4["text_preview"]
+
+
+def test_opening_source_window_still_rejects_uncovered_or_forged_pages(
+    tmp_path: Path,
+):
+    """Fail-closed stays intact: a window wider than 3 pages, a window page
+    outside the bound bundle, and a cached page whose review_state was
+    forged away from an accepted tier are all still rejected."""
+    tmp_path = tmp_path / "forge"
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "title": "Herald Campaign",
+            "era": "1920s",
+            "play_language": "zh-Hans",
+        },
+    })
+    pdf = tmp_path / "herald.pdf"
+    pdf.write_bytes(b"%PDF herald fixture")
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+
+    def write_bundle(name: str, texts: dict[int, str]) -> Path:
+        bundle = tmp_path / name
+        bundle.mkdir()
+        pages = []
+        for pdf_index, body in sorted(texts.items()):
+            markdown = f"# Page {pdf_index}\n\n{body}\n".encode()
+            markdown_path = f"page-{pdf_index:04d}.md"
+            (bundle / markdown_path).write_bytes(markdown)
+            pages.append({
+                "pdf_index": pdf_index,
+                "markdown_path": markdown_path,
+                "text_sha256": hashlib.sha256(markdown).hexdigest(),
+                "review_state": "manual_accepted",
+                "parse_confidence": 0.93,
+                "grep_anchors": [f"Page {pdf_index}"],
+            })
+        (bundle / "manifest.json").write_text(json.dumps({
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source": {
+                "source_id": "pdf:herald",
+                "title": "Herald of the Yellow King",
+                "path": str(pdf),
+                "file_sha256": file_sha,
+                "page_count": 8,
+            },
+            "pages": pages,
+        }), encoding="utf-8")
+        return bundle
+
+    first = write_bundle("first-bundle", {
+        1: "A1", 2: "B2", 3: "C3",
+    })
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "scenario_id": "herald",
+            "title": "Herald of the Yellow King",
+            "source_bundle_path": str(first),
+            "compile_now": False,
+        },
+    })
+    ops.coc_module_assets.put_page(
+        tmp_path,
+        "herald",
+        4,
+        "# Page 4\n\nOCR fourth page.\n",
+        meta={
+            "source_id": "pdf:herald",
+            "file_sha256": file_sha,
+            "producer": "baiduocr",
+            "review_state": "auto_accepted",
+            "parse_confidence": None,
+            "source": "baiduocr",
+            "unreviewed": True,
+            "doc_ref": "doc_4.md",
+        },
+    )
+    reviewed = write_bundle("reviewed-bundle", {
+        1: "A1", 2: "B2", 3: "C3",
+        4: "# Page 4\n\nPdf-skill fourth page.\n",
+    })
+    bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "scenario_id": "herald",
+            "title": "Herald of the Yellow King",
+            "source_bundle_path": str(reviewed),
+            "compile_now": False,
+            "reference_cached_pages": True,
+        },
+    })
+    assert bound["status"] == "PASS"
+    bundle_sha256 = bound["result"]["source_cache"]["bundle_sha256"]
+    assets = ops.coc_module_assets
+
+    def validate(indices):
+        return assets.validate_opening_source_window(
+            tmp_path, "herald", bundle_sha256=bundle_sha256,
+            pdf_indices=indices,
+        )
+
+    # Window size and coverage boundaries stay hard.
+    with pytest.raises(
+        assets.ModuleAssetsError, match=r"must contain 1\.\.3 pages",
+    ):
+        validate([1, 2, 3, 4])
+    with pytest.raises(
+        assets.ModuleAssetsError,
+        match=r"not covered by the campaign-bound source bundle",
+    ):
+        validate([4, 5])
+    # A forged review_state on the cached page is still rejected.
+    meta_path = tmp_path / ".coc/module-assets/herald/pages/0004.meta.json"
+    forged_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    forged_meta["review_state"] = "rejected"
+    meta_path.write_text(
+        json.dumps(forged_meta, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    with pytest.raises(
+        assets.ModuleAssetsError,
+        match=r"cached pdf_index 4 is not in an accepted review state",
+    ):
+        validate([2, 3, 4])
 
 
 def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_path):

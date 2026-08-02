@@ -1404,11 +1404,15 @@ def register_ocr_corpus(
       (0-based → 1-based).
     - ``put_page`` content addressing is authoritative: an identical cached
       page is reused silently, a drifted page keeps the existing first writer
-      (reviewed first-pack pages win over unreviewed OCR) and records a
+      (reviewed first-pack pages win over OCR pages) and records a
       ``first_writer_wins`` provenance entry in the full_parse progress
       document.
     - Every registered page carries provenance
       ``{source: "baiduocr", unreviewed: true, doc_ref}`` in its page meta.
+      ``review_state`` is the mechanical usability tier: a page that passed
+      the whole OCR pipeline, content addressing, and registration is
+      ``auto_accepted`` and may back the opening window; ``unreviewed: true``
+      keeps the honest claim that no human/LLM ever read the text.
     - OCR pages outside the module's bound page range are skipped and
       reported, never rejected as cache drift.
 
@@ -1473,7 +1477,11 @@ def register_ocr_corpus(
             "source_id": source_id,
             "file_sha256": file_sha256,
             "producer": "baiduocr",
-            "review_state": "unreviewed",
+            # Mechanical usability tier: this page passed the OCR pipeline,
+            # content addressing, and registration, so it may back the
+            # opening window.  The ``source``/``unreviewed``/``doc_ref``
+            # fields below keep the honest claim that no human/LLM read it.
+            "review_state": "auto_accepted",
             "parse_confidence": None,
             "source": "baiduocr",
             "unreviewed": True,
@@ -4355,7 +4363,12 @@ def accepted_cached_pdf_indices(
     workspace: Path,
     asset_root_id: str,
 ) -> list[int]:
-    """Return only page indices whose complete cached evidence still validates."""
+    """Return only page indices whose complete cached evidence still validates.
+
+    OCR-lane pages are included once their mechanical tier is
+    ``auto_accepted``; the accepted-evidence boundary is the usable set for
+    content-addressed referencing and the opening window, independent of the
+    honest ``unreviewed`` provenance claim."""
     pages_dir = _module_dir(workspace, asset_root_id) / "pages"
     if not pages_dir.is_dir():
         return []
@@ -4387,10 +4400,11 @@ def cached_pdf_indices(
 ) -> list[int]:
     """Return every page index with valid cached markdown, review-agnostic.
 
-    The whole-book OCR lane caches unreviewed baiduocr pages that the strict
-    accepted-evidence boundary (``accepted_cached_pdf_indices``) deliberately
-    excludes until review; this review-agnostic projection is the full_parse
-    lane's own progress/coverage truth.
+    The whole-book OCR lane caches baiduocr pages whose ``review_state`` is
+    the mechanical usability tier (``auto_accepted``) while their
+    ``unreviewed`` provenance stays honest about never being read by a
+    human/LLM; this review-agnostic projection is the full_parse lane's own
+    progress/coverage truth and counts every registered page.
     """
     pages_dir = _module_dir(workspace, asset_root_id) / "pages"
     if not pages_dir.is_dir():
@@ -4411,6 +4425,21 @@ def cached_pdf_indices(
         if page is not None:
             cached.append(pdf_index)
     return cached
+
+
+def _page_mechanical_tier(meta: dict[str, Any]) -> bool:
+    """True for pages the whole-book OCR lane registered.
+
+    They carry ``auto_accepted`` as the mechanical usability tier (the page
+    passed the OCR pipeline, content addressing, and registration) while the
+    ``source: baiduocr`` / ``unreviewed: true`` provenance keeps the honest
+    claim that no human/LLM read them.  Their parse_confidence is not
+    declared and they declare no grep_anchors."""
+    return (
+        str(meta.get("source") or "").strip() == "baiduocr"
+        or meta.get("unreviewed") is True
+        or str(meta.get("producer") or "").strip() == "baiduocr"
+    )
 
 
 def opening_page_candidate_catalog(
@@ -4592,23 +4621,39 @@ def opening_page_candidate_catalog(
             raise ModuleAssetsError(
                 f"opening cached pdf_index {pdf_index} is not in an accepted review state"
             )
+        mechanical_tier = _page_mechanical_tier(meta)
         parse_confidence = meta.get("parse_confidence")
         if (
-            isinstance(parse_confidence, bool)
-            or not isinstance(parse_confidence, (int, float))
-            or not 0 <= parse_confidence <= 1
+            not mechanical_tier
+            and (
+                isinstance(parse_confidence, bool)
+                or not isinstance(parse_confidence, (int, float))
+                or not 0 <= parse_confidence <= 1
+            )
         ):
             raise ModuleAssetsError(
                 f"opening cached pdf_index {pdf_index} parse_confidence is invalid"
             )
         anchors = meta.get("grep_anchors")
-        if not isinstance(anchors, list) or any(
+        if not mechanical_tier and not isinstance(anchors, list):
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} grep_anchors are invalid"
+            )
+        if not isinstance(anchors, list):
+            anchors = []
+        if not mechanical_tier and any(
             not isinstance(anchor, str) or not anchor.strip()
             for anchor in anchors
         ):
             raise ModuleAssetsError(
                 f"opening cached pdf_index {pdf_index} grep_anchors are invalid"
             )
+        if mechanical_tier:
+            # OCR pages declare no confidence and no anchors; the bounded
+            # text_preview is their only window-selection signal and the
+            # anchors_declared advisory already tells the Keeper to
+            # exact-read adjacent cached pages before locking the window.
+            parse_confidence = None
         revision_ref = meta.get("ocr_revision")
         if isinstance(revision_ref, dict):
             selected_revision = next(
