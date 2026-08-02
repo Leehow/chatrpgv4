@@ -1813,6 +1813,20 @@ def _decorate_cards(
         # cards: pass them through byte-for-byte so the Pi extension's
         # exactKeys validation sees exactly what the toolbox emitted.
         return deepcopy(value)
+    if (
+        isinstance(value.get("operation"), str)
+        and value["operation"] == "setup.adopt_source_facts"
+        and value.get("invoke_via") == "coc_invoke"
+    ):
+        # The sealed source-facts adoption card is a strict machine contract,
+        # not a KP-facing advisory card: the Pi extension validates it with
+        # exactKeys(card, [operation, invoke_via, campaign, arguments]) and
+        # its arguments carry the sealed fast-facts payload verbatim. Pass it
+        # through byte-for-byte like the locator envelopes above; wire
+        # decoration would add contract_ref/discovery_required keys and break
+        # that strict contract, so the adopt card could never be delivered
+        # through any canonical path.
+        return deepcopy(value)
     inline_argument_schema = value.get(INLINE_ARGUMENT_SCHEMA_MARKER) is True
     decorated = {
         key: _decorate_cards(

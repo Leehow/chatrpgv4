@@ -4991,9 +4991,19 @@ export function openingSourceReviewTerminalFollowUp(
   receipt: JsonObject,
   route: JsonObject | null,
 ): JsonObject {
+  // The transport receipt is the authoritative review result: its campaign,
+  // scenario, generation, and facts were already binding-validated by
+  // runPiOpeningSourceReviewTransport before onTerminal. The route is only
+  // extension-side state bookkeeping: when the in-memory opening setup state
+  // is absent or misaligned (daemon restart, phase already advanced, gate
+  // rehydration via a resume probe), observeOpeningSourceReviewTransport
+  // returns null. That bookkeeping gap must not convert a genuinely reviewed
+  // receipt into a terminal_failure (with a null failure_class): the KP still
+  // needs the exact sealed adopt card, and the canonical rehydration path
+  // (facts-adoption gate on session.resume) re-arms extension state from the
+  // same authoritative campaign state.
   if (
     receipt.status === "reviewed"
-    && route !== null
     && validOpeningTransportFacts(receipt.facts)
   ) {
     return {

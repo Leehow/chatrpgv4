@@ -1102,6 +1102,123 @@ def test_source_facts_discovery_is_closed_typed_and_delegates_canonically(
     }
 
 
+def test_wire_passes_sealed_source_facts_adoption_card_verbatim(
+    monkeypatch, tmp_path,
+):
+    """The facts-adoption gate's sealed adopt card must cross the Pi wire
+    byte-for-byte.
+
+    Wire decoration adds contract_ref/discovery_required keys to every card
+    with invoke_via coc_invoke, which breaks the Pi extension's
+    exactKeys(card, [operation, invoke_via, campaign, arguments]) validation
+    in projectStartupSourceFactsAdoption: the adopt card could then never be
+    delivered through any canonical path (session.resume gate projection).
+    """
+    server = _load_server()
+    monkeypatch.setenv("COC_HOST", "pi")
+    monkeypatch.setattr(server, "_PROCESS_ACTIVE_CAMPAIGN", None)
+
+    def invoke(kind: str, payload: dict) -> dict:
+        return server._call_tool("coc_invoke", {
+            "operation": "setup.invoke",
+            "root": os.fspath(tmp_path),
+            "arguments": {"kind": kind, "payload": payload},
+        })
+
+    created = invoke("campaign.create", {
+        "campaign_id": "adopt-wire",
+        "title": "Adopt Wire Campaign",
+        "era": "1920s",
+        "play_language": "zh-Hans",
+    })
+    assert created["ok"] is True, created
+
+    bundle = _custom_setup_source_bundle(tmp_path)
+    bound = invoke("scenario.bind_pdf", {
+        "campaign_id": "adopt-wire",
+        "scenario_id": "adopt-wire-module",
+        "title": "Adopt Wire Module",
+        "source_bundle_path": os.fspath(bundle),
+        "compile_now": False,
+    })
+    assert bound["ok"] is True, bound
+
+    continuation = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-source-continue.v1",
+        "campaign_id": "adopt-wire",
+        "scenario_id": "adopt-wire-module",
+        "selected_opening_pdf_indices": [0],
+        "source_bundle_id": "adopt-wire-module",
+        "source_bundle_path": os.fspath(bundle.resolve()),
+        "result_delivery": "task_return_to_parent",
+    }
+    review_receipt = (
+        server.toolbox.coc_runtime_ops
+        ._build_opening_source_review_fulfillment(
+            tmp_path,
+            continuation=continuation,
+            status="reviewed",
+            selected_opening_pdf_indices=[0],
+        )
+    )
+    selector = [{"source_id": "pdf:custom-mcp-module", "pdf_index": 0}]
+    source = {"status": "source", "value": "1920s", "source_refs": selector}
+    unresolved = {
+        "status": "unresolved",
+        "inspected_source_refs": selector,
+    }
+    facts = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": source,
+        "place": {**source, "value": "Boston"},
+        "investigator_hook": unresolved,
+        "investigator_constraints": unresolved,
+        "player_safe_summary": unresolved,
+        "content_flags": {
+            "status": "source",
+            "value": ["haunting"],
+            "source_refs": selector,
+        },
+    }
+    server.toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
+        tmp_path, review_receipt, source_facts=facts,
+    )
+
+    resumed = server._call_tool("coc_invoke", {
+        "operation": "session.resume",
+        "root": os.fspath(tmp_path),
+        "campaign": "adopt-wire",
+        "arguments": {},
+    })
+    assert resumed["ok"] is False, resumed
+    assert resumed["error"]["code"] == "opening_setup_incomplete"
+    details = resumed["error"]["details"]
+    assert details["phase"] == "opening_source_facts_adoption_required"
+    card = details["next_operation"]
+    assert sorted(card.keys()) == [
+        "arguments", "campaign", "invoke_via", "operation",
+    ]
+    assert card["operation"] == "setup.adopt_source_facts"
+    assert card["invoke_via"] == "coc_invoke"
+    assert card["campaign"] == "adopt-wire"
+    assert card["arguments"]["campaign_id"] == "adopt-wire"
+    # The card must carry exactly the sealed facts the toolbox persisted in
+    # the campaign facts transport (canonicalized refs included).
+    scenario = json.loads((
+        tmp_path / ".coc" / "campaigns" / "adopt-wire"
+        / "scenario" / "scenario.json"
+    ).read_text(encoding="utf-8"))
+    transport_facts = (
+        scenario["opening_source_facts_transport"]["facts"]
+    )
+    assert card["arguments"]["facts"] == transport_facts
+    assert transport_facts["era"]["status"] == "source"
+    assert transport_facts["content_flags"]["status"] == "source"
+    assert transport_facts["investigator_hook"]["status"] == "unresolved"
+
+
 def test_opening_selector_and_page_schemas_match_every_mcp_projection():
     archive_mod = _load_archive_module()
     server = _load_server()

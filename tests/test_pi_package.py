@@ -1429,6 +1429,8 @@ def test_pi_opening_source_review_transport_lifecycle():
             "outer_failures_remain_retryable": True,
             "timeout_and_abort_remain_retryable": True,
             "exact_hidden_facts_card": True,
+            "misaligned_state_still_delivers_reviewed_adopt_card": True,
+            "misaligned_state_keeps_real_failure_class": True,
             "no_raw_source_leakage": True,
         },
     }

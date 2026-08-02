@@ -222,6 +222,34 @@ assert.deepEqual(hiddenFollowUp, {
 });
 assert.equal(JSON.stringify(hiddenFollowUp).includes("RAW_SOURCE_TEXT"), false);
 
+// Extension in-memory opening-setup state can be absent or misaligned when a
+// review terminal lands (daemon restart, phase already advanced, or gate
+// rehydration via a resume probe): observeOpeningSourceReviewTransport then
+// returns null. The reviewed receipt itself is authoritative and
+// self-contained, so the KP must still receive the exact sealed adopt card;
+// a terminal_failure with a null failure_class would wrongly claim the
+// review failed and trap the KP.
+const misalignedFollowUp = extension.openingSourceReviewTerminalFollowUp(
+  first.receipt,
+  null,
+);
+assert.deepEqual(misalignedFollowUp, hiddenFollowUp);
+assert.equal(misalignedFollowUp.status, "reviewed");
+assert.equal(
+  misalignedFollowUp.next_operation.operation,
+  "setup.adopt_source_facts",
+);
+const misalignedFailedFollowUp = extension.openingSourceReviewTerminalFollowUp(
+  {
+    status: "failed",
+    campaign_id: "campaign-a",
+    failure_class: "pdf_scope_failed",
+  },
+  null,
+);
+assert.equal(misalignedFailedFollowUp.status, "terminal_failure");
+assert.equal(misalignedFailedFollowUp.failure_class, "pdf_scope_failed");
+
 const duplicate = await extension.autoDispatchPiOpeningSourceReview(
   deps, "coc_invoke", envelope(),
 );
@@ -369,6 +397,8 @@ console.log(JSON.stringify({
     outer_failures_remain_retryable: true,
     timeout_and_abort_remain_retryable: true,
     exact_hidden_facts_card: true,
+    misaligned_state_still_delivers_reviewed_adopt_card: true,
+    misaligned_state_keeps_real_failure_class: true,
     no_raw_source_leakage: true,
   },
 }));
