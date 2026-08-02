@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:7feb7a854fee07135cc0d34ad6e8978a728b4d552d6a39d775e790a5e8403ad9",
+  "content_sha256": "sha256:bda2e9924790b045531551add74e85e92e4c807a1ae6f52223e41a8a13b19fd7",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 104,
+  "operation_count": 105,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -1580,6 +1580,37 @@
       },
       "needs_campaign": true,
       "summary": "Experimental mutation that enqueues exactly one selected-start partial opening slice over a validated 1..3-page accepted window. The queue kick only materializes host work; it does not perform semantic extraction."
+    },
+    "progressive.retry_full_parse": {
+      "canonical_operation": "progressive.retry_full_parse",
+      "description": "Retry a terminally failed whole-book parse by enqueuing one fresh full_parse job for the campaign asset root (baiduocr lane). Only meaningful when progressive.status reports full_parse.status=failed with next_operation progressive.retry_full_parse; a queued/in-flight parse dedupes instead. The background worker re-runs the OCR bridge (reusing the sha-keyed corpus when complete) and registers corpus pages into module-assets. Keeper-only source lane operation; never blocks the opening projection or play. Canonical operation `progressive.retry_full_parse`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_root_id": {
+            "description": "module asset root id to re-parse (progressive.status asset_root_id)",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "optional retry reason shown in the queue row",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Retry a terminally failed whole-book parse by enqueuing one fresh full_parse job for the campaign asset root (baiduocr lane). Only meaningful when progressive.status reports full_parse.status=failed with next_operation progressive.retry_full_parse; a queued/in-flight parse dedupes instead. The background worker re-runs the OCR bridge (reusing the sha-keyed corpus when complete) and registers corpus pages into module-assets. Keeper-only source lane operation; never blocks the opening projection or play."
     },
     "progressive.status": {
       "canonical_operation": "progressive.status",

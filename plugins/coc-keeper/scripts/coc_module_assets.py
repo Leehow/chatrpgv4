@@ -1325,6 +1325,211 @@ def full_parse_requested_indices(
     return list(range(page_count))
 
 
+def ocr_corpus_root(workspace: Path) -> Path:
+    """Durable sha-keyed whole-book baiduocr corpus cache for this workspace.
+
+    The corpus is the OCR extraction cache (``doc_N.md`` pages plus a small
+    manifest): it is reused verbatim for every module root bound to the same
+    PDF (same ``file_sha256``) and is never re-requested from the OCR API
+    while it is complete.  Deleting it invalidates OCR reuse and forces a
+    fresh paid extraction, so it follows the same persistence discipline as
+    module-assets parse caches.
+    """
+    return _coc_root(workspace) / "ocr-corpus"
+
+
+def ocr_corpus_dir(workspace: Path, file_sha256: str) -> Path:
+    """The exact corpus directory for one source PDF sha."""
+    return ocr_corpus_root(workspace) / _require_sha256(
+        file_sha256, "file_sha256",
+    )
+
+
+def read_ocr_corpus_manifest(
+    workspace: Path, file_sha256: str,
+) -> dict[str, Any]:
+    """Read the corpus completion manifest; missing/blank means unknown."""
+    path = ocr_corpus_dir(workspace, file_sha256) / "manifest.json"
+    if not path.is_file():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def write_ocr_corpus_manifest(
+    workspace: Path,
+    file_sha256: str,
+    *,
+    source_path: str,
+    page_count: int | None,
+    doc_page_count: int,
+    status: str,
+) -> dict[str, Any]:
+    """Persist one corpus completion manifest (complete or incomplete)."""
+    sha = _require_sha256(file_sha256, "file_sha256")
+    corpus = ocr_corpus_dir(workspace, sha)
+    corpus.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "schema_version": 1,
+        "producer": "baiduocr",
+        "source_file_sha256": sha,
+        "source_path": str(source_path or ""),
+        "page_count": int(page_count) if page_count else None,
+        "doc_page_count": int(doc_page_count),
+        "status": str(status),
+        "updated_at": _now_iso(),
+    }
+    (corpus / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def register_ocr_corpus(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    corpus_dir: Path | str,
+) -> dict[str, Any]:
+    """Register whole-book baiduocr corpus pages into the module page cache.
+
+    Mapping and provenance (product design, S1 full-parse lane):
+
+    - OCR page ordinals are 0-based and module ``pdf_index`` is 0-based with
+      the first pack already covering page 0, so ``pdf_index = doc_N + 1``
+      (0-based → 1-based).
+    - ``put_page`` content addressing is authoritative: an identical cached
+      page is reused silently, a drifted page keeps the existing first writer
+      (reviewed first-pack pages win over unreviewed OCR) and records a
+      ``first_writer_wins`` provenance entry in the full_parse progress
+      document.
+    - Every registered page carries provenance
+      ``{source: "baiduocr", unreviewed: true, doc_ref}`` in its page meta.
+    - OCR pages outside the module's bound page range are skipped and
+      reported, never rejected as cache drift.
+
+    After this call all later consumers read only module-assets markdown;
+    the PDF is never reopened for full-parse consumption.
+    """
+    mod = _module_dir(workspace, asset_root_id)
+    identity_path = mod / "identity.json"
+    if not identity_path.is_file():
+        raise ModuleAssetsError("init_module_root before register_ocr_corpus")
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    source = identity.get("source") if isinstance(identity, dict) else None
+    if not isinstance(source, dict):
+        raise ModuleAssetsError("module identity source is unavailable")
+    file_sha256 = _require_sha256(
+        identity.get("file_sha256") or source.get("file_sha256"),
+        "identity.file_sha256",
+    )
+    page_count = full_parse_page_count(workspace, asset_root_id)
+    if not page_count:
+        raise ModuleAssetsError(
+            "module identity page_count is required for OCR corpus registration"
+        )
+    requested = set(full_parse_requested_indices(workspace, asset_root_id))
+    corpus = Path(corpus_dir).resolve()
+    if not corpus.is_dir():
+        raise ModuleAssetsError(f"ocr corpus directory is missing: {corpus}")
+    doc_files = sorted(
+        (
+            path for path in corpus.glob("doc_*.md")
+            if path.stem[len("doc_") :].isdigit()
+        ),
+        key=lambda path: int(path.stem[len("doc_") :]),
+    )
+    registered: list[int] = []
+    reused_count = 0
+    drift: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    source_id = str(source.get("source_id") or "")
+    for doc_path in doc_files:
+        doc_num = int(doc_path.stem[len("doc_") :])
+        pdf_index = doc_num + 1  # 0-based OCR ordinal → 1-based module index
+        doc_ref = doc_path.name
+        if pdf_index not in requested:
+            skipped.append({
+                "doc_ref": doc_ref,
+                "doc_ordinal": doc_num,
+                "pdf_index": pdf_index,
+                "reason": "outside_requested_scope",
+            })
+            continue
+        text = doc_path.read_text(encoding="utf-8")
+        if not text.strip():
+            skipped.append({
+                "doc_ref": doc_ref,
+                "doc_ordinal": doc_num,
+                "pdf_index": pdf_index,
+                "reason": "empty_text",
+            })
+            continue
+        meta = {
+            "source_id": source_id,
+            "file_sha256": file_sha256,
+            "producer": "baiduocr",
+            "review_state": "unreviewed",
+            "parse_confidence": None,
+            "source": "baiduocr",
+            "unreviewed": True,
+            "doc_ref": doc_ref,
+        }
+        try:
+            page_result = put_page(
+                workspace, asset_root_id, pdf_index, text, meta=meta,
+            )
+        except ModuleAssetsError as exc:
+            if "content drift" not in str(exc):
+                raise
+            existing_ref = cached_page_ref(
+                workspace, asset_root_id, pdf_index,
+            )
+            if existing_ref is None:
+                raise
+            drift.append({
+                "pdf_index": pdf_index,
+                "doc_ref": doc_ref,
+                "source": "baiduocr",
+                "unreviewed": True,
+                "incoming_text_sha256": hashlib.sha256(
+                    _normalized_page_text(text).encode("utf-8")
+                ).hexdigest(),
+                "existing_text_sha256": str(
+                    existing_ref.get("text_sha256") or ""
+                ),
+                "disposition": "first_writer_wins",
+                "at": _now_iso(),
+            })
+            continue
+        if page_result.get("reused"):
+            reused_count += 1
+        registered.append(pdf_index)
+    if drift:
+        update_full_parse_state(
+            workspace,
+            asset_root_id,
+            status="in_progress",
+            provenance=drift,
+        )
+    return {
+        "source": "baiduocr",
+        "asset_root_id": asset_root_id,
+        "file_sha256": file_sha256,
+        "registered_pdf_indices": sorted(set(registered)),
+        "registered_page_count": len(set(registered)),
+        "reused_page_count": reused_count,
+        "drifted_page_count": len(drift),
+        "drift": drift,
+        "skipped": skipped,
+        "corpus_dir": str(corpus),
+    }
+
+
 def write_full_parse_state(
     workspace: Path,
     asset_root_id: str,
@@ -1344,12 +1549,21 @@ def update_full_parse_state(
     job_id: str | None = None,
     failure_class: str | None = None,
     provenance: list[dict[str, Any]] | None = None,
+    next_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Refresh the full_parse progress document from authoritative facts."""
+    """Refresh the full_parse progress document from authoritative facts.
+
+    ``next_operation`` is the explicit retry instruction a consumer can run
+    after a terminal OCR failure; it is cleared on a fresh attempt or on
+    completion so the lane never strands without a visible next step.
+    """
     current = read_full_parse_state(workspace, asset_root_id)
     requested = full_parse_requested_indices(workspace, asset_root_id)
-    accepted = set(accepted_cached_pdf_indices(workspace, asset_root_id))
-    parsed = sorted(accepted & set(requested))
+    # The whole-book lane's coverage truth is review-agnostic: OCR pages are
+    # cached with unreviewed baiduocr provenance and count as parsed, while
+    # strict accepted evidence stays a separate boundary.
+    cached = set(cached_pdf_indices(workspace, asset_root_id))
+    parsed = sorted(cached & set(requested))
     if parsed_indices is not None:
         parsed = sorted(set(parsed) | set(parsed_indices))
     page_count = full_parse_page_count(workspace, asset_root_id)
@@ -1372,6 +1586,9 @@ def update_full_parse_state(
         "failure_class": failure_class
         if failure_class is not None
         else current.get("failure_class"),
+        "next_operation": next_operation
+        if next_operation is not None
+        else current.get("next_operation"),
         "provenance": merged_provenance[-64:],
         "updated_at": _now_iso(),
     }
@@ -1380,8 +1597,13 @@ def update_full_parse_state(
     if merged["complete"]:
         merged["status"] = "complete"
         merged["failure_class"] = None
+        merged["next_operation"] = None
         if not merged["completed_at"]:
             merged["completed_at"] = _now_iso()
+    if status in {"queued", "complete"}:
+        # A fresh retry attempt or a completed parse clears any stale retry
+        # instruction; terminal failures keep it visible for the next action.
+        merged["next_operation"] = None
     return write_full_parse_state(workspace, asset_root_id, merged)
 
 
@@ -1392,6 +1614,7 @@ def close_full_parse_request(
     job_id: str,
     result: str,
     failure_class: str | None = None,
+    next_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Terminally close one full_parse host-work request and its queue row.
 
@@ -1435,6 +1658,7 @@ def close_full_parse_request(
     return update_full_parse_state(
         workspace, asset_root_id, status="failed", job_id=job_id,
         failure_class=failure_class or "full_parse_failed",
+        next_operation=next_operation,
     )
 
 
@@ -1475,6 +1699,7 @@ def record_full_parse_render_result(
     rendered_pdf_indices: list[int],
     failed_pdf_indices: list[int],
     failure_class: str | None = None,
+    next_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Record one render-batch outcome and transition the full_parse lane.
 
@@ -1510,6 +1735,9 @@ def record_full_parse_render_result(
         parsed_indices=rendered_pdf_indices,
         failure_class=(
             failure_class if status == "failed" else None
+        ),
+        next_operation=(
+            next_operation if status == "failed" else None
         ),
     )
     if status == "complete":
@@ -1563,6 +1791,7 @@ def record_full_parse_render_result(
                     status="failed",
                     job_id=job_id,
                     failure_class=failure_class or "render_failed",
+                    next_operation=next_operation,
                 )
         # partial or retryable failure: keep the request open and claimable.
         for key in (
@@ -1577,6 +1806,7 @@ def record_full_parse_render_result(
             None if status == "failed" else "in_progress"
         ),
         failure_class=failure_class if status == "failed" else None,
+        next_operation=next_operation if status == "failed" else None,
     )
 
 
@@ -3926,6 +4156,38 @@ def accepted_cached_pdf_indices(
             continue
         accepted.append(pdf_index)
     return accepted
+
+
+def cached_pdf_indices(
+    workspace: Path,
+    asset_root_id: str,
+) -> list[int]:
+    """Return every page index with valid cached markdown, review-agnostic.
+
+    The whole-book OCR lane caches unreviewed baiduocr pages that the strict
+    accepted-evidence boundary (``accepted_cached_pdf_indices``) deliberately
+    excludes until review; this review-agnostic projection is the full_parse
+    lane's own progress/coverage truth.
+    """
+    pages_dir = _module_dir(workspace, asset_root_id) / "pages"
+    if not pages_dir.is_dir():
+        return []
+    candidate_indices = sorted(
+        {
+            int(path.stem)
+            for path in pages_dir.glob("*.md")
+            if path.stem.isdigit()
+        }
+    )
+    cached: list[int] = []
+    for pdf_index in candidate_indices:
+        try:
+            page = get_page(workspace, asset_root_id, pdf_index)
+        except ModuleAssetsError:
+            continue
+        if page is not None:
+            cached.append(pdf_index)
+    return cached
 
 
 def opening_page_candidate_catalog(
@@ -6963,9 +7225,13 @@ def enqueue_job(
                     kind == "full_parse"
                     and _same_entity_work(row, kind, tid)
                 ):
-                    # One full_parse job per module root, forever.  A rebound
-                    # campaign reuses the same root and the same done row; a
+                    # One full_parse job per module root, forever.  A
                     # completed parse returns without creating a second job.
+                    # A terminally failed parse (or an abandoned open
+                    # handoff) must never strand the lane: the enqueue
+                    # creates a fresh retry job the worker can claim again
+                    # (its bounded OCR failure accounting lives on the
+                    # host-work request row, preserved across retries).
                     if row.get("result") == "complete":
                         deduped_job = row
                         dedupe_state = "done"
@@ -6986,17 +7252,18 @@ def enqueue_job(
                                 request = loaded_request
                         except (OSError, json.JSONDecodeError):
                             request = {}
-                    if str(request.get("status") or "open") in {
-                        "fulfilled", "cancelled", "superseded",
-                    }:
-                        deduped_job = row
-                        dedupe_state = "done"
+                    failed_row = (
+                        row.get("failed") is True
+                        or row.get("result") in {"failed", "error"}
+                        or request.get("result") == "failed"
+                    )
+                    request_status = str(request.get("status") or "open")
+                    if failed_row or request_status == "open":
+                        deduped_job = None
+                        dedupe_state = None
                         break
-                    if merge_consumers(row):
-                        queue["done"] = list(queue.get("done") or [])
-                        _write_json(path, queue)
                     deduped_job = row
-                    dedupe_state = "awaiting_host_pack"
+                    dedupe_state = "done"
                     break
                 still_current = _host_request_still_current(
                     workspace,

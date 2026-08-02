@@ -4,7 +4,14 @@
 Design (product):
 - Dig / enter / clue-follow only **enqueue** and return immediately.
 - Deep pack extraction is host-owned; this worker never invents secret/handout
-  bodies and does not OCR/parse PDF bytes.
+  bodies and does not parse PDF bytes itself.
+- The whole-book **full_parse lane is worker-native OCR**: one bounded
+  baiduocr bridge call (reusing the sha-keyed corpus when complete) renders
+  the entire PDF to page-level markdown, which is registered into
+  module-assets with ``pdf_index = doc_N + 1`` and unreviewed baiduocr
+  provenance.  The external pdf-skill batch renderer path is retired for
+  full_parse; the worker closes, retries (bounded, backoff), or cancels the
+  job with an explicit ``next_operation`` so the lane never strands.
 - Worker runs **out of band**: claim jobs into ``in_flight``, process in a
   thread pool, merge ready packs into campaigns, write host-work requests for
   still-missing packs, then exit after idle.
@@ -34,6 +41,147 @@ DEFAULT_PARALLEL = 4
 DEFAULT_IDLE_EXIT_S = 45.0
 DEFAULT_STALE_IN_FLIGHT_S = 30.0
 DEFAULT_POLL_S = 0.4
+
+OCR_ADAPTER = SCRIPT_DIR.parent / "pi" / "bin" / "coc-ocr-adapter.py"
+OCR_ADAPTER_TIMEOUT_S = 1500.0
+OCR_RETRY_BACKOFF_S = 30.0
+OCR_MANIFEST_STATUS_COMPLETE = "complete"
+OCR_MANIFEST_STATUS_INCOMPLETE = "incomplete"
+
+
+class FullParseOcrError(Exception):
+    """One failed whole-book OCR attempt with its explicit failure class."""
+
+    def __init__(self, failure_class: str, message: str):
+        super().__init__(message)
+        self.failure_class = failure_class
+
+
+def _full_parse_ocr_enabled() -> bool:
+    """Test/ops gate: never hit the OCR API unless explicitly allowed."""
+    return os.environ.get("COC_FULL_PARSE_OCR_DISABLED", "").strip().lower() not in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _load_baiduocr_token() -> str | None:
+    """Load BAIDUOCR_TOKEN from the protected secrets env file.
+
+    Mirrors the Pi extension's secrets loading: ``COC_KEEPER_ENV_FILE`` wins,
+    otherwise ``~/.config/coc-keeper/secrets.env``.  Never print the value.
+    """
+    env_file = os.environ.get("COC_KEEPER_ENV_FILE") or str(
+        Path.home() / ".config" / "coc-keeper" / "secrets.env"
+    )
+    if not env_file:
+        return None
+    try:
+        lines = Path(env_file).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("BAIDUOCR_TOKEN="):
+            value = stripped[len("BAIDUOCR_TOKEN=") :].strip()
+            return value.strip("'\"")
+    return None
+
+
+def _resolve_ocr_python() -> str:
+    """A python that can run the baiduocr bridge (needs ``requests``).
+
+    Explicit ``COC_FULL_PARSE_OCR_PYTHON`` / ``COC_PROGRESSIVE_OCR_PYTHON``
+    wins; otherwise probe common interpreters once per process.  The uv
+    runtime has no ``requests`` dependency, so the bridge resolves an
+    external interpreter instead of importing it here.
+    """
+    explicit = (
+        os.environ.get("COC_FULL_PARSE_OCR_PYTHON")
+        or os.environ.get("COC_PROGRESSIVE_OCR_PYTHON")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    resolved = getattr(_resolve_ocr_python, "_cached", None)
+    if resolved is not None:
+        return resolved
+    for candidate in (sys.executable, "python3.11", "python3.10", "python3"):
+        try:
+            probe = subprocess.run(
+                [candidate, "-c", "import requests"],
+                capture_output=True, text=True, timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if probe.returncode == 0:
+            _resolve_ocr_python._cached = candidate
+            return candidate
+    _resolve_ocr_python._cached = sys.executable
+    return sys.executable
+
+
+def _invoke_full_parse_ocr(
+    source_pdf: Path,
+    corpus_dir: Path,
+    token: str,
+    *,
+    timeout_s: float = OCR_ADAPTER_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Run the whole-book baiduocr bridge; return the adapter JSON result.
+
+    The adapter (``coc-ocr-adapter.py``) submits the entire PDF to the OCR
+    API and writes ``doc_N.md`` pages into ``corpus_dir``.  Failures raise
+    ``FullParseOcrError`` with an explicit failure class; the token is passed
+    only through the child environment and never printed.
+    """
+    if not token:
+        raise FullParseOcrError(
+            "full_parse_ocr_token_missing",
+            "环境缺 BAIDUOCR_TOKEN：需要 COC_KEEPER_ENV_FILE 指向的 env 文件或 "
+            "~/.config/coc-keeper/secrets.env 提供 BAIDUOCR_TOKEN 才能跑整本 OCR",
+        )
+    cmd = [
+        _resolve_ocr_python(),
+        str(OCR_ADAPTER),
+        "fast",
+        str(source_pdf),
+        "--corpus",
+        str(corpus_dir),
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            env={**os.environ, "BAIDUOCR_TOKEN": token},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise FullParseOcrError(
+            "full_parse_ocr_timeout",
+            f"整本 OCR 桥超时（>{int(timeout_s)}s）",
+        ) from exc
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip().splitlines()
+        raise FullParseOcrError(
+            "full_parse_ocr_bridge_failed",
+            "OCR 桥失败: " + ((detail[-1] if detail else "未知错误")[:200]),
+        )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise FullParseOcrError(
+            "full_parse_ocr_bridge_failed", "OCR 桥返回无效 JSON",
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("status") != "completed":
+        message = str(
+            (payload or {}).get("error") or "OCR 桥未完成"
+        )[:200]
+        failure_class = str(
+            (payload or {}).get("failure_class") or "full_parse_ocr_bridge_failed"
+        )
+        raise FullParseOcrError(failure_class, f"OCR 桥未完成: {message}")
+    return payload
 
 
 def _full_parse_render_result_contract() -> dict[str, Any]:
@@ -843,11 +991,19 @@ def requeue_stale_in_flight(
         now = _now_ts()
         for job in inflight:
             claimed = float(job.get("claimed_at_ts") or 0)
-            if claimed and (now - claimed) > float(stale_after_s):
+            retry_after = float(job.get("retry_after_ts") or 0)
+            stale = (
+                claimed and (now - claimed) > float(stale_after_s)
+            ) or (
+                retry_after and now >= retry_after
+            )
+            if stale:
                 job = dict(job)
                 job.pop("worker_id", None)
                 job.pop("claimed_at", None)
                 job.pop("claimed_at_ts", None)
+                job.pop("retry_after_ts", None)
+                job.pop("retry_reason", None)
                 job["requeued_at"] = _now_iso()
                 job["requeue_reason"] = "stale_in_flight"
                 job["requeue_count"] = int(job.get("requeue_count") or 0) + 1
@@ -1522,23 +1678,18 @@ def _write_host_work_request(
             "scope. Do not invent handout/secret bodies without page evidence."
             if job_kind == "deepen_location"
             else
-            "Full-parse renderer: this request covers the entire PDF page range "
-            "from the bound source manifest (requested_pdf_indices is the full "
-            "0-based page list; page_count is its length). cached_page_refs are "
-            "the already accepted immutable pages: never re-render, transcribe, "
-            "or rewrite them. Render the missing pages in source order with the "
-            "external pdf skill, in batches no larger than the closed "
-            "result_contract render.max_pages_per_batch (32), each batch as one "
-            "validated schema-v1 source bundle carrying only newly rendered "
-            "pages. Register every batch through progressive.register_source_bundle "
-            "(content-addressed put_page: identical pages skip, drifted pages keep "
-            "the existing first writer and are recorded as provenance without "
-            "blocking). When every requested page is accepted, submit one "
-            "progressive.fulfill_host_work worker_result row with pack.status=complete "
-            "and the exact rendered_pdf_indices; otherwise submit pack.status=partial "
-            "so the same open request can be claimed again for the next batch. "
-            "Do not compile entity packs, read campaign state, or invent page "
-            "content that the pdf skill did not render."
+            "Full-parse worker-native OCR lane: this request is durable whole-"
+            "book parse bookkeeping, never a PDF-skill render handoff.  The "
+            "background worker runs the whole-book baiduocr bridge (reusing "
+            "the sha-keyed corpus when complete), then registers every corpus "
+            "page doc_N.md into module-assets with pdf_index = doc_N + 1 via "
+            "put_page: identical pages skip, drifted pages keep the existing "
+            "first writer and record provenance, and page meta carries "
+            "{source: baiduocr, unreviewed: true, doc_ref}.  Do not render "
+            "with a PDF skill, do not claim or fulfill this request through a "
+            "coordinator; the worker closes it as complete, retries it with "
+            "bounded failure accounting and backoff, or cancels it with an "
+            "explicit next_operation."
             if job_kind == "full_parse"
             else
             "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
@@ -1630,16 +1781,25 @@ def _write_host_work_request(
                 current = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 current = None
-            if isinstance(current, dict) and isinstance(
-                current.get("consumer_refs"), list,
-            ):
-                payload["consumer_refs"] = (
-                    coc_module_assets.validate_host_work_consumer_refs([
-                        *list(payload.get("consumer_refs") or []),
-                        *current["consumer_refs"],
-                    ])
-                )
-                payload["consumer_state"] = "owned"
+            if isinstance(current, dict):
+                if isinstance(current.get("consumer_refs"), list):
+                    payload["consumer_refs"] = (
+                        coc_module_assets.validate_host_work_consumer_refs([
+                            *list(payload.get("consumer_refs") or []),
+                            *current["consumer_refs"],
+                        ])
+                    )
+                    payload["consumer_state"] = "owned"
+                # Retry claims must not reset bounded failure accounting: the
+                # durable request row owns the OCR failure budget across
+                # re-claims so a retry can never loop forever.
+                for key in (
+                    "render_failure_count",
+                    "last_render_failure_class",
+                    "last_render_failure_at",
+                ):
+                    if key in current:
+                        payload[key] = current[key]
         candidates: list[tuple[Path, dict[str, Any]]] = []
         for old_job_id in pending_supersedes:
             old_path = work_dir / f"{old_job_id}.json"
@@ -1680,6 +1840,161 @@ def _write_host_work_request(
     return path
 
 
+def _full_parse_next_operation(
+    workspace: Path, asset_root_id: str,
+) -> dict[str, Any]:
+    """Explicit retry instruction for a terminal full_parse OCR failure."""
+    return {
+        "schema_version": 1,
+        "operation": "progressive.retry_full_parse",
+        "retryable": True,
+        "arguments": {"asset_root_id": asset_root_id},
+        "message": (
+            "整本 OCR 解析失败已达上限：修好 OCR 环境（BAIDUOCR_TOKEN / 网络）后，"
+            "调用 progressive.retry_full_parse 重新入队一次整本解析"
+        ),
+    }
+
+
+def _mark_in_flight_retry(
+    workspace: Path,
+    asset_root_id: str,
+    job_id: str,
+    *,
+    backoff_s: float = OCR_RETRY_BACKOFF_S,
+) -> None:
+    """Schedule an automatic retry pass for a retryable full_parse failure.
+
+    The queue row stays ``in_flight`` (never finished) and is requeued by
+    ``requeue_stale_in_flight`` after the backoff; the bounded failure
+    accounting lives on the durable host-work request row.
+    """
+    lock = _lock_path(workspace, asset_root_id)
+    with coc_fileio.advisory_file_lock(lock):
+        queue = _read_queue(workspace, asset_root_id)
+        inflight = list(queue.get("in_flight") or [])
+        changed = False
+        for row in inflight:
+            if str(row.get("job_id") or "") != job_id:
+                continue
+            row["claimed_at_ts"] = _now_ts()
+            row["retry_after_ts"] = _now_ts() + max(1.0, float(backoff_s))
+            row["retry_reason"] = "full_parse_ocr_retryable_failure"
+            changed = True
+        if changed:
+            queue["in_flight"] = inflight
+            _write_queue(workspace, asset_root_id, queue)
+
+
+def _run_full_parse_ocr_attempt(
+    workspace: Path,
+    asset_root_id: str,
+    job: dict[str, Any],
+) -> dict[str, Any]:
+    """One whole-book OCR attempt: reuse-or-run the baiduocr bridge, then
+    register every corpus page (doc_N → pdf_index N+1) into module-assets.
+
+    Returns the registration summary.  Raises ``FullParseOcrError`` for API /
+    polling / download / registration / page-gap failures with an explicit
+    failure class; the caller applies the bounded failure accounting.
+    """
+    identity_path = (
+        coc_module_assets._module_dir(workspace, asset_root_id)
+        / "identity.json"
+    )
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    source = (
+        identity.get("source")
+        if isinstance(identity, dict)
+        and isinstance(identity.get("source"), dict)
+        else {}
+    )
+    file_sha256 = str(
+        identity.get("file_sha256") or source.get("file_sha256") or ""
+    )
+    if len(file_sha256) != 64:
+        raise FullParseOcrError(
+            "full_parse_ocr_register_failed",
+            "module identity file_sha256 is unavailable",
+        )
+    source_pdf = Path(str(source.get("path") or ""))
+    if not source_pdf.is_file():
+        raise FullParseOcrError(
+            "full_parse_ocr_register_failed",
+            f"bound source PDF is missing: {source_pdf}",
+        )
+    corpus_dir = coc_module_assets.ocr_corpus_dir(workspace, file_sha256)
+    corpus_dir.mkdir(parents=True, exist_ok=True)
+    manifest = coc_module_assets.read_ocr_corpus_manifest(
+        workspace, file_sha256,
+    )
+    corpus_complete = bool(
+        (corpus_dir / "doc_0.md").is_file()
+        and (
+            manifest.get("status") == OCR_MANIFEST_STATUS_COMPLETE
+            if manifest
+            else True  # legacy corpus without manifest: reuse per baiduocr discipline
+        )
+    )
+    if not corpus_complete:
+        if not _full_parse_ocr_enabled():
+            raise FullParseOcrError(
+                "full_parse_ocr_disabled",
+                "COC_FULL_PARSE_OCR_DISABLED：全量解析的 baiduocr 桥被禁用，"
+                "且该 sha 没有可复用的完整 corpus",
+            )
+        _invoke_full_parse_ocr(
+            source_pdf,
+            corpus_dir,
+            _load_baiduocr_token() or "",
+        )
+    doc_count = len(list(corpus_dir.glob("doc_*.md")))
+    registered = coc_module_assets.register_ocr_corpus(
+        workspace,
+        asset_root_id,
+        corpus_dir=corpus_dir,
+    )
+    requested = set(
+        coc_module_assets.full_parse_requested_indices(
+            workspace, asset_root_id,
+        )
+    )
+    cached = set(
+        coc_module_assets.cached_pdf_indices(
+            workspace, asset_root_id,
+        )
+    )
+    parsed = sorted(requested & cached)
+    if len(parsed) == len(requested):
+        coc_module_assets.write_ocr_corpus_manifest(
+            workspace,
+            file_sha256,
+            source_path=str(source_pdf),
+            page_count=len(requested),
+            doc_page_count=doc_count,
+            status=OCR_MANIFEST_STATUS_COMPLETE,
+        )
+        return {
+            "status": "complete", "parsed": parsed,
+            "doc_count": doc_count, **registered,
+        }
+    coc_module_assets.write_ocr_corpus_manifest(
+        workspace,
+        file_sha256,
+        source_path=str(source_pdf),
+        page_count=len(requested),
+        doc_page_count=doc_count,
+        status=OCR_MANIFEST_STATUS_INCOMPLETE,
+    )
+    missing = sorted(requested - accepted)
+    raise FullParseOcrError(
+        "full_parse_ocr_page_gap",
+        f"整本 OCR 解析了 {doc_count} 页 doc markdown，但模块仍缺 "
+        f"{len(missing)} 页：{missing[:8]}{'…' if len(missing) > 8 else ''}；"
+        "corpus 已标记 incomplete，重试会重新请求 OCR",
+    )
+
+
 def process_claimed_job(
     workspace: Path,
     asset_root_id: str,
@@ -1704,8 +2019,8 @@ def process_claimed_job(
                 workspace, asset_root_id, job,
             )
             if request_path is None:
-                # Whole-book cache hit: every page is already accepted, so the
-                # render handoff is skipped and the job completes immediately.
+                # Whole-book cache hit: every page is already accepted, so no
+                # OCR render is needed and the job completes immediately.
                 coc_module_assets.close_full_parse_request(
                     workspace, asset_root_id,
                     job_id=str(job.get("job_id") or ""),
@@ -1727,11 +2042,83 @@ def process_claimed_job(
                 workspace, asset_root_id, status="in_progress",
                 job_id=str(job.get("job_id") or ""),
             )
+            job_id = str(job.get("job_id") or "")
+            try:
+                attempt = _run_full_parse_ocr_attempt(
+                    workspace, asset_root_id, job,
+                )
+            except FullParseOcrError as exc:
+                failure_class = exc.failure_class
+                detail["failure_class"] = failure_class
+                detail["error"] = str(exc)
+                result = coc_module_assets.record_full_parse_render_result(
+                    workspace,
+                    asset_root_id,
+                    job_id=job_id,
+                    status="failed",
+                    rendered_pdf_indices=[],
+                    failed_pdf_indices=[],
+                    failure_class=failure_class,
+                    next_operation=_full_parse_next_operation(
+                        workspace, asset_root_id,
+                    ),
+                )
+                refreshed = coc_module_assets.get_host_work_request(
+                    workspace, asset_root_id, job_id,
+                ) or {}
+                failure_count = int(
+                    refreshed.get("render_failure_count") or 0
+                )
+                detail["render_failure_count"] = failure_count
+                detail["next_operation"] = _full_parse_next_operation(
+                    workspace, asset_root_id,
+                )
+                if (
+                    failure_count
+                    >= coc_module_assets.FULL_PARSE_MAX_RENDER_FAILURES
+                ):
+                    detail["result"] = "failed"
+                    detail["full_parse"] = result
+                    _finish_job(
+                        workspace, asset_root_id, job,
+                        result="failed", detail=detail, failed=True,
+                    )
+                    return {"ok": True, "result": "failed", **detail}
+                # Retryable: keep the queue row in_flight so the next worker
+                # pass (after the backoff) re-claims and retries the OCR
+                # attempt; the open request row carries the bounded failure
+                # budget across retries.
+                _mark_in_flight_retry(
+                    workspace, asset_root_id, job_id,
+                )
+                return {"ok": True, "result": "retryable_failure", **detail}
+            # OCR + registration succeeded: every requested page is cached.
+            detail["result"] = "complete"
+            detail["ocr"] = {
+                "status": attempt.get("status"),
+                "doc_page_count": attempt.get("doc_count"),
+                "registered_pdf_indices": attempt.get(
+                    "registered_pdf_indices"
+                ),
+                "reused_page_count": attempt.get("reused_page_count"),
+                "drifted_page_count": attempt.get("drifted_page_count"),
+                "skipped": attempt.get("skipped"),
+            }
+            result = coc_module_assets.record_full_parse_render_result(
+                workspace,
+                asset_root_id,
+                job_id=job_id,
+                status="complete",
+                rendered_pdf_indices=attempt.get("parsed") or [],
+                failed_pdf_indices=[],
+                failure_class=None,
+            )
+            detail["full_parse"] = result
             _finish_job(
                 workspace, asset_root_id, job,
-                result="awaiting_host_pack", detail=detail,
+                result="complete", detail=detail,
             )
-            return {"ok": True, "result": "awaiting_host_pack", **detail}
+            return {"ok": True, "result": "complete", **detail}
 
         if kind == "locate_mechanics_index":
             req = _write_host_work_request(workspace, asset_root_id, job)

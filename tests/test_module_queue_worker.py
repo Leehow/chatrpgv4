@@ -16,6 +16,10 @@ import pytest
 
 # Prevent detached worker subprocess races during unit tests.
 os.environ["COC_DISABLE_QUEUE_WORKER"] = "1"
+# Never hit the real OCR API from unit tests.  The worker-native full_parse
+# lane fails closed (full_parse_ocr_disabled) unless a test explicitly
+# monkeypatches the OCR invocation and re-enables the lane.
+os.environ["COC_FULL_PARSE_OCR_DISABLED"] = "1"
 
 SCRIPTS = Path("plugins/coc-keeper/scripts")
 FAKE_SHA = "d" * 64
@@ -2864,9 +2868,13 @@ def test_full_parse_bind_trigger_enqueues_one_idempotent_job(tmp_path: Path):
     assert len(full_parse_rows) == 1
 
 
-def test_full_parse_worker_host_request_and_claim_with_missing_pages(tmp_path: Path):
-    """S1 lane: one full_parse job renders a host request for the whole page
-    range, claimable even while pages are missing (the renderer supplies them)."""
+def test_full_parse_worker_host_request_and_retryable_ocr_failure(
+    tmp_path: Path,
+):
+    """Worker-native lane: one full_parse job runs the whole-book OCR attempt
+    (baiduocr bridge); without OCR capability the job records a retryable
+    failure with an explicit failure_class and keeps the durable request open
+    for a bounded automatic retry instead of stranding."""
     _campaign(tmp_path)
     _clear_queue(tmp_path)
     queued = _full_parse_enqueue(tmp_path)
@@ -2876,8 +2884,10 @@ def test_full_parse_worker_host_request_and_claim_with_missing_pages(tmp_path: P
 
     processed = worker.run_worker_once(tmp_path, parallel=1)
     assert processed["claimed"] == 1
-    assert processed["results"][0]["result"] == "awaiting_host_pack"
-    request_path = Path(processed["results"][0]["host_work_request"])
+    result = processed["results"][0]
+    assert result["result"] == "retryable_failure"
+    assert result["failure_class"] == "full_parse_ocr_disabled"
+    request_path = Path(result["host_work_request"])
     request = json.loads(request_path.read_text(encoding="utf-8"))
     assert request["kind"] == "full_parse"
     assert request["job_id"] == queued["job"]["job_id"]
@@ -2889,18 +2899,26 @@ def test_full_parse_worker_host_request_and_claim_with_missing_pages(tmp_path: P
     assert request["work_level"] == "bounded_warm"
     assert request["deadline_class"] == "idle_warm"
     assert request["source_aspect"] == "full"
-    assert "Full-parse renderer" in request["instruction"]
+    assert "worker-native OCR" in request["instruction"]
     assert request["result_contract"]["contract_id"] == (
         "coc.full-parse-render-result.v1"
     )
-    assert request["result_contract"]["render"]["max_pages_per_batch"] == 32
+    # Bounded failure accounting lives on the durable request row.
+    assert request["render_failure_count"] == 1
+    assert request["last_render_failure_class"] == "full_parse_ocr_disabled"
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["failure_class"] == "full_parse_ocr_disabled"
+    assert state["status"] == "in_progress"  # retryable, not terminal
+    assert state["next_operation"]["operation"] == "progressive.retry_full_parse"
 
-    # Re-enqueue while the request is open must not create a second job.
+    # Re-enqueue while the retry is pending dedupes onto the same in-flight
+    # job (one full_parse job per module root, forever).
     again = _full_parse_enqueue(tmp_path)
     assert again["deduped"] is True
     assert again["job"]["job_id"] == queued["job"]["job_id"]
+    assert again["dedupe_state"] == "in_flight"
 
-    # Claim works with a partial cache (dispatchable while missing).
+    # The open request remains claimable as a durable packet (bookkeeping).
     claimed = assets.claim_host_work_requests(
         tmp_path, "qw-demo", executor_id="fp-test", limit=1,
     )
@@ -2909,6 +2927,19 @@ def test_full_parse_worker_host_request_and_claim_with_missing_pages(tmp_path: P
     assert packet["requested_pdf_indices"] == [0, 1, 2, 3]
     assert packet["cached_scope_complete"] is False
     assert packet["requests"][0]["kind"] == "full_parse"
+
+    # The stale-requeue pass re-claims the same row for the bounded retry.
+    requeued = worker.requeue_stale_in_flight(tmp_path, "qw-demo", stale_after_s=0)
+    assert requeued == 1
+    processed = worker.run_worker_once(tmp_path, parallel=1)
+    result = next(
+        row for row in processed["results"]
+        if row.get("kind") == "full_parse"
+    )
+    assert result["result"] == "retryable_failure"
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    # Failure budget is preserved across the retry claim, never reset.
+    assert request["render_failure_count"] == 2
 
 
 def test_full_parse_batch_registration_progress_and_first_writer_wins(
@@ -3096,7 +3127,293 @@ def test_full_parse_progress_visible_in_progressive_status(
         failed_pdf_indices=[],
     )
     assert state["parsed_pdf_indices"] == [0, 1, 2]
+
+
+def _fake_ocr_corpus_writer(corpus_pages: dict[int, str]):
+    """Return a monkeypatchable OCR bridge that materializes a corpus dir."""
+
+    def fake(source_pdf, corpus_dir, token, *, timeout_s=None):
+        assert token, "fake OCR bridge received no token"
+        corpus_dir.mkdir(parents=True, exist_ok=True)
+        for doc_num, text in corpus_pages.items():
+            (corpus_dir / f"doc_{doc_num}.md").write_text(
+                text, encoding="utf-8",
+            )
+        return {
+            "status": "completed",
+            "markdown_document_count": len(corpus_pages),
+        }
+
+    return fake
+
+
+def test_full_parse_ocr_corpus_registration_mapping_first_writer_wins_and_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """Worker-native OCR: the bridge corpus doc_N.md registers as
+    pdf_index = doc_N + 1 (0-based→1-based) with baiduocr/unreviewed
+    provenance; identical cached pages reuse silently; drifted pages keep the
+    first writer and record provenance; out-of-scope docs are skipped; a
+    complete corpus marks the manifest complete and closes the job."""
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    queued = _full_parse_enqueue(tmp_path)
+    # Hermetic OCR credential: never read the developer machine's secrets.
+    (tmp_path / "secrets.env").write_text(
+        "BAIDUOCR_TOKEN=test-token\n", encoding="utf-8",
+    )
+    monkeypatch.setenv("COC_KEEPER_ENV_FILE", str(tmp_path / "secrets.env"))
+    monkeypatch.setenv("COC_FULL_PARSE_OCR_DISABLED", "0")
+    monkeypatch.setattr(
+        worker,
+        "_invoke_full_parse_ocr",
+        _fake_ocr_corpus_writer({
+            # doc_0 → pdf_index 1: drifts from the first-pack reviewed page 1
+            # (first writer wins, provenance recorded).
+            0: "# Cellar\n\nOCR re-rendered cellar evidence.\n",
+            # doc_1 → pdf_index 2, doc_2 → pdf_index 3: newly cached.
+            1: "# Attic\n\nAttic OCR evidence.\n",
+            2: "# Backyard\n\nBackyard OCR evidence.\n",
+            # doc_3 → pdf_index 4: outside the bound 4-page scope → skipped.
+            3: "# Out of scope\n\nShould never register.\n",
+        }),
+    )
+    processed = worker.run_worker_once(tmp_path, parallel=1)
+    result = next(
+        row for row in processed["results"]
+        if row.get("kind") == "full_parse"
+    )
+    assert result["result"] == "complete", result
+    ocr = result["ocr"]
+    assert ocr["doc_page_count"] == 4
+    # doc_0 drifted from the reviewed first-pack page 1 (first writer wins,
+    # provenance recorded), so only docs 1–2 register new pages.
+    assert ocr["registered_pdf_indices"] == [2, 3]
+    assert ocr["reused_page_count"] == 0
+    assert ocr["drifted_page_count"] == 1
+    assert ocr["skipped"] == [{
+        "doc_ref": "doc_3.md", "doc_ordinal": 3,
+        "pdf_index": 4, "reason": "outside_requested_scope",
+    }]
+
+    # First writer wins: the reviewed first-pack page 1 keeps its text.
+    page1 = assets.get_page(tmp_path, "qw-demo", 1)
+    assert "Cached source scope." in page1["text"]
+    assert "OCR re-rendered cellar" not in page1["text"]
+    # New OCR pages carry the unreviewed baiduocr provenance in page meta.
+    page2 = assets.get_page(tmp_path, "qw-demo", 2)
+    assert "Attic OCR evidence." in page2["text"]
+    assert page2["meta"]["source"] == "baiduocr"
+    assert page2["meta"]["unreviewed"] is True
+    assert page2["meta"]["doc_ref"] == "doc_1.md"
+    assert page2["meta"]["review_state"] == "unreviewed"
+    page3 = assets.get_page(tmp_path, "qw-demo", 3)
+    assert "Backyard OCR evidence." in page3["text"]
+    assert page3["meta"]["doc_ref"] == "doc_2.md"
+
+    # The drift is durable provenance in the full_parse progress document.
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "complete"
+    assert state["complete"] is True
+    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
+    assert len(state["provenance"]) == 1
+    drift = state["provenance"][0]
+    assert drift["pdf_index"] == 1
+    assert drift["doc_ref"] == "doc_0.md"
+    assert drift["source"] == "baiduocr"
+    assert drift["unreviewed"] is True
+    assert drift["disposition"] == "first_writer_wins"
+
+    # Corpus manifest is complete so a later bind reuses it without OCR.
+    identity = json.loads(
+        (
+            tmp_path / ".coc" / "module-assets" / "qw-demo" / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    manifest = assets.read_ocr_corpus_manifest(
+        tmp_path, identity["file_sha256"],
+    )
+    assert manifest["status"] == "complete"
+    assert manifest["doc_page_count"] == 4
+    assert manifest["producer"] == "baiduocr"
+    queue = assets.list_queue(tmp_path, "qw-demo")
+    done = next(
+        row for row in queue["done"] if row.get("kind") == "full_parse"
+    )
+    assert done["result"] == "complete"
+    # Rebind after completion dedupes to the same done row.
+    again = _full_parse_enqueue(tmp_path)
+    assert again["dedupe_state"] == "done"
+
+
+def test_full_parse_ocr_complete_corpus_reuses_without_rerun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """baiduocr reuse discipline: a complete sha-keyed corpus is reused
+    verbatim; the bridge is never invoked again for the same PDF."""
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    identity = json.loads(
+        (
+            tmp_path / ".coc" / "module-assets" / "qw-demo" / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    corpus = assets.ocr_corpus_dir(tmp_path, identity["file_sha256"])
+    corpus.mkdir(parents=True, exist_ok=True)
+    (corpus / "doc_0.md").write_text(
+        "# Cellar\n\nCached source scope.\n", encoding="utf-8",
+    )
+    (corpus / "doc_1.md").write_text(
+        "# Attic\n\nAttic OCR evidence.\n", encoding="utf-8",
+    )
+    (corpus / "doc_2.md").write_text(
+        "# Backyard\n\nBackyard OCR evidence.\n", encoding="utf-8",
+    )
+    assets.write_ocr_corpus_manifest(
+        tmp_path,
+        identity["file_sha256"],
+        source_path=str(tmp_path / "qw-demo.pdf"),
+        page_count=4,
+        doc_page_count=3,
+        status="complete",
+    )
+    monkeypatch.setenv("COC_FULL_PARSE_OCR_DISABLED", "0")
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("OCR bridge must not re-run for a complete corpus")
+
+    monkeypatch.setattr(worker, "_invoke_full_parse_ocr", must_not_run)
+    _full_parse_enqueue(tmp_path)
+    processed = worker.run_worker_once(tmp_path, parallel=1)
+    result = next(
+        row for row in processed["results"]
+        if row.get("kind") == "full_parse"
+    )
+    assert result["result"] == "complete", result
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["complete"] is True
+    assert state["parsed_pdf_indices"] == [0, 1, 2, 3]
+    assert state["provenance"] == []
+
+
+def test_full_parse_ocr_terminal_failure_marks_class_and_retry_reenqueues(
+    tmp_path: Path,
+):
+    """Failure handling: OCR failures are bounded (FULL_PARSE_MAX_RENDER_FAILURES)
+    with backoff; the terminal failure marks failure_class plus an explicit
+    next_operation on the job/progress document and a re-enqueue creates a
+    fresh retry job — never a null dead end."""
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    queued = _full_parse_enqueue(tmp_path)
+    first_job_id = queued["job"]["job_id"]
+
+    for attempt in range(1, worker.coc_module_assets.FULL_PARSE_MAX_RENDER_FAILURES + 1):
+        processed = worker.run_worker_once(tmp_path, parallel=1)
+        result = next(
+            row for row in processed["results"]
+            if row.get("kind") == "full_parse"
+        )
+        if attempt < worker.coc_module_assets.FULL_PARSE_MAX_RENDER_FAILURES:
+            assert result["result"] == "retryable_failure"
+            assert result["render_failure_count"] == attempt
+        else:
+            assert result["result"] == "failed"
+            assert result["render_failure_count"] == attempt
+            assert result["failure_class"] == "full_parse_ocr_disabled"
+            assert result["next_operation"]["operation"] == (
+                "progressive.retry_full_parse"
+            )
+        # Force the bounded automatic retry pass immediately.
+        moved = worker.requeue_stale_in_flight(
+            tmp_path, "qw-demo", stale_after_s=0,
+        )
+        assert moved == (1 if attempt < worker.coc_module_assets.FULL_PARSE_MAX_RENDER_FAILURES else 0)
+
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "failed"
     assert state["complete"] is False
+    assert state["failure_class"] == "full_parse_ocr_disabled"
+    assert state["next_operation"]["operation"] == "progressive.retry_full_parse"
+    assert state["next_operation"]["arguments"] == {"asset_root_id": "qw-demo"}
+    request = json.loads(
+        (
+            tmp_path / ".coc" / "module-assets" / "qw-demo"
+            / "host-work" / f"{first_job_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert request["status"] == "cancelled"
+    assert request["result"] == "failed"
+    assert request["render_failure_count"] == 3
+    queue = assets.list_queue(tmp_path, "qw-demo")
+    done_row = next(
+        row for row in queue["done"] if row.get("kind") == "full_parse"
+    )
+    assert done_row["result"] == "failed"
+    assert done_row["failed"] is True
+
+    # Re-enqueue after terminal failure creates a FRESH retry job (no dead
+    # end), and the retry tool exposes the same lane for the KP.
+    retried = _full_parse_enqueue(tmp_path)
+    assert retried["enqueued"] is True
+    assert retried["job"]["job_id"] != first_job_id
+    assert retried["job"]["kind"] == "full_parse"
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "queued"
+    assert state["job_id"] == retried["job"]["job_id"]
+    assert state["next_operation"] is None  # fresh attempt clears the retry card
+
+
+def test_progressive_retry_full_parse_tool_reenqueues_failed_lane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """The explicit retry operation re-enqueues one fresh full_parse job after
+    a terminal OCR failure and reports the refreshed progress document."""
+    cid = _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    _full_parse_enqueue(tmp_path)
+    for _ in range(worker.coc_module_assets.FULL_PARSE_MAX_RENDER_FAILURES):
+        worker.run_worker_once(tmp_path, parallel=1)
+        worker.requeue_stale_in_flight(tmp_path, "qw-demo", stale_after_s=0)
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "failed"
+
+    retried = toolbox.run_tool(
+        "progressive.retry_full_parse", tmp_path, cid,
+        {"asset_root_id": "qw-demo"},
+    )
+    assert retried["ok"] is True, retried
+    data = retried["data"]
+    assert data["enqueued"] is True
+    assert data["job_id"]
+    assert data["full_parse"]["status"] == "queued"
+    assert data["full_parse"]["job_id"] == data["job_id"]
+
+    # Complete the retry via the (faked) OCR bridge: the retry op then
+    # dedupes to the done row instead of re-parsing.
+    (tmp_path / "secrets.env").write_text(
+        "BAIDUOCR_TOKEN=test-token\n", encoding="utf-8",
+    )
+    monkeypatch.setenv("COC_KEEPER_ENV_FILE", str(tmp_path / "secrets.env"))
+    monkeypatch.setenv("COC_FULL_PARSE_OCR_DISABLED", "0")
+    monkeypatch.setattr(
+        worker,
+        "_invoke_full_parse_ocr",
+        _fake_ocr_corpus_writer({
+            0: "# Cellar\n\nCached source scope.\n",
+            1: "# Attic\n\nAttic OCR evidence.\n",
+            2: "# Backyard\n\nBackyard OCR evidence.\n",
+        }),
+    )
+    worker.run_worker_once(tmp_path, parallel=1)
+    state = assets.read_full_parse_state(tmp_path, "qw-demo")
+    assert state["status"] == "complete"
+    settled = toolbox.run_tool(
+        "progressive.retry_full_parse", tmp_path, cid,
+        {"asset_root_id": "qw-demo"},
+    )
+    assert settled["ok"] is True
+    assert settled["data"]["dedupe_state"] == "done"
 
 
 def test_full_parse_open_request_never_blocks_opening(
@@ -3214,18 +3531,16 @@ def test_full_parse_open_request_never_blocks_opening(
     assert full_parse_row["deadline_class"] == "idle_warm"
     assert "dependency_ref" not in full_parse_row
 
-    # The full_parse request is never a current-dependency wait and never
-    # enters the coordinator-ready opening surface.  On Pi the projection
-    # carries the bounded adapter-lane dispatch for the open request.
+    # The full_parse request is worker-native OCR bookkeeping: it never is a
+    # current-dependency wait, never enters the coordinator-ready opening
+    # surface, and never carries a pdf-skill adapter dispatch on Pi.
     monkeypatch.setenv("COC_HOST", "pi")
     projection = _projection_for_campaign(tmp_path, campaign_id)
     assert projection["blocking_micro_ready_count"] == 0
     assert projection["current_dependency_waits"] == []
-    assert "full_parse_dispatch" in projection
-    render_task = projection["full_parse_dispatch"]["next_host_action"]["task"]
-    assert render_task["contract_id"] == "coc.pi-full-parse-render-task.v1"
-    assert render_task["requested_pdf_indices"] == [0, 1, 2, 3]
-    assert render_task["cached_pdf_indices"] == [0, 1]
+    assert projection["ready_for_background_count"] == 0
+    assert "full_parse_dispatch" not in projection
+    assert "background_takeover" not in projection
 
     # prepare_opening completed while full_parse was still open: the opening
     # lane was never blocked by the whole-book parse.

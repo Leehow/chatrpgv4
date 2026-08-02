@@ -24,11 +24,55 @@ parse confidence, and the final manifest handoff.
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 BAIDUOCR = Path.home() / ".codex" / "skills" / "baiduocr" / "scripts" / "baiduocr.py"
 BAIDUOCR_PYTHON = os.environ.get("COC_PROGRESSIVE_OCR_PYTHON", sys.executable)
+
+
+def _resolve_baiduocr_python() -> str:
+    """Resolve a python that can run baiduocr.py (requires ``requests``).
+
+    The adapter itself is stdlib-only; only the baiduocr child needs
+    ``requests``, which is not a repository dependency.  An explicit
+    ``COC_PROGRESSIVE_OCR_PYTHON`` wins; otherwise probe common interpreters.
+    """
+    explicit = os.environ.get("COC_PROGRESSIVE_OCR_PYTHON", "").strip()
+    if explicit:
+        return explicit
+    resolved = getattr(_resolve_baiduocr_python, "_cached", None)
+    if resolved is not None:
+        return resolved
+    for candidate in (BAIDUOCR_PYTHON, "python3.11", "python3.10", "python3"):
+        try:
+            probe = subprocess.run(
+                [candidate, "-c", "import requests"],
+                capture_output=True, text=True, timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if probe.returncode == 0:
+            _resolve_baiduocr_python._cached = candidate
+            return candidate
+    _resolve_baiduocr_python._cached = BAIDUOCR_PYTHON
+    return BAIDUOCR_PYTHON
+
+
+def _ocr_token_status() -> dict | None:
+    """Explicit token gate: never submit an OCR job without a credential."""
+    token = os.environ.get("BAIDUOCR_TOKEN", "").strip()
+    if token:
+        return None
+    return {
+        "status": "error",
+        "failure_class": "token_missing",
+        "error": (
+            "环境缺 BAIDUOCR_TOKEN：需要 COC_KEEPER_ENV_FILE 指向的 env 文件或 "
+            "~/.config/coc-keeper/secrets.env 提供 BAIDUOCR_TOKEN 才能跑整本 OCR"
+        ),
+    }
 
 
 def op_status(corpus_path: str) -> dict:
@@ -42,23 +86,33 @@ def op_status(corpus_path: str) -> dict:
 
 
 def op_fast(source_path: str, corpus_path: str) -> dict:
-    import subprocess
+    token_gate = _ocr_token_status()
+    if token_gate is not None:
+        return token_gate
 
     source = Path(source_path)
     corpus = Path(corpus_path)
     corpus.mkdir(parents=True, exist_ok=True)
 
     if not source.exists():
-        return {"status": "error", "error": "source not found"}
+        return {
+            "status": "error", "failure_class": "source_not_found",
+            "error": "source not found",
+        }
 
     try:
         result = subprocess.run(
-            [BAIDUOCR_PYTHON, str(BAIDUOCR), str(source), "--output-dir", str(corpus)],
+            [_resolve_baiduocr_python(), str(BAIDUOCR), str(source), "--output-dir", str(corpus)],
             capture_output=True, text=True, timeout=900,
             env={**os.environ},
         )
         if result.returncode != 0:
-            return {"status": "error", "error": "baiduocr failed"}
+            detail = (result.stderr or "").strip().splitlines()
+            return {
+                "status": "error",
+                "failure_class": "baiduocr_failed",
+                "error": (detail[-1] if detail else "baiduocr failed")[:400],
+            }
 
         md_files = sorted(corpus.glob("*.md"))
 
@@ -71,9 +125,15 @@ def op_fast(source_path: str, corpus_path: str) -> dict:
             "source_bundle_status": "external_manifest_required",
         }
     except subprocess.TimeoutExpired:
-        return {"status": "error", "error": "baiduocr timed out (900s)"}
+        return {
+            "status": "error", "failure_class": "timeout",
+            "error": "baiduocr timed out (900s)",
+        }
     except Exception:
-        return {"status": "error", "error": "baiduocr adapter failure"}
+        return {
+            "status": "error", "failure_class": "adapter_failure",
+            "error": "baiduocr adapter failure",
+        }
 
 
 def op_enhance(corpus_path: str, pages: str | None = None) -> dict:

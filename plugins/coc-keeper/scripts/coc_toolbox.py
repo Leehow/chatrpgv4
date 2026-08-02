@@ -11771,182 +11771,6 @@ def _pi_source_coordinator_dispatch(
     return dispatch
 
 
-def _full_parse_render_dispatch(
-    *,
-    workspace_root: str,
-    campaign_id: str,
-    asset_root_id: str,
-    request: dict[str, Any],
-    host_adapter: str,
-) -> dict[str, Any]:
-    """Build one bounded full-parse batch dispatch for the Pi adapter lane.
-
-    The task names the complete 0-based page range and the already accepted
-    cached subset.  The external pdf-skill adapter renders one batch (no
-    larger than the closed batch limit) of the still-missing pages into a
-    validated schema-v1 bundle, registers it through the canonical source
-    bundle bridge, and returns a coc.source-pack-worker.v1 receipt row that
-    the driver forwards once through progressive.fulfill_host_work.
-    """
-    assets_mod = coc_module_project.coc_module_assets
-    job_id = str(request.get("job_id") or "")
-    if host_adapter not in {"codex", "pi"}:
-        raise ToolError(
-            "invalid_param",
-            f"unsupported full-parse render host adapter {host_adapter!r}",
-        )
-    identity_path = (
-        assets_mod._module_dir(Path(workspace_root), asset_root_id)
-        / "identity.json"
-    )
-    try:
-        identity = json.loads(identity_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ToolError(
-            "source_scope_identity_invalid",
-            "canonical module identity is unavailable for full-parse dispatch",
-        ) from exc
-    canonical_source = (
-        identity.get("source")
-        if isinstance(identity, dict)
-        and isinstance(identity.get("source"), dict)
-        else {}
-    )
-    module_identity = (
-        identity.get("module_identity")
-        if isinstance(identity, dict)
-        and isinstance(identity.get("module_identity"), dict)
-        else {}
-    )
-    source_title = str(
-        canonical_source.get("title")
-        or module_identity.get("canonical_title")
-        or ""
-    ).strip()
-    page_count = canonical_source.get("page_count")
-    if (
-        isinstance(page_count, bool)
-        or not isinstance(page_count, int)
-        or page_count < 1
-    ):
-        raise ToolError(
-            "source_scope_identity_invalid",
-            "canonical module source page_count is required for full-parse dispatch",
-        )
-    canonical_task_source = {
-        "path": str(canonical_source.get("path") or ""),
-        "source_id": str(canonical_source.get("source_id") or ""),
-        "title": source_title,
-        "file_sha256": str(canonical_source.get("file_sha256") or ""),
-    }
-    if (
-        not canonical_task_source["path"]
-        or not canonical_task_source["source_id"]
-        or not re.fullmatch(
-            r"[a-f0-9]{64}",
-            canonical_task_source["file_sha256"],
-        )
-    ):
-        raise ToolError(
-            "source_scope_identity_invalid",
-            "canonical module source identity is incomplete",
-        )
-    bundle_path = (
-        Path(workspace_root)
-        / ".tmp"
-        / "coc-full-parse"
-        / campaign_id
-        / job_id
-    ).resolve()
-    task = {
-        "schema_version": 1,
-        "contract_id": "coc.pi-full-parse-render-task.v1",
-        "workspace_root": str(Path(workspace_root).resolve()),
-        "campaign_id": campaign_id,
-        "asset_root_id": asset_root_id,
-        "job_id": job_id,
-        "reason": str(request.get("reason") or ""),
-        "source": canonical_task_source,
-        "page_count": int(page_count),
-        "requested_pdf_indices": list(
-            request.get("requested_pdf_indices") or []
-        ),
-        "cached_pdf_indices": (
-            assets_mod.accepted_cached_pdf_indices(
-                Path(workspace_root), asset_root_id,
-            )
-        ),
-        "batch_limit": assets_mod.FULL_PARSE_BATCH_LIMIT,
-        "source_bundle_path": str(bundle_path),
-        "source_bundle_manifest_contract": {
-            "schema_version": 1,
-            "producer": "codex-pdf-skill",
-            "source_required": [
-                "source_id", "title", "path", "file_sha256", "page_count",
-            ],
-            "page_required": [
-                "pdf_index", "markdown_path", "text_sha256",
-                "review_state", "parse_confidence", "grep_anchors",
-            ],
-            "review_state": "manual_accepted",
-            "parse_confidence": "number_from_0_through_1",
-            "text_sha256": "sha256_of_exact_markdown_file_bytes",
-            "assets": [],
-        },
-        "register_operation": {
-            "operation": "progressive.register_source_bundle",
-            "invoke_via": "coc_invoke",
-            "prefilled_arguments": {},
-            "missing_arguments": ["source_bundle_path"],
-            "authority": "source_scope_only",
-            "hard_gate": False,
-        },
-        "fulfill_operation": {
-            "operation": "progressive.fulfill_host_work",
-            "invoke_via": "coc_invoke",
-            "prefilled_arguments": {
-                "worker_result": {
-                    "job_id": job_id,
-                    "related_packs": [],
-                },
-            },
-            "missing_arguments": ["worker_result.pack"],
-            "authority": "source_scope_only",
-            "hard_gate": False,
-        },
-        "result_delivery": "natural_completion_notification_only",
-    }
-    return {
-        "schema_version": 1,
-        "kind": "full_parse_render",
-        "dispatch_mode": "background_adapter_batch",
-        "host_adapter": host_adapter,
-        "authority": "advisory",
-        "hard_gate": False,
-        "next_host_action": {
-            "action": "invoke_coc_dispatch_full_parse",
-            "execute_before_any_other_host_operation": False,
-            "dispatch_key": f"full-parse:{job_id}",
-            "spawn_once_while_job_open": True,
-            "task": task,
-            "parent_waits": False,
-            "parent_result_polls": 0,
-            "parent_output_retrieval": False,
-            "on_natural_completion": (
-                "notification only; the renderer registers one page batch and "
-                "the driver forwards the exact receipt row through "
-                "progressive.fulfill_host_work; the next ordinary scene.context "
-                "re-emits the open request until complete"
-            ),
-        },
-        "play_boundary": {
-            "player_action_gate": False,
-            "narrative_gate": False,
-            "output_gate": False,
-            "nondependent_play_may_continue": True,
-        },
-    }
-
 
 def _source_pack_dispatch_task(packet: dict[str, Any]) -> dict[str, Any]:
     """Wrap one leased packet as an exact host-dispatchable source task."""
@@ -12280,6 +12104,11 @@ def _source_host_work_projection(
         for row in open_rows
     ]
     host_adapter = str(os.environ.get("COC_HOST") or "unknown").lower()
+    # The whole-book parse lane is worker-native OCR (baiduocr bridge) and is
+    # never dispatchable through the entity-pack coordinator / pdf-skill
+    # adapter route.  Its durable request row stays visible as in-progress
+    # bookkeeping only; the detached queue worker owns completion, bounded
+    # retries, and terminal failure with an explicit next_operation.
     ready_candidates = [
         compact
         for row, compact in zip(
@@ -12287,10 +12116,8 @@ def _source_host_work_projection(
         )
         if row.get("dispatch_state") == "ready"
         and bool(row.get("requested_pdf_indices"))
-        and (
-            str(row.get("kind") or "") == "full_parse"
-            or row.get("cached_scope_complete") is True
-        )
+        and str(row.get("kind") or "") != "full_parse"
+        and row.get("cached_scope_complete") is True
     ]
     retry_exhausted = [
         row for row in ready_candidates
@@ -12301,19 +12128,6 @@ def _source_host_work_projection(
     ready_background = [
         row for row in ready_candidates
         if row not in retry_exhausted
-    ]
-    # The whole-book parse lane is dispatchable while pages are still missing
-    # (its renderer supplies them), so it must never enter the entity-pack
-    # coordinator route; it gets its own bounded adapter lane below.
-    full_parse_candidates = [
-        row for row in ready_background
-        if str(row.get("kind") or "") == "full_parse"
-        and int(row.get("render_failure_count") or 0)
-        < assets_mod.FULL_PARSE_MAX_RENDER_FAILURES
-    ]
-    ready_background = [
-        row for row in ready_background
-        if str(row.get("kind") or "") != "full_parse"
     ]
     operational_classes = [
         assets_mod.host_work_operational_class(row) for row in open_rows
@@ -12420,14 +12234,6 @@ def _source_host_work_projection(
             "pi_coordinator_retry_exhausted_requests": retry_exhausted[:4],
             "automatic_retry_remaining": False,
         })
-    if full_parse_candidates and host_adapter in {"codex", "pi"}:
-        projection["full_parse_dispatch"] = _full_parse_render_dispatch(
-            workspace_root=str(ctx.root),
-            campaign_id=str(ctx.campaign_id),
-            asset_root_id=asset_root_id,
-            request=full_parse_candidates[0],
-            host_adapter=host_adapter,
-        )
     if not dispatch_ready_background:
         return projection
     ready_group_count = len({
@@ -17910,10 +17716,8 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
                 (
                     row.get("dispatch_state") == "ready"
                     and bool(row.get("requested_pdf_indices"))
-                    and (
-                        row.get("kind") == "full_parse"
-                        or row.get("cached_scope_complete") is True
-                    )
+                    and str(row.get("kind") or "") != "full_parse"
+                    and row.get("cached_scope_complete") is True
                 )
                 for row in all_host_work
             ),
@@ -17922,6 +17726,7 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
             ),
             "needs_source_window_count": sum(
                 bool(row.get("requested_pdf_indices"))
+                and str(row.get("kind") or "") != "full_parse"
                 and row.get("cached_scope_complete") is False
                 for row in all_host_work
             ),
@@ -17943,10 +17748,6 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
         data["background_takeover"] = host_work_projection[
             "background_takeover"
         ]
-    if host_work_projection.get("full_parse_dispatch"):
-        data["full_parse_dispatch"] = host_work_projection[
-            "full_parse_dispatch"
-        ]
     kind = str(args.get("kind") or "").strip()
     tid = str(args.get("target_id") or "").strip()
     if kind or tid:
@@ -17959,6 +17760,26 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
         "queue is non-blocking: dig only enqueues; parallel worker merges ready packs "
         "and writes host-work requests for missing deep bodies",
     ]
+    full_parse_state = (
+        data["full_parse"] if isinstance(data.get("full_parse"), dict) else {}
+    )
+    if full_parse_state.get("status") == "failed":
+        next_operation = full_parse_state.get("next_operation")
+        if isinstance(next_operation, dict) and next_operation.get(
+            "operation",
+        ):
+            hints.append(
+                "full_parse terminally failed; run its explicit "
+                f"next_operation {next_operation.get('operation')} to retry "
+                "the whole-book baiduocr lane after fixing the OCR environment"
+            )
+    elif full_parse_state.get("status") == "in_progress" and full_parse_state.get(
+        "failure_class",
+    ):
+        hints.append(
+            "full_parse OCR is retrying automatically with bounded backoff; "
+            "no host action is needed while the queue worker is running"
+        )
     if all_host_work:
         hints.append(
             "open host_work requests are not completed parses. When "
@@ -17971,6 +17792,73 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
             "submit uses the exact-forward fallback"
         )
     return data, [], hints
+
+
+@tool(
+    "progressive.retry_full_parse",
+    "Retry a terminally failed whole-book parse by enqueuing one fresh full_parse "
+    "job for the campaign asset root (baiduocr lane). Only meaningful when "
+    "progressive.status reports full_parse.status=failed with next_operation "
+    "progressive.retry_full_parse; a queued/in-flight parse dedupes instead. The "
+    "background worker re-runs the OCR bridge (reusing the sha-keyed corpus when "
+    "complete) and registers corpus pages into module-assets. Keeper-only source "
+    "lane operation; never blocks the opening projection or play.",
+    {
+        "asset_root_id": {
+            "type": "string",
+            "desc": "module asset root id to re-parse (progressive.status asset_root_id)",
+        },
+        "reason": {
+            "type": "string",
+            "desc": "optional retry reason shown in the queue row",
+        },
+    },
+    access="mutation",
+    write_domains=("module_progressive",),
+)
+def _tool_progressive_retry_full_parse(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    assets_mod = coc_module_project.coc_module_assets
+    root_id = str(args.get("asset_root_id") or "").strip()
+    if not root_id:
+        raise ToolError("invalid_param", "asset_root_id required")
+    reason = str(args.get("reason") or "retry_full_parse").strip()[:120]
+    queued = assets_mod.enqueue_job(
+        ctx.root,
+        root_id,
+        kind="full_parse",
+        target_id=root_id,
+        priority=5,
+        reason=reason,
+        consumer_refs=[assets_mod.campaign_consumer_ref(
+            ctx.root, str(ctx.campaign_id), root_id, intent_kind="full_parse",
+        )],
+        kick_worker=True,
+    )
+    state = assets_mod.read_full_parse_state(ctx.root, root_id)
+    hints: list[str] = []
+    if queued.get("enqueued"):
+        hints.append(
+            "a fresh full_parse job is queued; the background worker owns the "
+            "whole-book OCR attempt"
+        )
+    elif queued.get("dedupe_state") in {"pending", "in_flight"}:
+        hints.append(
+            "full_parse is already queued or in flight; the worker owns "
+            "completion and bounded retries"
+        )
+    elif queued.get("dedupe_state") == "done":
+        hints.append("full_parse already completed; no retry needed")
+    return {
+        "asset_root_id": root_id,
+        "campaign_id": str(ctx.campaign_id),
+        "enqueued": bool(queued.get("enqueued")),
+        "deduped": bool(queued.get("deduped")),
+        "dedupe_state": queued.get("dedupe_state"),
+        "job_id": str((queued.get("job") or {}).get("job_id") or ""),
+        "full_parse": state,
+    }, [], hints
 
 
 @tool(
