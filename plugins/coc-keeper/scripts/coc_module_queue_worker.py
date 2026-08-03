@@ -742,6 +742,7 @@ def _mechanics_resolution_result_contract(
     subject_kind = {
         "resolve_npc_mechanics": "npc",
         "resolve_item_mechanics": "item",
+        "resolve_threat_mechanics": "threat",
     }[job_kind]
     exact_refs = [
         {
@@ -871,6 +872,15 @@ coc_fileio = _load_sibling("coc_fileio_queue_worker", "coc_fileio.py")
 coc_mechanics = _load_sibling("coc_mechanics_queue_worker", "coc_mechanics.py")
 coc_module_assets = _load_sibling("coc_module_assets_queue_worker", "coc_module_assets.py")
 coc_module_project = _load_sibling("coc_module_project_queue_worker", "coc_module_project.py")
+coc_module_sections = _load_sibling(
+    "coc_module_sections_queue_worker", "coc_module_sections.py",
+)
+coc_module_outline_store = _load_sibling(
+    "coc_module_outline_store_queue_worker", "coc_module_outline_store.py",
+)
+coc_module_section_packs = _load_sibling(
+    "coc_module_section_packs_queue_worker", "coc_module_section_packs.py",
+)
 coc_compiled_archive = _load_sibling(
     "coc_compiled_archive_queue_worker", "coc_compiled_archive.py"
 )
@@ -1424,6 +1434,57 @@ def _write_host_work_request(
                 f"{job_kind} job source scope signature is stale"
             )
         requested_indices = list(requested_scope["pdf_indices"])
+    elif job_kind == coc_module_assets.CLASSIFY_SECTIONS_KIND:
+        # The classifier reads the book's shape, not its pages: its whole
+        # input is the deterministic outline plus short per-page previews,
+        # assembled below.  Requesting page refs here would hand it the very
+        # window-by-window view this pass exists to replace.
+        #
+        # Scope is the review-agnostic cached set, not the accepted-bundle
+        # set, because this pass asserts no facts: it records where a heading
+        # sits, and a page's own provenance is re-checked when a section is
+        # actually extracted.  Waiting for bundle registration would delay the
+        # index until after the point where it is needed to decide what to
+        # register in the first place.
+        requested_indices = coc_module_assets.cached_pdf_indices(
+            workspace, asset_root_id,
+        )
+        if not requested_indices:
+            raise QueueWorkerError(
+                "classify_sections requires accepted cached pages"
+            )
+        requested_scope = {
+            "scope_kind": "full_pdf",
+            "source_file_sha256": (
+                source.get("file_sha256") or identity.get("file_sha256")
+            ),
+            "page_count": len(requested_indices),
+            "pdf_indices": list(requested_indices),
+        }
+    elif job_kind == coc_module_assets.EXTRACT_SECTION_KIND:
+        index = coc_module_assets.read_section_index(workspace, asset_root_id)
+        section_row = next(
+            (
+                row for row in ((index or {}).get("sections") or [])
+                if isinstance(row, dict) and row.get("section_id") == target_id
+            ),
+            None,
+        )
+        if section_row is None:
+            raise QueueWorkerError(
+                f"extract_section target {target_id!r} is not in the section index"
+            )
+        requested_indices = [
+            int(value) for value in section_row.get("pdf_indices") or []
+        ]
+        requested_scope = {
+            "scope_kind": "section",
+            "source_file_sha256": (
+                source.get("file_sha256") or identity.get("file_sha256")
+            ),
+            "page_count": len(requested_indices),
+            "pdf_indices": list(requested_indices),
+        }
     elif job_kind == "full_parse":
         requested_indices = coc_module_assets.full_parse_requested_indices(
             workspace, asset_root_id,
@@ -1457,10 +1518,14 @@ def _write_host_work_request(
             if requested_scope
             else []
         )
-    cached_page_refs = _cached_page_refs(
-        workspace,
-        asset_root_id,
-        requested_indices=requested_indices,
+    cached_page_refs = (
+        []
+        if job_kind == coc_module_assets.CLASSIFY_SECTIONS_KIND
+        else _cached_page_refs(
+            workspace,
+            asset_root_id,
+            requested_indices=requested_indices,
+        )
     )
     cached_indices = {int(row["pdf_index"]) for row in cached_page_refs}
     scope_complete = (
@@ -1493,6 +1558,11 @@ def _write_host_work_request(
         if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
         else "full"
         if job_kind == "full_parse"
+        else "structure"
+        if job_kind in {
+            coc_module_assets.CLASSIFY_SECTIONS_KIND,
+            coc_module_assets.EXTRACT_SECTION_KIND,
+        }
         else "body"
     )
     group_material = json.dumps(
@@ -1580,6 +1650,41 @@ def _write_host_work_request(
             "a body-parsed entity update supplies exact pdf_indices; then "
             "enqueue the target again."
             if not requested_indices
+            else
+            "Section extraction: read exactly cached_page_refs and compile "
+            "this one indexed section. Follow extraction_request: choose a "
+            "pack_kind from its allowed_pack_kinds, echo section_id and title "
+            "unchanged, and put the section's prose in body_markdown as a "
+            "faithful restatement of these pages — authored numbers, names, "
+            "conditions and outcomes preserved exactly, nothing interpreted, "
+            "advised, or carried over from elsewhere in the book. highlights "
+            "are short scan pointers, never a replacement summary. Every "
+            "source_ref must name a page from this request. Do not relabel "
+            "audience or timing: those were established by the index and a "
+            "keeper_only section must never be re-marked player_facing. "
+            "Return status=abstain with no pack when these pages do not "
+            "support the section the index expected; the repository, never "
+            "the worker, writes the section document to disk."
+            if job_kind == coc_module_assets.EXTRACT_SECTION_KIND
+            else
+            "Whole-book structure pass: classify the sections of this source "
+            "from classification_request only. That packet is the complete "
+            "input: heading titles, their pages, and short page previews. Do "
+            "not open the PDF, read cached pages, or ask for more text. For "
+            "each candidate you can place, emit one row using its exact "
+            "section_id and title unchanged, a contiguous page run starting "
+            "at that candidate's own page and stopping before the next "
+            "classified candidate, and the four closed labels from "
+            "result_contract: audience, timing, payload, binding. Judge each "
+            "candidate against the shape of the whole outline, not its title "
+            "alone: the same appendix name means player handouts in one "
+            "module and an NPC roster in another. Emit no source text, "
+            "summary, or quotation. Omit a candidate you cannot place rather "
+            "than guessing; an unclassified heading can be revisited, a "
+            "mislabeled one silently misroutes play. When the packet declares "
+            "a chunk of a larger book, classify only what that slice shows "
+            "and never infer that an absent section does not exist."
+            if job_kind == coc_module_assets.CLASSIFY_SECTIONS_KIND
             else
             "Host source worker: review exactly cached_page_refs for this "
             "bounded mechanics locator pass. Return the closed locator delta "
@@ -1724,7 +1829,38 @@ def _write_host_work_request(
         )
     elif job_kind == "full_parse":
         payload["result_contract"] = _full_parse_render_result_contract()
-    elif job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+    elif job_kind == coc_module_assets.CLASSIFY_SECTIONS_KIND:
+        outline = coc_module_outline_store.ensure_outline(
+            workspace, asset_root_id,
+        )
+        previews = coc_module_outline_store.cached_page_previews(
+            workspace, asset_root_id, pdf_indices=requested_indices,
+        )
+        requests = coc_module_sections.build_classification_requests(
+            outline=outline,
+            page_previews=previews,
+            accepted_pdf_indices=requested_indices,
+            job_id=jid,
+        )
+        payload["classification_request"] = requests[0]
+        if len(requests) > 1:
+            payload["classification_request_chunks"] = requests[1:]
+        payload["result_contract"] = requests[0]["result_contract"]
+    elif job_kind == coc_module_assets.EXTRACT_SECTION_KIND:
+        index = coc_module_assets.read_section_index(workspace, asset_root_id)
+        section_row = next(
+            row for row in ((index or {}).get("sections") or [])
+            if isinstance(row, dict) and row.get("section_id") == target_id
+        )
+        extraction = coc_module_section_packs.build_extraction_request(
+            section=section_row,
+            index=index or {},
+            cached_page_refs=cached_page_refs,
+            job_id=jid,
+        )
+        payload["extraction_request"] = extraction
+        payload["result_contract"] = extraction["result_contract"]
+    elif job_kind in coc_module_assets.MECHANICS_JOB_FOR_SUBJECT.values():
         payload["result_contract"] = _mechanics_resolution_result_contract(
             job_id=jid,
             job_kind=job_kind,
@@ -2245,6 +2381,7 @@ def process_claimed_job(
         if kind in {
             "deepen_npc", "deepen_item", "deepen_clue", "deepen_handout", "deepen_threat",
             "resolve_npc_mechanics", "resolve_item_mechanics",
+            "resolve_threat_mechanics",
         }:
             entity_kind = {
                 "deepen_npc": "npc",
@@ -2254,6 +2391,7 @@ def process_claimed_job(
                 "deepen_threat": "threat",
                 "resolve_npc_mechanics": "npc",
                 "resolve_item_mechanics": "item",
+                "resolve_threat_mechanics": "threat",
             }[kind]
             pack = coc_module_assets.get_entity(
                 workspace, asset_root_id, entity_kind, tid,

@@ -16430,6 +16430,18 @@ def _fulfill_full_parse_host_work(
     }, [], success_hints
 
 
+def _mechanics_jobs() -> frozenset[str]:
+    """Job kinds that resolve one subject's authored game numbers.
+
+    Read from the assets contract rather than repeated as a literal, so adding
+    a subject kind (monsters, most recently) cannot leave one call site
+    silently excluding it.
+    """
+    return frozenset(
+        coc_module_project.coc_module_assets.MECHANICS_JOB_FOR_SUBJECT.values()
+    )
+
+
 def _fulfill_host_work_for_asset_unlocked(
     ctx: Ctx, args: dict[str, Any], *, root_id: str,
 ):
@@ -16501,9 +16513,7 @@ def _fulfill_host_work_for_asset_unlocked(
             f"host-work job {job_id!r} is already {request.get('status')}",
         )
     job_kind = str(request.get("kind") or "")
-    mechanics_job = job_kind in {
-        "resolve_npc_mechanics", "resolve_item_mechanics",
-    }
+    mechanics_job = job_kind in _mechanics_jobs()
     entity_kind = assets_mod._job_entity_kind(job_kind)
     target_id = str(request.get("target_id") or "").strip()
     if (
@@ -17174,7 +17184,7 @@ def _fulfill_host_work_for_asset_unlocked(
             shell["host_timing"] = deepcopy(measured_host_timing)
         return shell
 
-    if job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+    if job_kind in _mechanics_jobs():
         pack = _apply_mechanics_only_fulfill(
             kind=entity_kind,
             entity_id=target_id,
@@ -17325,7 +17335,7 @@ def _fulfill_host_work_for_asset_unlocked(
                 "invalid_source_worker_pack" if mechanics_job else "invalid_param",
                 f"related_packs[{index}].pack must be an object",
             )
-        if job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+        if job_kind in _mechanics_jobs():
             related_pack = _apply_mechanics_only_fulfill(
                 kind=related_kind,
                 entity_id=related_id,
@@ -17362,13 +17372,12 @@ def _fulfill_host_work_for_asset_unlocked(
     # Mechanics-only packs stay narrative-shallow, so put_entity's deep-only
     # reenqueue path does not fire. Re-queue resolve_* merge jobs so durable
     # authored/not_authored mechanics still project into campaign IR.
-    if job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+    if job_kind in _mechanics_jobs():
         merge_jobs = [(entity_kind, target_id), *related_subjects]
         for subject_kind, subject_id in merge_jobs:
             resolve_kind = (
-                "resolve_npc_mechanics" if subject_kind == "npc"
-                else "resolve_item_mechanics" if subject_kind == "item"
-                else None
+                coc_module_project.coc_module_assets
+                .MECHANICS_JOB_FOR_SUBJECT.get(subject_kind)
             )
             if resolve_kind is None:
                 continue
@@ -17398,7 +17407,7 @@ def _fulfill_host_work_for_asset_unlocked(
             "the exact reusable partial opening pack is durable; exact "
             "campaign-owned projection watches were drained automatically",
         ]
-    elif job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+    elif job_kind in _mechanics_jobs():
         success_hints = [
             "the reusable mechanics pack is durable and its mechanics merge "
             "job was re-enqueued",

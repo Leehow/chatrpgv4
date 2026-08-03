@@ -280,6 +280,22 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   trigger a replacement opening pack or a blocking NPC deep scan before play.
 - Locations: nested clues use **`player_safe_summary` only** (never bare
   `summary`). Affordances use `id` (not `affordance_id`).
+- **`read_aloud`**: the boxed passages the module prints for the Keeper to read
+  out. Nearly every published scenario has them and none of them print them as
+  a titled section, so they are only reachable here. Copy each one as authored
+  text, not a paraphrase, with `id`, `trigger` in
+  `on_enter|on_first_enter|on_clue|on_exit|keeper_choice`, and its own
+  `source_refs`; `on_clue` also requires `condition`. Because this text is
+  quoted to players verbatim, per-passage page evidence is mandatory — the
+  pack's own refs do not stand in for it. Omit the field when the reviewed
+  pages contain no such box; never promote ordinary description into one.
+- **`keeper_only`**: the Keeper-facing notes printed beside a location's public
+  description (one surveyed module prints 110 of them). Each row is `id`,
+  `note`, `source_refs` and nothing else — no audience, delivery, or
+  player-safe field exists on these rows, because everything stored here is
+  Keeper-only by construction. Use it for context the Keeper needs and players
+  must not be told. Information a player can actually *discover* is a clue with
+  a `discovery` block, not a keeper note; when both apply, emit both.
 - **Every** nested clue must carry structured `discovery` (no starter
   `skill_check` without discovery on this progressive path):
 
@@ -305,7 +321,8 @@ Rules:
 
 ### Mechanics aspect (`source_aspect=mechanics`)
 
-- For `kind=resolve_npc_mechanics|resolve_item_mechanics`, follow the request's
+- For `kind=resolve_npc_mechanics|resolve_item_mechanics|resolve_threat_mechanics`,
+  follow the request's
   closed `coc.mechanics-entity-pack.v1` contract. Copy the exact request
   `job_id`. The primary pack is exactly `{"mechanics": {...}}`: put `status`,
   `profile`, `source_refs`, all three `fields_*` arrays, and `provenance` inside
@@ -317,8 +334,12 @@ Rules:
   Each authored `mechanics.source_refs` row copies exact
   `source_id`/`pdf_index`/`text_sha256` values from this request's
   `cached_page_refs` and selects only the subject-supported subset.
+- A Mythos entity resolves exactly like an NPC: the monster appendix prints
+  the same characteristics, attacks, armor and SAN loss as the character
+  appendix, so `subject_kind=threat` uses `profile_kind=actor` and the same
+  closed actor field accounting. Do not invent a reduced monster schema.
 - Every same-page result uses the closed wrapper
-  `{"subject_kind": "npc|item", "subject_id": "<eligible batch id>",
+  `{"subject_kind": "npc|item|threat", "subject_id": "<eligible batch id>",
   "pack": {"mechanics": {...}}}`. Never return a bare related entity pack or
   bare mechanics object; never repeat the primary or another related subject.
   Before `status=usable`, self-check each nested record with the canonical

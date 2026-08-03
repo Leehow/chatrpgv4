@@ -43,15 +43,21 @@ JOB_KINDS = frozenset({
     "deepen_location", "deepen_npc", "deepen_clue", "deepen_handout",
     "deepen_threat", "deepen_item",
     "resolve_npc_mechanics", "resolve_item_mechanics",
+    "resolve_threat_mechanics",
     "locate_mechanics_index",
     "partial_neighbor", "partial_opening", "ensure_stub",
-    "full_parse",
+    "full_parse", "classify_sections", "extract_section",
 })
 FULL_PARSE_BATCH_LIMIT = 32
 FULL_PARSE_MAX_RENDER_FAILURES = 3
 FOREGROUND_OPENING_PURPOSE = "foreground_opening_slice"
 MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
 MECHANICS_LOCATOR_TARGET_ID = "mechanics-index"
+CLASSIFY_SECTIONS_KIND = "classify_sections"
+EXTRACT_SECTION_KIND = "extract_section"
+SECTION_INDEX_TARGET_ID = "section-index"
+SECTION_INDEX_NAME = "section-index.json"
+SECTIONS_DIR = "sections"
 HOST_WORK_SCHEMA_VERSION = 2
 HOST_WORK_CLOSED_STATUSES = frozenset({
     "fulfilled", "cancelled", "superseded", "quarantined",
@@ -71,6 +77,12 @@ HOST_WORK_CONSUMER_FIELDS = frozenset({
 HOST_WORK_CONSUMER_INTENTS = frozenset({
     "opening", "scene_enter", "player_dig", "neighbor_prefetch",
     "mechanics", "source_scope_reattach", "full_parse",
+    # Demand no longer arrives only as location traversal.  A published module
+    # is entered through its rules, its clock, its tables and its era as much
+    # as through its map, and each of those needs a demand signal of its own or
+    # the pages that answer it are never requested.
+    "section_pass", "invoke_subsystem", "meet_actor", "consult_table",
+    "timeline_tick", "era_query", "resolution",
 })
 OPENING_CLOCK_REQUIRED_FIELDS = frozenset({
     "calendar_mode",
@@ -103,6 +115,16 @@ FULFILLED_PACK_RECEIPT_SCHEMA_VERSION = 1
 FULFILLED_PACK_DIGEST_KIND = "canonical_entity_pack"
 FULFILLED_PACK_DIGEST_VERSION = 1
 FULFILLED_PACK_INGEST_FIELD = "host_work_fulfillment"
+# Subjects that can carry authored game numbers.  Monsters were previously
+# excluded, which left every Mythos-entity stat block in a module's monster
+# appendix unreachable: the entity existed as a threat, but nothing could
+# resolve its characteristics, attacks or SAN loss.
+MECHANICS_SUBJECT_KINDS = frozenset({"npc", "item", "threat"})
+MECHANICS_JOB_FOR_SUBJECT = {
+    "npc": "resolve_npc_mechanics",
+    "item": "resolve_item_mechanics",
+    "threat": "resolve_threat_mechanics",
+}
 JOB_KIND_FOR_ENTITY = {
     "location": "deepen_location",
     "npc": "deepen_npc",
@@ -218,6 +240,8 @@ def _job_entity_kind(job_kind: str) -> str | None:
         return "npc"
     if job_kind == "resolve_item_mechanics":
         return "item"
+    if job_kind == "resolve_threat_mechanics":
+        return "threat"
     for entity_kind, deepen_kind in JOB_KIND_FOR_ENTITY.items():
         if job_kind == deepen_kind:
             return entity_kind
@@ -233,6 +257,9 @@ def _job_depth(job_kind: str) -> int:
 
 
 def _job_aspect(job_kind: str) -> str:
+    if job_kind in {CLASSIFY_SECTIONS_KIND, EXTRACT_SECTION_KIND}:
+        # Whole-book structure, not a page-window body or mechanics read.
+        return "structure"
     return (
         "mechanics"
         if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
@@ -244,6 +271,11 @@ def _default_host_work_level(job_kind: str) -> str:
     """Return advisory urgency only; never infer an exact current dependency."""
     if job_kind == "locate_mechanics_index":
         return "bounded_warm"
+    if job_kind == CLASSIFY_SECTIONS_KIND:
+        # One whole-book structure pass per source.  It gates every later
+        # section request, so it outranks page-level warm prefetch, but it is
+        # still never a current dependency of a live turn.
+        return "near_term"
     if job_kind == "full_parse":
         # Whole-book background parse is the lowest-urgency host lane; it must
         # never compete with opening/entity work for coordinator dispatches.
@@ -994,6 +1026,111 @@ def _skeleton_mechanics_row(
     return None
 
 
+READ_ALOUD_TRIGGERS = frozenset({
+    "on_enter", "on_first_enter", "on_clue", "on_exit", "keeper_choice",
+})
+READ_ALOUD_MAX_BYTES = 4_000
+KEEPER_ONLY_MAX_BYTES = 6_000
+
+
+def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
+    """Boxed passages the Keeper reads out, kept verbatim and attributed.
+
+    Nearly every surveyed scenario prints these, and not one of them prints
+    them as a section: they are typeset boxes inside a location's own pages,
+    so the whole-book section index cannot reach them and they have to live on
+    the location pack.  They are quoted to the table as written, which is why
+    each one carries its own page evidence rather than inheriting the pack's.
+    """
+    rows = doc.get("read_aloud")
+    if rows is None:
+        return
+    if not isinstance(rows, list):
+        raise ModuleAssetsError("location read_aloud must be a list")
+    seen: set[str] = set()
+    for index, row in enumerate(rows):
+        prefix = f"location read_aloud[{index}]"
+        if not isinstance(row, dict):
+            raise ModuleAssetsError(f"{prefix} must be an object")
+        extra = set(row) - {"id", "trigger", "text", "source_refs", "condition"}
+        if extra:
+            raise ModuleAssetsError(
+                f"{prefix} has unsupported fields: {sorted(extra)}"
+            )
+        row_id = str(row.get("id") or "").strip()
+        if not row_id:
+            raise ModuleAssetsError(f"{prefix}.id is required")
+        if row_id in seen:
+            raise ModuleAssetsError(f"duplicate read_aloud id {row_id!r}")
+        seen.add(row_id)
+        trigger = str(row.get("trigger") or "")
+        if trigger not in READ_ALOUD_TRIGGERS:
+            raise ModuleAssetsError(
+                f"{prefix}.trigger must be one of {sorted(READ_ALOUD_TRIGGERS)}"
+            )
+        text = row.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ModuleAssetsError(f"{prefix}.text is required")
+        if len(text.encode("utf-8")) > READ_ALOUD_MAX_BYTES:
+            raise ModuleAssetsError(f"{prefix}.text exceeds the passage cap")
+        if trigger == "on_clue" and not str(row.get("condition") or "").strip():
+            raise ModuleAssetsError(
+                f"{prefix} with trigger=on_clue requires a condition"
+            )
+        refs = row.get("source_refs")
+        if not isinstance(refs, list) or not refs:
+            raise ModuleAssetsError(
+                f"{prefix}.source_refs is required: read-aloud text is quoted "
+                "to players verbatim and must carry its own page evidence"
+            )
+
+
+def _validate_location_keeper_only(doc: dict[str, Any]) -> None:
+    """The Keeper-facing notes printed beside a location's public description.
+
+    Published scenarios interleave these constantly — one surveyed module
+    prints 110 of them — and they are the difference between a Keeper who
+    knows why a room matters and one reading a travel brochure.  They were
+    previously discarded because the pack had nowhere to put them, and a clue
+    is the wrong home: most are context, not discoverable information.
+
+    Anything stored here is Keeper-only by construction; nothing may mark it
+    otherwise, because a single mislabeled row leaks the scenario's solution
+    onto a player-facing surface.
+    """
+    rows = doc.get("keeper_only")
+    if rows is None:
+        return
+    if not isinstance(rows, list):
+        raise ModuleAssetsError("location keeper_only must be a list")
+    seen: set[str] = set()
+    for index, row in enumerate(rows):
+        prefix = f"location keeper_only[{index}]"
+        if not isinstance(row, dict):
+            raise ModuleAssetsError(f"{prefix} must be an object")
+        extra = set(row) - {"id", "note", "source_refs"}
+        if extra:
+            raise ModuleAssetsError(
+                f"{prefix} has unsupported fields: {sorted(extra)}; "
+                "keeper_only rows are never player-facing and carry no "
+                "audience or delivery of their own"
+            )
+        row_id = str(row.get("id") or "").strip()
+        if not row_id:
+            raise ModuleAssetsError(f"{prefix}.id is required")
+        if row_id in seen:
+            raise ModuleAssetsError(f"duplicate keeper_only id {row_id!r}")
+        seen.add(row_id)
+        note = row.get("note")
+        if not isinstance(note, str) or not note.strip():
+            raise ModuleAssetsError(f"{prefix}.note is required")
+        if len(note.encode("utf-8")) > KEEPER_ONLY_MAX_BYTES:
+            raise ModuleAssetsError(f"{prefix}.note exceeds the note cap")
+        refs = row.get("source_refs")
+        if not isinstance(refs, list) or not refs:
+            raise ModuleAssetsError(f"{prefix}.source_refs is required")
+
+
 def _validate_entity_pack(
     kind: str,
     doc: dict[str, Any],
@@ -1042,9 +1179,10 @@ def _validate_entity_pack(
                 raise ModuleAssetsError(
                     "not_authored fulfillment requires workspace entity context"
                 )
-            if kind not in {"npc", "item"}:
+            if kind not in MECHANICS_SUBJECT_KINDS:
                 raise ModuleAssetsError(
-                    f"not_authored mechanics only valid for npc/item, not {kind!r}"
+                    "not_authored mechanics only valid for "
+                    f"{sorted(MECHANICS_SUBJECT_KINDS)}, not {kind!r}"
                 )
             row = _skeleton_mechanics_row(
                 workspace, asset_root_id, kind, entity_id,
@@ -1104,6 +1242,9 @@ def _validate_entity_pack(
                     f"location clues[{index}] with delivery_kind=npc_dialogue "
                     "requires unique non-empty source_npc_ids"
                 )
+    if kind == "location":
+        _validate_location_read_aloud(doc)
+        _validate_location_keeper_only(doc)
     if kind == "location" and doc.get("san_triggers") is not None:
         triggers = doc.get("san_triggers")
         if not isinstance(triggers, list):
@@ -1280,6 +1421,56 @@ def registry_path(workspace: Path) -> Path:
 def full_parse_state_path(workspace: Path, asset_root_id: str) -> Path:
     """Durable full_parse progress document for one module asset root."""
     return _module_dir(workspace, asset_root_id) / "full-parse.json"
+
+
+def section_index_path(workspace: Path, asset_root_id: str) -> Path:
+    """Durable whole-book section index for one module asset root."""
+    return _module_dir(workspace, asset_root_id) / SECTION_INDEX_NAME
+
+
+def read_section_index(
+    workspace: Path, asset_root_id: str,
+) -> dict[str, Any] | None:
+    path = section_index_path(workspace, asset_root_id)
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def write_section_index(
+    workspace: Path, asset_root_id: str, index: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist a validated section index, refusing a foreign source binding.
+
+    The index is only meaningful for the exact bytes it was derived from; a
+    module whose PDF was replaced must be re-indexed rather than inherit page
+    numbers that no longer point at the same content.
+    """
+    if not isinstance(index, dict):
+        raise ModuleAssetsError("section index must be an object")
+    expected = _module_identity_file_sha256(workspace, asset_root_id)
+    declared = _require_sha256(index.get("file_sha256"), "index.file_sha256")
+    if declared != expected:
+        raise ModuleAssetsError(
+            "section index file_sha256 does not match this module asset root"
+        )
+    path = section_index_path(workspace, asset_root_id)
+    payload = dict(index)
+    payload["updated_at"] = _now_iso()
+    _write_json(path, payload)
+    return payload
+
+
+def section_body_path(
+    workspace: Path, asset_root_id: str, section_id: str,
+) -> Path:
+    """Where the repository (never a worker) writes a section's prose body."""
+    safe = _require_id(section_id, "section_id")
+    return _module_dir(workspace, asset_root_id) / SECTIONS_DIR / f"{safe}.md"
 
 
 def read_full_parse_state(
@@ -1670,6 +1861,11 @@ def close_full_parse_request(
                 _write_json(request_path, request)
     _close_full_parse_queue_row(module_root, job_id, result=result)
     if result == "complete":
+        # Whole-book OCR finishing means every page was rendered; it does not
+        # mean any page was understood.  Chain the structure pass here so a
+        # module is indexed before play needs it, rather than only when a
+        # location edge happens to point somewhere.
+        _enqueue_section_pass_if_needed(workspace, asset_root_id)
         return update_full_parse_state(
             workspace, asset_root_id, status="complete", job_id=job_id,
         )
@@ -1678,6 +1874,31 @@ def close_full_parse_request(
         failure_class=failure_class or "full_parse_failed",
         next_operation=next_operation,
     )
+
+
+def _enqueue_section_pass_if_needed(
+    workspace: Path, asset_root_id: str,
+) -> dict[str, Any] | None:
+    """Queue the one structure pass for this source, once.
+
+    Best effort by design: a module that cannot be indexed right now must
+    still finish its OCR normally.  A missing index degrades later requests,
+    it does not invalidate the pages already cached.
+    """
+    existing = read_section_index(workspace, asset_root_id)
+    if isinstance(existing, dict) and existing.get("sections"):
+        return None
+    try:
+        return enqueue_job(
+            workspace,
+            asset_root_id,
+            kind=CLASSIFY_SECTIONS_KIND,
+            target_id=SECTION_INDEX_TARGET_ID,
+            priority=60,
+            reason="full_parse_complete",
+        )
+    except ModuleAssetsError:
+        return None
 
 
 def _close_full_parse_queue_row(
@@ -2415,8 +2636,11 @@ def validate_skeleton(skeleton: dict[str, Any]) -> list[str]:
             continue
         subject_kind = str(locator.get("subject_kind") or "")
         subject_id = str(locator.get("subject_id") or "").strip()
-        if subject_kind not in {"npc", "item"}:
-            errors.append(f"{prefix}.subject_kind must be npc or item")
+        if subject_kind not in MECHANICS_SUBJECT_KINDS:
+            errors.append(
+                f"{prefix}.subject_kind must be one of "
+                f"{sorted(MECHANICS_SUBJECT_KINDS)}"
+            )
         if not subject_id:
             errors.append(f"{prefix}.subject_id is required")
         subject_key = (subject_kind, subject_id)
@@ -5661,6 +5885,195 @@ def put_skeleton_and_fulfill_locator_host_work(
         })
         _write_json(path, request)
     return {"put": put_result, "repository_put_ms": repository_put_ms}
+
+
+def put_section_index_and_fulfill_host_work(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    host_work_job_id: str,
+    section_rows: Any,
+) -> dict[str, Any]:
+    """Validate one classifier result against its own request and store it.
+
+    The request that produced the rows is the only authority for what may be
+    in them, so it is re-read here rather than trusted from the caller: a row
+    naming a heading this request never offered, or pages outside it, is a
+    fabrication no matter how well formed it looks.
+    """
+    module_dir = _module_dir(workspace, asset_root_id)
+    path = (
+        module_dir / "host-work"
+        / f"{_require_id(host_work_job_id, 'host_work_job_id')}.json"
+    )
+    if not path.is_file():
+        raise ModuleAssetsError("section classification host-work request is missing")
+    with coc_fileio.advisory_file_lock(module_dir / "host-work.lock"):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        validate_host_work_request_shape(request)
+        if request.get("kind") != CLASSIFY_SECTIONS_KIND:
+            raise ModuleAssetsError(
+                "host-work request is not a section classification pass"
+            )
+        if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
+            raise ModuleAssetsError(
+                f"section host-work request is already {request.get('status')}"
+            )
+        classification = request.get("classification_request")
+        if not isinstance(classification, dict):
+            raise ModuleAssetsError(
+                "section host-work request carries no classification packet"
+            )
+        started = time.perf_counter()
+        index = _sections_module().build_section_index(
+            rows=section_rows, request=classification,
+        )
+        stored = write_section_index(workspace, asset_root_id, index)
+        repository_put_ms = max(0, round((time.perf_counter() - started) * 1000))
+        request.update({
+            "status": "fulfilled",
+            "dispatch_state": "fulfilled",
+            "fulfilled_at": _now_iso(),
+            "repository_put_ms": repository_put_ms,
+        })
+        _write_json(path, request)
+    return {
+        "section_index": stored,
+        "coverage": _sections_module().coverage_ledger(stored),
+        "repository_put_ms": repository_put_ms,
+    }
+
+
+def section_pack_path(
+    workspace: Path, asset_root_id: str, section_id: str,
+) -> Path:
+    safe = _require_id(section_id, "section_id")
+    return _module_dir(workspace, asset_root_id) / SECTIONS_DIR / f"{safe}.json"
+
+
+def get_section_pack(
+    workspace: Path, asset_root_id: str, section_id: str,
+) -> dict[str, Any] | None:
+    """Return one stored section head plus its document body, if extracted."""
+    head_path = section_pack_path(workspace, asset_root_id, section_id)
+    if not head_path.is_file():
+        return None
+    try:
+        head = json.loads(head_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(head, dict):
+        return None
+    body_path = section_body_path(workspace, asset_root_id, section_id)
+    head["body_path"] = str(body_path)
+    head["body_present"] = body_path.is_file()
+    return head
+
+
+def _mark_section_resolved(
+    workspace: Path, asset_root_id: str, section_id: str, *, pack_kind: str,
+) -> None:
+    index = read_section_index(workspace, asset_root_id)
+    if not isinstance(index, dict):
+        return
+    changed = False
+    for row in index.get("sections") or []:
+        if isinstance(row, dict) and row.get("section_id") == section_id:
+            row["parse_state"] = "resolved"
+            row["pack_kind"] = pack_kind
+            changed = True
+    if changed:
+        _write_json(section_index_path(workspace, asset_root_id), index)
+
+
+def put_section_pack_and_fulfill_host_work(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    host_work_job_id: str,
+    pack: Any,
+) -> dict[str, Any]:
+    """Store one extracted section: head as JSON, prose as a real document.
+
+    The worker never writes to disk; it returns the prose inside its validated
+    result and the repository persists it here.  That keeps the document real
+    and readable while leaving the evidence chain — page refs, digests, the
+    labels the index assigned — under repository control.
+    """
+    module_dir = _module_dir(workspace, asset_root_id)
+    path = (
+        module_dir / "host-work"
+        / f"{_require_id(host_work_job_id, 'host_work_job_id')}.json"
+    )
+    if not path.is_file():
+        raise ModuleAssetsError("section extraction host-work request is missing")
+    packs = _section_packs_module()
+    with coc_fileio.advisory_file_lock(module_dir / "host-work.lock"):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        validate_host_work_request_shape(request)
+        if request.get("kind") != EXTRACT_SECTION_KIND:
+            raise ModuleAssetsError(
+                "host-work request is not a section extraction"
+            )
+        if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
+            raise ModuleAssetsError(
+                f"section host-work request is already {request.get('status')}"
+            )
+        extraction = request.get("extraction_request")
+        if not isinstance(extraction, dict):
+            raise ModuleAssetsError(
+                "section host-work request carries no extraction packet"
+            )
+        started = time.perf_counter()
+        body = pack.get("body_markdown") if isinstance(pack, dict) else None
+        head = packs.validate_section_pack(pack, request=extraction)
+        section_id = head["section_id"]
+        body_path = section_body_path(workspace, asset_root_id, section_id)
+        body_path.parent.mkdir(parents=True, exist_ok=True)
+        coc_fileio.write_text_atomic(
+            body_path, packs.section_document(head, body),
+        )
+        _write_json(section_pack_path(workspace, asset_root_id, section_id), head)
+        _mark_section_resolved(
+            workspace, asset_root_id, section_id, pack_kind=head["pack_kind"],
+        )
+        repository_put_ms = max(0, round((time.perf_counter() - started) * 1000))
+        request.update({
+            "status": "fulfilled",
+            "dispatch_state": "fulfilled",
+            "fulfilled_at": _now_iso(),
+            "repository_put_ms": repository_put_ms,
+        })
+        _write_json(path, request)
+    return {
+        "section_pack": head,
+        "body_path": str(body_path),
+        "repository_put_ms": repository_put_ms,
+    }
+
+
+def _section_packs_module():
+    global _SECTION_PACKS_MODULE
+    if _SECTION_PACKS_MODULE is None:
+        _SECTION_PACKS_MODULE = _load_sibling(
+            "coc_module_section_packs_assets", "coc_module_section_packs.py",
+        )
+    return _SECTION_PACKS_MODULE
+
+
+_SECTION_PACKS_MODULE = None
+
+
+def _sections_module():
+    global _SECTIONS_MODULE
+    if _SECTIONS_MODULE is None:
+        _SECTIONS_MODULE = _load_sibling(
+            "coc_module_sections_assets", "coc_module_sections.py",
+        )
+    return _SECTIONS_MODULE
+
+
+_SECTIONS_MODULE = None
 
 
 def _refresh_host_work_cache(

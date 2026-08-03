@@ -265,11 +265,19 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             "items": {},
         },
         "player_safe_summary": str(skeleton.get("player_safe_summary") or ""),
-        "summary": "Skeleton-projected progressive scenario IR.",
-        "win_condition": str(
-            (skeleton.get("finale_buckets") or [{}])[0].get("title")
+        # The Keeper-facing summary is the module's own account of what is
+        # happening; it comes from the keeper-truth section, not from a
+        # sentence describing the parser.  "Resolve the investigation." was
+        # likewise a placeholder that read as an authored win condition.
+        "summary": None,
+        "summary_state": "unresolved",
+        "win_condition": (
+            str((skeleton.get("finale_buckets") or [{}])[0].get("title"))
             if skeleton.get("finale_buckets")
-            else "Resolve the investigation."
+            else None
+        ),
+        "win_condition_state": (
+            "source" if skeleton.get("finale_buckets") else "unresolved"
         ),
     }
 
@@ -331,14 +339,20 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
         tid = str(threat.get("threat_id") or "").strip()
         if not tid:
             continue
+        # A skeleton knows a threat exists; it does not know how fast it
+        # advances or what the table sees when it does.  Those come from the
+        # module's own progression and resolution sections, so they stay
+        # unresolved here rather than being invented as a four-segment clock
+        # that reads to the Keeper like authored pacing.
         threat_fronts.append({
             "front_id": tid,
             "clock_id": f"clock-{tid}",
             "label": str(threat.get("label") or tid),
-            "segments": 4,
+            "segments": None,
             "value": 0,
-            "on_tick_visible": str(threat.get("label") or tid),
+            "on_tick_visible": None,
             "parse_state": threat.get("parse_state") or "stub",
+            "clock_state": "unresolved",
             "scene_ids": [],
         })
 
@@ -359,13 +373,20 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             "parse_state": "stub",
         })
 
-    pacing = []
-    for scene in scenes:
-        pacing.append({
+    # A location skeleton carries no pacing information whatsoever.  Stamping
+    # every scene with one stage and a start/not-start tension split produced a
+    # curve that looked authored and was not: the Keeper reads pacing-map as
+    # module intent, so a fabricated default there is worse than an empty one.
+    # Real values arrive from the module's progression sections.
+    pacing = [
+        {
             "scene_id": scene["scene_id"],
-            "horror_stage": "wrongness",
-            "tension_target": "low" if scene.get("is_start") else "medium",
-        })
+            "horror_stage": None,
+            "tension_target": None,
+            "parse_state": "unresolved",
+        }
+        for scene in scenes
+    ]
 
     return {
         "module-meta.json": meta,
@@ -374,16 +395,17 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
         "npc-agendas.json": {"npcs": npc_rows},
         "threat-fronts.json": {"fronts": threat_fronts},
         "pacing-map.json": {"curve": pacing},
+        # Improvisation boundaries are a per-module judgement about what this
+        # scenario tolerates being made up.  The previous fixed English list
+        # applied the same answer to every book regardless of content.  Empty
+        # plus an explicit unresolved state tells the truth: nothing has been
+        # established yet, so the Keeper's existing evidence discipline
+        # governs until the keeper-truth and content-warning sections are read.
         "improvisation-boundaries.json": {
-            "invent_allowed": [
-                "mundane sensory color at skeleton locations",
-                "generic desk clerks when no deep NPC pack exists",
-            ],
-            "never_invent": [
-                "handout text for packs not yet deep-parsed",
-                "module secrets marked evidence_gap",
-            ],
+            "invent_allowed": [],
+            "never_invent": [],
             "keeper_secrets": [],
+            "parse_state": "unresolved",
         },
     }
 
@@ -465,6 +487,16 @@ def merge_deep_location_into_ir(
             scene.get("scene_edges") or [],
             kind="edge",
         )
+    if pack.get("read_aloud") is not None:
+        # Boxed passages the Keeper reads out as written.  They are authored
+        # player-facing text, so they travel with the scene rather than into
+        # the Keeper-only channel below.
+        scene["read_aloud"] = json.loads(json.dumps(pack.get("read_aloud") or []))
+    if pack.get("keeper_only") is not None:
+        # Keeper notes ride under one clearly named key so every player-facing
+        # projection has a single thing to exclude.  Scattering them among
+        # ordinary scene fields is how this kind of material leaks.
+        scene["keeper_only"] = json.loads(json.dumps(pack.get("keeper_only") or []))
     if pack.get("san_triggers") is not None:
         # Authored horror beats must reach the same canonical scene contract
         # consumed by scene.context and rules.sanity_check.  Without this
@@ -816,8 +848,9 @@ def merge_deep_threat_into_ir(
         base = {
             "front_id": tid,
             "clock_id": f"clock-{tid}",
-            "segments": 4,
+            "segments": None,
             "value": 0,
+            "clock_state": "unresolved",
             "scene_ids": [],
         }
         fronts.append(base)
@@ -5048,8 +5081,11 @@ def request_mechanics(
     """Request source-first mechanics without forcing another body parse."""
     kind = str(kind or "").strip()
     target_id = str(target_id or "").strip()
-    if kind not in {"npc", "item"}:
-        raise ModuleProjectError("mechanics kind must be npc or item")
+    if kind not in coc_module_assets.MECHANICS_SUBJECT_KINDS:
+        raise ModuleProjectError(
+            "mechanics kind must be one of "
+            f"{sorted(coc_module_assets.MECHANICS_SUBJECT_KINDS)}"
+        )
     if not target_id:
         raise ModuleProjectError("target_id required")
     campaign_dir = _campaign_dir(workspace, campaign_id)
@@ -5079,8 +5115,7 @@ def request_mechanics(
             workspace,
             root_id,
             kind=(
-                "resolve_npc_mechanics" if kind == "npc"
-                else "resolve_item_mechanics"
+                coc_module_assets.MECHANICS_JOB_FOR_SUBJECT[kind]
             ),
             target_id=target_id,
             priority=priority,

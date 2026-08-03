@@ -840,8 +840,13 @@ def validate_mechanics_record(
             raise MechanicsError(
                 f"profile_kind must be one of {sorted(PROFILE_KINDS)}"
             )
-        if subject_kind == "npc" and profile_kind != "actor":
-            raise MechanicsError("NPC authored mechanics requires profile_kind=actor")
+        # A Mythos entity's stat block is an actor block like any other: the
+        # monster appendix prints the same characteristics, attacks and SAN
+        # loss as the NPC appendix, so it resolves through the same profile.
+        if subject_kind in {"npc", "threat"} and profile_kind != "actor":
+            raise MechanicsError(
+                f"{subject_kind} authored mechanics requires profile_kind=actor"
+            )
         if subject_kind == "item" and profile_kind == "actor":
             raise MechanicsError("item authored mechanics cannot use profile_kind=actor")
         source_refs = record.get("source_refs")
