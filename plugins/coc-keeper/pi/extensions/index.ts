@@ -28,6 +28,13 @@ import {
   type JsonObject,
   type PrivateLaunchContext,
 } from "../lib/runtime.ts";
+import {
+  buildMechanicalOutputGateEnvelope,
+  detectMechanicalMarkers,
+  MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
+  mechanicalMarkerClassesUncovered,
+  type MechanicalMarker,
+} from "../lib/mechanical-output-gate.ts";
 import { compactToolRenderers } from "../lib/tool-render.ts";
 import { registerCocHud } from "../lib/hud.ts";
 import {
@@ -470,6 +477,15 @@ export class OpeningTerminalContinuationGate {
     renderedSha256: string;
     delivered: boolean;
   } | null = null;
+// Same-epoch authoritative receipt counts for the mechanical-output gate:
+  // dice receipts are successful coc_invoke envelopes whose data carries a
+  // non-empty roll_id; resource receipts are successful state.* writes; a
+  // successful turn.finalize / evidence.table_opening covers both classes.
+  private readonly epochMechanicalReceipts = new Map<
+    number,
+    { dice: number; resource: number }
+  >();
+  private pendingMechanicalOutputGateEnvelope: JsonObject | null = null;
   private nonblockingContinuation: {
     epoch: number;
     dispatchKey: string;
@@ -4006,6 +4022,62 @@ export class OpeningTerminalContinuationGate {
     this.nonblockingContinuation = null;
     this.currentDependencySuppression = null;
     this.currentVisibleCampaignId = null;
+    this.pendingMechanicalOutputGateEnvelope = null;
+  }
+
+  observeCanonicalReceipt(
+    operation: string,
+    envelope: JsonObject | null,
+  ): void {
+    if (envelope?.ok !== true) return;
+    const data = objectOrNull(envelope.data);
+    if (data === null) return;
+    let entry = this.epochMechanicalReceipts.get(this.playerTurnEpoch);
+    if (entry === undefined) {
+      entry = { dice: 0, resource: 0 };
+      this.epochMechanicalReceipts.set(this.playerTurnEpoch, entry);
+      if (this.epochMechanicalReceipts.size > 8) {
+        const oldest = [...this.epochMechanicalReceipts.keys()].sort(
+          (a, b) => a - b,
+        )[0];
+        this.epochMechanicalReceipts.delete(oldest);
+      }
+    }
+    if (typeof data.roll_id === "string" && data.roll_id.length > 0) {
+      entry.dice += 1;
+    } else if (operation.startsWith("state.")) {
+      entry.resource += 1;
+    } else if (
+      (operation === "turn.finalize"
+        || operation === "evidence.table_opening")
+      && typeof data.rendered_text === "string"
+      && data.rendered_text.length > 0
+    ) {
+      // The finalizer/settled-output receipt already fails closed when a
+      // qualifying roll lacks binding, so its presence covers both marker
+      // classes for the epoch even when the host digest gate declined to
+      // arm the exact-replace (e.g. a raw-UTF8 digest variant).
+      entry.dice += 1;
+      entry.resource += 1;
+    }
+  }
+
+  private mechanicalMarkersUncovered(visibleText: string): MechanicalMarker[] {
+    const markers = detectMechanicalMarkers(visibleText);
+    if (markers.length === 0) return [];
+    const receipts = this.epochMechanicalReceipts.get(this.playerTurnEpoch)
+      ?? { dice: 0, resource: 0 };
+    return mechanicalMarkerClassesUncovered(
+      markers,
+      receipts.dice > 0,
+      receipts.resource > 0,
+    );
+  }
+
+  takeMechanicalOutputGateEnvelope(): JsonObject | null {
+    const envelope = this.pendingMechanicalOutputGateEnvelope;
+    this.pendingMechanicalOutputGateEnvelope = null;
+    return envelope;
   }
 
   coordinatorContinuationContext(
@@ -4306,6 +4378,21 @@ export class OpeningTerminalContinuationGate {
       this.nonblockingContinuation = null;
       return false;
     }
+    // Raw tool-free prose is the only text that reaches the player without a
+    // hash-bound finalizer receipt. Formal mechanical markers in that prose
+    // must still be covered by same-epoch authoritative receipts (rules.*
+    // roll_id / state.* settlement). Otherwise intercept: hide the message
+    // and arm the hidden execute-then-render instruction for the KP.
+    const uncoveredMechanical = this.mechanicalMarkersUncovered(visibleText);
+    if (uncoveredMechanical.length > 0) {
+      this.pendingMechanicalOutputGateEnvelope = (
+        buildMechanicalOutputGateEnvelope(
+          this.playerTurnEpoch,
+          uncoveredMechanical,
+        )
+      );
+      return false;
+    }
     return true;
   }
 
@@ -4420,6 +4507,8 @@ export class OpeningTerminalContinuationGate {
     this.playerTurnEpoch = 0;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
+    this.epochMechanicalReceipts.clear();
+    this.pendingMechanicalOutputGateEnvelope = null;
     this.clearOpeningSetupRoute();
     this.openingSetupGenerationSequence = 0;
     this.openingSetupAgentTurn = 0;
@@ -4579,6 +4668,27 @@ export async function publishCoordinatorTerminal(
     ...(continuationStatus === "failed" ? { continuation_failure_class: "hidden_continuation_failed" } : {}),
   };
 }
+export function deliverMechanicalOutputGateInstruction(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  envelope: JsonObject | null,
+): boolean {
+  if (envelope === null) return false;
+  try {
+    pi.appendEntry("coc-mechanical-output-gate", envelope);
+  } catch { /* mechanical gate audit is best effort */ }
+  try {
+    pi.sendMessage({
+      customType: MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
+      content: JSON.stringify(envelope),
+      display: false,
+      details: envelope,
+    }, { triggerTurn: true, deliverAs: "followUp" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function absolute(value: unknown, label: string) {
   const path = nonEmpty(value, label);
   if (!isAbsolute(path)) throw new Error(`${label} must be absolute`);
@@ -7376,6 +7486,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const envelope = objectOrNull(value);
       const data = objectOrNull(envelope?.data);
       const operation = String(params.operation);
+      openingContinuationGate.observeCanonicalReceipt(operation, envelope);
       if (
         operation === "turn.finalize"
         && envelope?.ok === true
@@ -7657,6 +7768,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             deliveredBlocker,
           );
         } catch { /* hidden structured blocker audit is best effort */ }
+      }
+      if (decision === false) {
+        deliverMechanicalOutputGateInstruction(
+          pi,
+          openingContinuationGate.takeMechanicalOutputGateEnvelope(),
+        );
       }
       if (
         decision === false

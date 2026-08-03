@@ -1222,6 +1222,114 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
     }
 
 
+def test_pi_mechanical_output_gate_intercepts_unbound_markers():
+    result = _node(ROOT / "tests/pi/mechanical-output-gate.mjs", str(ROOT))
+    assert result == {
+        "detection": {
+            "p47Total": 6,
+            "p47Classes": {"dice": 4, "resource": 2},
+            "p47HasFormalDiceBlock": True,
+            "p47HasSanTransfer": True,
+            "p47HasLossPoints": True,
+            "prose": 0,
+            "hpTransfer": 1,
+            "hpTransferClass": "resource",
+            "diceLineOnly": 1,
+            "diceLineOnlyClass": "dice",
+            "lossPoints": 1,
+        },
+        "gate": {
+            "noReceiptIntercepted": True,
+            "noReceiptEnvelope": {
+                "kind": "mechanical_output_gate",
+                "status": "intercepted",
+                "action": "execute_then_render",
+                "playerTurnEpoch": 1,
+                "schemaVersion": 1,
+                "uncoveredClasses": [
+                    "dice", "dice", "dice", "dice",
+                    "resource", "resource",
+                ],
+                "hasInstruction": True,
+            },
+            "diceOnlyStillIntercepted": True,
+            "diceOnlyUncoveredClasses": ["resource", "resource"],
+            "boundReleased": True,
+            "boundEnvelopeEmpty": True,
+            "proseReleased": True,
+            "staleEpochIntercepted": True,
+            "staleEpochUncoveredClasses": [
+                "dice", "dice", "dice", "dice",
+                "resource", "resource",
+            ],
+            "reboundReleased": True,
+            "failedToolsNeverBind": True,
+            "finalizeBoundReleased": True,
+        },
+        "delivery": {
+            "delivered": True,
+            "deliveredEmpty": False,
+            "appended": 1,
+            "sent": 1,
+            "customType": "coc-mechanical-output-gate",
+            "display": False,
+            "options": {"triggerTurn": True, "deliverAs": "followUp"},
+            "contentParsed": {
+                "schema_version": 1,
+                "kind": "mechanical_output_gate",
+                "status": "intercepted",
+                "player_turn_epoch": 1,
+                "uncovered_markers": [
+                    {
+                        "class": "dice",
+                        "pattern": "formal_dice_block",
+                        "sample": "【明骰】",
+                    },
+                    {
+                        "class": "dice",
+                        "pattern": "formal_dice_block",
+                        "sample": "【明骰】",
+                    },
+                    {
+                        "class": "dice",
+                        "pattern": "dice_line",
+                        "sample": "掷骰：14",
+                    },
+                    {
+                        "class": "dice",
+                        "pattern": "dice_line",
+                        "sample": "掷骰：63",
+                    },
+                    {
+                        "class": "resource",
+                        "pattern": "san_transfer",
+                        "sample": "SAN 50→46",
+                    },
+                    {
+                        "class": "resource",
+                        "pattern": "loss_points",
+                        "sample": "损失 1D6 → 4 点",
+                    },
+                ],
+                "action": "execute_then_render",
+                "instruction": (
+                    "你的上一条输出包含正式机械标记（【明骰】／掷骰：N／SAN·HP 数值转移），"
+                    "但本回合没有对应的权威收据，已被门禁拦截、未送达玩家。"
+                    "机械数字只能来自规则/状态收据：先经 coc_invoke 执行——骰点走 "
+                    "rules.roll / rules.opposed / sanity.execute / rules.damage 等并取得返回的 "
+                    "roll_id，结算与 SAN/HP 落账走 state.* 并取得 decision_id——"
+                    "再按收据数字渲染正式标记；禁止凭叙述编造或推算骰点与数值变动。"
+                    "执行完成后重新输出即可放行。"
+                ),
+            },
+        },
+        "transcriptGate": {
+            "p47InterceptedTextParts": 0,
+            "prosePassed": True,
+        },
+    }
+
+
 def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
     result = _node(ROOT / "tests/pi/finalization-gateway.mjs", str(ROOT))
     assert result == {

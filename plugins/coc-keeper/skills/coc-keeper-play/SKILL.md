@@ -160,6 +160,15 @@ output evidence boundary, not a replacement prose engine:
    first-contact context lines. Never recompute, omit, duplicate, prepend to,
    append to, or rewrite those deterministic segments.
 
+**Mechanical output gate.** Formal mechanical markers — `【明骰】`, dice lines
+(`掷骰：N`), and SAN/HP numeric transfers (`SAN 50→46`, `HP 6→4`, `损失 N 点`) —
+may only be rendered from authoritative receipts earned in the same turn:
+`rules.*` dice receipts (`roll_id`) and `state.*` settlement receipts
+(`decision_id`). Fabricated dice or resource numbers are intercepted before
+reaching the player and you are instructed to execute first, then render.
+Numbers you cannot trace to a same-turn receipt must stay out of formal
+markers.
+
 Before play, batch opening `npc.reaction` and engagement writes, then call
 `evidence.table_opening` and deliver its returned time-anchored `text`
 unchanged. This closes
