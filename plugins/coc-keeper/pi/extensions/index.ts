@@ -5813,6 +5813,14 @@ export async function autoDispatchPiOpeningSourceReview(
   const task = {
     ...trigger,
     workspace_root: deps.workspaceRoot,
+    // The producer must finish inside the deadline this transport enforces.
+    // Telling it the budget is the only way it can size its own work; a fixed
+    // inner constant either overruns this deadline or wastes what is left.
+    // deps.timeoutMs is optional; the transport applies the same default, so
+    // resolve it here rather than handing the producer a NaN budget.
+    transport_timeout_seconds: Math.max(1, Math.floor(
+      (deps.timeoutMs ?? OPENING_SOURCE_REVIEW_TIMEOUT_MS) / 1000,
+    )),
   };
   const key = (
     `opening-source-review:${trigger.campaign_id}:`
@@ -5865,6 +5873,11 @@ export async function autoDispatchPiOpeningSourceReview(
         : message.includes("timed out")
           ? "opening_source_review_timeout"
           : "opening_source_review_transport_failed",
+      // Keep the producer's own words, as the raw-PDF path already does.
+      // Without them a reproducible failure classifies identically to every
+      // other transport fault and gives nothing to act on: this lane failed
+      // twice in a row with no recoverable diagnosis at all.
+      ...(message ? { producer_error: locatorDiagnostic(message) } : {}),
     });
   } finally {
     if (deps.controllers.get(key) === controller) {

@@ -24,6 +24,13 @@ from typing import Any, NoReturn
 MAX_INPUT_BYTES = 256 * 1024
 MAX_OUTPUT_BYTES = 256 * 1024
 PI_TIMEOUT_SECONDS = 900
+# The caller owns the real deadline; the inner producer must finish inside it
+# with room to validate and write back.  A fixed inner budget larger than the
+# caller's is unreachable, and one smaller silently wastes the difference --
+# the opening review used to cap its producer at 900s inside a 1200s transport
+# and failed every time on a book the producer needed longer than 15 minutes
+# to review.
+OPENING_REVIEW_WRITEBACK_MARGIN_SECONDS = 120
 TERMINATION_GRACE_SECONDS = 0.35
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 OPENING_COORDINATOR_CONTRACT = (
@@ -165,10 +172,13 @@ def _validate_task(value: Any) -> dict[str, Any]:
 
 def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
     task = _object(value, "opening review transport")
-    if set(task) != {
+    required = {
         "schema_version", "contract_id", "workspace_root", "campaign_id",
         "scenario_id", "opening_review_generation",
-    }:
+    }
+    # Optional so an older caller still validates: when the deadline is not
+    # supplied the producer keeps its historical fixed budget.
+    if not required <= set(task) <= required | {"transport_timeout_seconds"}:
         _fail("opening review transport fields mismatch")
     generation = task.get("opening_review_generation")
     if (
@@ -178,6 +188,14 @@ def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
         or not isinstance(generation, int)
         or isinstance(generation, bool)
         or generation < 1
+        or (
+            "transport_timeout_seconds" in task
+            and (
+                not isinstance(task["transport_timeout_seconds"], int)
+                or isinstance(task["transport_timeout_seconds"], bool)
+                or task["transport_timeout_seconds"] < 1
+            )
+        )
     ):
         _fail("opening review transport contract mismatch")
     if any(
@@ -973,6 +991,14 @@ def _opening_receipt(
     }
 
 
+def _opening_producer_timeout(request: dict[str, Any]) -> int:
+    """Fit the producer inside the caller's deadline when one was supplied."""
+    supplied = request.get("transport_timeout_seconds")
+    if not isinstance(supplied, int) or isinstance(supplied, bool):
+        return PI_TIMEOUT_SECONDS
+    return max(60, supplied - OPENING_REVIEW_WRITEBACK_MARGIN_SECONDS)
+
+
 def _run_opening_review() -> dict[str, Any]:
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
@@ -1003,7 +1029,7 @@ def _run_opening_review() -> dict[str, Any]:
             _run_pi(
                 _opening_prompt(task),
                 Path(task["source_bundle_path"]).parent,
-                timeout=PI_TIMEOUT_SECONDS,
+                timeout=_opening_producer_timeout(request),
             ),
             task,
         )

@@ -197,8 +197,12 @@ assert.equal(controllers.size, 0);
 const task = JSON.parse(await readFile(captured, "utf8"));
 assert.deepEqual(Object.keys(task).sort(), [
   "campaign_id", "contract_id", "opening_review_generation",
-  "scenario_id", "schema_version", "workspace_root",
+  "scenario_id", "schema_version", "transport_timeout_seconds",
+  "workspace_root",
 ]);
+// The producer sizes its own work from the deadline this transport enforces.
+assert.equal(Number.isInteger(task.transport_timeout_seconds), true);
+assert.equal(task.transport_timeout_seconds > 0, true);
 assert.equal(JSON.stringify(task).includes("challenge"), false);
 assert.equal(JSON.stringify(audits).includes("challenge"), false);
 assert.equal(JSON.stringify(audits).includes("RAW_SOURCE_TEXT"), false);
