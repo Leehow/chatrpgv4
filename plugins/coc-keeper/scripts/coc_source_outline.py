@@ -315,7 +315,13 @@ def build_outline(
     rows = select_headings(
         lines, body=body, band_top=band_top, max_chars=max_chars,
     )
-    page_count = max((int(line["pdf_index"]) for line in lines), default=0)
+    # pdf_index is 0-based (the source-bundle contract's base), so the page
+    # count is the highest index plus one.  Reporting the max directly made a
+    # 23-page book claim 22 pages and put its last page outside every scope
+    # check derived from the count.
+    page_count = max(
+        (int(line["pdf_index"]) for line in lines), default=-1,
+    ) + 1
     payload = {
         "schema_version": SCHEMA_VERSION,
         "contract_id": CONTRACT_ID,

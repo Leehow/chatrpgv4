@@ -1519,12 +1519,22 @@ def full_parse_requested_indices(
 ) -> list[int]:
     """The whole-PDF page list full_parse must eventually cache.
 
-    Module ``pdf_index`` values are 1-based physical page numbers: the host
-    PDF skill first pack numbers pages from 1 (cover = 1), and the whole-book
-    baiduocr corpus maps ``doc_N`` (0-based ordinal of the same physical
-    page) to ``pdf_index = doc_N + 1``.  The requested set is therefore
-    ``1..page_count``; index 0 does not exist in this cache and a corpus doc
-    for the final physical page is always inside the requested scope.
+    This lane maps ``doc_N`` (0-based) to ``pdf_index = doc_N + 1`` and so
+    requests ``1..page_count``.
+
+    KNOWN INCONSISTENCY, not yet resolved: the source-bundle contract uses the
+    other base.  ``coc_pdf_bundle`` enforces ``0 <= pdf_index < page_count``,
+    the host PDF skill's first bundle emits ``pages: [0, 1, 2]``, and every
+    module ingested that way is stored 0-based.  Both lanes write
+    ``pages/NNNN.md`` into the same module root, so a book ingested through
+    both ends up holding each physical page twice under two numbers -- a
+    23-page scenario was observed with 24 cached pages, its cover stored as
+    both 0 and 1, and every later page offset by one between lanes.
+
+    Converging on the bundle's 0-based contract is the likely fix (it matches
+    the stored data and the validator), but it changes what this lane writes
+    and what seven full_parse tests assert, so it needs a deliberate migration
+    rather than an in-place flip.
     """
     page_count = full_parse_page_count(workspace, asset_root_id)
     if not page_count or page_count < 1:
@@ -1606,11 +1616,10 @@ def register_ocr_corpus(
 
     Mapping and provenance (product design, S1 full-parse lane):
 
-    - OCR page ordinals are 0-based ``doc_N`` and module ``pdf_index`` is
-      1-based physical page number (the host PDF skill first pack numbers
-      pages from 1, cover = 1), so ``pdf_index = doc_N + 1`` and the full
-      book's final physical page (``doc_{page_count-1}``) lands inside the
-      requested scope ``1..page_count``.
+    - OCR page ordinals are 0-based ``doc_N`` and this lane stores
+      ``pdf_index = doc_N + 1``, i.e. scope ``1..page_count``.  See
+      ``full_parse_requested_indices`` for the unresolved conflict with the
+      source-bundle contract's 0-based ``pdf_index``.
     - ``put_page`` content addressing is authoritative: an identical cached
       page is reused silently, a drifted page keeps the existing first writer
       (reviewed first-pack pages win over OCR pages) and records a
@@ -1663,7 +1672,7 @@ def register_ocr_corpus(
     source_id = str(source.get("source_id") or "")
     for doc_path in doc_files:
         doc_num = int(doc_path.stem[len("doc_") :])
-        pdf_index = doc_num + 1  # 0-based OCR ordinal → 1-based module index
+        pdf_index = doc_num + 1  # 0-based OCR ordinal -> 1-based module index
         doc_ref = doc_path.name
         if pdf_index not in requested:
             skipped.append({

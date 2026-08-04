@@ -84,7 +84,7 @@ def lines_from_host_outline(path: Path) -> list[dict[str, Any]]:
             or not isinstance(pdf_index, int)
             or pdf_index < 0
         ):
-            raise SourceOutlineError("host outline pdf_index must be 1-based")
+            raise SourceOutlineError("host outline pdf_index must be 0-based")
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):
             raise SourceOutlineError("host outline weight must be numeric")
         lines.append({
@@ -198,7 +198,7 @@ def lines_from_ocr_corpus(corpus_dir: Path) -> list[dict[str, Any]]:
             y0, y1 = float(box[1]), float(box[3])
             order += 1
             lines.append({
-                "pdf_index": ordinal + 1,
+                "pdf_index": ordinal,
                 "order": order,
                 "text": body,
                 "weight": round(abs(y1 - y0), 2),
