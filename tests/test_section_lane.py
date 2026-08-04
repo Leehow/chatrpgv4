@@ -89,6 +89,11 @@ def _enqueue_and_publish(workspace):
         "job_id": "job-sections-1",
         "kind": assets.CLASSIFY_SECTIONS_KIND,
         "target_id": assets.SECTION_INDEX_TARGET_ID,
+        "consumer_refs": [{
+            "campaign_id": "camp-1",
+            "scenario_binding_sha256": "b" * 64,
+            "intent_kind": "section_pass",
+        }],
     }
     worker._write_host_work_request(workspace, "mod-1", job)
     return assets.get_host_work_request(workspace, "mod-1", "job-sections-1")
@@ -243,3 +248,60 @@ def test_the_worker_routes_a_structure_job_instead_of_skipping_it(module_root):
     request = assets.get_host_work_request(workspace, "mod-1", "job-structure-1")
     assert request["kind"] == assets.CLASSIFY_SECTIONS_KIND
     assert request["classification_request"]["candidates"]
+
+
+def test_claim_carries_structure_evidence_to_the_leaf(module_root):
+    """A structure request has no page window, so it must carry its packet.
+
+    The claim projection copies a fixed key set; without the classification
+    packet the leaf would receive a request it has no way to answer, and the
+    leaf preloader would reject the empty cached_page_refs outright.
+    """
+    workspace, _ = module_root
+    _enqueue_and_publish(workspace)
+    claim = assets.claim_host_work_requests(
+        workspace, "mod-1", executor_id="pi:test", limit=4,
+        result_delivery="return_to_parent",
+    )
+    packets = claim["packets"]
+    assert packets, claim
+    request = packets[0]["requests"][0]
+    assert request["cached_page_refs"] == []
+    assert request["classification_request"]["candidates"]
+    assert request["kind"] == assets.CLASSIFY_SECTIONS_KIND
+
+
+def test_a_body_request_keeps_its_exact_shape(module_root):
+    """Attaching structure evidence must not alter any other request."""
+    workspace, _ = module_root
+    assets.ensure_stub(workspace, "mod-1", "location", "loc-a", title="A")
+    worker._write_host_work_request(workspace, "mod-1", {
+        "job_id": "job-body-1", "kind": "deepen_location", "target_id": "loc-a",
+    })
+    published = assets.get_host_work_request(workspace, "mod-1", "job-body-1")
+    assert "classification_request" not in published
+    assert "extraction_request" not in published
+
+
+def test_a_structure_pass_survives_a_rebind_like_the_whole_book_parse(module_root):
+    """A section index describes the book, not a campaign.
+
+    Per-campaign consumer refs go stale whenever the scenario binding sha
+    changes — which the opening review does routinely. Superseding the pass
+    then would leave a module permanently unindexed while the queue looked
+    healthy, so it is root-scoped exactly as full_parse is.
+    """
+    import datetime
+    workspace, _ = module_root
+    _enqueue_and_publish(workspace)
+    path = (assets._module_dir(workspace, "mod-1")
+            / "host-work" / "job-sections-1.json")
+    request = json.loads(path.read_text(encoding="utf-8"))
+    assets._refresh_host_work_lifecycle(
+        workspace, "mod-1", request,
+        now=datetime.datetime.now(datetime.timezone.utc),
+    )
+    assert request.get("status") != "superseded"
+    assert assets.host_work_operational_class(request) == "runnable"
+    # And the refresh must not quietly hand it the page window it refuses.
+    assert request["cached_page_refs"] == []

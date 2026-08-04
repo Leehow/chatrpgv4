@@ -16538,6 +16538,43 @@ def _fulfill_host_work_for_asset_unlocked(
             f"host-work job {job_id!r} is already {request.get('status')}",
         )
     job_kind = str(request.get("kind") or "")
+    if job_kind in {
+        assets_mod.CLASSIFY_SECTIONS_KIND, assets_mod.EXTRACT_SECTION_KIND,
+    }:
+        # Structure results are not entity packs: one produces the whole-book
+        # index, the other a section document. Both validate against the exact
+        # packet that produced them and are stored by the repository, so they
+        # take their own sink rather than the entity merge path below.
+        pack = args.get("pack")
+        if not isinstance(pack, dict):
+            raise ToolError(
+                "invalid_source_worker_pack", "structure result requires a pack",
+            )
+        try:
+            if job_kind == assets_mod.CLASSIFY_SECTIONS_KIND:
+                stored = assets_mod.put_section_index_and_fulfill_host_work(
+                    ctx.root, root_id,
+                    host_work_job_id=job_id,
+                    section_rows=pack.get("sections"),
+                )
+                data = {
+                    "section_count": len(
+                        (stored["section_index"].get("sections") or [])
+                    ),
+                    "coverage": stored["coverage"],
+                }
+            else:
+                stored = assets_mod.put_section_pack_and_fulfill_host_work(
+                    ctx.root, root_id, host_work_job_id=job_id, pack=pack,
+                )
+                data = {
+                    "section_id": stored["section_pack"]["section_id"],
+                    "pack_kind": stored["section_pack"]["pack_kind"],
+                    "body_path": stored["body_path"],
+                }
+        except (ValueError, assets_mod.ModuleAssetsError) as exc:
+            raise ToolError("invalid_source_worker_pack", str(exc)) from exc
+        return {"ok": True, "job_id": job_id, "kind": job_kind, **data}
     mechanics_job = job_kind in _mechanics_jobs()
     entity_kind = assets_mod._job_entity_kind(job_kind)
     target_id = str(request.get("target_id") or "").strip()

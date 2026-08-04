@@ -1651,7 +1651,8 @@ def _write_host_work_request(
             "enqueue the target again."
             if not requested_indices
             else
-            "Section extraction: read exactly cached_page_refs and compile "
+            "Section extraction: put the compiled section in results[].pack. "
+            "Read exactly cached_page_refs and compile "
             "this one indexed section. Follow extraction_request: choose a "
             "pack_kind from its allowed_pack_kinds, echo section_id and title "
             "unchanged, and put the section's prose in body_markdown as a "
@@ -1668,6 +1669,8 @@ def _write_host_work_request(
             if job_kind == coc_module_assets.EXTRACT_SECTION_KIND
             else
             "Whole-book structure pass: classify the sections of this source "
+            "from classification_request in this request; there are no cached "
+            "pages to read. Put the resulting rows in results[].pack.sections. "
             "from classification_request only. That packet is the complete "
             "input: heading titles, their pages, and short page previews. Do "
             "not open the PDF, read cached pages, or ask for more text. For "

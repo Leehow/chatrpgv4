@@ -1873,7 +1873,19 @@ def close_full_parse_request(
         # mean any page was understood.  Chain the structure pass here so a
         # module is indexed before play needs it, rather than only when a
         # location edge happens to point somewhere.
-        _enqueue_section_pass_if_needed(workspace, asset_root_id)
+        inherited_consumers = None
+        if request_path.is_file():
+            try:
+                closed = json.loads(request_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                closed = {}
+            if isinstance(closed, dict) and isinstance(
+                closed.get("consumer_refs"), list,
+            ):
+                inherited_consumers = closed["consumer_refs"]
+        _enqueue_section_pass_if_needed(
+            workspace, asset_root_id, consumer_refs=inherited_consumers,
+        )
         return update_full_parse_state(
             workspace, asset_root_id, status="complete", job_id=job_id,
         )
@@ -1885,9 +1897,17 @@ def close_full_parse_request(
 
 
 def _enqueue_section_pass_if_needed(
-    workspace: Path, asset_root_id: str,
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    consumer_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Queue the one structure pass for this source, once.
+
+    The consumers are inherited from the full_parse request that triggered
+    this, not re-derived: an unowned request is classified ``legacy_unowned``
+    and is never claimable, so a pass queued without them would sit open
+    forever while looking perfectly healthy in the queue.
 
     Best effort by design: a module that cannot be indexed right now must
     still finish its OCR normally.  A missing index degrades later requests,
@@ -1904,6 +1924,7 @@ def _enqueue_section_pass_if_needed(
             target_id=SECTION_INDEX_TARGET_ID,
             priority=60,
             reason="full_parse_complete",
+            consumer_refs=consumer_refs or None,
         )
     except ModuleAssetsError:
         return None
@@ -6095,6 +6116,11 @@ def _refresh_host_work_cache(
     must observe those newly cached pages without rebuilding or broadening the
     semantic request.
     """
+    if str(request.get("kind") or "") == CLASSIFY_SECTIONS_KIND:
+        # A structure pass answers from its own packet.  Repopulating page refs
+        # here would hand the classifier the page window the lane exists to
+        # avoid, and would do it silently at claim time.
+        return False
     requested = request.get("requested_pdf_indices")
     if not isinstance(requested, list) or any(
         isinstance(value, bool) or not isinstance(value, int)
@@ -6140,6 +6166,12 @@ def host_work_operational_class(request: dict[str, Any]) -> str:
     )
     if not exact_scope:
         return "awaiting_scope"
+    if str(request.get("kind") or "") == CLASSIFY_SECTIONS_KIND:
+        # A structure pass answers from its own packet of headings and
+        # previews, so it holds no page window and can never satisfy the
+        # cached-scope gate below.  Its evidence completeness was already
+        # settled when that packet was built from the accepted cache.
+        return "runnable"
     if str(request.get("kind") or "") == "full_parse":
         # Whole-book background parse is dispatchable while pages are still
         # missing: the renderer lane itself supplies the missing pages.  The
@@ -6208,13 +6240,17 @@ def _refresh_host_work_lifecycle(
             if live:
                 request["consumer_refs"] = live
             else:
-                if str(request.get("kind") or "") == "full_parse":
-                    # full_parse is root-scoped: one job per module root serves
+                if str(request.get("kind") or "") in {
+                    "full_parse", CLASSIFY_SECTIONS_KIND,
+                }:
+                    # These are root-scoped: one job per module root serves
                     # every campaign bound to it.  The binding sha changes when
                     # the skeleton projection stamps the root (and on review
                     # rebinds), so stale per-campaign refs must never supersede
-                    # the whole-book parse.  The request closes only through
-                    # completion or its bounded failure cap.
+                    # them.  A section index describes the book, not a
+                    # campaign, exactly as the whole-book parse does.  The
+                    # request closes only through completion or its bounded
+                    # failure cap.
                     request["consumer_state"] = "owned"
                     request["root_scoped_consumer"] = True
                 else:
@@ -6225,7 +6261,9 @@ def _refresh_host_work_lifecycle(
             not live
             and str(request.get("status") or "open")
             not in HOST_WORK_CLOSED_STATUSES
-            and str(request.get("kind") or "") != "full_parse"
+            and str(request.get("kind") or "") not in {
+                "full_parse", CLASSIFY_SECTIONS_KIND,
+            }
         ):
             request["status"] = "superseded"
             request["superseded_at"] = now.isoformat()
@@ -6613,6 +6651,17 @@ def claim_host_work_requests(
                         "work_level", "consumer_refs", "consumer_state",
                     )
                 }
+                # Structure work carries its own evidence: the whole input is a
+                # repository-produced packet of headings and bounded previews,
+                # not a page window to read.  Attach it only when present so
+                # every other request keeps its exact existing shape.
+                for structure_key in (
+                    "classification_request", "extraction_request",
+                ):
+                    if request.get(structure_key) is not None:
+                        packet_request[structure_key] = json.loads(
+                            json.dumps(request[structure_key])
+                        )
                 if request["work_level"] == "current_dependency":
                     packet_request["dependency_ref"] = json.loads(
                         json.dumps(request["dependency_ref"])
