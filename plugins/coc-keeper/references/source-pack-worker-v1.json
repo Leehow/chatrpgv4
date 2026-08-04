@@ -910,7 +910,7 @@
       "coordinator_private_tool": "coc_run_source_coordinator",
       "model_policy": "inherit_exact_parent_provider_model_and_thinking",
       "leaf_max_depth": 2,
-      "coordinator_max_leaves": 4,
+      "coordinator_max_leaves": 32,
       "same_task_retry": false,
       "end_to_end_lifecycle_proven": false
     }

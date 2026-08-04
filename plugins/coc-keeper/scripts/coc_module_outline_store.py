@@ -65,12 +65,20 @@ def resolve_producer(
     host_lines = module_dir / HOST_OUTLINE_NAME
     if host_lines.is_file():
         return "host_outline", host_lines
+    # The registered page cache is what a normal ingest actually leaves behind:
+    # the host PDF skill writes Markdown, the repository stores it verbatim, so
+    # the heading levels it already recovered are available with no extra pass.
+    pages = module_dir / "pages"
+    if pages.is_dir() and any(
+        path.stem.isdigit() for path in pages.glob("*.md")
+    ):
+        return "cached_pages", pages
     corpus = coc_module_assets.ocr_corpus_dir(workspace, file_sha256)
     if (corpus / "pages").is_dir():
         return "ocr_boxes", corpus
     raise SourceOutlineError(
-        "no outline source: no host-produced line list has been registered "
-        "for this digest and no OCR corpus exists for it"
+        "no outline source: this module has no host-produced line list, no "
+        "cached pages, and no OCR corpus for its digest"
     )
 
 
@@ -129,6 +137,15 @@ def cached_page_previews(
         if not isinstance(page, dict):
             continue
         text = page.get("text")
-        if isinstance(text, str) and text.strip():
-            previews[int(pdf_index)] = text
+        if not isinstance(text, str) or not text.strip():
+            continue
+        # Cached pages are Markdown and real ingests carry layout HTML in them.
+        # A preview budgeted in bytes must spend those bytes on words: an
+        # unstripped `<div style="text-align: center">` can consume a short
+        # preview entirely and tell the classifier nothing.
+        collapsed = " ".join(
+            coc_module_assets._HTML_TAG_RE.sub(" ", text).split()
+        )
+        if collapsed:
+            previews[int(pdf_index)] = collapsed
     return previews

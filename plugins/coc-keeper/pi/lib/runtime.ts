@@ -9,7 +9,19 @@ export type JsonObject = Record<string, unknown>;
 export type McpCaller = (name: string, args: JsonObject, signal?: AbortSignal) => Promise<JsonObject>;
 
 export const MAX_BYTES = 256 * 1024;
-export const MAX_LEAVES = 4;
+// How many work groups one coordinator may claim in a single pass.  This used
+// to be 4, conflated with how many leaf processes may run at once, which
+// capped a whole-book batch at four items per coordinator round trip: a
+// hundred-page module needed dozens of sequential coordinators to drain its
+// own queue.  A coordinator is a wakeup that re-reads the canonical queue, so
+// the fix is to let one wakeup take more work, not to run more wakeups.
+export const MAX_LEAVES = 32;
+// How many leaf processes may be in flight at once.  Each leaf is a separate
+// child process holding a provider stream, so this is the real resource
+// ceiling and it stays small regardless of how much work was claimed.
+export const LEAF_POOL_SIZE = 8;
+// Audit arrays stay short: diagnostics are for a reviewer to read, not a log.
+export const MAX_DIAGNOSTICS = 4;
 export const MAX_PENDING_COORDINATOR_QUEUES = 4;
 export const MAX_SOURCE_COORDINATOR_ATTEMPTS = 2;
 export const MAX_RESULTS_PER_LEAF = 128;
@@ -823,7 +835,7 @@ export function validateCoordinatorResult(resultValue: unknown, taskValue: unkno
     if (
       !Array.isArray(result.diagnostics)
       || result.diagnostics.length === 0
-      || result.diagnostics.length > MAX_LEAVES
+      || result.diagnostics.length > MAX_DIAGNOSTICS
     ) {
       throw new Error("coordinator diagnostics are invalid");
     }
@@ -2063,7 +2075,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     failure: ValidationFailure,
     binding?: ClaimLeaseBinding,
   ) => {
-    if (diagnostics.length >= MAX_LEAVES) return;
+    if (diagnostics.length >= MAX_DIAGNOSTICS) return;
     diagnostics.push({
       schema_version: 1,
       contract_id: "coc.source-validation-diagnostic.v1",
@@ -2417,9 +2429,34 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     wakeHeartbeat?.();
     await heartbeat;
   };
-  const workerResults = await Promise.allSettled(tasks.map(
-    (leafTask) => Promise.resolve().then(() => dependencies.spawnLeaf(leafTask, dependencies.signal)),
-  ));
+  // Claimed work is no longer bounded by how many leaves may run at once, so
+  // spawn through a fixed-width pool instead of fanning out over everything
+  // claimed.  Results stay index-aligned with `tasks` because each worker
+  // writes back into its own slot; fulfillment below still walks them in
+  // claim order, so a wider pool changes throughput and nothing else.
+  const workerResults: PromiseSettledResult<LeafExecutionOutcome>[] =
+    new Array(tasks.length);
+  let nextTask = 0;
+  const runPoolWorker = async (): Promise<void> => {
+    for (;;) {
+      const index = nextTask++;
+      if (index >= tasks.length) return;
+      try {
+        workerResults[index] = {
+          status: "fulfilled",
+          value: await dependencies.spawnLeaf(tasks[index], dependencies.signal),
+        };
+      } catch (reason) {
+        workerResults[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(LEAF_POOL_SIZE, tasks.length) },
+      () => runPoolWorker(),
+    ),
+  );
   let fulfilled = 0;
   let failureClass: string | null = null;
   let fulfillmentDeferred = false;

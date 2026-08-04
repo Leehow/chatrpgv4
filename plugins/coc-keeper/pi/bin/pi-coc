@@ -151,4 +151,22 @@ fi
 node "$SCRIPT_DIR/pi-coc-thinking-preflight.mjs" \
   "$PI_CODING_AGENT_DIR" "${USER_ARGS[@]+"${USER_ARGS[@]}"}"
 
+# Auto-configure bundled adapters (user env overrides win).
+export COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND="${COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND:-$SCRIPT_DIR/coc-pdf-skill-adapter.py}"
+export COC_PROGRESSIVE_OCR_COMMAND="${COC_PROGRESSIVE_OCR_COMMAND:-$SCRIPT_DIR/coc-ocr-adapter.py}"
+
+# The bundled adapters are `#!/usr/bin/env python3` scripts that import the
+# repository's own modules, and those refuse to load on any interpreter but the
+# pinned one. Without this, `python3` resolves to whatever the user's shell has
+# first — conda, pyenv, system Python — and every PDF ingest fails at import
+# with an interpreter-contract error that surfaces to the Keeper as an
+# unexplained bind failure. Put the project interpreter first so children
+# inherit it; the extension's own env allowlist passes PATH through.
+if [ -x "$REPO_ROOT/.venv/bin/python3" ]; then
+  PATH=$REPO_ROOT/.venv/bin:$PATH
+  export PATH
+elif command -v uv >/dev/null 2>&1; then
+  printf '%s\n' "pi-coc: no $REPO_ROOT/.venv; run 'uv sync --frozen' or PDF ingest will fail" >&2
+fi
+
 exec pi "${PI_ARGS[@]}"

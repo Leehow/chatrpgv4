@@ -5,7 +5,8 @@ Each producer turns one stored source shape into the same raw line record::
 
     {pdf_index, order, text, weight, emphasis, width, y0, y1, page_height}
 
-``pdf_index`` is 1-based to match the module-assets cached page numbering.
+``pdf_index`` is whatever index the module-assets cache uses for that page,
+never a re-derived one, so every downstream request selects the same page.
 ``weight`` is whatever the shape measures as glyph size - a host-measured font
 size, a recognized box height, or a heading level - and is only ever compared
 against the same document's own body text, never against a fixed constant.
@@ -24,7 +25,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-PRODUCERS = frozenset({"host_outline", "ocr_boxes", "mineru_md"})
+PRODUCERS = frozenset({
+    "host_outline", "cached_pages", "ocr_boxes", "mineru_md",
+})
 # Producers whose weight is a measured quantity rather than a declared size.
 # Identical body text is measured at several heights depending on which
 # ascenders and descenders a line happens to contain, so the body band must be
@@ -79,7 +82,7 @@ def lines_from_host_outline(path: Path) -> list[dict[str, Any]]:
         if (
             isinstance(pdf_index, bool)
             or not isinstance(pdf_index, int)
-            or pdf_index < 1
+            or pdf_index < 0
         ):
             raise SourceOutlineError("host outline pdf_index must be 1-based")
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):
@@ -97,6 +100,58 @@ def lines_from_host_outline(path: Path) -> list[dict[str, Any]]:
         })
     if not lines:
         raise SourceOutlineError("host outline produced no usable lines")
+    return lines
+
+
+def lines_from_cached_pages(pages_dir: Path) -> list[dict[str, Any]]:
+    """Read heading structure from the module's own registered page cache.
+
+    This is the producer that is actually available after a normal ingest.  The
+    host PDF skill writes each page as Markdown and the repository caches it
+    verbatim as ``NNNN.md``, so the heading levels the skill already recovered
+    are sitting in the canonical cache — no second pass over the source, and no
+    parser.  Page numbering comes from the filename stem, which is exactly the
+    ``pdf_index`` the cache itself is keyed by.
+    """
+    pages = Path(pages_dir)
+    if not pages.is_dir():
+        raise SourceOutlineError(f"module has no cached pages: {pages}")
+    lines: list[dict[str, Any]] = []
+    order = 0
+    for path in sorted(pages.glob("*.md")):
+        if not path.stem.isdigit():
+            continue
+        pdf_index = int(path.stem)
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for raw_line in raw.splitlines():
+            text = normalize(raw_line)
+            if not text:
+                continue
+            match = _MINERU_HEADING.match(text)
+            order += 1
+            if match:
+                body = normalize(match.group(2))
+                if not body:
+                    continue
+                weight, emphasis = float(8 - len(match.group(1))), True
+            else:
+                body, weight, emphasis = text, 1.0, False
+            lines.append({
+                "pdf_index": pdf_index,
+                "order": order,
+                "text": body,
+                "weight": weight,
+                "emphasis": emphasis,
+                "width": 0.0,
+                "y0": 0.0,
+                "y1": 0.0,
+                "page_height": 1.0,
+            })
+    if not lines:
+        raise SourceOutlineError("cached pages produced no usable lines")
     return lines
 
 
@@ -209,6 +264,7 @@ def lines_from_mineru(markdown_path: Path) -> list[dict[str, Any]]:
 
 PRODUCER_FUNCTIONS = {
     "host_outline": lines_from_host_outline,
+    "cached_pages": lines_from_cached_pages,
     "ocr_boxes": lines_from_ocr_corpus,
     "mineru_md": lines_from_mineru,
 }

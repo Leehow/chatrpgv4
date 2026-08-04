@@ -11537,6 +11537,13 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 # --------------------------------------------------------------------------- #
 
 _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS = 2
+# An adapter that spawns one child per claimed group must not claim a batch it
+# would fan out over all at once.
+_CONSERVATIVE_CLAIM_CEILING = 4
+# The Pi lifecycle runs leaves through a fixed-width pool, so a large claim
+# costs one coordinator round trip instead of many and never more concurrent
+# processes than the pool allows.
+_PI_BACKGROUND_CLAIM_CEILING = 32
 
 
 def _source_coordinator_dispatch(
@@ -11547,6 +11554,7 @@ def _source_coordinator_dispatch(
     ready_background: list[dict[str, Any]],
     claim_result_delivery: str = "return_to_parent",
     current_dependency_claim: dict[str, Any] | None = None,
+    background_claim_ceiling: int = _CONSERVATIVE_CLAIM_CEILING,
 ) -> dict[str, Any]:
     """Build the exact prompt packet for one host-native source coordinator.
 
@@ -11564,7 +11572,20 @@ def _source_coordinator_dispatch(
         for row in ready_background
         if str(row.get("work_group_id") or row.get("job_id") or "")
     })
-    max_leaves = min(4, len(group_ids))
+    # A current dependency is a live turn waiting on one exact job, so it
+    # claims one.  Everything else is work nobody is blocked on, and batching
+    # it is the difference between one coordinator round trip and dozens: a
+    # whole-book structure pass over a hundred-page module produces hundreds
+    # of groups, and the old fixed cap of four drained them four at a time.
+    assets_module = coc_module_project.coc_module_assets
+    if background_claim_ceiling > assets_module.MAX_CLAIM_LIMIT:
+        raise ValueError("background claim ceiling exceeds the claim limit")
+    claim_ceiling = (
+        assets_module.CURRENT_DEPENDENCY_CLAIM_LIMIT
+        if current_dependency_claim is not None
+        else background_claim_ceiling
+    )
+    max_leaves = min(claim_ceiling, len(group_ids))
     if current_dependency_claim is not None:
         if claim_result_delivery != "task_return_to_parent":
             raise ValueError(
@@ -11757,6 +11778,10 @@ def _pi_source_coordinator_dispatch(
         ready_background=ready_background,
         claim_result_delivery="task_return_to_parent",
         current_dependency_claim=current_dependency_claim,
+        # Only the Pi lifecycle spawns leaves through a bounded pool, so only
+        # it may claim a large batch.  Any adapter that still fans out over
+        # everything it claims keeps the conservative ceiling.
+        background_claim_ceiling=_PI_BACKGROUND_CLAIM_CEILING,
     )
     codex_task = dispatch.pop("codex_task")
     dispatch["packet"]["claim_operation"]["prefilled_arguments"][

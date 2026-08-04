@@ -53,7 +53,7 @@ const checks = {
   capability_flag: pi.coc_source_coordinator_v1 === true,
   capability_status_experimental: pi.coc_source_coordinator_v1_status === "experimental",
   capability_adapter: pi.coc_source_coordinator_v1_adapter === "pi_private_lifecycle",
-  max_leaves: pi.max_source_coordinator_leaves === 4,
+  max_leaves: pi.max_source_coordinator_leaves === 32,
 };
 const ok = Object.values(checks).every(Boolean);
 

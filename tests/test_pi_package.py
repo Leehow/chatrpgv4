@@ -1524,7 +1524,10 @@ def test_capability_promoted_after_real_lifecycle_probe():
     assert pi["coc_source_coordinator_v1"] is True
     assert pi["coc_source_coordinator_v1_status"] == "experimental"
     assert pi["coc_source_coordinator_v1_adapter"] == "pi_private_lifecycle"
-    assert pi["max_source_coordinator_leaves"] == 4
+    # The Pi lifecycle spawns leaves through a fixed-width pool, so its claim
+    # ceiling is a batch size rather than a process count. Codex still fans out
+    # over everything it claims and keeps the conservative ceiling.
+    assert pi["max_source_coordinator_leaves"] == 32
     source = (PLUGIN / "pi/extensions/index.ts").read_text(encoding="utf-8")
     assert "COC_PI_SOURCE_COMPONENT_PROBE" not in source
     assert "COC_PI_AGENT_DEPTH" not in source

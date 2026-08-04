@@ -193,7 +193,9 @@ def test_build_outline_requires_a_real_source_digest():
 def test_no_producer_opens_a_pdf():
     # The repository contains no PDF parser by contract; exact font metrics
     # arrive as a host-produced line list instead.
-    assert outline.PRODUCERS == {"host_outline", "ocr_boxes", "mineru_md"}
+    assert outline.PRODUCERS == {
+        "host_outline", "cached_pages", "ocr_boxes", "mineru_md",
+    }
 
 
 def test_host_line_list_feeds_the_same_selector(tmp_path):
@@ -219,7 +221,8 @@ def test_host_line_list_feeds_the_same_selector(tmp_path):
 def test_a_host_line_list_with_bad_geometry_is_rejected(tmp_path):
     path = tmp_path / "host-outline.json"
     path.write_text(json.dumps({"lines": [
-        {"pdf_index": 0, "text": "T", "weight": 18.0},
+        {"pdf_index": -1, "text": "T", "weight": 18.0},
+        {"pdf_index": 1, "text": "U", "weight": "large"},
     ]}), encoding="utf-8")
     with pytest.raises(outline.SourceOutlineError):
         outline.build_outline(
@@ -242,3 +245,38 @@ def test_mineru_producer_reads_heading_levels(tmp_path):
     )
     assert payload["confidence_class"] == "exact"
     assert [row["text"] for row in payload["rows"]] == ["血色公路", "附录I-狩猎"]
+
+
+def test_cached_pages_producer_reads_the_registered_page_cache(tmp_path):
+    """The producer that is actually available after a normal ingest.
+
+    A real bind leaves Markdown pages in the module cache; nothing in the
+    product writes a host line list, and the OCR corpus is a different lane.
+    """
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    (pages / "0004.md").write_text(
+        "# 警告\n\n" + "ordinary body prose on this page. " * 8,
+        encoding="utf-8",
+    )
+    (pages / "0005.md").write_text(
+        "# 血色公路\n\n## 模组信息\n\n" + "more ordinary body prose here. " * 8,
+        encoding="utf-8",
+    )
+    (pages / "notes.md").write_text("# ignored, not a page index\n", encoding="utf-8")
+    payload = outline.build_outline(
+        producer="cached_pages", source=pages,
+        file_sha256=FAKE_SHA, source_id="pdf:test",
+    )
+    assert payload["confidence_class"] == "exact"
+    assert [(row["pdf_index"], row["text"]) for row in payload["rows"]] == [
+        (4, "警告"), (5, "血色公路"), (5, "模组信息"),
+    ]
+
+
+def test_cached_pages_producer_fails_closed_without_a_cache(tmp_path):
+    with pytest.raises(outline.SourceOutlineError):
+        outline.build_outline(
+            producer="cached_pages", source=tmp_path / "missing",
+            file_sha256=FAKE_SHA, source_id="pdf:test",
+        )

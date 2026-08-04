@@ -76,7 +76,7 @@ or the success of a generic nested Task.
 Validate the closed packet before tools. It must use schema 1, contract
 `coc.source-coordinator.v1`, adapter `manager_exact_forward`, absolute
 `workspace_root`, `python_executable`, and `toolbox_script` paths, a positive
-`max_leaves` no greater than four, the exact
+`max_leaves` no greater than thirty-two, the exact
 `progressive.claim_host_work` card with no missing arguments and
 the contract-declared transport: `result_delivery=return_to_parent` for a
 bare-packet coordinator, or `result_delivery=task_return_to_parent` only for

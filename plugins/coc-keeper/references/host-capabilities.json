@@ -91,7 +91,7 @@
     "coc_source_coordinator_v1_provider_evidence": "openai_gpt_5_6_luna_probe_only",
     "coc_source_coordinator_v1_grok_evidence": "failed_nonpromoting_host_experience_probe",
     "coc_source_coordinator_v1_grok_evidence_ref": "tests/pi/pi-grok-host-experience-evidence.json",
-    "max_source_coordinator_leaves": 4,
+    "max_source_coordinator_leaves": 32,
     "coc_source_parent_fanout_v1": false,
     "coc_source_parent_fanout_v1_status": "unavailable",
     "coc_source_parent_fanout_v1_adapter": "nested_coordinator_component_only",

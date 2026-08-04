@@ -49,6 +49,14 @@ JOB_KINDS = frozenset({
     "full_parse", "classify_sections", "extract_section",
 })
 FULL_PARSE_BATCH_LIMIT = 32
+# How many work groups one claim may lease.  Leases are disjoint and taken
+# under the host-work lock, so this bounds batch size, not safety: the old
+# value of 4 was inherited from how many leaf processes could run at once and
+# forced a whole-book pass to drain its queue four items at a time.
+MAX_CLAIM_LIMIT = 32
+# A turn-blocking dependency still claims exactly its one job; batching is for
+# work nobody is waiting on.
+CURRENT_DEPENDENCY_CLAIM_LIMIT = 1
 FULL_PARSE_MAX_RENDER_FAILURES = 3
 FOREGROUND_OPENING_PURPOSE = "foreground_opening_slice"
 MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
@@ -6386,8 +6394,14 @@ def claim_host_work_requests(
     executor = str(executor_id or "").strip()
     if not executor or len(executor) > 128:
         raise ModuleAssetsError("executor_id must be 1..128 characters")
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 4:
-        raise ModuleAssetsError("limit must be an integer from 1 through 4")
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= MAX_CLAIM_LIMIT
+    ):
+        raise ModuleAssetsError(
+            f"limit must be an integer from 1 through {MAX_CLAIM_LIMIT}"
+        )
     if (
         isinstance(lease_seconds, bool)
         or not isinstance(lease_seconds, int)
