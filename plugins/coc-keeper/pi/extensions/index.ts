@@ -5722,9 +5722,35 @@ export async function autoDispatchPiRawPdfBindBundle(
     cached_pdf_indices: [],
     max_selected_pages: 3,
     pdf_index_caliber: "printed_page_number_1_based",
+    // State the manifest shape instead of letting the producer infer it. The
+    // repository validates this bundle exactly — `producer` in particular must
+    // be the literal below, even though the process writing it is a Pi/Grok
+    // child — so a contract id alone left the producer guessing and every raw
+    // PDF bind failed with `manifest.producer must equal 'codex-pdf-skill'`.
     source_bundle_manifest_contract: {
       schema_version: 1,
       contract_id: "codex-pdf-skill-source-bundle.v1",
+      template: {
+        schema_version: 1,
+        producer: "codex-pdf-skill",
+        source: {
+          source_id: "<task.source.source_id>",
+          title: "<task.source.title>",
+          path: "<task.source.path>",
+          file_sha256: "<task.source.file_sha256>",
+          page_count: 0,
+        },
+        pages: [{
+          pdf_index: 0,
+          markdown_path: "<bundle-relative .md path>",
+          text_sha256: "<sha256 of that file's exact bytes>",
+          review_state: "auto_accepted",
+          parse_confidence: 1,
+          // Each anchor must occur verbatim in that page's Markdown; the
+          // repository re-checks them, so an invented anchor rejects the bundle.
+          grep_anchors: ["<exact substring copied from that page>"],
+        }],
+      },
     },
     result_delivery: "natural_completion_notification_only",
   };
