@@ -224,3 +224,22 @@ def test_outline_store_refuses_a_source_whose_bytes_changed(tmp_path):
     )
     with pytest.raises(store.SourceOutlineError):
         store.ensure_outline(tmp_path, "mod-2")
+
+def test_the_worker_routes_a_structure_job_instead_of_skipping_it(module_root):
+    """The queue worker must recognize structure kinds.
+
+    On a real ingest the section pass was correctly chained off full_parse and
+    correctly built its request, but the worker's kind dispatch did not know
+    the job: it fell through to the unknown-kind sweep and closed as
+    `skipped_unknown_kind`, so the index was never actually requested.
+    """
+    workspace, _ = module_root
+    outcome = worker.process_claimed_job(workspace, "mod-1", {
+        "job_id": "job-structure-1",
+        "kind": assets.CLASSIFY_SECTIONS_KIND,
+        "target_id": assets.SECTION_INDEX_TARGET_ID,
+    })
+    assert outcome["result"] == "awaiting_host_pack"
+    request = assets.get_host_work_request(workspace, "mod-1", "job-structure-1")
+    assert request["kind"] == assets.CLASSIFY_SECTIONS_KIND
+    assert request["classification_request"]["candidates"]

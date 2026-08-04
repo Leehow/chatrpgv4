@@ -2256,6 +2256,22 @@ def process_claimed_job(
             )
             return {"ok": True, "result": "complete", **detail}
 
+        if kind in {
+            coc_module_assets.CLASSIFY_SECTIONS_KIND,
+            coc_module_assets.EXTRACT_SECTION_KIND,
+        }:
+            # Structure work publishes a host-work request like any other
+            # bounded read; it is the coordinator that resolves it. Without
+            # this branch the job fell through to the unknown-kind sweep and
+            # was closed as skipped, so the section index was never requested.
+            req = _write_host_work_request(workspace, asset_root_id, job)
+            detail["host_work_request"] = str(req)
+            _finish_job(
+                workspace, asset_root_id, job,
+                result="awaiting_host_pack", detail=detail,
+            )
+            return {"ok": True, "result": "awaiting_host_pack", **detail}
+
         if kind == "locate_mechanics_index":
             req = _write_host_work_request(workspace, asset_root_id, job)
             detail["host_work_request"] = str(req)
