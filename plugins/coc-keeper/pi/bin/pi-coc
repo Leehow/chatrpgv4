@@ -155,18 +155,35 @@ node "$SCRIPT_DIR/pi-coc-thinking-preflight.mjs" \
 export COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND="${COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND:-$SCRIPT_DIR/coc-pdf-skill-adapter.py}"
 export COC_PROGRESSIVE_OCR_COMMAND="${COC_PROGRESSIVE_OCR_COMMAND:-$SCRIPT_DIR/coc-ocr-adapter.py}"
 
-# The bundled adapters are `#!/usr/bin/env python3` scripts that import the
-# repository's own modules, and those refuse to load on any interpreter but the
-# pinned one. Without this, `python3` resolves to whatever the user's shell has
-# first — conda, pyenv, system Python — and every PDF ingest fails at import
-# with an interpreter-contract error that surfaces to the Keeper as an
-# unexplained bind failure. Put the project interpreter first so children
-# inherit it; the extension's own env allowlist passes PATH through.
+# The two bundled adapters need *different* interpreters, so neither may be
+# left to whatever `python3` the user's shell resolves first.
+#
+#   pdf-skill adapter : imports repository modules, which refuse to load on
+#                       anything but the pinned CPython.
+#   baiduocr bridge   : needs `requests`, which is deliberately not a
+#                       repository dependency and so is absent from .venv.
+#
+# No single ambient interpreter satisfies both. Pin each one explicitly here:
+# capture a requests-capable interpreter from the user's own PATH first, then
+# put the project interpreter in front for everything else. Leaving the OCR
+# bridge to probe after the prepend would make it depend on a python3.11 or
+# python3.10 happening to exist on the machine.
+if [ -z "${COC_PROGRESSIVE_OCR_PYTHON:-}" ]; then
+  for candidate in python3 python3.11 python3.10; do
+    if command -v "$candidate" >/dev/null 2>&1 \
+      && "$candidate" -c "import requests" >/dev/null 2>&1; then
+      COC_PROGRESSIVE_OCR_PYTHON=$(command -v "$candidate")
+      export COC_PROGRESSIVE_OCR_PYTHON
+      break
+    fi
+  done
+fi
+
 if [ -x "$REPO_ROOT/.venv/bin/python3" ]; then
   PATH=$REPO_ROOT/.venv/bin:$PATH
   export PATH
-elif command -v uv >/dev/null 2>&1; then
-  printf '%s\n' "pi-coc: no $REPO_ROOT/.venv; run 'uv sync --frozen' or PDF ingest will fail" >&2
+else
+  printf '%s\n' "pi-coc: no $REPO_ROOT/.venv/bin/python3; run 'uv sync --frozen' or PDF ingest will fail" >&2
 fi
 
 exec pi "${PI_ARGS[@]}"
