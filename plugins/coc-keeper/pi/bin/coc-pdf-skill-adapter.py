@@ -8,6 +8,7 @@ private opening-review task. It contains no PDF parser or OCR fallback.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -682,18 +683,21 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "task-oriented coc.codex-pdf-skill-bundle.v1 shortcut manifests and "
         "alternate page keys markdown_file, file_sha256, or confidence are "
         "unsupported and will be rejected. The output is preseeded from "
-        "task.reusable_bound_source; that retained source path is read-only. "
-        "If the selected window overlaps one of those manifest pages, keep "
-        "that exact markdown_path, Markdown bytes, and complete page evidence "
-        "row; do not retranscribe, rewrite, or alter the retained source. "
+        "task.reusable_bound_source: every pdf_index in that manifest is "
+        "already bound, and its files are read-only. Never rewrite, "
+        "retranscribe, delete, or move a preseeded page file. You do not own "
+        "those manifest rows: select such a page by listing its index in "
+        "selected_opening_pdf_indices or fact_evidence_pdf_indices only, and "
+        "do not restate, copy, or reformat its manifest row -- the repository "
+        "splices the retained rows in and rewrites manifest.pages itself. "
         "Separately select the smallest fact-evidence set from cover, front "
         "matter, or Keeper background needed for the six opening facts. It may "
         "be non-contiguous, is bounded by task.max_fact_evidence_pages, and "
-        "must not widen or alter the contiguous playable opening window. New "
-        "selected pages may be added normally. Final manifest.pages must equal "
-        "the union of selected_opening_pdf_indices and "
-        "fact_evidence_pdf_indices exactly; unselected preseed files may remain "
-        "unreferenced. manifest.source.source_id, "
+        "must not widen or alter the contiguous playable opening window. Write "
+        "manifest.pages rows only for the pages you newly render, which is "
+        "every selected index absent from task.reusable_bound_source.manifest; "
+        "extra or missing retained rows are ignored, and unselected preseed "
+        "files may remain unreferenced. manifest.source.source_id, "
         "path, and file_sha256 must exactly match task.source; "
         "manifest.source.title must exactly match task.title. "
         "Do not use OCR. Do not read .coc, saves, "
@@ -907,84 +911,118 @@ def _reusable_page_row(page: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _validate_reused_bound_pages(
-    bundle: dict[str, Any],
-    final_manifest: dict[str, Any],
+def _pages_by_index(rows: Any, label: str) -> dict[int, dict[str, Any]]:
+    if not isinstance(rows, list):
+        _fail(f"{label} are invalid")
+    indexed = {
+        int(row["pdf_index"]): row
+        for row in rows
+        if isinstance(row, dict)
+        and isinstance(row.get("pdf_index"), int)
+        and not isinstance(row.get("pdf_index"), bool)
+    }
+    if len(indexed) != len(rows):
+        _fail(f"{label} are invalid")
+    return indexed
+
+
+def _retained_files_unchanged(root: Path, row: dict[str, Any]) -> bool:
+    """The producer may not edit a preseeded page's bytes.
+
+    The bundle validator would also catch this, but only as an anonymous
+    hash mismatch; naming the retained page keeps the failure diagnosable.
+    """
+    declared = [(row.get("markdown_path"), row.get("text_sha256"))]
+    structured = row.get("structured_data")
+    if isinstance(structured, dict):
+        declared.append((structured.get("path"), structured.get("sha256")))
+    for relative, expected in declared:
+        if not isinstance(relative, str) or not isinstance(expected, str):
+            return False
+        path = (root / relative).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return False
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            return False
+    return True
+
+
+def _splice_retained_bound_pages(
     task: dict[str, Any],
-) -> None:
+    selected: list[int],
+    fact_evidence: list[int],
+) -> dict[str, Any]:
+    """Author the retained rows of the final manifest from the bound copy.
+
+    A producer must never be asked to reproduce bytes it is forbidden to
+    change. Echoing a manifest row verbatim is not a capability a model has:
+    one re-serialized page-0 row (identical evidence, different spelling)
+    used to fail the whole opening review. The repository already holds those
+    rows, so it splices them in and the producer supplies only the pages it
+    genuinely adds. The retained Markdown/structured files stay under their
+    retained hashes, so the bundle validator still rejects any real edit.
+    """
     reusable = _object(
         task.get("reusable_bound_source"),
         "reusable bound source",
     )
-    manifest = _object(
+    retained_manifest = _object(
         reusable.get("manifest"),
         "reusable bound source manifest",
     )
-    retained_raw_pages = manifest.get("pages")
-    final_raw_pages = final_manifest.get("pages")
-    normalized_pages = reusable.get("normalized_pages")
-    if (
-        not isinstance(retained_raw_pages, list)
-        or not isinstance(final_raw_pages, list)
-        or not isinstance(normalized_pages, list)
-    ):
-        _fail("reusable bound source pages are invalid")
-    retained_raw = {
-        int(row["pdf_index"]): row
-        for row in retained_raw_pages
-        if isinstance(row, dict)
-        and isinstance(row.get("pdf_index"), int)
-        and not isinstance(row.get("pdf_index"), bool)
-    }
-    final_raw = {
-        int(row["pdf_index"]): row
-        for row in final_raw_pages
-        if isinstance(row, dict)
-        and isinstance(row.get("pdf_index"), int)
-        and not isinstance(row.get("pdf_index"), bool)
-    }
-    retained_normalized = {
-        int(row["pdf_index"]): row
-        for row in normalized_pages
-        if isinstance(row, dict)
-        and isinstance(row.get("pdf_index"), int)
-        and not isinstance(row.get("pdf_index"), bool)
-    }
-    if (
-        len(retained_raw) != len(retained_raw_pages)
-        or len(final_raw) != len(final_raw_pages)
-        or len(retained_normalized) != len(normalized_pages)
-    ):
-        _fail("reusable bound source pages are invalid")
+    retained_raw = _pages_by_index(
+        retained_manifest.get("pages"), "reusable bound source pages",
+    )
+    manifest_path = Path(task["source_bundle_path"]) / "manifest.json"
+    manifest = _json(manifest_path, "opening source manifest")
+    produced = _pages_by_index(
+        manifest.get("pages"), "opening source manifest pages",
+    )
+    bundle_root = Path(task["source_bundle_path"]).resolve()
+    pages: list[dict[str, Any]] = []
+    for pdf_index in sorted(set(selected) | set(fact_evidence)):
+        row = retained_raw.get(pdf_index)
+        if row is not None:
+            if not _retained_files_unchanged(bundle_root, row):
+                _fail(f"reusable bound page {pdf_index} was modified")
+            pages.append(row)
+            continue
+        row = produced.get(pdf_index)
+        if row is None:
+            _fail(f"opening source manifest is missing page {pdf_index}")
+        pages.append(row)
+    manifest["pages"] = pages
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
 
-    def _raw_page_for_reuse_equality(row: dict[str, Any]) -> dict[str, Any]:
-        canonical = dict(row)
-        # The bundle validator canonically accepts both spellings for a page
-        # with no assets. Normalize only that empty optional field here; a
-        # non-empty assets declaration and every other raw field remain exact.
-        if canonical.get("assets") == []:
-            canonical.pop("assets")
-        # grep_anchors are set-semantic review evidence (the bundle identity
-        # digest and module cache canonicalization both normalize them to
-        # sorted(set(...))). Normalize before the raw comparison so a
-        # producer that copied page evidence from the module cache (sorted)
-        # matches the retained bundle (original order); a genuinely different
-        # anchor set still fails.
-        anchors = canonical.get("grep_anchors")
-        if isinstance(anchors, list):
-            canonical["grep_anchors"] = sorted(set(anchors))
-        return canonical
 
+def _validate_reused_bound_pages(
+    bundle: dict[str, Any],
+    task: dict[str, Any],
+) -> None:
+    """Repository-side post-splice invariant.
+
+    Every retained page in the reviewed bundle must still normalize to the
+    row the bound bundle produced. The splice makes that true by
+    construction; this catches a splice regression, and a producer that
+    rewrote a retained Markdown or structured file already fails earlier in
+    the bundle validator's hash check.
+    """
+    reusable = _object(
+        task.get("reusable_bound_source"),
+        "reusable bound source",
+    )
+    retained_normalized = _pages_by_index(
+        reusable.get("normalized_pages"), "reusable bound source pages",
+    )
     for page in bundle["pages"]:
         pdf_index = int(page["pdf_index"])
-        if pdf_index not in retained_raw:
+        if pdf_index not in retained_normalized:
             continue
-        if (
-            not isinstance(final_raw.get(pdf_index), dict)
-            or _raw_page_for_reuse_equality(final_raw[pdf_index])
-            != _raw_page_for_reuse_equality(retained_raw[pdf_index])
-            or _reusable_page_row(page) != retained_normalized.get(pdf_index)
-        ):
+        if _reusable_page_row(page) != retained_normalized[pdf_index]:
             _fail(f"reusable bound page {pdf_index} drift")
 
 
@@ -1055,14 +1093,11 @@ def _run_opening_review() -> dict[str, Any]:
                 request, private["scenario_id"], private["generation"],
                 "failed", result["failure_class"], None,
             )
-        bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
-        final_manifest = _json(
-            Path(task["source_bundle_path"]) / "manifest.json",
-            "opening source manifest",
-        )
         selected = result["selected_opening_pdf_indices"]
         fact_evidence = result["fact_evidence_pdf_indices"]
         bundle_indices = sorted(set(selected) | set(fact_evidence))
+        _splice_retained_bound_pages(task, selected, fact_evidence)
+        bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
         if (
             [row["pdf_index"] for row in bundle["pages"]] != bundle_indices
             or bundle["source"]["source_id"] != private["source_id"]
@@ -1072,7 +1107,7 @@ def _run_opening_review() -> dict[str, Any]:
             or bundle["source"]["title"] != task["title"]
         ):
             _fail("opening source bundle identity drift")
-        _validate_reused_bound_pages(bundle, final_manifest, task)
+        _validate_reused_bound_pages(bundle, task)
         bind = ops.execute_setup_operation(
             workspace,
             operation={

@@ -2101,74 +2101,122 @@ def test_opening_producer_task_does_not_launder_placeholder_era(
     ] is False
 
 
-def test_reused_page_accepts_absent_and_empty_assets_as_equivalent():
-    adapter = _load_pdf_adapter("coc_pdf_adapter_empty_assets_reuse_test")
-    page = {
-        "pdf_index": 0,
-        "markdown_path": "pages/0000.md",
-        "text_sha256": "a" * 64,
+def _splice_page(pdf_index, body):
+    return {
+        "pdf_index": pdf_index,
+        "markdown_path": f"pages/{pdf_index:04d}.md",
+        "text_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
         "review_state": "manual_accepted",
         "parse_confidence": 0.9,
-        "grep_anchors": ["accepted"],
+        "grep_anchors": ["accepted", "bound"],
     }
-    retained = {**page, "assets": []}
-    task = {
+
+
+_RETAINED_BODY = "# Retained page\n"
+_PRODUCED_BODY = "# New page\n"
+_RETAINED_PAGE = _splice_page(0, _RETAINED_BODY)
+_PRODUCED_PAGE = _splice_page(1, _PRODUCED_BODY)
+
+
+def _splice_task(tmp_path, producer_pages, retained_pages=(_RETAINED_PAGE,)):
+    bundle_root = tmp_path / "reviewed"
+    (bundle_root / "pages").mkdir(parents=True, exist_ok=True)
+    for row, body in (
+        (_RETAINED_PAGE, _RETAINED_BODY), (_PRODUCED_PAGE, _PRODUCED_BODY),
+    ):
+        (bundle_root / row["markdown_path"]).write_text(body, encoding="utf-8")
+    for row in retained_pages:
+        target = bundle_root / row["markdown_path"]
+        if not target.is_file():
+            target.write_text(_RETAINED_BODY, encoding="utf-8")
+    (bundle_root / "manifest.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source": {"source_id": "pdf:scenario-a"},
+            "pages": list(producer_pages),
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return {
+        "source_bundle_path": str(bundle_root),
         "reusable_bound_source": {
-            "manifest": {"pages": [retained]},
-            "normalized_pages": [adapter._reusable_page_row(page)],
+            "manifest": {"pages": [dict(row) for row in retained_pages]},
+            "normalized_pages": [],
         },
     }
-    adapter._validate_reused_bound_pages(
-        {"pages": [page]},
-        {"pages": [dict(page)]},
-        task,
-    )
 
 
 @pytest.mark.parametrize(
-    "final_page",
+    "echoed_page",
     [
-        {
-            "pdf_index": 0,
-            "markdown_path": "pages/0000.md",
-            "text_sha256": "a" * 64,
-            "review_state": "manual_accepted",
-            "parse_confidence": 0.9,
-            "grep_anchors": ["accepted"],
-            "assets": [{"path": "assets/map.png", "sha256": "b" * 64}],
-        },
-        {
-            "pdf_index": 0,
-            "markdown_path": "pages/changed.md",
-            "text_sha256": "a" * 64,
-            "review_state": "manual_accepted",
-            "parse_confidence": 0.9,
-            "grep_anchors": ["accepted"],
-        },
+        # Byte-for-byte echo is not a capability a producer has. Each of these
+        # re-serializations of the retained page-0 row used to fail the whole
+        # opening review with "reusable bound page 0 drift".
+        {**_RETAINED_PAGE, "assets": []},
+        {**_RETAINED_PAGE, "grep_anchors": ["bound", "accepted"]},
+        {**_RETAINED_PAGE, "parse_confidence": 0.91},
+        {**_RETAINED_PAGE, "markdown_path": "pages/retranscribed.md"},
+        {"markdown_path": "pages/0000.md", "pdf_index": 0},
     ],
 )
-def test_reused_page_still_rejects_nonempty_assets_or_other_drift(final_page):
-    adapter = _load_pdf_adapter("coc_pdf_adapter_reuse_drift_test")
-    page = {
-        "pdf_index": 0,
-        "markdown_path": "pages/0000.md",
-        "text_sha256": "a" * 64,
-        "review_state": "manual_accepted",
-        "parse_confidence": 0.9,
-        "grep_anchors": ["accepted"],
-    }
-    task = {
-        "reusable_bound_source": {
-            "manifest": {"pages": [{**page, "assets": []}]},
-            "normalized_pages": [adapter._reusable_page_row(page)],
-        },
-    }
-    with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
-        adapter._validate_reused_bound_pages(
-            {"pages": [page]},
-            {"pages": [final_page]},
-            task,
-        )
+def test_opening_manifest_splices_retained_row_over_producer_echo(
+    tmp_path, echoed_page,
+):
+    """The repository owns the retained rows; whatever the producer wrote for
+    an already-bound page is replaced, never compared."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_splice_echo_test")
+    task = _splice_task(tmp_path, [echoed_page, _PRODUCED_PAGE])
+    manifest = adapter._splice_retained_bound_pages(task, [0, 1], [0])
+    assert manifest["pages"] == [_RETAINED_PAGE, _PRODUCED_PAGE]
+    on_disk = json.loads(
+        (tmp_path / "reviewed" / "manifest.json").read_text(encoding="utf-8"),
+    )
+    assert on_disk["pages"] == [_RETAINED_PAGE, _PRODUCED_PAGE]
+    assert on_disk["source"] == {"source_id": "pdf:scenario-a"}
+
+
+def test_opening_manifest_splice_needs_no_row_for_a_retained_page(tmp_path):
+    """A producer that omits the retained rows entirely is correct now."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_splice_omitted_test")
+    task = _splice_task(tmp_path, [_PRODUCED_PAGE])
+    manifest = adapter._splice_retained_bound_pages(task, [0, 1], [])
+    assert manifest["pages"] == [_RETAINED_PAGE, _PRODUCED_PAGE]
+
+
+def test_opening_manifest_splice_drops_unselected_preseed_rows(tmp_path):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_splice_unselected_test")
+    other = {**_RETAINED_PAGE, "pdf_index": 5, "markdown_path": "pages/0005.md"}
+    task = _splice_task(
+        tmp_path, [_PRODUCED_PAGE], retained_pages=(_RETAINED_PAGE, other),
+    )
+    manifest = adapter._splice_retained_bound_pages(task, [1], [])
+    assert manifest["pages"] == [_PRODUCED_PAGE]
+
+
+def test_opening_manifest_splice_rejects_a_missing_produced_page(tmp_path):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_splice_missing_test")
+    task = _splice_task(tmp_path, [_PRODUCED_PAGE])
+    with pytest.raises(RuntimeError, match="missing page 4"):
+        adapter._splice_retained_bound_pages(task, [1, 4], [])
+
+
+def test_opening_manifest_splice_rejects_a_rewritten_retained_page(tmp_path):
+    """Splicing the row must not launder an edited retained page."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_splice_rewritten_test")
+    task = _splice_task(tmp_path, [_PRODUCED_PAGE])
+    (tmp_path / "reviewed" / _RETAINED_PAGE["markdown_path"]).write_text(
+        "# Retranscribed\n", encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="reusable bound page 0 was modified"):
+        adapter._splice_retained_bound_pages(task, [0, 1], [])
+
+
+def test_opening_manifest_splice_rejects_duplicate_producer_indices(tmp_path):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_splice_duplicate_test")
+    task = _splice_task(tmp_path, [_PRODUCED_PAGE, dict(_PRODUCED_PAGE)])
+    with pytest.raises(RuntimeError, match="opening source manifest pages"):
+        adapter._splice_retained_bound_pages(task, [1], [])
 
 
 _PLAYTEST_ORIGINAL_ANCHORS = [
@@ -2203,6 +2251,10 @@ def _reuse_task(adapter, retained_raw, retained_normalized):
     }
 
 
+def _assert_no_reuse_drift(adapter, page, task):
+    adapter._validate_reused_bound_pages({"pages": [page]}, task)
+
+
 @pytest.mark.parametrize(
     "retained_anchors,final_anchors",
     [
@@ -2224,20 +2276,12 @@ def test_reused_page_accepts_grep_anchor_order_shuffle(
     task = _reuse_task(
         adapter, retained, adapter._reusable_page_row(retained),
     )
-    adapter._validate_reused_bound_pages(
-        {"pages": [final]},
-        {"pages": [dict(final)]},
-        task,
-    )
+    _assert_no_reuse_drift(adapter, final, task)
     # Both orientations of the final manifest are accepted.
     task = _reuse_task(
         adapter, final, adapter._reusable_page_row(final),
     )
-    adapter._validate_reused_bound_pages(
-        {"pages": [retained]},
-        {"pages": [dict(retained)]},
-        task,
-    )
+    _assert_no_reuse_drift(adapter, retained, task)
 
 
 @pytest.mark.parametrize(
@@ -2259,11 +2303,7 @@ def test_reused_page_rejects_grep_anchor_membership_drift(final_anchors):
         adapter, retained, adapter._reusable_page_row(retained),
     )
     with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
-        adapter._validate_reused_bound_pages(
-            {"pages": [final]},
-            {"pages": [dict(final)]},
-            task,
-        )
+        _assert_no_reuse_drift(adapter, final, task)
 
 
 def test_reused_page_accepts_play08_sample_replay():
@@ -2276,11 +2316,7 @@ def test_reused_page_accepts_play08_sample_replay():
     task = _reuse_task(
         adapter, first_bundle, adapter._reusable_page_row(first_bundle),
     )
-    adapter._validate_reused_bound_pages(
-        {"pages": [reviewed_bundle]},
-        {"pages": [dict(reviewed_bundle)]},
-        task,
-    )
+    _assert_no_reuse_drift(adapter, reviewed_bundle, task)
 
 
 def test_secrets_example_contains_key_name_only():

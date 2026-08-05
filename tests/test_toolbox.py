@@ -14136,7 +14136,7 @@ def test_pi_opening_review_adapter_rejects_changed_reused_page(
             self.buffer = io.BytesIO(json.dumps(request).encode())
 
     monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
-    with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
+    with pytest.raises(RuntimeError, match="reusable bound page 0 was modified"):
         adapter._run_opening_review()
     assert cached_path.read_bytes() == cached_before
     current = json.loads(scenario_path.read_text(encoding="utf-8"))
@@ -14145,12 +14145,19 @@ def test_pi_opening_review_adapter_rejects_changed_reused_page(
     assert "opening_source_review_receipt" not in current
 
 
-def test_pi_opening_review_adapter_rejects_equivalent_raw_page_row_rewrite(
+def test_pi_opening_review_adapter_splices_an_equivalent_raw_page_row_rewrite(
     tmp_path: Path, monkeypatch,
 ):
+    """A producer cannot be required to echo bytes it must not change.
+
+    Re-serializing the retained page-0 row (here a cosmetically equivalent
+    './page-0000.md') used to fail the whole opening review as drift. The
+    repository owns those rows now: it splices the retained one back over
+    whatever the producer wrote, and the review proceeds.
+    """
     ws, request, scenario_path = _pi_opening_review_adapter_fixture(tmp_path)
     adapter = _load(
-        "coc_pdf_skill_adapter_opening_raw_row_drift_test",
+        "coc_pdf_skill_adapter_opening_raw_row_splice_test",
         REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
     )
     monkeypatch.setattr(
@@ -14161,15 +14168,28 @@ def test_pi_opening_review_adapter_rejects_equivalent_raw_page_row_rewrite(
         / "pages" / "0000.md"
     )
     cached_before = cached_path.read_bytes()
+    captured: dict = {}
 
     def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         task = json.loads(prompt.splitlines()[-1])
+        captured.update({"task": task})
         manifest_path = Path(task["source_bundle_path"]) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert manifest["pages"][0]["markdown_path"] == "page-0000.md"
-        manifest["pages"][0]["markdown_path"] = "./page-0000.md"
+        manifest["pages"][0] = {
+            "pdf_index": 0,
+            "markdown_path": "./page-0000.md",
+            "text_sha256": manifest["pages"][0]["text_sha256"],
+            "review_state": manifest["pages"][0]["review_state"],
+            "parse_confidence": 0.5,
+            "grep_anchors": list(
+                reversed(manifest["pages"][0]["grep_anchors"])
+            ),
+            "assets": [],
+        }
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        captured.update({"echoed": manifest["pages"][0]})
         return {
             "schema_version": 1,
             "contract_id": "coc.pi-opening-pdf-producer-result.v1",
@@ -14192,12 +14212,21 @@ def test_pi_opening_review_adapter_rejects_equivalent_raw_page_row_rewrite(
             self.buffer = io.BytesIO(json.dumps(request).encode())
 
     monkeypatch.setattr(adapter.sys, "stdin", AdapterInput())
-    with pytest.raises(RuntimeError, match="reusable bound page 0 drift"):
-        adapter._run_opening_review()
+    receipt = adapter._run_opening_review()
+    assert receipt["status"] == "reviewed"
     assert cached_path.read_bytes() == cached_before
+    final_manifest = json.loads(
+        (
+            Path(captured["task"]["source_bundle_path"]) / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    retained_row = captured["task"][
+        "reusable_bound_source"
+    ]["manifest"]["pages"][0]
+    assert final_manifest["pages"] == [retained_row]
+    assert final_manifest["pages"][0] != captured["echoed"]
     current = json.loads(scenario_path.read_text(encoding="utf-8"))
-    assert current["opening_source_review_task"]["status"] == "pending"
-    assert "opening_source_review_receipt" not in current
+    assert current["opening_source_review_task"]["status"] == "fulfilled"
 
 
 def test_pi_opening_review_adapter_accepts_untouched_normalized_raw_page_row(
@@ -14291,7 +14320,10 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
         task = json.loads(prompt.splitlines()[-1])
         output = Path(task["source_bundle_path"])
         page = b"# Legacy shortcut\n\nThis shape is unsupported.\n"
-        (output / "page-0000.md").write_bytes(page)
+        # A retained preseed file is read-only; write the legacy page beside
+        # it so this test exercises the legacy manifest shape, not the
+        # separate retained-page-was-modified failure.
+        (output / "legacy-0000.md").write_bytes(page)
         (output / "manifest.json").write_text(json.dumps({
             "schema_version": 1,
             "contract_id": "coc.codex-pdf-skill-bundle.v1",
@@ -14303,7 +14335,7 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
             },
             "pages": [{
                 "pdf_index": 0,
-                "markdown_file": "page-0000.md",
+                "markdown_file": "legacy-0000.md",
                 "file_sha256": hashlib.sha256(page).hexdigest(),
                 "confidence": 0.99,
             }],
