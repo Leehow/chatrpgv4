@@ -255,8 +255,11 @@ def test_install_starter_copies_scenario_files_and_character_creation_briefing(t
     # supported eras, so the briefing must send the player to build their own
     # concept instead of offering numbers it has no era-appropriate basis for.
     assert "本战役年代为 **ww1**" in briefing
-    assert "先确定人物概念和背景，暂不生成数值" in briefing
-    assert "角色概念（暂不生成数值）" in briefing
+    # The era-adaptive rewrite (e756961) replaced the old "concept first,
+    # no numbers yet" line with this section; the assertion tracks the
+    # briefing the generator actually emits.
+    assert "## 先想好这个人" in briefing
+    assert "这个人物如何属于当前时代、地点与社会关系？" in briefing
 
 
 def test_white_war_starter_does_not_ship_pregen_investigators():

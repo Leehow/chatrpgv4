@@ -17,7 +17,10 @@ def test_runtime_tree_has_no_exa_vendor_strings():
     for path in root.rglob("*"):
         if path.is_dir():
             continue
-        if "node_modules" in path.parts:
+        # Vendored dependency trees are not ours to police, and on macOS
+        # they are installed as "node_modules.noindex", which an exact
+        # part match misses.
+        if any(part.startswith("node_modules") for part in path.parts):
             continue
         if path.suffix.lower() not in {".py", ".md", ".json", ".mjs", ".ts", ".js", ".txt"}:
             continue

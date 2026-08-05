@@ -35,6 +35,12 @@ def _active_command_files():
         relative = path.relative_to(REPO)
         if any(part in EXCLUDED_COMMAND_PARTS for part in relative.parts):
             continue
+        # Vendored dependency trees carry their own docs and install
+        # instructions, which this contract does not govern. On macOS they are
+        # installed as "node_modules.noindex", which the exact-name set above
+        # does not cover.
+        if any(part.startswith("node_modules") for part in relative.parts):
+            continue
         if relative == Path("CHANGELOG.md"):
             continue
         yield path

@@ -10,8 +10,12 @@ PLAY_DIR = ROOT / "plugins" / "coc-keeper" / "skills" / "coc-keeper-play"
 MAIN = PLAY_DIR / "SKILL.md"
 REFS = PLAY_DIR / "references"
 
-MAX_MAIN_LINES = 320
-MAX_MAIN_BYTES = 22 * 1024
+# The budget keeps the always-loaded main skill small; depth belongs in
+# references/. Raised from 320 when edb8412 added the mechanical output
+# gate, which is load-bearing KP instruction rather than prose that could
+# be trimmed or demoted, and the file carries no formatting slack.
+MAX_MAIN_LINES = 330
+MAX_MAIN_BYTES = 23 * 1024  # raised with MAX_MAIN_LINES for the same section
 
 REQUIRED_ROUTE_FILES = {
     "references/compound-and-causal-finalization.md",
