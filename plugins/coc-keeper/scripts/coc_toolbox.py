@@ -12143,15 +12143,20 @@ def _source_host_work_projection(
     # adapter route.  Its durable request row stays visible as in-progress
     # bookkeeping only; the detached queue worker owns completion, bounded
     # retries, and terminal failure with an explicit next_operation.
+    # Readiness is whatever host_work_operational_class says, not a second
+    # derivation from page-cache fields.  Those fields only describe requests
+    # answered by reading a page window; a structure request carries its own
+    # evidence packet, so it can never report a complete cached scope and was
+    # invisible here while being perfectly runnable.  The full_parse exclusion
+    # stays: that is a lane rule, not a readiness one.
     ready_candidates = [
         compact
         for row, compact in zip(
             open_rows, compact_host_work, strict=True,
         )
-        if row.get("dispatch_state") == "ready"
+        if assets_mod.host_work_operational_class(row) == "runnable"
         and bool(row.get("requested_pdf_indices"))
         and str(row.get("kind") or "") != "full_parse"
-        and row.get("cached_scope_complete") is True
     ]
     retry_exhausted = [
         row for row in ready_candidates
@@ -17751,7 +17756,10 @@ def submit_source_worker_result(root: Path, payload: dict[str, Any]) -> dict[str
 def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
     if ctx.campaign_dir is None:
         raise ToolError("invalid_param", "campaign required")
-    root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+    # Either binding counts here: this operation reports on host work, and a
+    # campaign bound through the opening/review path owns host work under
+    # source_cache_asset_root_id without ever setting the progressive pointer.
+    root_id = coc_module_project.campaign_source_asset_root_id(ctx.campaign_dir)
     if not root_id:
         return {
             "progressive": False,
@@ -17794,10 +17802,9 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
             "requests": all_host_work[:8],
             "ready_for_background_count": sum(
                 (
-                    row.get("dispatch_state") == "ready"
+                    assets_mod.host_work_operational_class(row) == "runnable"
                     and bool(row.get("requested_pdf_indices"))
                     and str(row.get("kind") or "") != "full_parse"
-                    and row.get("cached_scope_complete") is True
                 )
                 for row in all_host_work
             ),

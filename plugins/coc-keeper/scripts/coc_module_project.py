@@ -1235,6 +1235,30 @@ def campaign_asset_root_id(campaign_dir: Path) -> str | None:
     return None
 
 
+def campaign_source_asset_root_id(campaign_dir: Path) -> str | None:
+    """Resolve the module root a campaign has source work bound to.
+
+    Wider than :func:`campaign_asset_root_id` on purpose.  That one answers
+    "is this campaign running the progressive skeleton pipeline", and its
+    callers act on the answer, so it must stay narrow.  This one answers "does
+    this campaign have host work sitting in a module root", which is also true
+    for a campaign bound through the opening/review path -- it carries only
+    ``source_cache_asset_root_id``.
+
+    The host-work lifecycle already accepts either pointer when it validates
+    consumer refs.  Reporting had to agree, or a campaign's ready background
+    work stayed invisible: the request was owned and runnable, and nothing
+    would ever advertise it.
+    """
+    scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
+    if isinstance(scenario, dict):
+        for key in ("progressive_asset_root_id", "source_cache_asset_root_id"):
+            value = str(scenario.get(key) or "").strip()
+            if value:
+                return value
+    return campaign_asset_root_id(campaign_dir)
+
+
 def _campaign_consumer_refs(
     workspace: Path,
     campaign_id: str,
