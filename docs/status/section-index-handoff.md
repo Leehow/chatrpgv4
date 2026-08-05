@@ -1,8 +1,13 @@
 # Handoff — whole-book section index (0.5.1a)
 
-**Written:** 2026-08-05 · **Branch:** `0.5.1a` · **Head at handoff:** `c7dad0b`
+**Written:** 2026-08-05 · **Branch:** `0.5.1a` · **Head at handoff:** `1102576`
+(previous handoff head `c7dad0b`)
 
-**Suite at handoff:** `3893 passed, 0 failed` (`uv run --frozen python -m pytest tests/ -q`)
+**Suite at handoff:** `3900 passed, 0 failed` (`uv run --frozen python -m pytest tests/ -q`).
+`for f in tests/pi/*.mjs; do node "$f" . ; done` — 7 pre-existing failures, no
+new ones (leaf-context-probe, packed-smoke, private-loader-smoke,
+private-surface, real-lifecycle-probe, repository-ref-preload,
+setup-visible-provenance).
 
 This picks up mid-task. Everything below the "Remaining work" heading is
 verified; that section is not.
@@ -42,7 +47,7 @@ parsing, not an optimization.
 
 Commits, oldest first: `7a45925` (feature) · `8461450` · `2d03687` ·
 `b29351a` · `82bc46e` · `b8208db` · `4bba996` · `59d3581` · `05b1df3` ·
-`8e62e6c` · `a9101d8` · `2677f21` · `c7dad0b`.
+`8e62e6c` · `a9101d8` · `2677f21` · `c7dad0b` · `1102576`.
 
 ## 3. Rules that must not be broken
 
@@ -96,47 +101,88 @@ Evidence snapshot from that run:
 `~/leehow/code/.chatrpgv4-handoff/evidence/verified-ingest/` (outside the
 repo, preserved from the session scratchpad).
 
-## 5. Remaining work — NOT verified
+## 5. Opening source review — FIXED and verified on a real ingest
 
-**One blocker.** The opening source review never completes, so its hard gate
-never opens, so the coordinator never claims the `classify_sections` request
-and `section-index.json` never lands. Everything upstream is done.
+The previous blocker (`coc-pdf-skill-adapter: reusable bound page 0 drift`) is
+closed by `1102576`.
 
-Latest failure, with the diagnostic chain now intact:
+**Diagnosis, confirmed by real evidence.** The producer was asked to echo,
+byte-for-byte, the manifest rows of pages overlapping the already-bound
+bundle, and `_validate_reused_bound_pages` compared them for strict equality.
+The failed 11:24 attempt on 2026-08-05 shows exactly what a model does with
+that instruction — the retained page-0 row came back with identical
+`markdown_path`, `text_sha256` and `grep_anchors`, and one relabelled field:
 
 ```
-producer_error: coc-pdf-skill-adapter: reusable bound page 0 drift
+retained : "review_state": "auto_accepted"
+producer : "review_state": "manual_accepted"
 ```
 
-**Cause.** The producer (a Grok child) is asked to echo, byte-for-byte, the
-manifest rows of pages that overlap the already-bound bundle. It
-re-serialized page 0's row. `_validate_reused_bound_pages` compares for strict
-equality and fails the whole review.
+Preserved at
+`~/leehow/code/.chatrpgv4-handoff/evidence/opening-review-prefix-echo-manifest.json`.
 
-**Entry points.**
+**Fix.** The repository now authors those rows. `_splice_retained_bound_pages`
+reads the producer's manifest, replaces every already-bound page's row with the
+retained one, keeps the producer's rows only for pages it newly rendered, and
+rewrites `manifest.json` before the bundle validator runs. `_opening_prompt`
+now tells the producer to select a retained page by *index only* and never to
+restate its row. `_raw_page_for_reuse_equality` is gone;
+`_validate_reused_bound_pages` survives as a post-splice repository invariant.
+A producer that edits a retained page's bytes still fails closed, now with a
+named `reusable bound page N was modified` instead of an anonymous hash
+mismatch.
 
-- `plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py` ~940–990
-  (`_validate_reused_bound_pages`, `_raw_page_for_reuse_equality`,
-  `_reusable_page_row`)
-- the "keep overlapping manifest pages" requirement inside `_opening_prompt`
-  (same file, ~640)
+**Real-ingest evidence** (campaign `vfy2`, real `归于尘埃` PDF, live pi-coc RPC
+session, Grok producer, 2026-08-05 12:18–12:20 — the fix was committed 12:12):
 
-**Suggested fix, matching what already worked twice on this path:** do not ask
-a producer to reproduce bytes it must not change. The repository already holds
-those rows; splice them into the final manifest and let the producer supply
-only the pages it genuinely adds. Compare `b29351a` (state the bundle contract
-instead of making the producer guess) and `b8208db` (repository writes the
-document, worker returns JSON).
+- `opening_source_review_task.status` → `reviewed` → consumed to `fulfilled`,
+  generation 2; `opening_source_provenance` =
+  `coordinator_reviewed_playable_opening`; facts adopted (era 1920s from p3).
+- Reviewed bundle `.tmp/coc-opening-source-review/vfy2/reviewed-17cxzgdf`
+  binds pages `[0, 1, 3]`. Rows 0 and 1 are **byte-identical** to the
+  previously bound manifest rows (spliced by the repository); row 3 is the
+  producer's new page. Copy at
+  `~/leehow/code/.chatrpgv4-handoff/evidence/opening-review-spliced/`.
+- The product then reports, in its own gate payload:
+  `"opening source review is complete; finish the exact canonical investigator
+  link"`, phase `opening_character_setup_required`.
+- Snapshot: `~/leehow/code/.chatrpgv4-handoff/evidence/vfy2-scenario-reviewed.json`.
 
-**Verification loop.** Fix → `uv run --frozen python -m pytest tests/ -q` →
-drive one real ingest (§7) → confirm `opening_source_review_task.status`
-flips to `reviewed` in `.coc/campaigns/<id>/scenario/scenario.json` → confirm
-`section-index.json` and `sections/` appear under the module root. Budget
-10–20 min per review attempt.
+Note the review took two attempts in that session (one earlier failure, then a
+success); retries are cheap and expected. Budget 10–20 min per attempt.
 
 **Earlier misattribution, stated so it is not repeated:** this error was first
 blamed on the page-index base conflict. That conflict was real and is fixed,
-but this failure reproduces on a clean 0-based ingest, so it is independent.
+but this failure reproduced on a clean 0-based ingest, so it was independent.
+
+## 5b. Remaining work — NOT verified
+
+`section-index.json` and `sections/` still do not exist. The section lane is
+one step further along than before but is now blocked by a **different** gate.
+
+- `classify_sections` request `job-6f7311bf86d7` is **open and unclaimed**
+  under `.coc/module-assets/dust-to-dust/host-work/` (`dispatch_state: ready`,
+  `dispatch_attempts: 0`, 23 requested indices).
+  `progressive.status --campaign vfy2` reports `awaiting_host_count: 1` and a
+  present `background_takeover` (`direct_single_leaf`,
+  agent `coc-source-pack-worker`). The coordinator claims it during play.
+- Play never starts. The next hard gate, `opening_character_setup_required`,
+  lists `investigator.create` as an allowed action but rejected roughly twenty
+  live payloads across three turns, each time returning the route again with
+  no validation reason. The acceptance predicate is
+  `plugins/coc-keeper/pi/extensions/index.ts:852` — it demands
+  `creation.method === "quick_fire_array"`, an 8-long
+  `characteristic_assignment_order`, an integer `luck_roll_total`, and a
+  `creation.luck_roll_receipt` whose keys are exactly
+  `campaign_id`/`decision_id`/`roll_id`. The KP never produced the receipt, and
+  `setup.investigator_contract` kept returning a projected payload
+  (`payload_projected: true`) it could not expand while the gate was active.
+  This is a separate systemic gap (a hard gate that rejects without telling the
+  KP which field failed), not a section-index problem.
+
+So: item "coordinator claims `classify_sections`" and item
+"`section-index.json` / `sections/` land" are **unverified**. Everything
+between the bind and the opening-review gate is verified.
 
 ## 6. Landmines
 
@@ -171,6 +217,22 @@ but this failure reproduces on a clean 0-based ingest, so it is independent.
   failed once in a full run and never reproduced (alone, or paired with
   `test_toolbox.py`, or in later full runs). `pytest-randomly` is enabled. Not
   known to be fixed — if it reappears, chase the ordering interaction.
+- **Do not ask a producer to reproduce bytes.** This path has now been fixed
+  three times the same way: state the contract instead of making the producer
+  guess (`b29351a`), let the repository write the document and the worker
+  return JSON (`b8208db`), let the repository author the retained manifest rows
+  (`1102576`). If a new check compares producer output for strict equality
+  against something the repository already holds, the repository should supply
+  it instead.
+- **`scenario.bind_pdf` will not take a raw PDF path.** A live KP asked to
+  "bind this PDF" burns a whole turn discovering that it needs a directory
+  containing `manifest.json`, tries `coc_progressive_ocr export` output
+  (rejected: `external_manifest_required`), and eventually collides with the
+  content-addressed asset root (`cached page 0 content drift ... refused
+  because campaign(s) still reference asset root 'dust-to-dust'`). To exercise
+  the section lane, **resume the existing `vfy2` campaign** rather than binding
+  a fresh one; a new campaign for the same PDF cannot get its own root while
+  `vfy2` holds it.
 - **The workspace is not stable under you.** Two module roots vanished
   mid-session without any delete being issued, and the cause was never
   established. Snapshot artifacts you rely on rather than re-reading them
