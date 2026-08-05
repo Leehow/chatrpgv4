@@ -1519,27 +1519,25 @@ def full_parse_requested_indices(
 ) -> list[int]:
     """The whole-PDF page list full_parse must eventually cache.
 
-    This lane maps ``doc_N`` (0-based) to ``pdf_index = doc_N + 1`` and so
-    requests ``1..page_count``.
+    Module ``pdf_index`` is 0-based.  The base belongs to the source-bundle
+    contract, not to this lane: ``coc_pdf_bundle`` enforces
+    ``0 <= pdf_index < page_count`` and every module ingested through the host
+    PDF skill is stored that way.  The corpus ordinal ``doc_N`` uses the same
+    base, so ``pdf_index = doc_N`` and the requested set is
+    ``0..page_count - 1``.
 
-    KNOWN INCONSISTENCY, not yet resolved: the source-bundle contract uses the
-    other base.  ``coc_pdf_bundle`` enforces ``0 <= pdf_index < page_count``,
-    the host PDF skill's first bundle emits ``pages: [0, 1, 2]``, and every
-    module ingested that way is stored 0-based.  Both lanes write
-    ``pages/NNNN.md`` into the same module root, so a book ingested through
-    both ends up holding each physical page twice under two numbers -- a
-    23-page scenario was observed with 24 cached pages, its cover stored as
-    both 0 and 1, and every later page offset by one between lanes.
-
-    Converging on the bundle's 0-based contract is the likely fix (it matches
-    the stored data and the validator), but it changes what this lane writes
-    and what seven full_parse tests assert, so it needs a deliberate migration
-    rather than an in-place flip.
+    This lane used to offset by one, on the stated belief that the PDF skill
+    numbered pages from 1.  It does not.  Both lanes write ``pages/NNNN.md``
+    into one module root, so the offset cached the same physical page twice:
+    an observed 23-page scenario held 24 pages, with page 3 stored at both
+    index 2 (bundle) and index 3 (OCR) and everything above shifted by one.
+    Content addressing hid most of it -- first-writer-wins silently dropped
+    the OCR pages that collided -- which is why it survived so long.
     """
     page_count = full_parse_page_count(workspace, asset_root_id)
     if not page_count or page_count < 1:
         return []
-    return list(range(1, page_count + 1))
+    return list(range(0, page_count))
 
 
 def ocr_corpus_root(workspace: Path) -> Path:
@@ -1616,10 +1614,10 @@ def register_ocr_corpus(
 
     Mapping and provenance (product design, S1 full-parse lane):
 
-    - OCR page ordinals are 0-based ``doc_N`` and this lane stores
-      ``pdf_index = doc_N + 1``, i.e. scope ``1..page_count``.  See
-      ``full_parse_requested_indices`` for the unresolved conflict with the
-      source-bundle contract's 0-based ``pdf_index``.
+    - OCR ordinals and module ``pdf_index`` share one 0-based scale, so
+      ``pdf_index = doc_N`` and scope is ``0..page_count - 1``.  The base is
+      the source-bundle contract's; this lane must never offset against it or
+      the same physical page lands under two numbers.
     - ``put_page`` content addressing is authoritative: an identical cached
       page is reused silently, a drifted page keeps the existing first writer
       (reviewed first-pack pages win over OCR pages) and records a
@@ -1672,7 +1670,7 @@ def register_ocr_corpus(
     source_id = str(source.get("source_id") or "")
     for doc_path in doc_files:
         doc_num = int(doc_path.stem[len("doc_") :])
-        pdf_index = doc_num + 1  # 0-based OCR ordinal -> 1-based module index
+        pdf_index = doc_num  # corpus ordinal and page cache share one base
         doc_ref = doc_path.name
         if pdf_index not in requested:
             skipped.append({

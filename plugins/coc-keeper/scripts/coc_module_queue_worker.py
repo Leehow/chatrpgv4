@@ -8,7 +8,7 @@ Design (product):
 - The whole-book **full_parse lane is worker-native OCR**: one bounded
   baiduocr bridge call (reusing the sha-keyed corpus when complete) renders
   the entire PDF to page-level markdown, which is registered into
-  module-assets with ``pdf_index = doc_N + 1`` and unreviewed baiduocr
+  module-assets with ``pdf_index = doc_N`` (one shared 0-based scale) and unreviewed baiduocr
   provenance.  The external pdf-skill batch renderer path is retired for
   full_parse; the worker closes, retries (bounded, backoff), or cancels the
   job with an explicit ``next_operation`` so the lane never strands.
@@ -1790,7 +1790,7 @@ def _write_host_work_request(
             "book parse bookkeeping, never a PDF-skill render handoff.  The "
             "background worker runs the whole-book baiduocr bridge (reusing "
             "the sha-keyed corpus when complete), then registers every corpus "
-            "page doc_N.md into module-assets with pdf_index = doc_N + 1 via "
+            "page doc_N.md into module-assets with pdf_index = doc_N via "
             "put_page: identical pages skip, drifted pages keep the existing "
             "first writer and record provenance, and page meta carries "
             "{source: baiduocr, unreviewed: true, doc_ref}.  Do not render "
