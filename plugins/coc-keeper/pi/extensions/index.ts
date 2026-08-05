@@ -5673,6 +5673,18 @@ export async function autoDispatchPiRawPdfBindBundle(
     if (deps.isCurrent()) deps.onTerminal(entry);
     return entry;
   };
+  // A producer that never got to answer says nothing about this PDF, so its
+  // outcome must not be remembered as this path's verdict. Terminal states are
+  // cached per dispatch key, so without this a single dropped connection made
+  // the book unbindable for the rest of the session: every later attempt
+  // replayed the cached failure, and the Keeper -- correctly refusing to
+  // hammer a terminal result -- had no way forward. The opening review path
+  // already distinguishes these; this one did not.
+  const retryable = (entry: JsonObject) => {
+    deps.audit(entry);
+    deps.states.delete(key);
+    return entry;
+  };
   if (!deps.isCurrent()) {
     return finish({ status: "failed", dispatch_key: key, failure_class: "session_closed" });
   }
@@ -5780,17 +5792,24 @@ export async function autoDispatchPiRawPdfBindBundle(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    return finish({
-      status: "failed", dispatch_key: key,
-      failure_class: controller.signal.aborted
-        ? "raw_pdf_bind_bundle_aborted"
-        : message.includes("timed out")
-          ? "raw_pdf_bind_bundle_timeout"
-          : message.includes("capability")
-            ? "raw_pdf_bind_bundle_preflight_failed"
-            : "raw_pdf_bind_bundle_failed",
+    const aborted = controller.signal.aborted;
+    const failureClass = aborted
+      ? "raw_pdf_bind_bundle_aborted"
+      : message.includes("timed out")
+        ? "raw_pdf_bind_bundle_timeout"
+        : message.includes("capability")
+          ? "raw_pdf_bind_bundle_preflight_failed"
+          : "raw_pdf_bind_bundle_failed";
+    const entry = {
+      status: "failed", dispatch_key: key, failure_class: failureClass,
       ...(message ? { producer_error: locatorDiagnostic(message) } : {}),
-    });
+    };
+    // A preflight rejection is a property of this environment and will repeat;
+    // everything else here is the producer failing to answer, which the next
+    // attempt may well get past.
+    return failureClass === "raw_pdf_bind_bundle_preflight_failed"
+      ? finish(entry)
+      : retryable(entry);
   } finally {
     if (deps.controllers.get(key) === controller) deps.controllers.delete(key);
   }
