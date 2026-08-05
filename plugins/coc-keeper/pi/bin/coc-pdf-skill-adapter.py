@@ -222,6 +222,26 @@ def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
     return task
 
 
+# A failing child's stderr is redacted because a producer that got far enough
+# to read the book can echo source text into it.  A *short* stderr cannot: it
+# is a launch, usage, or credential error, and it is the only evidence of the
+# one failure mode that is otherwise completely undiagnosable from outside.
+# Surface those bounded bytes and keep redacting anything long enough to carry
+# content.
+CHILD_STDERR_SAFE_BYTES = 200
+
+
+def _child_failure_detail(returncode: int, stderr: str | None) -> str:
+    raw = (stderr or "").encode()
+    if 0 < len(raw) <= CHILD_STDERR_SAFE_BYTES:
+        detail = " ".join(raw.decode("utf-8", errors="replace").split())
+        return f"Pi PDF lifecycle failed (exit {returncode}): {detail}"
+    return (
+        f"Pi PDF lifecycle failed (exit {returncode}); stderr redacted "
+        f"({len(raw)} bytes)"
+    )
+
+
 def _terminate_process_group(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
@@ -296,10 +316,7 @@ def _run_pi(
             _terminate_process_group(process)
             _fail("Pi PDF lifecycle timed out")
         if process.returncode != 0:
-            _fail(
-                "Pi PDF lifecycle failed; stderr redacted "
-                f"({len((stderr or '').encode())} bytes)"
-            )
+            _fail(_child_failure_detail(process.returncode, stderr))
         payload = (stdout or "").encode()
         if len(payload) > MAX_OUTPUT_BYTES:
             _fail("Pi PDF producer receipt exceeds output limit")
