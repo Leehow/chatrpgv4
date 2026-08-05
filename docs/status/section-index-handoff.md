@@ -93,7 +93,8 @@ The stat blocks that no location edge points at (`人物数据` plus 17 named
 NPCs) are addressable index candidates at p20–22.
 
 Evidence snapshot from that run:
-`scratchpad/evidence/verified-ingest/` (session scratchpad, may be gone).
+`~/leehow/code/.chatrpgv4-handoff/evidence/verified-ingest/` (outside the
+repo, preserved from the session scratchpad).
 
 ## 5. Remaining work — NOT verified
 
@@ -184,10 +185,10 @@ keyword routing, scene-template banks) are banned — see `Agents.md`
 §*Standing Memory: Never Self-Authorize a Different Playtest Method*. Any
 non-default method needs the user's explicit permission in the current turn.
 
-The session harness used here (`piplay.py` in the session scratchpad) is a
-thin `pi --mode rpc` driver: `start <id>`, `say <id> "<text>" --timeout N`,
-`stop <id>`. It drives the real product; it does not stand in for it. Rebuild
-an equivalent if the scratchpad is gone.
+The session harness used here is a thin `pi --mode rpc` driver preserved at
+`~/leehow/code/.chatrpgv4-handoff/piplay.py`: `start <id>`,
+`say <id> "<text>" --timeout N`, `stop <id>`. It drives the real product; it
+does not stand in for it.
 
 Useful probes:
 
