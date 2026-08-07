@@ -3100,6 +3100,11 @@ export class OpeningTerminalContinuationGate {
     }
 
     if (operation === "progressive.opening_bootstrap") {
+      // Canonical already decided the bootstrap outcome. Pi must not re-judge
+      // status labels (queued/coalesced/capability_status routing tags): when
+      // the envelope carries an exact coordinator task, dispatch it; when it
+      // is still queued without a task, keep waiting — never terminal-fail a
+      // live materialization as opening_source_failure.
       const task = findAutoDispatchTask(value);
       const packet = task ? objectOrNull(task.packet) : null;
       const dispatchIdentity = typeof packet?.packet_id === "string"
@@ -3143,6 +3148,23 @@ export class OpeningTerminalContinuationGate {
           reason: state.characterSetupComplete
             ? "opening_bootstrap_current"
             : "opening_bootstrap_current_waiting_for_character",
+        };
+      }
+      const sourceWork = objectOrNull(data?.source_work);
+      const bootstrapStatus = String(
+        sourceWork?.status ?? data?.status ?? "",
+      );
+      if (
+        envelope?.ok === true
+        && (bootstrapStatus === "queued" || bootstrapStatus === "coalesced")
+      ) {
+        // Live pending materialization. Do not mark a terminal blocker: the
+        // host-work job is on disk and a later recoverability path (or a fixed
+        // wire projection that restores the takeover) can still claim it.
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "opening_bootstrap_queued_awaiting_dispatch",
         };
       }
       this.finalizeOpeningSetupAttempt(invocationId);
@@ -7645,30 +7667,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             || bootstrapSourceStatus === "coalesced"
           )
         ) {
-          const contractViolation = {
-            status: "contract_violation",
-            failure_class: "opening_coordinator_task_missing",
-            source_status: bootstrapSourceStatus,
-          };
+          // Canonical already accepted a live queued/coalesced materialization.
+          // Missing takeover here is a transport/projection gap, not a terminal
+          // opening_source_failure: surface the canonical receipt and let the
+          // materialization gate's dispatch_lost recoverability re-arm later.
           try {
             pi.appendEntry(
               "coc-source-coordinator-auto-dispatch",
-              contractViolation,
+              {
+                status: "deferred",
+                failure_class: "opening_coordinator_task_missing",
+                source_status: bootstrapSourceStatus,
+              },
             );
           } catch { /* audit is best effort */ }
-          openingContinuationGate.markOpeningSetupRouteAttemptFailure(
-            _id,
-            params,
-            failedBlockingOpeningEnvelope(
-              contractViolation,
-              "opening_coordinator_task_missing",
-            ),
-          );
           flushOpeningSetupAudits();
-          throw new Error(
-            "canonical opening bootstrap returned unresolved source work "
-            + "without an exact coordinator task",
-          );
+          return result(value);
         }
         if (dispatchKey) {
           let projectionParams: JsonObject;

@@ -1115,6 +1115,70 @@ def _project_register_source_bundle(value: Any) -> Any:
     return projected
 
 
+def _project_opening_bootstrap(value: Any) -> Any:
+    """Keep the queued bootstrap receipt and Pi dispatch takeover under budget.
+
+    A live opening_bootstrap result nests ``source_work.background_takeover``
+    with a duplicated coordinator packet plus bulky skeleton/sparse rows. Card
+    decoration then pushes the envelope over the inline budget, and the generic
+    identity-only fallback strips the takeover entirely. The Pi observer treats
+    a missing task as ``opening_bootstrap_result_invalid`` and never spawns the
+    coordinator, so the job sits ready forever. Keep the lifecycle core and the
+    slimmed nested takeover; drop the rest.
+    """
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    projected = _pick(
+        value,
+        (
+            "status",
+            "idempotent",
+            "asset_root_id",
+            "source_file_sha256",
+            "start_location",
+            "opening_pdf_indices",
+            "projection_watch",
+            "background_takeover",
+        ),
+    )
+    source_work = value.get("source_work")
+    if isinstance(source_work, dict):
+        projected_source = _pick(
+            source_work,
+            (
+                "status",
+                "idempotent",
+                "asset_root_id",
+                "start_location_id",
+                "request_purpose",
+                "source_scope_signature",
+                "job_id",
+                "dedupe_state",
+                "worker_kick",
+                "host_request_id",
+                "stub_created",
+                "background_takeover",
+            ),
+        )
+        host_work = source_work.get("host_work")
+        if isinstance(host_work, dict):
+            projected_source["host_work"] = _project_source_work_lifecycle(
+                host_work,
+            )
+            projected_source["host_work"].pop("background_takeover", None)
+        takeover = projected_source.get("background_takeover")
+        if isinstance(takeover, dict):
+            projected_source["background_takeover"] = _slim_background_takeover(
+                takeover,
+            )
+        projected["source_work"] = projected_source
+    if isinstance(projected.get("background_takeover"), dict):
+        projected["background_takeover"] = _slim_background_takeover(
+            projected["background_takeover"]
+        )
+    return projected
+
+
 def _compact_narrative_opportunity(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -1895,15 +1959,38 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
     if operation in {
         "progressive.register_source_bundle",
         "progressive.status",
+        "progressive.opening_bootstrap",
     }:
         # Host dispatch fields are operation-critical: losing them turns a
         # background job into invisible debt the KP cannot advance. Keep the
         # exact takeover and dependency waits even in the last-resort identity
-        # projection.
+        # projection. opening_bootstrap nests its production takeover under
+        # source_work; preserve that path too so Pi can still auto-dispatch.
         if isinstance(data.get("background_takeover"), dict):
             projected["background_takeover"] = _slim_background_takeover(
                 data["background_takeover"]
             )
+        source_work = data.get("source_work")
+        if isinstance(source_work, dict):
+            projected_source = _pick(
+                source_work,
+                (
+                    "status",
+                    "job_id",
+                    "worker_kick",
+                    "host_request_id",
+                    "background_takeover",
+                ),
+            )
+            takeover = projected_source.get("background_takeover")
+            if isinstance(takeover, dict):
+                projected_source["background_takeover"] = (
+                    _slim_background_takeover(takeover)
+                )
+            if projected_source:
+                projected["source_work"] = projected_source
+                if projected.get("status") is None and source_work.get("status") is not None:
+                    projected["status"] = source_work.get("status")
         host_work = data.get("host_work")
         if isinstance(host_work, dict):
             waits = [
@@ -2257,6 +2344,8 @@ def project_envelope(
         projector = _project_progressive_status
     elif operation == "progressive.register_source_bundle":
         projector = _project_register_source_bundle
+    elif operation == "progressive.opening_bootstrap":
+        projector = _project_opening_bootstrap
     elif operation == "actions.advise":
         projector = _project_actions
     elif operation == "npc.reaction":

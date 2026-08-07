@@ -12228,7 +12228,14 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
     assert context["error"]["details"]["phase"] == (
         "opening_source_materialization"
     )
-    assert context["error"]["details"]["next_operation"] is None
+    # Pending materialization always carries an honest lifecycle card; never
+    # leave next_operation=null while the watch is still live.
+    next_operation = context["error"]["details"]["next_operation"]
+    assert isinstance(next_operation, dict)
+    assert next_operation["operation"] in {
+        "progressive.status",
+        "progressive.opening_bootstrap",
+    }
 
 
 def test_opening_setup_source_clock_preserves_relative_precision(
@@ -17256,6 +17263,9 @@ def test_pending_watch_with_no_live_owner_re_arms_the_bootstrap(
     null` with "wait" on every turn, permanently. Observed live on campaign
     vfy2: the Keeper correctly replied with empty turns because it was told to
     wait for an event that could never arrive.
+
+    With no open host-work rows the never-leased short grace applies
+    (dispatch_lost); the re-arm card shape is the same as resolver_lost.
     """
     monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
     ws = _opening_component_workspace(tmp_path)
@@ -17271,7 +17281,7 @@ def test_pending_watch_with_no_live_owner_re_arms_the_bootstrap(
     assert blocked["ok"] is False, blocked
     details = blocked["error"]["details"]
     assert details["phase"] == "opening_source_materialization"
-    assert details["source_lifecycle_status"] == "resolver_lost"
+    assert details["source_lifecycle_status"] == "dispatch_lost"
     assert details["retained_start_location_id"] == "opening"
 
     next_operation = details["next_operation"]
@@ -17302,14 +17312,19 @@ def test_re_arm_falls_back_to_a_missing_start_location(
 
     blocked = _run(ws, "scene.map")
     details = blocked["error"]["details"]
-    assert details["source_lifecycle_status"] == "resolver_lost"
+    assert details["source_lifecycle_status"] == "dispatch_lost"
     next_operation = details["next_operation"]
     assert "start_location" not in next_operation["prefilled_arguments"]
     assert next_operation["missing_arguments"] == ["start_location"]
 
 
 def test_a_young_pending_watch_still_waits(tmp_path: Path, monkeypatch):
-    """The normal window between an accepted bootstrap and the first claim."""
+    """The normal window between an accepted bootstrap and the first claim.
+
+    Pending must never leave next_operation=null: hand back an honest
+    progressive.status poll card while the short never-leased grace has not
+    elapsed.
+    """
     monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
     ws = _opening_component_workspace(tmp_path)
     monkeypatch.setenv("COC_HOST", "pi")
@@ -17319,8 +17334,107 @@ def test_a_young_pending_watch_still_waits(tmp_path: Path, monkeypatch):
     assert blocked["ok"] is False, blocked
     details = blocked["error"]["details"]
     assert details["source_lifecycle_status"] == "pending"
-    assert details["next_operation"] is None
+    next_operation = details["next_operation"]
+    assert isinstance(next_operation, dict), (
+        "pending materialization must never leave next_operation=null"
+    )
+    assert next_operation["operation"] == "progressive.status"
+    assert next_operation["prefilled_arguments"]["asset_root_id"] == (
+        ws["asset_root_id"]
+    )
     assert "resolver" not in details["instruction"]
+    assert "dispatch_lost" not in details["instruction"]
+
+
+def test_pending_watch_never_leased_past_short_grace_is_dispatch_lost(
+    tmp_path: Path, monkeypatch,
+):
+    """Ready host-work that was never claimed must re-arm before the 900s grace.
+
+    Observed live: bootstrap wrote a ready job (attempts=0, no lease) but the
+    Pi observer never spawned the coordinator. Waiting out the full 900s
+    resolver_lost window leaves the table wedged; the short never-leased grace
+    (150s) must surface dispatch_lost + bootstrap re-arm instead.
+    """
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    from datetime import datetime, timedelta, timezone
+
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    _pending_opening_watch(ws, age_seconds=180)
+    module_dir = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+    )
+    module_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(module_dir / "skeleton.json", ws["skeleton"])
+    host_work = module_dir / "host-work"
+    host_work.mkdir(parents=True, exist_ok=True)
+    assets = _load("coc_module_assets_watch_probe", SCRIPTS / "coc_module_assets.py")
+    _write_json(host_work / "job-never-leased.json", {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": "job-never-leased",
+        "kind": "partial_opening",
+        "target_id": "opening",
+        "work_level": "bounded_warm",
+        "dispatch_state": "ready",
+        "dispatch_attempts": 0,
+        "requested_pdf_indices": [0],
+        "cached_scope_complete": True,
+    })
+
+    blocked = _run(ws, "scene.map")
+    assert blocked["ok"] is False, blocked
+    details = blocked["error"]["details"]
+    assert details["phase"] == "opening_source_materialization"
+    assert details["source_lifecycle_status"] == "dispatch_lost"
+    next_operation = details["next_operation"]
+    assert isinstance(next_operation, dict)
+    assert next_operation["operation"] == "progressive.opening_bootstrap"
+    assert next_operation["prefilled_arguments"]["opening_pdf_indices"] == [0]
+
+
+def test_pending_watch_once_leased_uses_long_resolver_grace(
+    tmp_path: Path, monkeypatch,
+):
+    """Once-leased work keeps the 900s resolver_lost grace, not the short one.
+
+    dispatch_attempts>0 means a coordinator claimed at least once; disappearing
+    mid-batch must not be mistaken for never-dispatched ready work at 150s.
+    """
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    _pending_opening_watch(ws, age_seconds=180)
+    module_dir = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+    )
+    host_work = module_dir / "host-work"
+    host_work.mkdir(parents=True, exist_ok=True)
+    assets = _load("coc_module_assets_watch_probe", SCRIPTS / "coc_module_assets.py")
+    _write_json(host_work / "job-once-leased.json", {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": "job-once-leased",
+        "kind": "partial_opening",
+        "target_id": "opening",
+        "work_level": "bounded_warm",
+        "dispatch_state": "ready",
+        "dispatch_attempts": 1,
+        "requested_pdf_indices": [0],
+        "cached_scope_complete": True,
+    })
+
+    blocked = _run(ws, "scene.map")
+    details = blocked["error"]["details"]
+    assert details["source_lifecycle_status"] == "pending"
+    assert details["next_operation"]["operation"] == "progressive.status"
+
+    _pending_opening_watch(ws, age_seconds=6000)
+    blocked_old = _run(ws, "scene.map")
+    details_old = blocked_old["error"]["details"]
+    assert details_old["source_lifecycle_status"] == "resolver_lost"
+    assert details_old["next_operation"]["operation"] == (
+        "progressive.opening_bootstrap"
+    )
 
 
 def test_an_old_pending_watch_with_leased_work_still_waits(
@@ -17359,4 +17473,8 @@ def test_an_old_pending_watch_with_leased_work_still_waits(
     assert blocked["ok"] is False, blocked
     details = blocked["error"]["details"]
     assert details["source_lifecycle_status"] == "pending"
-    assert details["next_operation"] is None
+    next_operation = details["next_operation"]
+    assert isinstance(next_operation, dict), (
+        "pending materialization must never leave next_operation=null"
+    )
+    assert next_operation["operation"] == "progressive.status"

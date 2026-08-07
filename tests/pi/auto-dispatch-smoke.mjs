@@ -966,6 +966,52 @@ async function exerciseFailureDrain(mode) {
   }) === null);
 }
 
+// Canonical queued opening_bootstrap + nested takeover must be accepted for
+// dispatch. Observed live deadlock: wire identity-only stripped the takeover
+// and the observer projected opening_bootstrap_result_invalid / terminal
+// blocker while the job sat ready forever. Pi must not re-judge canonical
+// status labels (queued + capability_status routing tag).
+{
+  const campaignId = "opening-bootstrap-queued-accept";
+  const gate = new main.OpeningTerminalContinuationGate();
+  bindOpeningRoute(gate, campaignId, "queued-accept-bind");
+  prepareOpeningRoute(gate, campaignId, "queued-accept-prepare");
+  const task = coordinatorTask("coord-queued-accept", { campaignId });
+  const params = bootstrapOpeningParams(campaignId);
+  const invocationId = "queued-accept-bootstrap";
+  const admissionError = gate.openingSetupToolError(
+    "coc_invoke",
+    params,
+    invocationId,
+  );
+  check("queued bootstrap admitted on retained route", admissionError === null);
+  const envelope = openingBootstrapResult(task);
+  // Real Pi takeover carries this routing label; it is not a runtime failure.
+  envelope.data.source_work.background_takeover.capability_status = (
+    "unavailable_pending_real_lifecycle_probe"
+  );
+  check(
+    "extractor finds queued bootstrap task with capability_status label",
+    JSON.stringify(findAutoDispatchTask(envelope)) === JSON.stringify(task),
+  );
+  const observed = gate.observeOpeningSetupInvocation(
+    "progressive.opening_bootstrap",
+    params,
+    envelope,
+    invocationId,
+  );
+  check(
+    "observer accepts canonical queued bootstrap for dispatch",
+    observed.accepted === true
+      && observed.dispatchAllowed === true
+      && observed.reason === "opening_bootstrap_dispatch_accepted",
+  );
+  check(
+    "observer does not reject live queued bootstrap as invalid",
+    observed.reason !== "opening_bootstrap_result_invalid",
+  );
+}
+
 // Matching takeover triggers exactly one submit with the exact task.
 {
   const task = coordinatorTask();
@@ -8069,8 +8115,9 @@ for (const terminalCase of [
   await harness.shutdown();
 }
 
-// Queued/coalesced opening output without a takeover is a canonical contract
-// violation. Reject it without manufacturing false source-terminal evidence.
+// Queued/coalesced opening output without a takeover is a transport gap, not a
+// terminal opening_source_failure. Surface the canonical receipt, audit the
+// missing task as deferred, and let the materialization gate recover later.
 {
   const task = coordinatorTask("coord-main-opening-no-takeover");
   const harness = mainExtensionHarness((_name, params) => {
@@ -8089,8 +8136,9 @@ for (const terminalCase of [
   await harness.start();
   await armOpeningBootstrapRoute(harness);
   let rejection;
+  let toolResult;
   try {
-    await harness.registered.get("coc_invoke").execute(
+    toolResult = await harness.registered.get("coc_invoke").execute(
       "invoke-opening-no-takeover",
       {
         operation: "progressive.opening_bootstrap",
@@ -8111,10 +8159,13 @@ for (const terminalCase of [
     entry.name === "coc-source-coordinator-auto-dispatch"
     && entry.value?.failure_class === "opening_coordinator_task_missing"
   ));
-  check("queued opening without takeover is rejected as corruption",
-    rejection instanceof Error
-    && rejection.message.includes("without an exact coordinator task")
-    && audit?.value?.status === "contract_violation"
+  const returned = toolResult?.details ?? null;
+  check("queued opening without takeover stays non-terminal",
+    rejection === undefined
+    && returned?.ok === true
+    && returned?.data?.status === "queued"
+    && returned?.data?.source_work?.status === "queued"
+    && audit?.value?.status === "deferred"
     && audit.value.source_status === "queued"
     && !Object.hasOwn(audit.value, "source_dependency_terminal")
     && harness.launches.length === 0

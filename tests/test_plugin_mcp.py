@@ -3411,6 +3411,116 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
 
 
 
+def test_mcp_wire_opening_bootstrap_keeps_nested_takeover_under_budget():
+    """Queued opening_bootstrap must keep source_work.background_takeover.
+
+    Live deadlock: the full bootstrap envelope plus card decoration exceeded
+    the inline budget, identity-only stripped the nested takeover, and the Pi
+    observer rejected the otherwise-valid queued result so the coordinator
+    never spawned.
+    """
+    server = _load_server()
+    coordinator = server.toolbox._pi_source_coordinator_dispatch(
+        workspace_root="/workspace",
+        campaign_id="wire-bootstrap",
+        asset_root_id="source-root",
+        ready_background=[{
+            "job_id": "job-opening",
+            "work_group_id": "group-opening",
+        }],
+    )
+    background_takeover = {
+        "schema_version": 1,
+        "kind": "ready_background_source_work",
+        "dispatch_mode": "coordinator_fanout",
+        "host_adapter": "pi",
+        "capability_status": "unavailable_pending_real_lifecycle_probe",
+        "coordinator_dispatch": coordinator,
+        "next_host_action": {
+            "schema_version": 1,
+            "action": "invoke_coc_dispatch_source_work",
+            "task": coordinator["pi_task"],
+            "parent_waits": False,
+            "parent_result_polls": 0,
+            "parent_output_retrieval": False,
+        },
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+    bulky = "opening skeleton location narrative " * 400
+    data = {
+        "status": "queued",
+        "idempotent": False,
+        "asset_root_id": "source-root",
+        "source_file_sha256": "a" * 64,
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+        "skeleton_store": {"locations": [{"detail": bulky}]},
+        "sparse_projection": {"scenes": [{"detail": bulky}]},
+        "projection_watch": {
+            "schema_version": 1,
+            "status": "pending",
+            "start_location_id": "opening",
+        },
+        "source_work": {
+            "status": "queued",
+            "job_id": "job-opening",
+            "worker_kick": {
+                "started": False,
+                "reason": "caller_owns_materialization",
+            },
+            "host_request_id": "job-opening",
+            "host_work": {
+                "asset_root_id": "source-root",
+                "campaign_id": "wire-bootstrap",
+                "open_host_work": [{"job_id": "job-opening", "detail": bulky}],
+                "background_takeover": background_takeover,
+            },
+            "background_takeover": background_takeover,
+        },
+    }
+    envelope = {
+        "ok": True,
+        "tool": "progressive.opening_bootstrap",
+        "data": data,
+        "warnings": [],
+        "hints": [],
+    }
+    assert server.wire_projection.transport_bytes(envelope) > (
+        server.wire_projection.MAX_INLINE_BYTES // 2
+    )
+    projected = server.wire_projection.project_envelope(
+        "progressive.opening_bootstrap",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"].get("identity_only") is not True
+    data_out = projected["data"]
+    assert data_out["status"] == "queued"
+    assert "skeleton_store" not in data_out
+    source_work = data_out["source_work"]
+    assert source_work["status"] == "queued"
+    assert source_work["worker_kick"]["reason"] == (
+        "caller_owns_materialization"
+    )
+    bg = source_work["background_takeover"]
+    assert bg["capability_status"] == (
+        "unavailable_pending_real_lifecycle_probe"
+    )
+    assert bg["next_host_action"]["action"] == (
+        "invoke_coc_dispatch_source_work"
+    )
+    assert bg["next_host_action"]["task"]["contract_id"] == (
+        "coc.pi-source-coordinator-task.v1"
+    )
+    assert bg["next_host_action"]["task"]["packet"]["packet_id"]
+    assert "coordinator_dispatch" not in bg
+
+
 def test_mcp_wire_register_source_bundle_keeps_takeover_when_exceeding_budget():
     server = _load_server()
     coordinator = server.toolbox._pi_source_coordinator_dispatch(
