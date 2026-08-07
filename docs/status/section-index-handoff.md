@@ -160,29 +160,282 @@ but this failure reproduced on a clean 0-based ingest, so it was independent.
 `section-index.json` and `sections/` still do not exist. The section lane is
 one step further along than before but is now blocked by a **different** gate.
 
-- `classify_sections` request `job-6f7311bf86d7` is **open and unclaimed**
-  under `.coc/module-assets/dust-to-dust/host-work/` (`dispatch_state: ready`,
-  `dispatch_attempts: 0`, 23 requested indices).
-  `progressive.status --campaign vfy2` reports `awaiting_host_count: 1` and a
-  present `background_takeover` (`direct_single_leaf`,
-  agent `coc-source-pack-worker`). The coordinator claims it during play.
-- Play never starts. The next hard gate, `opening_character_setup_required`,
-  lists `investigator.create` as an allowed action but rejected roughly twenty
-  live payloads across three turns, each time returning the route again with
-  no validation reason. The acceptance predicate is
-  `plugins/coc-keeper/pi/extensions/index.ts:852` — it demands
-  `creation.method === "quick_fire_array"`, an 8-long
-  `characteristic_assignment_order`, an integer `luck_roll_total`, and a
-  `creation.luck_roll_receipt` whose keys are exactly
-  `campaign_id`/`decision_id`/`roll_id`. The KP never produced the receipt, and
-  `setup.investigator_contract` kept returning a projected payload
-  (`payload_projected: true`) it could not expand while the gate was active.
-  This is a separate systemic gap (a hard gate that rejects without telling the
-  KP which field failed), not a section-index problem.
+- ~~`classify_sections` is open and unclaimed~~ — it **could not be claimed at
+  all** (19569 bytes against a 16384-byte claim budget). Fixed and verified: it
+  now reaches `leased`. See §5d. It came back `coordinator_partial`, so the
+  section lane is still unverified for a *new* reason — leaf output, not
+  transport. See §5g.
+- ~~Play never starts~~ — **play now starts.** The character-setup gate (§5c),
+  the pending-watch deadlock (§5e), and the dispatch-attempt dead end (§5f) are
+  all fixed and verified in live play, with dice on disk. See §5g.
 
 So: item "coordinator claims `classify_sections`" and item
 "`section-index.json` / `sections/` land" are **unverified**. Everything
 between the bind and the opening-review gate is verified.
+
+## 5c. Character-setup gate — fixed and verified in live play
+
+`ACTIVE_IMPLEMENTATION_TRACK=pi-coc`. Codex-host implementation, adapters,
+prompts, launchers, tests, and docs were off-limits for this work.
+`plugins/coc-keeper/scripts/coc_mcp_wire.py` is shared kernel and was **not**
+authorized, so it is unchanged; both fixes are Pi-side only.
+
+Two systemic gaps, both in `plugins/coc-keeper/pi/extensions/index.ts`:
+
+1. **The gate refused without naming the failing field.** The catch-all
+   rejection echoed the retained route for every refusal, so a KP holding a
+   near-miss create payload had nothing to converge on. The create branch of
+   `canonicalSetupInvokeForOpening` now delegates to
+   `investigatorCreatePayloadFailures`, which collects field-name tokens; the
+   boolean predicate is `failures.length === 0`, so message and check cannot
+   drift. `openingInvestigatorCreateRejection` returns those tokens **plus**
+   the retained route (route-after, not route-instead) — every rejection still
+   leaves the KP holding the route. Field names and schema-declared literals
+   only; supplied values and source text are never echoed.
+2. **The KP was told its schema had been truncated when it had not been.**
+   `wire.payload_projected` is set from `projector is not None`, so it reads
+   `true` even for a no-op projection. Reading that alone, the KP concluded
+   `payload_schema` was incomplete and spent the gate trying to re-fetch a
+   fuller one (`include_full_schema: true`, `coc_discover`) — both refused,
+   closing the loop. `projectPiGuidedCharacterContract` now stamps
+   `result.payload_schema_projection` stating truthfully that the schema is
+   complete for the selected input mode, listing only the unusable branches it
+   dropped, and saying no fuller schema exists.
+
+**Measured, not assumed.** The raw contract for `vfy2` is 15145 bytes against
+the 16384 budget and already carried a complete `payload_schema`; the KP always
+had `quick_fire_creation`, including `luck_roll_receipt` documented as *"Exact
+roll_id returned by the canonical rules.roll_dice receipt."* `rules.roll_dice`
+has no wire projector, so its `roll_id` always reached the KP. The receipt was
+discoverable the whole time — the misleading flag, not a missing field, is what
+deadlocked the opening. After the Pi projection the envelope is 14044 bytes,
+1.4 KiB *more* headroom than before.
+
+**Live verification** (`pi --mode rpc`, campaign `vfy2`, Grok-4.5 as KP, one
+player line per turn, via `~/leehow/code/.chatrpgv4-handoff/piplay.py`): the KP
+cleared the gate on its own inside a single turn, where it previously burned
+three turns and ~20 payloads and quit. On disk:
+
+```
+.coc/investigators/lin-zhiyuan/creation.json
+  input_mode: guided_quick_fire   method: quick_fire_array
+  luck_roll_total: 10
+  luck_roll_receipt: {campaign_id: vfy2, decision_id: vfy2-linzhiyuan-luck-001,
+                      roll_id: toolbox-vfy2-000004}
+  assignment_order: [EDU, INT, POW, APP, DEX, CON, SIZ, STR]
+.coc/campaigns/vfy2/save/investigator-state/lin-zhiyuan.json   current_luck: 50
+.coc/campaigns/vfy2/assets/character-cards/lin-zhiyuan/investigator-character-card.md
+```
+
+`create` → `link_investigator` → `render_card` all succeeded, and Luck 50
+traces to canonical roll `toolbox-vfy2-000004`. The one create that did fail
+failed *downstream* on real rules arithmetic
+(`skill_budget.occupation_points ... 250 must equal 320/320`) — a precise,
+convergeable message, and the KP fixed it the next turn.
+
+Regression coverage: `tests/pi/auto-dispatch-smoke.mjs` (refusal names the
+missing luck receipt and its `rules.roll_dice` source; names every failing
+field at once without echoing values) and
+`tests/pi/guided-character-contract-smoke.mjs` (completeness marker is present
+and truthful for both input modes). `tests/test_pi_package.py`,
+`tests/test_plugin_metadata.py`, `tests/test_investigator_contract_discovery.py`
+— 121 passed, including the previously flaky
+`test_pi_auto_dispatch_uses_named_paths_and_bounded_pending_queues`.
+
+## 5d. Root cause of the section lane — `classify_sections` cannot be claimed
+
+**Corrects an earlier reading in this file.** `job-6f7311bf86d7` is not sitting
+"open and unclaimed" waiting for a free coordinator. **It cannot be claimed at
+all**, and it never could be. Everything below is from the live `gatefix1`
+session audit (`~/.pi/coc-agent/sessions/--Users-haoli-leehow-code-chatrpgv4--/
+2026-08-06T01-31-28-004Z_gatefix1.jsonl`) plus direct measurement.
+
+The dispatch **succeeded**:
+
+```
+coc-source-coordinator-auto-dispatch  { status: submitted,
+                                        dispatch_key: source-coordinator-0ea6571628f1c8e55eef }
+```
+
+Then the coordinator ran and failed on the claim:
+
+```
+status: failed   failure_class: leaf_result_invalid
+claim_calls: 1   claimed_packet_count: 2   leaf_task_count: 2
+fulfilled_result_count: 0
+diagnostics: 2x { phase: claim_projection,
+                  code: claim_wire_projection_failed,
+                  validation_path: claim.wire.claim_dispatch_projection_failed }
+             job_ids: [job-ccac683bd6e7], [job-6f7311bf86d7]
+```
+
+`progressive.claim_host_work` exceeded the 16 KiB `keeper_hot_v1` transport
+budget, so `coc_mcp_wire.py:2323-2335` replaced the result with
+`_claim_projection_failure` and **both leases were voided**. Measured sizes:
+
+| job | kind | bytes | fits 16384? |
+| --- | --- | --- | --- |
+| `job-ccac683bd6e7` | `partial_opening` (1 index) | 11820 | yes |
+| `job-6f7311bf86d7` | `classify_sections` (23 indices) | **24662** | **no** |
+
+`limit: 2` comes from the repository-produced packet (`max_leaves = 2`), so the
+two were claimed together — 36 KiB against a 16 KiB budget. But **lowering the
+limit does not fix this**: `classify_sections` alone is already 1.5x the whole
+budget. Inside it, `classification_request.candidates` is 42 whole-book section
+candidates at 16399 bytes — 74% of the job, and by itself over budget. A
+whole-book classification request is inherently too big for the hot claim
+envelope. Note `classification_request.chunk` already exists as a field.
+
+**This is why `section-index.json` and `sections/` never appear.** It is not a
+coordinator availability problem and not a KP discipline problem.
+
+### What was fixed here, and what was not
+
+Fixed (Pi track, authorized): the **false reason**. `index.ts:5682` returns a
+bare `null` when the manager already owns a dispatch key — which is the normal
+state on every retry after the first attempt terminates — and the caller mapped
+any `null` onto `coordinator_capability_unavailable`, a capability that
+`piCoordinatorEnabled()` reports as **true**. New
+`coordinatorDispatchNullReason` reads the manager and reports the real terminal
+`failure_class` plus its diagnostic codes; only a genuinely unknown dispatch key
+is still reported as a capability question. Covered in
+`tests/pi/auto-dispatch-smoke.mjs`.
+
+**Not fixed:** the claim budget itself. Every candidate repair lands in
+shared-kernel files that were **not authorized** for this work —
+`plugins/coc-keeper/scripts/coc_mcp_wire.py` (the claim projector) and/or
+`plugins/coc-keeper/scripts/coc_toolbox.py` (what `claim_host_work` inlines and
+how `max_leaves` is chosen). The Pi side cannot repair it honestly: the packet
+is repository-authored and `validateCoordinatorTask` enforces its exact keys, so
+having Pi rewrite it would be exactly the "make the producer reproduce bytes"
+mistake recorded in §6. Three directions, all shared-kernel:
+
+1. Project `claim_host_work` so bulk like `classification_request.candidates`
+   travels by reference and the worker reads it, instead of voiding the claim.
+2. Stop inlining `candidates` in the claim result at the toolbox boundary.
+3. Actually use `classification_request.chunk` to split 42 candidates across
+   several claimable jobs.
+
+### Direction 1 implemented and verified in live play
+
+`coc_mcp_wire._spill_structure_requests` moves `classification_request` /
+`extraction_request` out of an over-budget claim as a workspace-relative path
+plus digest; `runtime.inflateSpilledStructureRequests` reads it back and
+re-verifies the digest before `validateLeafTask`, so the leaf contract is
+unchanged. Fail-closed on digest drift, on a path escaping the workspace, and
+on a request carrying both the payload and its ref.
+
+**Live result.** In session `live5`, `job-6f7311bf86d7` (`classify_sections`,
+the 19569-byte job that "could never be claimed") reached
+`dispatch_state: leased` for the first time, alongside `job-ccac683bd6e7`. The
+coordinator recorded `{status: submitted}` with **no**
+`claim_dispatch_projection_failed`, **no** `leaf_result_invalid`, and **no**
+`capability_unavailable`. The claim lane is fixed.
+
+**Delivery shape, resolved.** The live Pi path uses
+`_pi_source_coordinator_dispatch`, which passes
+`claim_result_delivery="task_return_to_parent"` and therefore *does* build
+`dispatch_tasks` (`coc_toolbox.py:15839`). An earlier probe of mine passed
+`return_to_parent` and got bare `packets` — a different, codex-side delivery.
+The projector now walks both shapes via `_iter_claim_packets`, so neither can
+silently no-op again.
+
+## 5e. Pending opening watch — fixed, with a re-arm card
+
+A watch is persisted in the campaign, but its resolver (the coordinator) is
+spawned per session. A session dying between `opening_bootstrap` and pack
+fulfilment left `status: pending` and `next_operation: null` forever. Observed
+live: the Keeper answered three player turns with empty messages — correctly,
+because it had been told to wait.
+
+`_opening_watch_resolver_lost` now reports a watch whose resolver is gone —
+older than `_OPENING_WATCH_RESOLVER_GRACE_SECONDS` (900s) **and** no host work
+leased for the root — and the gate emits `source_lifecycle_status:
+resolver_lost` carrying an exact `progressive.opening_bootstrap` re-arm card
+instead of null. Pi forwards it (`projectStartupSourceMaterialization`,
+`canonicalMaterializationProbe`, `recoveredSourceMaterializationRoute`); the
+re-arm route deliberately does **not** set `source_materialization_wait_only`,
+which would block the very call that recovers the campaign.
+
+The card carries the **whole** `start_location` object, looked up from the
+skeleton. This matters: with only the retained id exposed, a live KP sent the
+bare string `"martins-beach"` to a contract requiring `{location_id, title}`
+**55 times in one turn**. The repository owns that shape and now supplies it;
+`missing_arguments` is empty.
+
+**Live result.** The deadlock is gone — the Keeper went from 0 bootstrap calls
+(pure empty turns) to invoking the card and driving the coordinator to
+`submitted`.
+
+## 5f. Dispatch attempts, and the third form of the same bug
+
+**Dispatch attempts were a one-way door.** `dispatch_attempts` increments on
+*claim*, not on failure, and `_PI_SOURCE_COORDINATOR_MAX_ATTEMPTS = 2`. So a
+projection bug or a killed session — neither of which says anything about the
+work — burned a campaign's only retries, after which `opening_bootstrap` failed
+with a vague `opening_host_work_takeover_unavailable` and no way out.
+
+Fixed in two parts:
+
+- `release_host_work_leases` now **refunds** the attempt when the release
+  reason is host-side (`_HOST_SIDE_RELEASE_REASONS`: `claim_projection_invalid`,
+  `coordinator_shutdown`, `coordinator_aborted`,
+  `turn_pending_finalization`) and reports
+  `dispatch_attempt_refunded_job_ids`. Content failures (`leaf_result_invalid`,
+  `coordinator_failed`, `coordinator_partial`) still spend the attempt, and a
+  lease lost to an abrupt crash never reaches this path, so TTL recovery still
+  costs one. The ceiling keeps protecting against genuinely bad work.
+- When every candidate is exhausted the error is now
+  `opening_host_work_dispatch_attempts_exhausted`, naming the ceiling and the
+  exact `job_ids`, instead of "no canonical takeover".
+
+**The same swallow-the-card bug, third form.** With the opening finally
+succeeding, the gate moved to `source_lifecycle_status: complete` and handed
+back a `progressive.project_opening` refresh card — and
+`projectStartupSourceMaterialization` dropped it, because it whitelisted only
+`pending` and (newly) `resolver_lost`. That `complete` branch is **pre-existing
+code**; nobody had hit it because the opening had never succeeded before. The
+projector now forwards any non-`pending` state carrying one of the exact
+recovery operations, and passes the canonical `instruction` through rather than
+rewording it — so a fourth state cannot silently reintroduce this.
+
+## 5g. Play actually starts — verified
+
+Session `play2`, campaign `vfy2`, Grok-4.5 as KP, one player line per turn:
+
+```
+【开场时间】1925-01-15 20:00
+林致远站在马丁滩的碎石岸边。
+冷风从大西洋面上刮来，带着盐腥与腐藻气味 ...
+```
+
+and on the next player line, a real adjudicated check:
+
+```
+【明骰】侦查｜掷骰：62；基础值：50；门槛：普通（≤50）；达到：失败；未通过
+```
+
+Evidence on disk: `opening_projection_watch.status: complete`;
+`job-ccac683bd6e7` (`partial_opening`) `status: fulfilled`; scene
+`martins-beach` upgraded `toc_only` → `partial`;
+`.coc/campaigns/vfy2/logs/rolls.jsonl` holds the Spot Hidden failure and the
+Quick-Fire Luck 3D6. Operations exercised include `scene.context`,
+`state.move_scene`, `rules.roll`, `state.journal`, `turn.finalize`.
+
+The chain that was dead end-to-end now runs: re-arm card → bootstrap → claim
+(with the structure payload spilled) → leaf fulfilment → watch complete →
+opening projection → live play with dice.
+
+**Still open:**
+
+- `campaign.status` stays `setup` and `active_scene_id` stays `None` even
+  though `active-scene.json` names `martins-beach` and narration and checks are
+  flowing. Not diagnosed; it did not block play.
+- `section-index.json` / `sections/` still do not exist. `job-6f7311bf86d7`
+  (`classify_sections`) was claimed — the thing it could never do before — but
+  came back `coordinator_partial`. The whole-book section lane therefore
+  remains **unverified**, and the next attempt should start from why that leaf
+  returns partial, not from the claim transport.
 
 ## 6. Landmines
 
