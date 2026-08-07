@@ -2654,22 +2654,28 @@ def test_review_rebind_accepts_blocker2_cross_producer_sample(tmp_path):
     assert bound["result"]["source_cache"]["bundle_sha256"] in (
         cached["meta"].get("bundle_sha256s") or []
     )
-    # Without the review lane the same window is still refused (regression).
-    with pytest.raises(
-        ops.coc_module_assets.ModuleAssetsError,
-        match=r"cached page 4 content drift",
-    ):
-        ops.execute_setup_operation(tmp_path, operation={
-            "schema_version": 1,
-            "kind": "scenario.bind_pdf",
-            "payload": {
-                "campaign_id": "herald-yk-final-01",
-                "scenario_id": "herald",
-                "title": "Herald of the Yellow King",
-                "source_bundle_path": str(reviewed),
-                "compile_now": False,
-            },
-        })
+    # Default bind (no explicit reference_cached_pages) must also reuse the
+    # sha-keyed root for cross-producer jitter — forking -rN here was the
+    # shreds-e2e-r2-0807 failure mode.
+    default_bound = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "herald-yk-final-01",
+            "scenario_id": "herald",
+            "title": "Herald of the Yellow King",
+            "source_bundle_path": str(reviewed),
+            "compile_now": False,
+        },
+    })
+    assert default_bound["status"] == "PASS"
+    default_cache = default_bound["result"]["source_cache"]
+    assert default_cache["asset_root_id"] == "herald"
+    assert default_cache["referenced_cached_pdf_indices"] == [4]
+    assert "auto_recovered_from_drift" not in default_cache
+    assert not (
+        tmp_path / ".coc" / "module-assets" / "herald-r2"
+    ).exists()
 
 
 def test_blocker3_ocr_page_enters_opening_source_window(tmp_path: Path):

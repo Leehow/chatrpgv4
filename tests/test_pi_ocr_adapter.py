@@ -92,3 +92,67 @@ def test_adapter_stdout_is_one_strict_json_object(tmp_path):
         "corpus_ready": True,
         "pages": 1,
     }
+
+
+def test_resolve_baiduocr_python_ignores_env_without_requests(monkeypatch):
+    """A mis-set COC_PROGRESSIVE_OCR_PYTHON (project venv) must not win."""
+    adapter = _load_adapter()
+    if hasattr(adapter._resolve_baiduocr_python, "_cached"):
+        delattr(adapter._resolve_baiduocr_python, "_cached")
+
+    broken = sys.executable  # repo venv deliberately has no requests
+    monkeypatch.setenv("COC_PROGRESSIVE_OCR_PYTHON", broken)
+    monkeypatch.setenv("BAIDUOCR_TOKEN", "test-token")
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(list(cmd))
+        # Probe: candidate -c "import requests"
+        if len(cmd) >= 3 and cmd[1] == "-c" and "import requests" in cmd[2]:
+            # Only accept a synthetic good interpreter name.
+            if cmd[0] == "python3.11-good":
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="", stderr="",
+                )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr="No module named requests",
+            )
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="", stderr="",
+        )
+
+    monkeypatch.setattr(adapter.subprocess, "run", fake_run)
+    # Inject the good candidate into the probe list for this process.
+    monkeypatch.setattr(
+        adapter,
+        "_OCR_PYTHON_CANDIDATES",
+        ("python3.11-good", "python3", "python"),
+    )
+
+    resolved = adapter._resolve_baiduocr_python()
+    assert resolved == "python3.11-good"
+    assert any(c[0] == broken for c in calls), "must probe the broken env first"
+    assert any(c[0] == "python3.11-good" for c in calls)
+
+
+def test_op_fast_reports_missing_requests_explicitly(monkeypatch, tmp_path):
+    adapter = _load_adapter()
+    if hasattr(adapter._resolve_baiduocr_python, "_cached"):
+        delattr(adapter._resolve_baiduocr_python, "_cached")
+    monkeypatch.delenv("COC_PROGRESSIVE_OCR_PYTHON", raising=False)
+    monkeypatch.setenv("BAIDUOCR_TOKEN", "test-token")
+    monkeypatch.setattr(adapter, "_OCR_PYTHON_CANDIDATES", ())
+    monkeypatch.setattr(
+        adapter.subprocess,
+        "run",
+        lambda *_a, **_k: subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="",
+        ),
+    )
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"%PDF")
+    result = adapter.op_fast(str(source), str(tmp_path / "corpus"))
+    assert result["status"] == "error"
+    assert result["failure_class"] == "ocr_python_missing_requests"
+    assert "requests" in result["error"]

@@ -87,37 +87,56 @@ def _load_baiduocr_token() -> str | None:
     return None
 
 
-def _resolve_ocr_python() -> str:
-    """A python that can run the baiduocr bridge (needs ``requests``).
+def _python_has_requests(candidate: str) -> bool:
+    if not candidate or not str(candidate).strip():
+        return False
+    try:
+        probe = subprocess.run(
+            [candidate, "-c", "import requests"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0
 
-    Explicit ``COC_FULL_PARSE_OCR_PYTHON`` / ``COC_PROGRESSIVE_OCR_PYTHON``
-    wins; otherwise probe common interpreters once per process.  The uv
-    runtime has no ``requests`` dependency, so the bridge resolves an
-    external interpreter instead of importing it here.
+
+def _resolve_ocr_python() -> str:
+    """A python that can run the baiduocr adapter (stdlib) and its child.
+
+    The adapter itself is stdlib-only and re-probes for a requests-capable
+    child to launch baiduocr.  Prefer an explicit env only when that
+    interpreter actually has ``requests``; a mis-set
+    ``COC_PROGRESSIVE_OCR_PYTHON`` pointing at the project venv must not
+    block the probe.  The uv runtime deliberately has no ``requests``.
     """
+    resolved = getattr(_resolve_ocr_python, "_cached", None)
+    if resolved is not None:
+        return resolved
+    candidates: list[str] = []
     explicit = (
         os.environ.get("COC_FULL_PARSE_OCR_PYTHON")
         or os.environ.get("COC_PROGRESSIVE_OCR_PYTHON")
         or ""
     ).strip()
     if explicit:
-        return explicit
-    resolved = getattr(_resolve_ocr_python, "_cached", None)
-    if resolved is not None:
-        return resolved
-    for candidate in (sys.executable, "python3.11", "python3.10", "python3"):
-        try:
-            probe = subprocess.run(
-                [candidate, "-c", "import requests"],
-                capture_output=True, text=True, timeout=20,
-            )
-        except (OSError, subprocess.SubprocessError):
+        candidates.append(explicit)
+    # Prefer external interpreters before sys.executable (usually the venv).
+    candidates.extend(
+        ("python3.11", "python3.10", "python3", "python", sys.executable)
+    )
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
             continue
-        if probe.returncode == 0:
+        seen.add(candidate)
+        if _python_has_requests(candidate):
             _resolve_ocr_python._cached = candidate
             return candidate
-    _resolve_ocr_python._cached = sys.executable
-    return sys.executable
+    # Adapter is stdlib-only; still launch it so it can emit the explicit
+    # ocr_python_missing_requests failure instead of a bare ImportError.
+    fallback = explicit or sys.executable
+    _resolve_ocr_python._cached = fallback
+    return fallback
 
 
 def _invoke_full_parse_ocr(

@@ -3897,6 +3897,13 @@ def register_source_bundle(
     if not existing:
         identity.setdefault("canonical_module_id", root_id)
         identity.setdefault("canonical_title", source.get("title") or root_id)
+    # Stable PDF sha hit: keep the already-populated root. Cross-producer
+    # re-extractions (locator/pdf-skill vs baiduocr) must reference cached
+    # pages by content address instead of forking a fresh -rN family member
+    # on non-deterministic OCR/locator text jitter. Same-pipeline drift still
+    # hard-conflicts and may auto-recover. record_drift stays exclusive.
+    if existing and not record_drift:
+        reference_cached_pages = True
     incoming_producer = (
         str(bundle.get("producer") or "").strip() or None
         if reference_cached_pages else None

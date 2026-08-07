@@ -29,35 +29,56 @@ import sys
 from pathlib import Path
 
 BAIDUOCR = Path.home() / ".codex" / "skills" / "baiduocr" / "scripts" / "baiduocr.py"
-BAIDUOCR_PYTHON = os.environ.get("COC_PROGRESSIVE_OCR_PYTHON", sys.executable)
+
+# Prefer env, then common PATH names.  Never assume the project venv has
+# ``requests`` — baiduocr is an external skill dependency, not a repo dep.
+_OCR_PYTHON_CANDIDATES = (
+    "python3.11",
+    "python3.10",
+    "python3",
+    "python",
+)
 
 
-def _resolve_baiduocr_python() -> str:
+def _python_has_requests(candidate: str) -> bool:
+    if not candidate or not str(candidate).strip():
+        return False
+    try:
+        probe = subprocess.run(
+            [candidate, "-c", "import requests"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0
+
+
+def _resolve_baiduocr_python() -> str | None:
     """Resolve a python that can run baiduocr.py (requires ``requests``).
 
     The adapter itself is stdlib-only; only the baiduocr child needs
     ``requests``, which is not a repository dependency.  An explicit
-    ``COC_PROGRESSIVE_OCR_PYTHON`` wins; otherwise probe common interpreters.
+    ``COC_PROGRESSIVE_OCR_PYTHON`` wins only when it can import requests;
+    a mis-set env pointing at the project venv must not block the probe.
     """
-    explicit = os.environ.get("COC_PROGRESSIVE_OCR_PYTHON", "").strip()
-    if explicit:
-        return explicit
     resolved = getattr(_resolve_baiduocr_python, "_cached", None)
     if resolved is not None:
         return resolved
-    for candidate in (BAIDUOCR_PYTHON, "python3.11", "python3.10", "python3"):
-        try:
-            probe = subprocess.run(
-                [candidate, "-c", "import requests"],
-                capture_output=True, text=True, timeout=20,
-            )
-        except (OSError, subprocess.SubprocessError):
+    candidates: list[str] = []
+    explicit = os.environ.get("COC_PROGRESSIVE_OCR_PYTHON", "").strip()
+    if explicit:
+        candidates.append(explicit)
+    candidates.extend(_OCR_PYTHON_CANDIDATES)
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
             continue
-        if probe.returncode == 0:
+        seen.add(candidate)
+        if _python_has_requests(candidate):
             _resolve_baiduocr_python._cached = candidate
             return candidate
-    _resolve_baiduocr_python._cached = BAIDUOCR_PYTHON
-    return BAIDUOCR_PYTHON
+    _resolve_baiduocr_python._cached = None
+    return None
 
 
 def _ocr_token_status() -> dict | None:
@@ -100,9 +121,23 @@ def op_fast(source_path: str, corpus_path: str) -> dict:
             "error": "source not found",
         }
 
+    ocr_python = _resolve_baiduocr_python()
+    if not ocr_python:
+        return {
+            "status": "error",
+            "failure_class": "ocr_python_missing_requests",
+            "error": (
+                "No interpreter with the external `requests` package for "
+                "baiduocr. Install it on a system Python "
+                "(`python3.11 -m pip install requests`) or set "
+                "COC_PROGRESSIVE_OCR_PYTHON to a requests-capable "
+                "interpreter. The project venv deliberately omits requests."
+            ),
+        }
+
     try:
         result = subprocess.run(
-            [_resolve_baiduocr_python(), str(BAIDUOCR), str(source), "--output-dir", str(corpus)],
+            [ocr_python, str(BAIDUOCR), str(source), "--output-dir", str(corpus)],
             capture_output=True, text=True, timeout=900,
             env={**os.environ},
         )

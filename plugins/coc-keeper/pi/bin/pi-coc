@@ -165,11 +165,18 @@ export COC_PROGRESSIVE_OCR_COMMAND="${COC_PROGRESSIVE_OCR_COMMAND:-$SCRIPT_DIR/c
 #
 # No single ambient interpreter satisfies both. Pin each one explicitly here:
 # capture a requests-capable interpreter from the user's own PATH first, then
-# put the project interpreter in front for everything else. Leaving the OCR
-# bridge to probe after the prepend would make it depend on a python3.11 or
-# python3.10 happening to exist on the machine.
+# put the project interpreter in front for everything else. A pre-set
+# COC_PROGRESSIVE_OCR_PYTHON that cannot import requests (e.g. the project
+# venv) is treated as unset so the probe can still find a working one.
+if [ -n "${COC_PROGRESSIVE_OCR_PYTHON:-}" ]; then
+  if ! "$COC_PROGRESSIVE_OCR_PYTHON" -c "import requests" >/dev/null 2>&1; then
+    unset COC_PROGRESSIVE_OCR_PYTHON
+  fi
+fi
 if [ -z "${COC_PROGRESSIVE_OCR_PYTHON:-}" ]; then
-  for candidate in python3 python3.11 python3.10; do
+  # Prefer versioned interpreters before bare python3: many machines resolve
+  # python3 to a venv or a brew shim without requests, while python3.11 has it.
+  for candidate in python3.11 python3.10 python3 python; do
     if command -v "$candidate" >/dev/null 2>&1 \
       && "$candidate" -c "import requests" >/dev/null 2>&1; then
       COC_PROGRESSIVE_OCR_PYTHON=$(command -v "$candidate")

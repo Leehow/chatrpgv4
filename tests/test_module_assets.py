@@ -1060,6 +1060,63 @@ def test_register_source_bundle_recovery_family_allocates_canonical_members(
         ).read_bytes() == content
 
 
+def test_sha_hit_cross_producer_bind_reuses_root_without_rN_fork(tmp_path: Path):
+    """Same PDF sha + locator/pdf-skill text jitter must not fork -rN.
+
+    Mirrors shreds-e2e-r2-0807: whole-book baiduocr filled the root, then a
+    later first-bundle bind re-extracted overlapping pages with different
+    bytes. Cache reuse is keyed on stable file_sha256, not OCR text.
+    """
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    # Simulate the whole-book baiduocr lane overwriting page 0 provenance
+    # with an explicit producer label (first-writer text stays as-is).
+    page = assets.get_page(tmp_path, old_root, 0)
+    assert page is not None
+    assets.put_page(
+        tmp_path,
+        old_root,
+        0,
+        page["text"],
+        meta={
+            **(page.get("meta") if isinstance(page.get("meta"), dict) else {}),
+            "producer": "baiduocr",
+            "source": "baiduocr",
+            "unreviewed": True,
+            "review_state": "auto_accepted",
+            "doc_ref": "doc_0.md",
+        },
+    )
+    before = (assets._module_dir(tmp_path, old_root) / "pages" / "0000.md").read_bytes()
+
+    drifted = _write_reextracted_bundle(
+        tmp_path,
+        name="locator-first-bundle",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nLocator re-extraction of the same page.\n",
+    )
+    # Default bind path: no reference_cached_pages flag (KP scenario.bind_pdf).
+    rebound = assets.register_source_bundle(
+        tmp_path, drifted, asset_root_id="king-of-shreds-and-patches",
+    )
+
+    assert rebound["asset_root_id"] == old_root
+    assert rebound["reused_existing_root"] is True
+    assert "auto_recovered_from_drift" not in rebound
+    assert rebound["referenced_cached_page_count"] == 1
+    assert rebound["referenced_cached_pdf_indices"] == [0]
+    assert not assets._module_dir(tmp_path, f"{old_root}-r2").exists()
+    assert (
+        assets._module_dir(tmp_path, old_root) / "pages" / "0000.md"
+    ).read_bytes() == before
+    cached = assets.get_page(tmp_path, old_root, 0)
+    assert cached is not None
+    assert cached["meta"]["producer"] == "baiduocr"
+    assert assets.lookup_by_sha256(tmp_path, file_sha)["asset_root_id"] == old_root
+
+
 def test_host_work_lease_renew_and_release_require_exact_owner(tmp_path: Path):
     assets.init_module_root(
         tmp_path,
