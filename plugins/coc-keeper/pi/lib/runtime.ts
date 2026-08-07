@@ -103,9 +103,68 @@ function appendBounded(current: string, chunk: Buffer | string, label: string): 
   return next;
 }
 
+const SPILLABLE_STRUCTURE_KEYS = [
+  "classification_request",
+  "extraction_request",
+] as const;
+
+// The claim projector moves whole-book structure payloads out of the hot
+// transport envelope when the batch would otherwise blow the budget and void
+// every lease (see coc_mcp_wire._spill_structure_requests). The bytes never
+// left the workspace — they are still in the host-work job file — so read them
+// back and re-verify the digest before the leaf is spawned. The worker
+// contract is unchanged: a leaf always sees the inflated packet.
+function inflateSpilledStructureRequests(packet: JsonObject): void {
+  const requests = packet.requests;
+  if (!Array.isArray(requests)) return;
+  for (const value of requests) {
+    const request = asObject(value, "source request");
+    for (const key of SPILLABLE_STRUCTURE_KEYS) {
+      const refKey = `${key}_ref`;
+      const refValue = request[refKey];
+      if (refValue === undefined) continue;
+      if (request[key] !== undefined) {
+        throw new Error(`source request cannot contain ${key} and its ref`);
+      }
+      const ref = asObject(refValue, `${refKey}`);
+      const field = nonEmpty(ref.field, `${refKey}.field`);
+      if (field !== key) throw new Error(`${refKey} field mismatch`);
+      const digest = nonEmpty(ref.sha256, `${refKey}.sha256`);
+      if (!/^sha256:[a-f0-9]{64}$/.test(digest)) {
+        throw new Error(`${refKey} sha256 is malformed`);
+      }
+      const relative = nonEmpty(ref.host_work_path, `${refKey}.host_work_path`);
+      if (relative.startsWith("/") || relative.split("/").includes("..")) {
+        throw new Error(`${refKey} host_work_path must stay inside the workspace`);
+      }
+      const absolute = resolve(process.cwd(), relative);
+      let document: JsonObject;
+      try {
+        document = asObject(
+          JSON.parse(readFileSync(absolute, "utf8")),
+          `${refKey} host work document`,
+        );
+      } catch {
+        throw new Error(`${refKey} host work document is unreadable`);
+      }
+      const restored = document[field];
+      if (restored === undefined) {
+        throw new Error(`${refKey} host work document has no ${field}`);
+      }
+      const actual = `sha256:${createHash("sha256").update(
+        jsonCanonical(restored),
+      ).digest("hex")}`;
+      if (actual !== digest) throw new Error(`${refKey} digest drift`);
+      request[key] = structuredClone(restored);
+      delete request[refKey];
+    }
+  }
+}
+
 function inflateProjectedLeafTask(input: unknown): JsonObject {
   const task = structuredClone(asObject(input, "Pi leaf task"));
   const packet = asObject(task.packet, "source packet");
+  inflateSpilledStructureRequests(packet);
   const registryValue = packet.wire_result_contracts;
   const requests = packet.requests;
   const hasContractRefs = Array.isArray(requests) && requests.some((value) => (
@@ -508,7 +567,8 @@ export type SourceValidationCode =
   | "leaf_result_job_id_duplicate"
   | "leaf_result_job_binding_drift"
   | "leaf_framing_not_one_text"
-  | "leaf_framing_invalid_json";
+  | "leaf_framing_invalid_json"
+  | "fulfill_rejected_by_canonical";
 
 type ValidationFailure = {
   code: SourceValidationCode;
@@ -800,6 +860,7 @@ const SOURCE_VALIDATION_CODES = new Set<SourceValidationCode>([
   "leaf_result_job_binding_drift",
   "leaf_framing_not_one_text",
   "leaf_framing_invalid_json",
+  "fulfill_rejected_by_canonical",
 ]);
 const SOURCE_VALIDATION_PATHS = new Set([
   "claim.data.lease_bindings",
@@ -819,6 +880,7 @@ const SOURCE_VALIDATION_PATHS = new Set([
   "task.packet.wire_result_contracts",
   "claim.data.dispatch_tasks[].packet.packet_id",
   "claim.data.dispatch_tasks[].packet.requests[].job_id",
+  "progressive.fulfill_host_work",
   "$",
   "$.contract_id",
   "$.packet_id|$.work_group_id",
@@ -2560,6 +2622,19 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
           fulfillmentDeferred = true;
         } else {
           failureClass ??= "fulfill_rejected";
+          // Keep why the canonical runtime refused this row. Dropping it left
+          // a bare "fulfill_rejected" as the only trace, so a whole-book
+          // classify_sections result could be rejected with nobody able to say
+          // which rule it broke. Only the canonical error code travels — it is
+          // an enum, never source text.
+          recordDiagnostic(
+            "leaf_result",
+            {
+              code: "fulfill_rejected_by_canonical",
+              path: "progressive.fulfill_host_work",
+            },
+            bindings[index],
+          );
         }
         break;
       }

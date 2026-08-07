@@ -100,6 +100,21 @@ export const truncateToWidth = (value) => String(value);
     || "complete_sheet_creation" in adaptiveSchema.$defs
   ) throw new Error(`adaptive projection was not fail-closed: ${JSON.stringify(adaptive)}`);
 
+  // The transport header only reports that a projector ran. Without a truthful
+  // completeness marker a KP reads `payload_projected` as "your schema was
+  // truncated" and burns the hard gate re-fetching a fuller one that does not
+  // exist, which is how the vfy2 opening deadlocked.
+  const adaptiveProjection = adaptiveResult.payload_schema_projection;
+  if (
+    adaptiveProjection?.status !== "complete_for_selected_input_mode"
+    || adaptiveProjection.selected_input_mode !== "kp_guided_era_adaptive"
+    || adaptiveProjection.full_schema_available_elsewhere !== false
+    || !adaptiveProjection.omitted_unusable_branches?.includes("quick_fire_creation")
+    || !adaptiveProjection.omitted_unusable_branches?.includes("complete_sheet_creation")
+  ) throw new Error(
+    `adaptive completeness marker is missing or untruthful: ${JSON.stringify(adaptive)}`,
+  );
+
   const standard = projectPiGuidedCharacterContract(
     contract("standard_quick_fire_available", true),
     "1920s-opening",
@@ -110,6 +125,17 @@ export const truncateToWidth = (value) => String(value);
     || standardResult.payload_schema?.oneOf?.[0]?.properties?.creation?.$ref
       !== "#/$defs/quick_fire_creation"
   ) throw new Error(`standard Quick Fire projection changed: ${JSON.stringify(standard)}`);
+
+  const standardProjection = standardResult.payload_schema_projection;
+  if (
+    standardProjection?.status !== "complete_for_selected_input_mode"
+    || standardProjection.selected_input_mode !== "guided_quick_fire"
+    || standardProjection.full_schema_available_elsewhere !== false
+    || standardProjection.omitted_unusable_branches?.includes("quick_fire_creation")
+    || !standardProjection.omitted_unusable_branches?.includes("complete_sheet_creation")
+  ) throw new Error(
+    `Quick Fire completeness marker is missing or untruthful: ${JSON.stringify(standard)}`,
+  );
 
   const unavailable = projectPiGuidedCharacterContract(
     contract("kp_guided_era_adaptive_available", false, {

@@ -3702,3 +3702,154 @@ def _projection_for_campaign(tmp_path: Path, campaign_id: str) -> dict:
     ctx.campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
     root_id = project.campaign_asset_root_id(ctx.campaign_dir)
     return toolbox._source_host_work_projection(ctx, root_id)
+
+
+def _structure_claim_envelope(candidate_count: int) -> dict:
+    """One claim batch shaped like the live dust-to-dust deadlock.
+
+    A whole-book classify_sections request plus one ordinary request. The
+    structure payload alone is larger than the hot claim budget.
+    """
+    candidates = [
+        {
+            "section_id": f"sec-{index:06d}",
+            "title": f"SECTION TITLE {index} " + "T" * 40,
+            "pdf_index": index,
+            "size_rank": index + 1,
+            "emphasis": True,
+            "page_cached": True,
+            "preview": f"# SECTION {index} " + "P" * 300,
+        }
+        for index in range(candidate_count)
+    ]
+    structure = {
+        "schema_version": 1,
+        "contract_id": "coc.section-classification-request.v1",
+        "job_id": "job-structure",
+        "candidates": candidates,
+        "page_count": candidate_count,
+    }
+    request = {
+        "job_id": "job-structure",
+        "kind": "classify_sections",
+        "target_id": "section-index",
+        "work_level": "background",
+        "result_contract": {"schema_version": 1, "contract_id": "x"},
+        "classification_request": structure,
+    }
+    packet = {
+        "schema_version": 1,
+        "contract_id": "coc.source-pack-worker.v1",
+        "packet_id": "source-lease-structure",
+        "asset_root_id": "dust-to-dust",
+        "work_group_id": "group-structure",
+        "requests": [request],
+    }
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-pack-task.v1",
+        "instruction_ref": "/tmp/coc-source-pack-worker.md",
+        "model_policy": "inherit_parent",
+        "packet": packet,
+    }
+    return {
+        "ok": True,
+        "tool": "progressive.claim_host_work",
+        "data": {
+            "leased_group_count": 1,
+            "ready_group_count": 0,
+            "cached_only": True,
+            "dispatch_task_count": 1,
+            "lease_bindings": [
+                {"lease_id": "source-lease-structure", "job_ids": ["job-structure"]},
+            ],
+            "dispatch_tasks": [task],
+        },
+        "warnings": [],
+        "hints": [],
+    }, structure
+
+
+def test_oversized_structure_request_spills_instead_of_voiding_the_claim():
+    """A whole-book classify_sections claim must survive the hot budget.
+
+    Regression for the live vfy2 deadlock: the structure payload pushed the
+    claim past 16 KiB, the projector replaced the whole result with
+    _claim_projection_failure, both leases were voided, and the section lane
+    could never start. The payload already exists in the host-work job file, so
+    it travels as a path plus digest instead.
+    """
+    envelope, structure = _structure_claim_envelope(42)
+    assert wire.transport_bytes(structure) > wire.MAX_INLINE_BYTES
+
+    projected = wire.project_envelope(
+        "progressive.claim_host_work",
+        envelope,
+        contract_digest="sha256:" + "f" * 64,
+    )
+
+    assert wire.transport_bytes(projected) <= wire.MAX_INLINE_BYTES
+    assert projected["wire"]["claim_structure_requests_spilled"] is True
+    # The whole point: the claim is no longer voided.
+    assert projected["wire"].get("claim_dispatch_projection_failed") is not True
+    assert projected["data"].get("wire_projection_failed") is not True
+    assert len(projected["data"]["dispatch_tasks"]) == 1
+
+    request = projected["data"]["dispatch_tasks"][0]["packet"]["requests"][0]
+    assert "classification_request" not in request
+    ref = request["classification_request_ref"]
+    assert ref["field"] == "classification_request"
+    assert ref["sha256"] == wire.canonical_digest(structure)
+    assert ref["host_work_path"] == (
+        ".coc/module-assets/dust-to-dust/host-work/job-structure.json"
+    )
+    # Workspace-relative only; the Pi runtime refuses anything that escapes.
+    assert not ref["host_work_path"].startswith("/")
+    assert ".." not in ref["host_work_path"].split("/")
+    # Lease ownership is preserved so the work stays claimable.
+    assert projected["data"]["lease_bindings"] == [
+        {"lease_id": "source-lease-structure", "job_ids": ["job-structure"]},
+    ]
+
+
+def test_spill_covers_the_return_to_parent_packets_shape():
+    """The live coordinator path leaves packets in `packets`, not dispatch_tasks.
+
+    A projector that walks only dispatch_tasks silently no-ops on the real
+    claim, which is exactly how the first version of this fix passed its
+    fixture while doing nothing to the live deadlock.
+    """
+    envelope, structure = _structure_claim_envelope(42)
+    # Re-shape into the return_to_parent delivery the coordinator actually uses.
+    task = envelope["data"].pop("dispatch_tasks")[0]
+    envelope["data"]["packets"] = [task["packet"]]
+
+    projected = wire.project_envelope(
+        "progressive.claim_host_work",
+        envelope,
+        contract_digest="sha256:" + "f" * 64,
+    )
+
+    assert projected["wire"]["claim_structure_requests_spilled"] is True
+    request = projected["data"]["packets"][0]["requests"][0]
+    assert "classification_request" not in request
+    assert request["classification_request_ref"]["sha256"] == (
+        wire.canonical_digest(structure)
+    )
+
+
+def test_claim_that_already_fits_is_left_untouched():
+    """Spilling is a budget escape hatch, not a change to the normal shape."""
+    envelope, _ = _structure_claim_envelope(1)
+    assert wire.transport_bytes(envelope) <= wire.MAX_INLINE_BYTES
+
+    projected = wire.project_envelope(
+        "progressive.claim_host_work",
+        envelope,
+        contract_digest="sha256:" + "f" * 64,
+    )
+
+    assert "claim_structure_requests_spilled" not in projected["wire"]
+    request = projected["data"]["dispatch_tasks"][0]["packet"]["requests"][0]
+    assert "classification_request_ref" not in request
+    assert request["classification_request"]["candidates"]

@@ -4689,6 +4689,60 @@ for (const terminalCase of [
       && !message.includes("import_complete_sheet")
     )));
 
+  // A refused create must name the fields that failed. Echoing only the route
+  // is unfixable at the table: it is what stalled the vfy2 opening for three
+  // player turns across roughly twenty live payloads.
+  let createNearMissIndex = 0;
+  const createNearMiss = (creation) => gate.openingSetupToolError(
+    "coc_invoke",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "investigator.create",
+        payload: {
+          campaign_id: campaignId,
+          investigator_id: "submitting-overlap-near-miss",
+          sheet: { id: "submitting-overlap-near-miss", name: "Near Miss" },
+          creation,
+        },
+      },
+    },
+    `submitting-overlap-near-miss-${createNearMissIndex++}`,
+  );
+  const missingReceipt = createNearMiss({
+    input_mode: "guided_quick_fire",
+    method: "quick_fire_array",
+    characteristic_assignment_order: [
+      "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+    ],
+    luck_roll_total: 12,
+  });
+  check("create refusal names the missing luck receipt and its rules.roll_dice source",
+    typeof missingReceipt === "string"
+    && missingReceipt.includes("creation.luck_roll_receipt")
+    && missingReceipt.includes("rules.roll_dice")
+    && missingReceipt.includes('"allowed_actions"'));
+
+  const wrongShape = createNearMiss({
+    input_mode: "guided_quick_fire",
+    method: "quick_fire",
+    characteristic_assignment_order: ["DEX", "INT", "POW"],
+    luck_roll_total: 12,
+    luck_roll_receipt: {
+      campaign_id: campaignId,
+      decision_id: "submitting-overlap-luck",
+      roll_id: "toolbox-submitting-overlap-000001",
+      total: 12,
+    },
+  });
+  check("create refusal names every failing field at once without echoing values",
+    typeof wrongShape === "string"
+    && wrongShape.includes("creation.method")
+    && wrongShape.includes("creation.characteristic_assignment_order")
+    && wrongShape.includes("creation.luck_roll_receipt")
+    && !wrongShape.includes('"quick_fire"'));
+
   check("coordinator submission advances overlap without changing its route",
     gate.markOpeningBackgroundSubmitted(
       bootstrapId,
@@ -8727,6 +8781,51 @@ await exerciseFailureDrain("framing");
   check("capability error is bounded", audit.length === 1
     && audit[0].status === "capability_check_failed"
     && !JSON.stringify(audit[0]).includes("raw provider secret"));
+}
+
+{
+  // A null submission means the manager already owns the dispatch key, not
+  // that the coordinator capability is off. The live vfy2 opening reported
+  // coordinator_capability_unavailable on every retry while
+  // piCoordinatorEnabled() was true, hiding the real leaf_result_invalid /
+  // claim_wire_projection_failed terminal underneath.
+  const { coordinatorDispatchNullReason } = main.__test;
+  const unknownKey = coordinatorDispatchNullReason(undefined, "coord-key-1");
+  check("an unknown dispatch key is still a capability question",
+    unknownKey.failure_class === "coordinator_capability_unavailable"
+    && unknownKey.dispatch_key === "coord-key-1");
+
+  const inFlight = coordinatorDispatchNullReason(
+    { status: "running" },
+    "coord-key-2",
+  );
+  check("an owned in-flight key is not reported as capability unavailable",
+    inFlight.failure_class === "coordinator_dispatch_already_active"
+    && inFlight.coordinator_status === "running");
+
+  // Exactly the terminal receipt the live vfy2 run produced.
+  const terminal = coordinatorDispatchNullReason(
+    {
+      status: "completed",
+      terminal_receipt: {
+        packet_id: "coord-key-3",
+        status: "failed",
+        failure_class: "leaf_result_invalid",
+        diagnostics: [
+          { phase: "claim_projection", code: "claim_wire_projection_failed" },
+          { phase: "claim_projection", code: "claim_wire_projection_failed" },
+        ],
+      },
+    },
+    "coord-key-3",
+  );
+  check("a terminal dispatch reports its real failure class and diagnostics",
+    terminal.failure_class === "leaf_result_invalid"
+    && terminal.coordinator_status === "failed"
+    && Array.isArray(terminal.diagnostic_codes)
+    && terminal.diagnostic_codes.length === 1
+    && terminal.diagnostic_codes[0] === "claim_wire_projection_failed"
+    && terminal.failure_class !== "coordinator_capability_unavailable");
 }
 
 rmSync(extensionWelcomeAgentDir, { recursive: true, force: true });

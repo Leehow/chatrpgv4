@@ -1658,6 +1658,70 @@ def _pi_opening_setup_gate(
                 "the opening projection; do not rebind, rediscover, resume, "
                 "move a scene, or narrate an opening first"
             )
+        elif watch_status == "pending" and _opening_watch_resolver_lost(
+            root, asset_root_id, watch,
+        ):
+            # The coordinator that would clear this watch died with its
+            # session, so waiting is now permanent. Re-arm the bootstrap
+            # instead of leaving the Keeper a null next_operation to sit on.
+            source_scope = (
+                watch.get("source_scope")
+                if isinstance(watch.get("source_scope"), dict)
+                else {}
+            )
+            indices = source_scope.get("pdf_indices")
+            prefilled: dict[str, Any] = {}
+            if (
+                isinstance(indices, list)
+                and indices
+                and all(
+                    isinstance(value, int) and not isinstance(value, bool)
+                    for value in indices
+                )
+            ):
+                prefilled["opening_pdf_indices"] = list(indices)
+            # Prefill the whole start_location. Handing back only the id makes
+            # the Keeper synthesize the object, and a live KP sent the bare
+            # string 55 times in one turn against a contract that requires
+            # {location_id, title}. The repository owns this shape, so it
+            # supplies it rather than letting the producer guess.
+            retained_location_id = str(
+                watch.get("start_location_id") or ""
+            ).strip()
+            retained_title = _retained_location_title(
+                root, asset_root_id, retained_location_id,
+            )
+            if retained_location_id and retained_title:
+                prefilled["start_location"] = {
+                    "location_id": retained_location_id,
+                    "title": retained_title,
+                }
+            missing = [] if "start_location" in prefilled else ["start_location"]
+            if "opening_pdf_indices" not in prefilled:
+                missing.append("opening_pdf_indices")
+            rearm = _opening_card(
+                "progressive.opening_bootstrap", prefilled, missing,
+            )
+            rearm.update({
+                "hard_gate": True,
+                "authority": "canonical_setup",
+                "reason": (
+                    "the retained opening source lifecycle has no live owner; "
+                    "re-issue the bootstrap for the same retained opening "
+                    "instead of waiting for a terminal event that can no "
+                    "longer arrive"
+                ),
+            })
+            gate["source_lifecycle_status"] = "resolver_lost"
+            gate["retained_start_location_id"] = str(
+                watch.get("start_location_id") or ""
+            )
+            gate["next_operation"] = rearm
+            gate["instruction"] = (
+                "the opening source lifecycle owner is gone; invoke this exact "
+                "progressive.opening_bootstrap card for the same retained "
+                "opening; do not rebind, rediscover, or narrate an opening"
+            )
         return gate
     next_operation = _opening_card("progressive.prepare_opening", {}, [])
     next_operation.update({
@@ -11537,6 +11601,12 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 # --------------------------------------------------------------------------- #
 
 _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS = 2
+# How long a pending opening projection watch may go without any leased host
+# work before its resolver is treated as gone. A live coordinator leases within
+# one round trip, so this only has to clear the normal gap between an accepted
+# bootstrap and the coordinator's first claim; it is deliberately well above
+# the default 600s lease so an in-flight batch is never mistaken for a corpse.
+_OPENING_WATCH_RESOLVER_GRACE_SECONDS = 900.0
 # An adapter that spawns one child per claimed group must not claim a batch it
 # would fan out over all at once.
 _CONSERVATIVE_CLAIM_CEILING = 4
@@ -14045,6 +14115,74 @@ def _opening_page_list(
     return list(value)
 
 
+def _retained_location_title(
+    root: Path,
+    asset_root_id: str,
+    location_id: str,
+) -> str:
+    """Return the authored title for a retained skeleton location, if known."""
+    if not location_id:
+        return ""
+    try:
+        skeleton = coc_module_project.coc_module_assets.get_skeleton(
+            root, asset_root_id,
+        )
+    except Exception:
+        return ""
+    rows = skeleton.get("locations") if isinstance(skeleton, dict) else None
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("location_id") or "") != location_id:
+            continue
+        title = str(row.get("title") or "").strip()
+        if title:
+            return title
+    return ""
+
+
+def _opening_watch_resolver_lost(
+    root: Path,
+    asset_root_id: str,
+    watch: dict[str, Any],
+) -> bool:
+    """Report whether a pending opening watch can no longer be resolved.
+
+    The watch is persisted in the campaign, but the coordinator that clears it
+    is spawned per session. When a session dies between opening_bootstrap and
+    pack fulfilment the watch survives with nobody left to complete it, and the
+    campaign is wedged forever behind ``next_operation: null``.
+
+    "Lost" means the watch is old enough that a live coordinator would have
+    leased by now, and no host work for this root is currently leased. The age
+    floor is what keeps the normal window — bootstrap accepted, coordinator not
+    yet claiming — from being mistaken for a dead resolver.
+    """
+    created = str(watch.get("created_at") or "").strip()
+    if not created:
+        return False
+    try:
+        created_at = datetime.fromisoformat(created)
+    except ValueError:
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - created_at).total_seconds()
+    if age < _OPENING_WATCH_RESOLVER_GRACE_SECONDS:
+        return False
+    assets_module = coc_module_project.coc_module_assets
+    try:
+        rows = assets_module.list_host_work_requests(
+            root, asset_root_id, include_closed=False, limit=None,
+        )
+    except Exception:
+        return False
+    return not any(
+        assets_module.host_work_operational_class(row) == "leased"
+        for row in rows
+    )
+
+
 def _opening_card(
     operation: str,
     prefilled_arguments: dict[str, Any],
@@ -15279,6 +15417,27 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
         if takeover is not None:
             data["background_takeover"] = takeover
         elif caller_owns_materialization:
+            # "No takeover" is not a reason. The common cause is that every
+            # candidate job has spent its dispatch attempts, and the job simply
+            # disappears from the claim candidates with nothing said — the same
+            # unexplained-refusal shape as the opening gates. Name it.
+            exhausted = [
+                str(row.get("job_id") or "")
+                for row in all_open_host_work or []
+                if int(row.get("dispatch_attempts") or 0)
+                >= _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS
+            ]
+            if exhausted:
+                raise ToolError(
+                    "opening_host_work_dispatch_attempts_exhausted",
+                    "every candidate opening host-work request has reached the "
+                    f"dispatch attempt ceiling of "
+                    f"{_PI_SOURCE_COORDINATOR_MAX_ATTEMPTS} "
+                    f"(job_ids: {', '.join(sorted(exhausted))}); a graceful "
+                    "release refunds host-side failures, so this ceiling means "
+                    "the work itself kept failing and needs an explicit "
+                    "decision rather than another automatic retry",
+                )
             raise ToolError(
                 "opening_host_work_takeover_unavailable",
                 "exact opening host-work request has no canonical takeover",

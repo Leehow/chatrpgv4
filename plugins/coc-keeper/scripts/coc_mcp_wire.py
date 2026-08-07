@@ -8,6 +8,7 @@ operation cards.  No rules, state, secret, or narrative decision lives here.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from copy import deepcopy
 import hashlib
 import json
@@ -2009,6 +2010,72 @@ def _project_claim_dispatch(data: Any) -> dict[str, Any]:
     return projected
 
 
+_SPILLABLE_STRUCTURE_KEYS = ("classification_request", "extraction_request")
+
+
+def _iter_claim_packets(projected: Any) -> Iterator[dict[str, Any]]:
+    """Yield every source packet in a claim result, whichever shape it took.
+
+    ``result_delivery="return_to_parent"`` — what the live source coordinator
+    actually sends — leaves the leased packets in ``packets``. Only the
+    host-spawn deliveries wrap them as ``dispatch_tasks[].packet``. A projector
+    that walks just one of the two silently no-ops on the real path.
+    """
+    if not isinstance(projected, dict):
+        return
+    for packet in projected.get("packets") or []:
+        if isinstance(packet, dict):
+            yield packet
+    for task in projected.get("dispatch_tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        packet = task.get("packet")
+        if isinstance(packet, dict):
+            yield packet
+
+
+def _spill_structure_requests(projected: Any) -> bool:
+    """Move whole-book structure payloads out of the hot claim envelope.
+
+    A ``classify_sections`` request carries the entire candidate list for the
+    book — 42 rows and ~13 KiB for `dust-to-dust`, which on its own exceeds the
+    claim budget and voids every lease in the batch, so the section lane can
+    never start. Those exact bytes already sit in the host-work job file, so
+    send a workspace-relative path plus a digest instead: the same shape
+    ``cached_page_refs`` already uses. The Pi runtime inflates and re-verifies
+    the digest before a leaf is spawned, so the worker contract is unchanged.
+
+    Returns True when anything was spilled.
+    """
+    spilled = False
+    for packet in _iter_claim_packets(projected):
+        root_id = packet.get("asset_root_id")
+        if not isinstance(root_id, str) or not root_id:
+            continue
+        for request in packet.get("requests") or []:
+            if not isinstance(request, dict):
+                continue
+            job_id = request.get("job_id")
+            if not isinstance(job_id, str) or not job_id:
+                continue
+            for key in _SPILLABLE_STRUCTURE_KEYS:
+                value = request.get(key)
+                if not isinstance(value, dict) or not value:
+                    continue
+                if f"{key}_ref" in request:
+                    continue
+                request[f"{key}_ref"] = {
+                    "host_work_path": (
+                        f".coc/module-assets/{root_id}/host-work/{job_id}.json"
+                    ),
+                    "field": key,
+                    "sha256": canonical_digest(value),
+                }
+                del request[key]
+                spilled = True
+    return spilled
+
+
 def _claim_projection_failure(data: Any) -> dict[str, Any]:
     """Return a small fail-closed claim receipt with recoverable ownership."""
     projected = {
@@ -2319,6 +2386,14 @@ def project_envelope(
         result["wire"]["claim_dispatch_deduplicated"] = True
         result["warnings"] = result["warnings"][:3]
         result["hints"] = result["hints"][:3]
+
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "progressive.claim_host_work"
+        and _spill_structure_requests(result.get("data"))
+    ):
+        result["wire"]["payload_projected"] = True
+        result["wire"]["claim_structure_requests_spilled"] = True
 
     if (
         transport_bytes(result) > MAX_INLINE_BYTES

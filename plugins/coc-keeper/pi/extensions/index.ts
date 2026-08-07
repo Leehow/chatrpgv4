@@ -831,6 +831,181 @@ export class OpeningTerminalContinuationGate {
     return actions;
   }
 
+  // Single source of truth for investigator.create admission. The gate returns
+  // these same tokens verbatim on rejection, so a refused KP is told which
+  // field failed instead of being handed the route again. Field names and
+  // schema-declared literals only — never payload values or source text.
+  private investigatorCreatePayloadFailures(
+    payload: JsonObject,
+    route: OpeningSetupRoute,
+    inputMode: GuidedCharacterCreationInputMode | null,
+  ): string[] {
+    const failures: string[] = [];
+    const required = ["campaign_id", "investigator_id", "sheet", "creation"];
+    for (const key of Object.keys(payload)) {
+      if (!required.includes(key)) {
+        failures.push(`payload.${key} is not an accepted field`);
+      }
+    }
+    for (const key of required) {
+      if (!Object.keys(payload).includes(key)) {
+        failures.push(`payload.${key} is required`);
+      }
+    }
+    if (payload.campaign_id !== route.campaign_id) {
+      failures.push("payload.campaign_id must equal the current campaign id");
+    }
+    if (typeof payload.investigator_id !== "string") {
+      failures.push("payload.investigator_id must be a string");
+    }
+    const creation = objectOrNull(payload.creation);
+    const sheet = objectOrNull(payload.sheet);
+    if (creation === null) failures.push("payload.creation must be an object");
+    if (sheet === null) failures.push("payload.sheet must be an object");
+
+    const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
+    if (luckReceipt === null) {
+      failures.push(
+        "creation.luck_roll_receipt must be an object with exactly "
+        + "campaign_id, decision_id, and roll_id, quoting the roll_id returned "
+        + "by the canonical rules.roll_dice Quick-Fire Luck receipt",
+      );
+    } else {
+      if (!exactKeysMatch(luckReceipt, ["campaign_id", "decision_id", "roll_id"])) {
+        failures.push(
+          "creation.luck_roll_receipt must carry exactly campaign_id, "
+          + "decision_id, and roll_id",
+        );
+      }
+      if (luckReceipt.campaign_id !== route.campaign_id) {
+        failures.push(
+          "creation.luck_roll_receipt.campaign_id must equal the current "
+          + "campaign id",
+        );
+      }
+      if (
+        typeof luckReceipt.decision_id !== "string"
+        || luckReceipt.decision_id.trim().length === 0
+      ) {
+        failures.push(
+          "creation.luck_roll_receipt.decision_id must be the non-empty "
+          + "decision_id sent with the Quick-Fire Luck rules.roll_dice call",
+        );
+      }
+      if (
+        typeof luckReceipt.roll_id !== "string"
+        || luckReceipt.roll_id.trim().length === 0
+      ) {
+        failures.push(
+          "creation.luck_roll_receipt.roll_id must be the non-empty roll_id "
+          + "field returned in that rules.roll_dice result",
+        );
+      }
+    }
+    if (!Number.isInteger(creation?.luck_roll_total)) {
+      failures.push(
+        "creation.luck_roll_total must be the integer total of that same roll",
+      );
+    }
+
+    if (inputMode === "kp_guided_era_adaptive") {
+      if (creation?.input_mode !== "kp_guided_era_adaptive") {
+        failures.push('creation.input_mode must be "kp_guided_era_adaptive"');
+      }
+      if (creation?.era_adaptive !== true) {
+        failures.push("creation.era_adaptive must be true");
+      }
+      if (creation?.kp_guided !== true) {
+        failures.push("creation.kp_guided must be true");
+      }
+      if (typeof creation?.era !== "string") {
+        failures.push("creation.era must be a string");
+      }
+      if (typeof creation?.method !== "string") {
+        failures.push("creation.method must be a string");
+      }
+      if (sheet?.era_adaptive !== true) {
+        failures.push("sheet.era_adaptive must be true");
+      }
+      if (sheet?.kp_guided !== true) {
+        failures.push("sheet.kp_guided must be true");
+      }
+      if (sheet?.era !== creation?.era) {
+        failures.push("sheet.era must equal creation.era");
+      }
+      if (objectOrNull(sheet?.occupation) === null) {
+        failures.push("sheet.occupation must be an object");
+      }
+      if (objectOrNull(sheet?.skill_provenance) === null) {
+        failures.push("sheet.skill_provenance must be an object");
+      }
+      return failures;
+    }
+
+    if (creation?.input_mode !== "guided_quick_fire") {
+      failures.push('creation.input_mode must be "guided_quick_fire"');
+    }
+    if (creation?.method !== "quick_fire_array") {
+      failures.push('creation.method must be "quick_fire_array"');
+    }
+    if (
+      !Array.isArray(creation?.characteristic_assignment_order)
+      || creation.characteristic_assignment_order.length !== 8
+    ) {
+      failures.push(
+        "creation.characteristic_assignment_order must be an array of exactly "
+        + "8 characteristic names",
+      );
+    }
+    return failures;
+  }
+
+  // Rejection text for a create attempt the gate refused. Returns null when the
+  // attempt is not an investigator.create the caller should explain, so the
+  // caller falls back to the retained route.
+  private openingInvestigatorCreateRejection(
+    params: JsonObject,
+    state: OpeningSetupState,
+  ): string | null {
+    if (state.characterSetupComplete) return null;
+    if (!this.characterSetupAllowed(state)) return null;
+    if (String(params.operation ?? "") !== "setup.invoke") return null;
+    const args = objectOrNull(params.arguments);
+    if (args === null || args.kind !== "investigator.create") return null;
+    const route = state.route;
+    const inputMode = state.characterSetupInputMode;
+    const failures: string[] = [];
+    if (params.campaign !== route.campaign_id) {
+      failures.push("campaign must equal the current opening campaign id");
+    }
+    for (const key of Object.keys(args)) {
+      if (key !== "kind" && key !== "payload") {
+        failures.push(`arguments.${key} is not an accepted field`);
+      }
+    }
+    const payload = objectOrNull(args.payload);
+    if (payload === null) {
+      failures.push("arguments.payload must be an object");
+    } else {
+      failures.push(
+        ...this.investigatorCreatePayloadFailures(payload, route, inputMode),
+      );
+    }
+    if (failures.length === 0) return null;
+    // Failing fields first, retained route after: the KP needs the reason to
+    // converge, and every gate rejection must still leave it holding the route.
+    return (
+      "setup.invoke investigator.create was refused because its payload does "
+      + `not satisfy the ${inputMode ?? "guided_quick_fire"} branch the `
+      + "contract selected for this campaign. Correct exactly these fields and "
+      + `retry the same call: ${failures.join("; ")}. The complete accepted `
+      + "shape is setup.investigator_contract.result.payload_schema, which the "
+      + "current projection already returns whole for this branch; there is no "
+      + "fuller schema to request. Retained route: "
+      + JSON.stringify(route)
+    );
+  }
+
   private canonicalSetupInvokeForOpening(
     params: JsonObject,
     route: OpeningSetupRoute,
@@ -850,57 +1025,9 @@ export class OpeningTerminalContinuationGate {
     const payload = objectOrNull(args.payload);
     if (payload === null) return false;
     if (args.kind === "investigator.create") {
-      const keys = Object.keys(payload);
-      const creation = objectOrNull(payload.creation);
-      const sheet = objectOrNull(payload.sheet);
-      const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
-      const validLuckReceipt = (
-        luckReceipt !== null
-        && exactKeysMatch(luckReceipt, ["campaign_id", "decision_id", "roll_id"])
-        && luckReceipt.campaign_id === route.campaign_id
-        && typeof luckReceipt.decision_id === "string"
-        && luckReceipt.decision_id.trim().length > 0
-        && typeof luckReceipt.roll_id === "string"
-        && luckReceipt.roll_id.trim().length > 0
-      );
-      const quickFireMaterialization = (
-        inputMode !== "kp_guided_era_adaptive"
-        && creation !== null
-        && creation.input_mode === "guided_quick_fire"
-        && creation.method === "quick_fire_array"
-        && Array.isArray(creation.characteristic_assignment_order)
-        && creation.characteristic_assignment_order.length === 8
-        && Number.isInteger(creation.luck_roll_total)
-        && validLuckReceipt
-      );
-      const adaptiveCreation = (
-        inputMode === "kp_guided_era_adaptive"
-        && creation !== null
-        && sheet !== null
-        && creation.input_mode === "kp_guided_era_adaptive"
-        && creation.era_adaptive === true
-        && creation.kp_guided === true
-        && typeof creation.era === "string"
-        && typeof creation.method === "string"
-        && Number.isInteger(creation.luck_roll_total)
-        && validLuckReceipt
-        && sheet.era_adaptive === true
-        && sheet.kp_guided === true
-        && sheet.era === creation.era
-        && objectOrNull(sheet.occupation) !== null
-        && objectOrNull(sheet.skill_provenance) !== null
-      );
-      return (
-        keys.every((key) => (
-          ["campaign_id", "investigator_id", "sheet", "creation"].includes(key)
-        ))
-        && ["campaign_id", "investigator_id", "sheet", "creation"].every((key) => keys.includes(key))
-        && payload.campaign_id === route.campaign_id
-        && typeof payload.investigator_id === "string"
-        && sheet !== null
-        && creation !== null
-        && (quickFireMaterialization || adaptiveCreation)
-      );
+      return this.investigatorCreatePayloadFailures(
+        payload, route, inputMode,
+      ).length === 0;
     }
     if (args.kind === "campaign.link_investigator") {
       const investigatorIds = payload.investigator_ids;
@@ -1530,7 +1657,29 @@ export class OpeningTerminalContinuationGate {
 
   private recoveredSourceMaterializationRoute(
     campaignId: string,
+    rearm: JsonObject | null = null,
+    instruction = "",
   ): OpeningSetupRoute {
+    if (rearm !== null) {
+      // The lifecycle is not waiting, it is asking for an exact recovery call:
+      // carry that card and do NOT set source_materialization_wait_only, which
+      // would keep blocking the very operation that recovers the campaign.
+      return {
+        schema_version: 1,
+        status: "blocked",
+        hard_gate: true,
+        activation_allowed: false,
+        phase: "opening_source_materialization",
+        campaign_id: campaignId,
+        next_operation: structuredClone(rearm),
+        instruction: (
+          instruction.trim().length > 0
+            ? instruction
+            : "invoke this exact retained opening recovery card before any "
+              + "other setup or play operation"
+        ),
+      };
+    }
     return {
       schema_version: 1,
       status: "blocked",
@@ -2144,6 +2293,10 @@ export class OpeningTerminalContinuationGate {
     if (state.route.next_operation?.operation === params.operation) {
       this.openingSetupContinuationQueued.delete(campaignId);
     }
+    const createRejection = this.openingInvestigatorCreateRejection(
+      params, state,
+    );
+    if (createRejection !== null) return createRejection;
     return (
       `${String(params.operation || "coc_invoke")} is unavailable while the `
       + "Pi opening setup hard gate is active; follow this exact retained "
@@ -2391,25 +2544,50 @@ export class OpeningTerminalContinuationGate {
       && this.unboundAttemptIsFresh(attempt)
       && exactProjectedResumeError
       && returnedGate !== null
-      && exactKeysMatch(returnedGate, [
-        "schema_version",
-        "status",
-        "hard_gate",
-        "activation_allowed",
-        "phase",
-        "campaign_id",
-        "source_lifecycle_status",
-        "next_operation",
-        "instruction",
-      ])
+      && exactKeysMatch(
+        returnedGate,
+        returnedGate.source_lifecycle_status === "resolver_lost"
+          ? [
+            "schema_version",
+            "status",
+            "hard_gate",
+            "activation_allowed",
+            "phase",
+            "campaign_id",
+            "source_lifecycle_status",
+            "retained_start_location_id",
+            "next_operation",
+            "instruction",
+          ]
+          : [
+            "schema_version",
+            "status",
+            "hard_gate",
+            "activation_allowed",
+            "phase",
+            "campaign_id",
+            "source_lifecycle_status",
+            "next_operation",
+            "instruction",
+          ],
+      )
       && returnedGate.schema_version === 1
       && returnedGate.status === "blocked"
       && returnedGate.hard_gate === true
       && returnedGate.activation_allowed === false
       && returnedGate.phase === "opening_source_materialization"
       && returnedGate.campaign_id === attempt.campaignId
-      && returnedGate.source_lifecycle_status === "pending"
-      && returnedGate.next_operation === null
+      && (
+        // A live lifecycle waits; any other state carries a recovery card.
+        returnedGate.source_lifecycle_status === "pending"
+          ? returnedGate.next_operation === null
+          : [
+            "progressive.opening_bootstrap",
+            "progressive.project_opening",
+          ].includes(
+            String(objectOrNull(returnedGate.next_operation)?.operation ?? ""),
+          )
+      )
     );
     const canonicalSourceReviewProbe = (
       attempt.attemptClass === "probe"
@@ -2549,6 +2727,10 @@ export class OpeningTerminalContinuationGate {
     if (state === undefined && canonicalMaterializationProbe) {
       const route = this.recoveredSourceMaterializationRoute(
         attempt.campaignId,
+        returnedGate?.source_lifecycle_status === "pending"
+          ? null
+          : objectOrNull(returnedGate?.next_operation),
+        String(returnedGate?.instruction ?? ""),
       );
       this.initializeOpeningSetupState(
         attempt.campaignId,
@@ -5229,12 +5411,19 @@ export function projectPiGuidedCharacterContract(
   const projectedContract = objectOrNull(projectedData.result)!;
   const projectedSchema = objectOrNull(projectedContract.payload_schema)!;
   const projectedDefinitions = objectOrNull(projectedSchema.$defs)!;
+  const droppedBranches: string[] = [];
+  const dropDefinition = (key: string): void => {
+    if (key in projectedDefinitions) {
+      delete projectedDefinitions[key];
+      droppedBranches.push(key);
+    }
+  };
   projectedSchema.oneOf = [structuredClone(candidates[0])];
-  delete projectedDefinitions.complete_sheet;
-  delete projectedDefinitions.complete_sheet_creation;
+  dropDefinition("complete_sheet");
+  dropDefinition("complete_sheet_creation");
   if (inputMode === "kp_guided_era_adaptive") {
-    delete projectedDefinitions.quick_fire_sheet;
-    delete projectedDefinitions.quick_fire_creation;
+    dropDefinition("quick_fire_sheet");
+    dropDefinition("quick_fire_creation");
     // Adaptive create does not consume Quick Fire skill-catalog rows; drop the
     // bulk so a host that already applied keeper_hot_v1 still retains schema.
     const catalog = objectOrNull(projectedContract.guided_quick_fire_skill_catalog);
@@ -5253,6 +5442,23 @@ export function projectPiGuidedCharacterContract(
     status: "available",
     route,
     input_mode: inputMode,
+  };
+  // The transport header can only say a projector ran, not whether anything the
+  // KP needs was withheld. Only the branches for input modes this campaign
+  // cannot use were dropped, so state that: a KP that reads `payload_projected`
+  // alone otherwise concludes its schema was truncated and burns the gate
+  // trying to re-fetch a fuller one that does not exist.
+  projectedContract.payload_schema_projection = {
+    status: "complete_for_selected_input_mode",
+    selected_input_mode: inputMode,
+    omitted_unusable_branches: droppedBranches,
+    full_schema_available_elsewhere: false,
+    note: (
+      "This payload_schema is the whole accepted investigator.create shape for "
+      + "this campaign. Only branches for input modes it cannot use were "
+      + "removed. Build the payload from this schema; do not request a fuller "
+      + "schema and do not retry through discovery."
+    ),
   };
   return projected;
 }
@@ -5447,6 +5653,54 @@ interface AutoDispatchOptions {
   submissionOwner?: () => boolean;
   onSubmissionOwnershipLost?: () => void;
   exactTask?: JsonObject;
+}
+
+// A null submission does not mean the coordinator capability is unavailable.
+// The common case is that the manager already owns this dispatch key and
+// declined to resubmit it, which happens on every retry after the first
+// attempt reached a terminal state. Reporting that as capability_unavailable
+// sends the KP chasing a capability that is in fact enabled, and hides the
+// real terminal failure class. Read the manager and say what actually
+// happened; only a genuinely unknown key is a capability question.
+export function coordinatorDispatchNullReason(
+  state: unknown,
+  dispatchKey: string,
+): JsonObject {
+  const current = objectOrNull(state);
+  if (current === null) {
+    return {
+      status: "capability_unavailable",
+      failure_class: "coordinator_capability_unavailable",
+      ...(dispatchKey ? { dispatch_key: dispatchKey } : {}),
+    };
+  }
+  const receipt = objectOrNull(current.terminal_receipt);
+  if (receipt === null) {
+    return {
+      status: "dispatch_already_active",
+      failure_class: "coordinator_dispatch_already_active",
+      dispatch_key: dispatchKey,
+      coordinator_status: String(current.status ?? ""),
+    };
+  }
+  const diagnostics = Array.isArray(receipt.diagnostics)
+    ? receipt.diagnostics
+    : [];
+  const codes = [...new Set(diagnostics.flatMap((entry) => {
+    const code = objectOrNull(entry)?.code;
+    return typeof code === "string" && code.trim().length > 0 ? [code] : [];
+  }))];
+  const failureClass = typeof receipt.failure_class === "string"
+    && receipt.failure_class.trim().length > 0
+    ? receipt.failure_class
+    : "coordinator_terminal_failure";
+  return {
+    status: "coordinator_terminal",
+    failure_class: failureClass,
+    dispatch_key: dispatchKey,
+    coordinator_status: String(receipt.status ?? ""),
+    ...(codes.length > 0 ? { diagnostic_codes: codes } : {}),
+  };
 }
 
 // Toolbox results may carry a background_takeover whose next_host_action asks
@@ -6928,7 +7182,49 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         details.campaign_id !== undefined
         && details.campaign_id !== campaignId
       )
-      || details.source_lifecycle_status !== "pending"
+    ) return null;
+    // Whenever the canonical gate hands back a recovery card rather than a
+    // wait, forward it. Projecting the card away is what leaves the Keeper
+    // answering player turns with empty messages: it is told it is blocked and
+    // given nothing to do. Only the exact recovery operations are forwarded,
+    // and the canonical instruction travels with them rather than being
+    // reworded here.
+    const lifecycleStatus = String(details.source_lifecycle_status ?? "");
+    if (lifecycleStatus !== "pending") {
+      const card = objectOrNull(details.next_operation);
+      if (
+        card === null
+        || (
+          card.operation !== "progressive.opening_bootstrap"
+          && card.operation !== "progressive.project_opening"
+        )
+        || card.invoke_via !== "coc_invoke"
+        || card.hard_gate !== true
+        || objectOrNull(card.prefilled_arguments) === null
+        || !Array.isArray(card.missing_arguments)
+        || typeof details.instruction !== "string"
+        || details.instruction.trim().length === 0
+      ) return null;
+      const projected: JsonObject = {
+        schema_version: 1,
+        status: "blocked",
+        hard_gate: true,
+        activation_allowed: false,
+        phase: "opening_source_materialization",
+        campaign_id: campaignId,
+        source_lifecycle_status: lifecycleStatus,
+        next_operation: structuredClone(card),
+        instruction: details.instruction,
+      };
+      if (lifecycleStatus === "resolver_lost") {
+        projected.retained_start_location_id = String(
+          details.retained_start_location_id ?? "",
+        );
+      }
+      return projected;
+    }
+    if (
+      details.source_lifecycle_status !== "pending"
       || (
         details.next_operation !== undefined
         && details.next_operation !== null
@@ -7458,11 +7754,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               "submit_failed",
             ].includes(String(submission.status))
           ) {
-            const terminal = submission ?? {
-              status: "capability_unavailable",
-              failure_class: "coordinator_capability_unavailable",
-              dispatch_key: dispatchKey,
-            };
+            const terminal = submission ?? coordinatorDispatchNullReason(
+              autoDispatchDeps(ctx, epoch).activeManager()?.state(dispatchKey),
+              dispatchKey,
+            );
             openingContinuationGate.markOpeningSetupRouteAttemptFailure(
               _id,
               params,
@@ -7949,6 +8244,7 @@ export const __test = {
   findAutoDispatchTask,
   findCurrentDependencyLifecycle,
   autoDispatchCoordinator,
+  coordinatorDispatchNullReason,
   autoDispatchPiOpeningSourceReview,
   autoDispatchPiRawPdfBindBundle,
   findPiOpeningSourceReviewTrigger,

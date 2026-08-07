@@ -6736,6 +6736,19 @@ def claim_host_work_requests(
     return result
 
 
+# Release reasons that mean the host or transport gave up, not that this job's
+# content failed. ``dispatch_attempts`` exists to stop a genuinely bad job from
+# being retried forever; spending it on a projection bug, a killed session, or
+# a deliberate deferral burns a campaign's only retries for reasons that have
+# nothing to do with the work. These are our own emitted values, not free text.
+_HOST_SIDE_RELEASE_REASONS = frozenset({
+    "claim_projection_invalid",
+    "coordinator_shutdown",
+    "coordinator_aborted",
+    "turn_pending_finalization",
+})
+
+
 def release_host_work_leases(
     workspace: Path,
     asset_root_id: str,
@@ -6766,6 +6779,7 @@ def release_host_work_leases(
     work_dir = module_root / "host-work"
     released: list[str] = []
     skipped: list[str] = []
+    refunded: list[str] = []
     now = datetime.now(timezone.utc)
     with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
         for path in sorted(work_dir.glob("*.json")) if work_dir.is_dir() else []:
@@ -6790,6 +6804,14 @@ def release_host_work_leases(
             request["last_lease_released_at"] = now.isoformat()
             request["last_lease_release_reason"] = release_reason
             request["last_lease_id"] = lease_id
+            if release_reason in _HOST_SIDE_RELEASE_REASONS:
+                # Refund the attempt this claim consumed: the host, not the
+                # job, is why it came back. A lease lost to an abrupt crash
+                # never reaches here, so TTL recovery still costs an attempt.
+                request["dispatch_attempts"] = max(
+                    0, int(request.get("dispatch_attempts") or 0) - 1,
+                )
+                refunded.append(job_id)
             request.pop("dispatch_state", None)
             for key in (
                 "lease_id", "leased_at", "lease_expires_at", "executor_id",
@@ -6804,6 +6826,7 @@ def release_host_work_leases(
         "released_job_ids": released,
         "skipped_job_ids": skipped,
         "release_reason": release_reason,
+        "dispatch_attempt_refunded_job_ids": refunded,
     }
 
 

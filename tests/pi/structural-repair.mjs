@@ -288,6 +288,80 @@ try {
       (error) => error.message.includes("result_contract_ref is unbound"),
     ));
 
+  {
+    // A whole-book classify_sections payload is spilled out of the claim
+    // envelope by coc_mcp_wire._spill_structure_requests, because inlining it
+    // blows the hot budget and voids every lease in the batch. It must inflate
+    // back byte-identically here, before any leaf is spawned, and fail closed
+    // on digest drift or a path that escapes the workspace.
+    const workspace = path.join(temp, "spill-workspace");
+    const hostWork = path.join(
+      workspace, ".coc", "module-assets", "dust-to-dust", "host-work",
+    );
+    await fs.mkdir(hostWork, { recursive: true });
+    const structure = {
+      schema_version: 1,
+      contract_id: "coc.section-classification-request.v1",
+      candidates: [
+        { section_id: "sec-000001", title: "DEAD RECKONINGS", preview: "# A" },
+        { section_id: "sec-000002", title: "MARTIN'S BEACH", preview: "# B" },
+      ],
+    };
+    await fs.writeFile(
+      path.join(hostWork, "job-spill.json"),
+      JSON.stringify({ job_id: "job-spill", classification_request: structure }),
+    );
+    const structureDigest = `sha256:${createHash("sha256")
+      .update(canonicalJson(structure)).digest("hex")}`;
+    const spillTask = structuredClone(clockTask);
+    spillTask.packet.asset_root_id = "dust-to-dust";
+    spillTask.packet.requests[0].job_id = "job-spill";
+    spillTask.packet.requests[0].classification_request_ref = {
+      host_work_path: ".coc/module-assets/dust-to-dust/host-work/job-spill.json",
+      field: "classification_request",
+      sha256: structureDigest,
+    };
+
+    const previousCwd = process.cwd();
+    process.chdir(workspace);
+    try {
+      const inflated = runtime.validateLeafTask(structuredClone(spillTask));
+      const request = inflated.packet.requests[0];
+      check("spilled structure request inflates byte-identically before spawn",
+        !Object.hasOwn(request, "classification_request_ref")
+        && JSON.stringify(request.classification_request)
+          === JSON.stringify(structure));
+
+      const drifted = structuredClone(spillTask);
+      drifted.packet.requests[0].classification_request_ref.sha256 =
+        `sha256:${"0".repeat(64)}`;
+      check("spilled structure digest drift is fail closed",
+        rejects(
+          () => runtime.validateLeafTask(drifted),
+          (error) => error.message.includes("digest drift"),
+        ));
+
+      const escaped = structuredClone(spillTask);
+      escaped.packet.requests[0].classification_request_ref.host_work_path =
+        "../../../etc/passwd";
+      check("spilled structure path escape is fail closed",
+        rejects(
+          () => runtime.validateLeafTask(escaped),
+          (error) => error.message.includes("inside the workspace"),
+        ));
+
+      const doubled = structuredClone(spillTask);
+      doubled.packet.requests[0].classification_request = structure;
+      check("a request carrying both the payload and its ref is fail closed",
+        rejects(
+          () => runtime.validateLeafTask(doubled),
+          (error) => error.message.includes("cannot contain"),
+        ));
+    } finally {
+      process.chdir(previousCwd);
+    }
+  }
+
   const projectionReleaseCalls = [], projectionReleaseAudit = [];
   const projectedFailure = await runtime.runCoordinatorLifecycle(
     coordinatorTask("coord-projection-failure", 1),

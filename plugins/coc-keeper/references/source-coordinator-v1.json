@@ -210,7 +210,8 @@
         "leaf_result_job_id_duplicate",
         "leaf_result_job_binding_drift",
         "leaf_framing_not_one_text",
-        "leaf_framing_invalid_json"
+        "leaf_framing_invalid_json",
+        "fulfill_rejected_by_canonical"
       ],
       "validation_path_values": [
         "claim.data.lease_bindings",
@@ -239,7 +240,8 @@
         "$.results[].job_id",
         "assistant.content",
         "assistant.content[0].text",
-        "assistant.messages"
+        "assistant.messages",
+        "progressive.fulfill_host_work"
       ],
       "lease_id": "exact_nonempty_string_max_256_or_null",
       "job_ids": "exact_nonempty_strings_max_128_each_at_most_128",

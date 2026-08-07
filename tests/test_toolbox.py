@@ -17223,3 +17223,140 @@ def test_scene_context_npc_rows_carry_source_readiness(
     )
     assert row2["parse_state"] == "deep"
     assert row2["evidence_gap"] is False
+
+
+def _pending_opening_watch(ws: dict, *, age_seconds: float) -> None:
+    """Persist a pending opening projection watch of a given age."""
+    from datetime import datetime, timedelta, timezone
+
+    path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(path.read_text(encoding="utf-8"))
+    created = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    scenario["opening_projection_watch"] = {
+        "schema_version": 1,
+        "campaign_id": ws["campaign_id"],
+        "asset_root_id": ws["asset_root_id"],
+        "start_location_id": "opening",
+        "source_scope": {"pdf_indices": [0]},
+        "created_at": created.isoformat(),
+        "status": "pending",
+    }
+    _write_json(path, scenario)
+
+
+def test_pending_watch_with_no_live_owner_re_arms_the_bootstrap(
+    tmp_path: Path, monkeypatch,
+):
+    """A watch whose resolver died must not wedge the campaign forever.
+
+    The coordinator that clears an opening projection watch is spawned per
+    session; the watch is persisted in the campaign. When a session dies
+    between opening_bootstrap and pack fulfilment, the watch survives with
+    nobody left to complete it and the gate used to answer `next_operation:
+    null` with "wait" on every turn, permanently. Observed live on campaign
+    vfy2: the Keeper correctly replied with empty turns because it was told to
+    wait for an event that could never arrive.
+    """
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    _pending_opening_watch(ws, age_seconds=6000)
+    module_dir = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+    )
+    module_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(module_dir / "skeleton.json", ws["skeleton"])
+
+    blocked = _run(ws, "scene.map")
+    assert blocked["ok"] is False, blocked
+    details = blocked["error"]["details"]
+    assert details["phase"] == "opening_source_materialization"
+    assert details["source_lifecycle_status"] == "resolver_lost"
+    assert details["retained_start_location_id"] == "opening"
+
+    next_operation = details["next_operation"]
+    assert isinstance(next_operation, dict), "a lost resolver must not leave null"
+    assert next_operation["operation"] == "progressive.opening_bootstrap"
+    # The retained opening travels with the card so the Keeper re-arms the same
+    # opening rather than re-selecting one.
+    assert next_operation["prefilled_arguments"]["opening_pdf_indices"] == [0]
+    # The whole start_location travels with the card. A live KP handed the bare
+    # id string to a contract that requires {location_id, title} 55 times in one
+    # turn, so the repository supplies the object instead of letting it guess.
+    assert next_operation["prefilled_arguments"]["start_location"] == {
+        "location_id": "opening",
+        "title": ws["skeleton"]["locations"][0]["title"],
+    }
+    assert next_operation["missing_arguments"] == []
+    assert next_operation["hard_gate"] is True
+
+
+def test_re_arm_falls_back_to_a_missing_start_location(
+    tmp_path: Path, monkeypatch,
+):
+    """Without an authored title the card asks for start_location explicitly."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    _pending_opening_watch(ws, age_seconds=6000)
+
+    blocked = _run(ws, "scene.map")
+    details = blocked["error"]["details"]
+    assert details["source_lifecycle_status"] == "resolver_lost"
+    next_operation = details["next_operation"]
+    assert "start_location" not in next_operation["prefilled_arguments"]
+    assert next_operation["missing_arguments"] == ["start_location"]
+
+
+def test_a_young_pending_watch_still_waits(tmp_path: Path, monkeypatch):
+    """The normal window between an accepted bootstrap and the first claim."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    _pending_opening_watch(ws, age_seconds=5)
+
+    blocked = _run(ws, "scene.map")
+    assert blocked["ok"] is False, blocked
+    details = blocked["error"]["details"]
+    assert details["source_lifecycle_status"] == "pending"
+    assert details["next_operation"] is None
+    assert "resolver" not in details["instruction"]
+
+
+def test_an_old_pending_watch_with_leased_work_still_waits(
+    tmp_path: Path, monkeypatch,
+):
+    """An in-flight batch must never be mistaken for a dead resolver."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    from datetime import datetime, timedelta, timezone
+
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    _pending_opening_watch(ws, age_seconds=6000)
+
+    host_work = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "host-work"
+    )
+    host_work.mkdir(parents=True, exist_ok=True)
+    assets = _load("coc_module_assets_watch_probe", SCRIPTS / "coc_module_assets.py")
+    _write_json(host_work / "job-leased.json", {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": "job-leased",
+        "kind": "partial_opening",
+        "target_id": "opening",
+        "work_level": "bounded_warm",
+        "dispatch_state": "leased",
+        "lease_id": "source-lease-live",
+        "lease_expires_at": (
+            datetime.now(timezone.utc) + timedelta(seconds=600)
+        ).isoformat(),
+        "executor_id": "source-coordinator:live",
+        "requested_pdf_indices": [0],
+    })
+
+    blocked = _run(ws, "scene.map")
+    assert blocked["ok"] is False, blocked
+    details = blocked["error"]["details"]
+    assert details["source_lifecycle_status"] == "pending"
+    assert details["next_operation"] is None
