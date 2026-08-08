@@ -393,6 +393,21 @@ class _ShutdownFlag:
         self.requested = False
 
 
+# Host abort signals the supervise loop observes via _ShutdownFlag. Delivery
+# requires these not be blocked in the adapter thread's mask.
+_INTERRUPT_SIGNALS = frozenset({signal.SIGTERM, signal.SIGINT})
+
+
+class _InterruptInstall:
+    """Handler snapshot plus the signal mask captured before enablement."""
+
+    __slots__ = ("handlers", "prior_mask")
+
+    def __init__(self, handlers: dict[int, Any], prior_mask: Any) -> None:
+        self.handlers = handlers
+        self.prior_mask = prior_mask
+
+
 def _fail_if_shutdown(flag: _ShutdownFlag | None) -> None:
     if flag is not None and flag.requested:
         _fail("Pi lifecycle interrupted by signal")
@@ -404,22 +419,52 @@ def _run_post_child_hook() -> None:
         hook()
 
 
-def _install_interrupt_handlers(flag: _ShutdownFlag) -> dict[int, Any]:
-    """Handlers only flip the flag — never Popen wait/poll/raise/communicate."""
+def _enable_interrupt_delivery() -> Any:
+    """Unblock SIGTERM/SIGINT; return prior full mask for later restore.
+
+    Parents (test runners, supervisors) may leave TERM/INT blocked. Handlers
+    installed while those signals stay blocked never run, so the supervise
+    loop would ignore host abort. Fail open on platforms without sigmask.
+    """
+    if not hasattr(signal, "pthread_sigmask"):
+        return None
+    try:
+        return signal.pthread_sigmask(signal.SIG_UNBLOCK, _INTERRUPT_SIGNALS)
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _restore_signal_mask(prior_mask: Any) -> None:
+    if prior_mask is None or not hasattr(signal, "pthread_sigmask"):
+        return
+    try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, prior_mask)
+    except (OSError, ValueError, AttributeError):
+        return
+
+
+def _install_interrupt_handlers(flag: _ShutdownFlag) -> _InterruptInstall:
+    """Handlers only flip the flag — never Popen wait/poll/raise/communicate.
+
+    Also unblocks SIGTERM/SIGINT for this thread so a blocked inherited mask
+    cannot silence the handler. Restore puts the prior mask back.
+    """
+    prior_mask = _enable_interrupt_delivery()
     handlers: dict[int, Any] = {}
 
     def interrupted(_signum: int, _frame: Any) -> None:
         flag.requested = True
 
-    for signum in (signal.SIGTERM, signal.SIGINT):
+    for signum in _INTERRUPT_SIGNALS:
         handlers[signum] = signal.getsignal(signum)
         signal.signal(signum, interrupted)
-    return handlers
+    return _InterruptInstall(handlers, prior_mask)
 
 
-def _restore_interrupt_handlers(handlers: dict[int, Any]) -> None:
-    for signum, handler in handlers.items():
+def _restore_interrupt_handlers(install: _InterruptInstall) -> None:
+    for signum, handler in install.handlers.items():
         signal.signal(signum, handler)
+    _restore_signal_mask(install.prior_mask)
 
 
 def _killpg_sigkill(pgid: int) -> None:
@@ -497,11 +542,14 @@ def _spawn_session_process(
     arrive after Popen returns but before the supervisor holds the PGID. When
     masking is unavailable, fall back to the tight unmasked sequence.
     """
+    # Block only for the Popen+pgid capture window, then restore the *current*
+    # controllable mask (TERM/INT already unblocked by lane/main entry). Never
+    # freeze a parent-blocked mask back into place after spawn.
     old_mask = None
     if hasattr(signal, "pthread_sigmask"):
         try:
             old_mask = signal.pthread_sigmask(
-                signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
+                signal.SIG_BLOCK, _INTERRUPT_SIGNALS,
             )
         except (OSError, ValueError, AttributeError):
             old_mask = None
@@ -1838,30 +1886,37 @@ def _run() -> dict[str, Any]:
 
 
 def main() -> int:
+    # Process entry owns a controllable mask: if the parent left SIGTERM/SIGINT
+    # blocked, handlers would never run and host abort would hang until outer
+    # kill. Save caller mask, unblock for this process, restore on every exit.
+    entry_mask = _enable_interrupt_delivery()
     try:
-        if sys.argv[1:] == ["--capabilities"]:
-            value = _capabilities()
-        elif sys.argv[1:] == ["--opening-review-capabilities"]:
-            value = _opening_review_capabilities()
-        elif sys.argv[1:] == ["--run"]:
-            value = _run()
-        elif sys.argv[1:] == ["--run-opening-review"]:
-            value = _run_opening_review()
-        elif sys.argv[1:] == ["--run-full-parse-batch"]:
-            value = _run_full_parse_batch()
-        else:
-            _fail(
-                "expected --capabilities, --run, "
-                "--opening-review-capabilities, --run-opening-review, "
-                "or --run-full-parse-batch"
-            )
-        print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
-        return 0
-    except (
-        RuntimeError, OSError, ValueError, subprocess.SubprocessError,
-    ) as exc:
-        print(f"coc-pdf-skill-adapter: {exc}", file=sys.stderr)
-        return 1
+        try:
+            if sys.argv[1:] == ["--capabilities"]:
+                value = _capabilities()
+            elif sys.argv[1:] == ["--opening-review-capabilities"]:
+                value = _opening_review_capabilities()
+            elif sys.argv[1:] == ["--run"]:
+                value = _run()
+            elif sys.argv[1:] == ["--run-opening-review"]:
+                value = _run_opening_review()
+            elif sys.argv[1:] == ["--run-full-parse-batch"]:
+                value = _run_full_parse_batch()
+            else:
+                _fail(
+                    "expected --capabilities, --run, "
+                    "--opening-review-capabilities, --run-opening-review, "
+                    "or --run-full-parse-batch"
+                )
+            print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+            return 0
+        except (
+            RuntimeError, OSError, ValueError, subprocess.SubprocessError,
+        ) as exc:
+            print(f"coc-pdf-skill-adapter: {exc}", file=sys.stderr)
+            return 1
+    finally:
+        _restore_signal_mask(entry_mask)
 
 
 if __name__ == "__main__":

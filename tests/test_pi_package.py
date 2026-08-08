@@ -1983,7 +1983,7 @@ def test_pdf_skill_adapter_handler_does_not_touch_popen(
     """Signal handler must only set the flag — no wait/poll/communicate/raise."""
     adapter = _load_pdf_adapter("coc_pdf_adapter_handler_flag_only_test")
     flag = adapter._ShutdownFlag()
-    handlers = adapter._install_interrupt_handlers(flag)
+    install = adapter._install_interrupt_handlers(flag)
     try:
         handler = signal.getsignal(signal.SIGTERM)
         assert flag.requested is False
@@ -1993,7 +1993,121 @@ def test_pdf_skill_adapter_handler_does_not_touch_popen(
         handler(signal.SIGTERM, None)
         assert flag.requested is True
     finally:
-        adapter._restore_interrupt_handlers(handlers)
+        adapter._restore_interrupt_handlers(install)
+
+
+def test_pdf_skill_adapter_install_unblocks_inherited_term_mask():
+    """Lane install must unblock SIGTERM so handlers are reachable."""
+    if not hasattr(signal, "pthread_sigmask"):
+        pytest.skip("pthread_sigmask unavailable")
+    adapter = _load_pdf_adapter("coc_pdf_adapter_unblock_mask_test")
+    prior = signal.pthread_sigmask(
+        signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
+    )
+    try:
+        blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        assert signal.SIGTERM in blocked
+        flag = adapter._ShutdownFlag()
+        install = adapter._install_interrupt_handlers(flag)
+        try:
+            blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            assert signal.SIGTERM not in blocked
+            assert signal.SIGINT not in blocked
+            os.kill(os.getpid(), signal.SIGTERM)
+            assert flag.requested is True
+        finally:
+            adapter._restore_interrupt_handlers(install)
+        # Caller mask restored: TERM blocked again as before install.
+        blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        assert signal.SIGTERM in blocked
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, prior)
+
+
+def test_pdf_skill_adapter_sigterm_with_parent_blocked_mask(
+    tmp_path: Path,
+):
+    """Subprocess adapter --run must handle SIGTERM even if parent blocked it.
+
+    Post-merge runners may leave SIGTERM blocked; the child inherits that mask.
+    main() must establish a controllable unblocked mask so host abort works.
+    """
+    if not hasattr(signal, "pthread_sigmask"):
+        pytest.skip("pthread_sigmask unavailable")
+    prior = signal.pthread_sigmask(
+        signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
+    )
+    try:
+        hang = tmp_path / "hanging-inspector"
+        hang_pid_path = tmp_path / "hang-pid"
+        hang.write_text(
+            f"""#!{os.fspath(Path(os.sys.executable).resolve())}
+import os, signal, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path({str(hang_pid_path)!r}).write_text(str(os.getpid()))
+time.sleep(30)
+""",
+            encoding="utf-8",
+        )
+        hang.chmod(0o755)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        task = _locator_termination_task(
+            tmp_path, workspace, tag="parent-blocked-mask",
+        )
+        fake_pi = tmp_path / "fake-pi"
+        fake_pi.write_text(
+            f"""#!{os.fspath(Path(os.sys.executable).resolve())}
+import sys
+if sys.argv[1:] == ["--version"]:
+    raise SystemExit(0)
+raise SystemExit("pi should not run")
+""",
+            encoding="utf-8",
+        )
+        fake_pi.chmod(0o755)
+        pdf_skill = tmp_path / "pdf-skill" / "SKILL.md"
+        pdf_skill.parent.mkdir()
+        pdf_skill.write_text("# blocked-mask fixture\n", encoding="utf-8")
+        env = {
+            **os.environ,
+            "COC_PI_COMMAND": str(fake_pi),
+            "COC_PI_PDF_SKILL": str(pdf_skill),
+            "COC_PI_PDF_INSPECTOR_COMMAND": str(hang),
+        }
+        adapter = PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
+        process = subprocess.Popen(
+            [os.sys.executable, str(adapter), "--run"],
+            cwd=ROOT,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(task))
+        process.stdin.close()
+        deadline = time.monotonic() + 3
+        while not hang_pid_path.is_file() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert hang_pid_path.is_file()
+        hang_pid = int(hang_pid_path.read_text(encoding="utf-8"))
+        process.send_signal(signal.SIGTERM)
+        assert process.wait(timeout=5) != 0
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            try:
+                os.kill(hang_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        with pytest.raises(ProcessLookupError):
+            os.kill(hang_pid, 0)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, prior)
 
 
 def test_pdf_skill_adapter_uses_one_shot_pi_grok_pdf_skill_argv(
