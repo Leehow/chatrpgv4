@@ -1627,6 +1627,9 @@ time.sleep(10)
         **os.environ,
         "COC_PI_COMMAND": str(fake_pi),
     }
+    # Locator must take the legacy Pi path; a leaked host inspector command
+    # would block before fake Pi starts and hide the process-group contract.
+    env.pop("COC_PI_PDF_INSPECTOR_COMMAND", None)
     # This test owns only process-tree termination. The fake Pi never reads
     # the adapter's required external-skill path, so keep the fixture hermetic.
     pdf_skill = tmp_path / "pdf-skill" / "SKILL.md"
@@ -1658,6 +1661,96 @@ time.sleep(10)
     child_pid = int(child_pid_path.read_text(encoding="utf-8"))
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+def test_pdf_skill_adapter_sigterm_reaps_hanging_pdf_inspector(
+    tmp_path: Path,
+):
+    """SIGTERM during the optional router must exit and reap the session."""
+    hang = tmp_path / "hanging-inspector"
+    hang_pid_path = tmp_path / "hang-pid"
+    hang.write_text(
+        f"""#!{os.fspath(Path(os.sys.executable).resolve())}
+import os, signal, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path({str(hang_pid_path)!r}).write_text(str(os.getpid()))
+time.sleep(30)
+""",
+        encoding="utf-8",
+    )
+    hang.chmod(0o755)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-task.v1",
+        "adapter_mode": "pi_external_pdf_skill_lifecycle",
+        "model_policy": "pinned_xai_grok_4_5_thinking_low",
+        "max_selected_pages": 3,
+        "workspace_root": str(workspace),
+        "asset_root_id": "adapter-router-term",
+        "job_id": "job-adapter-router-term",
+        "kind": "location",
+        "target_id": "archive",
+        "target_label": "Archive",
+        "source_bundle_path": str(
+            workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+        ),
+        "cached_pdf_indices": [],
+        "source": {
+            "path": str(tmp_path / "module.pdf"),
+            "source_id": "pdf:adapter-router-term",
+            "title": "Adapter Router Term",
+            "file_sha256": "b" * 64,
+        },
+    }
+    # Pi must not be required once the hanging router is running; still provide
+    # a dummy so any accidental fallback cannot block on a missing binary.
+    fake_pi = tmp_path / "fake-pi"
+    fake_pi.write_text(
+        f"""#!{os.fspath(Path(os.sys.executable).resolve())}
+import sys
+if sys.argv[1:] == ["--version"]:
+    raise SystemExit(0)
+raise SystemExit("pi should not run while inspector hangs")
+""",
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    pdf_skill = tmp_path / "pdf-skill" / "SKILL.md"
+    pdf_skill.parent.mkdir()
+    pdf_skill.write_text("# router-term fixture\n", encoding="utf-8")
+    env = {
+        **os.environ,
+        "COC_PI_COMMAND": str(fake_pi),
+        "COC_PI_PDF_SKILL": str(pdf_skill),
+        "COC_PI_PDF_INSPECTOR_COMMAND": str(hang),
+    }
+    adapter = PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
+    process = subprocess.Popen(
+        [os.sys.executable, str(adapter), "--run"],
+        cwd=ROOT,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert process.stdin is not None
+    process.stdin.write(json.dumps(task))
+    process.stdin.close()
+    deadline = time.monotonic() + 3
+    while not hang_pid_path.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert hang_pid_path.is_file()
+    hang_pid = int(hang_pid_path.read_text(encoding="utf-8"))
+    process.send_signal(signal.SIGTERM)
+    assert process.wait(timeout=5) != 0
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(hang_pid, 0)
 
 
 def test_pdf_skill_adapter_uses_one_shot_pi_grok_pdf_skill_argv(
@@ -1801,9 +1894,12 @@ def test_pdf_skill_adapter_locator_run_uses_shared_pi_timeout_budget(
     task = _locator_task(workspace, bundle_dir, pdf)
     captured: dict = {}
 
-    def fake_run_pi(prompt, cwd, *, timeout, allow_non_json_receipt=False):
+    def fake_run_pi(
+        prompt, cwd, *, timeout, allow_non_json_receipt=False, lifecycle=None,
+    ):
         captured["timeout"] = timeout
         captured["allow_non_json_receipt"] = allow_non_json_receipt
+        captured["lifecycle"] = lifecycle
         return None
 
     def fake_receipt(task, producer_result):
