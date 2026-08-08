@@ -1654,11 +1654,17 @@ time.sleep(10)
     while not started.is_file() and time.monotonic() < deadline:
         time.sleep(0.02)
     assert started.is_file()
+    # Grandchild starts after fake Pi marks ready; wait for its pid file so the
+    # reap assertion observes a real descendant (SIGKILL is immediate).
+    deadline = time.monotonic() + 3
+    while not child_pid_path.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert child_pid_path.is_file()
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
     process.send_signal(signal.SIGTERM)
     assert process.wait(timeout=5) != 0
     time.sleep(1.3)
     assert not survivor.exists()
-    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
 
@@ -1895,11 +1901,11 @@ def test_pdf_skill_adapter_locator_run_uses_shared_pi_timeout_budget(
     captured: dict = {}
 
     def fake_run_pi(
-        prompt, cwd, *, timeout, allow_non_json_receipt=False, lifecycle=None,
+        prompt, cwd, *, timeout, allow_non_json_receipt=False, guard=None,
     ):
         captured["timeout"] = timeout
         captured["allow_non_json_receipt"] = allow_non_json_receipt
-        captured["lifecycle"] = lifecycle
+        captured["guard"] = guard
         return None
 
     def fake_receipt(task, producer_result):

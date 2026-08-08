@@ -140,7 +140,7 @@ def _try_external_pdf_router(
     *,
     missing_pdf_indices: list[int] | None = None,
     timeout: int = PDF_INSPECTOR_TIMEOUT_SECONDS,
-    lifecycle: _ChildLifecycle | None = None,
+    guard: _ProducerGuard | None = None,
 ) -> dict[str, Any] | None:
     """Invoke an optional external native PDF router; never parse PDF here.
 
@@ -151,24 +151,29 @@ def _try_external_pdf_router(
     unsupported/failed, path drift, illegal bundle) returns None so the caller
     can keep the existing Pi PDF-skill path.
 
-    The child runs in a new session and is registered on lifecycle so a parent
-    SIGTERM reaps it; unset/invalid command takes no subprocess.
+    The child runs in a new session under guard so parent SIGTERM can SIGKILL
+    the session; unset/invalid command takes no subprocess. Host abort during
+    the router raises via guard.check (fail closed), not silent fallback.
     """
     command = _pdf_inspector_command()
     if command is None:
         return None
+    if guard is not None:
+        guard.check()
     request = _pdf_inspector_request(
         mode, task, missing_pdf_indices=missing_pdf_indices,
     )
-    payload = json.dumps(request, ensure_ascii=False, separators=(",", ":"))
+    payload = json.dumps(request, ensure_ascii=False, separators=(',', ':'))
     try:
         completed = _run_session_command(
             [command],
             timeout=timeout,
             input_text=payload,
-            lifecycle=lifecycle,
+            guard=guard,
         )
     except (OSError, subprocess.TimeoutExpired):
+        if guard is not None:
+            guard.check()
         return None
     if completed.returncode != 0:
         return None
@@ -376,62 +381,93 @@ def _child_failure_detail(returncode: int, stderr: str | None) -> str:
     )
 
 
-def _terminate_process_group(process: subprocess.Popen[str]) -> None:
-    """SIGTERM then SIGKILL the child's session; always reap within a bound."""
-    if process.poll() is not None:
-        return
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        if process.poll() is not None:
-            break
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            break
-        deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
-        while process.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.02)
-    try:
-        process.wait(timeout=TERMINATION_GRACE_SECONDS)
-    except subprocess.TimeoutExpired:
-        _fail("Pi process group did not terminate")
+class _ProducerGuard:
+    """Outer supervisor for one producer lane (router and/or Pi child).
 
+    Signal handlers must stay async-signal-safe relative to subprocess state:
+    they only flip a flag and killpg(SIGKILL). They never wait(), communicate(),
+    or raise. The interrupted lane reaps on the normal call stack and then
+    fails closed so the adapter process exits deterministically.
+    """
 
-class _ChildLifecycle:
-    """Tracks the one active session child so SIGTERM can reap it."""
-
-    __slots__ = ("process",)
+    __slots__ = ("interrupted", "pgid", "process", "_signum")
 
     def __init__(self) -> None:
+        self.interrupted = False
+        self.pgid: int | None = None
         self.process: subprocess.Popen[str] | None = None
+        self._signum: int | None = None
+
+    def request_shutdown(self, signum: int | None = None) -> None:
+        self.interrupted = True
+        if signum is not None:
+            self._signum = signum
+        pgid = self.pgid
+        if pgid is None:
+            return
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
     def adopt(self, process: subprocess.Popen[str]) -> None:
         self.process = process
+        self.pgid = process.pid
 
-    def clear(self, process: subprocess.Popen[str] | None = None) -> None:
+    def detach(self, process: subprocess.Popen[str] | None = None) -> None:
         if process is None or self.process is process:
             self.process = None
+            self.pgid = None
 
-    def terminate_active(self) -> None:
+    def reap(self) -> None:
         process = self.process
+        pgid = self.pgid
         self.process = None
-        if process is not None and process.poll() is None:
-            _terminate_process_group(process)
+        self.pgid = None
+        if process is None:
+            if pgid is not None:
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+            return
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
+            while process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+        try:
+            process.wait(timeout=TERMINATION_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            _fail("Pi process group did not terminate")
+
+    def check(self) -> None:
+        if not self.interrupted:
+            return
+        self.reap()
+        signum = self._signum if self._signum is not None else signal.SIGTERM
+        _fail(f"Pi lifecycle interrupted by signal {signum}")
 
 
-def _install_interrupt_handlers(lifecycle: _ChildLifecycle) -> dict[int, Any]:
+def _install_producer_signal_handlers(guard: _ProducerGuard) -> dict[int, Any]:
     handlers: dict[int, Any] = {}
 
-    def interrupted(signum: int, _frame: Any) -> NoReturn:
-        lifecycle.terminate_active()
-        _fail(f"Pi lifecycle interrupted by signal {signum}")
+    def on_signal(signum: int, _frame: Any) -> None:
+        # Flag + kill only. Never wait/raise here: communicate() may own the
+        # same Popen, and raising from a handler can leave the adapter stuck
+        # without returning to main().
+        guard.request_shutdown(signum)
 
     for signum in (signal.SIGTERM, signal.SIGINT):
         handlers[signum] = signal.getsignal(signum)
-        signal.signal(signum, interrupted)
+        signal.signal(signum, on_signal)
     return handlers
 
 
-def _restore_interrupt_handlers(handlers: dict[int, Any]) -> None:
+def _restore_producer_signal_handlers(handlers: dict[int, Any]) -> None:
     for signum, handler in handlers.items():
         signal.signal(signum, handler)
 
@@ -443,9 +479,11 @@ def _run_session_command(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     input_text: str | None = None,
-    lifecycle: _ChildLifecycle | None = None,
+    guard: _ProducerGuard | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one absolute command in a new session; bound kill/reap on exit."""
+    if guard is not None:
+        guard.check()
     process = subprocess.Popen(
         args,
         cwd=cwd,
@@ -456,23 +494,57 @@ def _run_session_command(
         start_new_session=True,
         env=env,
     )
-    if lifecycle is not None:
-        lifecycle.adopt(process)
+    if guard is not None:
+        guard.adopt(process)
     try:
         try:
             stdout, stderr = process.communicate(
                 input=input_text, timeout=timeout,
             )
         except subprocess.TimeoutExpired:
-            _terminate_process_group(process)
+            if guard is not None:
+                guard.reap()
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+                try:
+                    process.wait(timeout=TERMINATION_GRACE_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass
             raise
+        if guard is not None:
+            # Child may already be SIGKILL'd by the signal handler; surface
+            # interruption on this stack so the adapter exits instead of
+            # treating a killed producer as a normal failure/fallback.
+            guard.check()
         code = 0 if process.returncode is None else process.returncode
         return subprocess.CompletedProcess(args, code, stdout, stderr)
     finally:
-        if lifecycle is not None:
-            lifecycle.clear(process)
-        if process.poll() is None:
-            _terminate_process_group(process)
+        if guard is not None:
+            if guard.process is process:
+                guard.reap()
+            else:
+                guard.detach(process)
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+                    try:
+                        process.wait(timeout=TERMINATION_GRACE_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        _fail("Pi process group did not terminate")
+        elif process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            try:
+                process.wait(timeout=TERMINATION_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                _fail("Pi process group did not terminate")
 
 
 def _run_pi(
@@ -481,7 +553,7 @@ def _run_pi(
     *,
     timeout: int,
     allow_non_json_receipt: bool = False,
-    lifecycle: _ChildLifecycle | None = None,
+    guard: _ProducerGuard | None = None,
 ) -> dict[str, Any] | None:
     args = [
         _pi_command(),
@@ -494,21 +566,21 @@ def _run_pi(
         "--skill", str(_pdf_skill()),
         prompt,
     ]
-    # Opening review and other direct callers still own their own handlers.
-    # Locator/full-parse pass a parent lifecycle so router + Pi share one
-    # SIGTERM boundary and cannot orphan either child.
-    owns_handlers = lifecycle is None
-    local = lifecycle or _ChildLifecycle()
+    # Opening review and other direct callers own a local guard+handlers.
+    # Locator/full-parse pass the parent guard so router + Pi share one
+    # SIGTERM boundary installed before any producer spawn.
+    owns_guard = guard is None
+    local = guard or _ProducerGuard()
     handlers: dict[int, Any] = {}
-    if owns_handlers:
-        handlers = _install_interrupt_handlers(local)
+    if owns_guard:
+        handlers = _install_producer_signal_handlers(local)
     try:
         try:
             completed = _run_session_command(
                 args,
                 timeout=timeout,
                 cwd=cwd,
-                lifecycle=local,
+                guard=local,
                 env={
                     key: value
                     for key, value in os.environ.items()
@@ -521,6 +593,7 @@ def _run_pi(
             )
         except subprocess.TimeoutExpired:
             _fail("Pi PDF lifecycle timed out")
+        local.check()
         if completed.returncode != 0:
             _fail(_child_failure_detail(completed.returncode, completed.stderr))
         payload = (completed.stdout or "").encode()
@@ -538,9 +611,9 @@ def _run_pi(
             return _object(parsed, "Pi PDF receipt")
         return parsed
     finally:
-        if owns_handlers:
-            local.terminate_active()
-            _restore_interrupt_handlers(handlers)
+        if owns_guard:
+            local.reap()
+            _restore_producer_signal_handlers(handlers)
 
 
 def _locator_prompt(task: dict[str, Any]) -> str:
@@ -1561,14 +1634,14 @@ def _run_full_parse_batch() -> dict[str, Any]:
     batch = missing[: int(task["batch_limit"])]
     output = Path(task["source_bundle_path"]).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    lifecycle = _ChildLifecycle()
-    handlers = _install_interrupt_handlers(lifecycle)
+    guard = _ProducerGuard()
+    handlers = _install_producer_signal_handlers(guard)
     try:
         routed = _try_external_pdf_router(
             "full_parse_batch",
             task,
             missing_pdf_indices=batch,
-            lifecycle=lifecycle,
+            guard=guard,
         )
         if routed is not None:
             rendered = list(routed["rendered_pdf_indices"])
@@ -1589,11 +1662,11 @@ def _run_full_parse_batch() -> dict[str, Any]:
             producer_prompt,
             workspace,
             timeout=PI_TIMEOUT_SECONDS,
-            lifecycle=lifecycle,
+            guard=guard,
         )
     finally:
-        lifecycle.terminate_active()
-        _restore_interrupt_handlers(handlers)
+        guard.reap()
+        _restore_producer_signal_handlers(handlers)
     if not isinstance(producer, dict):
         _fail("full-parse render producer result is unavailable")
     if (
@@ -1666,13 +1739,15 @@ def _run() -> dict[str, Any]:
     workspace = Path(task["workspace_root"]).resolve()
     if not workspace.is_dir():
         _fail("workspace_root is unavailable")
-    # One SIGTERM boundary covers optional router + Pi skill child so neither
-    # can outlive the adapter when the host aborts the locator lane.
-    lifecycle = _ChildLifecycle()
-    handlers = _install_interrupt_handlers(lifecycle)
+    # Install SIGTERM before any external producer spawn. Handler only flags +
+    # killpg; this stack reaps and exits so the adapter cannot stay blocked in
+    # communicate() after the host aborts the locator lane.
+    guard = _ProducerGuard()
+    handlers = _install_producer_signal_handlers(guard)
     try:
+        guard.check()
         routed = _try_external_pdf_router(
-            "locator_first_bundle", task, lifecycle=lifecycle,
+            "locator_first_bundle", task, guard=guard,
         )
         if routed is not None:
             return _locator_receipt(
@@ -1683,12 +1758,12 @@ def _run() -> dict[str, Any]:
             workspace,
             timeout=PI_TIMEOUT_SECONDS,
             allow_non_json_receipt=True,
-            lifecycle=lifecycle,
+            guard=guard,
         )
         return _locator_receipt(task, producer_result)
     finally:
-        lifecycle.terminate_active()
-        _restore_interrupt_handlers(handlers)
+        guard.reap()
+        _restore_producer_signal_handlers(handlers)
 
 
 def main() -> int:
