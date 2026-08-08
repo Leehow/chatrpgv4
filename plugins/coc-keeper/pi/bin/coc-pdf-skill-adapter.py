@@ -177,7 +177,9 @@ def _try_external_pdf_router(
             input_text=payload,
             shutdown=shutdown,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (_SessionLaunchError, subprocess.TimeoutExpired):
+        # Typed ordinary launch/timeout only. SupervisorInvariantError and
+        # host-abort RuntimeError must never become Pi fallback.
         _fail_if_shutdown(shutdown)
         return None
     if completed.returncode != 0:
@@ -395,6 +397,22 @@ class _ShutdownFlag:
         self.requested = False
 
 
+class _SessionLaunchError(Exception):
+    """Ordinary child launch/exec failure (e.g. missing router binary).
+
+    Typed so `_try_external_pdf_router` may fall back to the Pi skill path.
+    Never used for mask/waitid/kill/reap supervisor invariants.
+    """
+
+
+class _SupervisorInvariantError(RuntimeError):
+    """POSIX supervisor invariant failure; fail closed, never router-fallback."""
+
+
+def _invariant_fail(message: str) -> NoReturn:
+    raise _SupervisorInvariantError(message)
+
+
 def _fail_if_shutdown(flag: _ShutdownFlag | None) -> None:
     if flag is not None and flag.requested:
         _fail("Pi lifecycle interrupted by signal")
@@ -409,7 +427,7 @@ def _run_post_child_hook() -> None:
 def _require_posix_supervisor() -> None:
     """Fail closed when the host cannot run the race-free POSIX supervisor."""
     if not hasattr(signal, "pthread_sigmask"):
-        _fail("POSIX supervisor requires signal.pthread_sigmask")
+        _invariant_fail("POSIX supervisor requires signal.pthread_sigmask")
     if not (
         hasattr(os, "waitid")
         and hasattr(os, "WNOWAIT")
@@ -417,87 +435,227 @@ def _require_posix_supervisor() -> None:
         and hasattr(os, "WNOHANG")
         and hasattr(os, "P_PID")
     ):
-        _fail("POSIX supervisor requires os.waitid with WNOWAIT")
+        _invariant_fail("POSIX supervisor requires os.waitid with WNOWAIT")
     if not hasattr(os, "set_blocking"):
-        _fail("POSIX supervisor requires os.set_blocking")
+        _invariant_fail("POSIX supervisor requires os.set_blocking")
 
 
 def _install_interrupt_handlers(flag: _ShutdownFlag) -> dict[int, Any]:
-    """Handlers only flip the flag — never touch Popen, wait, kill, or raise."""
+    """Install flag-only handlers under a blocked TERM/INT mask (transactional).
+
+    Partial success rolls back any handler already replaced. Handlers never touch
+    Popen, wait, kill, or raise.
+    """
     handlers: dict[int, Any] = {}
 
     def interrupted(_signum: int, _frame: Any) -> None:
         flag.requested = True
 
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        handlers[signum] = signal.getsignal(signum)
-        signal.signal(signum, interrupted)
+    installed: list[int] = []
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous = signal.getsignal(signum)
+            signal.signal(signum, interrupted)
+            handlers[signum] = previous
+            installed.append(signum)
+    except (OSError, ValueError):
+        for signum in reversed(installed):
+            try:
+                signal.signal(signum, handlers[signum])
+            except (OSError, ValueError):
+                pass
+        raise
     return handlers
 
 
 def _restore_interrupt_handlers(handlers: dict[int, Any]) -> None:
-    for signum, handler in handlers.items():
-        signal.signal(signum, handler)
+    """Restore prior handlers transactionally; partial failure rolls back."""
+    # Apply in a fixed order; on failure put back whatever we just overwrote.
+    applied: list[tuple[int, Any]] = []
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            if signum not in handlers:
+                continue
+            current = signal.getsignal(signum)
+            signal.signal(signum, handlers[signum])
+            applied.append((signum, current))
+    except (OSError, ValueError):
+        for signum, previous in reversed(applied):
+            try:
+                signal.signal(signum, previous)
+            except (OSError, ValueError):
+                pass
+        raise
 
 
 def _enter_producer_lane(
     flag: _ShutdownFlag,
 ) -> tuple[dict[int, Any], set[signal.Signals]]:
-    """Save mask, unblock TERM/INT, install flag-only handlers. Fail closed."""
+    """Enter producer lane with atomic handler/mask transition. Fail closed.
+
+    Order: save caller mask → block TERM/INT → install flag handlers under the
+    blocked mask (transactional) → unblock to the lane-controllable mask so any
+    pending TERM/INT is delivered to the new handlers. Never unblock before the
+    handlers are installed.
+    """
     _require_posix_supervisor()
     try:
-        old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        caller_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     except (OSError, ValueError) as exc:
-        _fail(f"producer lane signal mask save failed: {exc}")
+        _invariant_fail(f"producer lane signal mask save failed: {exc}")
+    blocked = False
+    handlers: dict[int, Any] | None = None
     try:
-        signal.pthread_sigmask(
-            signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT},
-        )
-    except (OSError, ValueError) as exc:
         try:
-            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
-        except (OSError, ValueError):
-            pass
-        _fail(f"producer lane signal unblock failed: {exc}")
-    try:
-        handlers = _install_interrupt_handlers(flag)
-    except (OSError, ValueError) as exc:
+            signal.pthread_sigmask(
+                signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
+            )
+            blocked = True
+        except (OSError, ValueError) as exc:
+            _invariant_fail(f"producer lane signal block failed: {exc}")
         try:
-            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
-        except (OSError, ValueError):
-            pass
-        _fail(f"producer lane handler install failed: {exc}")
-    return handlers, old_mask
+            handlers = _install_interrupt_handlers(flag)
+        except (OSError, ValueError) as exc:
+            _invariant_fail(f"producer lane handler install failed: {exc}")
+        try:
+            signal.pthread_sigmask(
+                signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT},
+            )
+        except (OSError, ValueError) as exc:
+            _invariant_fail(f"producer lane signal unblock failed: {exc}")
+        return handlers, caller_mask
+    except BaseException:
+        # Best-effort rollback toward the caller's mask/handlers; never leave
+        # the process half-installed if we can still reverse it.
+        rollback_error: Exception | None = None
+        if handlers is not None:
+            try:
+                _restore_interrupt_handlers(handlers)
+            except (OSError, ValueError) as exc:
+                rollback_error = exc
+        if blocked or handlers is not None:
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
+            except (OSError, ValueError) as exc:
+                if rollback_error is None:
+                    rollback_error = exc
+        if rollback_error is not None:
+            raise _SupervisorInvariantError(
+                f"producer lane enter rollback failed: {rollback_error}"
+            ) from rollback_error
+        raise
 
 
 def _leave_producer_lane(
     handlers: dict[int, Any],
-    old_mask: set[signal.Signals],
+    caller_mask: set[signal.Signals],
     flag: _ShutdownFlag,
 ) -> None:
-    """Restore handlers and mask; never swallow restore failures; check abort."""
-    restore_error: Exception | None = None
+    """Leave producer lane: block → restore handlers → restore caller mask.
+
+    Reverse of enter. Partial failure best-effort rolls back and fail-closes;
+    never silently pollutes the caller with a mixed handler pair. If handler
+    restore fails transactionally (rolled back to the lane pair), do not retry
+    it — retrying can undo the consistent rollback.
+    """
+    leave_error: Exception | None = None
+    handler_restore_attempted = False
+    handlers_restored = False
+
     try:
-        _restore_interrupt_handlers(handlers)
+        signal.pthread_sigmask(
+            signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
+        )
     except (OSError, ValueError) as exc:
-        restore_error = exc
-    try:
-        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
-    except (OSError, ValueError) as exc:
-        if restore_error is None:
-            restore_error = exc
-    if restore_error is not None:
-        _fail(f"producer lane signal restore failed: {restore_error}")
+        leave_error = exc
+
+    if leave_error is None:
+        handler_restore_attempted = True
+        try:
+            _restore_interrupt_handlers(handlers)
+            handlers_restored = True
+        except (OSError, ValueError) as exc:
+            # Transactional restore already rolled back to the lane pair.
+            leave_error = exc
+
+    if leave_error is None:
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
+        except (OSError, ValueError) as exc:
+            leave_error = exc
+            # Handlers are already the caller's; best-effort one more mask try.
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
+            except (OSError, ValueError):
+                pass
+    elif not handler_restore_attempted:
+        # Failed before handler restore (block step). Attempt a full reverse
+        # once so a block-only failure does not leak lane handlers forever.
+        try:
+            _restore_interrupt_handlers(handlers)
+            handlers_restored = True
+        except (OSError, ValueError) as exc:
+            leave_error = exc
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
+        except (OSError, ValueError) as exc:
+            if leave_error is None:
+                leave_error = exc
+    else:
+        # Handler restore was attempted and rolled back to a consistent lane
+        # pair. Do not retry restore. Best-effort caller mask only so the
+        # process is not left on an arbitrary blocked mask.
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
+        except (OSError, ValueError):
+            pass
+
+    if leave_error is not None:
+        _invariant_fail(f"producer lane signal restore failed: {leave_error}")
     _fail_if_shutdown(flag)
 
 
-def _kill_process_group(pgid: int) -> None:
+def _darwin_zombie_only_group_eperm(pgid: int, leader_pid: int) -> bool:
+    """Darwin-only: killpg EPERM on an unreaped zombie-only process group.
+
+    Executable evidence (Darwin): killpg(SIGKILL/0) returns EPERM when the
+    session leader is still an unreaped zombie and no live members remain;
+    killpg succeeds when a live grandchild shares the PGID. Never used on
+    non-Darwin hosts.
+    """
+    if sys.platform != "darwin":
+        return False
+    try:
+        observed = os.waitid(
+            os.P_PID,
+            leader_pid,
+            os.WEXITED | os.WNOHANG | os.WNOWAIT,
+        )
+    except (ChildProcessError, OSError):
+        return False
+    if observed is None:
+        # Leader still running: EPERM is a real permission failure.
+        return False
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError as probe:
+        return probe.errno in {errno.ESRCH, errno.EPERM}
+    # Live members still signalable — SIGKILL EPERM must fail closed.
+    return False
+
+
+def _kill_process_group(
+    pgid: int,
+    *,
+    leader_pid: int | None = None,
+) -> None:
     """SIGKILL an entire process group.
 
-    ESRCH/ProcessLookupError means the group is gone. A bare PermissionError is
-    fail-closed when live members still exist. Darwin returns EPERM for a
-    zombie-only group (leader unreaped, no live descendants); probe with
-    killpg(pgid, 0) and accept only that empty-group case.
+    ESRCH/ProcessLookupError means the group is gone. EPERM fails closed on all
+    hosts except the narrow Darwin zombie-only case, which requires an unreaped
+    leader_pid and positive waitid WNOWAIT evidence.
     """
     try:
         os.killpg(pgid, signal.SIGKILL)
@@ -507,23 +665,15 @@ def _kill_process_group(pgid: int) -> None:
     except OSError as exc:
         if exc.errno == errno.ESRCH:
             return
-        if exc.errno != errno.EPERM:
-            _fail(f"process group SIGKILL failed for pgid={pgid}: {exc}")
-    # EPERM: either live members we cannot signal, or a zombie-only group.
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return
-    except OSError as probe:
-        if probe.errno == errno.ESRCH:
+        if (
+            exc.errno == errno.EPERM
+            and leader_pid is not None
+            and _darwin_zombie_only_group_eperm(pgid, leader_pid)
+        ):
             return
-        if probe.errno == errno.EPERM:
-            # No live signalable member remains (typical Darwin zombie-only PG).
-            return
-        _fail(f"process group probe failed for pgid={pgid}: {probe}")
-    _fail(
-        f"process group SIGKILL denied for live pgid={pgid}"
-    )
+        _invariant_fail(
+            f"process group SIGKILL failed for pgid={pgid}: {exc}"
+        )
 
 
 def _leader_exited_nowait(pid: int) -> bool:
@@ -539,11 +689,11 @@ def _leader_exited_nowait(pid: int) -> bool:
             os.WEXITED | os.WNOHANG | os.WNOWAIT,
         )
     except ChildProcessError as exc:
-        _fail(f"waitid lost child pid={pid}: {exc}")
+        _invariant_fail(f"waitid lost child pid={pid}: {exc}")
     except OSError as exc:
         if exc.errno == errno.ECHILD:
-            _fail(f"waitid lost child pid={pid}: {exc}")
-        _fail(f"waitid failed for pid={pid}: {exc}")
+            _invariant_fail(f"waitid lost child pid={pid}: {exc}")
+        _invariant_fail(f"waitid failed for pid={pid}: {exc}")
     return result is not None
 
 
@@ -564,11 +714,11 @@ def _reap_direct_child(process: subprocess.Popen[bytes]) -> None:
     try:
         process.wait(timeout=REAP_GRACE_SECONDS)
     except subprocess.TimeoutExpired as exc:
-        _fail(f"direct child reap timed out: {exc}")
+        _invariant_fail(f"direct child reap timed out: {exc}")
     except OSError as exc:
-        _fail(f"direct child reap failed: {exc}")
+        _invariant_fail(f"direct child reap failed: {exc}")
     if process.returncode is None:
-        _fail("direct child reap left returncode unset")
+        _invariant_fail("direct child reap left returncode unset")
 
 
 def _decode_pipe_bytes(data: bytes) -> str:
@@ -585,6 +735,42 @@ def _append_capped(buf: bytearray, data: bytes, limit: int) -> None:
     buf.extend(data if len(data) <= room else data[:room])
 
 
+def _cleanup_spawned_session(
+    process: subprocess.Popen[bytes],
+    pgid: int | None,
+    *,
+    restore_mask: set[signal.Signals] | None = None,
+) -> None:
+    """Unique post-Popen failure path: kill group, close pipes, wait leader, mask.
+
+    Collects cleanup failures and raises a chained invariant error rather than
+    swallowing them. Mask rollback is attempted last when requested.
+    """
+    errors: list[Exception] = []
+    leader_pid = int(process.pid) if process.pid is not None else None
+    if pgid is not None:
+        try:
+            _kill_process_group(pgid, leader_pid=leader_pid)
+        except _SupervisorInvariantError as exc:
+            errors.append(exc)
+    _close_popen_stdio(process)
+    if process.returncode is None:
+        try:
+            process.wait(timeout=REAP_GRACE_SECONDS)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            errors.append(exc)
+    if restore_mask is not None:
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, restore_mask)
+        except (OSError, ValueError) as exc:
+            errors.append(exc)
+    if errors:
+        detail = "; ".join(f"{type(e).__name__}: {e}" for e in errors)
+        raise _SupervisorInvariantError(
+            f"spawn cleanup failed: {detail}"
+        ) from errors[0]
+
+
 def _spawn_session_process(
     args: list[str],
     *,
@@ -594,9 +780,10 @@ def _spawn_session_process(
 ) -> tuple[subprocess.Popen[bytes], int]:
     """Popen(start_new_session=True) under a blocked TERM/INT critical section.
 
-    Sequence: block → Popen + capture pid/pgid → restore lane mask. Any failure
-    after a successful Popen clears the new session group first. No racy
-    unmasked adopt window and no capability fallback to plain Popen.
+    Sequence: block → Popen + capture pid/pgid → restore lane mask → return.
+    Return only after mask restore succeeds. Any post-Popen failure takes the
+    unique cleanup path (kill saved PGID, close pipes, wait leader, mask
+    rollback) and chains cleanup errors — never returns a live leaked session.
     """
     _require_posix_supervisor()
     try:
@@ -604,8 +791,11 @@ def _spawn_session_process(
             signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
         )
     except (OSError, ValueError) as exc:
-        _fail(f"spawn signal mask block failed: {exc}")
+        _invariant_fail(f"spawn signal mask block failed: {exc}")
+
     process: subprocess.Popen[bytes] | None = None
+    pgid: int | None = None
+    mask_restored = False
     try:
         try:
             process = subprocess.Popen(
@@ -622,30 +812,69 @@ def _spawn_session_process(
                 start_new_session=True,
                 env=env,
             )
-        except (OSError, ValueError) as exc:
-            _fail(f"session spawn failed: {exc}")
+        except OSError as exc:
+            # Ordinary launch/exec failure (ENOENT, EACCES, ...). Restore mask
+            # then surface a typed launch error for router fallback.
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+                mask_restored = True
+            except (OSError, ValueError) as mask_exc:
+                _invariant_fail(
+                    f"spawn signal mask restore failed after launch error: "
+                    f"{mask_exc}; launch error: {exc}"
+                )
+            raise _SessionLaunchError(str(exc)) from exc
+        except ValueError as exc:
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+                mask_restored = True
+            except (OSError, ValueError) as mask_exc:
+                _invariant_fail(
+                    f"spawn signal mask restore failed after launch error: "
+                    f"{mask_exc}; launch error: {exc}"
+                )
+            raise _SessionLaunchError(str(exc)) from exc
+
         if process.pid is None:
-            _fail("session spawn returned without pid")
+            _cleanup_spawned_session(process, None, restore_mask=old_mask)
+            mask_restored = True
+            raise _SessionLaunchError("session spawn returned without pid")
+
         # New session leader: process group id equals the child pid.
-        return process, int(process.pid)
-    except BaseException:
-        if process is not None and process.pid is not None:
-            try:
-                _kill_process_group(int(process.pid))
-            except RuntimeError:
-                pass
-            _close_popen_stdio(process)
-            try:
-                if process.returncode is None:
-                    process.wait(timeout=REAP_GRACE_SECONDS)
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-        raise
-    finally:
+        pgid = int(process.pid)
+
         try:
             signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+            mask_restored = True
         except (OSError, ValueError) as exc:
-            _fail(f"spawn signal mask restore failed: {exc}")
+            # HIGH: must not return the live child if mask restore fails.
+            _cleanup_spawned_session(process, pgid, restore_mask=old_mask)
+            mask_restored = True
+            _invariant_fail(f"spawn signal mask restore failed: {exc}")
+
+        return process, pgid
+    except (_SessionLaunchError, _SupervisorInvariantError):
+        raise
+    except BaseException as exc:
+        if process is not None:
+            cleanup_mask = None if mask_restored else old_mask
+            try:
+                _cleanup_spawned_session(process, pgid, restore_mask=cleanup_mask)
+                mask_restored = True
+            except _SupervisorInvariantError as cleanup_exc:
+                raise _SupervisorInvariantError(
+                    f"spawn failed ({type(exc).__name__}: {exc}); "
+                    f"cleanup also failed: {cleanup_exc}"
+                ) from cleanup_exc
+        elif not mask_restored:
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+            except (OSError, ValueError) as mask_exc:
+                raise _SupervisorInvariantError(
+                    f"spawn failed ({type(exc).__name__}: {exc}); "
+                    f"mask restore failed: {mask_exc}"
+                ) from mask_exc
+        raise
 
 
 def _run_session_command(
@@ -681,7 +910,10 @@ def _run_session_command(
         nonlocal saved_pgid, group_cleared
         if saved_pgid is None or group_cleared:
             return
-        _kill_process_group(saved_pgid)
+        _kill_process_group(
+            saved_pgid,
+            leader_pid=int(process.pid) if process.pid is not None else None,
+        )
         group_cleared = True
 
     try:
@@ -829,15 +1061,20 @@ def _run_session_command(
         final_error: Exception | None = None
         if saved_pgid is not None:
             try:
-                _kill_process_group(saved_pgid)
-            except RuntimeError as exc:
+                _kill_process_group(
+                    saved_pgid,
+                    leader_pid=(
+                        int(process.pid) if process.pid is not None else None
+                    ),
+                )
+            except _SupervisorInvariantError as exc:
                 final_error = exc
             saved_pgid = None
         _close_popen_stdio(process)
         if process.returncode is None:
             try:
                 _reap_direct_child(process)
-            except RuntimeError as exc:
+            except _SupervisorInvariantError as exc:
                 if final_error is None:
                     final_error = exc
         if final_error is not None:
@@ -890,6 +1127,9 @@ def _run_pi(
                     }
                 },
             )
+        except _SessionLaunchError as exc:
+            # Pi path does not fall back; surface launch failure as hard error.
+            _fail(f"Pi PDF session launch failed: {exc}")
         except subprocess.TimeoutExpired:
             _fail("Pi PDF lifecycle timed out")
         _run_post_child_hook()
@@ -2124,6 +2364,7 @@ def main() -> int:
         return 0
     except (
         RuntimeError, OSError, ValueError, subprocess.SubprocessError,
+        _SessionLaunchError,
     ) as exc:
         print(f"coc-pdf-skill-adapter: {exc}", file=sys.stderr)
         return 1
