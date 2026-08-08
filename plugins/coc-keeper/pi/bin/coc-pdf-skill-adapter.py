@@ -8,11 +8,13 @@ private opening-review task. It contains no PDF parser or OCR fallback.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import selectors
 import shutil
 import signal
 import subprocess
@@ -32,10 +34,10 @@ PI_TIMEOUT_SECONDS = 900
 # and failed every time on a book the producer needed longer than 15 minutes
 # to review.
 OPENING_REVIEW_WRITEBACK_MARGIN_SECONDS = 120
-# Short supervise slices replace one long communicate(timeout=900). Output is
-# still collected by communicate; a timed-out slice does not discard pipes.
+# Bounded selector slices for the POSIX supervisor (no communicate/poll loop).
 SUPERVISE_POLL_SECONDS = 0.25
 REAP_GRACE_SECONDS = 0.35
+_IO_CHUNK_BYTES = 65_536
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 # Test-only seam: runs after a producer/router child reaps and before receipt
 # work so host-abort fail-closed can be asserted without sleep races.
@@ -404,8 +406,24 @@ def _run_post_child_hook() -> None:
         hook()
 
 
+def _require_posix_supervisor() -> None:
+    """Fail closed when the host cannot run the race-free POSIX supervisor."""
+    if not hasattr(signal, "pthread_sigmask"):
+        _fail("POSIX supervisor requires signal.pthread_sigmask")
+    if not (
+        hasattr(os, "waitid")
+        and hasattr(os, "WNOWAIT")
+        and hasattr(os, "WEXITED")
+        and hasattr(os, "WNOHANG")
+        and hasattr(os, "P_PID")
+    ):
+        _fail("POSIX supervisor requires os.waitid with WNOWAIT")
+    if not hasattr(os, "set_blocking"):
+        _fail("POSIX supervisor requires os.set_blocking")
+
+
 def _install_interrupt_handlers(flag: _ShutdownFlag) -> dict[int, Any]:
-    """Handlers only flip the flag — never Popen wait/poll/raise/communicate."""
+    """Handlers only flip the flag — never touch Popen, wait, kill, or raise."""
     handlers: dict[int, Any] = {}
 
     def interrupted(_signum: int, _frame: Any) -> None:
@@ -422,66 +440,149 @@ def _restore_interrupt_handlers(handlers: dict[int, Any]) -> None:
         signal.signal(signum, handler)
 
 
-def _killpg_sigkill(pgid: int) -> None:
-    """Best-effort SIGKILL for an entire process group; never gate on leader poll."""
+def _enter_producer_lane(
+    flag: _ShutdownFlag,
+) -> tuple[dict[int, Any], set[signal.Signals]]:
+    """Save mask, unblock TERM/INT, install flag-only handlers. Fail closed."""
+    _require_posix_supervisor()
+    try:
+        old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    except (OSError, ValueError) as exc:
+        _fail(f"producer lane signal mask save failed: {exc}")
+    try:
+        signal.pthread_sigmask(
+            signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT},
+        )
+    except (OSError, ValueError) as exc:
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        except (OSError, ValueError):
+            pass
+        _fail(f"producer lane signal unblock failed: {exc}")
+    try:
+        handlers = _install_interrupt_handlers(flag)
+    except (OSError, ValueError) as exc:
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        except (OSError, ValueError):
+            pass
+        _fail(f"producer lane handler install failed: {exc}")
+    return handlers, old_mask
+
+
+def _leave_producer_lane(
+    handlers: dict[int, Any],
+    old_mask: set[signal.Signals],
+    flag: _ShutdownFlag,
+) -> None:
+    """Restore handlers and mask; never swallow restore failures; check abort."""
+    restore_error: Exception | None = None
+    try:
+        _restore_interrupt_handlers(handlers)
+    except (OSError, ValueError) as exc:
+        restore_error = exc
+    try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+    except (OSError, ValueError) as exc:
+        if restore_error is None:
+            restore_error = exc
+    if restore_error is not None:
+        _fail(f"producer lane signal restore failed: {restore_error}")
+    _fail_if_shutdown(flag)
+
+
+def _kill_process_group(pgid: int) -> None:
+    """SIGKILL an entire process group.
+
+    ESRCH/ProcessLookupError means the group is gone. A bare PermissionError is
+    fail-closed when live members still exist. Darwin returns EPERM for a
+    zombie-only group (leader unreaped, no live descendants); probe with
+    killpg(pgid, 0) and accept only that empty-group case.
+    """
     try:
         os.killpg(pgid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
         return
-
-
-def _pgid_exists(pgid: int) -> bool:
+    except ProcessLookupError:
+        return
+    except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            return
+        if exc.errno != errno.EPERM:
+            _fail(f"process group SIGKILL failed for pgid={pgid}: {exc}")
+    # EPERM: either live members we cannot signal, or a zombie-only group.
     try:
         os.killpg(pgid, 0)
-    except (ProcessLookupError, PermissionError, OSError):
-        return False
-    return True
+    except ProcessLookupError:
+        return
+    except OSError as probe:
+        if probe.errno == errno.ESRCH:
+            return
+        if probe.errno == errno.EPERM:
+            # No live signalable member remains (typical Darwin zombie-only PG).
+            return
+        _fail(f"process group probe failed for pgid={pgid}: {probe}")
+    _fail(
+        f"process group SIGKILL denied for live pgid={pgid}"
+    )
 
 
-def _reap_direct_child(
-    process: subprocess.Popen[str],
-    *,
-    grace: float = REAP_GRACE_SECONDS,
-) -> tuple[str | None, str | None]:
-    """Drain pipes and wait for the direct child after a group kill."""
+def _leader_exited_nowait(pid: int) -> bool:
+    """Observe leader exit via waitid WNOWAIT without reaping.
+
+    Keeping the direct child as a zombie preserves its PID/PGID identity so a
+    subsequent killpg cannot race a kernel PGID reuse after wait/reap.
+    """
     try:
-        return process.communicate(timeout=grace)
-    except subprocess.TimeoutExpired:
-        try:
-            process.kill()
-        except (ProcessLookupError, OSError):
-            pass
-        try:
-            return process.communicate(timeout=grace)
-        except (subprocess.TimeoutExpired, OSError, ValueError):
-            try:
-                process.wait(timeout=grace)
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-            return None, None
-    except (OSError, ValueError):
-        try:
-            process.wait(timeout=grace)
-        except (subprocess.TimeoutExpired, OSError):
-            pass
-        return None, None
+        result = os.waitid(
+            os.P_PID,
+            pid,
+            os.WEXITED | os.WNOHANG | os.WNOWAIT,
+        )
+    except ChildProcessError as exc:
+        _fail(f"waitid lost child pid={pid}: {exc}")
+    except OSError as exc:
+        if exc.errno == errno.ECHILD:
+            _fail(f"waitid lost child pid={pid}: {exc}")
+        _fail(f"waitid failed for pid={pid}: {exc}")
+    return result is not None
 
 
-def _cleanup_session(
-    process: subprocess.Popen[str],
-    pgid: int | None,
-) -> None:
-    """Unconditional killpg on the saved PGID, then reap the direct child."""
-    if pgid is not None:
-        _killpg_sigkill(pgid)
-        if _pgid_exists(pgid):
-            _killpg_sigkill(pgid)
-    if process.poll() is None:
+def _close_popen_stdio(process: subprocess.Popen[bytes]) -> None:
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is None or stream.closed:
+            continue
         try:
-            process.kill()
-        except (ProcessLookupError, OSError):
+            stream.close()
+        except OSError:
             pass
-    _reap_direct_child(process)
+
+
+def _reap_direct_child(process: subprocess.Popen[bytes]) -> None:
+    """Reap the direct child after group cleanup. Failure is fail-closed."""
+    if process.returncode is not None:
+        return
+    try:
+        process.wait(timeout=REAP_GRACE_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        _fail(f"direct child reap timed out: {exc}")
+    except OSError as exc:
+        _fail(f"direct child reap failed: {exc}")
+    if process.returncode is None:
+        _fail("direct child reap left returncode unset")
+
+
+def _decode_pipe_bytes(data: bytes) -> str:
+    return data.decode("utf-8", errors="replace")
+
+
+def _append_capped(buf: bytearray, data: bytes, limit: int) -> None:
+    """Keep at most limit+1 bytes so callers can detect overflow exactly once."""
+    if not data or len(buf) > limit:
+        return
+    room = limit + 1 - len(buf)
+    if room <= 0:
+        return
+    buf.extend(data if len(data) <= room else data[:room])
 
 
 def _spawn_session_process(
@@ -490,43 +591,61 @@ def _spawn_session_process(
     cwd: Path | None,
     env: dict[str, str] | None,
     input_text: str | None,
-) -> tuple[subprocess.Popen[str], int]:
-    """Popen(start_new_session=True) + capture pgid under a brief sigmask.
+) -> tuple[subprocess.Popen[bytes], int]:
+    """Popen(start_new_session=True) under a blocked TERM/INT critical section.
 
-    pthread_sigmask closes the spawn/adopt window where a host SIGTERM could
-    arrive after Popen returns but before the supervisor holds the PGID. When
-    masking is unavailable, fall back to the tight unmasked sequence.
+    Sequence: block → Popen + capture pid/pgid → restore lane mask. Any failure
+    after a successful Popen clears the new session group first. No racy
+    unmasked adopt window and no capability fallback to plain Popen.
     """
-    old_mask = None
-    if hasattr(signal, "pthread_sigmask"):
-        try:
-            old_mask = signal.pthread_sigmask(
-                signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
-            )
-        except (OSError, ValueError, AttributeError):
-            old_mask = None
+    _require_posix_supervisor()
     try:
-        process = subprocess.Popen(
-            args,
-            cwd=cwd,
-            text=True,
-            stdin=(
-                subprocess.PIPE if input_text is not None else subprocess.DEVNULL
-            ),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-            env=env,
+        old_mask = signal.pthread_sigmask(
+            signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
         )
+    except (OSError, ValueError) as exc:
+        _fail(f"spawn signal mask block failed: {exc}")
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        try:
+            process = subprocess.Popen(
+                args,
+                cwd=cwd,
+                text=False,
+                stdin=(
+                    subprocess.PIPE
+                    if input_text is not None
+                    else subprocess.DEVNULL
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                env=env,
+            )
+        except (OSError, ValueError) as exc:
+            _fail(f"session spawn failed: {exc}")
+        if process.pid is None:
+            _fail("session spawn returned without pid")
         # New session leader: process group id equals the child pid.
-        pgid = int(process.pid)
-    finally:
-        if old_mask is not None:
+        return process, int(process.pid)
+    except BaseException:
+        if process is not None and process.pid is not None:
             try:
-                signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
-            except (OSError, ValueError, AttributeError):
+                _kill_process_group(int(process.pid))
+            except RuntimeError:
                 pass
-    return process, pgid
+            _close_popen_stdio(process)
+            try:
+                if process.returncode is None:
+                    process.wait(timeout=REAP_GRACE_SECONDS)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        raise
+    finally:
+        try:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        except (OSError, ValueError) as exc:
+            _fail(f"spawn signal mask restore failed: {exc}")
 
 
 def _run_session_command(
@@ -538,19 +657,53 @@ def _run_session_command(
     input_text: str | None = None,
     shutdown: _ShutdownFlag | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Supervise one new-session child with short polls; PGID kill on abort."""
+    """Supervise one new-session child with selectors + waitid(WNOWAIT).
+
+    Does not use Popen.communicate/poll as the supervision basis. Leader exit is
+    observed without reaping so leftover descendants can be killpg'd while the
+    zombie still owns the saved PGID; only then is the direct child waited.
+    """
     process, pgid = _spawn_session_process(
         args, cwd=cwd, env=env, input_text=input_text,
     )
-    # pgid is valid only until this function's cleanup clears it.
-    stdin_data = input_text
+    saved_pgid: int | None = pgid
+    stdout_buf = bytearray()
+    stderr_buf = bytearray()
     timed_out = False
     interrupted = False
-    stdout: str | None = None
-    stderr: str | None = None
+    leader_exited = False
+    group_cleared = False
+    selector = selectors.DefaultSelector()
+    stdin_view: memoryview | None = None
+    stdin_offset = 0
+
+    def _clear_group_if_needed() -> None:
+        nonlocal saved_pgid, group_cleared
+        if saved_pgid is None or group_cleared:
+            return
+        _kill_process_group(saved_pgid)
+        group_cleared = True
+
     try:
         _fail_if_shutdown(shutdown)
         deadline = time.monotonic() + max(0, int(timeout))
+
+        if process.stdin is not None:
+            os.set_blocking(process.stdin.fileno(), False)
+            payload = (
+                b""
+                if input_text is None
+                else input_text.encode("utf-8")
+            )
+            stdin_view = memoryview(payload)
+            selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
+        if process.stdout is not None:
+            os.set_blocking(process.stdout.fileno(), False)
+            selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        if process.stderr is not None:
+            os.set_blocking(process.stderr.fileno(), False)
+            selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+
         while True:
             if shutdown is not None and shutdown.requested:
                 interrupted = True
@@ -559,37 +712,136 @@ def _run_session_command(
             if remaining <= 0:
                 timed_out = True
                 break
+
+            if not leader_exited and _leader_exited_nowait(int(process.pid)):
+                leader_exited = True
+                # Zombie still holds PID/PGID identity: clear descendants now.
+                _clear_group_if_needed()
+
+            keys = list(selector.get_map().values()) if selector.get_map() else []
+            if not keys:
+                if leader_exited:
+                    break
+                time.sleep(min(SUPERVISE_POLL_SECONDS, remaining))
+                continue
+
             slice_timeout = min(SUPERVISE_POLL_SECONDS, remaining)
             try:
-                stdout, stderr = process.communicate(
-                    input=stdin_data, timeout=slice_timeout,
-                )
-                stdin_data = None
-                # Direct child reaped. Clear leftover descendants by saved PGID
-                # before the identifier can be reused, then drop it.
-                saved = pgid
-                pgid = None
-                if saved is not None and _pgid_exists(saved):
-                    _killpg_sigkill(saved)
-                break
-            except subprocess.TimeoutExpired:
-                stdin_data = None
+                events = selector.select(slice_timeout)
+            except InterruptedError:
                 continue
+
+            for key, mask in events:
+                label = key.data
+                fileobj = key.fileobj
+                if label == "stdin" and mask & selectors.EVENT_WRITE:
+                    assert stdin_view is not None
+                    assert process.stdin is not None
+                    if stdin_offset >= len(stdin_view):
+                        selector.unregister(fileobj)
+                        process.stdin.close()
+                        continue
+                    try:
+                        wrote = os.write(
+                            process.stdin.fileno(),
+                            stdin_view[stdin_offset:stdin_offset + _IO_CHUNK_BYTES],
+                        )
+                    except BlockingIOError:
+                        continue
+                    except OSError as exc:
+                        if exc.errno in {errno.EPIPE, errno.ECONNRESET, errno.EAGAIN}:
+                            selector.unregister(fileobj)
+                            try:
+                                process.stdin.close()
+                            except OSError:
+                                pass
+                            stdin_view = None
+                            continue
+                        _fail(f"stdin write failed: {exc}")
+                    if wrote == 0:
+                        selector.unregister(fileobj)
+                        process.stdin.close()
+                        stdin_view = None
+                        continue
+                    stdin_offset += wrote
+                    if stdin_offset >= len(stdin_view):
+                        selector.unregister(fileobj)
+                        process.stdin.close()
+                        stdin_view = None
+                elif label in {"stdout", "stderr"} and mask & selectors.EVENT_READ:
+                    try:
+                        chunk = os.read(fileobj.fileno(), _IO_CHUNK_BYTES)
+                    except BlockingIOError:
+                        continue
+                    except OSError as exc:
+                        if exc.errno == errno.EIO:
+                            chunk = b""
+                        else:
+                            _fail(f"{label} read failed: {exc}")
+                    if not chunk:
+                        selector.unregister(fileobj)
+                        try:
+                            fileobj.close()
+                        except OSError:
+                            pass
+                        continue
+                    target = stdout_buf if label == "stdout" else stderr_buf
+                    _append_capped(target, chunk, MAX_OUTPUT_BYTES)
+
+        stdout_text = _decode_pipe_bytes(bytes(stdout_buf))
+        stderr_text = _decode_pipe_bytes(bytes(stderr_buf))
+
         if interrupted or timed_out:
-            saved = pgid
-            pgid = None
-            # Kill the group unconditionally — never require leader.poll().
-            _cleanup_session(process, saved)
+            _clear_group_if_needed()
+            saved_pgid = None
+            _close_popen_stdio(process)
+            _reap_direct_child(process)
             if interrupted:
                 _fail("Pi lifecycle interrupted by signal")
-            raise subprocess.TimeoutExpired(args, timeout)
-        code = 0 if process.returncode is None else process.returncode
-        return subprocess.CompletedProcess(args, code, stdout or "", stderr or "")
+            raise subprocess.TimeoutExpired(
+                args,
+                timeout,
+                output=stdout_text,
+                stderr=stderr_text,
+            )
+
+        if not leader_exited:
+            _clear_group_if_needed()
+            saved_pgid = None
+            _close_popen_stdio(process)
+            _reap_direct_child(process)
+            _fail("session supervise ended without leader exit")
+
+        # Normal completion: group already cleared on leader exit observation.
+        _clear_group_if_needed()
+        saved_pgid = None
+        _close_popen_stdio(process)
+        _reap_direct_child(process)
+        code = 0 if process.returncode is None else int(process.returncode)
+        return subprocess.CompletedProcess(
+            args, code, stdout_text, stderr_text,
+        )
     finally:
-        saved = pgid
-        pgid = None
-        if saved is not None or (process.poll() is None):
-            _cleanup_session(process, saved)
+        try:
+            selector.close()
+        except Exception:
+            pass
+        final_error: Exception | None = None
+        if saved_pgid is not None:
+            try:
+                _kill_process_group(saved_pgid)
+            except RuntimeError as exc:
+                final_error = exc
+            saved_pgid = None
+        _close_popen_stdio(process)
+        if process.returncode is None:
+            try:
+                _reap_direct_child(process)
+            except RuntimeError as exc:
+                if final_error is None:
+                    final_error = exc
+        if final_error is not None:
+            raise final_error
 
 
 def _run_pi(
@@ -611,13 +863,15 @@ def _run_pi(
         "--skill", str(_pdf_skill()),
         prompt,
     ]
-    # Opening review owns a local flag/handlers. Locator/full-parse share the
-    # lane flag so router + Pi + receipt see one host-abort boundary.
-    owns_handlers = shutdown is None
+    # When no shared lane flag is provided (e.g. opening review), own the full
+    # producer-lane mask+handler boundary around the Pi child. Locator/full-parse
+    # pass a shared flag so router + Pi + receipt share one host-abort boundary.
+    owns_lane = shutdown is None
     flag = shutdown or _ShutdownFlag()
-    handlers: dict[int, Any] = {}
-    if owns_handlers:
-        handlers = _install_interrupt_handlers(flag)
+    handlers: dict[int, Any] | None = None
+    old_mask: set[signal.Signals] | None = None
+    if owns_lane:
+        handlers, old_mask = _enter_producer_lane(flag)
     try:
         _fail_if_shutdown(flag)
         try:
@@ -660,9 +914,8 @@ def _run_pi(
         _fail_if_shutdown(flag)
         return parsed
     finally:
-        if owns_handlers:
-            _restore_interrupt_handlers(handlers)
-            _fail_if_shutdown(flag)
+        if owns_lane and handlers is not None and old_mask is not None:
+            _leave_producer_lane(handlers, old_mask, flag)
 
 
 def _locator_prompt(task: dict[str, Any]) -> str:
@@ -1406,101 +1659,115 @@ def _run_opening_review() -> dict[str, Any]:
         task = _opening_producer_task(
             workspace, request, scenario, campaign, private, pdf_bundle,
         )
-        result = _validate_opening_result(
-            _run_pi(
-                _opening_prompt(task),
-                Path(task["source_bundle_path"]).parent,
-                timeout=_opening_producer_timeout(request),
-            ),
-            task,
-        )
-        if result["status"] != "reviewed":
-            return _opening_receipt(
-                request, private["scenario_id"], private["generation"],
-                "failed", result["failure_class"], None,
+        # Opening does not use the external router, but the Pi child and the
+        # bind/fulfill receipt still share one producer-lane abort boundary.
+        shutdown = _ShutdownFlag()
+        handlers, old_mask = _enter_producer_lane(shutdown)
+        try:
+            result = _validate_opening_result(
+                _run_pi(
+                    _opening_prompt(task),
+                    Path(task["source_bundle_path"]).parent,
+                    timeout=_opening_producer_timeout(request),
+                    shutdown=shutdown,
+                ),
+                task,
             )
-        selected = result["selected_opening_pdf_indices"]
-        fact_evidence = result["fact_evidence_pdf_indices"]
-        bundle_indices = sorted(set(selected) | set(fact_evidence))
-        _splice_retained_bound_pages(task, selected, fact_evidence)
-        bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
-        if (
-            [row["pdf_index"] for row in bundle["pages"]] != bundle_indices
-            or bundle["source"]["source_id"] != private["source_id"]
-            or bundle["source"]["path"] != task["source"]["path"]
-            or bundle["source"]["file_sha256"]
-            != private["source_file_sha256"]
-            or bundle["source"]["title"] != task["title"]
-        ):
-            _fail("opening source bundle identity drift")
-        _validate_reused_bound_pages(bundle, task)
-        bind = ops.execute_setup_operation(
-            workspace,
-            operation={
-                "schema_version": 1,
-                "kind": "scenario.bind_pdf",
-                "payload": {
-                    "campaign_id": request["campaign_id"],
-                    "scenario_id": task["scenario_id"],
-                    "title": task["title"],
-                    "source_bundle_path": task["source_bundle_path"],
-                    # Review rebind lane: pdf_indices the whole-book OCR lane
-                    # already cached (cross-producer) are bound by content
-                    # address without comparing text; same-pipeline page
-                    # evidence must still match exactly.
-                    "reference_cached_pages": True,
+            _run_post_child_hook()
+            _fail_if_shutdown(shutdown)
+            if result["status"] != "reviewed":
+                receipt = _opening_receipt(
+                    request, private["scenario_id"], private["generation"],
+                    "failed", result["failure_class"], None,
+                )
+                _fail_if_shutdown(shutdown)
+                return receipt
+            selected = result["selected_opening_pdf_indices"]
+            fact_evidence = result["fact_evidence_pdf_indices"]
+            bundle_indices = sorted(set(selected) | set(fact_evidence))
+            _splice_retained_bound_pages(task, selected, fact_evidence)
+            bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+            if (
+                [row["pdf_index"] for row in bundle["pages"]] != bundle_indices
+                or bundle["source"]["source_id"] != private["source_id"]
+                or bundle["source"]["path"] != task["source"]["path"]
+                or bundle["source"]["file_sha256"]
+                != private["source_file_sha256"]
+                or bundle["source"]["title"] != task["title"]
+            ):
+                _fail("opening source bundle identity drift")
+            _validate_reused_bound_pages(bundle, task)
+            _fail_if_shutdown(shutdown)
+            bind = ops.execute_setup_operation(
+                workspace,
+                operation={
+                    "schema_version": 1,
+                    "kind": "scenario.bind_pdf",
+                    "payload": {
+                        "campaign_id": request["campaign_id"],
+                        "scenario_id": task["scenario_id"],
+                        "title": task["title"],
+                        "source_bundle_path": task["source_bundle_path"],
+                        # Review rebind lane: pdf_indices the whole-book OCR lane
+                        # already cached (cross-producer) are bound by content
+                        # address without comparing text; same-pipeline page
+                        # evidence must still match exactly.
+                        "reference_cached_pages": True,
+                    },
                 },
-            },
-        )
-        if bind.get("status") != "PASS":
-            _fail("canonical opening source bind failed")
-        current = _json(
-            workspace / ".coc" / "campaigns" / request["campaign_id"]
-            / "scenario" / "scenario.json",
-            "rebound campaign scenario",
-        )
-        exact = ops._validate_opening_review_task(
-            current, expected_status="pending",
-        )
-        rebound_source = _object(current.get("source"), "rebound source")
-        if (
-            exact["generation"] != request["opening_review_generation"] + 1
-            or exact["campaign_id"] != request["campaign_id"]
-            or exact["scenario_id"] != task["scenario_id"]
-            or exact["source_bundle_path"] != task["source_bundle_path"]
-            or exact["source_id"] != task["source"]["source_id"]
-            or exact["source_file_sha256"] != task["source"]["file_sha256"]
-            or exact["allowed_pdf_indices"] != bundle_indices
-            or rebound_source.get("path") != task["source"]["path"]
-            or rebound_source.get("bundle_sha256")
-            != exact["source_bundle_sha256"]
-        ):
-            _fail("rebound opening review authority drift")
-        continuation = {
-            "schema_version": 1,
-            "contract_id": "coc.opening-source-continue.v1",
-            "campaign_id": exact["campaign_id"],
-            "scenario_id": exact["scenario_id"],
-            "selected_opening_pdf_indices": selected,
-            "source_bundle_id": exact["source_bundle_id"],
-            "source_bundle_path": exact["source_bundle_path"],
-            "result_delivery": "task_return_to_parent",
-        }
-        fulfillment = ops._build_opening_source_review_fulfillment(
-            workspace,
-            continuation=continuation,
-            status="reviewed",
-            selected_opening_pdf_indices=selected,
-        )
-        ops._apply_opening_source_review_fulfillment(
-            workspace,
-            fulfillment,
-            source_facts=result["facts"],
-        )
-        return _opening_receipt(
-            request, exact["scenario_id"], exact["generation"],
-            "reviewed", None, result["facts"],
-        )
+            )
+            if bind.get("status") != "PASS":
+                _fail("canonical opening source bind failed")
+            current = _json(
+                workspace / ".coc" / "campaigns" / request["campaign_id"]
+                / "scenario" / "scenario.json",
+                "rebound campaign scenario",
+            )
+            exact = ops._validate_opening_review_task(
+                current, expected_status="pending",
+            )
+            rebound_source = _object(current.get("source"), "rebound source")
+            if (
+                exact["generation"] != request["opening_review_generation"] + 1
+                or exact["campaign_id"] != request["campaign_id"]
+                or exact["scenario_id"] != task["scenario_id"]
+                or exact["source_bundle_path"] != task["source_bundle_path"]
+                or exact["source_id"] != task["source"]["source_id"]
+                or exact["source_file_sha256"] != task["source"]["file_sha256"]
+                or exact["allowed_pdf_indices"] != bundle_indices
+                or rebound_source.get("path") != task["source"]["path"]
+                or rebound_source.get("bundle_sha256")
+                != exact["source_bundle_sha256"]
+            ):
+                _fail("rebound opening review authority drift")
+            continuation = {
+                "schema_version": 1,
+                "contract_id": "coc.opening-source-continue.v1",
+                "campaign_id": exact["campaign_id"],
+                "scenario_id": exact["scenario_id"],
+                "selected_opening_pdf_indices": selected,
+                "source_bundle_id": exact["source_bundle_id"],
+                "source_bundle_path": exact["source_bundle_path"],
+                "result_delivery": "task_return_to_parent",
+            }
+            fulfillment = ops._build_opening_source_review_fulfillment(
+                workspace,
+                continuation=continuation,
+                status="reviewed",
+                selected_opening_pdf_indices=selected,
+            )
+            ops._apply_opening_source_review_fulfillment(
+                workspace,
+                fulfillment,
+                source_facts=result["facts"],
+            )
+            _fail_if_shutdown(shutdown)
+            return _opening_receipt(
+                request, exact["scenario_id"], exact["generation"],
+                "reviewed", None, result["facts"],
+            )
+        finally:
+            _leave_producer_lane(handlers, old_mask, shutdown)
 
 
 def _validate_full_parse_task(value: Any) -> dict[str, Any]:
@@ -1686,7 +1953,7 @@ def _run_full_parse_batch() -> dict[str, Any]:
     # One flag covers router → Pi fallback → validate/register/receipt so a
     # host abort after the child exits still fail-closes before writeback.
     shutdown = _ShutdownFlag()
-    handlers = _install_interrupt_handlers(shutdown)
+    handlers, old_mask = _enter_producer_lane(shutdown)
     try:
         routed = _try_external_pdf_router(
             "full_parse_batch",
@@ -1768,8 +2035,7 @@ def _run_full_parse_batch() -> dict[str, Any]:
         _fail_if_shutdown(shutdown)
         return result
     finally:
-        _restore_interrupt_handlers(handlers)
-        _fail_if_shutdown(shutdown)
+        _leave_producer_lane(handlers, old_mask, shutdown)
 
 
 def _located_producer_result_from_router(
@@ -1804,7 +2070,7 @@ def _run() -> dict[str, Any]:
     # One flag covers optional router + Pi skill + receipt so a host abort
     # after the child exits still fail-closes (no success return).
     shutdown = _ShutdownFlag()
-    handlers = _install_interrupt_handlers(shutdown)
+    handlers, old_mask = _enter_producer_lane(shutdown)
     try:
         routed = _try_external_pdf_router(
             "locator_first_bundle", task, shutdown=shutdown,
@@ -1833,8 +2099,7 @@ def _run() -> dict[str, Any]:
         _fail_if_shutdown(shutdown)
         return receipt
     finally:
-        _restore_interrupt_handlers(handlers)
-        _fail_if_shutdown(shutdown)
+        _leave_producer_lane(handlers, old_mask, shutdown)
 
 
 def main() -> int:
