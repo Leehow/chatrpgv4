@@ -241,6 +241,19 @@ would clamp a direct `off` request to `low`. The matching
 to reduce spoiler exposure, but it does not disable provider reasoning or its
 latency.
 
+Optional external native router (raw locator + full-parse batch only): set
+`COC_PI_PDF_INSPECTOR_COMMAND` to an absolute executable. The adapter never
+opens or parses the PDF; it only subprocesses that command with a versioned
+JSON request on stdin and expects a versioned JSON result on stdout. On
+`status=ok` the command must have written a legal schema-v1 source bundle
+(`producer: codex-pdf-skill`) at the task's absolute `source_bundle_path`.
+The adapter still runs `load_host_bundle` (and the existing register/fulfill
+half-chain for full-parse) before adopting the result. Any unset/invalid
+command, non-zero exit, timeout, bad JSON, `fallback` / `needs_ocr` /
+`unsupported` / `failed`, path drift, or illegal bundle falls through to the
+existing Pi PDF-skill path. Opening review does not call this router in v1
+(still needs semantic opening facts via the Grok/PDF skill path).
+
 The adapter contains no PDF parser, renderer, OCR, page-text scanner, queue, or
 fulfillment engine.
 

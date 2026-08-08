@@ -4912,7 +4912,7 @@ function locatorEnvironment(): NodeJS.ProcessEnv {
   const allowed = [
     "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
     "LOGNAME", "SHELL", "CODEX_HOME", "PI_CODING_AGENT_DIR",
-    "COC_PI_COMMAND", "COC_PI_PDF_SKILL",
+    "COC_PI_COMMAND", "COC_PI_PDF_SKILL", "COC_PI_PDF_INSPECTOR_COMMAND",
   ];
   return Object.fromEntries(
     allowed.flatMap((key) => (

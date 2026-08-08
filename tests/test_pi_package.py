@@ -1925,6 +1925,490 @@ def test_pdf_skill_adapter_locator_receipt_requires_bundle_for_located(
         adapter._locator_receipt(task, producer)
 
 
+def _fake_pdf_inspector(
+    path: Path,
+    *,
+    status: str = "ok",
+    write_bundle: bool = True,
+    source_bundle_path: str | None = None,
+    rendered_pdf_indices: list[int] | None = None,
+    exit_code: int = 0,
+    stdout: str | None = None,
+    bad_json: bool = False,
+    page_count: int = 48,
+    request_log: Path | None = None,
+) -> Path:
+    """Write a hermetic external router executable for adapter tests."""
+    payload = {
+        "status": status,
+        "write_bundle": write_bundle,
+        "source_bundle_path": source_bundle_path,
+        "rendered_pdf_indices": rendered_pdf_indices,
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "bad_json": bad_json,
+        "page_count": page_count,
+        "request_log": None if request_log is None else str(request_log),
+        # unicode_escape turns these into CR/LF inside the child process.
+        "page_template": "# Page {n}  \\r\\n\\r\\nExtracted text {i}.   \\r\\n",
+    }
+    config_literal = json.dumps(payload, ensure_ascii=False)
+    script = (
+        f"#!{os.fspath(Path(os.sys.executable).resolve())}\n"
+        "import hashlib\n"
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        f"CFG = json.loads({config_literal!r})\n"
+        "raw = sys.stdin.read()\n"
+        "req = json.loads(raw)\n"
+        "if CFG.get('request_log'):\n"
+        "    Path(CFG['request_log']).write_text(raw, encoding='utf-8')\n"
+        "if CFG.get('bad_json'):\n"
+        "    sys.stdout.write('not-json')\n"
+        "    raise SystemExit(int(CFG['exit_code']))\n"
+        "if CFG.get('stdout') is not None:\n"
+        "    sys.stdout.write(str(CFG['stdout']))\n"
+        "    raise SystemExit(int(CFG['exit_code']))\n"
+        "bundle_path = CFG.get('source_bundle_path') or req['source_bundle_path']\n"
+        "rendered = CFG.get('rendered_pdf_indices')\n"
+        "if rendered is None:\n"
+        "    rendered = (\n"
+        "        [0, 1, 2]\n"
+        "        if req.get('mode') == 'locator_first_bundle'\n"
+        "        else list(req.get('missing_pdf_indices') or [0])\n"
+        "    )\n"
+        "if CFG.get('write_bundle') and CFG.get('status') == 'ok':\n"
+        "    root = Path(bundle_path)\n"
+        "    pages = root / 'pages'\n"
+        "    pages.mkdir(parents=True, exist_ok=True)\n"
+        "    source = req['source']\n"
+        "    page_template = CFG['page_template'].encode('utf-8').decode('unicode_escape')\n"
+        "    manifest_pages = []\n"
+        "    for index in rendered:\n"
+        "        page_bytes = page_template.format(n=index + 1, i=index).encode()\n"
+        "        (pages / f'{index:04d}.md').write_bytes(page_bytes)\n"
+        "        manifest_pages.append({\n"
+        "            'pdf_index': index,\n"
+        "            'printed_page': index + 1,\n"
+        "            'markdown_path': f'pages/{index:04d}.md',\n"
+        "            'text_sha256': hashlib.sha256(page_bytes).hexdigest(),\n"
+        "            'review_state': 'manual_accepted',\n"
+        "            'parse_confidence': 0.93,\n"
+        "            'grep_anchors': [f'Extracted text {index}.'],\n"
+        "        })\n"
+        "    manifest = {\n"
+        "        'schema_version': 1,\n"
+        "        'producer': req.get('manifest_producer_literal') or 'codex-pdf-skill',\n"
+        "        'source': {\n"
+        "            'source_id': source['source_id'],\n"
+        "            'title': source['title'],\n"
+        "            'path': source['path'],\n"
+        "            'file_sha256': source['file_sha256'],\n"
+        "            'page_count': CFG['page_count'],\n"
+        "        },\n"
+        "        'pages': manifest_pages,\n"
+        "        'assets': [],\n"
+        "    }\n"
+        "    (root / 'manifest.json').write_text(\n"
+        "        json.dumps(manifest), encoding='utf-8',\n"
+        "    )\n"
+        "result = {\n"
+        "    'schema_version': 1,\n"
+        "    'contract_id': 'coc.pi-pdf-inspector-result.v1',\n"
+        "    'status': CFG['status'],\n"
+        "    'reason': 'fixture',\n"
+        "    'source_bundle_path': bundle_path,\n"
+        "    'rendered_pdf_indices': rendered,\n"
+        "}\n"
+        "sys.stdout.write(\n"
+        "    json.dumps(result, ensure_ascii=False, separators=(',', ':'))\n"
+        ")\n"
+        "raise SystemExit(int(CFG['exit_code']))\n"
+    )
+    path.write_text(script, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+
+def _full_parse_task(
+    workspace: Path, bundle_dir: Path, pdf: Path, *,
+    page_count: int = 3, cached: list[int] | None = None, batch_limit: int = 3,
+) -> dict:
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.pi-full-parse-render-task.v1",
+        "workspace_root": str(workspace),
+        "campaign_id": "camp",
+        "asset_root_id": "raw-pdf-bind:camp",
+        "job_id": "job-full-parse",
+        "source_bundle_path": str(bundle_dir),
+        "page_count": page_count,
+        "batch_limit": batch_limit,
+        "requested_pdf_indices": list(range(page_count)),
+        "cached_pdf_indices": list(cached or []),
+        "source": {
+            "path": str(pdf),
+            "source_id": "pdf:module",
+            "title": "module.pdf",
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+        },
+        "source_bundle_manifest_contract": {"schema_version": 1},
+        "register_operation": {"operation": "module.register_source_bundle"},
+        "fulfill_operation": {"operation": "module.fulfill_full_parse"},
+    }
+
+
+def test_pdf_skill_adapter_has_no_repository_pdf_parser_imports():
+    source = (
+        PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
+    ).read_text(encoding="utf-8")
+    assert '"repository_pdf_parser": False' in source
+    forbidden = (
+        "import pypdf", "from pypdf", "import pdfminer", "from pdfminer",
+        "import fitz", "from fitz", "import pymupdf", "from pymupdf",
+        "import pdf2image", "from pdf2image", "import firecrawl",
+        "from firecrawl", "import pdfplumber", "from pdfplumber",
+    )
+    lowered = source.lower()
+    for token in forbidden:
+        assert token not in lowered
+    assert "COC_PI_PDF_INSPECTOR_COMMAND" in source
+    assert "_try_external_pdf_router" in source
+
+
+def test_pdf_inspector_command_env_requires_absolute_executable(
+    tmp_path: Path, monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_inspector_env_test")
+    monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
+    assert adapter._pdf_inspector_command() is None
+
+    relative = tmp_path / "router"
+    relative.write_text("#!/bin/sh\n", encoding="utf-8")
+    relative.chmod(0o755)
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", "router")
+    assert adapter._pdf_inspector_command() is None
+
+    not_exec = tmp_path / "not-exec"
+    not_exec.write_text("#!/bin/sh\n", encoding="utf-8")
+    not_exec.chmod(0o644)
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(not_exec))
+    assert adapter._pdf_inspector_command() is None
+
+    good = tmp_path / "good-router"
+    good.write_text("#!/bin/sh\n", encoding="utf-8")
+    good.chmod(0o755)
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(good))
+    assert adapter._pdf_inspector_command() == str(good)
+
+
+def test_pdf_skill_adapter_locator_router_success_skips_run_pi(
+    tmp_path: Path, monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_locator_router_ok_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _locator_task(workspace, bundle_dir, pdf)
+    request_log = tmp_path / "router-request.json"
+    router = _fake_pdf_inspector(
+        tmp_path / "router",
+        rendered_pdf_indices=[0, 1, 2],
+        request_log=request_log,
+    )
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    calls: list[str] = []
+
+    def boom_run_pi(*_args, **_kwargs):
+        calls.append("run_pi")
+        raise AssertionError("_run_pi must not be called on router ok")
+
+    monkeypatch.setattr(adapter, "_run_pi", boom_run_pi)
+
+    class _Stdin:
+        buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    result = adapter._run()
+    assert calls == []
+    assert result["status"] == "located"
+    assert result["pdf_indices"] == [1, 2, 3]
+    assert result["source_bundle_path"] == task["source_bundle_path"]
+    request = json.loads(request_log.read_text(encoding="utf-8"))
+    assert request["contract_id"] == "coc.pi-pdf-inspector-request.v1"
+    assert request["mode"] == "locator_first_bundle"
+    assert request["manifest_producer_literal"] == "codex-pdf-skill"
+    assert request["source_bundle_path"] == task["source_bundle_path"]
+    assert request["source"]["file_sha256"] == task["source"]["file_sha256"]
+
+
+def test_pdf_skill_adapter_locator_router_fallback_uses_pdf_skill(
+    tmp_path: Path, monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_locator_router_fallback_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _locator_task(workspace, bundle_dir, pdf)
+
+    for status in ("fallback", "needs_ocr", "unsupported", "failed"):
+        router = _fake_pdf_inspector(
+            tmp_path / f"router-{status}",
+            status=status,
+            write_bundle=False,
+        )
+        monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+        calls: list[str] = []
+
+        def fake_run_pi(*_args, **_kwargs):
+            calls.append("run_pi")
+            return {"from": "skill"}
+
+        def fake_receipt(_task, producer_result):
+            return {"receipt": producer_result}
+
+        monkeypatch.setattr(adapter, "_run_pi", fake_run_pi)
+        monkeypatch.setattr(adapter, "_locator_receipt", fake_receipt)
+
+        class _Stdin:
+            buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+        monkeypatch.setattr(sys, "stdin", _Stdin())
+        result = adapter._run()
+        assert calls == ["run_pi"], status
+        assert result == {"receipt": {"from": "skill"}}, status
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ("bad_json", "nonzero", "path_drift", "illegal_bundle", "unset"),
+)
+def test_pdf_skill_adapter_locator_router_faults_fall_back(
+    tmp_path: Path, monkeypatch, fault: str,
+):
+    adapter = _load_pdf_adapter(f"coc_pdf_adapter_locator_router_{fault}_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _locator_task(workspace, bundle_dir, pdf)
+
+    if fault == "unset":
+        monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
+    elif fault == "bad_json":
+        router = _fake_pdf_inspector(tmp_path / "router", bad_json=True)
+        monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    elif fault == "nonzero":
+        router = _fake_pdf_inspector(
+            tmp_path / "router", status="ok", exit_code=2, write_bundle=False,
+        )
+        monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    elif fault == "path_drift":
+        other = str(tmp_path / "other-bundle")
+        router = _fake_pdf_inspector(
+            tmp_path / "router",
+            source_bundle_path=other,
+            write_bundle=False,
+        )
+        monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    else:
+        # ok status but empty/missing bundle contents
+        router = _fake_pdf_inspector(
+            tmp_path / "router", status="ok", write_bundle=False,
+        )
+        monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+
+    calls: list[str] = []
+
+    def fake_run_pi(*_args, **_kwargs):
+        calls.append("run_pi")
+        return {"from": "skill"}
+
+    def fake_receipt(_task, producer_result):
+        return {"receipt": producer_result}
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_run_pi)
+    monkeypatch.setattr(adapter, "_locator_receipt", fake_receipt)
+
+    class _Stdin:
+        buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    result = adapter._run()
+    assert calls == ["run_pi"]
+    assert result == {"receipt": {"from": "skill"}}
+
+
+def test_pdf_skill_adapter_full_parse_router_success_registers_bundle(
+    tmp_path: Path, monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_full_parse_router_ok_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-full-parse" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _full_parse_task(workspace, bundle_dir, pdf, page_count=3)
+    router = _fake_pdf_inspector(
+        tmp_path / "router",
+        rendered_pdf_indices=[0, 1, 2],
+        page_count=3,
+    )
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    calls: list[str] = []
+    registered: list[tuple] = []
+
+    def boom_run_pi(*_args, **_kwargs):
+        calls.append("run_pi")
+        raise AssertionError("_run_pi must not be called on router ok")
+
+    class _Assets:
+        @staticmethod
+        def register_source_bundle(ws, output, *, asset_root_id, record_drift):
+            registered.append(
+                (Path(ws), Path(output), asset_root_id, record_drift),
+            )
+            return {"ok": True}
+
+        @staticmethod
+        def read_full_parse_state(ws, asset_root_id):
+            return {"complete": True}
+
+    class _PdfBundle:
+        @staticmethod
+        def load_host_bundle(path):
+            # Delegate to the real validator so the half-chain stays honest.
+            scripts = PLUGIN / "scripts"
+            if str(scripts) not in sys.path:
+                sys.path.insert(0, str(scripts))
+            import coc_pdf_bundle
+            return coc_pdf_bundle.load_host_bundle(path)
+
+    monkeypatch.setattr(adapter, "_run_pi", boom_run_pi)
+    monkeypatch.setattr(
+        adapter,
+        "_runtime_modules",
+        lambda: (None, _PdfBundle, None, _Assets),
+    )
+
+    class _Stdin:
+        buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    result = adapter._run_full_parse_batch()
+    assert calls == []
+    assert len(registered) == 1
+    assert registered[0][0] == workspace.resolve()
+    assert registered[0][1] == bundle_dir.resolve()
+    assert registered[0][2] == task["asset_root_id"]
+    assert registered[0][3] is True
+    pack = result["results"][0]["pack"]
+    assert pack["status"] == "complete"
+    assert pack["rendered_pdf_indices"] == [0, 1, 2]
+
+
+def test_pdf_skill_adapter_full_parse_router_fallback_uses_pdf_skill(
+    tmp_path: Path, monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_full_parse_router_fallback_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-full-parse" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _full_parse_task(workspace, bundle_dir, pdf, page_count=2)
+    router = _fake_pdf_inspector(
+        tmp_path / "router", status="needs_ocr", write_bundle=False,
+    )
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    calls: list[str] = []
+
+    def fake_run_pi(*_args, **_kwargs):
+        calls.append("run_pi")
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-full-parse-render-producer-result.v1",
+            "status": "failed",
+            "rendered_pdf_indices": [],
+            "failure_class": "skill_fallback_path",
+            "source_bundle_path": None,
+        }
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_run_pi)
+
+    class _Stdin:
+        buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    result = adapter._run_full_parse_batch()
+    assert calls == ["run_pi"]
+    assert result["results"][0]["pack"]["status"] == "failed"
+    assert result["results"][0]["pack"]["failure_class"] == "skill_fallback_path"
+
+
+def test_pdf_skill_adapter_opening_review_does_not_call_router(
+    tmp_path: Path, monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_no_router_test")
+    router_calls: list[str] = []
+
+    def track_router(*_args, **_kwargs):
+        router_calls.append("router")
+        return {"should": "not-be-used"}
+
+    monkeypatch.setattr(adapter, "_try_external_pdf_router", track_router)
+
+    # Fail closed early in opening review before any producer work. The
+    # assertion under test is only that the router helper is never entered.
+    class _Stdin:
+        buffer = io.BytesIO(b"{")
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    with pytest.raises((RuntimeError, json.JSONDecodeError, ValueError)):
+        adapter._run_opening_review()
+    assert router_calls == []
+
+    source = (
+        PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
+    ).read_text(encoding="utf-8")
+    # Opening lane must not invoke the external router helper.
+    opening_fn = source.split("def _run_opening_review", 1)[1].split(
+        "\ndef _validate_full_parse_task", 1,
+    )[0]
+    assert "_try_external_pdf_router" not in opening_fn
+    assert "_run_pi" in opening_fn
+
+
+def test_extension_locator_environment_whitelists_pdf_inspector_command():
+    source = (PLUGIN / "pi/extensions/index.ts").read_text(encoding="utf-8")
+    block = source.split("function locatorEnvironment", 1)[1].split(
+        "export function validatePiSourceScopeLocatorTask", 1,
+    )[0]
+    assert "COC_PI_PDF_INSPECTOR_COMMAND" in block
+    assert "COC_PI_COMMAND" in block
+    assert "COC_PI_PDF_SKILL" in block
 
 
 def _load_assets_module():

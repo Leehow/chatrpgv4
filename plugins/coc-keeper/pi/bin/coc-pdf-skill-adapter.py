@@ -34,6 +34,10 @@ PI_TIMEOUT_SECONDS = 900
 OPENING_REVIEW_WRITEBACK_MARGIN_SECONDS = 120
 TERMINATION_GRACE_SECONDS = 0.35
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+PDF_INSPECTOR_REQUEST_CONTRACT = "coc.pi-pdf-inspector-request.v1"
+PDF_INSPECTOR_RESULT_CONTRACT = "coc.pi-pdf-inspector-result.v1"
+PDF_INSPECTOR_MANIFEST_PRODUCER = "codex-pdf-skill"
+PDF_INSPECTOR_TIMEOUT_SECONDS = PI_TIMEOUT_SECONDS
 OPENING_COORDINATOR_CONTRACT = (
     PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
 )
@@ -83,6 +87,133 @@ def _pdf_skill() -> Path:
     if not skill_file.is_file():
         _fail("external PDF skill is unavailable")
     return skill_file.parent
+
+
+def _pdf_inspector_command() -> str | None:
+    """Optional absolute external router. Invalid values are treated as unset."""
+    configured = os.environ.get("COC_PI_PDF_INSPECTOR_COMMAND", "").strip()
+    if not configured:
+        return None
+    path = Path(configured).expanduser()
+    if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
+        return None
+    return str(path)
+
+
+def _pdf_inspector_request(
+    mode: str,
+    task: dict[str, Any],
+    *,
+    missing_pdf_indices: list[int] | None = None,
+) -> dict[str, Any]:
+    """Project only known task fields into the external inspector request."""
+    source = _object(task.get("source"), "task.source")
+    request: dict[str, Any] = {
+        "schema_version": 1,
+        "contract_id": PDF_INSPECTOR_REQUEST_CONTRACT,
+        "mode": mode,
+        "source": {
+            "path": source["path"],
+            "source_id": source["source_id"],
+            "title": source["title"],
+            "file_sha256": source["file_sha256"],
+        },
+        "source_bundle_path": task["source_bundle_path"],
+        "manifest_producer_literal": PDF_INSPECTOR_MANIFEST_PRODUCER,
+    }
+    for key in (
+        "requested_pdf_indices",
+        "cached_pdf_indices",
+        "page_count",
+        "max_pages",
+    ):
+        if key in task:
+            request[key] = task[key]
+    if missing_pdf_indices is not None:
+        request["missing_pdf_indices"] = list(missing_pdf_indices)
+    return request
+
+
+def _try_external_pdf_router(
+    mode: str,
+    task: dict[str, Any],
+    *,
+    missing_pdf_indices: list[int] | None = None,
+    timeout: int = PDF_INSPECTOR_TIMEOUT_SECONDS,
+) -> dict[str, Any] | None:
+    """Invoke an optional external native PDF router; never parse PDF here.
+
+    Returns a validated adoption payload only when the external command exits 0,
+    emits the result contract with status=ok, writes exactly the requested
+    source_bundle_path, and that path passes load_host_bundle. Any other
+    outcome (unset command, non-zero, timeout, bad JSON, fallback/needs_ocr/
+    unsupported/failed, path drift, illegal bundle) returns None so the caller
+    can keep the existing Pi PDF-skill path.
+    """
+    command = _pdf_inspector_command()
+    if command is None:
+        return None
+    request = _pdf_inspector_request(
+        mode, task, missing_pdf_indices=missing_pdf_indices,
+    )
+    payload = json.dumps(request, ensure_ascii=False, separators=(",", ":"))
+    try:
+        completed = subprocess.run(
+            [command],
+            input=payload,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    raw_out = (completed.stdout or "").encode("utf-8", errors="replace")
+    if len(raw_out) > MAX_OUTPUT_BYTES:
+        return None
+    try:
+        result = json.loads(raw_out.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(result, dict):
+        return None
+    if (
+        result.get("schema_version") != 1
+        or result.get("contract_id") != PDF_INSPECTOR_RESULT_CONTRACT
+        or result.get("status") != "ok"
+        or result.get("source_bundle_path") != task["source_bundle_path"]
+    ):
+        return None
+    rendered = result.get("rendered_pdf_indices")
+    if rendered is not None:
+        if (
+            not isinstance(rendered, list)
+            or any(
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
+                for index in rendered
+            )
+            or rendered != sorted(set(rendered))
+        ):
+            return None
+    try:
+        _, pdf_bundle, _, _ = _runtime_modules()
+        bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+    except Exception:
+        # Router output is untrusted; illegal or incomplete bundles fall back.
+        return None
+    bundle_indices = [int(page["pdf_index"]) for page in bundle.get("pages", [])]
+    if rendered is None:
+        rendered = list(bundle_indices)
+    elif rendered != bundle_indices:
+        return None
+    return {
+        "source_bundle_path": task["source_bundle_path"],
+        "rendered_pdf_indices": list(rendered),
+        "bundle": bundle,
+        "reason": result.get("reason"),
+    }
 
 
 def _capabilities() -> dict[str, Any]:
@@ -1277,6 +1408,62 @@ _FULL_PARSE_PROMPT = (
 )
 
 
+def _full_parse_worker_result(
+    task: dict[str, Any],
+    *,
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.source-pack-worker.v1",
+        "packet_id": f"full-parse:{task['job_id']}",
+        "work_group_id": f"source-work-full-{task['asset_root_id']}",
+        "status": "usable",
+        "results": [{
+            "job_id": task["job_id"],
+            "pack": pack,
+            "related_packs": [],
+        }],
+    }
+
+
+def _register_full_parse_bundle(
+    task: dict[str, Any],
+    workspace: Path,
+    output: Path,
+    rendered: list[int],
+) -> dict[str, Any]:
+    """Shared post-producer half-chain: validate, register, fulfill receipt."""
+    _, pdf_bundle, _, assets = _runtime_modules()
+    bundle = pdf_bundle.load_host_bundle(output)
+    if (
+        bundle["source"]["source_id"] != task["source"]["source_id"]
+        or bundle["source"]["path"] != task["source"]["path"]
+        or bundle["source"]["file_sha256"] != task["source"]["file_sha256"]
+        or bundle["source"]["page_count"] != int(task["page_count"])
+        or [row["pdf_index"] for row in bundle["pages"]] != rendered
+    ):
+        _fail("full-parse bundle identity or page scope drift")
+    assets.register_source_bundle(
+        workspace,
+        output,
+        asset_root_id=str(task["asset_root_id"]),
+        record_drift=True,
+    )
+    state = assets.read_full_parse_state(
+        workspace, str(task["asset_root_id"]),
+    )
+    return _full_parse_worker_result(
+        task,
+        pack={
+            "status": "complete" if state.get("complete") else "partial",
+            "rendered_pdf_indices": list(rendered),
+            "failed_pdf_indices": [],
+            "failure_class": None,
+        },
+    )
+
+
 def _run_full_parse_batch() -> dict[str, Any]:
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
@@ -1289,26 +1476,34 @@ def _run_full_parse_batch() -> dict[str, Any]:
     cached = set(int(index) for index in task["cached_pdf_indices"])
     missing = sorted(requested - cached)
     if not missing:
-        return {
-            "schema_version": 1,
-            "contract_id": "coc.source-pack-worker.v1",
-            "packet_id": f"full-parse:{task['job_id']}",
-            "work_group_id": f"source-work-full-{task['asset_root_id']}",
-            "status": "usable",
-            "results": [{
-                "job_id": task["job_id"],
-                "pack": {
-                    "status": "complete",
-                    "rendered_pdf_indices": sorted(requested),
-                    "failed_pdf_indices": [],
-                    "failure_class": None,
-                },
-                "related_packs": [],
-            }],
-        }
+        return _full_parse_worker_result(
+            task,
+            pack={
+                "status": "complete",
+                "rendered_pdf_indices": sorted(requested),
+                "failed_pdf_indices": [],
+                "failure_class": None,
+            },
+        )
     batch = missing[: int(task["batch_limit"])]
     output = Path(task["source_bundle_path"]).resolve()
     output.mkdir(parents=True, exist_ok=True)
+    routed = _try_external_pdf_router(
+        "full_parse_batch",
+        task,
+        missing_pdf_indices=batch,
+    )
+    if routed is not None:
+        rendered = list(routed["rendered_pdf_indices"])
+        if (
+            rendered
+            and rendered == sorted(set(rendered))
+            and set(rendered).issubset(set(batch))
+        ):
+            return _register_full_parse_bundle(
+                task, workspace, output, rendered,
+            )
+        # Valid contract shape but scope mismatch: keep the old skill path.
     producer_prompt = _FULL_PARSE_PROMPT + json.dumps({
         **task,
         "missing_pdf_indices": batch,
@@ -1331,21 +1526,13 @@ def _run_full_parse_batch() -> dict[str, Any]:
         failure_class = producer.get("failure_class")
         if not isinstance(failure_class, str) or not failure_class.strip():
             _fail("failed render producer result must carry failure_class")
-        return {
-            "schema_version": 1,
-            "contract_id": "coc.source-pack-worker.v1",
-            "packet_id": f"full-parse:{task['job_id']}",
-            "work_group_id": f"source-work-full-{task['asset_root_id']}",
-            "status": "usable",
-            "results": [{
-                "job_id": task["job_id"],
-                "pack": {
-                    "status": "failed",
-                    "failure_class": str(failure_class)[:256],
-                },
-                "related_packs": [],
-            }],
-        }
+        return _full_parse_worker_result(
+            task,
+            pack={
+                "status": "failed",
+                "failure_class": str(failure_class)[:256],
+            },
+        )
     rendered = producer.get("rendered_pdf_indices")
     if (
         not isinstance(rendered, list)
@@ -1360,41 +1547,29 @@ def _run_full_parse_batch() -> dict[str, Any]:
         or producer.get("failure_class") is not None
     ):
         _fail("reviewed full-parse render producer result invalid")
-    _, pdf_bundle, _, assets = _runtime_modules()
-    bundle = pdf_bundle.load_host_bundle(output)
-    if (
-        bundle["source"]["source_id"] != task["source"]["source_id"]
-        or bundle["source"]["path"] != task["source"]["path"]
-        or bundle["source"]["file_sha256"] != task["source"]["file_sha256"]
-        or bundle["source"]["page_count"] != int(task["page_count"])
-        or [row["pdf_index"] for row in bundle["pages"]] != rendered
-    ):
-        _fail("full-parse bundle identity or page scope drift")
-    assets.register_source_bundle(
-        workspace,
-        output,
-        asset_root_id=str(task["asset_root_id"]),
-        record_drift=True,
+    return _register_full_parse_bundle(
+        task, workspace, output, list(rendered),
     )
-    state = assets.read_full_parse_state(
-        workspace, str(task["asset_root_id"]),
-    )
+
+
+def _located_producer_result_from_router(
+    task: dict[str, Any], routed: dict[str, Any],
+) -> dict[str, Any]:
+    """Minimal producer result so _locator_receipt owns bundle authority."""
+    bundle_indices = [
+        int(page["pdf_index"]) for page in routed["bundle"].get("pages", [])
+    ]
     return {
         "schema_version": 1,
-        "contract_id": "coc.source-pack-worker.v1",
-        "packet_id": f"full-parse:{task['job_id']}",
-        "work_group_id": f"source-work-full-{task['asset_root_id']}",
-        "status": "usable",
-        "results": [{
-            "job_id": task["job_id"],
-            "pack": {
-                "status": "complete" if state.get("complete") else "partial",
-                "rendered_pdf_indices": list(rendered),
-                "failed_pdf_indices": [],
-                "failure_class": None,
-            },
-            "related_packs": [],
-        }],
+        "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+        "job_id": task["job_id"],
+        "status": "located",
+        "kind": task["kind"],
+        "target_id": task["target_id"],
+        # Advisory printed-page numbers; receipt re-derives from the bundle.
+        "pdf_indices": [index + 1 for index in bundle_indices],
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
     }
 
 
@@ -1406,6 +1581,11 @@ def _run() -> dict[str, Any]:
     workspace = Path(task["workspace_root"]).resolve()
     if not workspace.is_dir():
         _fail("workspace_root is unavailable")
+    routed = _try_external_pdf_router("locator_first_bundle", task)
+    if routed is not None:
+        return _locator_receipt(
+            task, _located_producer_result_from_router(task, routed),
+        )
     producer_result = _run_pi(
         _locator_prompt(task), workspace, timeout=PI_TIMEOUT_SECONDS,
         allow_non_json_receipt=True,
