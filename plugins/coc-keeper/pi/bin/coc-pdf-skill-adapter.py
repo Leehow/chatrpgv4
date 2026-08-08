@@ -32,8 +32,14 @@ PI_TIMEOUT_SECONDS = 900
 # and failed every time on a book the producer needed longer than 15 minutes
 # to review.
 OPENING_REVIEW_WRITEBACK_MARGIN_SECONDS = 120
-TERMINATION_GRACE_SECONDS = 0.35
+# Short supervise slices replace one long communicate(timeout=900). Output is
+# still collected by communicate; a timed-out slice does not discard pipes.
+SUPERVISE_POLL_SECONDS = 0.25
+REAP_GRACE_SECONDS = 0.35
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+# Test-only seam: runs after a producer/router child reaps and before receipt
+# work so host-abort fail-closed can be asserted without sleep races.
+_post_child_hook: Any = None
 PDF_INSPECTOR_REQUEST_CONTRACT = "coc.pi-pdf-inspector-request.v1"
 PDF_INSPECTOR_RESULT_CONTRACT = "coc.pi-pdf-inspector-result.v1"
 PDF_INSPECTOR_MANIFEST_PRODUCER = "codex-pdf-skill"
@@ -140,7 +146,7 @@ def _try_external_pdf_router(
     *,
     missing_pdf_indices: list[int] | None = None,
     timeout: int = PDF_INSPECTOR_TIMEOUT_SECONDS,
-    lifecycle: _ChildLifecycle | None = None,
+    shutdown: _ShutdownFlag | None = None,
 ) -> dict[str, Any] | None:
     """Invoke an optional external native PDF router; never parse PDF here.
 
@@ -151,8 +157,9 @@ def _try_external_pdf_router(
     unsupported/failed, path drift, illegal bundle) returns None so the caller
     can keep the existing Pi PDF-skill path.
 
-    The child runs in a new session and is registered on lifecycle so a parent
-    SIGTERM reaps it; unset/invalid command takes no subprocess.
+    Host abort (shutdown flag / interrupt during the child) raises via _fail and
+    must not be turned into Pi fallback. Unset/invalid command takes no
+    subprocess.
     """
     command = _pdf_inspector_command()
     if command is None:
@@ -166,9 +173,10 @@ def _try_external_pdf_router(
             [command],
             timeout=timeout,
             input_text=payload,
-            lifecycle=lifecycle,
+            shutdown=shutdown,
         )
     except (OSError, subprocess.TimeoutExpired):
+        _fail_if_shutdown(shutdown)
         return None
     if completed.returncode != 0:
         return None
@@ -376,54 +384,32 @@ def _child_failure_detail(returncode: int, stderr: str | None) -> str:
     )
 
 
-def _terminate_process_group(process: subprocess.Popen[str]) -> None:
-    """SIGTERM then SIGKILL the child's session; always reap within a bound."""
-    if process.poll() is not None:
-        return
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        if process.poll() is not None:
-            break
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            break
-        deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
-        while process.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.02)
-    try:
-        process.wait(timeout=TERMINATION_GRACE_SECONDS)
-    except subprocess.TimeoutExpired:
-        _fail("Pi process group did not terminate")
+class _ShutdownFlag:
+    """Cooperative lane abort. Signal handlers only set requested=True."""
 
-
-class _ChildLifecycle:
-    """Tracks the one active session child so SIGTERM can reap it."""
-
-    __slots__ = ("process",)
+    __slots__ = ("requested",)
 
     def __init__(self) -> None:
-        self.process: subprocess.Popen[str] | None = None
-
-    def adopt(self, process: subprocess.Popen[str]) -> None:
-        self.process = process
-
-    def clear(self, process: subprocess.Popen[str] | None = None) -> None:
-        if process is None or self.process is process:
-            self.process = None
-
-    def terminate_active(self) -> None:
-        process = self.process
-        self.process = None
-        if process is not None and process.poll() is None:
-            _terminate_process_group(process)
+        self.requested = False
 
 
-def _install_interrupt_handlers(lifecycle: _ChildLifecycle) -> dict[int, Any]:
+def _fail_if_shutdown(flag: _ShutdownFlag | None) -> None:
+    if flag is not None and flag.requested:
+        _fail("Pi lifecycle interrupted by signal")
+
+
+def _run_post_child_hook() -> None:
+    hook = _post_child_hook
+    if hook is not None:
+        hook()
+
+
+def _install_interrupt_handlers(flag: _ShutdownFlag) -> dict[int, Any]:
+    """Handlers only flip the flag — never Popen wait/poll/raise/communicate."""
     handlers: dict[int, Any] = {}
 
-    def interrupted(signum: int, _frame: Any) -> NoReturn:
-        lifecycle.terminate_active()
-        _fail(f"Pi lifecycle interrupted by signal {signum}")
+    def interrupted(_signum: int, _frame: Any) -> None:
+        flag.requested = True
 
     for signum in (signal.SIGTERM, signal.SIGINT):
         handlers[signum] = signal.getsignal(signum)
@@ -436,6 +422,113 @@ def _restore_interrupt_handlers(handlers: dict[int, Any]) -> None:
         signal.signal(signum, handler)
 
 
+def _killpg_sigkill(pgid: int) -> None:
+    """Best-effort SIGKILL for an entire process group; never gate on leader poll."""
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        return
+
+
+def _pgid_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    return True
+
+
+def _reap_direct_child(
+    process: subprocess.Popen[str],
+    *,
+    grace: float = REAP_GRACE_SECONDS,
+) -> tuple[str | None, str | None]:
+    """Drain pipes and wait for the direct child after a group kill."""
+    try:
+        return process.communicate(timeout=grace)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except (ProcessLookupError, OSError):
+            pass
+        try:
+            return process.communicate(timeout=grace)
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            try:
+                process.wait(timeout=grace)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            return None, None
+    except (OSError, ValueError):
+        try:
+            process.wait(timeout=grace)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        return None, None
+
+
+def _cleanup_session(
+    process: subprocess.Popen[str],
+    pgid: int | None,
+) -> None:
+    """Unconditional killpg on the saved PGID, then reap the direct child."""
+    if pgid is not None:
+        _killpg_sigkill(pgid)
+        if _pgid_exists(pgid):
+            _killpg_sigkill(pgid)
+    if process.poll() is None:
+        try:
+            process.kill()
+        except (ProcessLookupError, OSError):
+            pass
+    _reap_direct_child(process)
+
+
+def _spawn_session_process(
+    args: list[str],
+    *,
+    cwd: Path | None,
+    env: dict[str, str] | None,
+    input_text: str | None,
+) -> tuple[subprocess.Popen[str], int]:
+    """Popen(start_new_session=True) + capture pgid under a brief sigmask.
+
+    pthread_sigmask closes the spawn/adopt window where a host SIGTERM could
+    arrive after Popen returns but before the supervisor holds the PGID. When
+    masking is unavailable, fall back to the tight unmasked sequence.
+    """
+    old_mask = None
+    if hasattr(signal, "pthread_sigmask"):
+        try:
+            old_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
+            )
+        except (OSError, ValueError, AttributeError):
+            old_mask = None
+    try:
+        process = subprocess.Popen(
+            args,
+            cwd=cwd,
+            text=True,
+            stdin=(
+                subprocess.PIPE if input_text is not None else subprocess.DEVNULL
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            env=env,
+        )
+        # New session leader: process group id equals the child pid.
+        pgid = int(process.pid)
+    finally:
+        if old_mask is not None:
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+            except (OSError, ValueError, AttributeError):
+                pass
+    return process, pgid
+
+
 def _run_session_command(
     args: list[str],
     *,
@@ -443,36 +536,60 @@ def _run_session_command(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     input_text: str | None = None,
-    lifecycle: _ChildLifecycle | None = None,
+    shutdown: _ShutdownFlag | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run one absolute command in a new session; bound kill/reap on exit."""
-    process = subprocess.Popen(
-        args,
-        cwd=cwd,
-        text=True,
-        stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-        env=env,
+    """Supervise one new-session child with short polls; PGID kill on abort."""
+    process, pgid = _spawn_session_process(
+        args, cwd=cwd, env=env, input_text=input_text,
     )
-    if lifecycle is not None:
-        lifecycle.adopt(process)
+    # pgid is valid only until this function's cleanup clears it.
+    stdin_data = input_text
+    timed_out = False
+    interrupted = False
+    stdout: str | None = None
+    stderr: str | None = None
     try:
-        try:
-            stdout, stderr = process.communicate(
-                input=input_text, timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            _terminate_process_group(process)
-            raise
+        _fail_if_shutdown(shutdown)
+        deadline = time.monotonic() + max(0, int(timeout))
+        while True:
+            if shutdown is not None and shutdown.requested:
+                interrupted = True
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            slice_timeout = min(SUPERVISE_POLL_SECONDS, remaining)
+            try:
+                stdout, stderr = process.communicate(
+                    input=stdin_data, timeout=slice_timeout,
+                )
+                stdin_data = None
+                # Direct child reaped. Clear leftover descendants by saved PGID
+                # before the identifier can be reused, then drop it.
+                saved = pgid
+                pgid = None
+                if saved is not None and _pgid_exists(saved):
+                    _killpg_sigkill(saved)
+                break
+            except subprocess.TimeoutExpired:
+                stdin_data = None
+                continue
+        if interrupted or timed_out:
+            saved = pgid
+            pgid = None
+            # Kill the group unconditionally — never require leader.poll().
+            _cleanup_session(process, saved)
+            if interrupted:
+                _fail("Pi lifecycle interrupted by signal")
+            raise subprocess.TimeoutExpired(args, timeout)
         code = 0 if process.returncode is None else process.returncode
-        return subprocess.CompletedProcess(args, code, stdout, stderr)
+        return subprocess.CompletedProcess(args, code, stdout or "", stderr or "")
     finally:
-        if lifecycle is not None:
-            lifecycle.clear(process)
-        if process.poll() is None:
-            _terminate_process_group(process)
+        saved = pgid
+        pgid = None
+        if saved is not None or (process.poll() is None):
+            _cleanup_session(process, saved)
 
 
 def _run_pi(
@@ -481,7 +598,7 @@ def _run_pi(
     *,
     timeout: int,
     allow_non_json_receipt: bool = False,
-    lifecycle: _ChildLifecycle | None = None,
+    shutdown: _ShutdownFlag | None = None,
 ) -> dict[str, Any] | None:
     args = [
         _pi_command(),
@@ -494,21 +611,21 @@ def _run_pi(
         "--skill", str(_pdf_skill()),
         prompt,
     ]
-    # Opening review and other direct callers still own their own handlers.
-    # Locator/full-parse pass a parent lifecycle so router + Pi share one
-    # SIGTERM boundary and cannot orphan either child.
-    owns_handlers = lifecycle is None
-    local = lifecycle or _ChildLifecycle()
+    # Opening review owns a local flag/handlers. Locator/full-parse share the
+    # lane flag so router + Pi + receipt see one host-abort boundary.
+    owns_handlers = shutdown is None
+    flag = shutdown or _ShutdownFlag()
     handlers: dict[int, Any] = {}
     if owns_handlers:
-        handlers = _install_interrupt_handlers(local)
+        handlers = _install_interrupt_handlers(flag)
     try:
+        _fail_if_shutdown(flag)
         try:
             completed = _run_session_command(
                 args,
                 timeout=timeout,
                 cwd=cwd,
-                lifecycle=local,
+                shutdown=flag,
                 env={
                     key: value
                     for key, value in os.environ.items()
@@ -521,6 +638,8 @@ def _run_pi(
             )
         except subprocess.TimeoutExpired:
             _fail("Pi PDF lifecycle timed out")
+        _run_post_child_hook()
+        _fail_if_shutdown(flag)
         if completed.returncode != 0:
             _fail(_child_failure_detail(completed.returncode, completed.stderr))
         payload = (completed.stdout or "").encode()
@@ -530,17 +649,20 @@ def _run_pi(
             parsed = json.loads(payload)
         except json.JSONDecodeError:
             if allow_non_json_receipt:
+                _fail_if_shutdown(flag)
                 return None
             raise
         if not isinstance(parsed, dict):
             if allow_non_json_receipt:
+                _fail_if_shutdown(flag)
                 return None
             return _object(parsed, "Pi PDF receipt")
+        _fail_if_shutdown(flag)
         return parsed
     finally:
         if owns_handlers:
-            local.terminate_active()
             _restore_interrupt_handlers(handlers)
+            _fail_if_shutdown(flag)
 
 
 def _locator_prompt(task: dict[str, Any]) -> str:
@@ -1561,15 +1683,18 @@ def _run_full_parse_batch() -> dict[str, Any]:
     batch = missing[: int(task["batch_limit"])]
     output = Path(task["source_bundle_path"]).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    lifecycle = _ChildLifecycle()
-    handlers = _install_interrupt_handlers(lifecycle)
+    # One flag covers router → Pi fallback → validate/register/receipt so a
+    # host abort after the child exits still fail-closes before writeback.
+    shutdown = _ShutdownFlag()
+    handlers = _install_interrupt_handlers(shutdown)
     try:
         routed = _try_external_pdf_router(
             "full_parse_batch",
             task,
             missing_pdf_indices=batch,
-            lifecycle=lifecycle,
+            shutdown=shutdown,
         )
+        _fail_if_shutdown(shutdown)
         if routed is not None:
             rendered = list(routed["rendered_pdf_indices"])
             if (
@@ -1577,9 +1702,13 @@ def _run_full_parse_batch() -> dict[str, Any]:
                 and rendered == sorted(set(rendered))
                 and set(rendered).issubset(set(batch))
             ):
-                return _register_full_parse_bundle(
+                _run_post_child_hook()
+                _fail_if_shutdown(shutdown)
+                result = _register_full_parse_bundle(
                     task, workspace, output, rendered,
                 )
+                _fail_if_shutdown(shutdown)
+                return result
             # Valid contract shape but scope mismatch: keep the old skill path.
         producer_prompt = _FULL_PARSE_PROMPT + json.dumps({
             **task,
@@ -1589,52 +1718,58 @@ def _run_full_parse_batch() -> dict[str, Any]:
             producer_prompt,
             workspace,
             timeout=PI_TIMEOUT_SECONDS,
-            lifecycle=lifecycle,
+            shutdown=shutdown,
         )
+        _run_post_child_hook()
+        _fail_if_shutdown(shutdown)
+        if not isinstance(producer, dict):
+            _fail("full-parse render producer result is unavailable")
+        if (
+            set(producer) != {
+                "schema_version", "contract_id", "status",
+                "rendered_pdf_indices", "failure_class", "source_bundle_path",
+            }
+            or producer.get("schema_version") != 1
+            or producer.get("contract_id")
+            != "coc.pi-full-parse-render-producer-result.v1"
+            or producer.get("status") not in {"reviewed", "failed"}
+        ):
+            _fail("full-parse render producer result invalid")
+        if producer["status"] == "failed":
+            failure_class = producer.get("failure_class")
+            if not isinstance(failure_class, str) or not failure_class.strip():
+                _fail("failed render producer result must carry failure_class")
+            result = _full_parse_worker_result(
+                task,
+                pack={
+                    "status": "failed",
+                    "failure_class": str(failure_class)[:256],
+                },
+            )
+            _fail_if_shutdown(shutdown)
+            return result
+        rendered = producer.get("rendered_pdf_indices")
+        if (
+            not isinstance(rendered, list)
+            or not rendered
+            or any(
+                isinstance(index, bool) or not isinstance(index, int)
+                for index in rendered
+            )
+            or rendered != sorted(set(rendered))
+            or not set(rendered).issubset(set(batch))
+            or producer.get("source_bundle_path") != task["source_bundle_path"]
+            or producer.get("failure_class") is not None
+        ):
+            _fail("reviewed full-parse render producer result invalid")
+        result = _register_full_parse_bundle(
+            task, workspace, output, list(rendered),
+        )
+        _fail_if_shutdown(shutdown)
+        return result
     finally:
-        lifecycle.terminate_active()
         _restore_interrupt_handlers(handlers)
-    if not isinstance(producer, dict):
-        _fail("full-parse render producer result is unavailable")
-    if (
-        set(producer) != {
-            "schema_version", "contract_id", "status", "rendered_pdf_indices",
-            "failure_class", "source_bundle_path",
-        }
-        or producer.get("schema_version") != 1
-        or producer.get("contract_id")
-        != "coc.pi-full-parse-render-producer-result.v1"
-        or producer.get("status") not in {"reviewed", "failed"}
-    ):
-        _fail("full-parse render producer result invalid")
-    if producer["status"] == "failed":
-        failure_class = producer.get("failure_class")
-        if not isinstance(failure_class, str) or not failure_class.strip():
-            _fail("failed render producer result must carry failure_class")
-        return _full_parse_worker_result(
-            task,
-            pack={
-                "status": "failed",
-                "failure_class": str(failure_class)[:256],
-            },
-        )
-    rendered = producer.get("rendered_pdf_indices")
-    if (
-        not isinstance(rendered, list)
-        or not rendered
-        or any(
-            isinstance(index, bool) or not isinstance(index, int)
-            for index in rendered
-        )
-        or rendered != sorted(set(rendered))
-        or not set(rendered).issubset(set(batch))
-        or producer.get("source_bundle_path") != task["source_bundle_path"]
-        or producer.get("failure_class") is not None
-    ):
-        _fail("reviewed full-parse render producer result invalid")
-    return _register_full_parse_bundle(
-        task, workspace, output, list(rendered),
-    )
+        _fail_if_shutdown(shutdown)
 
 
 def _located_producer_result_from_router(
@@ -1666,29 +1801,40 @@ def _run() -> dict[str, Any]:
     workspace = Path(task["workspace_root"]).resolve()
     if not workspace.is_dir():
         _fail("workspace_root is unavailable")
-    # One SIGTERM boundary covers optional router + Pi skill child so neither
-    # can outlive the adapter when the host aborts the locator lane.
-    lifecycle = _ChildLifecycle()
-    handlers = _install_interrupt_handlers(lifecycle)
+    # One flag covers optional router + Pi skill + receipt so a host abort
+    # after the child exits still fail-closes (no success return).
+    shutdown = _ShutdownFlag()
+    handlers = _install_interrupt_handlers(shutdown)
     try:
         routed = _try_external_pdf_router(
-            "locator_first_bundle", task, lifecycle=lifecycle,
+            "locator_first_bundle", task, shutdown=shutdown,
         )
+        # Host abort during router must exit, never fall through to Pi.
+        _fail_if_shutdown(shutdown)
         if routed is not None:
-            return _locator_receipt(
+            _run_post_child_hook()
+            _fail_if_shutdown(shutdown)
+            receipt = _locator_receipt(
                 task, _located_producer_result_from_router(task, routed),
             )
+            _fail_if_shutdown(shutdown)
+            return receipt
         producer_result = _run_pi(
             _locator_prompt(task),
             workspace,
             timeout=PI_TIMEOUT_SECONDS,
             allow_non_json_receipt=True,
-            lifecycle=lifecycle,
+            shutdown=shutdown,
         )
-        return _locator_receipt(task, producer_result)
+        # Lane seam after producer returns (also covers mocked _run_pi in tests).
+        _run_post_child_hook()
+        _fail_if_shutdown(shutdown)
+        receipt = _locator_receipt(task, producer_result)
+        _fail_if_shutdown(shutdown)
+        return receipt
     finally:
-        lifecycle.terminate_active()
         _restore_interrupt_handlers(handlers)
+        _fail_if_shutdown(shutdown)
 
 
 def main() -> int:

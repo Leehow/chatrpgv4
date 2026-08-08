@@ -1561,17 +1561,53 @@ def test_pi_opening_source_review_transport_lifecycle():
     }
 
 
+def _locator_termination_task(tmp_path: Path, workspace: Path, *, tag: str) -> dict:
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-scope-locator-task.v1",
+        "adapter_mode": "pi_external_pdf_skill_lifecycle",
+        "model_policy": "pinned_xai_grok_4_5_thinking_low",
+        "max_selected_pages": 3,
+        "workspace_root": str(workspace),
+        "asset_root_id": f"adapter-{tag}",
+        "job_id": f"job-adapter-{tag}",
+        "kind": "location",
+        "target_id": "archive",
+        "target_label": "Archive",
+        "source_bundle_path": str(
+            workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+        ),
+        "cached_pdf_indices": [],
+        "source": {
+            "path": str(tmp_path / "module.pdf"),
+            "source_id": f"pdf:adapter-{tag}",
+            "title": f"Adapter {tag}",
+            "file_sha256": "a" * 64,
+        },
+    }
+
+
 def test_pdf_skill_adapter_reaps_term_resistant_pi_process_group(
     tmp_path: Path,
 ):
+    """Leader may exit on TERM while a grandchild ignores TERM and holds pipes.
+
+    Host SIGTERM must make the adapter exit non-zero and the grandchild PID
+    must disappear — killpg is unconditional on the saved PGID, not gated on
+    leader.poll().
+    """
     started = tmp_path / "pi-started"
     child_pid_path = tmp_path / "child-pid"
     survivor = tmp_path / "descendant-survived"
+    pipe_hold = tmp_path / "pipe-hold"
     fake_pi = tmp_path / "fake-pi"
+    # Grandchild ignores TERM, keeps a pipe open (survives leader exit), and
+    # would write survivor if not SIGKILL'd with the process group.
     child_code = (
         "import os,signal,time,pathlib;"
         "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
         f"pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid()));"
+        f"hold=open({str(pipe_hold)!r},'w');"
         "time.sleep(1.2);"
         f"pathlib.Path({str(survivor)!r}).write_text('survived')"
     )
@@ -1585,7 +1621,8 @@ import time
 from pathlib import Path
 if sys.argv[1:] == ["--version"]:
     raise SystemExit(0)
-signal.signal(signal.SIGTERM, signal.SIG_IGN)
+# Leader cooperates with TERM (exits) so cleanup cannot rely on leader.poll().
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
 subprocess.Popen([sys.executable, "-c", {child_code!r}])
 Path({str(started)!r}).write_text(str(os.getpid()))
 time.sleep(10)
@@ -1595,34 +1632,7 @@ time.sleep(10)
     fake_pi.chmod(0o755)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    task = {
-        "schema_version": 1,
-        "contract_id": "coc.pi-source-scope-locator-task.v1",
-        "adapter_mode": "pi_external_pdf_skill_lifecycle",
-        "model_policy": "pinned_xai_grok_4_5_thinking_low",
-        "max_selected_pages": 3,
-        "workspace_root": str(workspace),
-        "asset_root_id": "adapter-termination",
-        "job_id": "job-adapter-termination",
-        "kind": "location",
-        "target_id": "archive",
-        "target_label": "Archive",
-        "source_bundle_path": str(
-            workspace
-            / ".tmp"
-            / "coc-source-scope"
-            / "camp"
-            / "job"
-            / "staging"
-        ),
-        "cached_pdf_indices": [],
-        "source": {
-            "path": str(tmp_path / "module.pdf"),
-            "source_id": "pdf:adapter-termination",
-            "title": "Adapter Termination",
-            "file_sha256": "a" * 64,
-        },
-    }
+    task = _locator_termination_task(tmp_path, workspace, tag="termination")
     env = {
         **os.environ,
         "COC_PI_COMMAND": str(fake_pi),
@@ -1654,13 +1664,25 @@ time.sleep(10)
     while not started.is_file() and time.monotonic() < deadline:
         time.sleep(0.02)
     assert started.is_file()
+    # Wait until grandchild PID is published so we can assert it is reaped.
+    deadline = time.monotonic() + 3
+    while not child_pid_path.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert child_pid_path.is_file()
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
     process.send_signal(signal.SIGTERM)
     assert process.wait(timeout=5) != 0
-    time.sleep(1.3)
-    assert not survivor.exists()
-    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    # Grandchild must be gone before its 1.2s survivor write can land.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.02)
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+    assert not survivor.exists()
 
 
 def test_pdf_skill_adapter_sigterm_reaps_hanging_pdf_inspector(
@@ -1682,29 +1704,7 @@ time.sleep(30)
     hang.chmod(0o755)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    task = {
-        "schema_version": 1,
-        "contract_id": "coc.pi-source-scope-locator-task.v1",
-        "adapter_mode": "pi_external_pdf_skill_lifecycle",
-        "model_policy": "pinned_xai_grok_4_5_thinking_low",
-        "max_selected_pages": 3,
-        "workspace_root": str(workspace),
-        "asset_root_id": "adapter-router-term",
-        "job_id": "job-adapter-router-term",
-        "kind": "location",
-        "target_id": "archive",
-        "target_label": "Archive",
-        "source_bundle_path": str(
-            workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
-        ),
-        "cached_pdf_indices": [],
-        "source": {
-            "path": str(tmp_path / "module.pdf"),
-            "source_id": "pdf:adapter-router-term",
-            "title": "Adapter Router Term",
-            "file_sha256": "b" * 64,
-        },
-    }
+    task = _locator_termination_task(tmp_path, workspace, tag="router-term")
     # Pi must not be required once the hanging router is running; still provide
     # a dummy so any accidental fallback cannot block on a missing binary.
     fake_pi = tmp_path / "fake-pi"
@@ -1748,9 +1748,252 @@ raise SystemExit("pi should not run while inspector hangs")
     hang_pid = int(hang_pid_path.read_text(encoding="utf-8"))
     process.send_signal(signal.SIGTERM)
     assert process.wait(timeout=5) != 0
-    time.sleep(0.2)
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(hang_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.02)
     with pytest.raises(ProcessLookupError):
         os.kill(hang_pid, 0)
+
+
+def test_pdf_skill_adapter_timeout_reaps_orphaned_descendants(
+    tmp_path: Path,
+):
+    """Timeout path: leader exits first while grandchild keeps pipes open.
+
+    communicate cannot finish while the grandchild holds inherited stdout, so
+    the supervise deadline fires. Cleanup must still killpg the saved PGID
+    (not gate on leader.poll()) and reap the TERM-immune grandchild.
+    """
+    adapter = _load_pdf_adapter("coc_pdf_adapter_timeout_orphan_test")
+    child_pid_path = tmp_path / "timeout-child-pid"
+    survivor = tmp_path / "timeout-survivor"
+    child_code = (
+        "import os,signal,time,pathlib;"
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+        f"pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid()));"
+        # Keep inherited stdout open so leader-exit alone cannot finish communicate.
+        "time.sleep(5);"
+        f"pathlib.Path({str(survivor)!r}).write_text('survived')"
+    )
+    script = tmp_path / "timeout-leader.py"
+    script.write_text(
+        "import signal, subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_DFL)\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        f"target = Path({str(child_pid_path)!r})\n"
+        "deadline = time.time() + 2\n"
+        "while not target.is_file() and time.time() < deadline:\n"
+        "    time.sleep(0.01)\n"
+        "raise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        adapter._run_session_command(
+            [os.sys.executable, str(script)],
+            timeout=1,
+        )
+    deadline = time.monotonic() + 1.0
+    while not child_pid_path.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert child_pid_path.is_file()
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.02)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+    assert not survivor.exists()
+
+
+def test_pdf_skill_adapter_normal_completion_reaps_leftover_descendants(
+    tmp_path: Path,
+):
+    """Successful producer must not leave session grandchildren behind."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_normal_orphan_test")
+    child_pid_path = tmp_path / "normal-child-pid"
+    survivor = tmp_path / "normal-survivor"
+    child_code = (
+        "import os,signal,time,pathlib;"
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+        f"pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid()));"
+        "time.sleep(5);"
+        f"pathlib.Path({str(survivor)!r}).write_text('survived')"
+    )
+    script = tmp_path / "normal-leader.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        # Detach stdio so leader exit lets communicate finish immediately.
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}],"
+        " stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,"
+        " stderr=subprocess.DEVNULL)\n"
+        f"target = Path({str(child_pid_path)!r})\n"
+        "deadline = time.time() + 2\n"
+        "while not target.is_file() and time.time() < deadline:\n"
+        "    time.sleep(0.01)\n"
+        "raise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    completed = adapter._run_session_command(
+        [os.sys.executable, str(script)],
+        timeout=3,
+    )
+    assert completed.returncode == 0
+    deadline = time.monotonic() + 1.0
+    while not child_pid_path.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert child_pid_path.is_file()
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.02)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+    assert not survivor.exists()
+
+
+def test_pdf_skill_adapter_timeout_kills_hanging_leader_and_grandchild(
+    tmp_path: Path,
+):
+    """Hard timeout while leader still hangs must killpg and reap grandchild."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_timeout_hang_test")
+    child_pid_path = tmp_path / "hang-child-pid"
+    survivor = tmp_path / "hang-survivor"
+    child_code = (
+        "import os,signal,time,pathlib;"
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+        f"pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid()));"
+        "time.sleep(5);"
+        f"pathlib.Path({str(survivor)!r}).write_text('survived')"
+    )
+    script = tmp_path / "hang-leader.py"
+    script.write_text(
+        "import signal, subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        f"target = Path({str(child_pid_path)!r})\n"
+        "deadline = time.time() + 2\n"
+        "while not target.is_file() and time.time() < deadline:\n"
+        "    time.sleep(0.01)\n"
+        "time.sleep(5)\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        adapter._run_session_command(
+            [os.sys.executable, str(script)],
+            timeout=1,
+        )
+    deadline = time.monotonic() + 1.0
+    while not child_pid_path.is_file() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    # Child PID file may be missing if killed before write; if present, gone.
+    if child_pid_path.is_file():
+        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+    assert not survivor.exists()
+
+
+def test_pdf_skill_adapter_signal_after_producer_fail_closed_before_receipt(
+    tmp_path: Path, monkeypatch,
+):
+    """Signal after producer reaps, before receipt, must fail closed (no OK)."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_post_producer_signal_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _locator_task(workspace, bundle_dir, pdf)
+    receipt_calls: list[str] = []
+
+    def fake_run_pi(
+        prompt, cwd, *, timeout, allow_non_json_receipt=False, shutdown=None,
+    ):
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-scope-locator-producer-result.v1",
+            "job_id": task["job_id"],
+            "status": "not_located",
+            "kind": task["kind"],
+            "target_id": task["target_id"],
+            "pdf_indices": [],
+            "source_bundle_path": None,
+            "failure_class": None,
+        }
+
+    def fake_receipt(task_arg, producer_result):
+        receipt_calls.append("receipt")
+        return {"receipt": "should-not-return"}
+
+    def fire_host_abort():
+        # Deterministic: flip the lane flag the real handler would set.
+        # Locate the live flag via a side channel installed below.
+        fire_host_abort.flag.requested = True  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_run_pi)
+    monkeypatch.setattr(adapter, "_locator_receipt", fake_receipt)
+    monkeypatch.setattr(adapter, "_try_external_pdf_router", lambda *a, **k: None)
+    monkeypatch.setattr(adapter, "_post_child_hook", fire_host_abort)
+
+    real_install = adapter._install_interrupt_handlers
+
+    def tracking_install(flag):
+        fire_host_abort.flag = flag  # type: ignore[attr-defined]
+        return real_install(flag)
+
+    monkeypatch.setattr(adapter, "_install_interrupt_handlers", tracking_install)
+
+    class _Stdin:
+        buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    with pytest.raises(RuntimeError, match="interrupted by signal"):
+        adapter._run()
+    assert receipt_calls == []
+
+
+def test_pdf_skill_adapter_handler_does_not_touch_popen(
+    tmp_path: Path, monkeypatch,
+):
+    """Signal handler must only set the flag — no wait/poll/communicate/raise."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_handler_flag_only_test")
+    flag = adapter._ShutdownFlag()
+    handlers = adapter._install_interrupt_handlers(flag)
+    try:
+        handler = signal.getsignal(signal.SIGTERM)
+        assert flag.requested is False
+        handler(signal.SIGTERM, None)
+        assert flag.requested is True
+        # Second delivery stays flag-only and must not raise.
+        handler(signal.SIGTERM, None)
+        assert flag.requested is True
+    finally:
+        adapter._restore_interrupt_handlers(handlers)
 
 
 def test_pdf_skill_adapter_uses_one_shot_pi_grok_pdf_skill_argv(
@@ -1895,11 +2138,11 @@ def test_pdf_skill_adapter_locator_run_uses_shared_pi_timeout_budget(
     captured: dict = {}
 
     def fake_run_pi(
-        prompt, cwd, *, timeout, allow_non_json_receipt=False, lifecycle=None,
+        prompt, cwd, *, timeout, allow_non_json_receipt=False, shutdown=None,
     ):
         captured["timeout"] = timeout
         captured["allow_non_json_receipt"] = allow_non_json_receipt
-        captured["lifecycle"] = lifecycle
+        captured["shutdown"] = shutdown
         return None
 
     def fake_receipt(task, producer_result):
