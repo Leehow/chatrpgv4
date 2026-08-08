@@ -440,11 +440,16 @@ def _require_posix_supervisor() -> None:
         _invariant_fail("POSIX supervisor requires os.set_blocking")
 
 
+def _format_exc_chain(errors: list[Exception]) -> str:
+    return "; ".join(f"{type(e).__name__}: {e}" for e in errors)
+
+
 def _install_interrupt_handlers(flag: _ShutdownFlag) -> dict[int, Any]:
     """Install flag-only handlers under a blocked TERM/INT mask (transactional).
 
-    Partial success rolls back any handler already replaced. Handlers never touch
-    Popen, wait, kill, or raise.
+    Partial success rolls back any handler already replaced. Rollback failures are
+    not swallowed: they chain with the original error into an invariant failure.
+    Handlers never touch Popen, wait, kill, or raise into the signal frame.
     """
     handlers: dict[int, Any] = {}
 
@@ -458,19 +463,29 @@ def _install_interrupt_handlers(flag: _ShutdownFlag) -> dict[int, Any]:
             signal.signal(signum, interrupted)
             handlers[signum] = previous
             installed.append(signum)
-    except (OSError, ValueError):
+    except (OSError, ValueError) as primary:
+        rollback_errors: list[Exception] = []
         for signum in reversed(installed):
             try:
                 signal.signal(signum, handlers[signum])
-            except (OSError, ValueError):
-                pass
+            except (OSError, ValueError) as rb_exc:
+                rollback_errors.append(rb_exc)
+        if rollback_errors:
+            raise _SupervisorInvariantError(
+                "handler install failed: "
+                f"{type(primary).__name__}: {primary}; "
+                f"rollback failed: {_format_exc_chain(rollback_errors)}"
+            ) from primary
         raise
     return handlers
 
 
 def _restore_interrupt_handlers(handlers: dict[int, Any]) -> None:
-    """Restore prior handlers transactionally; partial failure rolls back."""
-    # Apply in a fixed order; on failure put back whatever we just overwrote.
+    """Restore prior handlers transactionally; partial failure rolls back.
+
+    Rollback self-failures are not swallowed: they chain with the original
+    restore error into an invariant failure.
+    """
     applied: list[tuple[int, Any]] = []
     try:
         for signum in (signal.SIGTERM, signal.SIGINT):
@@ -479,12 +494,19 @@ def _restore_interrupt_handlers(handlers: dict[int, Any]) -> None:
             current = signal.getsignal(signum)
             signal.signal(signum, handlers[signum])
             applied.append((signum, current))
-    except (OSError, ValueError):
+    except (OSError, ValueError) as primary:
+        rollback_errors: list[Exception] = []
         for signum, previous in reversed(applied):
             try:
                 signal.signal(signum, previous)
-            except (OSError, ValueError):
-                pass
+            except (OSError, ValueError) as rb_exc:
+                rollback_errors.append(rb_exc)
+        if rollback_errors:
+            raise _SupervisorInvariantError(
+                "handler restore failed: "
+                f"{type(primary).__name__}: {primary}; "
+                f"rollback failed: {_format_exc_chain(rollback_errors)}"
+            ) from primary
         raise
 
 
@@ -515,6 +537,8 @@ def _enter_producer_lane(
             _invariant_fail(f"producer lane signal block failed: {exc}")
         try:
             handlers = _install_interrupt_handlers(flag)
+        except _SupervisorInvariantError:
+            raise
         except (OSError, ValueError) as exc:
             _invariant_fail(f"producer lane handler install failed: {exc}")
         try:
@@ -524,25 +548,26 @@ def _enter_producer_lane(
         except (OSError, ValueError) as exc:
             _invariant_fail(f"producer lane signal unblock failed: {exc}")
         return handlers, caller_mask
-    except BaseException:
+    except BaseException as primary:
         # Best-effort rollback toward the caller's mask/handlers; never leave
-        # the process half-installed if we can still reverse it.
-        rollback_error: Exception | None = None
+        # the process half-installed if we can still reverse it. Rollback
+        # failures chain with the original error — never pretend success.
+        rollback_errors: list[Exception] = []
         if handlers is not None:
             try:
                 _restore_interrupt_handlers(handlers)
-            except (OSError, ValueError) as exc:
-                rollback_error = exc
+            except (_SupervisorInvariantError, OSError, ValueError) as exc:
+                rollback_errors.append(exc)
         if blocked or handlers is not None:
             try:
                 signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
             except (OSError, ValueError) as exc:
-                if rollback_error is None:
-                    rollback_error = exc
-        if rollback_error is not None:
+                rollback_errors.append(exc)
+        if rollback_errors:
             raise _SupervisorInvariantError(
-                f"producer lane enter rollback failed: {rollback_error}"
-            ) from rollback_error
+                f"producer lane enter failed: {type(primary).__name__}: {primary}; "
+                f"rollback failed: {_format_exc_chain(rollback_errors)}"
+            ) from primary
         raise
 
 
@@ -556,107 +581,112 @@ def _leave_producer_lane(
     Reverse of enter. Partial failure best-effort rolls back and fail-closes;
     never silently pollutes the caller with a mixed handler pair. If handler
     restore fails transactionally (rolled back to the lane pair), do not retry
-    it — retrying can undo the consistent rollback.
+    it — retrying can undo the consistent rollback. Mask/handler cleanup errors
+    are collected and chained, never swallowed as success.
     """
-    leave_error: Exception | None = None
+    errors: list[Exception] = []
     handler_restore_attempted = False
-    handlers_restored = False
 
     try:
         signal.pthread_sigmask(
             signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT},
         )
     except (OSError, ValueError) as exc:
-        leave_error = exc
+        errors.append(exc)
 
-    if leave_error is None:
+    if not errors:
         handler_restore_attempted = True
         try:
             _restore_interrupt_handlers(handlers)
-            handlers_restored = True
+        except _SupervisorInvariantError as exc:
+            errors.append(exc)
         except (OSError, ValueError) as exc:
             # Transactional restore already rolled back to the lane pair.
-            leave_error = exc
+            errors.append(exc)
 
-    if leave_error is None:
+    if not errors:
         try:
             signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
         except (OSError, ValueError) as exc:
-            leave_error = exc
-            # Handlers are already the caller's; best-effort one more mask try.
+            errors.append(exc)
             try:
                 signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
-            except (OSError, ValueError):
-                pass
+            except (OSError, ValueError) as retry_exc:
+                errors.append(retry_exc)
     elif not handler_restore_attempted:
         # Failed before handler restore (block step). Attempt a full reverse
         # once so a block-only failure does not leak lane handlers forever.
         try:
             _restore_interrupt_handlers(handlers)
-            handlers_restored = True
-        except (OSError, ValueError) as exc:
-            leave_error = exc
+        except (_SupervisorInvariantError, OSError, ValueError) as exc:
+            errors.append(exc)
         try:
             signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
         except (OSError, ValueError) as exc:
-            if leave_error is None:
-                leave_error = exc
+            errors.append(exc)
     else:
         # Handler restore was attempted and rolled back to a consistent lane
-        # pair. Do not retry restore. Best-effort caller mask only so the
-        # process is not left on an arbitrary blocked mask.
+        # pair. Do not retry restore. Best-effort caller mask; record failures.
         try:
             signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            errors.append(exc)
 
-    if leave_error is not None:
-        _invariant_fail(f"producer lane signal restore failed: {leave_error}")
+    if errors:
+        raise _SupervisorInvariantError(
+            f"producer lane signal restore failed: {_format_exc_chain(errors)}"
+        ) from errors[0]
     _fail_if_shutdown(flag)
 
 
-def _darwin_zombie_only_group_eperm(pgid: int, leader_pid: int) -> bool:
-    """Darwin-only: killpg EPERM on an unreaped zombie-only process group.
+def _live_process_group_pids(pgid: int) -> list[int]:
+    """Return live (non-zombie) PIDs in pgid via ps; fail closed on probe error.
 
-    Executable evidence (Darwin): killpg(SIGKILL/0) returns EPERM when the
-    session leader is still an unreaped zombie and no live members remain;
-    killpg succeeds when a live grandchild shares the PGID. Never used on
-    non-Darwin hosts.
+    Used only to decide whether SIGKILL is needed. Never treats killpg EPERM as
+    success — zombie-only groups simply have no live members to kill.
     """
-    if sys.platform != "darwin":
-        return False
     try:
-        observed = os.waitid(
-            os.P_PID,
-            leader_pid,
-            os.WEXITED | os.WNOHANG | os.WNOWAIT,
+        completed = subprocess.run(
+            ["ps", "-o", "pid=,stat=", "-g", str(pgid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=REAP_GRACE_SECONDS,
         )
-    except (ChildProcessError, OSError):
-        return False
-    if observed is None:
-        # Leader still running: EPERM is a real permission failure.
-        return False
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return True
-    except OSError as probe:
-        return probe.errno in {errno.ESRCH, errno.EPERM}
-    # Live members still signalable — SIGKILL EPERM must fail closed.
-    return False
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _invariant_fail(f"process group membership probe failed: {exc}")
+    if completed.returncode not in (0, 1):
+        detail = (completed.stderr or completed.stdout or "").strip()
+        _invariant_fail(
+            f"process group membership probe failed (exit {completed.returncode}): "
+            f"{detail or 'no output'}"
+        )
+    live: list[int] = []
+    for line in completed.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        # First character of STAT: Z = zombie (not signalable / no kill needed).
+        if not parts[1].startswith("Z"):
+            live.append(pid)
+    return live
 
 
-def _kill_process_group(
-    pgid: int,
-    *,
-    leader_pid: int | None = None,
-) -> None:
-    """SIGKILL an entire process group.
+def _kill_process_group(pgid: int) -> None:
+    """SIGKILL an entire process group when live members exist.
 
-    ESRCH/ProcessLookupError means the group is gone. EPERM fails closed on all
-    hosts except the narrow Darwin zombie-only case, which requires an unreaped
-    leader_pid and positive waitid WNOWAIT evidence.
+    ESRCH/ProcessLookupError means the group is gone. EPERM and every other
+    OSError fail closed — no platform EPERM success special case, including
+    after the leader has exited. Zombie-only groups are skipped only when ps
+    reports no live members (not when killpg returns EPERM).
     """
+    live = _live_process_group_pids(pgid)
+    if not live:
+        return
     try:
         os.killpg(pgid, signal.SIGKILL)
         return
@@ -664,12 +694,6 @@ def _kill_process_group(
         return
     except OSError as exc:
         if exc.errno == errno.ESRCH:
-            return
-        if (
-            exc.errno == errno.EPERM
-            and leader_pid is not None
-            and _darwin_zombie_only_group_eperm(pgid, leader_pid)
-        ):
             return
         _invariant_fail(
             f"process group SIGKILL failed for pgid={pgid}: {exc}"
@@ -697,14 +721,17 @@ def _leader_exited_nowait(pid: int) -> bool:
     return result is not None
 
 
-def _close_popen_stdio(process: subprocess.Popen[bytes]) -> None:
+def _close_popen_stdio(process: subprocess.Popen[bytes]) -> list[Exception]:
+    """Close pipe ends; return OSError list (never swallow — caller composes)."""
+    errors: list[Exception] = []
     for stream in (process.stdin, process.stdout, process.stderr):
         if stream is None or stream.closed:
             continue
         try:
             stream.close()
-        except OSError:
-            pass
+        except OSError as exc:
+            errors.append(exc)
+    return errors
 
 
 def _reap_direct_child(process: subprocess.Popen[bytes]) -> None:
@@ -743,17 +770,16 @@ def _cleanup_spawned_session(
 ) -> None:
     """Unique post-Popen failure path: kill group, close pipes, wait leader, mask.
 
-    Collects cleanup failures and raises a chained invariant error rather than
-    swallowing them. Mask rollback is attempted last when requested.
+    Always attempts every cleanup step. wait/close/mask failures compose into one
+    chained invariant error — never swallowed as success.
     """
     errors: list[Exception] = []
-    leader_pid = int(process.pid) if process.pid is not None else None
     if pgid is not None:
         try:
-            _kill_process_group(pgid, leader_pid=leader_pid)
+            _kill_process_group(pgid)
         except _SupervisorInvariantError as exc:
             errors.append(exc)
-    _close_popen_stdio(process)
+    errors.extend(_close_popen_stdio(process))
     if process.returncode is None:
         try:
             process.wait(timeout=REAP_GRACE_SECONDS)
@@ -765,9 +791,8 @@ def _cleanup_spawned_session(
         except (OSError, ValueError) as exc:
             errors.append(exc)
     if errors:
-        detail = "; ".join(f"{type(e).__name__}: {e}" for e in errors)
         raise _SupervisorInvariantError(
-            f"spawn cleanup failed: {detail}"
+            f"spawn cleanup failed: {_format_exc_chain(errors)}"
         ) from errors[0]
 
 
@@ -910,11 +935,24 @@ def _run_session_command(
         nonlocal saved_pgid, group_cleared
         if saved_pgid is None or group_cleared:
             return
-        _kill_process_group(
-            saved_pgid,
-            leader_pid=int(process.pid) if process.pid is not None else None,
-        )
+        _kill_process_group(saved_pgid)
         group_cleared = True
+
+    def _finish_child_io_and_reap() -> None:
+        """Close pipes then reap; compose close/wait failures fail-closed."""
+        close_errors = _close_popen_stdio(process)
+        reap_error: Exception | None = None
+        try:
+            _reap_direct_child(process)
+        except _SupervisorInvariantError as exc:
+            reap_error = exc
+        if close_errors or reap_error is not None:
+            errors: list[Exception] = list(close_errors)
+            if reap_error is not None:
+                errors.append(reap_error)
+            raise _SupervisorInvariantError(
+                f"session child finalize failed: {_format_exc_chain(errors)}"
+            ) from errors[0]
 
     try:
         _fail_if_shutdown(shutdown)
@@ -1026,8 +1064,7 @@ def _run_session_command(
         if interrupted or timed_out:
             _clear_group_if_needed()
             saved_pgid = None
-            _close_popen_stdio(process)
-            _reap_direct_child(process)
+            _finish_child_io_and_reap()
             if interrupted:
                 _fail("Pi lifecycle interrupted by signal")
             raise subprocess.TimeoutExpired(
@@ -1040,15 +1077,13 @@ def _run_session_command(
         if not leader_exited:
             _clear_group_if_needed()
             saved_pgid = None
-            _close_popen_stdio(process)
-            _reap_direct_child(process)
+            _finish_child_io_and_reap()
             _fail("session supervise ended without leader exit")
 
         # Normal completion: group already cleared on leader exit observation.
         _clear_group_if_needed()
         saved_pgid = None
-        _close_popen_stdio(process)
-        _reap_direct_child(process)
+        _finish_child_io_and_reap()
         code = 0 if process.returncode is None else int(process.returncode)
         return subprocess.CompletedProcess(
             args, code, stdout_text, stderr_text,
@@ -1058,27 +1093,24 @@ def _run_session_command(
             selector.close()
         except Exception:
             pass
-        final_error: Exception | None = None
+        final_errors: list[Exception] = []
         if saved_pgid is not None:
             try:
-                _kill_process_group(
-                    saved_pgid,
-                    leader_pid=(
-                        int(process.pid) if process.pid is not None else None
-                    ),
-                )
+                _kill_process_group(saved_pgid)
             except _SupervisorInvariantError as exc:
-                final_error = exc
+                final_errors.append(exc)
             saved_pgid = None
-        _close_popen_stdio(process)
+        final_errors.extend(_close_popen_stdio(process))
         if process.returncode is None:
             try:
                 _reap_direct_child(process)
             except _SupervisorInvariantError as exc:
-                if final_error is None:
-                    final_error = exc
-        if final_error is not None:
-            raise final_error
+                final_errors.append(exc)
+        if final_errors:
+            raise _SupervisorInvariantError(
+                f"session supervise cleanup failed: "
+                f"{_format_exc_chain(final_errors)}"
+            ) from final_errors[0]
 
 
 def _run_pi(

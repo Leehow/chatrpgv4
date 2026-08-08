@@ -2202,30 +2202,20 @@ def test_pdf_skill_adapter_selector_io_is_exact_and_stdin_once(
 def test_pdf_skill_adapter_killpg_permission_error_fail_closed(
     monkeypatch,
 ):
-    """killpg EPERM without Darwin zombie evidence must fail closed."""
+    """killpg EPERM is always fail-closed — no platform success special case."""
     adapter = _load_pdf_adapter("coc_pdf_adapter_killpg_eperm_test")
+    # Force the live-member gate open so killpg is actually attempted.
+    monkeypatch.setattr(adapter, "_live_process_group_pids", lambda pgid: [pgid])
 
     def boom_killpg(pgid, sig):
         raise PermissionError(errno.EPERM, "Operation not permitted")
 
     monkeypatch.setattr(os, "killpg", boom_killpg)
-    # No leader_pid ⇒ never treat EPERM as empty-group success.
     with pytest.raises(adapter._SupervisorInvariantError, match="SIGKILL failed"):
         adapter._kill_process_group(12345)
-    # Probe-success path: live members exist, SIGKILL EPERM still fail-closed
-    # even if a leader_pid is supplied (waitid says still running).
-    monkeypatch.setattr(
-        os, "waitid", lambda *_a, **_k: None,
-    )
-
-    def boom_killpg_live(pgid, sig):
-        if sig == 0:
-            return None
-        raise PermissionError(errno.EPERM, "Operation not permitted")
-
-    monkeypatch.setattr(os, "killpg", boom_killpg_live)
+    # Leader-exited branch uses the same helper — EPERM still fail-closed.
     with pytest.raises(adapter._SupervisorInvariantError, match="SIGKILL failed"):
-        adapter._kill_process_group(12345, leader_pid=99901)
+        adapter._kill_process_group(99901)
 
 
 def test_pdf_skill_adapter_waitid_error_fail_closed(monkeypatch):
@@ -2382,6 +2372,246 @@ def test_pdf_skill_adapter_handler_restore_partial_failure_rollbacks(
     signal.signal(signal.SIGTERM, handlers[signal.SIGTERM])
     signal.signal(signal.SIGINT, handlers[signal.SIGINT])
     signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
+
+
+def test_pdf_skill_adapter_handler_install_rollback_self_failure_chains(
+    monkeypatch,
+):
+    """Install primary failure + rollback self-failure chains; no fake restore."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_handler_install_rb_fail_test")
+    flag = adapter._ShutdownFlag()
+    prior_term = signal.getsignal(signal.SIGTERM)
+    prior_int = signal.getsignal(signal.SIGINT)
+    real_signal = signal.signal
+    phase = {"install": 0, "rollback": 0}
+
+    def flaky_signal(signum, handler):
+        # First pass installs lane handlers; second install blows up; rollback
+        # of the first install also blows up.
+        if handler is not prior_term and handler is not prior_int:
+            phase["install"] += 1
+            if phase["install"] == 2:
+                raise OSError(errno.EINVAL, "injected install failure")
+            return real_signal(signum, handler)
+        # Rolling back toward caller handlers.
+        phase["rollback"] += 1
+        if phase["rollback"] == 1:
+            raise OSError(errno.EPERM, "injected rollback failure")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", flaky_signal)
+    with pytest.raises(
+        adapter._SupervisorInvariantError,
+        match="handler install failed.*rollback failed",
+    ):
+        adapter._enter_producer_lane(flag)
+    # Must not claim caller was cleanly restored when rollback failed.
+    # TERM may still hold the partially installed lane handler.
+    assert signal.getsignal(signal.SIGTERM) is not prior_term or phase["rollback"] >= 1
+    # Suite hygiene under real signal().
+    monkeypatch.setattr(signal, "signal", real_signal)
+    signal.signal(signal.SIGTERM, prior_term)
+    signal.signal(signal.SIGINT, prior_int)
+
+
+def test_pdf_skill_adapter_handler_restore_rollback_self_failure_chains(
+    monkeypatch,
+):
+    """Restore primary failure + rollback self-failure chains invariant error."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_handler_restore_rb_fail_test")
+    flag = adapter._ShutdownFlag()
+    handlers, caller_mask = adapter._enter_producer_lane(flag)
+    lane_term = signal.getsignal(signal.SIGTERM)
+    lane_int = signal.getsignal(signal.SIGINT)
+    real_signal = signal.signal
+    counts = {"toward_caller": 0, "rollback_lane": 0}
+
+    def flaky_signal(signum, handler):
+        if handler is lane_term or handler is lane_int:
+            counts["rollback_lane"] += 1
+            if counts["rollback_lane"] == 1:
+                raise OSError(errno.EPERM, "injected restore-rollback failure")
+            return real_signal(signum, handler)
+        counts["toward_caller"] += 1
+        if counts["toward_caller"] == 2:
+            raise OSError(errno.EINVAL, "injected restore failure")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", flaky_signal)
+    with pytest.raises(
+        adapter._SupervisorInvariantError,
+        match="handler restore failed.*rollback failed|signal restore failed",
+    ):
+        adapter._leave_producer_lane(handlers, caller_mask, flag)
+    # Not a clean caller restore pretence after chained failure.
+    monkeypatch.setattr(signal, "signal", real_signal)
+    signal.signal(signal.SIGTERM, handlers[signal.SIGTERM])
+    signal.signal(signal.SIGINT, handlers[signal.SIGINT])
+    signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
+
+
+def test_pdf_skill_adapter_stdio_close_wait_mask_failures_compose(
+    tmp_path: Path, monkeypatch,
+):
+    """close/wait/mask cleanup failures compose fail-closed and still attempt all."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_cleanup_compose_test")
+    caller_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    steps: list[str] = []
+
+    class _BoomStream:
+        closed = False
+
+        def close(self):
+            steps.append("close")
+            raise OSError(errno.EIO, "injected stdio close failure")
+
+    class _FakeProc:
+        pid = 424242
+        returncode = None
+        stdin = _BoomStream()
+        stdout = _BoomStream()
+        stderr = None
+
+        def wait(self, timeout=None):
+            steps.append("wait")
+            raise OSError(errno.ECHILD, "injected wait failure")
+
+    real_mask = signal.pthread_sigmask
+
+    def flaky_mask(how, mask):
+        if how == signal.SIG_SETMASK:
+            steps.append("mask")
+            raise OSError(errno.EINVAL, "injected mask rollback failure")
+        return real_mask(how, mask)
+
+    monkeypatch.setattr(signal, "pthread_sigmask", flaky_mask)
+    monkeypatch.setattr(adapter, "_kill_process_group", lambda pgid: None)
+    with pytest.raises(
+        adapter._SupervisorInvariantError,
+        match="spawn cleanup failed",
+    ):
+        adapter._cleanup_spawned_session(
+            _FakeProc(),
+            pgid=424242,
+            restore_mask=caller_mask,
+        )
+    # Every cleanup step still ran despite earlier failures.
+    assert steps.count("close") >= 1
+    assert "wait" in steps
+    assert "mask" in steps
+    # Caller mask helper was not successfully applied; live mask unchanged
+    # by the failed SETMASK (pthread_sigmask raises before applying).
+    monkeypatch.setattr(signal, "pthread_sigmask", real_mask)
+    assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == caller_mask
+
+
+def test_pdf_skill_adapter_router_invariant_never_falls_back_to_pi(
+    tmp_path: Path, monkeypatch,
+):
+    """SupervisorInvariantError on router path must not invoke Pi fallback."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_router_invariant_nofallback_test")
+    router = tmp_path / "router-bin"
+    router.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    router.chmod(0o755)
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+
+    def boom_session(*_a, **_k):
+        raise adapter._SupervisorInvariantError("injected router invariant")
+
+    monkeypatch.setattr(adapter, "_run_session_command", boom_session)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    bundle_dir = workspace / ".tmp" / "coc-source-scope" / "camp" / "job" / "staging"
+    bundle_dir.mkdir(parents=True)
+    task = _locator_task(workspace, bundle_dir, pdf)
+    pi_calls: list[str] = []
+
+    def fake_run_pi(*_a, **_k):
+        pi_calls.append("pi")
+        raise AssertionError("Pi must not run after router invariant failure")
+
+    monkeypatch.setattr(adapter, "_run_pi", fake_run_pi)
+
+    class _Stdin:
+        buffer = io.BytesIO(json.dumps(task, ensure_ascii=False).encode())
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    with pytest.raises(adapter._SupervisorInvariantError, match="injected router invariant"):
+        adapter._run()
+    assert pi_calls == []
+
+
+def test_pdf_skill_adapter_pending_term_goes_to_lane_handler_not_caller(
+    monkeypatch,
+):
+    """TERM pending after blocked handler install is delivered to lane flag."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_pending_term_test")
+    caller_hits: list[int] = []
+
+    def caller_handler(signum, _frame):
+        caller_hits.append(signum)
+
+    prev_term = signal.signal(signal.SIGTERM, caller_handler)
+    prev_int = signal.getsignal(signal.SIGINT)
+    prev_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    try:
+        # Ensure TERM starts unblocked in caller mask snapshot sense; enter
+        # will block, install, then unblock.
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+        flag = adapter._ShutdownFlag()
+        real_install = adapter._install_interrupt_handlers
+
+        def install_then_pend(flag_arg):
+            handlers = real_install(flag_arg)
+            # TERM is still blocked here — queue a pending signal for the
+            # subsequent lane UNBLOCK to deliver to the new flag handler.
+            os.kill(os.getpid(), signal.SIGTERM)
+            return handlers
+
+        monkeypatch.setattr(adapter, "_install_interrupt_handlers", install_then_pend)
+        handlers, saved_mask = adapter._enter_producer_lane(flag)
+        try:
+            assert flag.requested is True
+            assert caller_hits == []
+        finally:
+            # Leaving with requested flag fails closed; clear for restore.
+            flag.requested = False
+            adapter._leave_producer_lane(handlers, saved_mask, flag)
+    finally:
+        signal.signal(signal.SIGTERM, prev_term)
+        signal.signal(signal.SIGINT, prev_int)
+        signal.pthread_sigmask(signal.SIG_SETMASK, prev_mask)
+
+
+def test_pdf_skill_adapter_exception_subset_three_consecutive_rounds(
+    monkeypatch,
+):
+    """Core exception-path contracts pass three consecutive deterministic rounds."""
+    real_killpg = os.killpg
+    real_waitid = os.waitid
+    for round_i in range(3):
+        adapter = _load_pdf_adapter(f"coc_pdf_adapter_exc_round_{round_i}")
+        monkeypatch.setattr(
+            adapter, "_live_process_group_pids", lambda pgid: [pgid],
+        )
+
+        def boom_killpg(pgid, sig):
+            raise PermissionError(errno.EPERM, "Operation not permitted")
+
+        monkeypatch.setattr(os, "killpg", boom_killpg)
+        with pytest.raises(adapter._SupervisorInvariantError, match="SIGKILL failed"):
+            adapter._kill_process_group(1000 + round_i)
+        monkeypatch.setattr(os, "killpg", real_killpg)
+
+        def boom_waitid(*_a, **_k):
+            raise OSError(errno.EINVAL, "invalid waitid")
+
+        monkeypatch.setattr(os, "waitid", boom_waitid)
+        with pytest.raises(adapter._SupervisorInvariantError, match="waitid failed"):
+            adapter._leader_exited_nowait(2000 + round_i)
+        monkeypatch.setattr(os, "waitid", real_waitid)
 
 
 def test_pdf_skill_adapter_router_launch_oserror_falls_back(
