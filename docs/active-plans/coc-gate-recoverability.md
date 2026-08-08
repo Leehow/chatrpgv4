@@ -1,7 +1,7 @@
 # 开场闸门的可恢复性(Gate Recoverability)
 
 **Work ID:** `coc-gate-recoverability`
-**状态:** `In Progress` — 6 个卡点已修 5 个,设计已成型,全局排查未开始
+**状态:** `In Progress` — 6 个卡点已修 5 个,设计已成型,第 0 步全局排查已完成(见第十章)
 **最后更新:** 2026-08-06
 **轨道:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`(共享内核改动已获用户逐项授权)
 
@@ -233,8 +233,10 @@ pi 侧再投影只做**结构完整性检查**(有没有合法卡片),**不白�
 
 ## 八、当前代码状态
 
-分支 `0.5.1a`(主 checkout),**11 个文件已改、全部未提交,git 历史未触碰**
-(HEAD 仍为 `c92f085`)。
+分支 `0.5.1a`(主 checkout)。修复代码已提交为 `095aec2`(11 文件,+1194);
+本文档与 ledger 索引行提交为 `1b45d5a`。契约 JSON(`source-coordinator-v1.json`)
+diff 仅两处该有的新增:枚举 `fulfill_rejected_by_canonical`、validation path
+`progressive.fulfill_host_work`,无重排噪音。文件清单(均在 `095aec2`):
 
 ```
 docs/status/section-index-handoff.md
@@ -275,3 +277,35 @@ tests/test_toolbox.py
    这早于本次工作。
 4. **`campaign.status` 停在 `setup`、`active_scene_id` 为 `None`**,尽管叙述与
    判定正常流转。未诊断,未阻塞游玩。
+
+---
+
+## 十、第 0 步量化结果(2026-08-06)
+
+全量明细(file:line):**[coc-gate-recoverability-step0-scan.md](coc-gate-recoverability-step0-scan.md)**。
+两路只读静态扫描,未做运行时回放。
+
+| 侧 | 指标 | 数 |
+|---|---|---:|
+| canonical | blocked/拒绝且 `next_operation` null/缺失 的返回点 | **67** |
+| canonical | 结构化 `failed_fields` 实现 | **0** |
+| canonical | 独立手工拒绝构造形状(无统一构造器) | **~55** |
+| pi TS | 重复契约判断点(白名单/再投影) | **28** |
+| pi TS | 观察黑洞点(吞错误/裸 null/改写指令) | **18** |
+| pi TS | 执行前拦截点 | **12** |
+
+三个关键结论:
+
+1. **canonical 侧原则 1 尚未落地**:全库 `failed_fields` 零出现;开场 8 个 hard gate
+   里 6 个构造时 `next_operation: None`;821 个 `ToolError` 只有 ~8 个带 `details`。
+   已有的只是碎片(`_opening_card`、`_full_parse_next_operation`、character 的
+   `list[str]` errors),没有统一拒绝构造器。
+2. **pi 侧问题 5 的同族未清**:六个 `projectStartup*` 投影器里只有
+   materialization 半通用(样板在 `index.ts:7171`),其余五个仍状态/键集白名单,
+   selection/character 还**重写** canonical instruction;失败统一掉进无 details
+   编排(`index.ts:7366`)。
+3. **fulfill 诊断仍黑洞**(`runtime.ts:2624`):只记固定 code/path,canonical 拒绝
+   原因进不了闭合白名单——§九.2 仍成立,修它需要扩展诊断契约结构。
+
+据此,第 1 步(不变量写成测试)的迁移面已经明确;建议优先级:startup 投影簇
+(`index.ts:7020-7378`)→ canonical 开场 8 gate → `openingSetupToolError` 拦截链。
