@@ -13,7 +13,6 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import {
   asObject,
   CanonicalToolError,
-  CoordinatorDispatchManager,
   exactKeys,
   loadSecrets,
   MAX_BYTES,
@@ -28,6 +27,13 @@ import {
   type JsonObject,
   type PrivateLaunchContext,
 } from "../lib/runtime.ts";
+import {
+  autoDispatchCoordinator,
+  CoordinatorDispatchManager,
+  coordinatorDispatchNullReason,
+  findAutoDispatchTask,
+  PiSemanticSupplyCoordinator,
+} from "./coordinator.ts";
 import {
   buildMechanicalOutputGateEnvelope,
   detectMechanicalMarkers,
@@ -5592,42 +5598,6 @@ export function projectPiGuidedCharacterContract(
   return projected;
 }
 
-function findAutoDispatchTakeover(value: unknown): JsonObject | null {
-  const envelope = objectOrNull(value);
-  if (envelope?.ok !== true) return null;
-  const data = objectOrNull(envelope?.data);
-  const sourceWork = objectOrNull(data?.source_work);
-  const progressive = objectOrNull(data?.progressive);
-  const sceneContext = objectOrNull(data?.scene_context);
-  const resumeProgressive = objectOrNull(sceneContext?.progressive);
-  const candidates = [
-    // progressive.opening_bootstrap nests its production takeover one level
-    // below source_work; no other producer may claim this named path.
-    {
-      takeover: objectOrNull(sourceWork?.background_takeover),
-      allowed: envelope.tool === "progressive.opening_bootstrap",
-    },
-    { takeover: objectOrNull(data?.background_takeover), allowed: true },
-    { takeover: objectOrNull(progressive?.background_takeover), allowed: true },
-    { takeover: objectOrNull(resumeProgressive?.background_takeover), allowed: true },
-  ];
-  // Multiple named takeover paths are contamination, even when they repeat an
-  // otherwise valid task. Validation and dispatch-key dedupe remain downstream.
-  const present = candidates.filter((candidate) => candidate.takeover !== null);
-  if (present.length !== 1 || !present[0].allowed) return null;
-  return present[0].takeover;
-}
-
-function findAutoDispatchTask(value: unknown): JsonObject | null {
-  const takeover = findAutoDispatchTakeover(value);
-  const action = objectOrNull(takeover?.next_host_action);
-  const task = objectOrNull(action?.task);
-  return action?.action === "invoke_coc_dispatch_source_work"
-    && task?.contract_id === "coc.pi-source-coordinator-task.v1"
-    ? task
-    : null;
-}
-
 export function findPiOpeningSourceReviewTrigger(
   value: unknown,
 ): JsonObject | null {
@@ -5765,215 +5735,6 @@ function currentDependencySubmissionRetained(value: unknown): boolean {
   return [
     "activating", "pending", "retrying", "submitted",
   ].includes(String(result?.status ?? ""));
-}
-
-interface AutoDispatchDeps {
-  enabled(): Promise<boolean>;
-  isCurrent(): boolean;
-  activeManager(): CoordinatorDispatchManager | null;
-  manager(): CoordinatorDispatchManager;
-  launchContext(): PrivateLaunchContext | null;
-  audit(entry: JsonObject): void;
-}
-
-interface AutoDispatchOptions {
-  waitForTerminal?: boolean;
-  signal?: AbortSignal;
-  submissionOwner?: () => boolean;
-  onSubmissionOwnershipLost?: () => void;
-  exactTask?: JsonObject;
-}
-
-// A null submission does not mean the coordinator capability is unavailable.
-// The common case is that the manager already owns this dispatch key and
-// declined to resubmit it, which happens on every retry after the first
-// attempt reached a terminal state. Reporting that as capability_unavailable
-// sends the KP chasing a capability that is in fact enabled, and hides the
-// real terminal failure class. Read the manager and say what actually
-// happened; only a genuinely unknown key is a capability question.
-export function coordinatorDispatchNullReason(
-  state: unknown,
-  dispatchKey: string,
-): JsonObject {
-  const current = objectOrNull(state);
-  if (current === null) {
-    return {
-      status: "capability_unavailable",
-      failure_class: "coordinator_capability_unavailable",
-      ...(dispatchKey ? { dispatch_key: dispatchKey } : {}),
-    };
-  }
-  const receipt = objectOrNull(current.terminal_receipt);
-  if (receipt === null) {
-    return {
-      status: "dispatch_already_active",
-      failure_class: "coordinator_dispatch_already_active",
-      dispatch_key: dispatchKey,
-      coordinator_status: String(current.status ?? ""),
-    };
-  }
-  const diagnostics = Array.isArray(receipt.diagnostics)
-    ? receipt.diagnostics
-    : [];
-  const codes = [...new Set(diagnostics.flatMap((entry) => {
-    const code = objectOrNull(entry)?.code;
-    return typeof code === "string" && code.trim().length > 0 ? [code] : [];
-  }))];
-  const failureClass = typeof receipt.failure_class === "string"
-    && receipt.failure_class.trim().length > 0
-    ? receipt.failure_class
-    : "coordinator_terminal_failure";
-  return {
-    status: "coordinator_terminal",
-    failure_class: failureClass,
-    dispatch_key: dispatchKey,
-    coordinator_status: String(receipt.status ?? ""),
-    ...(codes.length > 0 ? { diagnostic_codes: codes } : {}),
-  };
-}
-
-// Toolbox results may carry a background_takeover whose next_host_action asks
-// the KP to call coc_dispatch_source_work. Fulfillment must not depend on KP
-// discipline, so the host submits that exact task itself. Ordinary source work
-// dispatch remains fire-and-forget; only the exact blocking opening path asks
-// this owner to await its durable terminal state.
-async function autoDispatchCoordinator(
-  deps: AutoDispatchDeps,
-  toolName: string,
-  value: unknown,
-  options: AutoDispatchOptions = {},
-): Promise<JsonObject | null> {
-  if (toolName !== "coc_invoke") return null;
-  const task = options.exactTask ?? findAutoDispatchTask(value);
-  if (!task) return null;
-  const boundedFailure = (entry: JsonObject): JsonObject => {
-    deps.audit(entry);
-    return entry;
-  };
-  const submissionOwned = (dispatchKey?: string): JsonObject | null => {
-    if (options.submissionOwner?.() !== false) return null;
-    options.onSubmissionOwnershipLost?.();
-    return boundedFailure({
-      status: "ownership_lost",
-      failure_class: "opening_dispatch_ownership_lost",
-      ...(dispatchKey ? { dispatch_key: dispatchKey } : {}),
-    });
-  };
-  if (!deps.isCurrent()) {
-    return boundedFailure({
-      status: "session_closed",
-      failure_class: "session_closed",
-    });
-  }
-  try {
-    if (!(await deps.enabled())) {
-      const unavailable = {
-        status: "capability_unavailable",
-        failure_class: "coordinator_capability_unavailable",
-      };
-      if (options.waitForTerminal || options.exactTask) {
-        return boundedFailure(unavailable);
-      }
-      return null;
-    }
-  }
-  catch {
-    return boundedFailure(deps.isCurrent()
-      ? { status: "capability_check_failed", failure_class: "capability_check_failed" }
-      : { status: "session_closed", failure_class: "session_closed" });
-  }
-  const postCapabilityOwnership = submissionOwned();
-  if (postCapabilityOwnership !== null) return postCapabilityOwnership;
-  if (!deps.isCurrent()) {
-    return boundedFailure({
-      status: "session_closed",
-      failure_class: "session_closed",
-    });
-  }
-  let exactTask: JsonObject;
-  let key: string;
-  let workspaceRoot: string;
-  try {
-    exactTask = validateCoordinatorTask(task);
-    const packet = asObject(exactTask.packet, "coordinator packet");
-    key = nonEmpty(packet.packet_id, "packet_id");
-    workspaceRoot = resolve(nonEmpty(packet.workspace_root, "workspace_root"));
-  } catch {
-    return boundedFailure({
-      status: "validation_failed",
-      failure_class: "coordinator_task_invalid",
-    });
-  }
-  const active = deps.activeManager();
-  const preExistingOwnership = submissionOwned(key);
-  if (preExistingOwnership !== null) return preExistingOwnership;
-  if (active?.state(key) && !options.exactTask) {
-    return options.waitForTerminal
-      ? await active.waitForTerminal(key, options.signal)
-      : null;
-  }
-  const launch = deps.launchContext();
-  if (!launch) {
-    return boundedFailure({
-      status: "launch_context_unavailable",
-      dispatch_key: key,
-      failure_class: "launch_context_unavailable",
-    });
-  }
-  if (workspaceRoot !== resolve(launch.cwd)) {
-    return boundedFailure({
-      status: "workspace_drift",
-      dispatch_key: key,
-      failure_class: "workspace_drift",
-    });
-  }
-  if (!deps.isCurrent()) {
-    return boundedFailure({
-      status: "session_closed",
-      dispatch_key: key,
-      failure_class: "session_closed",
-    });
-  }
-  // No await may occur between this final exact-attempt ownership check and
-  // manager.submit. In the JS event loop this makes validation + submission
-  // one synchronous owner action; later terminal awaits are projection-gated.
-  const preSubmitOwnership = submissionOwned(key);
-  if (preSubmitOwnership !== null) return preSubmitOwnership;
-  const ownedManager = deps.manager();
-  const beforeManagerLaunch = options.submissionOwner
-    ? () => submissionOwned(key) === null
-    : undefined;
-  let submitted: JsonObject;
-  try {
-    submitted = await ownedManager.submit(
-      exactTask,
-      launch,
-      options.signal,
-      beforeManagerLaunch,
-      options.exactTask !== undefined,
-    );
-  } catch {
-    const existing = ownedManager.state(key);
-    if (options.waitForTerminal && existing) {
-      return await ownedManager.waitForTerminal(key, options.signal);
-    }
-    return boundedFailure({
-      status: "submit_failed",
-      dispatch_key: key,
-      failure_class: "coordinator_submit_failed",
-    });
-  }
-  deps.audit(submitted);
-  if (!options.waitForTerminal) return submitted;
-  if (!ownedManager.state(key)) {
-    return {
-      ...submitted,
-      failure_class: typeof submitted.failure_class === "string"
-        ? submitted.failure_class
-        : "coordinator_not_retained",
-    };
-  }
-  return await ownedManager.waitForTerminal(key, options.signal);
 }
 
 interface RawPdfBindBundleDispatchDeps {
@@ -6751,10 +6512,8 @@ type StartupResumeGate = {
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
   let mcp: McpJsonlClient | null = null;
-  let manager: CoordinatorDispatchManager | null = null;
   let sessionEpoch = 0;
   let sessionClosing = true;
-  let continuedCoordinatorDispatches = new Set<string>();
   let sourceProducerStates = new Map<string, JsonObject>();
   let sourceProducerControllers = new Map<string, AbortController>();
   let sourceProducerRuns = new Set<Promise<unknown>>();
@@ -6767,6 +6526,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let fullParseRenderRuns = new Set<Promise<unknown>>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
+  const supplyCoordinator = new PiSemanticSupplyCoordinator();
   const kpActiveTools = [
     "coc_capabilities",
     "coc_discover",
@@ -6783,81 +6543,75 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     overrides.createClient?.(ctx)
     ?? new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui")
   );
-  const coordinatorManager = (epoch: number) => {
-    if (!isCurrent(epoch)) throw new Error("Pi source coordinator session is closed");
-    const ownedContinuedDispatches = continuedCoordinatorDispatches;
-    return manager ??= overrides.createManager?.() ?? new CoordinatorDispatchManager(
-    (exactTask, launch, launchSignal) => (
-      overrides.launchCoordinator?.(exactTask, launch, launchSignal)
-      ?? spawnPiChild({
-        role: "coordinator", task: exactTask,
-        ...launch, signal: launchSignal,
-      })
-    ),
-    (receipt) => {
-      const dispatchKey = typeof receipt.packet_id === "string"
-        ? receipt.packet_id.trim()
-        : "";
-      const terminalStatus = typeof receipt.status === "string"
-        ? receipt.status.trim()
-        : "";
-      openingContinuationGate.observeOpeningCoordinatorTerminal(receipt);
-      openingContinuationGate.observeCurrentDependencyTerminalReceipt(
+  const projectCoordinatorTerminal = (receipt: JsonObject) => {
+    const dispatchKey = typeof receipt.packet_id === "string"
+      ? receipt.packet_id.trim()
+      : "";
+    const terminalStatus = typeof receipt.status === "string"
+      ? receipt.status.trim()
+      : "";
+    openingContinuationGate.observeOpeningCoordinatorTerminal(receipt);
+    openingContinuationGate.observeCurrentDependencyTerminalReceipt(
+      dispatchKey,
+      receipt,
+    );
+    const continuationContext = (
+      openingContinuationGate.coordinatorContinuationContext(
         dispatchKey,
-        receipt,
-      );
-      const continuationContext = (
-        openingContinuationGate.coordinatorContinuationContext(
-          dispatchKey,
-          terminalStatus,
-        )
-      );
-      return publishCoordinatorTerminal(
-        pi,
-        receipt,
-        ownedContinuedDispatches,
-        (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
-        () => continuationContext,
-        (dispatchKey) => {
-          openingContinuationGate.releaseOpeningTerminalContinuation(
-            dispatchKey,
-          );
-          openingContinuationGate.rollbackCurrentDependencyDelivery(
-            dispatchKey,
-          );
-        },
-        (dispatchKey) => (
-          openingContinuationGate.markCurrentDependencyTerminalDelivered(
-            dispatchKey,
-          )
-        ),
-      );
-    },
-    (observation) => {
-      try { pi.appendEntry("coc-source-coordinator-lifecycle", observation); }
-      catch { /* lifecycle audit is best effort */ }
-    },
-  );
+        terminalStatus,
+      )
+    );
+    return publishCoordinatorTerminal(
+      pi,
+      receipt,
+      supplyCoordinator.terminalDedupe(),
+      (key) => openingContinuationGate.decideWake(key),
+      () => continuationContext,
+      (key) => {
+        openingContinuationGate.releaseOpeningTerminalContinuation(key);
+        openingContinuationGate.rollbackCurrentDependencyDelivery(key);
+      },
+      (key) => openingContinuationGate.markCurrentDependencyTerminalDelivered(key),
+    );
   };
-  const autoDispatchDeps = (ctx: ExtensionContext, epoch: number): AutoDispatchDeps => ({
-    enabled: overrides.coordinatorEnabled ?? piCoordinatorEnabled,
-    isCurrent: () => isCurrent(epoch),
-    activeManager: () => manager,
-    manager: () => coordinatorManager(epoch),
-    launchContext: () => {
-      const model = ctx.model;
-      if (!model) return null;
-      try {
-        return {
-          cwd: ctx.cwd,
-          provider: nonEmpty(model.provider, "model.provider"),
-          modelId: nonEmpty(model.id, "model.id"),
-          thinking: pi.getThinkingLevel(),
-        };
-      } catch { return null; }
-    },
-    audit: (entry) => { try { pi.appendEntry("coc-source-coordinator-auto-dispatch", entry); } catch { /* audit is best effort */ } },
-  });
+  const startSemanticSupply = (ctx: ExtensionContext, epoch: number) => {
+    supplyCoordinator.start({
+      isCurrent: () => isCurrent(epoch),
+      coordinatorEnabled: overrides.coordinatorEnabled ?? piCoordinatorEnabled,
+      launchContext: () => {
+        const model = ctx.model;
+        if (!model) return null;
+        try {
+          return {
+            cwd: ctx.cwd,
+            provider: nonEmpty(model.provider, "model.provider"),
+            modelId: nonEmpty(model.id, "model.id"),
+            thinking: pi.getThinkingLevel(),
+          };
+        } catch { return null; }
+      },
+      launchCoordinator: (task, launch, signal) => (
+        overrides.launchCoordinator?.(task, launch, signal)
+        ?? spawnPiChild({ role: "coordinator", task, ...launch, signal })
+      ),
+      callCanonical: (params, signal) => client(ctx).callTool(
+        "coc_invoke",
+        params,
+        signal,
+      ),
+      appendAudit: (name, value) => { try { pi.appendEntry(name, value); } catch { /* audit is best effort */ } },
+      sendHidden: (context, options) => {
+        pi.sendMessage({
+          customType: "coc-semantic-readiness-private",
+          content: JSON.stringify(context),
+          display: false,
+          details: context,
+        }, options);
+      },
+      projectTerminal: projectCoordinatorTerminal,
+      createManager: overrides.createManager,
+    });
+  };
   const rawPdfBindBundleDispatchDeps = (
     ctx: ExtensionContext,
     epoch: number,
@@ -6951,7 +6705,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionEpoch += 1;
     sessionClosing = false;
     openingContinuationGate.reset();
-    continuedCoordinatorDispatches = new Set<string>();
+    startSemanticSupply(ctx, sessionEpoch);
     sourceProducerStates = new Map<string, JsonObject>();
     sourceProducerControllers = new Map<string, AbortController>();
     sourceProducerRuns = new Set<Promise<unknown>>();
@@ -7575,6 +7329,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     let value: unknown;
+    let scenePriorityHandled = false;
     try {
       value = await client(ctx).callTool(name, params, signal);
     } catch (error) {
@@ -7668,6 +7423,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (name === "coc_invoke") {
+      scenePriorityHandled = supplyCoordinator.observeCanonical(
+        String(params.operation),
+        params,
+        value,
+      );
       openingContinuationGate.observeCurrentDependencyConsumerResult(
         String(params.operation),
         params,
@@ -7859,8 +7619,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           }
           let submission: JsonObject | null = null;
           try {
-            submission = await autoDispatchCoordinator(
-              autoDispatchDeps(ctx, epoch),
+            submission = await supplyCoordinator.autoDispatch(
               name,
               value,
               {
@@ -7905,7 +7664,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             ].includes(String(submission.status))
           ) {
             const terminal = submission ?? coordinatorDispatchNullReason(
-              autoDispatchDeps(ctx, epoch).activeManager()?.state(dispatchKey),
+              supplyCoordinator.activeManager()?.state(dispatchKey),
               dispatchKey,
             );
             openingContinuationGate.markOpeningSetupRouteAttemptFailure(
@@ -8085,8 +7844,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             } catch { /* exact dependency audit is best effort */ }
             continue;
           }
-          const submission = await autoDispatchCoordinator(
-            autoDispatchDeps(ctx, epoch),
+          const submission = await supplyCoordinator.autoDispatch(
             name,
             value,
             { exactTask: task },
@@ -8113,11 +7871,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           }
         }
       }
-      void autoDispatchCoordinator(
-        autoDispatchDeps(ctx, epoch),
-        name,
-        value,
-      ).catch(() => {});
+      if (!scenePriorityHandled) {
+        void supplyCoordinator.autoDispatch(
+          name,
+          value,
+        ).catch(() => {});
+      }
     }
     return result(value);
   };
@@ -8152,30 +7911,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const epoch = sessionEpoch;
       if (!isCurrent(epoch)) return result(sessionClosed());
       exactKeys(params, ["task"], "dispatch request");
-      let enabled: boolean;
-      try { enabled = await (overrides.coordinatorEnabled ?? piCoordinatorEnabled)(); }
-      catch (error) {
-        if (!isCurrent(epoch)) return result(sessionClosed());
-        throw error;
-      }
-      if (!enabled) throw new Error("Pi source coordinator is unavailable pending a real isolated lifecycle probe");
-      if (!isCurrent(epoch)) return result(sessionClosed());
-      const task = validateCoordinatorTask(params.task);
-      const packet = asObject(task.packet, "coordinator packet");
-      const key = nonEmpty(packet.packet_id, "packet_id");
-      if (resolve(nonEmpty(packet.workspace_root, "workspace_root")) !== resolve(ctx.cwd)) throw new Error("coordinator workspace drift");
-      const model = ctx.model;
-      if (!model) throw new Error("active parent model is unavailable");
-      if (!isCurrent(epoch)) return result(sessionClosed(key));
-      const submitted = await coordinatorManager(epoch).submit(task, {
-        cwd: ctx.cwd,
-        provider: nonEmpty(model.provider, "model.provider"),
-        modelId: nonEmpty(model.id, "model.id"),
-        thinking: pi.getThinkingLevel(),
-      }, signal);
-      try { pi.appendEntry("coc-source-coordinator-dispatch", submitted); }
-      catch { /* dispatch audit is best effort */ }
-      return result(submitted);
+      return result(await supplyCoordinator.submitManual(params.task, signal));
     },
   });
   pi.registerTool({
@@ -8308,7 +8044,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // preceding microtask. Let that send commit or mark an exact retry before
     // claiming retries at this post-tool lifecycle boundary.
     await Promise.resolve();
-    const ownedContinuedDispatches = continuedCoordinatorDispatches;
+    const ownedContinuedDispatches = supplyCoordinator.terminalDedupe();
     for (
       const retry of openingContinuationGate
         .takeCurrentDependencyDeliveryRetries()
@@ -8351,6 +8087,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionEpoch += 1;
     startupResumeGate = null;
     openingContinuationGate.reset();
+    await supplyCoordinator.shutdown();
     for (const controller of sourceProducerControllers.values()) {
       controller.abort("session_shutdown");
     }
@@ -8368,11 +8105,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleRuns.clear();
     rawPdfBindBundleInflight.clear();
     rawPdfBindBundleStates.clear();
-    const ownedManager = manager;
     const ownedMcp = mcp;
-    manager = null;
     mcp = null;
-    await ownedManager?.shutdown();
     await ownedMcp?.close();
   });
 }

@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  readFileSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -22,9 +23,18 @@ const extensionWelcomeAgentDir = mkdtempSync(
   path.join(tmpdir(), "pi-coc-extension-welcome-"),
 );
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
+const coordinator = await import(path.join(root, "plugins/coc-keeper/pi/extensions/coordinator.ts"));
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
 const { findAutoDispatchTask, autoDispatchCoordinator } = main.__test;
 const instruction = path.join(root, "plugins/coc-keeper/agents/coc-source-coordinator.md");
+const leafInstruction = path.join(root, "plugins/coc-keeper/agents/coc-source-pack-worker.md");
+const sectionBindingFixture = JSON.parse(readFileSync(
+  path.join(
+    root,
+    "tests/pi/fixtures/cold-harvest-classify-sections-empty-entity.json",
+  ),
+  "utf8",
+));
 const problems = [];
 const safeCharacterSetupPrompt = (
   "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
@@ -67,6 +77,58 @@ function coordinatorTask(packetId = "coord-auto-1", {
       },
     },
   };
+}
+
+function sectionFixtureLeafTask(
+  packetId = "section-repair-packet",
+  jobId = "section-repair-job",
+) {
+  return {
+    schema_version: 1,
+    contract_id: "coc.pi-source-pack-task.v1",
+    instruction_ref: leafInstruction,
+    model_policy: "inherit_parent",
+    packet: {
+      schema_version: 1,
+      contract_id: "coc.source-pack-worker.v1",
+      packet_id: packetId,
+      work_group_id: `${packetId}-group`,
+      requests: [{
+        job_id: jobId,
+        kind: "classify_sections",
+        classification_request: { contract_id: "coc.section-index.v1" },
+      }],
+    },
+  };
+}
+
+function sectionFixtureWorkerResult(task, pack) {
+  return {
+    schema_version: 1,
+    contract_id: "coc.source-pack-worker.v1",
+    packet_id: task.packet.packet_id,
+    work_group_id: task.packet.work_group_id,
+    status: "usable",
+    results: [{
+      job_id: task.packet.requests[0].job_id,
+      pack,
+      related_packs: [],
+    }],
+  };
+}
+
+function sectionFixtureSuccess(result) {
+  return { kind: "success", result };
+}
+
+function sectionFixtureLeaseResponse(args, jobId) {
+  if (args.operation === "progressive.release_host_work_leases") {
+    return { data: { released_job_ids: [jobId], skipped_job_ids: [] } };
+  }
+  if (args.operation === "progressive.renew_host_work_leases") {
+    return { data: { renewed_job_ids: [jobId], skipped_job_ids: [] } };
+  }
+  return null;
 }
 
 function takeover(task) {
@@ -493,6 +555,120 @@ function sessionResumeResult(task) {
   };
 }
 
+function sectionSemanticWork(task, jobId = `job-${task.packet.packet_id}`) {
+  return {
+    job_id: jobId,
+    kind: "classify_sections",
+    target_id: "section-index",
+    requested_pdf_indices: [0],
+    dispatch_state: "ready",
+    dispatch_attempts: 0,
+  };
+}
+
+function sourceBoundMissingSceneContext(
+  task,
+  { campaignId = task.packet.campaign_id, sceneId = "source-gap" } = {},
+) {
+  return {
+    ok: true,
+    tool: "scene.context",
+    data: {
+      campaign_id: campaignId,
+      active_scene_id: sceneId,
+      scene: {
+        scene_id: sceneId,
+        parse_state: "named_only",
+        evidence_gap: true,
+        source_context_mentions: [{ kind: "location", ref_id: "source-location" }],
+      },
+      progressive: {
+        asset_root_id: task.packet.asset_root_id,
+        ready_background_requests: [sectionSemanticWork(task)],
+        background_takeover: takeover(task),
+      },
+    },
+  };
+}
+
+function sourceBoundMissingSessionResume(task) {
+  const context = sourceBoundMissingSceneContext(task);
+  return {
+    ok: true,
+    tool: "session.resume",
+    data: {
+      campaign_id: task.packet.campaign_id,
+      mode: "awaiting_player",
+      scene_context: context.data,
+    },
+  };
+}
+
+function sourceBoundReadySceneContext(
+  campaignId,
+  sceneId = "source-ready",
+) {
+  return {
+    ok: true,
+    tool: "scene.context",
+    data: {
+      campaign_id: campaignId,
+      active_scene_id: sceneId,
+      scene: {
+        scene_id: sceneId,
+        parse_state: "body_parsed",
+        evidence_gap: false,
+      },
+      source_material: {
+        keeper_only: true,
+        authority: "source_authored_context",
+      },
+      progressive: { asset_root_id: "asset-ready" },
+    },
+  };
+}
+
+function sourceBoundMoveResult(
+  campaignId,
+  sceneId = "source-gap",
+) {
+  return {
+    ok: true,
+    tool: "state.move_scene",
+    data: {
+      campaign_id: campaignId,
+      to_scene_id: sceneId,
+      scene: {
+        parse_state: "named_only",
+        evidence_gap: true,
+        source_context_mentions: [{ kind: "location", ref_id: "source-location" }],
+      },
+      progressive: { asset_root_id: "asset-scene-priority" },
+      next_operation: {
+        operation: "scene.context",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {},
+        missing_arguments: [],
+        hard_gate: false,
+      },
+    },
+  };
+}
+
+function sectionSemanticStatusResult(task, { fulfilled = false } = {}) {
+  return {
+    ok: true,
+    tool: "progressive.status",
+    data: {
+      campaign_id: task.packet.campaign_id,
+      progressive: true,
+      asset_root_id: task.packet.asset_root_id,
+      host_work: { requests: fulfilled ? [] : [sectionSemanticWork(task)] },
+      ...(fulfilled ? {} : { background_takeover: takeover(task) }),
+    },
+  };
+}
+
 function coordinatorReceipt(packetId) {
   return {
     schema_version: 1,
@@ -523,9 +699,15 @@ function fulfilledCoordinatorEvents(packetId) {
   });
 }
 
-function coordinatorEventsForReceipt(receipt) {
+function coordinatorEventsForReceipt(receipt, privateRepairDiagnostics = undefined) {
   const packetId = receipt.packet_id;
   const toolCallId = `call-${packetId}`;
+  const wireReceipt = privateRepairDiagnostics === undefined
+    ? receipt
+    : {
+      ...receipt,
+      pi_private_repair_diagnostics: privateRepairDiagnostics,
+    };
   return [
     {
       type: "message_end",
@@ -543,8 +725,8 @@ function coordinatorEventsForReceipt(receipt) {
         role: "toolResult",
         toolCallId,
         toolName: "coc_run_source_coordinator",
-        content: [{ type: "text", text: JSON.stringify(receipt) }],
-        details: receipt,
+        content: [{ type: "text", text: JSON.stringify(wireReceipt) }],
+        details: wireReceipt,
         isError: false,
       },
     },
@@ -552,7 +734,7 @@ function coordinatorEventsForReceipt(receipt) {
       type: "message_end",
       message: {
         role: "assistant",
-        content: [{ type: "text", text: JSON.stringify(receipt) }],
+        content: [{ type: "text", text: JSON.stringify(wireReceipt) }],
       },
     },
   ];
@@ -635,7 +817,7 @@ function realManagerHarness({ deferActivationKeys = [] } = {}) {
   const controlsByKey = new Map();
   const lifecycle = [];
   const notifications = [];
-  const manager = new runtime.CoordinatorDispatchManager(
+  const manager = new coordinator.CoordinatorDispatchManager(
     (task) => {
       const key = task.packet.packet_id;
       launches.push(key);
@@ -1269,6 +1451,958 @@ async function exerciseFailureDrain(mode) {
       && entry.dispatch_key === task.packet.packet_id
     )).length === 1
     && queue.notifications.join(",") === task.packet.packet_id);
+}
+
+// Pi-side section-binding repair is bounded inside the same leased leaf task:
+// it detects the real fixture before canonical fulfillment, asks one repair
+// worker without changing task identity, and never cold-retries the same pack.
+{
+  const fixturePreflights = sectionBindingFixture.attempts.map((attempt) => (
+    runtime.preflightSectionEntityBindings({ sections: attempt.sections })
+  ));
+  check("section fixture detects all empty entity bindings with exact first paths",
+    fixturePreflights.every((preflight, index) => (
+      preflight.invalid_bindings.length
+        === sectionBindingFixture.attempts[index].expected.empty_entity_count
+      && preflight.invalid_bindings[0]?.path
+        === sectionBindingFixture.attempts[index].expected.first_error.path
+      && preflight.invalid_bindings[0]?.section_id
+        === sectionBindingFixture.attempts[index].expected.first_error.section_id
+      && preflight.invalid_bindings.every((finding) => (
+        typeof finding.path === "string"
+        && typeof finding.section_id === "string"
+        && typeof finding.entity_kind === "string"
+        && typeof finding.payload === "string"
+      ))
+    )));
+  const safeSectionPack = {
+    sections: [
+      {
+        section_id: "fixture-global",
+        payload: "narrative",
+        binding: { kind: "global", entity_kind: null, entity_ids: [] },
+      },
+      {
+        section_id: "fixture-existing-entity",
+        payload: "setting_lore",
+        binding: {
+          kind: "entity",
+          entity_kind: "location",
+          entity_ids: ["fixture-existing-location"],
+        },
+      },
+    ],
+  };
+  check("global and non-empty entity bindings do not trigger repair preflight",
+    runtime.preflightSectionEntityBindings(safeSectionPack).invalid_bindings.length
+      === 0);
+
+  const invalidLeaf = sectionFixtureLeafTask(
+    "section-repair-preflight-packet",
+    "section-repair-preflight-job",
+  );
+  const invalidResult = sectionFixtureWorkerResult(
+    invalidLeaf,
+    { sections: sectionBindingFixture.attempts[0].sections },
+  );
+  const repairedResult = sectionFixtureWorkerResult(invalidLeaf, safeSectionPack);
+  const preflightSpawns = [];
+  const preflightFulfills = [];
+  const preflightRepairDiagnostics = [];
+  const preflightReceipt = await runtime.runCoordinatorLifecycle(
+    coordinatorTask("coord-section-repair-preflight"),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return { data: {
+            dispatch_tasks: [invalidLeaf],
+            lease_bindings: [{
+              lease_id: invalidLeaf.packet.packet_id,
+              job_ids: [invalidLeaf.packet.requests[0].job_id],
+            }],
+          } };
+        }
+        if (args.operation === "progressive.fulfill_host_work") {
+          preflightFulfills.push(args.arguments.worker_result);
+          return { data: { accepted: true } };
+        }
+        const lease = sectionFixtureLeaseResponse(
+          args,
+          invalidLeaf.packet.requests[0].job_id,
+        );
+        if (lease) return lease;
+        throw new Error(`unexpected section preflight operation ${args.operation}`);
+      },
+      onSourcePackRepairDiagnostic: (diagnostic) => {
+        preflightRepairDiagnostics.push(diagnostic);
+      },
+      spawnLeaf: async (task) => {
+        preflightSpawns.push(task);
+        return sectionFixtureSuccess(
+          preflightSpawns.length === 1 ? invalidResult : repairedResult,
+        );
+      },
+    },
+  );
+  const preflightRepairTask = preflightSpawns[1];
+  const preflightRepairContext = preflightRepairTask?.repair_context;
+  const preflightRepairPrompt = preflightRepairTask
+    ? runtime.leafEvidenceMessage(
+      await runtime.buildLeafEvidenceContext(preflightRepairTask),
+    ).content[0].text
+    : "";
+  check("invalid section result is repaired before one canonical fulfill",
+    preflightReceipt.status === "fulfilled"
+    && preflightReceipt.fulfilled_result_count === 1
+    && preflightFulfills.length === 1
+    && preflightFulfills[0] === repairedResult.results[0]
+    && preflightSpawns.length === 2
+    && JSON.stringify(preflightRepairTask?.packet) === JSON.stringify(invalidLeaf.packet)
+    && preflightRepairContext?.invalid_bindings?.length === 27
+    && preflightRepairContext?.invalid_bindings?.[0]?.path === "sections[6].binding"
+    && preflightRepairContext?.prior_packs?.[0]?.empty_entity_binding_count === 27
+    && preflightRepairDiagnostics.length === 1
+    && preflightRepairDiagnostics[0]?.failure_class
+      === "section_binding_empty_entity_ids"
+    && preflightRepairDiagnostics[0]?.invalid_binding_count === 27
+    && preflightRepairDiagnostics[0]?.field_paths?.[0] === "sections[6].binding"
+    && preflightRepairDiagnostics[0]?.retry_terminal === false
+    && preflightRepairPrompt.includes("bounded repair attempt")
+    && preflightRepairPrompt.includes("omit the candidate as unresolved"));
+
+  const repeatedLeaf = sectionFixtureLeafTask(
+    "section-repair-repeat-packet",
+    "section-repair-repeat-job",
+  );
+  const repeatedResult = sectionFixtureWorkerResult(
+    repeatedLeaf,
+    { sections: sectionBindingFixture.attempts[1].sections },
+  );
+  const repeatedSpawns = [];
+  const repeatedFulfills = [];
+  const repeatedRepairDiagnostics = [];
+  const repeatedReceipt = await runtime.runCoordinatorLifecycle(
+    coordinatorTask("coord-section-repair-repeat"),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return { data: {
+            dispatch_tasks: [repeatedLeaf],
+            lease_bindings: [{
+              lease_id: repeatedLeaf.packet.packet_id,
+              job_ids: [repeatedLeaf.packet.requests[0].job_id],
+            }],
+          } };
+        }
+        if (args.operation === "progressive.fulfill_host_work") {
+          repeatedFulfills.push(args.arguments.worker_result);
+          return { data: { accepted: true } };
+        }
+        const lease = sectionFixtureLeaseResponse(
+          args,
+          repeatedLeaf.packet.requests[0].job_id,
+        );
+        if (lease) return lease;
+        throw new Error(`unexpected repeated-section operation ${args.operation}`);
+      },
+      onSourcePackRepairDiagnostic: (diagnostic) => {
+        repeatedRepairDiagnostics.push(diagnostic);
+      },
+      spawnLeaf: async (task) => {
+        repeatedSpawns.push(task);
+        return sectionFixtureSuccess(repeatedResult);
+      },
+    },
+  );
+  check("same invalid section pack terminalizes without canonical or cold retry",
+    repeatedReceipt.status === "failed"
+    && repeatedReceipt.failure_class === "leaf_result_invalid"
+    && repeatedReceipt.fulfilled_result_count === 0
+    && repeatedSpawns.length === 2
+    && repeatedFulfills.length === 0
+    && repeatedRepairDiagnostics.length === 2
+    && repeatedRepairDiagnostics.at(-1)?.failure_class === "leaf_result_invalid"
+    && repeatedRepairDiagnostics.at(-1)?.invalid_binding_count === 5
+    && repeatedRepairDiagnostics.at(-1)?.field_paths?.[0] === "sections[6].binding"
+    && repeatedRepairDiagnostics.at(-1)?.retry_terminal === true
+    && repeatedRepairDiagnostics.at(-1)?.retry_exhausted === true);
+
+  const canonicalLeaf = sectionFixtureLeafTask(
+    "section-repair-canonical-packet",
+    "section-repair-canonical-job",
+  );
+  const canonicalInitial = sectionFixtureWorkerResult(canonicalLeaf, safeSectionPack);
+  const canonicalRepaired = sectionFixtureWorkerResult(canonicalLeaf, {
+    sections: [{
+      section_id: "fixture-repaired-global",
+      payload: "procedure",
+      binding: { kind: "global", entity_kind: null, entity_ids: [] },
+    }],
+  });
+  const canonicalSpawns = [];
+  const canonicalFulfills = [];
+  const canonicalMessage = "sections[0].binding entity requires at least one entity id";
+  const canonicalReceipt = await runtime.runCoordinatorLifecycle(
+    coordinatorTask("coord-section-repair-canonical"),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return { data: {
+            dispatch_tasks: [canonicalLeaf],
+            lease_bindings: [{
+              lease_id: canonicalLeaf.packet.packet_id,
+              job_ids: [canonicalLeaf.packet.requests[0].job_id],
+            }],
+          } };
+        }
+        if (args.operation === "progressive.fulfill_host_work") {
+          canonicalFulfills.push(args.arguments.worker_result);
+          if (canonicalFulfills.length === 1) {
+            const details = { path: "sections[0].binding" };
+            const envelope = {
+              ok: false,
+              tool: "progressive.fulfill_host_work",
+              error: {
+                code: "invalid_source_worker_pack",
+                message: canonicalMessage,
+                details,
+              },
+            };
+            throw new runtime.CanonicalToolError(
+              "coc_invoke",
+              "invalid_source_worker_pack",
+              `canonical coc_invoke failed: ${canonicalMessage}`,
+              details,
+              envelope,
+            );
+          }
+          return { data: { accepted: true } };
+        }
+        const lease = sectionFixtureLeaseResponse(
+          args,
+          canonicalLeaf.packet.requests[0].job_id,
+        );
+        if (lease) return lease;
+        throw new Error(`unexpected canonical-section operation ${args.operation}`);
+      },
+      spawnLeaf: async (task) => {
+        canonicalSpawns.push(task);
+        return sectionFixtureSuccess(
+          canonicalSpawns.length === 1 ? canonicalInitial : canonicalRepaired,
+        );
+      },
+    },
+  );
+  const canonicalRepairContext = canonicalSpawns[1]?.repair_context;
+  check("canonical rejection details enter the bounded repair prompt",
+    canonicalReceipt.status === "fulfilled"
+    && canonicalReceipt.failure_class === null
+    && canonicalFulfills.length === 2
+    && canonicalSpawns.length === 2
+    && canonicalRepairContext?.trigger?.kind === "canonical_fulfill_rejected"
+    && canonicalRepairContext?.trigger?.failure_class === "invalid_source_worker_pack"
+    && canonicalRepairContext?.trigger?.message === canonicalMessage
+    && canonicalRepairContext?.trigger?.path === "sections[0].binding"
+    && canonicalRepairContext?.prior_packs?.[0]?.empty_entity_binding_count === 0);
+}
+
+// Pi semantic readiness is three independent canonical observations. A full
+// page parse says nothing by itself about section semantics or a current scene.
+{
+  const readiness = new coordinator.PiSemanticReadinessSession();
+  const campaignId = "semantic-readiness-fixture";
+  const allPages = Array.from({ length: 48 }, (_value, index) => index);
+  const parsedButSemanticFailed = readiness.observeCanonical(
+    "progressive.status",
+    campaignId,
+    {
+      ok: true,
+      tool: "progressive.status",
+      data: {
+        campaign_id: campaignId,
+        full_parse: {
+          status: "complete",
+          page_count: 48,
+          parsed_pdf_indices: allPages,
+        },
+        host_work: {
+          requests: [{
+            kind: "classify_sections",
+            status: "failed",
+            retry_exhausted: true,
+          }],
+        },
+      },
+    },
+  );
+  check("48/48 page parse stays independent when semantic compile failed",
+    parsedButSemanticFailed?.page_parse.status === "ready"
+    && parsedButSemanticFailed.page_parse.evidence_gap === false
+    && parsedButSemanticFailed.semantic_compile.status === "failed"
+    && parsedButSemanticFailed.current_scene_projection.status === "unknown");
+
+  const semanticCurrentSceneMissing = readiness.observeCanonical(
+    "scene.context",
+    campaignId,
+    {
+      ok: true,
+      tool: "scene.context",
+      data: {
+        campaign_id: campaignId,
+        host_work: {
+          requests: [{
+            kind: "classify_sections",
+            status: "fulfilled",
+            dispatch_state: "fulfilled",
+          }],
+        },
+      },
+    },
+  );
+  check("semantic current does not fabricate a missing current-scene projection",
+    semanticCurrentSceneMissing?.page_parse.status === "ready"
+    && semanticCurrentSceneMissing.semantic_compile.status === "ready"
+    && semanticCurrentSceneMissing.current_scene_projection.status === "missing"
+    && semanticCurrentSceneMissing.current_scene_projection.evidence_gap === true
+    && semanticCurrentSceneMissing.current_scene_projection.source_backed === false);
+
+  const nullSceneProjection = readiness.observeCanonical(
+    "scene.context",
+    campaignId,
+    {
+      ok: true,
+      tool: "scene.context",
+      data: {
+        campaign_id: campaignId,
+        active_scene_id: "source-gap-null-scene",
+        scene: null,
+        source_material: {
+          keeper_only: true,
+          authority: "source_authored_context",
+        },
+      },
+    },
+  );
+  check("null scene remains an evidence gap rather than a source-backed scene",
+    nullSceneProjection?.current_scene_projection.status === "missing"
+    && nullSceneProjection.current_scene_projection.provenance === "unknown"
+    && nullSceneProjection.current_scene_projection.source_backed === false);
+
+  const allReady = readiness.observeCanonical(
+    "scene.context",
+    campaignId,
+    {
+      ok: true,
+      tool: "scene.context",
+      data: {
+        campaign_id: campaignId,
+        scene: {
+          scene_id: "source-scene",
+          origin: "source",
+          evidence_gap: false,
+        },
+        source_material: {
+          keeper_only: true,
+          authority: "source_authored_context",
+        },
+      },
+    },
+  );
+  check("all three readiness layers become ready only from their own evidence",
+    allReady?.page_parse.status === "ready"
+    && allReady.semantic_compile.status === "ready"
+    && allReady.current_scene_projection.status === "ready"
+    && allReady.current_scene_projection.source_backed === true
+    && allReady.current_scene_projection.provenance === "source_backed");
+
+  const improvised = readiness.observeCanonical(
+    "scene.context",
+    campaignId,
+    {
+      ok: true,
+      tool: "scene.context",
+      data: {
+        campaign_id: campaignId,
+        scene: {
+          scene_id: "campaign-local-scene",
+          origin: "campaign_local",
+          evidence_gap: false,
+        },
+        source_material: {
+          keeper_only: true,
+          authority: "campaign_local",
+          provenance: { kind: "improvised" },
+        },
+      },
+    },
+  );
+  check("campaign-local improvised projection is never labeled source-backed",
+    improvised?.current_scene_projection.status === "ready"
+    && improvised.current_scene_projection.provenance === "improvised"
+    && improvised.current_scene_projection.source_backed === false);
+
+  const resumed = readiness.observeCanonical(
+    "session.resume",
+    campaignId,
+    {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        campaign_id: campaignId,
+        scene_context: {
+          host_work: {
+            requests: [{
+              kind: "classify_sections",
+              status: "failed",
+              retry_exhausted: true,
+            }],
+          },
+        },
+      },
+    },
+  );
+  check("session resume rebuilds readiness from canonical data instead of stale memory",
+    resumed?.page_parse.status === "unknown"
+    && resumed.semantic_compile.status === "failed"
+    && resumed.current_scene_projection.status === "missing"
+    && resumed.current_scene_projection.provenance === "unknown");
+}
+
+// A scene evidence gap is advisory-only: Pi retains it internally without
+// creating a hard gate, blocking the call, or starting any source dispatch.
+{
+  const campaignId = "semantic-readiness-no-gate";
+  const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "scene.context") {
+      return {
+        ok: true,
+        tool: "scene.context",
+        data: {
+          campaign_id: campaignId,
+          host_work: {
+            requests: [{
+              kind: "classify_sections",
+              status: "fulfilled",
+              dispatch_state: "fulfilled",
+            }],
+          },
+        },
+      };
+    }
+    throw new Error(`unexpected semantic-readiness operation ${name}`);
+  });
+  await harness.start();
+  const scene = JSON.parse((await harness.registered.get("coc_invoke").execute(
+    "semantic-readiness-scene-missing",
+    {
+      operation: "scene.context",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const readinessAudit = harness.appended.find((entry) => (
+    entry.name === "coc-semantic-readiness"
+    && entry.value?.campaign_id === campaignId
+  ));
+  check("scene/source-material gap is recorded without a hard gate or dispatch",
+    scene.ok === true
+    && harness.calls.map((call) => call.params.operation).join(",")
+      === "scene.context"
+    && harness.launches.length === 0
+    && readinessAudit?.value?.semantic_compile?.status === "ready"
+    && readinessAudit?.value?.current_scene_projection?.status === "missing"
+    && readinessAudit.value.current_scene_projection.evidence_gap === true
+    && harness.sent.every((entry) => entry.message?.display !== true));
+  await harness.shutdown();
+}
+
+// The private coordinator sidecar is stripped before its canonical receipt is
+// retained, while a session-local hidden context gives the KP exact repair
+// paths/counts. No player-visible tool output contains those internals.
+{
+  const campaignId = "semantic-repair-diagnostic";
+  const task = coordinatorTask("coord-semantic-repair-diagnostic", {
+    campaignId,
+  });
+  const privateDiagnostic = {
+    schema_version: 1,
+    contract_id: "coc.pi-source-pack-repair-diagnostic.v1",
+    campaign_id: campaignId,
+    job_id: "section-repair-job",
+    failure_class: "leaf_result_invalid",
+    field_paths: ["sections[6].binding", "sections[7].binding"],
+    invalid_binding_count: 27,
+    repair_attempt: 1,
+    retry_terminal: true,
+    retry_exhausted: true,
+  };
+  const harness = mainExtensionHarness((name) => {
+    throw new Error(`unexpected repair diagnostic canonical call ${name}`);
+  });
+  await harness.start();
+  const submitted = JSON.parse((await harness.registered.get(
+    "coc_dispatch_source_work",
+  ).execute(
+    "semantic-repair-diagnostic-dispatch",
+    { task },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  harness.controls.get(task.packet.packet_id).resolve(coordinatorEventsForReceipt(
+    {
+      ...coordinatorReceipt(task.packet.packet_id),
+      status: "failed",
+      claimed_packet_count: 1,
+      leaf_task_count: 1,
+      failure_class: "leaf_result_invalid",
+    },
+    [privateDiagnostic],
+  ));
+  await nextTurn();
+  await nextTurn();
+  const repairAudit = harness.appended.find((entry) => (
+    entry.name === "coc-semantic-readiness-repair"
+  ));
+  const privateContext = harness.sent.find((entry) => (
+    entry.message?.customType === "coc-semantic-readiness-private"
+  ));
+  check("repair diagnostics retain terminal paths only in hidden Pi context",
+    submitted.status === "submitted"
+    && repairAudit?.value?.diagnostics?.[0]?.failure_class
+      === "leaf_result_invalid"
+    && repairAudit.value.diagnostics[0].invalid_binding_count === 27
+    && repairAudit.value.diagnostics[0].retry_terminal === true
+    && repairAudit.value.diagnostics[0].retry_exhausted === true
+    && privateContext?.message?.display === false
+    && privateContext?.options?.triggerTurn === false
+    && privateContext.message.details?.repair_diagnostics?.[0]?.field_paths?.[0]
+      === "sections[6].binding"
+    && !JSON.stringify(submitted).includes("sections[6].binding")
+    && !JSON.stringify(submitted).includes("leaf_result_invalid")
+    && harness.sent.every((entry) => entry.message?.display !== true));
+  await harness.shutdown();
+}
+
+// The coordinator seam owns one complete semantic-supply lifecycle. The
+// main extension is deliberately absent here: start -> repair evidence ->
+// priority fulfillment -> readiness refresh -> resume all live in one object.
+{
+  const campaignId = "semantic-supply-seam";
+  const task = coordinatorTask("coord-semantic-supply-seam", { campaignId });
+  const supply = new coordinator.PiSemanticSupplyCoordinator();
+  const audits = [];
+  const hidden = [];
+  const launches = [];
+  let resolveCompletion;
+  let statusCalls = 0;
+  supply.start({
+    isCurrent: () => true,
+    coordinatorEnabled: async () => true,
+    launchContext: () => ({
+      cwd: root,
+      provider: "offline",
+      modelId: "offline",
+      thinking: "off",
+    }),
+    launchCoordinator: (exactTask) => {
+      launches.push(exactTask.packet.packet_id);
+      const completion = new Promise((resolve) => { resolveCompletion = resolve; });
+      return {
+        child: {},
+        activation: Promise.resolve({ type: "agent_start" }),
+        completion,
+        terminate: async () => {},
+      };
+    },
+    callCanonical: async (params) => {
+      if (params.operation !== "progressive.status") {
+        throw new Error(`unexpected seam canonical operation ${params.operation}`);
+      }
+      const value = sectionSemanticStatusResult(task, {
+        fulfilled: statusCalls > 0,
+      });
+      statusCalls += 1;
+      return value;
+    },
+    appendAudit: (name, value) => audits.push({ name, value }),
+    sendHidden: (context, options) => hidden.push({ context, options }),
+    projectTerminal: () => ({ status: "delivered" }),
+  });
+  const moveParams = {
+    operation: "state.move_scene",
+    root,
+    campaign: campaignId,
+    arguments: { scene_id: "source-gap", decision_id: "seam-move" },
+  };
+  const moveHandled = supply.observeCanonical(
+    "state.move_scene",
+    moveParams,
+    sourceBoundMoveResult(campaignId),
+  );
+  await nextTurn();
+  await nextTurn();
+  const repairDiagnostic = {
+    schema_version: 1,
+    contract_id: "coc.pi-source-pack-repair-diagnostic.v1",
+    campaign_id: campaignId,
+    job_id: "seam-section-job",
+    failure_class: "section_binding_empty_entity_ids",
+    field_paths: ["sections[6].binding"],
+    invalid_binding_count: 27,
+    repair_attempt: 1,
+    retry_terminal: false,
+    retry_exhausted: false,
+  };
+  resolveCompletion(coordinatorEventsForReceipt(
+    {
+      ...coordinatorReceipt(task.packet.packet_id),
+      status: "fulfilled",
+      claimed_packet_count: 1,
+      leaf_task_count: 1,
+      fulfilled_result_count: 1,
+    },
+    [repairDiagnostic],
+  ));
+  await nextTurn();
+  await nextTurn();
+  await nextTurn();
+  const readySnapshot = supply.readinessSnapshot(campaignId);
+  const resumeHandled = supply.observeCanonical(
+    "session.resume",
+    { operation: "session.resume", root, campaign: campaignId, arguments: {} },
+    sourceBoundMissingSessionResume(task),
+  );
+  const resumedSnapshot = supply.readinessSnapshot(campaignId);
+  check("coordinator seam is the single owner from repair through priority and resume",
+    moveHandled === false
+    && launches.join(",") === task.packet.packet_id
+    && audits.some((entry) => entry.name === "coc-semantic-readiness-repair"
+      && entry.value?.diagnostics?.[0]?.invalid_binding_count === 27)
+    && readySnapshot?.semantic_compile?.reason
+      === "priority_section_semantic_fulfilled"
+    && hidden.some((entry) => (
+      entry.context?.reason === "scene_priority_ready"
+      && entry.context?.scene_priority?.next_operation?.operation === "scene.context"
+      && entry.options?.triggerTurn === true
+    ))
+    && resumeHandled === true
+    && resumedSnapshot?.current_scene_id === "source-gap"
+    && resumedSnapshot.current_scene_projection.status === "missing"
+    && launches.length === 1);
+  await supply.shutdown();
+}
+
+// Scene-priority is host-only: a normal source-bound move returns unchanged,
+// privately checks existing progressive.status, and starts only its existing
+// classify_sections coordinator task at scene priority.
+{
+  const campaignId = "scene-priority-move";
+  const task = coordinatorTask("coord-scene-priority-move", { campaignId });
+  let statusCalls = 0;
+  const harness = mainExtensionHarness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected move priority tool ${name}`);
+    if (params.operation === "state.move_scene") {
+      return sourceBoundMoveResult(campaignId);
+    }
+    if (params.operation === "progressive.status") {
+      const value = sectionSemanticStatusResult(task, {
+        fulfilled: statusCalls > 0,
+      });
+      statusCalls += 1;
+      return value;
+    }
+    throw new Error(`unexpected move priority operation ${params.operation}`);
+  });
+  await harness.start();
+  const moved = JSON.parse((await harness.registered.get("coc_invoke").execute(
+    "scene-priority-move",
+    {
+      operation: "state.move_scene",
+      root,
+      campaign: campaignId,
+      arguments: { scene_id: "source-gap", decision_id: "move-priority" },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  await nextTurn();
+  await nextTurn();
+  const waiting = harness.sent.find((entry) => (
+    entry.message?.customType === "coc-semantic-readiness-private"
+    && entry.message?.details?.reason === "scene_priority_waiting"
+  ));
+  check("move_scene missing source target starts only the existing priority section task",
+    moved.ok === true
+    && moved.data.next_operation.hard_gate === false
+    && !JSON.stringify(moved).includes('"hard_gate":true')
+    && harness.calls.map((call) => call.params.operation).join(",")
+      === "state.move_scene,progressive.status"
+    && harness.launches.join(",") === task.packet.packet_id
+    && waiting?.message?.display === false
+    && waiting?.message?.details?.scene_priority?.source_specific_facts
+      === "unestablished_or_campaign_local_only"
+    && waiting.message.details.scene_priority.hard_gate === false);
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  await harness.shutdown();
+}
+
+// scene.context can carry the same source-bound mention directly. Concurrent
+// duplicate observations use one coordinator lifecycle; after canonical
+// fulfillment Pi refreshes status and privately gives the KP the exact
+// non-gating scene.context re-read card.
+{
+  const campaignId = "scene-priority-context";
+  const task = coordinatorTask("coord-scene-priority-context", { campaignId });
+  const harness = mainExtensionHarness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected context priority tool ${name}`);
+    if (params.operation === "scene.context") {
+      return sourceBoundMissingSceneContext(task);
+    }
+    if (params.operation === "progressive.status") {
+      return sectionSemanticStatusResult(task, { fulfilled: true });
+    }
+    throw new Error(`unexpected context priority operation ${params.operation}`);
+  });
+  await harness.start();
+  const invoke = (id) => harness.registered.get("coc_invoke").execute(
+    id,
+    { operation: "scene.context", root, campaign: campaignId, arguments: {} },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const first = JSON.parse((await invoke("scene-priority-context-first")).content[0].text);
+  await invoke("scene-priority-context-duplicate");
+  await nextTurn();
+  await nextTurn();
+  check("scene.context missing source material dispatches once and keeps player result canonical",
+    first.ok === true
+    && first.tool === "scene.context"
+    && harness.launches.join(",") === task.packet.packet_id
+    && !JSON.stringify(first).includes("source_unavailable")
+    && !JSON.stringify(first).includes('"hard_gate":true'));
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  await nextTurn();
+  const refreshed = [...harness.appended].reverse().find((entry) => (
+    entry.name === "coc-semantic-readiness"
+    && entry.value?.campaign_id === campaignId
+    && entry.value?.semantic_compile?.reason
+      === "priority_section_semantic_fulfilled"
+  ));
+  const ready = harness.sent.find((entry) => (
+    entry.message?.customType === "coc-semantic-readiness-private"
+    && entry.message?.details?.reason === "scene_priority_ready"
+  ));
+  check("fulfilled priority task refreshes readiness and sends hidden exact scene re-read",
+    refreshed?.value?.semantic_compile?.status === "ready"
+    && refreshed.value.current_scene_projection.status === "missing"
+    && ready?.message?.display === false
+    && ready?.options?.triggerTurn === true
+    && ready?.message?.details?.scene_priority?.next_operation?.operation
+      === "scene.context"
+    && ready.message.details.scene_priority.next_operation.campaign === campaignId
+    && ready.message.details.scene_priority.next_operation.hard_gate === false);
+  await harness.shutdown();
+}
+
+// A resumed Pi session rebuilds the same priority candidate from canonical
+// scene/status projections; it does not need stale in-memory dispatch state.
+{
+  const campaignId = "scene-priority-resume";
+  const task = coordinatorTask("coord-scene-priority-resume", { campaignId });
+  const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "session.resume") {
+      return sourceBoundMissingSessionResume(task);
+    }
+    if (name === "coc_invoke" && params.operation === "progressive.status") {
+      return sectionSemanticStatusResult(task, { fulfilled: true });
+    }
+    throw new Error(`unexpected priority resume operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "scene-priority-resume",
+    { operation: "session.resume", root, campaign: campaignId, arguments: {} },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  await nextTurn();
+  check("session resume restores canonical priority dispatch without a second queue",
+    harness.launches.join(",") === task.packet.packet_id);
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  await harness.shutdown();
+}
+
+// A source-backed current projection has no readiness gap, so it never creates
+// a scene-priority query or dispatch.
+{
+  const campaignId = "scene-priority-already-ready";
+  const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "scene.context") {
+      return sourceBoundReadySceneContext(campaignId);
+    }
+    throw new Error(`unexpected ready scene operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "scene-priority-ready",
+    { operation: "scene.context", root, campaign: campaignId, arguments: {} },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  check("already-ready source scene dispatches zero priority work",
+    harness.launches.length === 0
+    && harness.calls.map((call) => call.params.operation).join(",")
+      === "scene.context");
+  await harness.shutdown();
+}
+
+// A terminal invalid section pack keeps its previous bounded repair diagnostic
+// private and never starts a new loop for the same source-bound scene.
+{
+  const campaignId = "scene-priority-terminal";
+  const task = coordinatorTask("coord-scene-priority-terminal", { campaignId });
+  const diagnostic = {
+    schema_version: 1,
+    contract_id: "coc.pi-source-pack-repair-diagnostic.v1",
+    campaign_id: campaignId,
+    job_id: "scene-priority-section-job",
+    failure_class: "leaf_result_invalid",
+    field_paths: ["sections[6].binding"],
+    invalid_binding_count: 27,
+    repair_attempt: 1,
+    retry_terminal: true,
+    retry_exhausted: true,
+  };
+  const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "scene.context") {
+      return sourceBoundMissingSceneContext(task);
+    }
+    throw new Error(`unexpected terminal scene operation ${params.operation}`);
+  });
+  await harness.start();
+  const invoke = (id) => harness.registered.get("coc_invoke").execute(
+    id,
+    { operation: "scene.context", root, campaign: campaignId, arguments: {} },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await invoke("scene-priority-terminal-first");
+  await nextTurn();
+  harness.controls.get(task.packet.packet_id).resolve(coordinatorEventsForReceipt(
+    {
+      ...coordinatorReceipt(task.packet.packet_id),
+      status: "failed",
+      claimed_packet_count: 1,
+      leaf_task_count: 1,
+      failure_class: "leaf_result_invalid",
+    },
+    [diagnostic],
+  ));
+  await nextTurn();
+  await nextTurn();
+  await invoke("scene-priority-terminal-duplicate");
+  await nextTurn();
+  const terminal = harness.sent.find((entry) => (
+    entry.message?.customType === "coc-semantic-readiness-private"
+    && entry.message?.details?.reason === "scene_priority_terminal"
+  ));
+  const repairReadiness = [...harness.appended].reverse().find((entry) => (
+    entry.name === "coc-semantic-readiness"
+    && entry.value?.campaign_id === campaignId
+  ));
+  check("terminal priority failure keeps repair evidence hidden and does not loop",
+    harness.launches.length === 1
+    && repairReadiness?.value?.semantic_compile?.status === "failed"
+    && terminal?.message?.display === false
+    && terminal?.message?.details?.scene_priority?.hard_gate === false
+    && terminal?.message?.details?.audience === "keeper_only");
+  await harness.shutdown();
+}
+
+// The same existing manager remains the only queue: an ordinary other-campaign
+// background packet may wait, but a current source-bound scene packet drains
+// first when the active child settles.
+{
+  const active = coordinatorTask("coord-scene-priority-active", {
+    campaignId: "scene-priority-active",
+  });
+  const other = coordinatorTask("coord-scene-priority-other", {
+    campaignId: "scene-priority-other",
+  });
+  const current = coordinatorTask("coord-scene-priority-current", {
+    campaignId: "scene-priority-current",
+  });
+  const harness = mainExtensionHarness((name, params) => {
+    if (name !== "coc_invoke" || params.operation !== "scene.context") {
+      throw new Error(`unexpected priority queue operation ${params.operation}`);
+    }
+    if (params.campaign === active.packet.campaign_id) return sceneContextResult(active);
+    if (params.campaign === other.packet.campaign_id) return sceneContextResult(other);
+    if (params.campaign === current.packet.campaign_id) {
+      return sourceBoundMissingSceneContext(current);
+    }
+    throw new Error(`unexpected priority queue campaign ${params.campaign}`);
+  });
+  await harness.start();
+  const invoke = (id, campaign) => harness.registered.get("coc_invoke").execute(
+    id,
+    { operation: "scene.context", root, campaign, arguments: {} },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await invoke("scene-priority-active", active.packet.campaign_id);
+  await nextTurn();
+  await invoke("scene-priority-other", other.packet.campaign_id);
+  await invoke("scene-priority-current", current.packet.campaign_id);
+  await nextTurn();
+  check("current scene priority is pending behind only the active child",
+    harness.launches.join(",") === active.packet.packet_id
+    && harness.controls.has(active.packet.packet_id));
+  harness.controls.get(active.packet.packet_id).resolve(
+    coordinatorEvents(active.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  check("other campaign background does not preempt current scene priority",
+    harness.launches.join(",")
+      === `${active.packet.packet_id},${current.packet.packet_id}`
+    && !harness.controls.has(other.packet.packet_id));
+  harness.controls.get(current.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(current.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  if (harness.controls.has(other.packet.packet_id)) {
+    harness.controls.get(other.packet.packet_id).resolve(
+      coordinatorEvents(other.packet.packet_id),
+    );
+  }
+  await harness.shutdown();
 }
 
 // A distinct packet is retained while A is active, then launched exactly once.

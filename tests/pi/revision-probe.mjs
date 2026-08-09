@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
+const coordinator = await import(path.join(root, "plugins/coc-keeper/pi/extensions/coordinator.ts"));
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "pi-revision-")));
 const instructionLeaf = path.join(root, "plugins/coc-keeper/agents/coc-source-pack-worker.md");
@@ -150,7 +151,7 @@ try {
   };
   const launchRuns = [fakeRun, secondRun];
   const capturedLaunches = [];
-  const manager = new runtime.CoordinatorDispatchManager((_task, context) => {
+  const manager = new coordinator.CoordinatorDispatchManager((_task, context) => {
     capturedLaunches.push(context);
     return launchRuns.shift();
   });
@@ -177,13 +178,13 @@ try {
     completion: new Promise(() => {}),
     terminate: async () => { activeShutdownTerminated = true; },
   };
-  const shutdownManager = new runtime.CoordinatorDispatchManager(() => activeRun);
+  const shutdownManager = new coordinator.CoordinatorDispatchManager(() => activeRun);
   await shutdownManager.submit(coordinatorTask(), launchOne);
   await shutdownManager.shutdown();
 
   let failureReject;
   const failureRun = { child: {}, terminate: async () => {}, activation: new Promise((_r, reject) => failureReject = reject), completion: Promise.resolve([]) };
-  const failureManager = new runtime.CoordinatorDispatchManager(() => failureRun);
+  const failureManager = new coordinator.CoordinatorDispatchManager(() => failureRun);
   const failurePromise = failureManager.submit(coordinatorTask(), launchOne).catch(() => null);
   failureReject(new Error("activation failed"));
   await failurePromise;

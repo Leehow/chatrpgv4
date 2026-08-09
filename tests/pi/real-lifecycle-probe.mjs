@@ -15,10 +15,12 @@
  *     - validates the fd-3 private handshake by loading coordinator.ts
  *       against the repository-produced pi_task (fail-closed on drift),
  *     - captures and asserts the isolation argv spawnPiChild constructs,
- *     - proves the MCP child (mcp/launch -> uv -> server.py) answers a
- *       read-only progressive.status call in the fresh workspace.
+ *     - proves the MCP child (mcp/launch -> uv -> server.py) exposes the
+ *       canonical opening-selection gate and accepts its exact planner card.
  *     It deliberately does NOT drive the lifecycle (faux model emits "{}"
- *     and never calls the tool), so it performs no claim/fulfill.
+ *     and never calls the tool), so it performs no claim/fulfill. Its MCP
+ *     round trip first verifies the canonical opening-selection gate, then
+ *     invokes the exact returned progressive.prepare_opening card.
  *
  *   run       (real model, consumes coding-relay tokens)
  *     - prepares a fresh isolated workspace with one claimable
@@ -172,18 +174,126 @@ async function readJobFile(workspace, assetRootId, jobId) {
   return null;
 }
 
-// Read-only MCP round trip against the fresh workspace (proves the child
-// transport used by the coordinator for claim/fulfill is reachable).
-async function mcpProgressiveStatus(workspace, campaignId) {
+function objectValue(value, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value;
+}
+
+function exactKeys(value, keys, label) {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(`${label} key contract drift: ${actual.join(",")}`);
+  }
+}
+
+function openingSelectionCard(error, campaignId, assetRootId) {
+  if (!(error instanceof runtime.CanonicalToolError)) {
+    throw new Error("progressive.status did not return a canonical opening gate");
+  }
+  const envelope = objectValue(error.envelope, "opening gate envelope");
+  const errorValue = objectValue(envelope.error, "opening gate error");
+  const details = objectValue(errorValue.details, "opening gate details");
+  if (
+    envelope.ok !== false
+    || envelope.tool !== "progressive.status"
+    || errorValue.code !== "opening_setup_incomplete"
+  ) throw new Error("progressive.status opening gate contract drift");
+  exactKeys(details, [
+    "schema_version", "status", "hard_gate", "activation_allowed", "phase",
+    "campaign_id", "asset_root_id", "next_operation", "instruction",
+  ], "opening gate details");
+  if (
+    details.schema_version !== 1
+    || details.status !== "blocked"
+    || details.hard_gate !== true
+    || details.activation_allowed !== false
+    || details.phase !== "opening_selection"
+    || details.campaign_id !== campaignId
+    || details.asset_root_id !== assetRootId
+    || typeof details.instruction !== "string"
+    || !details.instruction.trim()
+  ) throw new Error("progressive.status opening gate details drift");
+  const card = objectValue(details.next_operation, "opening gate next_operation");
+  exactKeys(card, [
+    "operation", "invoke_via", "prefilled_arguments", "missing_arguments",
+    "hard_gate", "authority", "reason", "contract_ref", "discovery_required",
+  ], "opening gate next_operation");
+  const prefilled = objectValue(card.prefilled_arguments, "opening gate prefilled_arguments");
+  exactKeys(prefilled, [], "opening gate prefilled_arguments");
+  if (
+    card.operation !== "progressive.prepare_opening"
+    || card.invoke_via !== "coc_invoke"
+    || !Array.isArray(card.missing_arguments)
+    || card.missing_arguments.length !== 0
+    || card.hard_gate !== true
+    || card.authority !== "canonical_setup"
+    || card.discovery_required !== false
+    || typeof card.reason !== "string"
+    || !card.reason.trim()
+    || typeof card.contract_ref !== "string"
+    || !/^progressive\.prepare_opening@[a-f0-9]{16}$/.test(card.contract_ref)
+  ) throw new Error("progressive.status opening selection card drift");
+  return { envelope, details, card };
+}
+
+// Read-only MCP round trip against the fresh workspace. The status call must
+// expose the strict canonical opening gate; the probe then follows the exact
+// returned planner card, proving the same child transport is reachable without
+// bypassing setup or claiming/fulfilling source work.
+async function mcpOpeningPreparationRoundTrip(workspace, campaignId, assetRootId) {
   const client = new runtime.McpJsonlClient(workspace, `pi-probe-${mode}-${process.pid}`);
   try {
-    const envelope = await client.callTool("coc_invoke", {
-      operation: "progressive.status",
+    let gate;
+    try {
+      await client.callTool("coc_invoke", {
+        operation: "progressive.status",
+        root: workspace,
+        campaign: campaignId,
+        arguments: {},
+      });
+      throw new Error("progressive.status unexpectedly bypassed opening_selection");
+    } catch (error) {
+      gate = openingSelectionCard(error, campaignId, assetRootId);
+    }
+    const card = gate.card;
+    const prepared = await client.callTool("coc_invoke", {
+      operation: card.operation,
       root: workspace,
       campaign: campaignId,
-      arguments: {},
+      arguments: structuredClone(card.prefilled_arguments),
     });
-    return { ok: envelope.ok === true, data: envelope.data ?? null };
+    const data = objectValue(prepared.data, "progressive.prepare_opening data");
+    const candidates = Array.isArray(data.start_candidates)
+      ? data.start_candidates
+      : [];
+    const selected = typeof data.selected_start_location_id === "string"
+      ? data.selected_start_location_id
+      : "";
+    if (
+      prepared.ok !== true
+      || prepared.tool !== "progressive.prepare_opening"
+      || data.schema_version !== 1
+      || data.component_ready !== true
+      || data.skeleton_ready !== true
+      || data.asset_root_id !== assetRootId
+      || !selected
+      || !candidates.some((candidate) => (
+        objectValue(candidate, "progressive.prepare_opening candidate").location_id === selected
+      ))
+    ) throw new Error("exact progressive.prepare_opening card did not yield canonical planner data");
+    return {
+      gate: {
+        code: "opening_setup_incomplete",
+        phase: gate.details.phase,
+        hard_gate: gate.details.hard_gate,
+        next_operation: structuredClone(card),
+      },
+      prepare_ok: true,
+      selected_start_location_id: selected,
+    };
   } finally {
     await client.close();
   }
@@ -232,21 +342,28 @@ async function precheckMode(prepared, workspace, probeTemp, cliVersion) {
   const providerCalls = (await fs.readFile(counterFile, "utf8")).split("\n").filter(Boolean).length;
   const isolation = coordinatorIsolation(coordinatorArgs, piTask);
 
-  // The faux run must not have claimed or fulfilled anything.
+  log("[precheck] verifying canonical opening gate and exact prepare card over MCP");
+  const mcp = await mcpOpeningPreparationRoundTrip(
+    workspace,
+    prepared.campaign_id,
+    prepared.asset_root_id,
+  );
+
+  // Neither the faux child nor the read-only planner card may claim or fulfill.
   const jobAfter = await readJobFile(workspace, prepared.asset_root_id, prepared.job_id);
   const stillClaimable = Boolean(jobAfter)
     && jobAfter.status !== "fulfilled"
     && jobAfter.dispatch_state !== "leased";
-
-  log("[precheck] probing MCP child transport (read-only progressive.status)");
-  const mcp = await mcpProgressiveStatus(workspace, prepared.campaign_id);
 
   const checks = {
     cli_activated: activationType !== null,
     cli_exit_clean: exitClean,
     handshake_validated: exitClean && isolation.has_coordinator_extension,
     provider_called: providerCalls >= 1,
-    mcp_connected: mcp.ok,
+    mcp_opening_gate_verified: mcp.gate.code === "opening_setup_incomplete"
+      && mcp.gate.phase === "opening_selection"
+      && mcp.gate.hard_gate === true,
+    mcp_prepare_opening_round_trip: mcp.prepare_ok,
     still_claimable: stillClaimable,
     ...isolation,
   };
@@ -259,7 +376,9 @@ async function precheckMode(prepared, workspace, probeTemp, cliVersion) {
     },
     checks,
     coordinator_args: coordinatorArgs,
-    mcp_status_ok: mcp.ok,
+    mcp_opening_gate: mcp.gate,
+    mcp_prepare_opening_ok: mcp.prepare_ok,
+    selected_start_location_id: mcp.selected_start_location_id,
     job_dispatch_state_after: jobAfter?.dispatch_state ?? null,
   };
 }

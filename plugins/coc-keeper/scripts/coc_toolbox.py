@@ -16830,7 +16830,7 @@ def _fulfill_host_work_for_asset_unlocked(
                 }
         except (ValueError, assets_mod.ModuleAssetsError) as exc:
             raise ToolError("invalid_source_worker_pack", str(exc)) from exc
-        return {"ok": True, "job_id": job_id, "kind": job_kind, **data}
+        return {"ok": True, "job_id": job_id, "kind": job_kind, **data}, [], []
     mechanics_job = job_kind in _mechanics_jobs()
     entity_kind = assets_mod._job_entity_kind(job_kind)
     target_id = str(request.get("target_id") or "").strip()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import importlib.util
 import hashlib
+from copy import deepcopy
 import io
 import json
 import os
@@ -33,6 +34,17 @@ def _node(script: Path, *args: str, env: dict[str, str] | None = None) -> dict:
 def _load_toolbox():
     path = PLUGIN / "scripts" / "coc_toolbox.py"
     spec = importlib.util.spec_from_file_location("coc_toolbox_pi_revision", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_module_sections():
+    path = PLUGIN / "scripts" / "coc_module_sections.py"
+    spec = importlib.util.spec_from_file_location(
+        "coc_module_sections_pi_fixture", path,
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -1486,7 +1498,8 @@ def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
     }
 
 
-def test_pi_auto_dispatch_uses_named_paths_and_bounded_pending_queues():
+def test_pi_auto_dispatch_uses_named_paths_bounded_queues_and_scene_priority():
+    """The Node contract includes Pi-only source-bound scene priority."""
     completed = subprocess.run(
         ["node", "--experimental-strip-types", str(ROOT / "tests/pi/auto-dispatch-smoke.mjs"), str(ROOT)],
         cwd=ROOT, check=True, capture_output=True, text=True,
@@ -1505,6 +1518,124 @@ def test_pi_raw_pdf_bind_dispatch_deduplicates_concurrent_retries():
         cwd=ROOT, check=True, capture_output=True, text=True,
     )
     assert completed.stdout.strip() == "raw-pdf-bind dedup smoke OK"
+
+
+def test_pi_cold_harvest_classify_sections_empty_entity_fixture_contract():
+    """Keep the observed Pi failure shape without retaining source prose."""
+    fixture = json.loads((
+        ROOT / "tests/pi/fixtures/cold-harvest-classify-sections-empty-entity.json"
+    ).read_text(encoding="utf-8"))
+    sections_module = _load_module_sections()
+    assert fixture["scope"] == "pi-coc"
+    assert fixture["source_content_omitted"] == [
+        "titles", "pdf_indices", "source_text", "source_specific_entity_ids",
+    ]
+    assert fixture["correction_contract"]["legal_resolutions"] == [
+        "entity_with_existing_entity_id", "global", "unresolved_omit_section",
+    ]
+
+    row_fields = {
+        "section_id", "audience", "timing", "payload", "binding", "confidence",
+    }
+
+    def materialize(rows: list[dict]) -> tuple[dict, list[dict]]:
+        # The fixture intentionally carries no module title, page, or entity-id
+        # content. These inert slots only satisfy the canonical row shape.
+        candidates: list[dict] = []
+        materialized: list[dict] = []
+        for index, source_row in enumerate(rows):
+            title = f"fixture-section-{index:03d}"
+            candidates.append({
+                "section_id": source_row["section_id"],
+                "title": title,
+                "pdf_index": index,
+            })
+            materialized.append({
+                **deepcopy(source_row),
+                "title": title,
+                "pdf_indices": [index],
+            })
+        return {"candidates": candidates, "page_count": len(rows)}, materialized
+
+    for attempt in fixture["attempts"]:
+        observed_rows = attempt["sections"]
+        expected = attempt["expected"]
+        assert attempt["toolbox_error"] == "invalid_source_worker_pack"
+        assert len(observed_rows) == expected["row_count"]
+        assert all(set(row) == row_fields for row in observed_rows)
+        assert all(set(row["binding"]) == {
+            "kind", "entity_kind", "entity_ids",
+        } for row in observed_rows)
+        assert all(row["binding"]["entity_ids"] == [] for row in observed_rows)
+        empty_entities = [
+            (index, row) for index, row in enumerate(observed_rows)
+            if row["binding"]["kind"] == "entity"
+            and row["binding"]["entity_ids"] == []
+        ]
+        assert len(empty_entities) == expected["empty_entity_count"]
+        first_index, first_row = empty_entities[0]
+        assert first_index == 6
+        assert first_row["section_id"] == expected["first_error"]["section_id"]
+        assert expected["first_error"]["path"] == f"sections[{first_index}].binding"
+        request, result_rows = materialize(observed_rows)
+        with pytest.raises(sections_module.SectionIndexError) as exc_info:
+            sections_module.validate_section_rows(result_rows, request=request)
+        assert str(exc_info.value) == expected["first_error"]["message"]
+
+    correction = fixture["correction_contract"]
+    global_binding = {
+        "kind": "global", "entity_kind": None, "entity_ids": [],
+    }
+    assert sections_module._validate_binding(
+        global_binding, prefix="correction.global",
+    ) == global_binding
+    known_entity_ids = {
+        entity_kind: set(entity_ids)
+        for entity_kind, entity_ids in correction[
+            "test_only_existing_entity_ids"
+        ].items()
+    }
+
+    def is_existing_entity_binding(binding: dict) -> bool:
+        entity_kind = binding.get("entity_kind")
+        entity_ids = binding.get("entity_ids")
+        return (
+            binding.get("kind") == "entity"
+            and isinstance(entity_kind, str)
+            and isinstance(entity_ids, list)
+            and bool(entity_ids)
+            and set(entity_ids) <= known_entity_ids.get(entity_kind, set())
+        )
+
+    for entity_kind, entity_ids in known_entity_ids.items():
+        entity_id = next(iter(entity_ids))
+        assert entity_id.startswith("fixture-existing-")
+        binding = {
+            "kind": "entity",
+            "entity_kind": entity_kind,
+            "entity_ids": [entity_id],
+        }
+        assert is_existing_entity_binding(binding)
+        assert sections_module._validate_binding(
+            binding, prefix=f"correction.{entity_kind}",
+        ) == binding
+    assert not is_existing_entity_binding({
+        "kind": "entity",
+        "entity_kind": "location",
+        "entity_ids": ["fixture-unregistered-location"],
+    })
+
+    # In this contract, unresolved means omitting a candidate, not inventing an
+    # entity id or a third binding kind. The canonical validator accepts it.
+    assert correction["unresolved_representation"] == "omit_section_row"
+    request, result_rows = materialize(fixture["attempts"][0]["sections"][:7])
+    unresolved_section_id = result_rows[-1]["section_id"]
+    validated = sections_module.validate_section_rows(
+        result_rows[:-1], request=request,
+    )
+    assert unresolved_section_id not in {
+        row["section_id"] for row in validated
+    }
 
 
 def test_real_node22_preactivation_failures_are_owned_and_cleaned():

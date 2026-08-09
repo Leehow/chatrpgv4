@@ -11058,6 +11058,244 @@ def _opening_component_workspace(
     }
 
 
+def test_structure_fulfill_gateway_returns_standard_tuple_without_replaying_effects(
+    tmp_path: Path, monkeypatch,
+):
+    """Claimed section work must use the ordinary typed gateway envelope."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(
+        tmp_path,
+        extra_pdf_indices=(1, 2),
+        source_page_count=3,
+    )
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    monkeypatch.setenv("COC_HOST", "pi")
+    monkeypatch.setenv("COC_PI_HEADLESS", "1")
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_structure_gateway_tuple",
+        "coc_module_queue_worker.py",
+    )
+    outline_store = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_outline_store_structure_gateway_tuple",
+        "coc_module_outline_store.py",
+    )
+    _write_json(
+        assets._module_dir(ws["workspace"], ws["asset_root_id"])
+        / outline_store.OUTLINE_NAME,
+        {
+            "schema_version": 1,
+            "contract_id": "coc.source-outline.v1",
+            "producer": "host_outline",
+            "confidence_class": "exact",
+            "source_id": "pdf:opening-component",
+            "file_sha256": ws["file_sha256"],
+            "outline_sha256": "a" * 64,
+            "page_count": 3,
+            "rows": [
+                {
+                    "pdf_index": 1,
+                    "order": 1,
+                    "text": "Keeper Background",
+                    "weight": 18.0,
+                    "emphasis": False,
+                    "size_rank": 1,
+                },
+            ],
+        },
+    )
+    consumer_refs = [assets.campaign_consumer_ref(
+        ws["workspace"],
+        ws["campaign_id"],
+        ws["asset_root_id"],
+        intent_kind="section_pass",
+    )]
+
+    def materialize(kind: str, target_id: str) -> str:
+        queued = assets.enqueue_job(
+            ws["workspace"],
+            ws["asset_root_id"],
+            kind=kind,
+            target_id=target_id,
+            priority=60,
+            reason="structure gateway tuple regression",
+            consumer_refs=consumer_refs,
+            kick_worker=False,
+        )
+        job_id = queued["job"]["job_id"]
+        produced = worker.run_worker_once(ws["workspace"], parallel=1)
+        assert produced["claimed"] == 1, produced
+        queue = assets.list_queue(ws["workspace"], ws["asset_root_id"])
+        assert not any(
+            row["job_id"] == job_id
+            for bucket in ("pending", "in_flight")
+            for row in queue[bucket]
+        )
+        done = [row for row in queue["done"] if row["job_id"] == job_id]
+        assert len(done) == 1
+        assert done[0]["result"] == "awaiting_host_pack"
+        return job_id
+
+    def claim_one() -> dict:
+        claimed = _run(ws, "progressive.claim_host_work", {
+            "executor_id": "pi-structure-gateway-test",
+            "limit": 1,
+            "result_delivery": "return_to_parent",
+        })
+        assert claimed["ok"] is True, claimed
+        packets = claimed["data"]["packets"]
+        assert len(packets) == 1
+        assert len(packets[0]["requests"]) == 1
+        return packets[0]["requests"][0]
+
+    classify_job_id = materialize(
+        assets.CLASSIFY_SECTIONS_KIND,
+        assets.SECTION_INDEX_TARGET_ID,
+    )
+    classify_request = claim_one()
+    assert classify_request["job_id"] == classify_job_id
+    candidate = classify_request["classification_request"]["candidates"][0]
+    valid_row = {
+        "section_id": candidate["section_id"],
+        "title": candidate["title"],
+        "pdf_indices": [candidate["pdf_index"]],
+        "audience": "keeper_only",
+        "timing": "on_demand",
+        "payload": "narrative",
+        "binding": {"kind": "global", "entity_kind": None, "entity_ids": []},
+        "confidence": "high",
+    }
+    # Mirrors the new Pi semantic E2E failure shape: a classifier may not
+    # name an entity binding without an existing canonical entity id.
+    invalid_row = deepcopy(valid_row)
+    invalid_row["binding"] = {
+        "kind": "entity",
+        "entity_kind": "location",
+        "entity_ids": [],
+    }
+    invalid = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": classify_job_id,
+            "pack": {"sections": [invalid_row]},
+            "related_packs": [],
+        },
+    })
+    assert invalid["ok"] is False
+    assert invalid["error"]["code"] == "invalid_source_worker_pack"
+    assert assets.read_section_index(ws["workspace"], ws["asset_root_id"]) is None
+    assert assets.get_host_work_request(
+        ws["workspace"], ws["asset_root_id"], classify_job_id,
+    ).get("status") != "fulfilled"
+
+    classified = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": classify_job_id,
+            "pack": {"sections": [valid_row]},
+            "related_packs": [],
+        },
+    })
+    assert classified["ok"] is True, classified
+    assert set(classified["data"]) == {
+        "ok", "job_id", "kind", "section_count", "coverage",
+    }
+    assert classified["data"]["ok"] is True
+    assert classified["data"]["job_id"] == classify_job_id
+    assert classified["data"]["kind"] == assets.CLASSIFY_SECTIONS_KIND
+    assert classified["data"]["section_count"] == 1
+    assert classified["warnings"] == []
+    assert classified["hints"] == []
+    index_path = assets.section_index_path(ws["workspace"], ws["asset_root_id"])
+    index_before_replay = index_path.read_bytes()
+    index = assets.read_section_index(ws["workspace"], ws["asset_root_id"])
+    assert index["sections"] == [{**valid_row, "parse_state": "indexed"}]
+    assert assets.get_host_work_request(
+        ws["workspace"], ws["asset_root_id"], classify_job_id,
+    )["status"] == "fulfilled"
+
+    # A retry after canonical closure must not reapply a section-index write.
+    classify_replay = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": classify_job_id,
+            "pack": {"sections": [valid_row]},
+            "related_packs": [],
+        },
+    })
+    assert classify_replay["ok"] is False
+    assert classify_replay["error"]["code"] == "invalid_state"
+    assert index_path.read_bytes() == index_before_replay
+
+    extract_job_id = materialize(assets.EXTRACT_SECTION_KIND, valid_row["section_id"])
+    extract_request = claim_one()
+    assert extract_request["job_id"] == extract_job_id
+    extraction = extract_request["extraction_request"]
+    extracted = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": extract_job_id,
+            "pack": {
+                "section_id": valid_row["section_id"],
+                "pack_kind": "keeper_truth",
+                "title": valid_row["title"],
+                "body_markdown": "Bounded faithful section body.",
+                "highlights": ["Structure gateway regression fixture."],
+                "source_refs": [{
+                    "source_id": extraction["source_id"],
+                    "pdf_index": extraction["requested_pdf_indices"][0],
+                }],
+            },
+            "related_packs": [],
+        },
+    })
+    assert extracted["ok"] is True, extracted
+    assert set(extracted["data"]) == {
+        "ok", "job_id", "kind", "section_id", "pack_kind", "body_path",
+    }
+    assert extracted["data"]["ok"] is True
+    assert extracted["data"]["job_id"] == extract_job_id
+    assert extracted["data"]["kind"] == assets.EXTRACT_SECTION_KIND
+    assert extracted["data"]["section_id"] == valid_row["section_id"]
+    assert extracted["data"]["pack_kind"] == "keeper_truth"
+    assert Path(extracted["data"]["body_path"]).is_file()
+    assert extracted["warnings"] == []
+    assert extracted["hints"] == []
+    assert assets.get_host_work_request(
+        ws["workspace"], ws["asset_root_id"], extract_job_id,
+    )["status"] == "fulfilled"
+    resolved = assets.read_section_index(ws["workspace"], ws["asset_root_id"])
+    assert resolved["sections"][0]["parse_state"] == "resolved"
+    assert assets.get_section_pack(
+        ws["workspace"], ws["asset_root_id"], valid_row["section_id"],
+    )["body_present"] is True
+
+    extract_body = Path(extracted["data"]["body_path"])
+    extract_before_replay = extract_body.read_bytes()
+    extract_replay = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": extract_job_id,
+            "pack": {
+                "section_id": valid_row["section_id"],
+                "pack_kind": "keeper_truth",
+                "title": valid_row["title"],
+                "body_markdown": "Bounded faithful section body.",
+                "highlights": ["Structure gateway regression fixture."],
+                "source_refs": [{
+                    "source_id": extraction["source_id"],
+                    "pdf_index": extraction["requested_pdf_indices"][0],
+                }],
+            },
+            "related_packs": [],
+        },
+    })
+    assert extract_replay["ok"] is False
+    assert extract_replay["error"]["code"] == "invalid_state"
+    assert extract_body.read_bytes() == extract_before_replay
+
+
 def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
     ready = [
         {
@@ -13884,7 +14122,7 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         scenario_path.read_text(encoding="utf-8")
     )["source"]["bundle_sha256"]
 
-    def fake_pi(prompt: str, cwd: Path, *, timeout: int) -> dict:
+    def fake_pi(prompt: str, cwd: Path, *, timeout: int, shutdown=None) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         assert "challenge" not in prompt
         task = json.loads(prompt.splitlines()[-1])
@@ -14031,7 +14269,7 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
     )
     cached_before = cached_path.read_bytes()
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         task = json.loads(prompt.splitlines()[-1])
         output = Path(task["source_bundle_path"])
@@ -14109,7 +14347,7 @@ def test_pi_opening_review_adapter_rejects_changed_reused_page(
     )
     cached_before = cached_path.read_bytes()
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         task = json.loads(prompt.splitlines()[-1])
         output = Path(task["source_bundle_path"])
@@ -14177,7 +14415,7 @@ def test_pi_opening_review_adapter_splices_an_equivalent_raw_page_row_rewrite(
     cached_before = cached_path.read_bytes()
     captured: dict = {}
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         task = json.loads(prompt.splitlines()[-1])
         captured.update({"task": task})
@@ -14262,7 +14500,7 @@ def test_pi_opening_review_adapter_accepts_untouched_normalized_raw_page_row(
     cached_before = cached_path.read_bytes()
     captured: dict = {}
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         task = json.loads(prompt.splitlines()[-1])
         output_manifest = json.loads(
@@ -14322,7 +14560,7 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
         adapter, "_validate_opening_review_transport", lambda value: value,
     )
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         task = json.loads(prompt.splitlines()[-1])
         output = Path(task["source_bundle_path"])
@@ -14390,7 +14628,7 @@ def test_pi_opening_review_adapter_failed_producer_does_not_forge_fulfillment(
     )
     calls = []
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int) -> dict:
+    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
         calls.append((prompt, timeout))
         task = json.loads(prompt.splitlines()[-1])
         return {

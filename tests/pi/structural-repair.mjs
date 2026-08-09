@@ -8,6 +8,7 @@ import process from "node:process";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
+const coordinator = await import(path.join(root, "plugins/coc-keeper/pi/extensions/coordinator.ts"));
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "pi-structural-repair-")));
 const leafInstruction = path.join(root, "plugins/coc-keeper/agents/coc-source-pack-worker.md");
@@ -1060,7 +1061,7 @@ try {
     child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }),
     completion: new Promise((resolve) => complete = resolve),
   };
-  const manager = new runtime.CoordinatorDispatchManager(
+  const manager = new coordinator.CoordinatorDispatchManager(
     () => fakeRun,
     (receipt) => notifications.push(receipt),
     (observation) => lifecycle.push(observation),
@@ -1072,7 +1073,7 @@ try {
   const duplicateDiagnostic = await manager.submit(dispatchTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
   const absentNotifications = [], absentLifecycle = [];
   const absentTask = coordinatorTask("coord-manager-absent");
-  const absentManager = new runtime.CoordinatorDispatchManager(() => ({
+  const absentManager = new coordinator.CoordinatorDispatchManager(() => ({
     child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }), completion: Promise.resolve([]),
   }), (receipt) => absentNotifications.push(receipt), (observation) => absentLifecycle.push(observation));
   await absentManager.submit(absentTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
@@ -1093,7 +1094,7 @@ try {
   };
   let deferredManagerLaunchCount = 0;
   const deferredManagerLifecycle = [];
-  const deferredManager = new runtime.CoordinatorDispatchManager(
+  const deferredManager = new coordinator.CoordinatorDispatchManager(
     () => {
       deferredManagerLaunchCount += 1;
       return {
@@ -1127,7 +1128,7 @@ try {
     completion: Promise.resolve(coordinatorEvents({ ...managerReceipt, packet_id: "coord-manager-notify-failure" })),
   };
   const throwingLifecycle = [];
-  const throwingManager = new runtime.CoordinatorDispatchManager(
+  const throwingManager = new coordinator.CoordinatorDispatchManager(
     () => throwingRun,
     () => { throw new Error("notify failed"); },
     (observation) => throwingLifecycle.push(observation),
@@ -1136,7 +1137,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   const rejectedLifecycle = [];
-  const rejectedManager = new runtime.CoordinatorDispatchManager(() => ({
+  const rejectedManager = new coordinator.CoordinatorDispatchManager(() => ({
     child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }),
     completion: Promise.reject(new Error("raw provider completion text")),
   }), undefined, (observation) => rejectedLifecycle.push(observation));
@@ -1151,7 +1152,7 @@ try {
     completion: new Promise((resolve) => completeRace = resolve),
     terminate: () => new Promise((resolve) => terminateRelease = resolve),
   };
-  const raceManager = new runtime.CoordinatorDispatchManager(
+  const raceManager = new coordinator.CoordinatorDispatchManager(
     () => raceRun,
     undefined,
     (observation) => raceLifecycle.push(observation),

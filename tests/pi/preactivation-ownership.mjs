@@ -5,6 +5,7 @@ import process from "node:process";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
+const coordinator = await import(path.join(root, "plugins/coc-keeper/pi/extensions/coordinator.ts"));
 if (Number(process.versions.node.split(".")[0]) !== 22) {
   throw new Error(`real pre-activation ownership regression requires Node 22, got ${process.version}`);
 }
@@ -58,7 +59,7 @@ function leafTask(packetId) {
 async function managerFailure(command, packetId, abort) {
   process.env.COC_PI_COMMAND = command;
   let launched;
-  const manager = new runtime.CoordinatorDispatchManager((task, context, signal) => {
+  const manager = new coordinator.CoordinatorDispatchManager((task, context, signal) => {
     launched = runtime.spawnPiChild({ role: "coordinator", task, ...context, signal });
     return launched;
   });

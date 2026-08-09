@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Event, Thread, current_thread
 
 import pytest
 
@@ -1287,6 +1289,130 @@ def test_selected_opening_projection_repairs_stale_pristine_slice(
         row.get("to") == "campaign-local-room"
         for row in repaired_scene["scene_edges"]
     )
+
+
+def test_projection_lock_waits_for_worker_and_revalidates_final_slice(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """Opening projection must share the worker's canonical IR writer lock."""
+    ready = _ready_selected_opening_projection(tmp_path)
+    camp = ready["campaign_dir"]
+    npc_path = camp / "scenario" / "npc-agendas.json"
+    npc_doc = json.loads(npc_path.read_text(encoding="utf-8"))
+    opening_npc = next(
+        row for row in npc_doc["npcs"] if row["npc_id"] == "npc-patron"
+    )
+    opening_npc["display_name"] = "TAMPERED CURRENT DISPLAY"
+    npc_path.write_text(
+        json.dumps(npc_doc, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    assert project.opening_projection_state_is_fresh(
+        tmp_path, camp, "prog-demo", "opening", ready["source_scope"],
+    ) is False
+
+    lock_path = camp / ".progressive-ir.lock"
+    worker_wrote = Event()
+    release_worker = Event()
+    projection_lock_attempted = Event()
+    projection_read_started = Event()
+    projection_finished = Event()
+    worker_errors: list[BaseException] = []
+    projection_errors: list[BaseException] = []
+    projection_result: list[dict] = []
+    real_lock = project.coc_fileio.advisory_file_lock
+    real_load = project.load_campaign_ir
+
+    @contextmanager
+    def observed_lock(path: Path, *, wait_seconds=5.0, poll_seconds=0.01):
+        if (
+            Path(path) == lock_path
+            and current_thread().name == "projection-lock-test"
+        ):
+            projection_lock_attempted.set()
+        with real_lock(
+            path,
+            wait_seconds=wait_seconds,
+            poll_seconds=poll_seconds,
+        ) as held:
+            yield held
+
+    def observed_load(campaign_dir: Path):
+        if current_thread().name == "projection-lock-test":
+            projection_read_started.set()
+        return real_load(campaign_dir)
+
+    monkeypatch.setattr(project.coc_fileio, "advisory_file_lock", observed_lock)
+    monkeypatch.setattr(project, "load_campaign_ir", observed_load)
+
+    def worker_merge() -> None:
+        try:
+            # Match coc_module_queue_worker: hold progressive IR while it reads,
+            # merges, and writes campaign IR (which then takes opening lock).
+            with real_lock(lock_path, wait_seconds=15.0):
+                ir = real_load(camp)
+                ir = project.merge_deep_entity_into_ir(ir, "npc", {
+                    "npc_id": "npc-worker",
+                    "name": "Worker Merge",
+                    "agenda": "Preserve this unrelated worker merge.",
+                    "parse_state": "deep",
+                })
+                project.write_ir_to_campaign(camp, ir, asset_root_id="prog-demo")
+                worker_wrote.set()
+                assert release_worker.wait(10.0)
+        except BaseException as exc:  # preserve thread failures for assertion
+            worker_errors.append(exc)
+
+    def run_projection() -> None:
+        try:
+            projection_result.append(project.project_selected_opening(
+                tmp_path,
+                camp.name,
+                "prog-demo",
+                ready["identity"]["file_sha256"],
+                "opening",
+            ))
+        except BaseException as exc:  # preserve thread failures for assertion
+            projection_errors.append(exc)
+        finally:
+            projection_finished.set()
+
+    worker_thread = Thread(target=worker_merge, name="worker-lock-test")
+    projection_thread = Thread(
+        target=run_projection,
+        name="projection-lock-test",
+    )
+    worker_thread.start()
+    assert worker_wrote.wait(10.0)
+    projection_thread.start()
+    assert projection_lock_attempted.wait(10.0)
+    # The holder has not released the canonical worker lock, so the public
+    # projector may not read or derive its candidate slice yet.
+    assert projection_read_started.is_set() is False
+    assert projection_finished.is_set() is False
+
+    release_worker.set()
+    worker_thread.join(10.0)
+    projection_thread.join(10.0)
+    assert worker_thread.is_alive() is False
+    assert projection_thread.is_alive() is False
+    assert worker_errors == []
+    assert projection_errors == []
+    assert projection_result[0]["status"] == "complete"
+    assert project.opening_projection_state_is_fresh(
+        tmp_path, camp, "prog-demo", "opening", ready["source_scope"],
+    ) is True
+    final_ir = real_load(camp)
+    assert any(
+        row.get("npc_id") == "npc-worker"
+        for row in final_ir["npc-agendas.json"]["npcs"]
+    )
+    repaired_npc = next(
+        row for row in final_ir["npc-agendas.json"]["npcs"]
+        if row.get("npc_id") == "npc-patron"
+    )
+    assert repaired_npc["display_name"] != "TAMPERED CURRENT DISPLAY"
 
 
 def test_selected_opening_projection_refuses_stale_non_pristine_slice(

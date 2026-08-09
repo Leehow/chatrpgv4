@@ -3616,6 +3616,31 @@ def project_selected_opening(
     start_location_id: str,
     opening_pdf_indices: list[int] | None = None,
 ) -> dict[str, Any]:
+    """Atomically project one opening against canonical IR merge writers."""
+    campaign_dir = _campaign_dir(workspace, campaign_id)
+    # Keep the queue worker's canonical writer order: progressive IR first,
+    # then write_ir_to_campaign's opening-projection lock.
+    with coc_fileio.advisory_file_lock(
+        campaign_dir / ".progressive-ir.lock", wait_seconds=15.0,
+    ):
+        return _project_selected_opening_unlocked(
+            workspace,
+            campaign_id,
+            asset_root_id,
+            source_file_sha256,
+            start_location_id,
+            opening_pdf_indices,
+        )
+
+
+def _project_selected_opening_unlocked(
+    workspace: Path,
+    campaign_id: str,
+    asset_root_id: str,
+    source_file_sha256: str,
+    start_location_id: str,
+    opening_pdf_indices: list[int] | None = None,
+) -> dict[str, Any]:
     selected_argument = parse_opening_start_selector(
         start_location_id,
         required=True,

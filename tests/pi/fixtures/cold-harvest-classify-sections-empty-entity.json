@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.pi-classify-sections-empty-entity-fixture.v1",
+  "scope": "pi-coc",
+  "source_content_omitted": [
+    "titles",
+    "pdf_indices",
+    "source_text",
+    "source_specific_entity_ids"
+  ],
+  "attempts": [
+    {
+      "id": "fulfill-1",
+      "toolbox_error": "invalid_source_worker_pack",
+      "expected": {
+        "row_count": 39,
+        "empty_entity_count": 27,
+        "first_error": {
+          "path": "sections[6].binding",
+          "message": "sections[6].binding entity requires at least one entity id",
+          "section_id": "sec-000165"
+        }
+      },
+      "sections": [
+        {"section_id": "sec-000001", "audience": "mixed", "timing": "pre_session", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000009", "audience": "mixed", "timing": "pre_session", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000018", "audience": "keeper_only", "timing": "pre_session", "payload": "table", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000034", "audience": "keeper_only", "timing": "opening", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "med"},
+        {"section_id": "sec-000046", "audience": "keeper_only", "timing": "pre_session", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000160", "audience": "mixed", "timing": "pre_session", "payload": "procedure", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000165", "audience": "player_facing", "timing": "opening", "payload": "handout", "binding": {"kind": "entity", "entity_kind": "handout", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000179", "audience": "player_facing", "timing": "on_demand", "payload": "handout", "binding": {"kind": "entity", "entity_kind": "handout", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000235", "audience": "keeper_only", "timing": "opening", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000289", "audience": "keeper_only", "timing": "on_demand", "payload": "setting_lore", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000329", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000362", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000408", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000410", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000412", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000414", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000423", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000426", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000428", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000430", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000432", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000434", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000438", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000441", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000445", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000447", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000454", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000456", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000458", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000460", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000462", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000528", "audience": "keeper_only", "timing": "on_demand", "payload": "procedure", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000568", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "threat", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000577", "audience": "keeper_only", "timing": "resolution", "payload": "procedure", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000620", "audience": "keeper_only", "timing": "on_demand", "payload": "entity_stats", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000747", "audience": "keeper_only", "timing": "on_demand", "payload": "entity_stats", "binding": {"kind": "entity", "entity_kind": "threat", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000826", "audience": "player_facing", "timing": "pre_session", "payload": "character_sheet", "binding": {"kind": "entity", "entity_kind": "npc", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000847", "audience": "player_facing", "timing": "pre_session", "payload": "character_sheet", "binding": {"kind": "entity", "entity_kind": "npc", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000871", "audience": "player_facing", "timing": "pre_session", "payload": "character_sheet", "binding": {"kind": "entity", "entity_kind": "npc", "entity_ids": []}, "confidence": "med"}
+      ]
+    },
+    {
+      "id": "fulfill-2",
+      "toolbox_error": "invalid_source_worker_pack",
+      "expected": {
+        "row_count": 16,
+        "empty_entity_count": 5,
+        "first_error": {
+          "path": "sections[6].binding",
+          "message": "sections[6].binding entity requires at least one entity id",
+          "section_id": "sec-000289"
+        }
+      },
+      "sections": [
+        {"section_id": "sec-000001", "audience": "keeper_only", "timing": "pre_session", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000009", "audience": "keeper_only", "timing": "pre_session", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "med"},
+        {"section_id": "sec-000018", "audience": "keeper_only", "timing": "pre_session", "payload": "table", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000046", "audience": "keeper_only", "timing": "pre_session", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000160", "audience": "mixed", "timing": "opening", "payload": "procedure", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000235", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000289", "audience": "keeper_only", "timing": "on_demand", "payload": "setting_lore", "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000329", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000362", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000528", "audience": "keeper_only", "timing": "on_demand", "payload": "procedure", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000568", "audience": "keeper_only", "timing": "on_demand", "payload": "narrative", "binding": {"kind": "entity", "entity_kind": "threat", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000577", "audience": "keeper_only", "timing": "resolution", "payload": "procedure", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000620", "audience": "keeper_only", "timing": "on_demand", "payload": "entity_stats", "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000826", "audience": "player_facing", "timing": "pre_session", "payload": "character_sheet", "binding": {"kind": "entity", "entity_kind": "npc", "entity_ids": []}, "confidence": "high"},
+        {"section_id": "sec-000847", "audience": "player_facing", "timing": "pre_session", "payload": "character_sheet", "binding": {"kind": "entity", "entity_kind": "npc", "entity_ids": []}, "confidence": "med"},
+        {"section_id": "sec-000871", "audience": "player_facing", "timing": "pre_session", "payload": "character_sheet", "binding": {"kind": "entity", "entity_kind": "npc", "entity_ids": []}, "confidence": "high"}
+      ]
+    }
+  ],
+  "correction_contract": {
+    "test_only_existing_entity_ids": {
+      "handout": ["fixture-existing-handout"],
+      "location": ["fixture-existing-location"],
+      "npc": ["fixture-existing-npc"],
+      "threat": ["fixture-existing-threat"]
+    },
+    "legal_resolutions": [
+      "entity_with_existing_entity_id",
+      "global",
+      "unresolved_omit_section"
+    ],
+    "unresolved_representation": "omit_section_row"
+  }
+}
