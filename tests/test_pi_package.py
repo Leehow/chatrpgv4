@@ -1738,7 +1738,8 @@ time.sleep(10)
     while not started.is_file() and time.monotonic() < deadline:
         time.sleep(0.02)
     assert started.is_file()
-    # Wait until grandchild PID is published so we can assert it is reaped.
+    # Grandchild starts after fake Pi marks ready; wait until its PID is
+    # published so the reap assertion observes a real descendant.
     deadline = time.monotonic() + 3
     while not child_pid_path.is_file() and time.monotonic() < deadline:
         time.sleep(0.02)
@@ -1746,7 +1747,9 @@ time.sleep(10)
     child_pid = int(child_pid_path.read_text(encoding="utf-8"))
     process.send_signal(signal.SIGTERM)
     assert process.wait(timeout=5) != 0
-    # Grandchild must be gone before its 1.2s survivor write can land.
+    # First prove the process group is reaped, then pass the grandchild's
+    # 1.2s write deadline: absence of the survivor file is not a timing-only
+    # false positive.
     deadline = time.monotonic() + 1.0
     while time.monotonic() < deadline:
         try:
@@ -1756,6 +1759,7 @@ time.sleep(10)
         time.sleep(0.02)
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+    time.sleep(1.3)
     assert not survivor.exists()
 
 
