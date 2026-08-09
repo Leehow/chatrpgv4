@@ -8059,6 +8059,257 @@ for (const terminalCase of [
   await harness.shutdown();
 }
 
+// A stale in-memory table-opening route must yield to the newest canonical
+// freshness gate. The refresh runs without a Pi restart, then re-arms exactly
+// one table-opening receipt; its current-dependency snapshot also executes the
+// retired-helper regression path.
+{
+  const campaignId = "opening-refresh-without-restart";
+  const investigatorId = "opening-refresh-investigator";
+  const task = coordinatorTask("opening-refresh-current", { campaignId });
+  const refreshCard = {
+    operation: "progressive.project_opening",
+    invoke_via: "coc_invoke",
+    prefilled_arguments: {
+      asset_root_id: task.packet.asset_root_id,
+      source_file_sha256: "a".repeat(64),
+      start_location_id: "opening",
+    },
+    missing_arguments: [],
+    hard_gate: true,
+    authority: "canonical_setup",
+    reason: "refresh the stale opening projection",
+  };
+  const freshnessGate = {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_source_materialization",
+    campaign_id: campaignId,
+    asset_root_id: task.packet.asset_root_id,
+    source_lifecycle_status: "complete",
+    next_operation: refreshCard,
+    instruction: "invoke the exact canonical opening projection refresh card",
+  };
+  const freshnessEnvelope = {
+    ok: false,
+    tool: "evidence.table_opening",
+    error: {
+      code: "opening_setup_incomplete",
+      message: "opening projection is no longer fresh",
+      details: freshnessGate,
+    },
+  };
+  const openingText = [
+    "[in_game]",
+    "重投影后的唯一权威开场。",
+    "[/in_game]",
+  ].join("\n");
+  let evidenceCalls = 0;
+  const harness = mainExtensionHarness((name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult(campaignId);
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) return canonicalGuidedCreateResult(investigatorId);
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) return canonicalLinkSetupResult(campaignId, [investigatorId]);
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapWithoutTakeover(task, "current");
+    }
+    if (params.operation === "progressive.project_opening") {
+      return {
+        ok: true,
+        tool: "progressive.project_opening",
+        data: {
+          status: "current",
+          progressive: {
+            campaign_id: campaignId,
+            current_dependency_snapshot_complete: true,
+            current_dependency_waits: [],
+            current_dependency_dispatches: [],
+          },
+        },
+      };
+    }
+    if (params.operation === "evidence.table_opening") {
+      evidenceCalls += 1;
+      if (evidenceCalls === 1) {
+        throw new runtime.CanonicalToolError(
+          "coc_invoke",
+          "opening_setup_incomplete",
+          "canonical coc_invoke failed: opening_setup_incomplete",
+          freshnessGate,
+          freshnessEnvelope,
+        );
+      }
+      return {
+        ok: true,
+        tool: "evidence.table_opening",
+        data: {
+          turn: 0,
+          text: openingText,
+          text_sha256: `sha256:${createHash("sha256").update(
+            JSON.stringify(openingText),
+          ).digest("hex")}`,
+          authoritative_time_anchor: {
+            schema_version: 1,
+            display: "重投影后的清晨",
+            rendered_line: "【开场时间】重投影后的清晨",
+          },
+        },
+      };
+    }
+    throw new Error(`unexpected refresh operation ${name}:${params.operation}`);
+  }, { coordinatorEnabled: async () => false });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness, campaignId);
+  const bootstrapped = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "opening-refresh-bootstrap",
+    bootstrapOpeningParams(campaignId),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  await harness.registered.get("coc_invoke").execute(
+    "opening-refresh-create",
+    guidedQuickFireCreateParams(campaignId, investigatorId),
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await harness.registered.get("coc_invoke").execute(
+    "opening-refresh-link",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: campaignId,
+          investigator_ids: [investigatorId],
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const openingParams = {
+    operation: "evidence.table_opening",
+    campaign: campaignId,
+    arguments: {
+      text: openingText,
+      run_id: "opening-refresh-run",
+      presented_roll_ids: [],
+      decision_id: "opening-refresh-evidence",
+    },
+  };
+  let canonicalFreshnessReturned = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "opening-refresh-stale-evidence",
+      openingParams,
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    canonicalFreshnessReturned = (
+      error instanceof runtime.CanonicalToolError
+      && error.code === "opening_setup_incomplete"
+      && error.details === freshnessGate
+    );
+  }
+  const callsBeforeBlockedScene = harness.calls.length;
+  let livePlayStillBlocked = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "opening-refresh-live-play-detour",
+      { operation: "scene.context", campaign: campaignId, arguments: {} },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    livePlayStillBlocked = String(error?.message ?? error).includes(
+      '"operation":"progressive.project_opening"',
+    );
+  }
+  const refreshed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "opening-refresh-project",
+    {
+      operation: "progressive.project_opening",
+      campaign: campaignId,
+      arguments: refreshCard.prefilled_arguments,
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  let duplicateProjectionRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "opening-refresh-duplicate-project",
+      {
+        operation: "progressive.project_opening",
+        campaign: campaignId,
+        arguments: refreshCard.prefilled_arguments,
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch {
+    duplicateProjectionRejected = true;
+  }
+  const recordedOpening = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "opening-refresh-final-evidence",
+    openingParams,
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("canonical freshness gate replaces stale evidence without restart",
+    bootstrapped.ok === true
+    && bootstrapped.data.status === "current"
+    && canonicalFreshnessReturned
+    && livePlayStillBlocked
+    && harness.calls.length === callsBeforeBlockedScene + 2
+    && refreshed.ok === true
+    && refreshed.data.next_operation?.operation === "evidence.table_opening"
+    && recordedOpening.ok === true
+    && recordedOpening.data.text === openingText
+    && duplicateProjectionRejected
+    && harness.calls.filter((call) => (
+      call.params.operation === "progressive.project_opening"
+    )).length === 1
+    && harness.calls.filter((call) => (
+      call.params.operation === "evidence.table_opening"
+    )).length === 2
+    && harness.launches.length === 0
+    && harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+      && entry.value.transition === "canonical_opening_projection_refresh"
+    )));
+  await harness.shutdown();
+}
+
 // Terminal source failure releases no projection call or invented opening.
 {
   const task = coordinatorTask("coord-main-opening-failure");

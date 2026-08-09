@@ -1813,6 +1813,113 @@ export class OpeningTerminalContinuationGate {
     };
   }
 
+  private exactCanonicalProjectionRefreshCard(
+    card: JsonObject | null,
+  ): boolean {
+    if (
+      card === null
+      || card.operation !== "progressive.project_opening"
+      || card.invoke_via !== "coc_invoke"
+      || card.hard_gate !== true
+      || card.authority !== "canonical_setup"
+      || !Array.isArray(card.missing_arguments)
+      || card.missing_arguments.length !== 0
+    ) return false;
+    const prefilled = objectOrNull(card.prefilled_arguments);
+    if (prefilled === null) return false;
+    const pages = prefilled.opening_pdf_indices;
+    if (!exactKeysMatch(
+      prefilled,
+      pages === undefined
+        ? ["asset_root_id", "source_file_sha256", "start_location_id"]
+        : [
+          "asset_root_id", "source_file_sha256", "start_location_id",
+          "opening_pdf_indices",
+        ],
+    )) return false;
+    return (
+      typeof prefilled.asset_root_id === "string"
+      && prefilled.asset_root_id.trim().length > 0
+      && typeof prefilled.source_file_sha256 === "string"
+      && prefilled.source_file_sha256.trim().length === 64
+      && typeof prefilled.start_location_id === "string"
+      && prefilled.start_location_id.trim().length > 0
+      && (
+        pages === undefined
+        || (
+          Array.isArray(pages)
+          && pages.length > 0
+          && pages.every((page) => (
+            Number.isInteger(page) && Number(page) >= 0
+          ))
+          && new Set(pages).size === pages.length
+        )
+      )
+    );
+  }
+
+  reconcileCanonicalOpeningRefresh(
+    params: JsonObject,
+    value: unknown,
+    invocationId: string,
+  ): boolean {
+    const attempt = this.openingSetupAttempts.get(invocationId);
+    const state = typeof params.campaign === "string"
+      ? this.openingSetupStates.get(params.campaign)
+      : undefined;
+    const envelope = objectOrNull(value);
+    const error = objectOrNull(envelope?.error);
+    const gate = objectOrNull(error?.details);
+    const route = gate === null ? null : this.routeFromGate(gate);
+    const card = route?.next_operation ?? null;
+    if (
+      attempt === undefined
+      || state === undefined
+      || !this.attemptMatchesState(attempt, state)
+      || attempt.attemptClass !== "route"
+      || attempt.operation !== "evidence.table_opening"
+      || state.phase !== "opening_evidence"
+      || state.characterSetupComplete !== true
+      || state.route.next_operation?.operation !== "evidence.table_opening"
+      || params.operation !== attempt.operation
+      || this.setupInvocationCampaignId(params) !== attempt.campaignId
+      || envelope?.ok !== false
+      || envelope.tool !== attempt.operation
+      || error?.code !== "opening_setup_incomplete"
+      || gate === null
+      || gate.campaign_id !== attempt.campaignId
+      || gate.source_lifecycle_status !== "complete"
+      || route === null
+      || route.phase !== "opening_source_materialization"
+      || route.campaign_id !== attempt.campaignId
+      || card === null
+      || !this.exactCanonicalProjectionRefreshCard(card)
+    ) return false;
+
+    this.supersedeOpeningSetupRevisionAttempts(state, invocationId);
+    this.finalizeOpeningSetupAttempt(invocationId);
+    state.route = route;
+    state.revision += 1;
+    state.phase = "projection";
+    state.projectionCard = structuredClone(card);
+    state.activationCard = null;
+    state.continuationReleaseOwner = null;
+    this.openingSetupContinuationQueued.delete(attempt.campaignId);
+    this.openingSetupVisibleOutputAuthorization = null;
+    this.recordOpeningSetupAudit({
+      status: "transitioned",
+      transition: "canonical_opening_projection_refresh",
+      campaign_id: attempt.campaignId,
+      generation: state.generation,
+      from_revision: attempt.revision,
+      to_revision: state.revision,
+      from_phase: "opening_evidence",
+      to_phase: route.phase,
+      invocation_id: invocationId,
+    });
+    return true;
+  }
+
   private exactPrepareCard(card: JsonObject | null): boolean {
     return (
       card !== null
@@ -7506,6 +7613,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && error.code === "opening_setup_incomplete"
         && error.details !== null
       );
+      const canonicalOpeningRefresh = (
+        name === "coc_invoke"
+        && error instanceof CanonicalToolError
+        && openingContinuationGate.reconcileCanonicalOpeningRefresh(
+          params,
+          error.envelope,
+          _id,
+        )
+      );
       const canonicalFailure = (
         startupResumeAttempt || directResumeRecovery
       )
@@ -7514,6 +7630,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (canonicalFailure.kind === "projected") {
         value = canonicalFailure.envelope;
       } else {
+        if (canonicalOpeningRefresh) {
+          flushOpeningSetupAudits();
+          throw error;
+        }
         if (startupResumeAttempt) {
           terminalizeStartupResume(
             canonicalFailure.kind === "invalid"
@@ -7921,24 +8041,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       const dependencyLifecycle = findCurrentDependencyLifecycle(value);
       if (dependencyLifecycle !== null) {
-        const dependencyProjectionBlocked = (
-          currentDependencyProjectionBlocked(value)
-        );
+        // The retired request_deepen transport owned the removed projection
+        // blocker/suppression helpers. Current dependency snapshots still own
+        // terminal suppression and dispatch dedupe through this gate below.
         openingContinuationGate.observeCurrentDependencySnapshot(
           dependencyLifecycle.campaignId,
           dependencyLifecycle.waits,
           dependencyLifecycle.snapshotScope,
-          dependencyProjectionBlocked,
         );
-        if (currentDependencyInvocationConsumes(
-          params,
-          dependencyLifecycle,
-        )) {
-          openingContinuationGate.armCurrentDependencySuppression(
-            _id,
-            dependencyLifecycle.campaignId,
-          );
-        }
         for (const dispatch of dependencyLifecycle.dispatches) {
           const dependencyId = String(dispatch.dependency_id ?? "").trim();
           const jobId = String(dispatch.job_id ?? "").trim();
