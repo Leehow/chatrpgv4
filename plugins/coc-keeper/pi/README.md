@@ -36,7 +36,11 @@ pi --no-builtin-tools --approve --no-context-files \
 ```
 
 Built-in coding tools (`read` / `bash` / `edit` / `write`) stay off; extension
-gateway tools from this package remain. Repository `AGENTS.md` is not injected
+gateway tools from this package remain. At startup, the wrapper validates
+`uv 0.11.16` and prepends its directory to `PATH` for Pi and MCP children. It
+uses `uv` already on `PATH`, or `$HOME/.local/bin/uv` for trimmed desktop PATHs;
+a missing, wrong-version, or `.venv/bin/uv` candidate fails before Pi starts.
+Repository `AGENTS.md` is not injected
 (short host prompt is). `--session-id coc-keeper` reopens the same desktop
 session when it exists. Use `pi-coc --new` for a fresh session. To change
 repository code, open a separate `pi` session.

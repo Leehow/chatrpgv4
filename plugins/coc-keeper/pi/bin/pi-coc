@@ -36,6 +36,44 @@ if [ -z "$REPO_ROOT" ]; then
   exit 1
 fi
 
+# MCP launchers inherit Pi's environment and invoke `uv run`. Resolve the
+# contract-required uv before Pi starts so a trimmed desktop PATH cannot turn
+# into a late, opaque MCP child exit 127. Never accept a project venv shim:
+# uv is the project environment manager, not a project dependency.
+UV_PATH=
+if command -v uv >/dev/null 2>&1; then
+  UV_PATH=$(command -v uv)
+elif [ -x "$HOME/.local/bin/uv" ]; then
+  UV_PATH=$HOME/.local/bin/uv
+else
+  printf '%s\n' "pi-coc: required uv 0.11.16 was not found; add uv to PATH or install it at \$HOME/.local/bin/uv" >&2
+  exit 1
+fi
+case "$UV_PATH" in
+  */.venv/bin/uv)
+    printf '%s\n' "pi-coc: refusing uv from .venv/bin; install required uv 0.11.16 outside the project virtual environment" >&2
+    exit 1
+    ;;
+esac
+UV_VERSION=$($UV_PATH --version 2>&1) || {
+  printf '%s\n' "pi-coc: cannot run required uv at $UV_PATH" >&2
+  exit 1
+}
+case "$UV_VERSION" in
+  "uv 0.11.16"|"uv 0.11.16 "*) ;;
+  *)
+    printf '%s\n' "pi-coc: required uv 0.11.16, found '$UV_VERSION' at $UV_PATH" >&2
+    exit 1
+    ;;
+esac
+UV_DIR=$(CDPATH= cd -- "$(dirname "$UV_PATH")" && pwd)
+PATH_CURRENT=${PATH:-}
+case ":$PATH_CURRENT:" in
+  *":$UV_DIR:"*) ;;
+  *) PATH=$UV_DIR${PATH_CURRENT:+:$PATH_CURRENT} ;;
+esac
+export PATH
+
 PI_CODING_AGENT_DIR=${PI_COC_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/coc-agent}}
 export PI_CODING_AGENT_DIR
 

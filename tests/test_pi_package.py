@@ -263,6 +263,7 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
 
 def _pi_coc_test_home(
     tmp_path: Path, *, settings: dict, models: dict,
+    uv_version: str | None = "0.11.16",
 ) -> tuple[Path, Path]:
     agent_dir = tmp_path / "agent"
     agent_bin = agent_dir / "bin"
@@ -285,10 +286,18 @@ def _pi_coc_test_home(
             '#!/bin/sh\n'
             'for arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n'
             'printf "%s" "${PI_COC_CAMPAIGN_ID-}" > "$PI_COC_TEST_CAMPAIGN"\n'
+            'printf "%s" "$PATH" > "$PI_COC_TEST_PATH"\n'
         ),
         encoding="utf-8",
     )
     fake_pi.chmod(0o755)
+    if uv_version is not None:
+        fake_uv = fake_bin / "uv"
+        fake_uv.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' 'uv {uv_version}'\n",
+            encoding="utf-8",
+        )
+        fake_uv.chmod(0o755)
     return agent_dir, fake_bin
 
 
@@ -300,17 +309,21 @@ def _run_pi_coc(
     args: list[str],
     new: bool = True,
     extra_env: dict[str, str] | None = None,
+    uv_version: str | None = "0.11.16",
+    minimal_path: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     agent_dir, fake_bin = _pi_coc_test_home(
-        tmp_path, settings=settings, models=models,
+        tmp_path, settings=settings, models=models, uv_version=uv_version,
     )
     args_path = tmp_path / "pi-args.txt"
+    path_tail = "/usr/bin:/bin" if minimal_path else os.environ["PATH"]
     env = {
         **os.environ,
-        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "PATH": f"{fake_bin}{os.pathsep}{path_tail}",
         "PI_COC_AGENT_DIR": str(agent_dir),
         "PI_COC_TEST_ARGS": str(args_path),
         "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
+        "PI_COC_TEST_PATH": str(tmp_path / "child-path.txt"),
         **(extra_env or {}),
     }
     wrapper_args = [str(PLUGIN / "pi" / "bin" / "pi-coc")]
@@ -344,6 +357,66 @@ def _supported_pi_settings() -> tuple[dict, dict]:
             },
         },
     )
+
+
+def test_pi_coc_exports_validated_fallback_uv_directory_to_pi_children(
+    tmp_path: Path,
+):
+    settings, models = _supported_pi_settings()
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path, settings=settings, models=models, uv_version=None,
+    )
+    home = tmp_path / "home"
+    uv_dir = home / ".local" / "bin"
+    uv_dir.mkdir(parents=True)
+    uv = uv_dir / "uv"
+    uv.write_text("#!/bin/sh\nprintf '%s\\n' 'uv 0.11.16'\n", encoding="utf-8")
+    uv.chmod(0o755)
+    fake_node = fake_bin / "node"
+    fake_node.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_node.chmod(0o755)
+    args_path = tmp_path / "pi-args.txt"
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "PATH": f"{fake_bin}{os.pathsep}/usr/bin{os.pathsep}/bin",
+        "PI_COC_AGENT_DIR": str(agent_dir),
+        "PI_COC_TEST_ARGS": str(args_path),
+        "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
+        "PI_COC_TEST_PATH": str(tmp_path / "child-path.txt"),
+    }
+    completed = subprocess.run(
+        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new", "--model", "test/model"],
+        cwd=ROOT, env=env, check=False, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    child_path = (tmp_path / "child-path.txt").read_text(encoding="utf-8")
+    assert str(uv_dir) in child_path.split(os.pathsep)
+    assert child_path.split(os.pathsep).count(str(uv_dir)) == 1
+    assert args_path.read_text(encoding="utf-8").splitlines()[-2:] == [
+        "--model", "test/model",
+    ]
+
+
+def test_pi_coc_fails_before_pi_when_required_uv_is_missing(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    completed, args_path = _run_pi_coc(
+        tmp_path, settings=settings, models=models, args=[], uv_version=None,
+        minimal_path=True, extra_env={"HOME": str(tmp_path / "empty-home")},
+    )
+    assert completed.returncode == 1
+    assert "required uv 0.11.16 was not found" in completed.stderr
+    assert not args_path.exists()
+
+
+def test_pi_coc_fails_before_pi_when_uv_version_is_wrong(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    completed, args_path = _run_pi_coc(
+        tmp_path, settings=settings, models=models, args=[], uv_version="0.11.15",
+    )
+    assert completed.returncode == 1
+    assert "required uv 0.11.16, found 'uv 0.11.15'" in completed.stderr
+    assert not args_path.exists()
 
 
 def test_pi_coc_campaign_selector_is_distinct_from_pi_session(tmp_path: Path):
