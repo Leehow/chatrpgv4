@@ -7475,6 +7475,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         rawPdfBindBundleDispatchDeps(ctx, epoch), name, error, params,
       );
       rawPdfBindBundleRuns.add(rawPdfBindRun);
+      // A canonical opening-source-review gate is deliberately a hard error
+      // with no next_operation: the KP must not claim or fulfill it.  It is
+      // nevertheless the host's dispatch signal.  Previously this error path
+      // rethrew before the success-only auto-dispatch below could observe the
+      // envelope, so an already-bound Pi campaign stayed pending forever.
+      // Use the exact canonical envelope rather than inferring anything from
+      // its contract labels; the trigger validates the complete gate shape.
+      const openingReviewRun = autoDispatchPiOpeningSourceReview(
+        openingSourceReviewDispatchDeps(ctx, epoch),
+        name,
+        error instanceof CanonicalToolError ? error.envelope : error,
+      );
+      sourceProducerRuns.add(openingReviewRun);
+      void openingReviewRun.catch(() => {}).finally(() => {
+        sourceProducerRuns.delete(openingReviewRun);
+      });
       void rawPdfBindRun.catch(() => {}).finally(() => {
         rawPdfBindBundleRuns.delete(rawPdfBindRun);
       });

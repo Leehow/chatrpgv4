@@ -8620,6 +8620,89 @@ process.stdout.write(JSON.stringify({
     await directContext.shutdown();
   }
 
+  // Non-resume hard-gate errors take the normal gateway exception path. They
+  // have no canonical next_operation by design, but must still start the
+  // private opening review exactly once; otherwise a real RPC KP can keep
+  // retrying setup.adopt_source_facts forever while the pending review has no
+  // host owner.
+  {
+    const errorCampaignId = "hard-gate-error-campaign";
+    const errorGate = {
+      ...reviewGate,
+      campaign_id: errorCampaignId,
+      character_setup_complete: true,
+      // This is the persisted task's Codex-named contract label. The Pi
+      // trigger must rely on the structured gate, not reject that label.
+      coordinator_contract_id: "coc.codex-opening-source-task.v1",
+    };
+    const errorEnvelope = {
+      ok: false,
+      tool: "setup.adopt_source_facts",
+      error: { code: "opening_setup_incomplete", details: errorGate },
+    };
+    const hardGateContext = mainExtensionHarness((name, params) => {
+      if (
+        name === "coc_invoke"
+        && params.operation === "setup.adopt_source_facts"
+      ) {
+        throw new runtime.CanonicalToolError(
+          "coc_invoke", "opening_setup_incomplete",
+          "canonical opening source review gate",
+          errorGate, errorEnvelope,
+        );
+      }
+      throw new Error(`unexpected hard-gate call ${name}:${params.operation}`);
+    }, {
+      sessionId: "opening-review-hard-gate-error",
+      coordinatorEnabled: async () => false,
+    });
+    await hardGateContext.startAll();
+    for (const invocationId of ["hard-gate-error-a", "hard-gate-error-b"]) {
+      let rejected = false;
+      try {
+        await hardGateContext.registered.get("coc_invoke").execute(
+          invocationId,
+          {
+            operation: "setup.adopt_source_facts",
+            root,
+            campaign: errorCampaignId,
+            arguments: { campaign_id: errorCampaignId, facts },
+          },
+          undefined, undefined, hardGateContext.ctx,
+        );
+      } catch (error) {
+        rejected = error instanceof runtime.CanonicalToolError;
+      }
+      check(`${invocationId} preserves the canonical hard gate`, rejected);
+    }
+    for (let index = 0; index < 20; index += 1) {
+      if (hardGateContext.sent.some((entry) => (
+        entry.message?.customType === "coc-opening-source-review-terminal"
+      ))) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const reviewTerminals = hardGateContext.sent.filter((entry) => (
+      entry.message?.customType === "coc-opening-source-review-terminal"
+    ));
+    check("non-resume hard-gate auto-dispatches one review and releases exact adopt card",
+      reviewTerminals.length === 1
+      && reviewTerminals[0].message?.details?.status === "reviewed"
+      && reviewTerminals[0].message?.details?.next_operation?.operation
+        === "setup.adopt_source_facts"
+      && JSON.stringify(
+        reviewTerminals[0].message?.details?.next_operation?.arguments?.facts,
+      ) === JSON.stringify(facts));
+    const reviewAudits = hardGateContext.appended.filter((entry) => (
+      entry.name === "coc-opening-source-review-lifecycle"
+      && entry.value?.dispatch_key
+        === `opening-source-review:${errorCampaignId}:7`
+    ));
+    check("non-resume hard-gate review dispatch is deduplicated",
+      reviewAudits.filter((entry) => entry.value?.status === "submitted").length === 1
+      && reviewAudits.filter((entry) => entry.value?.status === "reviewed").length === 1);
+    await hardGateContext.shutdown();
+  }
+
   if (previousCommand === undefined) {
     delete process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND;
   } else {
