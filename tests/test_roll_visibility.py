@@ -171,7 +171,7 @@ def test_finalize_closes_concealed_roll_without_visible_beat(campaign_ws):
     journaled = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "调查员暗中打量对方", "decision_id": "concealed-journal"},
+        {"summary": "调查员暗中打量对方", "player_text": "我暗中打量对方。", "decision_id": "concealed-journal"},
     )
     assert journaled["ok"] is True, journaled
     output = _run(campaign_ws, "turn.output_context")

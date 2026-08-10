@@ -2,9 +2,12 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   mkdir,
+  readdir,
   readFile,
   realpath,
+  rename,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -42,6 +45,18 @@ import {
   type MechanicalMarker,
 } from "../lib/mechanical-output-gate.ts";
 import { compactToolRenderers } from "../lib/tool-render.ts";
+import { decideSceneSupply } from "../lib/scene-supply.ts";
+import {
+  detectMapSupplyPageDirectory,
+  mapVisualMessage,
+  renderMapSupplyPages,
+} from "../lib/map-supply.ts";
+import {
+  KEEPER_BRIEFING_CUSTOM_TYPE,
+  keeperBriefingMessage,
+  readKeeperBriefing,
+  type KeeperBriefing,
+} from "../lib/keeper-briefing.ts";
 import { registerCocHud } from "../lib/hud.ts";
 import {
   registerCocWelcome,
@@ -107,6 +122,19 @@ const OWNED_OPENING_ROUTE_OPERATIONS = new Set([
   "progressive.prepare_opening",
   "progressive.opening_bootstrap",
 ]);
+const mapSupplySchema = {
+  type: "object",
+  properties: {
+    operation: { type: "string", enum: ["detect", "render", "present"] },
+    pages_dir: { type: "string" },
+    needs_ocr: { type: "array", maxItems: 256, items: { type: "integer", minimum: 0 } },
+    asset_root_id: { type: "string" },
+    source_pdf_path: { type: "string" },
+    image_ref: { type: "string" },
+    caption: { type: "string", maxLength: 400 },
+  },
+  required: ["operation"], additionalProperties: false,
+} as const;
 const ocrSchema = {
   type: "object",
   properties: {
@@ -194,6 +222,33 @@ type CanonicalSetupVisibleOutput = {
 };
 
 const MAX_CANONICAL_SETUP_VISIBLE_BYTES = 64 * 1024;
+const MODULE_INIT_DOCUMENT_KEYS = [
+  "schema_version", "campaign_id", "secrecy", "source_binding",
+  "l0_sha256", "l0", "created_at",
+];
+const MODULE_INIT_SOURCE_BINDING_KEYS = [
+  "scenario_id", "source_id", "file_sha256", "bundle_sha256",
+  "opening_review_generation", "review_receipt_sha256",
+];
+const MODULE_INIT_L0_REQUIRED_FIELDS = [
+  "schema_version", "secrecy", "module_meta", "pregens",
+  "opening_hooks", "chargen_deltas", "opening_handouts",
+];
+type ModuleInitPrivateReference =
+  | { status: "not_required" }
+  | { status: "candidate"; campaignId: string };
+type ModuleInitPrivateContextResolution =
+  | { status: "not_required" }
+  | { status: "invalid"; campaignId: string }
+  | { status: "ready"; context: CanonicalModuleInitPrivateContext };
+type CanonicalModuleInitPrivateContext = {
+  schema_version: 1;
+  campaign_id: string;
+  secrecy: "keeper_only";
+  l0_sha256: string;
+  l0: JsonObject;
+  instruction: string;
+};
 const SAFE_CHARACTER_SETUP_PROMPT = (
   "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
 );
@@ -291,6 +346,210 @@ export async function canonicalSetupVisibleOutput(
     publicSetupSha256,
     text,
     textSha256: canonicalJsonValueSha256(text),
+  };
+}
+
+function moduleInitPrivateReferenceForContract(
+  params: JsonObject,
+  value: unknown,
+): ModuleInitPrivateReference {
+  if (params.operation !== "setup.investigator_contract") {
+    return { status: "not_required" };
+  }
+  const campaignId = typeof params.campaign === "string"
+    ? params.campaign.trim()
+    : "";
+  const args = objectOrNull(params.arguments);
+  const envelope = objectOrNull(value);
+  const data = objectOrNull(envelope?.data);
+  const contract = objectOrNull(data?.result);
+  if (
+    !campaignId
+    || !isCanonicalCampaignId(campaignId)
+    || args === null
+    || !exactKeysMatch(args, ["campaign_id"])
+    || args.campaign_id !== campaignId
+    || envelope?.ok !== true
+    || envelope.tool !== "setup.investigator_contract"
+    || data?.schema_version !== 1
+    || data.status !== "PASS"
+    || data.kind !== "investigator.contract"
+    || contract === null
+  ) {
+    return { status: "not_required" };
+  }
+  return { status: "candidate", campaignId };
+}
+
+async function readBoundedJsonObject(path: string): Promise<JsonObject | null> {
+  let raw: string;
+  try {
+    const metadata = await stat(path);
+    if (!metadata.isFile() || metadata.size > MAX_BYTES) return null;
+    raw = await readFile(path, "utf8");
+  } catch {
+    return null;
+  }
+  if (!raw || Buffer.byteLength(raw, "utf8") > MAX_BYTES) return null;
+  try {
+    return objectOrNull(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a keeper-only L0 only after the canonical investigator contract has
+ * already passed its source-bound runtime gate. This is a Pi-host private
+ * projection, never a player-visible setup result or a broad file read.
+ */
+async function resolveCanonicalModuleInitPrivateContext(
+  workspaceRoot: string,
+  params: JsonObject,
+  value: unknown,
+): Promise<ModuleInitPrivateContextResolution> {
+  const reference = moduleInitPrivateReferenceForContract(params, value);
+  if (reference.status !== "candidate") return { status: "not_required" };
+  const root = resolve(workspaceRoot);
+  if (params.root !== undefined) {
+    if (typeof params.root !== "string" || !params.root.trim()) {
+      return { status: "invalid", campaignId: reference.campaignId };
+    }
+    const requestedRoot = resolve(params.root);
+    if (requestedRoot !== root) {
+      try {
+        const [canonicalRequestedRoot, canonicalWorkspaceRoot] = await Promise.all([
+          realpath(requestedRoot),
+          realpath(root),
+        ]);
+        if (canonicalRequestedRoot !== canonicalWorkspaceRoot) {
+          return { status: "invalid", campaignId: reference.campaignId };
+        }
+      } catch {
+        return { status: "invalid", campaignId: reference.campaignId };
+      }
+    }
+  }
+  const campaignRoot = resolve(
+    root,
+    ".coc",
+    "campaigns",
+    reference.campaignId,
+  );
+  const scenarioRoot = resolve(campaignRoot, "scenario");
+  const scenarioPath = resolve(scenarioRoot, "scenario.json");
+  let canonicalScenarioRoot: string;
+  let canonicalScenarioPath: string;
+  try {
+    [canonicalScenarioRoot, canonicalScenarioPath] = await Promise.all([
+      realpath(scenarioRoot),
+      realpath(scenarioPath),
+    ]);
+  } catch {
+    // Built-in/non-PDF campaigns have no source scenario and need no L0.
+    return { status: "not_required" };
+  }
+  if (canonicalScenarioPath !== resolve(canonicalScenarioRoot, "scenario.json")) {
+    return { status: "invalid", campaignId: reference.campaignId };
+  }
+  const scenario = await readBoundedJsonObject(canonicalScenarioPath);
+  const source = objectOrNull(scenario?.source);
+  const sourceBound = (
+    typeof source?.source_id === "string"
+    && source.source_id.trim().length > 0
+    && typeof source?.bundle_sha256 === "string"
+    && source.bundle_sha256.trim().length > 0
+  );
+  if (!sourceBound) return { status: "not_required" };
+
+  const saveRoot = resolve(campaignRoot, "save");
+  const documentPath = resolve(saveRoot, "module-init.json");
+  let canonicalSaveRoot: string;
+  let canonicalDocumentPath: string;
+  try {
+    [canonicalSaveRoot, canonicalDocumentPath] = await Promise.all([
+      realpath(saveRoot),
+      realpath(documentPath),
+    ]);
+  } catch {
+    return { status: "invalid", campaignId: reference.campaignId };
+  }
+  if (canonicalDocumentPath !== resolve(canonicalSaveRoot, "module-init.json")) {
+    return { status: "invalid", campaignId: reference.campaignId };
+  }
+  const document = await readBoundedJsonObject(canonicalDocumentPath);
+  const sourceBinding = objectOrNull(document?.source_binding);
+  const l0 = objectOrNull(document?.l0);
+  if (
+    document === null
+    || !exactKeysMatch(document, MODULE_INIT_DOCUMENT_KEYS)
+    || document.schema_version !== 1
+    || document.campaign_id !== reference.campaignId
+    || document.secrecy !== "keeper_only"
+    || typeof document.l0_sha256 !== "string"
+    || !/^sha256:[0-9a-f]{64}$/.test(document.l0_sha256)
+    || typeof document.created_at !== "string"
+    || !document.created_at.trim()
+    || sourceBinding === null
+    || !exactKeysMatch(sourceBinding, MODULE_INIT_SOURCE_BINDING_KEYS)
+    || sourceBinding.scenario_id !== scenario?.scenario_id
+    || sourceBinding.source_id !== source?.source_id
+    || sourceBinding.file_sha256 !== source?.file_sha256
+    || sourceBinding.bundle_sha256 !== source?.bundle_sha256
+    || l0 === null
+    || l0.schema_version !== 1
+    || l0.secrecy !== "keeper_only"
+    || !MODULE_INIT_L0_REQUIRED_FIELDS.every((field) => field in l0)
+  ) {
+    return { status: "invalid", campaignId: reference.campaignId };
+  }
+  return {
+    status: "ready",
+    context: {
+      schema_version: 1,
+      campaign_id: reference.campaignId,
+      secrecy: "keeper_only",
+      l0_sha256: document.l0_sha256,
+      l0,
+      instruction: (
+        "这是已通过调查员构建门控的守秘人专用 L0 建卡包。"
+        + "可据其协助建卡与开场准备；不得直接泄露守秘信息。"
+      ),
+    },
+  };
+}
+
+export async function canonicalModuleInitPrivateContext(
+  workspaceRoot: string,
+  params: JsonObject,
+  value: unknown,
+): Promise<CanonicalModuleInitPrivateContext | null> {
+  const resolved = await resolveCanonicalModuleInitPrivateContext(
+    workspaceRoot,
+    params,
+    value,
+  );
+  return resolved.status === "ready" ? resolved.context : null;
+}
+
+function moduleInitPrivateProjectionFailure(campaignId: string): JsonObject {
+  return {
+    ok: false,
+    tool: "setup.investigator_contract",
+    error: {
+      code: "module_init_private_projection_failed",
+      message: (
+        "The source-bound keeper-only coc-module-init L0 could not be "
+        + "projected privately; retry setup.investigator_contract before "
+        + "investigator.create. Do not guess pregens, chargen deltas, opening "
+        + "hooks, or handouts."
+      ),
+    },
+    warnings: [],
+    hints: [
+      `retry setup.investigator_contract for campaign ${campaignId} before `
+      + "attempting investigator.create",
+    ],
   };
 }
 
@@ -1260,6 +1519,7 @@ export class OpeningTerminalContinuationGate {
       const facts = objectOrNull(result?.facts);
       const unresolved = result?.unresolved_blocking_facts;
       const unblocked = result?.character_creation_unblocked;
+      const moduleInitReady = result?.module_init_ready;
       const expectedBlocking = ["era", "place"].filter((name) => (
         objectOrNull(facts?.[name])?.status !== "source"
       ));
@@ -1278,7 +1538,14 @@ export class OpeningTerminalContinuationGate {
         ))
         && unresolved.length === expectedBlocking.length
         && unresolved.every((name, index) => name === expectedBlocking[index])
-        && unblocked === (unresolved.length === 0)
+        && (
+          moduleInitReady === undefined
+            ? unblocked === (unresolved.length === 0)
+            : typeof moduleInitReady === "boolean"
+              && unblocked === (
+                unresolved.length === 0 && moduleInitReady
+              )
+        )
       );
     }
     if (operation === "rules.roll_dice") {
@@ -1369,7 +1636,10 @@ export class OpeningTerminalContinuationGate {
     if (operation === "setup.adopt_source_facts") {
       const result = objectOrNull(objectOrNull(envelope?.data)?.result);
       if (result?.character_creation_unblocked === true) {
-        return "来源事实已绑定并通过校验；现在可以读取调查员构建契约。";
+        return "来源事实与建卡最小包已绑定并通过校验；现在可以读取调查员构建契约。";
+      }
+      if (result?.module_init_ready === false) {
+        return "来源事实已记录，但建卡最小包 L0 尚未就绪；不要猜测预设卡、年代修正、开场钩子或手册。";
       }
       const unresolved = Array.isArray(result?.unresolved_blocking_facts)
         ? result.unresolved_blocking_facts
@@ -5021,6 +5291,62 @@ function locatorDiagnostic(value: string): string {
   return value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 512);
 }
 
+async function openingReviewRenderedPageCount(root: string): Promise<number> {
+  let entries;
+  try { entries = await readdir(root, { withFileTypes: true }); }
+  catch { return 0; }
+  let count = 0;
+  for (const entry of entries) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) count += await openingReviewRenderedPageCount(path);
+    else if (entry.isFile() && entry.name.endsWith(".md")) count += 1;
+  }
+  return count;
+}
+
+async function writeOpeningReviewTerminalEvidence(
+  task: JsonObject,
+  failureClass: string,
+  producerError: string | undefined,
+): Promise<void> {
+  const workspace = typeof task.workspace_root === "string"
+    ? resolve(task.workspace_root) : "";
+  const campaignId = typeof task.campaign_id === "string"
+    ? task.campaign_id : "";
+  const generation = task.opening_review_generation;
+  if (!workspace || !campaignId || !Number.isInteger(generation)) return;
+  const bundleRoot = join(
+    workspace, ".tmp", "coc-opening-source-review", campaignId,
+  );
+  const evidenceDir = join(
+    workspace, ".coc", "campaigns", campaignId, "logs",
+    "opening-source-review-evidence",
+  );
+  const destination = join(evidenceDir, `transport-terminal-g${String(generation)}.json`);
+  const evidence = {
+    schema_version: 1,
+    secrecy: "keeper_only",
+    campaign_id: campaignId,
+    opening_review_generation: generation,
+    status: "producer_terminal_failure",
+    failure_class: failureClass,
+    rendered_markdown_pages: await openingReviewRenderedPageCount(bundleRoot),
+    transport_lock_path: join(
+      workspace, ".coc", "campaigns", campaignId,
+      "opening-source-review-transport.lock",
+    ),
+    ...(producerError ? { producer_error: producerError } : {}),
+  };
+  try {
+    await mkdir(evidenceDir, { recursive: true });
+    const temporary = `${destination}.${process.pid}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(evidence)}\n`, "utf8");
+    await rename(temporary, destination);
+  } catch {
+    // Lifecycle delivery must not be hidden behind a diagnostic-write fault.
+  }
+}
+
 function locatorEnvironment(): NodeJS.ProcessEnv {
   const allowed = [
     "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
@@ -6028,20 +6354,34 @@ export async function autoDispatchPiOpeningSourceReview(
     return terminal;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    return retryable({
+    const failureClass = controller.signal.aborted
+      ? "opening_source_review_aborted"
+      : message.includes("timed out")
+        ? "opening_source_review_timeout"
+        : "opening_source_review_transport_failed";
+    const producerError = message ? locatorDiagnostic(message) : undefined;
+    // The transport can die after it has rendered pages but before it writes a
+    // receipt. Keep this outcome retryable, but never leave the KP without a
+    // terminal event: the canonical task remains pending for the next retry.
+    await writeOpeningReviewTerminalEvidence(task, failureClass, producerError);
+    const terminalReceipt: JsonObject = {
+      schema_version: 1,
+      contract_id: "coc.pi-opening-source-review-transport-result.v1",
+      status: "failed",
+      campaign_id: task.campaign_id,
+      scenario_id: task.scenario_id,
+      opening_review_generation: task.opening_review_generation,
+      failure_class: failureClass,
+      facts: null,
+    };
+    const retry = retryable({
       status: "retryable_failure",
       dispatch_key: key,
-      failure_class: controller.signal.aborted
-        ? "opening_source_review_aborted"
-        : message.includes("timed out")
-          ? "opening_source_review_timeout"
-          : "opening_source_review_transport_failed",
-      // Keep the producer's own words, as the raw-PDF path already does.
-      // Without them a reproducible failure classifies identically to every
-      // other transport fault and gives nothing to act on: this lane failed
-      // twice in a row with no recoverable diagnosis at all.
-      ...(message ? { producer_error: locatorDiagnostic(message) } : {}),
+      failure_class: failureClass,
+      ...(producerError ? { producer_error: producerError } : {}),
     });
+    if (deps.isCurrent()) deps.onTerminal(terminalReceipt);
+    return retry;
   } finally {
     if (deps.controllers.get(key) === controller) {
       deps.controllers.delete(key);
@@ -6527,11 +6867,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
+  const sceneSupplyWaits = new Map<string, number>();
   const kpActiveTools = [
     "coc_capabilities",
     "coc_discover",
     "coc_invoke",
     "coc_progressive_ocr",
+    "coc_map_supply",
+    // pi-subagents is a package extension, so --no-builtin-tools does not
+    // remove these. Keep them visible to the KP for steward fanout only.
+    "subagent",
+    "subagent_wait",
   ];
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
@@ -6543,6 +6889,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     overrides.createClient?.(ctx)
     ?? new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui")
   );
+  const refreshKeeperBriefing = async (
+    ctx: ExtensionContext,
+    campaignId: string,
+    reason: KeeperBriefing["reason"],
+  ): Promise<void> => {
+    const briefing = await readKeeperBriefing(ctx.cwd, campaignId, reason);
+    if (briefing === null) return;
+    try {
+      pi.sendMessage(keeperBriefingMessage(briefing), { triggerTurn: false });
+      pi.appendEntry("coc-keeper-briefing", {
+        schema_version: 1,
+        status: "delivered",
+        campaign_id: campaignId,
+        reason,
+        custom_type: KEEPER_BRIEFING_CUSTOM_TYPE,
+      });
+    } catch { /* keeper context refresh is best effort and never blocks play */ }
+  };
   const projectCoordinatorTerminal = (receipt: JsonObject) => {
     const dispatchKey = typeof receipt.packet_id === "string"
       ? receipt.packet_id.trim()
@@ -6732,8 +7096,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         };
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
-    // but never expose it to the KP model.
-    pi.setActiveTools(kpActiveTools);
+    // but never expose it to the KP model. A pi-subagents child process owns
+    // its own active surface: the agent's --tools allowlist (steward agents
+    // carry bash/read/grep/find on the host filesystem). Forcing the KP set
+    // here would wipe that allowlist; the KP root session is unaffected
+    // because it never carries PI_SUBAGENT_CHILD=1.
+    if (process.env.PI_SUBAGENT_CHILD !== "1") {
+      pi.setActiveTools(kpActiveTools);
+    }
     return startupCampaignId;
   };
   const exactStartupResumeInvocation = (
@@ -7268,6 +7638,96 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       },
     };
   };
+  const sceneSupplyPreflight = async (
+    params: JsonObject,
+    signal: AbortSignal | undefined,
+    ctx: ExtensionContext,
+  ): Promise<{ supply: JsonObject | null; blocked: JsonObject | null }> => {
+    if (
+      process.env.COC_PI_SCENE_SUPPLY !== "1"
+      || params.operation !== "state.move_scene"
+      || typeof params.campaign !== "string"
+    ) {
+      return { supply: null, blocked: null };
+    }
+    const moveArgs = objectOrNull(params.arguments);
+    const sceneId = typeof moveArgs?.scene_id === "string" ? moveArgs.scene_id.trim() : "";
+    const campaignId = params.campaign.trim();
+    if (!sceneId || !campaignId) return { supply: null, blocked: null };
+    const waitKey = `${campaignId}\u0000${sceneId}`;
+    const check = async (allowMinimalFallback: boolean): Promise<JsonObject | null> => {
+      try {
+        const response = await client(ctx).callTool("coc_invoke", {
+          operation: "steward.scene_supply",
+          ...(typeof params.root === "string" ? { root: params.root } : {}),
+          campaign: campaignId,
+          arguments: {
+            scene_id: sceneId,
+            ...(allowMinimalFallback ? { allow_minimal_fallback: true } : {}),
+          },
+        }, signal);
+        const envelope = objectOrNull(response);
+        return envelope?.ok === true ? objectOrNull(envelope.data) : null;
+      } catch {
+        // A missing/older steward surface must not turn ordinary play into a
+        // host failure. A configured supply gate is enforced only on a valid
+        // canonical readiness answer.
+        return null;
+      }
+    };
+    let supply = await check(false);
+    if (supply === null) return { supply: null, blocked: null };
+    let decision = decideSceneSupply(supply, sceneSupplyWaits.get(waitKey) ?? 0);
+    if (decision.action === "retry_with_minimal") {
+      const minimal = await check(true);
+      if (minimal !== null) {
+        supply = minimal;
+        decision = decideSceneSupply(supply, sceneSupplyWaits.get(waitKey) ?? 0);
+      }
+    }
+    if (decision.action === "allow") {
+      sceneSupplyWaits.delete(waitKey);
+      return { supply, blocked: null };
+    }
+    const completedWaits = (sceneSupplyWaits.get(waitKey) ?? 0) + 1;
+    sceneSupplyWaits.set(waitKey, completedWaits);
+    const content = {
+      schema_version: 1,
+      contract_id: "coc.pi-scene-supply-wait.v1",
+      audience: "keeper_only",
+      scene_id: sceneId,
+      campaign_id: campaignId,
+      completed_waits: completedWaits,
+      player_wait_text: decision.playerWaitText,
+      source_cache_path: supply.source_cache_path,
+      instruction: decision.instruction,
+    };
+    try {
+      pi.sendMessage({
+        customType: "coc-scene-supply-wait",
+        content: JSON.stringify(content),
+        display: false,
+        details: content,
+      }, { triggerTurn: false });
+      pi.appendEntry("coc-scene-supply-gate", content);
+    } catch { /* hidden scene-supply guidance/audit is best effort */ }
+    return {
+      supply,
+      blocked: {
+        ok: false,
+        tool: "state.move_scene",
+        error: {
+          code: "scene_supply_pending",
+          message: "destination SceneBundle is not ready; wait for steward-scene before moving",
+        },
+        data: {
+          scene_supply: supply,
+          player_wait_text: decision.playerWaitText,
+          retry_policy: "dispatch_or_resume steward-scene, await completion, retry once; then source-bound minimal fallback only",
+        },
+      },
+    };
+  };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     if (name === "coc_invoke") {
       params = normalizePiCocInvokeArguments(params);
@@ -7328,10 +7788,55 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         throw new Error(dependencyError);
       }
     }
+    let preparedSceneSupply: JsonObject | null = null;
+    if (name === "coc_invoke" && params.operation === "state.move_scene") {
+      const preflight = await sceneSupplyPreflight(params, signal, ctx);
+      if (preflight.blocked !== null) return result(preflight.blocked);
+      preparedSceneSupply = preflight.supply;
+    }
     let value: unknown;
     let scenePriorityHandled = false;
     try {
       value = await client(ctx).callTool(name, params, signal);
+      if (
+        preparedSceneSupply !== null
+        && params.operation === "state.move_scene"
+        && objectOrNull(value)?.ok === true
+      ) {
+        const envelope = asObject(value, "scene move envelope");
+        const data = asObject(envelope.data, "scene move data");
+        value = {
+          ...envelope,
+          data: {
+            ...data,
+            scene_supply: preparedSceneSupply,
+          },
+        };
+        const sceneId = String(objectOrNull(params.arguments)?.scene_id ?? "").trim();
+        const prefetch = {
+          schema_version: 1,
+          contract_id: "coc.pi-scene-supply-prefetch.v1",
+          audience: "keeper_only",
+          scene_id: sceneId,
+          source_cache_path: preparedSceneSupply.source_cache_path,
+          instruction: (
+            "The current SceneBundle is ready. Before continuing ordinary play, "
+            + "resume or dispatch steward-scene to prefetch its directory-adjacent, "
+            + "same-parent child, if-chain, and next-timeline neighbors. Write every "
+            + "source-bound result with steward.scene_bundle_put. This prefetch is "
+            + "background preparation only; it does not decide scenes, actions, clues, or narration."
+          ),
+        };
+        try {
+          pi.sendMessage({
+            customType: "coc-scene-supply-prefetch",
+            content: JSON.stringify(prefetch),
+            display: false,
+            details: prefetch,
+          }, { triggerTurn: false });
+          pi.appendEntry("coc-scene-supply-prefetch", prefetch);
+        } catch { /* hidden prefetch guidance/audit is best effort */ }
+      }
     } catch (error) {
       const rawPdfBindRun = autoDispatchPiRawPdfBindBundle(
         rawPdfBindBundleDispatchDeps(ctx, epoch), name, error, params,
@@ -7423,6 +7928,60 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (name === "coc_invoke") {
+      const briefingOperation = String(params.operation);
+      const briefingEnvelope = objectOrNull(value);
+      const briefingReason = briefingOperation === "session.resume"
+        ? "session_resume"
+        : (briefingOperation === "steward.domain_put" || briefingOperation === "steward.scene_bundle_put")
+          ? "steward_refresh"
+          : null;
+      if (
+        briefingReason !== null
+        && briefingEnvelope?.ok === true
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+        && isCurrent(epoch)
+      ) {
+        await refreshKeeperBriefing(ctx, params.campaign.trim(), briefingReason);
+      }
+      const moduleInitResolution = await resolveCanonicalModuleInitPrivateContext(
+        ctx.cwd,
+        params,
+        value,
+      );
+      if (moduleInitResolution.status === "invalid") {
+        value = moduleInitPrivateProjectionFailure(
+          moduleInitResolution.campaignId,
+        );
+      } else if (moduleInitResolution.status === "ready") {
+        const moduleInitContext = moduleInitResolution.context;
+        if (!isCurrent(epoch)) {
+          value = moduleInitPrivateProjectionFailure(
+            moduleInitContext.campaign_id,
+          );
+        } else {
+          try {
+            pi.sendMessage({
+              customType: "coc-module-init-private",
+              content: JSON.stringify(moduleInitContext),
+              display: false,
+              details: moduleInitContext,
+            }, { triggerTurn: false });
+            try {
+              pi.appendEntry("coc-module-init-private-projection", {
+                schema_version: 1,
+                status: "delivered",
+                campaign_id: moduleInitContext.campaign_id,
+                l0_sha256: moduleInitContext.l0_sha256,
+              });
+            } catch { /* private projection audit is best effort */ }
+          } catch {
+            value = moduleInitPrivateProjectionFailure(
+              moduleInitContext.campaign_id,
+            );
+          }
+        }
+      }
       scenePriorityHandled = supplyCoordinator.observeCanonical(
         String(params.operation),
         params,
@@ -7915,6 +8474,47 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     },
   });
   pi.registerTool({
+    name: "coc_map_supply", label: "COC map supply",
+    description: "Detect native-text image pages, validate externally rendered map assets, or privately inject one map image for the Keeper.", parameters: mapSupplySchema,
+    ...compactToolRenderers("coc_map_supply"),
+    async execute(_id: string, params: JsonObject, _signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
+      const operation = String(params.operation ?? "");
+      const needsOcr = Array.isArray(params.needs_ocr)
+        ? params.needs_ocr.filter((value): value is number => Number.isInteger(value) && value >= 0)
+        : [];
+      if (operation === "detect") {
+        if (typeof params.pages_dir !== "string" || !params.pages_dir.trim()) throw new Error("detect requires pages_dir");
+        return result(await detectMapSupplyPageDirectory(params.pages_dir, needsOcr));
+      }
+      if (operation === "render") {
+        if (
+          typeof params.pages_dir !== "string" || !params.pages_dir.trim()
+          || typeof params.asset_root_id !== "string" || !params.asset_root_id.trim()
+          || typeof params.source_pdf_path !== "string" || !params.source_pdf_path.trim()
+        ) throw new Error("render requires pages_dir, asset_root_id, and source_pdf_path");
+        const selection = await detectMapSupplyPageDirectory(params.pages_dir, needsOcr);
+        if (!selection.needs_image.length) return result({ ...selection, assets: [], status: "nothing_to_render" });
+        return result({
+          ...selection,
+          status: "rendered",
+          ...(await renderMapSupplyPages({
+            workspace_root: ctx.cwd,
+            asset_root_id: params.asset_root_id,
+            source_pdf_path: params.source_pdf_path,
+            pdf_indices: selection.needs_image,
+          })),
+        });
+      }
+      if (operation === "present") {
+        if (typeof params.image_ref !== "string" || !params.image_ref.trim()) throw new Error("present requires image_ref");
+        const message = await mapVisualMessage(ctx.cwd, params.image_ref, typeof params.caption === "string" ? params.caption : undefined);
+        pi.sendMessage(message as never, { triggerTurn: false });
+        return result({ status: "delivered", ...(message.details as JsonObject) });
+      }
+      throw new Error("unsupported coc_map_supply operation");
+    },
+  });
+  pi.registerTool({
     name: "coc_progressive_ocr", label: "Progressive OCR",
     description: "Run configured external Progressive OCR status/fast/enhance/export.", parameters: ocrSchema,
     ...compactToolRenderers("coc_progressive_ocr"),
@@ -8079,13 +8679,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
   });
   pi.on("session_start", async (event, ctx) => {
+    sceneSupplyWaits.clear();
     const startupCampaignId = initializeSession(ctx);
+    if (startupCampaignId !== null) {
+      await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
+    }
     await startCocWelcome(event, ctx, startupCampaignId);
   });
   pi.on("session_shutdown", async () => {
     sessionClosing = true;
     sessionEpoch += 1;
     startupResumeGate = null;
+    sceneSupplyWaits.clear();
     openingContinuationGate.reset();
     await supplyCoordinator.shutdown();
     for (const controller of sourceProducerControllers.values()) {

@@ -1492,6 +1492,7 @@ def _opening_producer_task(
         "source_bundle_path": str(output),
         "source_bundle_manifest_contract": _opening_manifest_contract(),
         "opening_fast_facts_schema": _opening_fast_facts_schema(),
+        "module_init_l0_schema": _module_init_l0_schema(),
         "reusable_bound_source": reusable_bound_source,
     }
     if (
@@ -1519,6 +1520,82 @@ def _opening_fast_facts_schema() -> dict[str, Any]:
     ))
 
 
+def _module_init_l0_schema() -> dict[str, Any]:
+    """Prompt-facing structural floor for the private keeper-only L0 package.
+
+    Persistent validation remains in coc_runtime_ops; this compact copy only
+    tells the isolated document producer which source-derived shape it must
+    return. Extra properties are expressly allowed at every entity level.
+    """
+    return {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "required_fields": [
+            "schema_version", "secrecy", "module_meta", "pregens",
+            "opening_hooks", "chargen_deltas", "opening_handouts",
+        ],
+        "module_meta_required_fields": [
+            "title_zh", "title_en", "authors", "translator", "era",
+            "locale", "party_size", "duration_hint", "tone_tags",
+            "mythos_entities", "campaign_hooks", "warnings",
+            "safety_notes", "structure_type",
+        ],
+        "module_meta_field_rules": {
+            "title_zh": "null or non-empty string",
+            "title_en": "null or non-empty string",
+            "era": "null or non-empty string",
+            "locale": "null or non-empty string",
+            "duration_hint": "null or non-empty string",
+            "structure_type": "null or non-empty string",
+            "party_size": "null, string, or integer (never boolean)",
+            "authors": "null, string, or array of non-empty strings; [] when the source names none",
+            "translator": "null, string, or array of non-empty strings; [] when the source names none",
+            "safety_notes": "null, string, or array of non-empty strings; [] when the source names none",
+            "tone_tags": "array of non-empty strings; [] when the source names none; never null",
+            "mythos_entities": "array of non-empty strings; [] when the source names none; never null",
+            "campaign_hooks": "array of non-empty strings; [] when the source names none; never null",
+            "warnings": "array of non-empty strings; [] when the source names none; never null",
+        },
+        "pregen_required_fields": [
+            "name", "age", "occupation", "hooks_to_plot",
+            "backstory_blocks", "stats_ref",
+        ],
+        "pregen_field_rules": {
+            "name": "null or non-empty string",
+            "occupation": "null or non-empty string",
+            "age": "null, string, or integer",
+            "hooks_to_plot": "array of non-empty strings; [] is valid when the source lists no hooks; never null and never empty-string entries",
+            "backstory_blocks": "null, string, array, or object",
+            "stats_ref": "null, string, or object",
+        },
+        "opening_hook_required_fields": [
+            "id", "audience", "text", "variant_of",
+        ],
+        "opening_hook_field_rules": {
+            "id": "non-empty string",
+            "audience": "exactly player or keeper",
+            "text": "non-empty string up to 20000 characters",
+            "variant_of": "null or non-empty string; key is always required",
+        },
+        "opening_handout_required_fields": [
+            "id", "title", "when_to_give",
+        ],
+        "opening_handout_field_rules": {
+            "id": "non-empty string",
+            "title": "null or non-empty string",
+            "when_to_give": "null or non-empty string",
+        },
+        "chargen_deltas_rule": (
+            "array of objects up to 128 items; [] is valid when the source makes "
+            "no creation adjustments; never a single dict and never any other "
+            "non-array; each item records one source-derived creation adjustment "
+            "and has no required fields"
+        ),
+        "unknown_source_value": "use null or [] rather than inventing it",
+        "additional_properties_allowed": True,
+    }
+
+
 def _opening_prompt(task: dict[str, Any]) -> str:
     return (
         "Use the loaded PDF skill directly. You are one isolated document "
@@ -1544,7 +1621,42 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "Separately select the smallest fact-evidence set from cover, front "
         "matter, or Keeper background needed for the six opening facts. It may "
         "be non-contiguous, is bounded by task.max_fact_evidence_pages, and "
-        "must not widen or alter the contiguous playable opening window. Write "
+        "must not widen or alter the contiguous playable opening window. Build "
+        "module_init_l0 from the complete preseeded page cache: information "
+        "positions are not fixed. Use grep/find anchors such as 预设、建卡、角色、"
+        "年代、人数、难度、适合、职业、技能、警告 to locate candidates, then read "
+        "their surrounding Markdown and make the final inclusion decision "
+        "semantically. Anchor hits are location aids only, never keyword proof. "
+        "Do not assume the first N pages or any fixed appendix pages; when "
+        "anchors are insufficient, sample a small opening and ending window and "
+        "judge the source context. L0 must satisfy task.module_init_l0_schema, "
+        "remain keeper_only, and use null or [] for a source value that is absent "
+        "rather than inventing it. Every opening_hooks item MUST contain all four "
+        "keys id, audience, text, variant_of: id and text are non-empty strings "
+        "(text up to 20000 characters), "
+        "audience is exactly player or keeper, and variant_of is present as null "
+        "when there is no variant (otherwise a non-empty string). Every pregen "
+        "and opening_handouts item MUST include every field named by its required "
+        "fields list. Pregen field rules: name and occupation are non-empty "
+        "strings or null, age is a string, integer, or null, hooks_to_plot is an "
+        "array of non-empty strings (use [] when the source lists no hooks -- "
+        "never null and never empty-string entries), backstory_blocks is null, a "
+        "string, an array, or an object, and stats_ref is null, a string, or an "
+        "object. Handout rules: id is a non-empty string, and title and "
+        "when_to_give are non-empty strings or null. module_meta MUST include "
+        "every field named by its required fields list. module_meta field rules: "
+        "title_zh, title_en, era, locale, duration_hint, and structure_type are "
+        "non-empty strings or null, party_size is a string, integer, or null "
+        "(never boolean), authors, translator, and safety_notes are null, a "
+        "string, or an array of non-empty strings ([] when the source names "
+        "none), and tone_tags, mythos_entities, campaign_hooks, and warnings are "
+        "arrays of non-empty strings (use [] when the source names none -- never "
+        "null). chargen_deltas MUST be an array of objects and may be [] when "
+        "the source makes no creation adjustments; a single dict or any other "
+        "non-array is invalid. Each delta item records one source-derived "
+        "creation adjustment (for example a skill, equipment, or resource "
+        "change) and has no required fields; do not invent adjustments the "
+        "source does not state. Do not expose full source text in L0. Write "
         "manifest.pages rows only for the pages you newly render, which is "
         "every selected index absent from task.reusable_bound_source.manifest; "
         "extra or missing retained rows are ignored, and unselected preseed "
@@ -1556,7 +1668,8 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "tools or write outside source_bundle_path. Return only one strict JSON "
         "object with exact fields schema_version, contract_id, status, "
         "campaign_id, scenario_id, selected_opening_pdf_indices, "
-        "fact_evidence_pdf_indices, source_bundle_path, failure_class, facts. "
+        "fact_evidence_pdf_indices, source_bundle_path, failure_class, facts, "
+        "module_init_l0. "
         "contract_id is "
         "coc.pi-opening-pdf-producer-result.v1; status is reviewed or failed. "
         "For reviewed, indices are unique ascending contiguous and failure_class "
@@ -1568,7 +1681,7 @@ def _opening_prompt(task: dict[str, Any]) -> str:
         "placeholder as evidence. Return concise values only: no source text, "
         "excerpts, manifest body, or reasoning. For failed, both index arrays "
         "are empty, source_bundle_path=null, failure_class is non-empty, and "
-        "facts=null.\n"
+        "facts=null and module_init_l0=null.\n"
         + json.dumps(task, ensure_ascii=False, separators=(",", ":"))
     )
 
@@ -1684,7 +1797,7 @@ def _validate_opening_result(
             "schema_version", "contract_id", "status", "campaign_id",
             "scenario_id", "selected_opening_pdf_indices",
             "fact_evidence_pdf_indices", "source_bundle_path",
-            "failure_class", "facts",
+            "failure_class", "facts", "module_init_l0",
         }
         or result.get("schema_version") != 1
         or result.get("contract_id")
@@ -1713,6 +1826,7 @@ def _validate_opening_result(
             or not 1 <= len(fact_indices) <= MAX_FACT_EVIDENCE_PAGES
             or result.get("source_bundle_path") != task["source_bundle_path"]
             or result.get("failure_class") is not None
+            or not isinstance(result.get("module_init_l0"), dict)
         ):
             _fail("reviewed opening PDF producer result invalid")
         result = dict(result)
@@ -1728,6 +1842,7 @@ def _validate_opening_result(
         or not isinstance(result.get("failure_class"), str)
         or not result["failure_class"].strip()
         or result.get("facts") is not None
+        or result.get("module_init_l0") is not None
     ):
         _fail("failed opening PDF producer result invalid")
     return result
@@ -1905,6 +2020,83 @@ def _opening_producer_timeout(request: dict[str, Any]) -> int:
     return max(60, supplied - OPENING_REVIEW_WRITEBACK_MARGIN_SECONDS)
 
 
+def _write_opening_transport_failure_evidence(
+    campaign_dir: Path,
+    request: dict[str, Any],
+    task: dict[str, Any],
+    lock_path: Path,
+    reason: str,
+) -> Path | None:
+    """Persist bounded progress when the producer cannot emit a receipt.
+
+    A SIGKILL cannot run this handler; the parent extension records that case.
+    Ordinary child exit, timeout, validation, bind, and fulfillment failures do
+    pass here before the adapter exits non-zero.
+    """
+    try:
+        evidence_dir = campaign_dir / "logs" / "opening-source-review-evidence"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        generation = request["opening_review_generation"]
+        destination = evidence_dir / f"transport-failure-g{generation}.json"
+        bundle_root = Path(task["source_bundle_path"])
+        rendered_pages = sum(
+            1 for path in bundle_root.rglob("*.md") if path.is_file()
+        ) if bundle_root.is_dir() else 0
+        evidence = {
+            "schema_version": 1,
+            "secrecy": "keeper_only",
+            "campaign_id": request["campaign_id"],
+            "scenario_id": request["scenario_id"],
+            "opening_review_generation": generation,
+            "status": "producer_failure_before_receipt",
+            "failure_class": "opening_source_review_transport_failed",
+            "reason": str(reason)[:512],
+            "rendered_markdown_pages": rendered_pages,
+            "transport_lock_path": str(lock_path),
+        }
+        temporary = destination.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, destination)
+        return destination
+    except OSError:
+        return None
+
+
+def _write_opening_l0_failure_evidence(
+    campaign_dir: Path,
+    request: dict[str, Any],
+    payload: Any,
+    reason: str,
+) -> Path:
+    """Keep the malformed private L0 for diagnosis without mutating campaign state."""
+    evidence_dir = campaign_dir / "logs" / "opening-source-review-evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    generation = request["opening_review_generation"]
+    destination = evidence_dir / f"l0-producer-failure-g{generation}.json"
+    evidence = {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "campaign_id": request["campaign_id"],
+        "scenario_id": request["scenario_id"],
+        "opening_review_generation": generation,
+        "reason": reason,
+        # This is intentionally only the producer's L0 field, not its raw
+        # prompt/result or source pages. The campaign log is keeper-only
+        # diagnostic evidence and is never projected to the player.
+        "module_init_l0": payload,
+    }
+    temporary = destination.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(evidence, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, destination)
+    return destination
+
+
 def _run_opening_review() -> dict[str, Any]:
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
@@ -1936,15 +2128,23 @@ def _run_opening_review() -> dict[str, Any]:
         shutdown = _ShutdownFlag()
         handlers, old_mask = _enter_producer_lane(shutdown)
         try:
-            result = _validate_opening_result(
-                _run_pi(
-                    _opening_prompt(task),
-                    Path(task["source_bundle_path"]).parent,
-                    timeout=_opening_producer_timeout(request),
-                    shutdown=shutdown,
-                ),
-                task,
+            producer_payload = _run_pi(
+                _opening_prompt(task),
+                Path(task["source_bundle_path"]).parent,
+                timeout=_opening_producer_timeout(request),
+                shutdown=shutdown,
             )
+            try:
+                result = _validate_opening_result(producer_payload, task)
+            except RuntimeError as exc:
+                if isinstance(producer_payload, dict) and "module_init_l0" in producer_payload:
+                    _write_opening_l0_failure_evidence(
+                        campaign_dir,
+                        request,
+                        producer_payload["module_init_l0"],
+                        str(exc),
+                    )
+                raise
             _run_post_child_hook()
             _fail_if_shutdown(shutdown)
             if result["status"] != "reviewed":
@@ -1956,6 +2156,18 @@ def _run_opening_review() -> dict[str, Any]:
                 return receipt
             selected = result["selected_opening_pdf_indices"]
             fact_evidence = result["fact_evidence_pdf_indices"]
+            try:
+                module_init_l0 = ops._validate_module_init_l0(
+                    result["module_init_l0"]
+                )
+            except ops.RuntimeOperationError as exc:
+                evidence_path = _write_opening_l0_failure_evidence(
+                    campaign_dir, request, result["module_init_l0"], str(exc),
+                )
+                _fail(
+                    f"module-init L0 is invalid: {exc}; private diagnostic evidence: "
+                    f"{evidence_path.relative_to(workspace)}"
+                )
             bundle_indices = sorted(set(selected) | set(fact_evidence))
             _splice_retained_bound_pages(task, selected, fact_evidence)
             bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
@@ -2032,12 +2244,21 @@ def _run_opening_review() -> dict[str, Any]:
                 workspace,
                 fulfillment,
                 source_facts=result["facts"],
+                module_init_l0=module_init_l0,
             )
             _fail_if_shutdown(shutdown)
             return _opening_receipt(
                 request, exact["scenario_id"], exact["generation"],
                 "reviewed", None, result["facts"],
             )
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+            # The extension turns this non-zero transport exit into a retryable
+            # terminal follow-up. Leave local, keeper-only progress evidence so
+            # that a post-render death is diagnosable rather than silent.
+            _write_opening_transport_failure_evidence(
+                campaign_dir, request, task, lock_path, str(exc),
+            )
+            raise
         finally:
             _leave_producer_lane(handlers, old_mask, shutdown)
 

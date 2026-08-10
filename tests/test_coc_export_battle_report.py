@@ -682,6 +682,63 @@ def test_player_report_renders_only_rolls_bound_to_finalization_receipts(tmp_pat
     assert "KEEPER_ROLL_SECRET" not in markdown
 
 
+def test_creation_luck_receipt_binds_public_roll_without_finalization(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    investigator = run / "sandbox" / ".coc" / "investigators" / "ada"
+    _write_json(
+        investigator / "creation.json",
+        {
+            "input_mode": "guided_quick_fire",
+            "luck_roll_receipt": {
+                "campaign_id": "case-1",
+                "decision_id": "creation-luck-decision",
+                "roll_id": "creation-luck-1",
+            },
+        },
+    )
+    _write_jsonl(campaign / "logs" / "rolls.jsonl", [
+        {
+            "roll_id": "public-1",
+            "actor": "ada",
+            "visibility": "public",
+            "payload": {
+                "roll_id": "public-1",
+                "skill": "Spot Hidden",
+                "roll": 42,
+                "effective_target": 60,
+                "outcome": "success",
+            },
+        },
+        {
+            "roll_id": "creation-luck-1",
+            "actor": "keeper",
+            "visibility": "public",
+            "payload": {
+                "roll_id": "creation-luck-1",
+                "kind": "dice_expression",
+                "roll": 11,
+                "final_total": 11,
+                "outcome": "success",
+            },
+        },
+    ])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "COMPLETE"
+    assert report["completeness"]["dimensions"]["dice"]["status"] == "PASS"
+    assert [row["roll_id"] for row in report["public_rolls"]["records"]] == [
+        "public-1",
+        "creation-luck-1",
+    ]
+    binding = report["public_rolls"]["finalization_binding"]
+    assert binding["bound_roll_id_count"] == 2
+    assert binding["undispositioned_orphans"] == []
+
+
 def test_undispositioned_orphan_public_roll_fails_dice_loudly(tmp_path):
     module = _load()
     run = tmp_path / "run"
@@ -706,7 +763,7 @@ def test_undispositioned_orphan_public_roll_fails_dice_loudly(tmp_path):
     assert dimension["status"] == "FAIL"
     assert any("orphan-public" in finding and "source line 3" in finding for finding in dimension["findings"])
     assert any(
-        "1 public roll rows are bound to no finalization and carry no abandonment disposition" in reason
+        "1 public roll rows are bound to no canonical receipt and carry no abandonment disposition" in reason
         and "orphan-public" in reason
         for reason in report["completeness"]["reasons"]
     )

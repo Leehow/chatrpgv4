@@ -74,8 +74,10 @@ PREVIEW_MAX_BYTES = 240
 PREVIEW_MIN_BYTES = 48
 REQUEST_MAX_BYTES = 96_000
 MAX_SECTIONS = 800
+MAX_ENTITY_CATALOG = 800
 
 _SECTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+_ENTITY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _HEX = frozenset("0123456789abcdef")
 
 
@@ -102,7 +104,12 @@ def section_id_for(order: int) -> str:
 # Result validation
 # --------------------------------------------------------------------------
 
-def _validate_binding(value: Any, *, prefix: str) -> dict[str, Any]:
+def _validate_binding(
+    value: Any,
+    *,
+    prefix: str,
+    entity_catalog: dict[str, set[str]] | None = None,
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise SectionIndexError(f"{prefix}.binding must be an object")
     kind = str(value.get("kind") or "")
@@ -127,6 +134,13 @@ def _validate_binding(value: Any, *, prefix: str) -> dict[str, Any]:
         if not entity_ids:
             raise SectionIndexError(
                 f"{prefix}.binding entity requires at least one entity id"
+            )
+        if entity_catalog is not None and any(
+            entity_id.strip() not in entity_catalog.get(str(entity_kind), set())
+            for entity_id in entity_ids
+        ):
+            raise SectionIndexError(
+                f"{prefix}.binding entity_ids must come from request entity_catalog"
             )
     return {
         "kind": kind,
@@ -155,6 +169,21 @@ def validate_section_rows(
         for row in request.get("candidates") or []
         if isinstance(row, dict) and row.get("section_id")
     }
+    catalog_rows = request.get("entity_catalog") or []
+    if not isinstance(catalog_rows, list) or len(catalog_rows) > MAX_ENTITY_CATALOG:
+        raise SectionIndexError("request.entity_catalog invalid")
+    entity_catalog: dict[str, set[str]] = {}
+    for index, catalog_row in enumerate(catalog_rows):
+        if not isinstance(catalog_row, dict) or set(catalog_row) != {"kind", "id"}:
+            raise SectionIndexError(f"request.entity_catalog[{index}] invalid")
+        kind = str(catalog_row.get("kind") or "")
+        entity_id = str(catalog_row.get("id") or "").strip()
+        if kind not in BINDING_ENTITY_KINDS or not _ENTITY_ID.match(entity_id):
+            raise SectionIndexError(f"request.entity_catalog[{index}] invalid")
+        known = entity_catalog.setdefault(kind, set())
+        if entity_id in known:
+            raise SectionIndexError(f"request.entity_catalog[{index}] duplicated")
+        known.add(entity_id)
     page_count = int(request.get("page_count") or 0)
     seen: set[str] = set()
     validated: list[dict[str, Any]] = []
@@ -219,7 +248,10 @@ def validate_section_rows(
             "audience": str(row["audience"]),
             "timing": str(row["timing"]),
             "payload": str(row["payload"]),
-            "binding": _validate_binding(row.get("binding"), prefix=prefix),
+            "binding": _validate_binding(
+                row.get("binding"), prefix=prefix,
+                entity_catalog=entity_catalog,
+            ),
             "confidence": str(row["confidence"]),
             "parse_state": "indexed",
         })
@@ -241,6 +273,14 @@ def build_section_index(
     request: dict[str, Any],
 ) -> dict[str, Any]:
     validated = validate_section_rows(rows, request=request)
+    if (
+        not request.get("entity_catalog")
+        and validated
+        and all(row["binding"]["kind"] == "global" for row in validated)
+    ):
+        raise SectionIndexError(
+            "section classification cannot complete with an empty entity catalog"
+        )
     outline_sha256 = _require_sha256(
         request.get("outline_sha256"), "request.outline_sha256",
     )

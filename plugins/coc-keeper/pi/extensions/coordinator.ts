@@ -1072,6 +1072,15 @@ function sceneSourceMarkerFromNodes(nodes: JsonObject[]): boolean {
   ));
 }
 
+function progressiveAssetRootFromNodes(nodes: JsonObject[]): string | null {
+  for (const node of nodes) {
+    const progressive = objectOrNull(node.progressive);
+    const value = smallStringOrNull(progressive?.asset_root_id ?? node.asset_root_id);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
 function movedSceneIsSourceBound(data: JsonObject): boolean {
   const scene = objectOrNull(data.scene);
   const progressive = objectOrNull(data.progressive);
@@ -1161,7 +1170,10 @@ export class PiSemanticReadinessSession {
     }
     if (sceneId !== null) {
       current.current_scene_id = sceneId;
-      if (sceneSourceMarkerFromNodes(nodes)) {
+      // A progressive root makes a missing campaign-local/improvised scene a
+      // deliberate self-correction candidate; materialization still cannot
+      // label it source-backed until canonical scene.context proves it.
+      if (sceneSourceMarkerFromNodes(nodes) || progressiveAssetRootFromNodes(nodes) !== null) {
         this.sourceBoundScenes(campaignId).add(sceneId);
       } else if (
         current.current_scene_projection.provenance === "campaign_local"
@@ -1205,19 +1217,6 @@ export class PiSemanticReadinessSession {
 
   scenePriorityCandidate(campaignId: string): PiScenePriorityCandidate | null {
     return this.priorityCandidate(campaignId);
-  }
-
-  markSemanticCompileFulfilled(campaignId: string): PiSemanticReadiness {
-    const current = structuredClone(
-      this.readinessByCampaign.get(campaignId)
-      ?? emptySemanticReadiness(campaignId),
-    );
-    current.semantic_compile = readinessLayer(
-      "ready",
-      "priority_section_semantic_fulfilled",
-    );
-    this.readinessByCampaign.set(campaignId, current);
-    return structuredClone(current);
   }
 
   recordRepairDiagnostics(
@@ -1297,9 +1296,12 @@ export class PiSemanticReadinessSession {
   }
 }
 
+const MATERIALIZE_MAX_ATTEMPTS = 2;
+
 type ScenePriorityDispatchState = {
   checking: boolean;
   activePacketId: string | null;
+  materializeAttempts: number;
   terminalPacketIds: Set<string>;
   completedPacketIds: Set<string>;
 };
@@ -1427,6 +1429,7 @@ export class PiSemanticSupplyCoordinator {
     const state: ScenePriorityDispatchState = {
       checking: false,
       activePacketId: null,
+      materializeAttempts: 0,
       terminalPacketIds: new Set<string>(),
       completedPacketIds: new Set<string>(),
     };
@@ -1728,14 +1731,12 @@ export class PiSemanticSupplyCoordinator {
       const packetId = task === null
         ? null
         : this.scenePriorityTaskPacketId(task, candidate.campaign_id);
-      if (
-        refreshed === null
-        || refreshed.scene_id !== candidate.scene_id
-        || task === null
-        || packetId === null
-        || !this.hasReadySectionSemanticWork(status)
-      ) {
+      if (refreshed === null || refreshed.scene_id !== candidate.scene_id) {
         state.checking = false;
+        return;
+      }
+      if (task === null || packetId === null || !this.hasReadySectionSemanticWork(status)) {
+        await this.materializeAndBrief(refreshed, stateKey, state);
         return;
       }
       if (
@@ -1753,6 +1754,109 @@ export class PiSemanticSupplyCoordinator {
     }
   }
 
+  private async materializeAndBrief(
+    candidate: PiScenePriorityCandidate,
+    stateKey: string,
+    state: ScenePriorityDispatchState,
+  ): Promise<void> {
+    const host = this.requireHost();
+    const root = host.launchContext()?.cwd ?? "";
+    if (!root || !host.isCurrent()) {
+      this.markScenePriorityUnavailable(candidate, state, "scene_priority_materialize_failed");
+      return;
+    }
+    let retryScheduled = false;
+    try {
+      state.materializeAttempts += 1;
+      const materializeParams: JsonObject = {
+        operation: "progressive.on_enter_scene",
+        root,
+        campaign: candidate.campaign_id,
+        arguments: {
+          scene_id: candidate.scene_id,
+          decision_id: `pi-scene-materialize:${candidate.scene_id}`,
+        },
+      };
+      const materialized = await host.callCanonical(materializeParams);
+      if (!host.isCurrent()) return;
+      if (objectOrNull(materialized)?.ok !== true) {
+        const code = smallStringOrNull(objectOrNull(materialized)?.error && objectOrNull(objectOrNull(materialized)?.error)?.code);
+        if (code === "stale_scene_id") {
+          state.terminalPacketIds.add(`materialize:${candidate.scene_id}`);
+          this.publishContext(candidate.campaign_id, "scene_priority_terminal", {
+            ...this.scenePriorityUnavailableContext(candidate), failure_class: code,
+          });
+          return;
+        }
+        throw new Error("scene materialization was not canonical");
+      }
+      this.observeCanonical("progressive.on_enter_scene", materializeParams, materialized);
+      const task = findAutoDispatchTask(materialized);
+      const packetId = task === null ? null : this.scenePriorityTaskPacketId(task, candidate.campaign_id);
+      if (task !== null && packetId !== null && !state.terminalPacketIds.has(packetId)
+        && !state.completedPacketIds.has(packetId)) {
+        await this.submitScenePriorityTask(candidate, task, stateKey, state, packetId);
+        return;
+      }
+      const sceneParams: JsonObject = {
+        operation: "scene.context", root, campaign: candidate.campaign_id, arguments: {},
+      };
+      const scene = await host.callCanonical(sceneParams);
+      if (!host.isCurrent()) return;
+      if (objectOrNull(scene)?.ok !== true) {
+        throw new Error("scene re-read was not canonical");
+      }
+      this.observeCanonical("scene.context", sceneParams, scene);
+      const ready = this.readiness.snapshot(candidate.campaign_id);
+      if (ready?.current_scene_projection.status !== "ready") {
+        state.terminalPacketIds.add(`materialize:${candidate.scene_id}`);
+        this.publishContext(candidate.campaign_id, "scene_priority_terminal", {
+          ...this.scenePriorityUnavailableContext(candidate),
+          failure_class: "scene_materialization_incomplete",
+        });
+        return;
+      }
+      const secretsParams: JsonObject = {
+        operation: "secrets.briefing", root, campaign: candidate.campaign_id,
+        arguments: { scope: "active_scene", scene_id: candidate.scene_id },
+      };
+      const secrets = await host.callCanonical(secretsParams);
+      if (!host.isCurrent()) return;
+      if (objectOrNull(secrets)?.ok !== true) {
+        throw new Error("scene briefing was not canonical");
+      }
+      this.observeCanonical("secrets.briefing", secretsParams, secrets);
+      this.appendReadiness(candidate.campaign_id);
+      this.publishContext(candidate.campaign_id, "scene_priority_ready", {
+        schema_version: 1,
+        status: "semantic_supply_ready",
+        hard_gate: false,
+        scene_id: candidate.scene_id,
+        source_cards: [
+          { operation: "scene.context", data: objectOrNull(scene)?.data },
+          { operation: "secrets.briefing", data: objectOrNull(secrets)?.data },
+        ],
+      }, true);
+    } catch {
+      if (!host.isCurrent()) return;
+      if (state.materializeAttempts < MATERIALIZE_MAX_ATTEMPTS) {
+        retryScheduled = true;
+        this.trackScenePriorityRun(this.materializeAndBrief(candidate, stateKey, state));
+        return;
+      }
+      state.terminalPacketIds.add(`materialize:${candidate.scene_id}`);
+      this.publishContext(candidate.campaign_id, "scene_priority_terminal", {
+        ...this.scenePriorityUnavailableContext(candidate),
+        failure_class: "scene_priority_materialize_failed",
+      });
+    } finally {
+      if (!retryScheduled) {
+        state.checking = false;
+        state.activePacketId = null;
+      }
+    }
+  }
+
   private scheduleScenePriority(
     operation: string,
     params: JsonObject,
@@ -1766,6 +1870,7 @@ export class PiSemanticSupplyCoordinator {
     const candidate = this.readiness.scenePriorityCandidate(campaignId);
     if (candidate === null) return false;
     const { key: stateKey, state } = this.scenePriorityState(candidate);
+    if (state.terminalPacketIds.has(`materialize:${candidate.scene_id}`)) return false;
     const task = findAutoDispatchTask(value);
     const packetId = task === null
       ? null
@@ -1851,26 +1956,13 @@ export class PiSemanticSupplyCoordinator {
         || objectOrNull(status)?.ok !== true
       ) throw new Error("scene priority readiness refresh was not canonical");
       this.observeCanonical("progressive.status", params, status);
-      this.readiness.markSemanticCompileFulfilled(binding.campaignId);
-      this.appendReadiness(binding.campaignId);
       state.completedPacketIds.add(packetId);
-      this.publishContext(binding.campaignId, "scene_priority_ready", {
-        schema_version: 1,
-        status: "semantic_supply_fulfilled",
-        hard_gate: false,
+      await this.materializeAndBrief({
+        campaign_id: binding.campaignId,
         scene_id: binding.sceneId,
-        next_operation: {
-          operation: "scene.context",
-          invoke_via: "coc_invoke",
-          campaign: binding.campaignId,
-          arguments: {},
-          hard_gate: false,
-        },
-        instruction: (
-          "Re-read the current scene through this exact canonical operation "
-          + "before treating any source-specific fact as established."
-        ),
-      }, true);
+        source_bound: true,
+        current_scene_status: "missing",
+      }, binding.stateKey, state);
     } catch {
       state.terminalPacketIds.add(packetId);
       this.publishContext(binding.campaignId, "scene_priority_terminal", {

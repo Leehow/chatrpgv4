@@ -49,7 +49,7 @@ def _workspace_with_finalized_turn(tmp_path: Path) -> tuple[Path, Path]:
 
     call(
         "state.journal",
-        {"summary": "The first turn closes.", "decision_id": "journal-one"},
+        {"summary": "The first turn closes.", "player_text": "我结束第一回合行动。", "decision_id": "journal-one"},
     )
     context = call("turn.output_context")["data"]
     assert context["obligations"] == []
@@ -126,7 +126,7 @@ def test_historical_context_receipt_allows_new_pending_turn_output_context(tmp_p
         "state.journal",
         workspace,
         "legacy-finalization",
-        {"summary": "A new pending turn.", "decision_id": "journal-two"},
+        {"summary": "A new pending turn.", "player_text": "我开始新的回合行动。", "decision_id": "journal-two"},
     )
     assert journal["ok"] is True, journal
     output = coc_toolbox.run_tool(

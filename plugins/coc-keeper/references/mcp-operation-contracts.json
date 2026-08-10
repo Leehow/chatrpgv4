@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:bda2e9924790b045531551add74e85e92e4c807a1ae6f52223e41a8a13b19fd7",
+  "content_sha256": "sha256:afb7b1c512f89cb7ee506ccc462a6d0925f9b5e70de6bd89f2fff9350b8c1faa",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 105,
+  "operation_count": 109,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -1081,6 +1081,38 @@
       },
       "needs_campaign": true,
       "summary": "Submit one exact source-worker result for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work."
+    },
+    "progressive.on_enter_scene": {
+      "canonical_operation": "progressive.on_enter_scene",
+      "description": "Materialize only the canonical active progressive scene: merge a ready location pack and enqueue exact source-bound location/opening section extraction through the existing queue. Returns status and host-work projection, never section prose. Canonical operation `progressive.on_enter_scene`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "stable materialization receipt id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "must exactly equal world.active_scene_id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "scene_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Materialize only the canonical active progressive scene: merge a ready location pack and enqueue exact source-bound location/opening section extraction through the existing queue. Returns status and host-work projection, never section prose."
     },
     "progressive.opening_bootstrap": {
       "canonical_operation": "progressive.opening_bootstrap",
@@ -4386,7 +4418,7 @@
             "type": "string"
           },
           "player_text": {
-            "description": "exact byte-for-byte player message for the readable transcript",
+            "description": "nonblank exact byte-for-byte player message for the readable transcript; player_action cannot substitute",
             "type": "string"
           },
           "root": {
@@ -4409,6 +4441,7 @@
         "required": [
           "campaign",
           "summary",
+          "player_text",
           "decision_id"
         ],
         "type": "object"
@@ -5280,6 +5313,93 @@
       "needs_campaign": true,
       "summary": "Read steward deliveries: module text the steward judged the KP needs now, with why_now, expected scene annotation, secrecy labels, page and source refs. projection=keeper returns full records; projection=player returns only player_safe segments (never keeper_only text or KP reasoning) and is the only surface from which module text may reach players verbatim."
     },
+    "steward.domain_put": {
+      "canonical_operation": "steward.domain_put",
+      "description": "Atomically replace one asynchronous steward parser domain snapshot and append any chunk failures. Domains are init, npc, scene, clue, and rule; content is a thin, extensible JSON object, while status is explicit. This writes only save/steward-state.json and never campaign core state. Canonical operation `steward.domain_put`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "content": {
+            "additionalProperties": true,
+            "description": "extensible domain content; omit status because it is supplied separately",
+            "type": "object"
+          },
+          "decision_id": {
+            "description": "idempotency key and stable source id",
+            "type": "string"
+          },
+          "domain": {
+            "description": "parser domain to replace",
+            "enum": [
+              "init",
+              "npc",
+              "scene",
+              "clue",
+              "rule"
+            ],
+            "type": "string"
+          },
+          "failed_chunks": {
+            "description": "failed child chunks to append; their domain is bound to domain",
+            "items": {
+              "additionalProperties": true,
+              "properties": {
+                "attempts": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "chunk_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "source_refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "chunk_id",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "status": {
+            "description": "current parser-domain status",
+            "enum": [
+              "pending",
+              "ready",
+              "partial",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "domain",
+          "status",
+          "content",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Atomically replace one asynchronous steward parser domain snapshot and append any chunk failures. Domains are init, npc, scene, clue, and rule; content is a thin, extensible JSON object, while status is explicit. This writes only save/steward-state.json and never campaign core state."
+    },
     "steward.mark_consumed": {
       "canonical_operation": "steward.mark_consumed",
       "description": "Mark one delivery as consumed once the scene it served has passed, so steward.deliveries can separate current deliveries from history. Canonical operation `steward.mark_consumed`; the result envelope is authoritative.",
@@ -5455,6 +5575,75 @@
       },
       "needs_campaign": true,
       "summary": "Add or refine one notebook entry: pre-cut module segments for an expected scene, paid when the scene truly arrives. Unpaid entries may be replaced to refine pre-cuts; paid entries are immutable."
+    },
+    "steward.scene_bundle_put": {
+      "canonical_operation": "steward.scene_bundle_put",
+      "description": "Merge source-bound SceneBundle records into the steward scene cache. Each bundle has current plus source-traceable neighboring SceneEdge records, so a later arrival can consume a prefetched current bundle without re-parsing. Canonical operation `steward.scene_bundle_put`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bundles": {
+            "description": "one or more source-bound SceneBundle records; each current scene id is the cache key",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key and stable source id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "bundles"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Merge source-bound SceneBundle records into the steward scene cache. Each bundle has current plus source-traceable neighboring SceneEdge records, so a later arrival can consume a prefetched current bundle without re-parsing."
+    },
+    "steward.scene_supply": {
+      "canonical_operation": "steward.scene_supply",
+      "description": "Read one Pi scene-supply readiness snapshot. A ready bundle is the only full scene material surface; an optional minimal fallback is limited to source-bound indexed name/clue references after the Pi retry policy is exhausted. Canonical operation `steward.scene_supply`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_minimal_fallback": {
+            "description": "permit only the source-bound minimal indexed fallback when no full bundle is ready",
+            "type": "boolean"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "destination scene id to check",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "scene_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read one Pi scene-supply readiness snapshot. A ready bundle is the only full scene material surface; an optional minimal fallback is limited to source-bound indexed name/clue references after the Pi retry policy is exhausted."
     },
     "storylets.suggest": {
       "canonical_operation": "storylets.suggest",

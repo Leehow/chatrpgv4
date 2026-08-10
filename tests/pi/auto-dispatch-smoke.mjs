@@ -35,6 +35,13 @@ const sectionBindingFixture = JSON.parse(readFileSync(
   ),
   "utf8",
 ));
+const sectionClassificationFixture = JSON.parse(readFileSync(
+  path.join(
+    root,
+    "tests/pi/fixtures/section-classification-discrimination.json",
+  ),
+  "utf8",
+));
 const problems = [];
 const safeCharacterSetupPrompt = (
   "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
@@ -82,6 +89,7 @@ function coordinatorTask(packetId = "coord-auto-1", {
 function sectionFixtureLeafTask(
   packetId = "section-repair-packet",
   jobId = "section-repair-job",
+  entityCatalog = [],
 ) {
   return {
     schema_version: 1,
@@ -96,7 +104,10 @@ function sectionFixtureLeafTask(
       requests: [{
         job_id: jobId,
         kind: "classify_sections",
-        classification_request: { contract_id: "coc.section-index.v1" },
+        classification_request: {
+          contract_id: "coc.section-index.v1",
+          entity_catalog: entityCatalog,
+        },
       }],
     },
   };
@@ -129,6 +140,46 @@ function sectionFixtureLeaseResponse(args, jobId) {
     return { data: { renewed_job_ids: [jobId], skipped_job_ids: [] } };
   }
   return null;
+}
+
+async function runSectionClassificationLifecycle(label, leaf, results) {
+  const spawns = [];
+  const fulfills = [];
+  const repairDiagnostics = [];
+  const receipt = await runtime.runCoordinatorLifecycle(
+    coordinatorTask(`coord-${label}`),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return { data: {
+            dispatch_tasks: [leaf],
+            lease_bindings: [{
+              lease_id: leaf.packet.packet_id,
+              job_ids: [leaf.packet.requests[0].job_id],
+            }],
+          } };
+        }
+        if (args.operation === "progressive.fulfill_host_work") {
+          fulfills.push(args.arguments.worker_result);
+          return { data: { accepted: true } };
+        }
+        const lease = sectionFixtureLeaseResponse(
+          args,
+          leaf.packet.requests[0].job_id,
+        );
+        if (lease) return lease;
+        throw new Error(`unexpected ${label} operation ${args.operation}`);
+      },
+      onSourcePackRepairDiagnostic: (diagnostic) => {
+        repairDiagnostics.push(diagnostic);
+      },
+      spawnLeaf: async (task) => {
+        spawns.push(task);
+        return sectionFixtureSuccess(results[spawns.length - 1]);
+      },
+    },
+  );
+  return { receipt, spawns, fulfills, repairDiagnostics };
 }
 
 function takeover(task) {
@@ -1630,15 +1681,13 @@ async function exerciseFailureDrain(mode) {
   const canonicalLeaf = sectionFixtureLeafTask(
     "section-repair-canonical-packet",
     "section-repair-canonical-job",
+    sectionClassificationFixture.entity_catalog,
   );
   const canonicalInitial = sectionFixtureWorkerResult(canonicalLeaf, safeSectionPack);
-  const canonicalRepaired = sectionFixtureWorkerResult(canonicalLeaf, {
-    sections: [{
-      section_id: "fixture-repaired-global",
-      payload: "procedure",
-      binding: { kind: "global", entity_kind: null, entity_ids: [] },
-    }],
-  });
+  const canonicalRepaired = sectionFixtureWorkerResult(
+    canonicalLeaf,
+    sectionClassificationFixture.mixed_pack,
+  );
   const canonicalSpawns = [];
   const canonicalFulfills = [];
   const canonicalMessage = "sections[0].binding entity requires at least one entity id";
@@ -1704,6 +1753,135 @@ async function exerciseFailureDrain(mode) {
     && canonicalRepairContext?.trigger?.message === canonicalMessage
     && canonicalRepairContext?.trigger?.path === "sections[0].binding"
     && canonicalRepairContext?.prior_packs?.[0]?.empty_entity_binding_count === 0);
+}
+
+// A non-empty canonical catalog makes an all-global classification a bounded
+// repair condition, not a fulfillable section index. The repaired mixed result
+// preserves the same task/lease and is fulfilled exactly once.
+{
+  const leaf = sectionFixtureLeafTask(
+    "section-discrimination-repair-packet",
+    "section-discrimination-repair-job",
+    sectionClassificationFixture.entity_catalog,
+  );
+  const allGlobal = sectionFixtureWorkerResult(
+    leaf,
+    sectionClassificationFixture.all_global_pack,
+  );
+  const mixed = sectionFixtureWorkerResult(
+    leaf,
+    sectionClassificationFixture.mixed_pack,
+  );
+  const initialPreflight = runtime.preflightSectionEntityBindings(
+    allGlobal.results[0].pack,
+    leaf.packet.requests[0].classification_request,
+  );
+  const run = await runSectionClassificationLifecycle(
+    "section-discrimination-repair",
+    leaf,
+    [allGlobal, mixed],
+  );
+  check("non-empty catalog rejects all-global once then fulfills repaired mixed pack",
+    initialPreflight.entity_catalog_count === sectionClassificationFixture.entity_catalog.length
+    && initialPreflight.non_discriminating === true
+    && initialPreflight.invalid_bindings.length === 0
+    && run.receipt.status === "fulfilled"
+    && run.spawns.length === 2
+    && JSON.stringify(run.spawns[1]?.packet) === JSON.stringify(leaf.packet)
+    && run.fulfills.length === 1
+    && run.fulfills[0] === mixed.results[0]
+    && run.repairDiagnostics.length === 1
+    && run.repairDiagnostics[0]?.failure_class
+      === "section_classification_non_discriminating"
+    && run.repairDiagnostics[0]?.retry_terminal === false);
+}
+
+// A mixed global/entity result is already discriminating and therefore gets
+// one normal canonical fulfill without consuming the repair budget.
+{
+  const leaf = sectionFixtureLeafTask(
+    "section-discrimination-mixed-packet",
+    "section-discrimination-mixed-job",
+    sectionClassificationFixture.entity_catalog,
+  );
+  const mixed = sectionFixtureWorkerResult(
+    leaf,
+    sectionClassificationFixture.mixed_pack,
+  );
+  const run = await runSectionClassificationLifecycle(
+    "section-discrimination-mixed",
+    leaf,
+    [mixed],
+  );
+  check("mixed valid classification fulfills exactly once without repair",
+    runtime.preflightSectionEntityBindings(
+      mixed.results[0].pack,
+      leaf.packet.requests[0].classification_request,
+    ).non_discriminating === false
+    && run.receipt.status === "fulfilled"
+    && run.spawns.length === 1
+    && run.fulfills.length === 1
+    && run.repairDiagnostics.length === 0);
+}
+
+// No catalog means no source-established identity is available. Global-only
+// output must defer without inventing an ID or calling canonical fulfillment.
+{
+  const leaf = sectionFixtureLeafTask(
+    "section-discrimination-empty-catalog-packet",
+    "section-discrimination-empty-catalog-job",
+  );
+  const allGlobal = sectionFixtureWorkerResult(
+    leaf,
+    sectionClassificationFixture.all_global_pack,
+  );
+  const run = await runSectionClassificationLifecycle(
+    "section-discrimination-empty-catalog",
+    leaf,
+    [allGlobal],
+  );
+  check("empty catalog all-global classification terminalizes without fulfill or repair",
+    runtime.preflightSectionEntityBindings(
+      allGlobal.results[0].pack,
+      leaf.packet.requests[0].classification_request,
+    ).catalog_empty_global === true
+    && run.receipt.status === "failed"
+    && run.receipt.failure_class === "leaf_result_invalid"
+    && run.spawns.length === 1
+    && run.fulfills.length === 0
+    && run.repairDiagnostics.length === 1
+    && run.repairDiagnostics[0]?.failure_class
+      === "section_classification_entity_catalog_empty"
+    && run.repairDiagnostics[0]?.retry_terminal === true);
+}
+
+// A second non-discriminating result closes the same lease with a private
+// terminal diagnostic and never calls canonical fulfillment.
+{
+  const leaf = sectionFixtureLeafTask(
+    "section-discrimination-terminal-packet",
+    "section-discrimination-terminal-job",
+    sectionClassificationFixture.entity_catalog,
+  );
+  const allGlobal = sectionFixtureWorkerResult(
+    leaf,
+    sectionClassificationFixture.all_global_pack,
+  );
+  const run = await runSectionClassificationLifecycle(
+    "section-discrimination-terminal",
+    leaf,
+    [allGlobal, allGlobal],
+  );
+  check("repeated all-global classification terminalizes without fulfillment",
+    run.receipt.status === "failed"
+    && run.receipt.failure_class === "leaf_result_invalid"
+    && run.spawns.length === 2
+    && run.fulfills.length === 0
+    && run.repairDiagnostics.length === 2
+    && run.repairDiagnostics.at(-1)?.failure_class
+      === "section_classification_non_discriminating"
+    && run.repairDiagnostics.at(-1)?.retry_terminal === true
+    && run.repairDiagnostics.at(-1)?.retry_exhausted === true);
 }
 
 // Pi semantic readiness is three independent canonical observations. A full
@@ -2020,14 +2198,23 @@ async function exerciseFailureDrain(mode) {
       };
     },
     callCanonical: async (params) => {
-      if (params.operation !== "progressive.status") {
-        throw new Error(`unexpected seam canonical operation ${params.operation}`);
+      if (params.operation === "progressive.status") {
+        const value = sectionSemanticStatusResult(task, { fulfilled: statusCalls > 0 });
+        statusCalls += 1;
+        return value;
       }
-      const value = sectionSemanticStatusResult(task, {
-        fulfilled: statusCalls > 0,
-      });
-      statusCalls += 1;
-      return value;
+      if (params.operation === "progressive.on_enter_scene") {
+        return { ok: true, tool: "progressive.on_enter_scene", data: {
+          scene_id: "source-gap", materialization: { progressive: true }, projection: {},
+        } };
+      }
+      if (params.operation === "scene.context") {
+        return sourceBoundReadySceneContext(campaignId, "source-gap");
+      }
+      if (params.operation === "secrets.briefing") {
+        return { ok: true, tool: "secrets.briefing", data: { source_sections: [{ section_id: "synthetic-section", body: "keeper body", secret: true }] } };
+      }
+      throw new Error(`unexpected seam canonical operation ${params.operation}`);
     },
     appendAudit: (name, value) => audits.push({ name, value }),
     sendHidden: (context, options) => hidden.push({ context, options }),
@@ -2083,11 +2270,11 @@ async function exerciseFailureDrain(mode) {
     && launches.join(",") === task.packet.packet_id
     && audits.some((entry) => entry.name === "coc-semantic-readiness-repair"
       && entry.value?.diagnostics?.[0]?.invalid_binding_count === 27)
-    && readySnapshot?.semantic_compile?.reason
-      === "priority_section_semantic_fulfilled"
+    && readySnapshot?.current_scene_projection?.status === "ready"
     && hidden.some((entry) => (
       entry.context?.reason === "scene_priority_ready"
-      && entry.context?.scene_priority?.next_operation?.operation === "scene.context"
+      && entry.context?.scene_priority?.source_cards?.length === 2
+      && entry.context?.scene_priority?.source_cards?.[1]?.operation === "secrets.briefing"
       && entry.options?.triggerTurn === true
     ))
     && resumeHandled === true
@@ -2095,6 +2282,68 @@ async function exerciseFailureDrain(mode) {
     && resumedSnapshot.current_scene_projection.status === "missing"
     && launches.length === 1);
   await supply.shutdown();
+}
+
+// Direct canonical materialization retries one transient host failure inside
+// the existing bounded scene-priority lifecycle, then terminalizes once when
+// the same failure persists. No packet queue or cold observation loop is made.
+{
+  const candidateEnvelope = (campaignId) => ({
+    ok: true, tool: "scene.context", data: {
+      campaign_id: campaignId, active_scene_id: "synthetic-scene",
+      scene: { scene_id: "synthetic-scene", evidence_gap: true, parse_state: "named_only" },
+      progressive: { asset_root_id: "synthetic-root" },
+    },
+  });
+  const statusEnvelope = (campaignId) => ({
+    ok: true, tool: "progressive.status", data: {
+      campaign_id: campaignId, progressive: { asset_root_id: "synthetic-root" },
+    },
+  });
+  const runRetryCase = async (campaignId, failures) => {
+    const supply = new coordinator.PiSemanticSupplyCoordinator();
+    const hidden = [];
+    let materializeCalls = 0;
+    supply.start({
+      isCurrent: () => true,
+      coordinatorEnabled: async () => true,
+      launchContext: () => ({ cwd: root, provider: "offline", modelId: "offline", thinking: "off" }),
+      launchCoordinator: () => { throw new Error("no coordinator task expected"); },
+      callCanonical: async (params) => {
+        if (params.operation === "progressive.status") return statusEnvelope(campaignId);
+        if (params.operation === "progressive.on_enter_scene") {
+          materializeCalls += 1;
+          if (materializeCalls <= failures) throw new Error("transient canonical transport");
+          return { ok: true, tool: "progressive.on_enter_scene", data: {
+            scene_id: "synthetic-scene", materialization: { progressive: true }, projection: {},
+          } };
+        }
+        if (params.operation === "scene.context") return sourceBoundReadySceneContext(campaignId, "synthetic-scene");
+        if (params.operation === "secrets.briefing") return { ok: true, tool: "secrets.briefing", data: { source_sections: [] } };
+        throw new Error(`unexpected retry operation ${params.operation}`);
+      },
+      appendAudit: () => {},
+      sendHidden: (context, options) => hidden.push({ context, options }),
+      projectTerminal: () => ({ status: "delivered" }),
+    });
+    supply.observeCanonical("scene.context", {
+      operation: "scene.context", root, campaign: campaignId, arguments: {},
+    }, candidateEnvelope(campaignId));
+    for (let index = 0; index < 8; index += 1) await nextTurn();
+    return { supply, hidden, materializeCalls };
+  };
+  const recovered = await runRetryCase("materialize-transient", 1);
+  const exhausted = await runRetryCase("materialize-exhausted", 2);
+  check("transient scene materialization retries once then supplies hidden cards",
+    recovered.materializeCalls === 2
+    && recovered.hidden.some((entry) => entry.context?.reason === "scene_priority_ready"
+      && entry.options?.triggerTurn === true));
+  check("persistent scene materialization failure terminalizes once at the bounded attempt cap",
+    exhausted.materializeCalls === 2
+    && exhausted.hidden.filter((entry) => entry.context?.reason === "scene_priority_terminal").length === 1
+    && exhausted.hidden.every((entry) => entry.context?.scene_priority?.hard_gate === false));
+  await recovered.supply.shutdown();
+  await exhausted.supply.shutdown();
 }
 
 // Scene-priority is host-only: a normal source-bound move returns unchanged,
@@ -2163,13 +2412,25 @@ async function exerciseFailureDrain(mode) {
 {
   const campaignId = "scene-priority-context";
   const task = coordinatorTask("coord-scene-priority-context", { campaignId });
+  let sceneReads = 0;
   const harness = mainExtensionHarness((name, params) => {
     if (name !== "coc_invoke") throw new Error(`unexpected context priority tool ${name}`);
     if (params.operation === "scene.context") {
-      return sourceBoundMissingSceneContext(task);
+      sceneReads += 1;
+      return sceneReads > 2
+        ? sourceBoundReadySceneContext(campaignId, "source-gap")
+        : sourceBoundMissingSceneContext(task);
     }
     if (params.operation === "progressive.status") {
       return sectionSemanticStatusResult(task, { fulfilled: true });
+    }
+    if (params.operation === "progressive.on_enter_scene") {
+      return { ok: true, tool: "progressive.on_enter_scene", data: {
+        scene_id: "source-gap", materialization: { progressive: true }, projection: {},
+      } };
+    }
+    if (params.operation === "secrets.briefing") {
+      return { ok: true, tool: "secrets.briefing", data: { source_sections: [{ section_id: "synthetic-section", body: "keeper body", secret: true }] } };
     }
     throw new Error(`unexpected context priority operation ${params.operation}`);
   });
@@ -2200,22 +2461,19 @@ async function exerciseFailureDrain(mode) {
   const refreshed = [...harness.appended].reverse().find((entry) => (
     entry.name === "coc-semantic-readiness"
     && entry.value?.campaign_id === campaignId
-    && entry.value?.semantic_compile?.reason
-      === "priority_section_semantic_fulfilled"
+    && entry.value?.current_scene_projection?.status === "ready"
   ));
   const ready = harness.sent.find((entry) => (
     entry.message?.customType === "coc-semantic-readiness-private"
     && entry.message?.details?.reason === "scene_priority_ready"
   ));
   check("fulfilled priority task refreshes readiness and sends hidden exact scene re-read",
-    refreshed?.value?.semantic_compile?.status === "ready"
-    && refreshed.value.current_scene_projection.status === "missing"
+    refreshed?.value?.current_scene_projection?.status === "ready"
     && ready?.message?.display === false
     && ready?.options?.triggerTurn === true
-    && ready?.message?.details?.scene_priority?.next_operation?.operation
-      === "scene.context"
-    && ready.message.details.scene_priority.next_operation.campaign === campaignId
-    && ready.message.details.scene_priority.next_operation.hard_gate === false);
+    && ready?.message?.details?.scene_priority?.source_cards?.length === 2
+    && ready.message.details.scene_priority.source_cards[0].operation === "scene.context"
+    && ready.message.details.scene_priority.source_cards[1].operation === "secrets.briefing");
   await harness.shutdown();
 }
 

@@ -1117,6 +1117,147 @@ def test_sha_hit_cross_producer_bind_reuses_root_without_rN_fork(tmp_path: Path)
     assert assets.lookup_by_sha256(tmp_path, file_sha)["asset_root_id"] == old_root
 
 
+def _classification_host_request(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    job_id: str,
+    entity_catalog: list[dict],
+) -> tuple[Path, dict]:
+    sections = assets._sections_module()
+    request = sections.build_classification_request(
+        outline={
+            "source_id": "pdf:classification-refresh",
+            "file_sha256": FAKE_SHA,
+            "outline_sha256": "b" * 64,
+            "producer": "test-outline",
+            "confidence_class": "exact",
+            "page_count": 1,
+            "rows": [{
+                "pdf_index": 0, "order": 1, "text": "Fixture section",
+                "size_rank": 1, "emphasis": False,
+            }],
+        },
+        page_previews={0: "Fixture preview"},
+        accepted_pdf_indices=[0],
+        job_id=job_id,
+        entity_catalog=entity_catalog,
+    )
+    path = assets._module_dir(workspace, asset_root_id) / "host-work" / (
+        f"{job_id}.json"
+    )
+    path.parent.mkdir(exist_ok=True)
+    assets._write_json(path, {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": job_id,
+        "asset_root_id": asset_root_id,
+        "kind": assets.CLASSIFY_SECTIONS_KIND,
+        "target_id": assets.SECTION_INDEX_TARGET_ID,
+        "priority": 1,
+        "created_at": "2026-08-10T00:00:00+00:00",
+        "requested_pdf_indices": [0],
+        "cached_page_refs": [],
+        "cached_scope_complete": None,
+        "work_level": "near_term",
+        "work_group_id": "classification-refresh-group",
+        "result_contract": request["result_contract"],
+        "classification_request": request,
+        "consumer_refs": [{
+            "campaign_id": "later-projected-campaign",
+            "scenario_binding_sha256": "c" * 64,
+            "intent_kind": "full_parse",
+        }],
+        "consumer_state": "owned",
+    })
+    return path, request
+
+
+def test_claim_refreshes_and_durably_versions_classification_catalog(tmp_path: Path):
+    assets.init_module_root(
+        tmp_path, asset_root_id="classification-refresh", file_sha256=FAKE_SHA,
+        identity={},
+    )
+    skeleton = _minimal_skeleton()
+    assets.put_skeleton(tmp_path, "classification-refresh", skeleton)
+    path, original = _classification_host_request(
+        tmp_path, "classification-refresh", job_id="job-classification-refresh",
+        entity_catalog=[],
+    )
+    later = json.loads(json.dumps(skeleton))
+    later["npc_roster"] = [{
+        "npc_id": "fixture-later-npc", "names": ["Later NPC"],
+        "parse_state": "named_only",
+    }]
+    assets.put_skeleton(tmp_path, "classification-refresh", later)
+
+    claimed = assets.claim_host_work_requests(
+        tmp_path, "classification-refresh", executor_id="catalog-refresh",
+    )
+    leaf_request = claimed["packets"][0]["requests"][0][
+        "classification_request"
+    ]
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert original["entity_catalog"] == []
+    assert leaf_request == stored["classification_request"]
+    assert {tuple(row.items()) for row in leaf_request["entity_catalog"]} >= {
+        (("kind", "npc"), ("id", "fixture-later-npc")),
+    }
+    assert stored["classification_catalog_provenance"] == leaf_request[
+        "entity_catalog_provenance"
+    ]
+    assert stored["classification_catalog_provenance"]["version"] == 1
+    reloaded = _load(
+        "classification_refresh_assets_restarted",
+        str(SCRIPTS / "coc_module_assets.py"),
+    )
+    assert reloaded.get_host_work_request(
+        tmp_path, "classification-refresh", "job-classification-refresh",
+    )["classification_request"] == leaf_request
+
+
+def test_empty_catalog_all_global_sections_remain_durably_incomplete(tmp_path: Path):
+    assets.init_module_root(
+        tmp_path, asset_root_id="classification-empty", file_sha256=FAKE_SHA,
+        identity={},
+    )
+    path, request = _classification_host_request(
+        tmp_path, "classification-empty", job_id="job-classification-empty",
+        entity_catalog=[],
+    )
+    candidate = request["candidates"][0]
+    with pytest.raises(
+        assets.ModuleAssetsError, match="empty entity catalog",
+    ):
+        assets.put_section_index_and_fulfill_host_work(
+            tmp_path,
+            "classification-empty",
+            host_work_job_id="job-classification-empty",
+            section_rows=[{
+                "section_id": candidate["section_id"],
+                "title": candidate["title"],
+                "pdf_indices": [0],
+                "audience": "keeper_only",
+                "timing": "on_demand",
+                "payload": "narrative",
+                "binding": {
+                    "kind": "global", "entity_kind": None, "entity_ids": [],
+                },
+                "confidence": "high",
+            }],
+        )
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored.get("status") != "fulfilled"
+    assert stored["classification_incomplete"]["reason"] == (
+        "entity_catalog_empty"
+    )
+    assert assets.claim_host_work_requests(
+        tmp_path, "classification-empty", executor_id="catalog-empty",
+    )["packets"] == []
+    deferred = json.loads(path.read_text(encoding="utf-8"))
+    assert deferred["dispatch_state"] == "awaiting_scope"
+    assert int(deferred.get("dispatch_attempts") or 0) == 0
+
+
 def test_host_work_lease_renew_and_release_require_exact_owner(tmp_path: Path):
     assets.init_module_root(
         tmp_path,

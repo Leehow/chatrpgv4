@@ -178,7 +178,7 @@ const terminals = [];
 const audits = [];
 const deps = {
   isCurrent: () => true,
-  workspaceRoot: root,
+  workspaceRoot: temp,
   command: () => producer,
   states,
   controllers,
@@ -331,12 +331,29 @@ const retryCase = async (initialCommand, options = {}) => {
     command: () => command,
     timeoutMs: options.timeoutMs,
   };
+  const terminalCount = terminals.length;
   const failed = await extension.autoDispatchPiOpeningSourceReview(
     retryDeps, "coc_invoke", envelope(),
   );
   assert.equal(failed.status, "retryable_failure");
   assert.equal(retryStates.size, 0);
   assert.equal(retryControllers.size, 0);
+  if (initialCommand !== undefined) {
+    assert.equal(terminals.length, terminalCount + 1);
+    const terminal = terminals.at(-1);
+    assert.equal(terminal.status, "failed");
+    assert.equal(terminal.failure_class, failed.failure_class);
+    const evidencePath = path.join(
+      temp, ".coc", "campaigns", "campaign-a", "logs",
+      "opening-source-review-evidence", "transport-terminal-g3.json",
+    );
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+    assert.equal(evidence.status, "producer_terminal_failure");
+    assert.equal(evidence.failure_class, failed.failure_class);
+    assert.equal(Number.isInteger(evidence.rendered_markdown_pages), true);
+  } else {
+    assert.equal(terminals.length, terminalCount);
+  }
   command = producer;
   retryDeps.timeoutMs = undefined;
   const recovered = await extension.autoDispatchPiOpeningSourceReview(
@@ -379,6 +396,8 @@ abortControllers.values().next().value.abort();
 const aborted = await abortPromise;
 assert.equal(aborted.status, "retryable_failure");
 assert.equal(aborted.failure_class, "opening_source_review_aborted");
+assert.equal(terminals.at(-1).status, "failed");
+assert.equal(terminals.at(-1).failure_class, "opening_source_review_aborted");
 assert.equal(abortStates.size, 0);
 assert.equal(abortControllers.size, 0);
 const abortRecovered = await extension.autoDispatchPiOpeningSourceReview({
@@ -399,6 +418,7 @@ console.log(JSON.stringify({
     duplicate_suppressed: true,
     restart_reconciled_without_duplicate_launch: true,
     outer_failures_remain_retryable: true,
+    producer_death_emits_terminal_audit_and_evidence: true,
     timeout_and_abort_remain_retryable: true,
     exact_hidden_facts_card: true,
     misaligned_state_still_delivers_reviewed_adopt_card: true,

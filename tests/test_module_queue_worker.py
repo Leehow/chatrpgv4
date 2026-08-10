@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 import importlib.util
 import hashlib
 import json
@@ -3836,6 +3837,256 @@ def test_spill_covers_the_return_to_parent_packets_shape():
     assert request["classification_request_ref"]["sha256"] == (
         wire.canonical_digest(structure)
     )
+
+
+def _multi_extract_claim_envelope() -> tuple[dict, list[dict]]:
+    """Three independent extract leaves shaped like workspace06's claim."""
+    asset_root_id = "cold-harvest"
+    source_id = "pdf:" + "a" * 64
+    long_workspace_prefix = "/workspace/" + "w" * 120
+    rows = (
+        ("a", "sec-spill-a", [2], ("rules_note", "reference")),
+        ("b", "sec-spill-b", [3], ("keeper_truth", "reference")),
+        ("c", "sec-spill-c", [4, 5, 6, 7, 8], ("resolution", "progression")),
+    )
+    tasks: list[dict] = []
+    originals: list[dict] = []
+    for ordinal, (suffix, section_id, pages, pack_kinds) in enumerate(rows):
+        job_id = f"job-extract-spill-{suffix}"
+        refs = [
+            {
+                "source_id": source_id,
+                "pdf_index": page,
+                "path": (
+                    f"{long_workspace_prefix}/.coc/module-assets/"
+                    f"{asset_root_id}/pages/{page:04d}.md"
+                ),
+                "text_sha256": suffix * 64,
+                "bundle_sha256s": [suffix * 64],
+                "review_state": "auto_accepted",
+                "parse_confidence": 0.92,
+                "grep_anchors": [
+                    f"SECTION {section_id}",
+                    "AUTHORED SOURCE EVIDENCE " + suffix.upper() * 48,
+                ],
+            }
+            for page in pages
+        ]
+        result_contract = {
+            "contract_id": "coc.section-pack.v1",
+            "allowed_pack_kinds": list(pack_kinds),
+            "body_max_bytes": 24_000,
+            "max_highlights": 24,
+            "row_template": {
+                "section_id": section_id,
+                "pack_kind": pack_kinds[0],
+                "title": f"Spill section {suffix}",
+                "body_markdown": "<verbatim-faithful Markdown of these pages>",
+                "highlights": [],
+                "source_refs": [],
+            },
+            "rules": [
+                "Read only cached_page_refs; never open the source file.",
+                "Preserve authored numbers, names, and conditions exactly.",
+                "Return status=abstain when this exact source does not support the section.",
+                "Distinct contract witness: " + suffix.upper() * 160,
+            ],
+        }
+        instruction = (
+            f"Section extraction for {section_id}: compile only this indexed "
+            "section from cached_page_refs and follow extraction_request. "
+            + suffix.upper() * 760
+        )
+        extraction_request = {
+            "schema_version": 1,
+            "contract_id": "coc.section-extraction-request.v1",
+            "job_id": job_id,
+            "request_purpose": "section_body_extraction",
+            "section_id": section_id,
+            "title": f"Spill section {suffix}",
+            "audience": "keeper_only",
+            "timing": "pre_session",
+            "payload": "narrative",
+            "binding": {"kind": "global", "entity_kind": None, "entity_ids": []},
+            "source_id": source_id,
+            "file_sha256": "f" * 64,
+            "requested_pdf_indices": pages,
+            "cached_page_refs": deepcopy(refs),
+            "result_contract": deepcopy(result_contract),
+        }
+        request = {
+            "job_id": job_id,
+            "kind": "extract_section",
+            "target_id": section_id,
+            "priority": 90,
+            "reason": "opening_materialize:wire-regression",
+            "instruction": instruction,
+            "requested_pdf_indices": pages,
+            "cached_page_refs": refs,
+            "cached_scope_complete": True,
+            "batch_subjects": [],
+            "request_purpose": None,
+            "requested_source_scope": {
+                "scope_kind": "section",
+                "source_file_sha256": "f" * 64,
+                "page_count": len(pages),
+                "pdf_indices": pages,
+            },
+            "source_scope_signature": None,
+            "result_contract": result_contract,
+            "work_level": "near_term",
+            "consumer_refs": [{
+                "campaign_id": "wire-regression",
+                "scenario_binding_sha256": "e" * 64,
+                "intent_kind": "scene_enter",
+            }],
+            "consumer_state": "owned",
+            "extraction_request": extraction_request,
+        }
+        packet_id = f"source-lease-extract-spill-{ordinal}"
+        task = {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-pack-task.v1",
+            "instruction_ref": "/tmp/coc-source-pack-worker.md",
+            "model_policy": "inherit_parent",
+            "packet": {
+                "schema_version": 1,
+                "contract_id": "coc.source-pack-worker.v1",
+                "packet_id": packet_id,
+                "asset_root_id": asset_root_id,
+                "work_group_id": f"group-extract-spill-{suffix}",
+                "lease_expires_at": "2030-01-01T00:00:00+00:00",
+                "source_pdf": f"{long_workspace_prefix}/raw-pdf/source.pdf",
+                "source_id": source_id,
+                "file_sha256": "f" * 64,
+                "source_aspect": "structure",
+                "request_purpose": None,
+                "requested_source_scope": deepcopy(request["requested_source_scope"]),
+                "source_scope_signature": None,
+                "deadline_class": "next_turn_hot",
+                "work_level": "near_term",
+                "requested_pdf_indices": pages,
+                "cached_scope_complete": True,
+                "result_delivery": "return_to_parent",
+                "requests": [request],
+                "consumer_refs": deepcopy(request["consumer_refs"]),
+            },
+        }
+        tasks.append(task)
+        originals.append(deepcopy(request))
+    return {
+        "ok": True,
+        "tool": "progressive.claim_host_work",
+        "data": {
+            "leased_group_count": len(tasks),
+            "ready_group_count": 0,
+            "cached_only": True,
+            "dispatch_task_count": len(tasks),
+            "lease_bindings": [
+                {
+                    "lease_id": task["packet"]["packet_id"],
+                    "job_ids": [task["packet"]["requests"][0]["job_id"]],
+                }
+                for task in tasks
+            ],
+            "dispatch_tasks": tasks,
+        },
+        "warnings": [],
+        "hints": [],
+    }, originals
+
+
+def test_multi_extract_claim_spills_repeated_instruction_after_structure_spill():
+    """A valid three-leaf section batch must not be voided by the 16 KiB wire cap."""
+    envelope, originals = _multi_extract_claim_envelope()
+    assert len({
+        request["result_contract"]["allowed_pack_kinds"][0]
+        for request in originals
+    }) == 3
+    assert len({request["instruction"] for request in originals}) == 3
+
+    structure_only = deepcopy(envelope)
+    structure_only["data"] = wire._project_claim_dispatch(
+        structure_only["data"],
+    )
+    assert wire._spill_structure_requests(structure_only["data"]) is True
+    assert wire.transport_bytes(structure_only) > wire.MAX_INLINE_BYTES
+    for task, original in zip(
+        structure_only["data"]["dispatch_tasks"], originals, strict=True,
+    ):
+        request = task["packet"]["requests"][0]
+        assert request["instruction"] == original["instruction"]
+        assert "extraction_request" not in request
+        assert request["extraction_request_ref"] == {
+            "host_work_path": (
+                ".coc/module-assets/cold-harvest/host-work/"
+                f"{original['job_id']}.json"
+            ),
+            "field": "extraction_request",
+            "sha256": wire.canonical_digest(original["extraction_request"]),
+        }
+        assert request["result_contract"] == original["result_contract"]
+
+    projected = wire.project_envelope(
+        "progressive.claim_host_work",
+        envelope,
+        contract_digest="sha256:" + "f" * 64,
+    )
+    assert wire.transport_bytes(projected) <= wire.MAX_INLINE_BYTES
+    assert projected["wire"]["claim_structure_requests_spilled"] is True
+    assert projected["wire"]["claim_request_instructions_spilled"] is True
+    assert projected["wire"].get("claim_dispatch_projection_failed") is not True
+    assert projected["data"].get("wire_projection_failed") is not True
+    assert len(projected["data"]["dispatch_tasks"]) == 3
+    assert projected["data"]["lease_bindings"] == envelope["data"]["lease_bindings"]
+    for task, original in zip(
+        projected["data"]["dispatch_tasks"], originals, strict=True,
+    ):
+        request = task["packet"]["requests"][0]
+        assert request["job_id"] == original["job_id"]
+        assert "instruction" not in request
+        assert request["instruction_ref"] == {
+            "host_work_path": (
+                ".coc/module-assets/cold-harvest/host-work/"
+                f"{original['job_id']}.json"
+            ),
+            "field": "instruction",
+            "sha256": wire.canonical_digest(original["instruction"]),
+        }
+        assert "extraction_request" not in request
+        assert request["extraction_request_ref"]["sha256"] == (
+            wire.canonical_digest(original["extraction_request"])
+        )
+        # Different result contracts deliberately remain exact, inline data;
+        # this path neither aliases nor reuses result_contract_ref.
+        assert request["result_contract"] == original["result_contract"]
+        assert "result_contract_ref" not in request
+
+    for count in (1, 2):
+        smaller = deepcopy(envelope)
+        smaller["data"]["dispatch_tasks"] = (
+            smaller["data"]["dispatch_tasks"][:count]
+        )
+        smaller["data"]["lease_bindings"] = (
+            smaller["data"]["lease_bindings"][:count]
+        )
+        smaller["data"]["leased_group_count"] = count
+        smaller["data"]["dispatch_task_count"] = count
+        smaller_projected = wire.project_envelope(
+            "progressive.claim_host_work",
+            smaller,
+            contract_digest="sha256:" + "f" * 64,
+        )
+        assert wire.transport_bytes(smaller_projected) <= wire.MAX_INLINE_BYTES
+        assert "claim_request_instructions_spilled" not in smaller_projected["wire"]
+        for task, original in zip(
+            smaller_projected["data"]["dispatch_tasks"],
+            originals[:count],
+            strict=True,
+        ):
+            request = task["packet"]["requests"][0]
+            assert request["instruction"] == original["instruction"]
+            assert "instruction_ref" not in request
 
 
 def test_claim_that_already_fits_is_left_untouched():

@@ -1200,6 +1200,7 @@ _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
     "progressive.prepare_opening",
     "progressive.opening_bootstrap",
     "progressive.project_opening",
+    "progressive.on_enter_scene",
     "progressive.claim_host_work",
     "progressive.fulfill_host_work",
     "progressive.renew_host_work_leases",
@@ -14041,6 +14042,8 @@ _OPENING_RESULT_CAPS = {
     "mutation_cards": 5,
 }
 _OPENING_PREPARATION_DATA_MAX_BYTES = 12 * 1024
+_ACTIVE_SCENE_SOURCE_SECTION_MAX_COUNT = 8
+_ACTIVE_SCENE_SOURCE_SECTION_MAX_BODY_BYTES = 24 * 1024
 # MCP decorates each returned mutation card with a short contract reference.
 # Keep the handler payload below its public budget so the real gateway result
 # remains bounded after that transport-only metadata is added.
@@ -17983,6 +17986,64 @@ def submit_source_worker_result(root: Path, payload: dict[str, Any]) -> dict[str
 
 
 @tool(
+    "progressive.on_enter_scene",
+    "Materialize only the canonical active progressive scene: merge a ready location pack and enqueue exact source-bound location/opening section extraction through the existing queue. Returns status and host-work projection, never section prose.",
+    {
+        "scene_id": {"type": "string", "required": True, "desc": "must exactly equal world.active_scene_id"},
+        "decision_id": {"type": "string", "desc": "stable materialization receipt id"},
+    },
+    access="mutation",
+    read_domains=("scene", "world", "module_progressive"),
+    write_domains=("module_progressive",),
+)
+def _tool_progressive_on_enter_scene(ctx: Ctx, args: dict[str, Any]):
+    active_scene_id = str(ctx.world().get("active_scene_id") or "").strip()
+    scene_id = str(args.get("scene_id") or "").strip()
+    if not active_scene_id or scene_id != active_scene_id:
+        raise ToolError(
+            "stale_scene_id",
+            "progressive.on_enter_scene only materializes the exact canonical active scene",
+            details={"active_scene_id": active_scene_id or None, "scene_id": scene_id or None},
+        )
+    result = coc_module_project.on_enter_scene(
+        ctx.root, str(ctx.campaign_id or ""), scene_id,
+    )
+    root_id = result.get("asset_root_id") or coc_module_project.campaign_source_asset_root_id(
+        ctx.campaign_dir,
+    )
+    open_work = []
+    if root_id:
+        open_work = coc_module_project.coc_module_assets.list_host_work_requests(
+            ctx.root, str(root_id), limit=8,
+        )
+    projection = _source_host_work_projection(
+        ctx, str(root_id), all_open_host_work=open_work,
+    ) if root_id else {}
+    data = {
+        "scene_id": scene_id,
+        "materialization": {
+            "progressive": bool(result.get("progressive")),
+            "merged_active": bool(result.get("merged_active")),
+            "actions": result.get("actions") or [],
+            "section_materialization": [
+                row.get("section_materialization")
+                for row in (result.get("actions") or [])
+                if isinstance(row, dict) and isinstance(row.get("section_materialization"), dict)
+            ],
+        },
+        "projection": {
+            "asset_root_id": root_id,
+            "host_work_open_count": len(open_work),
+        },
+    }
+    if projection.get("background_takeover"):
+        data["background_takeover"] = projection["background_takeover"]
+    return data, list(result.get("host_hints") or []), [
+        "re-read scene.context after terminal source work; section bodies are Keeper-only and are never returned by this materialization operation",
+    ]
+
+
+@tool(
     "progressive.status",
     "Read progressive parse queue + optional entity status for the campaign asset root. "
     "Also reports whether the detached parallel queue worker is running. "
@@ -20440,10 +20501,14 @@ def _tool_secrets_briefing(ctx: Ctx, args: dict[str, Any]):
     # Default scene_id from world only for active_scene. Entity-only requests
     # must not silently expand to the active-scene secret surface.
     if scope_raw == "active_scene":
-        scene_id = (
-            str(args.get("scene_id") or world.get("active_scene_id") or "").strip()
-            or None
-        )
+        active_scene_id = str(world.get("active_scene_id") or "").strip()
+        requested_scene_id = str(args.get("scene_id") or "").strip()
+        if requested_scene_id and requested_scene_id != active_scene_id:
+            raise ToolError(
+                "stale_scene_id",
+                "active_scene secrets.briefing only reads the exact canonical active scene",
+            )
+        scene_id = requested_scene_id or active_scene_id or None
     elif "scene_id" in args and args.get("scene_id") is not None and str(args.get("scene_id")).strip():
         scene_id = str(args["scene_id"]).strip()
     else:
@@ -20583,6 +20648,60 @@ def _tool_secrets_briefing(ctx: Ctx, args: dict[str, Any]):
             "whole_module": scope_raw == "whole_module_audit",
         }
 
+    source_sections: list[dict[str, Any]] = []
+    source_section_candidates: list[dict[str, Any]] = []
+    source_section_omitted_count = 0
+    source_section_omitted_body_bytes = 0
+    if scope_raw == "active_scene" and scene_id:
+        root_id = coc_module_project.campaign_source_asset_root_id(ctx.campaign_dir)
+        if root_id:
+            section_index = coc_module_project.coc_module_assets.read_section_index(
+                ctx.root, root_id,
+            ) or {}
+            for section in section_index.get("sections") or []:
+                if not isinstance(section, dict) or section.get("parse_state") != "resolved":
+                    continue
+                binding = section.get("binding") if isinstance(section.get("binding"), dict) else {}
+                exact_location = (
+                    binding.get("kind") == "entity"
+                    and binding.get("entity_kind") == "location"
+                    and scene_id in {str(value) for value in (binding.get("entity_ids") or [])}
+                )
+                keeper_opening = (
+                    binding.get("kind") == "global"
+                    and section.get("audience") == "keeper_only"
+                    and section.get("timing") in {"pre_session", "opening"}
+                )
+                if not (exact_location or keeper_opening):
+                    continue
+                pack = coc_module_project.coc_module_assets.get_section_pack(
+                    ctx.root, root_id, str(section.get("section_id") or ""),
+                )
+                if not pack or not pack.get("body_present"):
+                    continue
+                try:
+                    body = Path(str(pack["body_path"])).read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                source_section_candidates.append({
+                    "section_id": str(pack.get("section_id") or ""),
+                    "body": body,
+                    "source_refs": deepcopy(pack.get("source_refs") or []),
+                    "secret": True,
+                })
+    source_section_body_bytes = 0
+    for candidate in sorted(source_section_candidates, key=lambda row: row["section_id"]):
+        body_bytes = len(candidate["body"].encode("utf-8"))
+        if (
+            len(source_sections) >= _ACTIVE_SCENE_SOURCE_SECTION_MAX_COUNT
+            or source_section_body_bytes + body_bytes
+            > _ACTIVE_SCENE_SOURCE_SECTION_MAX_BODY_BYTES
+        ):
+            source_section_omitted_count += 1
+            source_section_omitted_body_bytes += body_bytes
+            continue
+        source_sections.append(candidate)
+        source_section_body_bytes += body_bytes
     meta = ctx.scenario("module-meta.json")
     # module_meta overview is only included on explicit whole-module audit.
     module_meta: dict[str, Any] = {"title": meta.get("title")}
@@ -20599,6 +20718,16 @@ def _tool_secrets_briefing(ctx: Ctx, args: dict[str, Any]):
         "undiscovered_clues": undiscovered,
         "npc_secrets": npc_secrets,
         "module_secrets": module_secrets if scope_raw != "active_scene" or module_secrets else [],
+        "source_sections": source_sections,
+        "source_sections_budget": {
+            "max_count": _ACTIVE_SCENE_SOURCE_SECTION_MAX_COUNT,
+            "max_body_bytes": _ACTIVE_SCENE_SOURCE_SECTION_MAX_BODY_BYTES,
+            "returned_count": len(source_sections),
+            "returned_body_bytes": source_section_body_bytes,
+            "truncated": bool(source_section_omitted_count),
+            "omitted_count": source_section_omitted_count,
+            "omitted_body_bytes": source_section_omitted_body_bytes,
+        },
         "spoiler_reveals_so_far": ctx.flags().get("spoiler_reveals"),
         "compiled_archive": archive_meta,
         "secret": True,
@@ -24066,6 +24195,269 @@ def _steward_validated_id(value: Any, *, field: str) -> str:
 
 
 @tool(
+    "steward.domain_put",
+    "Atomically replace one asynchronous steward parser domain snapshot and append any chunk failures. Domains are init, npc, scene, clue, and rule; content is a thin, extensible JSON object, while status is explicit. This writes only save/steward-state.json and never campaign core state.",
+    {
+        "domain": {
+            "type": "string",
+            "enum": ["init", "npc", "scene", "clue", "rule"],
+            "required": True,
+            "desc": "parser domain to replace",
+        },
+        "status": {
+            "type": "string",
+            "enum": ["pending", "ready", "partial", "failed"],
+            "required": True,
+            "desc": "current parser-domain status",
+        },
+        "content": {
+            "type": "object",
+            "required": True,
+            "additionalProperties": True,
+            "desc": "extensible domain content; omit status because it is supplied separately",
+        },
+        "failed_chunks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "chunk_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "attempts": {"type": "integer", "minimum": 1},
+                    "source_refs": {"type": "array", "items": {"type": "string"}},
+                },
+                "required_fields": ["chunk_id", "reason"],
+            },
+            "desc": "failed child chunks to append; their domain is bound to domain",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key and stable source id"},
+    },
+)
+def _tool_steward_domain_put(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "steward.domain_put"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous parser-domain receipt"
+        ], []
+
+    domain = str(args.get("domain") or "").strip()
+    if domain not in coc_state.STEWARD_PARSE_DOMAINS:
+        raise ToolError(
+            "invalid_param",
+            "domain must be one of " + ", ".join(sorted(coc_state.STEWARD_PARSE_DOMAINS)),
+        )
+    status = str(args.get("status") or "").strip()
+    if status not in coc_state.STEWARD_DOMAIN_STATUSES:
+        raise ToolError(
+            "invalid_param",
+            "status must be one of " + ", ".join(sorted(coc_state.STEWARD_DOMAIN_STATUSES)),
+        )
+    try:
+        content = coc_state.validated_steward_domain_content(args.get("content"))
+        failed_chunks = coc_state.validated_steward_failed_chunks(
+            args.get("failed_chunks"), domain=domain,
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+
+    document = _load_steward_state(ctx)
+    document["domains"][domain] = {"status": status, **content}
+    now = _now_iso()
+    for failed_chunk in failed_chunks:
+        failed_chunk["decision_id"] = decision_id
+        failed_chunk["ts"] = now
+    document["failed_chunks"].extend(failed_chunks)
+    _save_steward_state(ctx, document)
+
+    data = {
+        "domain": domain,
+        "status": status,
+        "content_keys": sorted(content),
+        "failed_chunks_recorded": len(failed_chunks),
+    }
+    ctx.log_event({
+        "event_type": "steward_domain_put",
+        "domain": domain,
+        "status": status,
+        "decision_id": decision_id,
+        "failed_chunks_recorded": len(failed_chunks),
+    })
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "parser-domain content is keeper-only source preparation; it is not campaign core state and must not be copied to player-visible output",
+        "keep source_refs and secrecy on extracted entities so the KP can trace material and preserve the player boundary",
+    ]
+
+
+def _steward_scene_minimal_fallback(
+    scene_domain: dict[str, Any], scene_id: str,
+) -> dict[str, Any] | None:
+    """Return only an indexed, source-bound minimal scene; never invent a fallback."""
+    for key in ("index", "items", "locations", "scenes"):
+        rows = scene_domain.get(key)
+        if not isinstance(rows, list):
+            continue
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            candidate_id = str(
+                raw.get("id", raw.get("scene_id", raw.get("location_id", "")))
+            ).strip()
+            refs = raw.get("source_refs")
+            if candidate_id != scene_id or not isinstance(refs, list) or not refs:
+                continue
+            try:
+                current = coc_state._validated_steward_scene_entity(raw, "scene fallback")
+            except ValueError:
+                continue
+            fallback = {
+                "id": current["id"],
+                "name": current["name"],
+                "source_refs": current["source_refs"],
+            }
+            clues = raw.get("clues_index")
+            if isinstance(clues, list):
+                fallback["clues_index"] = deepcopy(clues)
+            return fallback
+    return None
+
+
+@tool(
+    "steward.scene_bundle_put",
+    "Merge source-bound SceneBundle records into the steward scene cache. Each bundle has current plus source-traceable neighboring SceneEdge records, so a later arrival can consume a prefetched current bundle without re-parsing.",
+    {
+        "bundles": {
+            "type": "array",
+            "required": True,
+            "minItems":1,
+            "items": {"type": "object", "additionalProperties": True},
+            "desc": "one or more source-bound SceneBundle records; each current scene id is the cache key",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key and stable source id"},
+    },
+)
+def _tool_steward_scene_bundle_put(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "steward.scene_bundle_put"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous scene-bundle receipt"
+        ], []
+    try:
+        bundles = coc_state.validated_steward_scene_bundles(args.get("bundles"))
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    document = _load_steward_state(ctx)
+    scene_domain = deepcopy(document["domains"]["scene"])
+    cache = scene_domain.get("bundles")
+    if not isinstance(cache, dict):
+        cache = {}
+    for bundle in bundles:
+        cache[bundle["current"]["id"]] = bundle
+    scene_domain["bundles"] = cache
+    scene_domain["status"] = "ready"
+    document["domains"]["scene"] = scene_domain
+    _save_steward_state(ctx, document)
+    data = {
+        "status": "ready",
+        "bundle_ids": sorted(bundle["current"]["id"] for bundle in bundles),
+        "cache_size": len(cache),
+    }
+    ctx.log_event({
+        "event_type": "steward_scene_bundle_put",
+        "decision_id": decision_id,
+        "bundle_ids": data["bundle_ids"],
+    })
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "SceneBundle content is keeper-only source preparation; never expose it directly to players",
+        "every current scene and edge is source-bound; semantic-inference edges still require provenance and source_refs",
+    ]
+
+
+@tool(
+    "steward.scene_supply",
+    "Read one Pi scene-supply readiness snapshot. A ready bundle is the only full scene material surface; an optional minimal fallback is limited to source-bound indexed name/clue references after the Pi retry policy is exhausted.",
+    {
+        "scene_id": {"type": "string", "required": True, "desc": "destination scene id to check"},
+        "allow_minimal_fallback": {
+            "type": "boolean",
+            "desc": "permit only the source-bound minimal indexed fallback when no full bundle is ready",
+        },
+    },
+    access="query",
+    read_domains=("steward",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+)
+def _tool_steward_scene_supply(ctx: Ctx, args: dict[str, Any]):
+    scene_id = _steward_validated_id(args.get("scene_id"), field="scene_id")
+    document = _load_steward_state(ctx)
+    scene_domain = document["domains"]["scene"]
+    supply_config = scene_domain.get("scene_supply")
+    enforced = isinstance(supply_config, dict) and supply_config.get("enabled") is True
+    if not enforced:
+        return {
+            "schema_version": 1,
+            "scene_id": scene_id,
+            "enforced": False,
+            "status": "not_configured",
+            "ready": True,
+        }, [], []
+    cache = scene_domain.get("bundles")
+    bundle = cache.get(scene_id) if isinstance(cache, dict) else None
+    if isinstance(bundle, dict):
+        return {
+            "schema_version": 1,
+            "scene_id": scene_id,
+            "enforced": True,
+            "status": "ready",
+            "ready": True,
+            "cache_hit": bool(bundle.get("prefetched_from")),
+            "bundle": deepcopy(bundle),
+            "source_cache_path": supply_config.get("source_cache_path"),
+        }, [], [
+            "use this SceneBundle only as Keeper source material; it is not player-visible prose",
+        ]
+    fallback = _steward_scene_minimal_fallback(scene_domain, scene_id)
+    if args.get("allow_minimal_fallback") is True and fallback is not None:
+        return {
+            "schema_version": 1,
+            "scene_id": scene_id,
+            "enforced": True,
+            "status": "minimal_ready",
+            "ready": True,
+            "degraded": True,
+            "cache_hit": False,
+            "minimal_scene": fallback,
+            "source_cache_path": supply_config.get("source_cache_path"),
+        }, [
+            "full SceneBundle is unavailable; using the explicitly source-bound minimal fallback after Pi retry policy",
+        ], []
+    status = str(scene_domain.get("status") or "pending")
+    pending_status = "failed" if status == "failed" else "pending"
+    return {
+        "schema_version": 1,
+        "scene_id": scene_id,
+        "enforced": True,
+        "status": pending_status,
+        "ready": False,
+        "cache_hit": False,
+        "fallback_available": fallback is not None,
+        "source_cache_path": supply_config.get("source_cache_path"),
+    }, [], [
+        "SceneBundle is not ready: wait for steward-scene rather than improvising destination material",
+    ]
+
+
+@tool(
     "steward.deliver",
     "Write one steward delivery: module text segments the KP needs now, with why_now, expected scene annotation, and a keeper_only/player_safe secrecy label. Optionally pays linked notebook entries (即付). The KP reads it through steward.deliveries; this record is canon-candidate feed, never rules/state authority.",
     {
@@ -24654,6 +25046,59 @@ def _record_table_transcript_entry(
     return entry
 
 
+def _required_exact_player_text(args: dict[str, Any]) -> str:
+    """Validate transcript evidence without interpreting the player's meaning."""
+    player_text = args.get("player_text")
+    if not isinstance(player_text, str) or not player_text.strip():
+        raise ToolError(
+            "invalid_param",
+            "state.journal requires nonblank exact player_text",
+        )
+    return player_text
+
+
+def _record_journal_player_transcript_entry(
+    ctx: Ctx,
+    *,
+    player_text: str,
+    run_id: str,
+    turn_number: int,
+    turn_id: str,
+    journal_decision_id: str,
+    speaker: str,
+) -> dict[str, Any]:
+    """Write or recover the one exact player row owned by a journal receipt."""
+    player_rows = [
+        row for row in _table_transcript_rows(ctx)
+        if row.get("role") == "player"
+        and row.get("journal_decision_id") == journal_decision_id
+    ]
+    if len(player_rows) > 1:
+        raise ToolError(
+            "state_corrupt",
+            f"journal '{journal_decision_id}' has multiple exact player transcript rows",
+        )
+    if player_rows:
+        prior = player_rows[0]
+        if prior.get("text") != player_text:
+            raise ToolError(
+                "idempotency_conflict",
+                f"journal '{journal_decision_id}' already owns different exact player_text",
+            )
+        return deepcopy(prior)
+    return _record_table_transcript_entry(
+        ctx,
+        role="player",
+        text=player_text,
+        run_id=run_id,
+        turn_number=turn_number,
+        turn_id=turn_id,
+        journal_decision_id=journal_decision_id,
+        source_id=journal_decision_id,
+        speaker=speaker,
+    )
+
+
 def _opening_first_impression_lines(
     ctx: Ctx,
     *,
@@ -25054,7 +25499,7 @@ def _replace_undelivered_finalization_artifacts(
     {
         "summary": {"type": "string", "required": True, "desc": "player-safe summary of what just happened"},
         "player_action": {"type": "string", "desc": "what the player did (verbatim or condensed)"},
-        "player_text": {"type": "string", "desc": "exact byte-for-byte player message for the readable transcript"},
+        "player_text": {"type": "string", "required": True, "desc": "nonblank exact byte-for-byte player message for the readable transcript; player_action cannot substitute"},
         "player_speaker": {"type": "string", "desc": "player-facing speaker name"},
         "run_id": {"type": "string", "desc": "current play/report segment id"},
         "intent_class": {"type": "string", "desc": "your read of the intent (investigate/social/move/stuck/meta/...)"},
@@ -25119,7 +25564,11 @@ def _replace_undelivered_finalization_artifacts(
     },
 )
 def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("state.journal", args.get("decision_id"))
+    decision_id = str(args.get("decision_id") or "").strip()
+    if not decision_id:
+        raise ToolError("invalid_param", "state.journal requires a stable decision_id")
+    player_text = _required_exact_player_text(args)
+    prior = ctx.ledger_lookup("state.journal", decision_id)
     if prior is not None:
         prior_data = prior.get("data") or {}
         try:
@@ -25134,27 +25583,20 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
                 "idempotency_conflict",
                 "state.journal decision_id already owns a different continuation delta",
             )
-        player_text = args.get("player_text")
-        if isinstance(player_text, str) and player_text.strip():
-            run_id = coc_npc_event_chain.resolve_run_id(
-                ctx.campaign_dir,
-                structured_source={"run_id": args.get("run_id")},
-            )
-            _record_table_transcript_entry(
-                ctx,
-                role="player",
-                text=player_text,
-                run_id=run_id,
-                turn_number=int(prior_data.get("turn_number") or 0),
-                turn_id=str(prior_data.get("turn_id") or ""),
-                journal_decision_id=str(args.get("decision_id") or ""),
-                source_id=str(args.get("decision_id") or ""),
-                speaker=str(args.get("player_speaker") or "Player"),
-            )
+        run_id = coc_npc_event_chain.resolve_run_id(
+            ctx.campaign_dir,
+            structured_source={"run_id": args.get("run_id")},
+        )
+        _record_journal_player_transcript_entry(
+            ctx,
+            player_text=player_text,
+            run_id=run_id,
+            turn_number=int(prior_data.get("turn_number") or 0),
+            turn_id=str(prior_data.get("turn_id") or ""),
+            journal_decision_id=decision_id,
+            speaker=str(args.get("player_speaker") or "Player"),
+        )
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
-    decision_id = str(args.get("decision_id") or "").strip()
-    if not decision_id:
-        raise ToolError("invalid_param", "state.journal requires a stable decision_id")
     try:
         pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
         coc_turn_manifest.load_or_create_cursor(ctx.campaign_dir)
@@ -25175,20 +25617,18 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         raise ToolError(exc.code, str(exc)) from exc
     pacing["turn_number"] = next_turn_number
     warnings: list[str] = []
-    player_text = args.get("player_text")
-    if isinstance(player_text, str) and player_text.strip():
-        try:
-            delivery_ack = coc_continuation.acknowledge_latest_from_player_response(
-                ctx.campaign_dir,
-                player_text=player_text,
-                source_journal_decision_id=decision_id,
-            )
-        except coc_continuation.ContinuationError as exc:
-            raise ToolError(exc.code, str(exc)) from exc
-        if delivery_ack is not None:
-            warnings.append(
-                "the player's exact reply confirmed delivery of the previous finalized Keeper output"
-            )
+    try:
+        delivery_ack = coc_continuation.acknowledge_latest_from_player_response(
+            ctx.campaign_dir,
+            player_text=player_text,
+            source_journal_decision_id=decision_id,
+        )
+    except coc_continuation.ContinuationError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    if delivery_ack is not None:
+        warnings.append(
+            "the player's exact reply confirmed delivery of the previous finalized Keeper output"
+        )
     if args.get("tension"):
         tension = str(args["tension"])
         if tension in ("low", "medium", "high", "climax"):
@@ -25230,26 +25670,19 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         "turn_id": manifest["turn_id"],
         "continuation_delta": continuation_delta,
     }
-    if isinstance(player_text, str) and player_text.strip():
-        run_id = coc_npc_event_chain.resolve_run_id(
-            ctx.campaign_dir,
-            structured_source={"run_id": args.get("run_id")},
-        )
-        _record_table_transcript_entry(
-            ctx,
-            role="player",
-            text=player_text,
-            run_id=run_id,
-            turn_number=pacing["turn_number"],
-            turn_id=manifest["turn_id"],
-            journal_decision_id=decision_id,
-            source_id=decision_id,
-            speaker=str(args.get("player_speaker") or "Player"),
-        )
-    else:
-        warnings.append(
-            "exact player_text was not recorded; readable transcript completeness will fail"
-        )
+    run_id = coc_npc_event_chain.resolve_run_id(
+        ctx.campaign_dir,
+        structured_source={"run_id": args.get("run_id")},
+    )
+    _record_journal_player_transcript_entry(
+        ctx,
+        player_text=player_text,
+        run_id=run_id,
+        turn_number=pacing["turn_number"],
+        turn_id=manifest["turn_id"],
+        journal_decision_id=decision_id,
+        speaker=str(args.get("player_speaker") or "Player"),
+    )
     ctx.ledger_record(decision_id, "state.journal", data)
     return data, warnings, []
 
@@ -26199,6 +26632,7 @@ _MUTATING_TOOLS = frozenset({
     "state.supersede_settlement",
     "state.journal",
     "state.end_session",
+    "steward.domain_put",
     "steward.deliver",
     "steward.notebook_put",
     "steward.notebook_pay",

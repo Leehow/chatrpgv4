@@ -805,9 +805,369 @@ def _validate_opening_source_facts_transport(
     return deepcopy(transport)
 
 
+# L0 is a private source-review product, separate from ``source_fast_facts``.
+# The latter is deliberately player-safe; putting title/appendix-derived pregen
+# and Keeper-facing creation material there would destroy that boundary.
+_MODULE_INIT_DOCUMENT_SCHEMA_VERSION = 1
+_MODULE_INIT_L0_SCHEMA_VERSION = 1
+_MODULE_INIT_STATE_FILENAME = "module-init.json"
+_MODULE_INIT_SECRECY = "keeper_only"
+_MODULE_INIT_DOCUMENT_FIELDS = frozenset({
+    "schema_version", "campaign_id", "secrecy", "source_binding",
+    "l0_sha256", "l0", "created_at",
+})
+_MODULE_INIT_SOURCE_BINDING_FIELDS = frozenset({
+    "scenario_id", "source_id", "file_sha256", "bundle_sha256",
+    "opening_review_generation", "review_receipt_sha256",
+})
+_MODULE_INIT_L0_REQUIRED_FIELDS = frozenset({
+    "schema_version", "secrecy", "module_meta", "pregens",
+    "opening_hooks", "chargen_deltas", "opening_handouts",
+})
+_MODULE_INIT_META_REQUIRED_FIELDS = frozenset({
+    "title_zh", "title_en", "authors", "translator", "era", "locale",
+    "party_size", "duration_hint", "tone_tags", "mythos_entities",
+    "campaign_hooks", "warnings", "safety_notes", "structure_type",
+})
+_MODULE_INIT_PREGEN_REQUIRED_FIELDS = frozenset({
+    "name", "age", "occupation", "hooks_to_plot", "backstory_blocks",
+    "stats_ref",
+})
+_MODULE_INIT_HOOK_REQUIRED_FIELDS = frozenset({
+    "id", "audience", "text", "variant_of",
+})
+_MODULE_INIT_HANDOUT_REQUIRED_FIELDS = frozenset({
+    "id", "title", "when_to_give",
+})
+
+
+def _module_init_path(campaign_dir: Path) -> Path:
+    return Path(campaign_dir) / "save" / _MODULE_INIT_STATE_FILENAME
+
+
+def _module_init_json_copy(value: Any, label: str) -> Any:
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeOperationError(f"{label} must be JSON-serializable") from exc
+
+
+def _module_init_text_or_none(value: Any, label: str, *, maximum: int = 4_000) -> None:
+    if value is not None and (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value) > maximum
+    ):
+        raise RuntimeOperationError(f"{label} must be a non-empty string or null")
+
+
+def _module_init_text_list(value: Any, label: str, *, maximum: int = 128) -> None:
+    if (
+        not isinstance(value, list)
+        or len(value) > maximum
+        or any(
+            not isinstance(item, str)
+            or not item.strip()
+            or len(item) > 4_000
+            for item in value
+        )
+    ):
+        raise RuntimeOperationError(f"{label} must be an array of non-empty strings")
+
+
+def _module_init_text_or_list_or_none(value: Any, label: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, str):
+        _module_init_text_or_none(value, label)
+        return
+    _module_init_text_list(value, label)
+
+
+def _validate_module_init_l0(value: Any) -> dict[str, Any]:
+    """Validate the required L0 floor while preserving authored extensions.
+
+    This is intentionally a thin schema: all named fields are structural
+    obligations, but module_meta and every entity record may carry additional
+    source-specific properties without a migration or a second schema owner.
+    """
+    data = _module_init_json_copy(value, "module-init L0")
+    if (
+        not isinstance(data, dict)
+        or not _MODULE_INIT_L0_REQUIRED_FIELDS <= set(data)
+        or data.get("schema_version") != _MODULE_INIT_L0_SCHEMA_VERSION
+        or data.get("secrecy") != _MODULE_INIT_SECRECY
+    ):
+        raise RuntimeOperationError(
+            "module-init L0 must contain the current schema_version, keeper_only "
+            "secrecy, module_meta, pregens, opening_hooks, chargen_deltas, and "
+            "opening_handouts"
+        )
+    meta = data.get("module_meta")
+    if (
+        not isinstance(meta, dict)
+        or not _MODULE_INIT_META_REQUIRED_FIELDS <= set(meta)
+    ):
+        raise RuntimeOperationError(
+            "module-init L0 module_meta is missing required creation fields"
+        )
+    for field in (
+        "title_zh", "title_en", "era", "locale", "duration_hint",
+        "structure_type",
+    ):
+        _module_init_text_or_none(meta[field], f"module_meta.{field}")
+    party_size = meta["party_size"]
+    if party_size is not None and (
+        (not isinstance(party_size, (str, int))) or isinstance(party_size, bool)
+    ):
+        raise RuntimeOperationError(
+            "module_meta.party_size must be a string, integer, or null"
+        )
+    for field in ("authors", "translator", "safety_notes"):
+        _module_init_text_or_list_or_none(meta[field], f"module_meta.{field}")
+    for field in ("tone_tags", "mythos_entities", "campaign_hooks", "warnings"):
+        _module_init_text_list(meta[field], f"module_meta.{field}")
+
+    pregens = data.get("pregens")
+    if not isinstance(pregens, list) or len(pregens) > 128:
+        raise RuntimeOperationError("module-init L0 pregens must be an array")
+    for index, pregen in enumerate(pregens):
+        label = f"pregens[{index}]"
+        if not isinstance(pregen, dict):
+            raise RuntimeOperationError(f"{label} must be an object")
+        missing = sorted(_MODULE_INIT_PREGEN_REQUIRED_FIELDS - set(pregen))
+        if missing:
+            raise RuntimeOperationError(
+                f"{label} is missing required field(s): {', '.join(missing)}"
+            )
+        _module_init_text_or_none(pregen["name"], f"{label}.name")
+        _module_init_text_or_none(pregen["occupation"], f"{label}.occupation")
+        age = pregen["age"]
+        if age is not None and (
+            not isinstance(age, (str, int)) or isinstance(age, bool)
+        ):
+            raise RuntimeOperationError(f"{label}.age must be a string, integer, or null")
+        _module_init_text_list(pregen["hooks_to_plot"], f"{label}.hooks_to_plot")
+        blocks = pregen["backstory_blocks"]
+        if blocks is not None and not isinstance(blocks, (str, list, dict)):
+            raise RuntimeOperationError(
+                f"{label}.backstory_blocks must be a string, object, array, or null"
+            )
+        stats_ref = pregen["stats_ref"]
+        if stats_ref is not None and not isinstance(stats_ref, (str, dict)):
+            raise RuntimeOperationError(
+                f"{label}.stats_ref must be a string, object, or null"
+            )
+
+    opening_hooks = data.get("opening_hooks")
+    if not isinstance(opening_hooks, list) or len(opening_hooks) > 128:
+        raise RuntimeOperationError("module-init L0 opening_hooks must be an array")
+    for index, hook in enumerate(opening_hooks):
+        label = f"opening_hooks[{index}]"
+        if not isinstance(hook, dict):
+            raise RuntimeOperationError(f"{label} must be an object")
+        missing = sorted(_MODULE_INIT_HOOK_REQUIRED_FIELDS - set(hook))
+        if missing:
+            raise RuntimeOperationError(
+                f"{label} is missing required field(s): {', '.join(missing)}"
+            )
+        if not isinstance(hook["id"], str) or not hook["id"].strip():
+            raise RuntimeOperationError(f"{label}.id must be a non-empty string")
+        if hook["audience"] not in {"player", "keeper"}:
+            raise RuntimeOperationError(
+                f"{label}.audience must be one of: player, keeper"
+            )
+        if (
+            not isinstance(hook["text"], str)
+            or not hook["text"].strip()
+            or len(hook["text"]) > 20_000
+        ):
+            raise RuntimeOperationError(
+                f"{label}.text must be a non-empty string up to 20000 characters"
+            )
+        _module_init_text_or_none(hook["variant_of"], f"{label}.variant_of")
+
+    deltas = data.get("chargen_deltas")
+    if (
+        not isinstance(deltas, list)
+        or len(deltas) > 128
+        or any(not isinstance(delta, dict) for delta in deltas)
+    ):
+        raise RuntimeOperationError("module-init L0 chargen_deltas must be an array of objects")
+
+    handouts = data.get("opening_handouts")
+    if not isinstance(handouts, list) or len(handouts) > 128:
+        raise RuntimeOperationError("module-init L0 opening_handouts must be an array")
+    for index, handout in enumerate(handouts):
+        label = f"opening_handouts[{index}]"
+        if not isinstance(handout, dict):
+            raise RuntimeOperationError(f"{label} must be an object")
+        missing = sorted(_MODULE_INIT_HANDOUT_REQUIRED_FIELDS - set(handout))
+        if missing:
+            raise RuntimeOperationError(
+                f"{label} is missing required field(s): {', '.join(missing)}"
+            )
+        if not isinstance(handout["id"], str) or not handout["id"].strip():
+            raise RuntimeOperationError(f"{label}.id must be a non-empty string")
+        _module_init_text_or_none(handout["title"], f"{label}.title")
+        _module_init_text_or_none(handout["when_to_give"], f"{label}.when_to_give")
+    return data
+
+
+def _module_init_source_binding(
+    scenario: dict[str, Any], review_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    source = scenario.get("source") if isinstance(scenario.get("source"), dict) else {}
+    binding = {
+        "scenario_id": str(scenario.get("scenario_id") or ""),
+        "source_id": str(source.get("source_id") or ""),
+        "file_sha256": str(source.get("file_sha256") or ""),
+        "bundle_sha256": str(source.get("bundle_sha256") or ""),
+        "opening_review_generation": review_receipt.get("opening_review_generation"),
+        "review_receipt_sha256": _opening_review_receipt_digest(review_receipt),
+    }
+    if (
+        not all(
+            isinstance(binding[key], str) and binding[key]
+            for key in ("scenario_id", "source_id")
+        )
+        or any(
+            re.fullmatch(r"[0-9a-f]{64}", str(binding[key])) is None
+            for key in ("file_sha256", "bundle_sha256")
+        )
+        or not isinstance(binding["opening_review_generation"], int)
+        or isinstance(binding["opening_review_generation"], bool)
+        or binding["opening_review_generation"] < 1
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", str(binding["review_receipt_sha256"])
+        ) is None
+    ):
+        raise RuntimeOperationError("module-init source binding is invalid")
+    return binding
+
+
+def _validate_module_init_document(
+    value: Any, campaign_id: str,
+) -> dict[str, Any]:
+    data = _module_init_json_copy(value, "module-init state")
+    if (
+        not isinstance(data, dict)
+        or set(data) != _MODULE_INIT_DOCUMENT_FIELDS
+        or data.get("schema_version") != _MODULE_INIT_DOCUMENT_SCHEMA_VERSION
+        or data.get("campaign_id") != campaign_id
+        or data.get("secrecy") != _MODULE_INIT_SECRECY
+        or not isinstance(data.get("source_binding"), dict)
+        or set(data["source_binding"]) != _MODULE_INIT_SOURCE_BINDING_FIELDS
+        or not isinstance(data.get("created_at"), str)
+        or not data["created_at"].strip()
+    ):
+        raise RuntimeOperationError("module-init state document is invalid")
+    binding = data["source_binding"]
+    if (
+        not all(
+            isinstance(binding.get(key), str) and binding[key]
+            for key in ("scenario_id", "source_id")
+        )
+        or any(
+            re.fullmatch(r"[0-9a-f]{64}", str(binding.get(key) or "")) is None
+            for key in ("file_sha256", "bundle_sha256")
+        )
+        or not isinstance(binding.get("opening_review_generation"), int)
+        or isinstance(binding["opening_review_generation"], bool)
+        or binding["opening_review_generation"] < 1
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", str(binding.get("review_receipt_sha256") or "")
+        ) is None
+    ):
+        raise RuntimeOperationError("module-init state source binding is invalid")
+    l0 = _validate_module_init_l0(data.get("l0"))
+    if data.get("l0_sha256") != _canonical_sha256(l0):
+        raise RuntimeOperationError("module-init state L0 digest is invalid")
+    return data
+
+
+def _write_module_init_l0(
+    campaign_dir: Path,
+    campaign_id: str,
+    scenario: dict[str, Any],
+    review_receipt: dict[str, Any],
+    l0: dict[str, Any],
+) -> dict[str, Any]:
+    validated_l0 = _validate_module_init_l0(l0)
+    document = {
+        "schema_version": _MODULE_INIT_DOCUMENT_SCHEMA_VERSION,
+        "campaign_id": campaign_id,
+        "secrecy": _MODULE_INIT_SECRECY,
+        "source_binding": _module_init_source_binding(scenario, review_receipt),
+        "l0_sha256": _canonical_sha256(validated_l0),
+        "l0": validated_l0,
+        "created_at": _now(),
+    }
+    document = _validate_module_init_document(document, campaign_id)
+    coc_fileio.write_json_atomic(
+        _module_init_path(campaign_dir), document, indent=2,
+        ensure_ascii=False, trailing_newline=True,
+    )
+    return document
+
+
+def _pi_source_bound_module_init_required(root: Path, campaign_id: str) -> bool:
+    if str(os.environ.get("COC_HOST") or "").lower() != "pi":
+        return False
+    scenario_path = root / ".coc" / "campaigns" / campaign_id / "scenario" / "scenario.json"
+    if not scenario_path.is_file():
+        return False
+    scenario = _read_object(scenario_path)
+    source = scenario.get("source") if isinstance(scenario.get("source"), dict) else {}
+    return bool(
+        str(source.get("source_id") or "").strip()
+        and str(source.get("bundle_sha256") or "").strip()
+    )
+
+
+def _pi_module_init_l0_status(
+    root: Path, campaign_id: str,
+) -> tuple[bool, str | None, dict[str, Any] | None]:
+    if not _pi_source_bound_module_init_required(root, campaign_id):
+        return True, None, None
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    path = _module_init_path(campaign_dir)
+    if not path.is_file():
+        return False, "save/module-init.json is missing", None
+    try:
+        document = _validate_module_init_document(
+            _read_object(path), campaign_id,
+        )
+        scenario = _read_object(campaign_dir / "scenario" / "scenario.json")
+        receipt = _validate_opening_source_review_fulfillment(
+            root,
+            scenario.get("opening_source_review_receipt"),
+            expected_status="reviewed",
+        )
+        if document["source_binding"] != _module_init_source_binding(scenario, receipt):
+            return False, "save/module-init.json is stale for the current source review", None
+    except RuntimeOperationError as exc:
+        return False, str(exc), None
+    return True, None, document
+
+
+def _require_pi_module_init_l0(
+    root: Path, campaign_id: str,
+) -> dict[str, Any] | None:
+    ready, reason, document = _pi_module_init_l0_status(root, campaign_id)
+    if ready:
+        return document
+    raise RuntimeOperationError(
+        f"campaign {campaign_id!r} character creation is blocked until the "
+        "source-reviewed coc-module-init L0 package is present and bound to "
+        f"the current PDF ({reason or 'L0 is unavailable'}); do not guess "
+        "pregens, era adjustments, opening hooks, or handouts"
+    )
+
+
 def _require_established_source_facts(
     root: Path, campaign: dict[str, Any], campaign_id: str
-) -> None:
+) -> dict[str, Any] | None:
     """Fail closed until the fast source parse has answered the gating questions.
 
     A raw-PDF campaign is created before anything is known about the module.
@@ -836,6 +1196,7 @@ def _require_established_source_facts(
             "setup.adopt_source_facts; do not guess the country, city, or "
             "region"
         )
+    return _require_pi_module_init_l0(root, campaign_id)
 
 
 def _character_values(character: dict[str, Any]) -> dict[str, int]:
@@ -4034,6 +4395,9 @@ def _adopt_source_facts_locked(
             name for name in _OPENING_FAST_FACT_GATES
             if facts[name]["status"] != "source"
         ]
+        module_init_ready, _module_init_reason, module_init_document = (
+            _pi_module_init_l0_status(root, campaign_id)
+        )
         return {
             "schema_version": 1,
             "status": "PASS",
@@ -4048,12 +4412,19 @@ def _adopt_source_facts_locked(
                 "era_source": coc_state.campaign_era_source(campaign),
                 "facts": deepcopy(facts),
                 "unresolved_blocking_facts": blocking,
-                "character_creation_unblocked": not blocking,
+                "module_init_ready": module_init_ready,
+                "character_creation_unblocked": (
+                    not blocking and module_init_ready
+                ),
                 "already_established": already,
                 "character_creation_briefing_path": briefing_path,
             },
             "state_refs": [
                 f".coc/campaigns/{campaign_id}/campaign.json",
+                *(
+                    [f".coc/campaigns/{campaign_id}/save/module-init.json"]
+                    if module_init_document is not None else []
+                ),
                 *([briefing_path] if briefing_path else []),
             ],
         }
@@ -4505,6 +4876,10 @@ def execute_setup_operation(
             raise RuntimeOperationError(
                 f"campaign {campaign_id!r} has no canonical era"
             )
+        # This validation is intentionally a gate, not contract payload: the
+        # full L0 belongs in keeper-only save/module-init.json. Keeping it out
+        # of the hot investigator contract preserves the bounded wire while
+        # Pi privately projects it only after this source-bound check passes.
         _require_established_source_facts(root, campaign, campaign_id)
         quick_fire_catalog = contract.get("guided_quick_fire_skill_catalog")
         supported_eras = (
@@ -5688,6 +6063,7 @@ def _apply_opening_source_review_fulfillment(
     receipt: dict[str, Any],
     *,
     source_facts: dict[str, Any] | None = None,
+    module_init_l0: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Private host-adapter mutation; deliberately absent from public tools."""
     root = Path(workspace).resolve()
@@ -5729,6 +6105,17 @@ def _apply_opening_source_review_fulfillment(
             )
             scenario["opening_source_review_receipt"] = validated
             scenario.pop("opening_source_review_failure", None)
+            if module_init_l0 is not None:
+                # This is the source-review's private write, not a public
+                # source-facts field: L0 contains Keeper-facing material and
+                # must remain isolated in save/module-init.json.
+                _write_module_init_l0(
+                    campaign_dir,
+                    campaign_id,
+                    scenario,
+                    validated,
+                    module_init_l0,
+                )
             if source_facts is not None:
                 facts = _validated_opening_fast_facts(source_facts)
                 _canonicalize_opening_fast_facts(root, campaign_id, facts)

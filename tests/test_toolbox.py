@@ -1121,6 +1121,7 @@ def test_structured_full_sleep_updates_director_rest_continuity(campaign_ws):
     journaled = _run(campaign_ws, "state.journal", {
         "summary": "调查员在安全地点完成整夜睡眠。",
         "player_action": "完整休息过夜",
+        "player_text": "我在安全地点完整休息过夜。",
         "intent_class": "rest",
         "decision_id": "journal-completed-full-sleep",
     })
@@ -1131,6 +1132,79 @@ def test_structured_full_sleep_updates_director_rest_continuity(campaign_ws):
         row["effect_kind"]
         for row in output["data"]["mechanics_bundle"]["state_delta"]
     ] == ["time", "rest"]
+
+
+def test_state_journal_requires_exact_player_text_and_backfills_idempotently(
+    campaign_ws,
+):
+    missing = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "不能以摘要或 player_action 代替原始玩家消息。",
+            "player_action": "调查现场",
+            "decision_id": "journal-missing-player-text",
+        },
+    )
+    assert missing["ok"] is False
+    assert missing["error"]["code"] == "missing_param"
+
+    blank = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "空白原文不能关闭回合。",
+            "player_action": "调查现场",
+            "player_text": " \t\n",
+            "decision_id": "journal-blank-player-text",
+        },
+    )
+    assert blank["ok"] is False
+    assert blank["error"]["code"] == "invalid_param"
+
+    exact_player_text = "  我仔细检查门锁，再听一听屋内。  \n"
+    args = {
+        "summary": "调查员检查门锁并留意屋内动静。",
+        "player_action": "检查门锁并倾听",
+        "player_text": exact_player_text,
+        "decision_id": "journal-exact-player-text",
+    }
+    first = _run(campaign_ws, "state.journal", args)
+    assert first["ok"] is True, first
+    transcript_path = campaign_ws["campaign_dir"] / "logs" / "table-transcript.jsonl"
+    rows = _read_jsonl(transcript_path)
+    assert len(rows) == 1
+    assert rows[0]["role"] == "player"
+    assert rows[0]["text"] == exact_player_text
+
+    replay = _run(campaign_ws, "state.journal", args)
+    assert replay["ok"] is True, replay
+    assert _read_jsonl(transcript_path) == rows
+
+    conflict = _run(
+        campaign_ws,
+        "state.journal",
+        {**args, "player_text": "我改口说完全不同的话。"},
+    )
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+
+    # A legacy successful journal can lack its player row. Retrying it with the
+    # same exact text performs the one canonical backfill; later different
+    # text remains an idempotency conflict.
+    transcript_path.write_text("", encoding="utf-8")
+    backfilled = _run(campaign_ws, "state.journal", args)
+    assert backfilled["ok"] is True, backfilled
+    rows = _read_jsonl(transcript_path)
+    assert len(rows) == 1
+    assert rows[0]["text"] == exact_player_text
+    conflict_after_backfill = _run(
+        campaign_ws,
+        "state.journal",
+        {**args, "player_text": "我仍然改口说别的话。"},
+    )
+    assert conflict_after_backfill["ok"] is False
+    assert conflict_after_backfill["error"]["code"] == "idempotency_conflict"
 
 
 def test_missing_required_arg_returns_machine_readable_error(campaign_ws):
@@ -2000,7 +2074,7 @@ def test_noncurrent_roll_receipt_documents_are_rejected_without_rewrite(
     rejected = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "must not migrate", "decision_id": "reject-old-roll-doc"},
+        {"summary": "must not migrate", "player_text": "我继续调查。", "decision_id": "reject-old-roll-doc"},
     )
 
     assert rejected["ok"] is False
@@ -2015,7 +2089,7 @@ def test_malformed_or_decision_only_ledger_is_never_overwritten(campaign_ws):
     malformed = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "must not replace", "decision_id": "bad-ledger-json"},
+        {"summary": "must not replace", "player_text": "我继续调查。", "decision_id": "bad-ledger-json"},
     )
     assert malformed["ok"] is False
     assert malformed["error"]["code"] == "state_corrupt"
@@ -2037,7 +2111,7 @@ def test_malformed_or_decision_only_ledger_is_never_overwritten(campaign_ws):
     rejected = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "must use composite key", "decision_id": "another-id"},
+        {"summary": "must use composite key", "player_text": "我继续调查。", "decision_id": "another-id"},
     )
     assert rejected["ok"] is False
     assert rejected["error"]["code"] == "state_corrupt"
@@ -2285,7 +2359,7 @@ def test_intermediate_schema4_contradiction_fails_before_migration_mutation(
     rejected = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "ambiguous selector", "decision_id": "after-selector-ambiguity"},
+        {"summary": "ambiguous selector", "player_text": "我继续调查。", "decision_id": "after-selector-ambiguity"},
     )
 
     assert rejected["ok"] is False
@@ -2693,7 +2767,7 @@ def test_roll_receipt_prefix_tamper_fails_closed_without_log_mutation(campaign_w
     rejected = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "must not pass tamper", "decision_id": "after-roll-tamper"},
+        {"summary": "must not pass tamper", "player_text": "我继续调查。", "decision_id": "after-roll-tamper"},
     )
 
     assert rejected["ok"] is False
@@ -2762,6 +2836,7 @@ def test_coordinated_resolution_tamper_is_rejected_without_evidence_mutation(
         "state.journal",
         {
             "summary": "resolution contradiction must fail",
+            "player_text": "我继续调查。",
             "decision_id": f"after-{args['decision_id']}",
         },
     )
@@ -2810,7 +2885,7 @@ def test_coordinated_dice_receipt_and_log_tamper_fails_before_any_mutation(
     rejected = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "mechanical contradiction", "decision_id": "after-dice-log-tamper"},
+        {"summary": "mechanical contradiction", "player_text": "我继续调查。", "decision_id": "after-dice-log-tamper"},
     )
 
     assert rejected["ok"] is False
@@ -2865,7 +2940,7 @@ def test_current_dice_reason_tamper_fails_global_preflight_without_mutation(
     rejected = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "detect dice reason damage", "decision_id": "after-dice-reason"},
+        {"summary": "detect dice reason damage", "player_text": "我继续调查。", "decision_id": "after-dice-reason"},
     )
 
     assert rejected["ok"] is False
@@ -2950,6 +3025,7 @@ def test_current_percentile_invocation_tamper_fails_before_mutation(
         "state.journal",
         {
             "summary": "detect percentile invocation damage",
+            "player_text": "我继续调查。",
             "decision_id": f"after-{decision_id}",
         },
     )
@@ -3268,6 +3344,7 @@ def test_rules_luck_spend_rejects_a_roll_after_turn_finalization(campaign_ws):
     journaled = _run(campaign_ws, "state.journal", {
         "summary": "调查员没有在本轮结算前花费幸运，尝试失败。",
         "player_action": "完成一次失败的图书馆使用检定",
+        "player_text": "我试着从图书馆资料中找出线索。",
         "intent_class": "investigate",
         "decision_id": "finalized-luck-journal",
     })
@@ -3604,6 +3681,7 @@ def test_pending_journal_rejects_later_state_mutation_before_it_writes(campaign_
     journal_args = {
         "summary": "本轮到此结算。",
         "player_action": "结束本轮",
+        "player_text": "我结束这一轮行动。",
         "intent_class": "investigate",
         "decision_id": "journal-before-illegal-move",
     }
@@ -3636,6 +3714,7 @@ def test_pending_journal_allows_scene_context_before_finalization(campaign_ws):
     journaled = _run(campaign_ws, "state.journal", {
         "summary": "本轮状态已经结算，KP 随后读取场景投影用于组织输出。",
         "player_action": "结束本轮",
+        "player_text": "我结束这一轮行动。",
         "intent_class": "investigate",
         "decision_id": "journal-before-scene-context",
     })
@@ -5323,6 +5402,7 @@ def test_evicted_roll_replay_does_not_reearn_consumed_development_check(
     for index in range(coc_toolbox._LEDGER_MAX_ENTRIES + 1):
         journaled = _run(campaign_ws, "state.journal", {
             "summary": f"rotate bounded ledger entry {index}",
+            "player_text": f"我完成第 {index} 次测试行动。",
             "decision_id": f"ledger-rotation-{index}",
         })
         assert journaled["ok"] is True
@@ -5988,6 +6068,7 @@ def test_capsule_event_identity_survives_preappend_crash_and_interleaving(
         "state.journal",
         {
             "summary": "unrelated events land before the ending retry",
+            "player_text": "我先处理眼前无关的事情。",
             "decision_id": "ending-preappend-interleave",
         },
     )
@@ -6155,6 +6236,7 @@ def test_toolbox_returns_typed_recovery_conflict_without_touching_foreign_state(
         "state.journal",
         {
             "summary": "must not commit while integrity is unresolved",
+            "player_text": "我继续调查。",
             "decision_id": "journal-after-recovery-conflict",
         },
     )
@@ -8090,6 +8172,7 @@ def test_npc_engagement_receipt_recovers_before_a_different_next_decision(
         "state.journal",
         {
             "summary": "continued after NPC recorder interruption",
+            "player_text": "我继续调查。",
             "decision_id": f"later-after-{crash_stage}",
         },
     )
@@ -8215,6 +8298,7 @@ def test_background_flusher_and_toolbox_recovery_share_stable_event_lock(
             "state.journal",
             {
                 "summary": "continue while a stable event flush is active",
+                "player_text": "我继续调查。",
                 "decision_id": "later-after-stable-event-lock-race",
             },
         )
@@ -12395,6 +12479,7 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
     journaled = _run(ws, "state.journal", {
         "summary": "本轮已结算，后台来源工作随后完成。",
         "player_action": "结束本轮",
+        "player_text": "我结束这一轮行动。",
         "intent_class": "investigate",
         "decision_id": "journal-before-source-fulfillment",
     })
@@ -13247,6 +13332,16 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     assert cash_assets["ok"] is True, cash_assets
     assert cash_assets["data"]["credit_rating"] == 20
 
+    # Skill 1 supplies the source-bound L0 before any investigator action.
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(ws)
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    assert adopted["data"]["result"]["module_init_ready"] is True
+    assert adopted["data"]["result"]["character_creation_unblocked"] is True
+
     assignment_order = (
         "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
     )
@@ -13408,6 +13503,38 @@ def _minimal_opening_source_facts(source_id: str) -> dict:
     }
 
 
+def _minimal_module_init_l0() -> dict:
+    return {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "module_meta": {
+            "title_zh": "开场组件",
+            "title_en": "Opening Component",
+            "authors": [],
+            "translator": [],
+            "era": "1920s",
+            "locale": "Boston",
+            "party_size": "1-4",
+            "duration_hint": "one session",
+            "tone_tags": ["mystery"],
+            "mythos_entities": [],
+            "campaign_hooks": ["opening"],
+            "warnings": [],
+            "safety_notes": None,
+            "structure_type": "linear_investigation",
+        },
+        "pregens": [],
+        "opening_hooks": [{
+            "id": "opening",
+            "audience": "player",
+            "text": "A bounded authored opening.",
+            "variant_of": None,
+        }],
+        "chargen_deltas": [],
+        "opening_handouts": [],
+    }
+
+
 def _stage_reviewed_facts_transport(ws: dict) -> tuple[Path, dict]:
     scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
@@ -13437,7 +13564,10 @@ def _stage_reviewed_facts_transport(ws: dict) -> tuple[Path, dict]:
     )
     facts = _minimal_opening_source_facts("pdf:opening-component")
     coc_toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
-        ws["workspace"], receipt, source_facts=facts,
+        ws["workspace"],
+        receipt,
+        source_facts=facts,
+        module_init_l0=_minimal_module_init_l0(),
     )
     return scenario_path, facts
 
@@ -14100,6 +14230,37 @@ def _pi_opening_adapter_facts(
     }
 
 
+def _pi_opening_adapter_l0() -> dict:
+    return {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "module_meta": {
+            "title_zh": "开场组件",
+            "title_en": "Opening Component",
+            "authors": [],
+            "translator": [],
+            "era": "1920s",
+            "locale": "Boston",
+            "party_size": "1-4",
+            "duration_hint": "one session",
+            "tone_tags": ["mystery"],
+            "mythos_entities": [],
+            "campaign_hooks": ["sealed letter"],
+            "warnings": [],
+            "safety_notes": None,
+            "structure_type": "linear_investigation",
+        },
+        "pregens": [],
+        "opening_hooks": [{
+            "id": "sealed-letter",
+            "audience": "player",
+            "text": "A sealed letter arrives.",
+            "variant_of": None,
+        }],
+        "chargen_deltas": [],
+        "opening_handouts": [],
+    }
+
 
 def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_task(
     tmp_path: Path, monkeypatch,
@@ -14179,6 +14340,7 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
             "facts": _pi_opening_adapter_facts(
                 task["source"]["source_id"], [0],
             ),
+            "module_init_l0": _pi_opening_adapter_l0(),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14301,6 +14463,7 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
             "facts": _pi_opening_adapter_facts(
                 task["source"]["source_id"], [1],
             ),
+            "module_init_l0": _pi_opening_adapter_l0(),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14370,6 +14533,7 @@ def test_pi_opening_review_adapter_rejects_changed_reused_page(
             "facts": _pi_opening_adapter_facts(
                 task["source"]["source_id"], [0],
             ),
+            "module_init_l0": _pi_opening_adapter_l0(),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14446,6 +14610,7 @@ def test_pi_opening_review_adapter_splices_an_equivalent_raw_page_row_rewrite(
             "facts": _pi_opening_adapter_facts(
                 task["source"]["source_id"], [0],
             ),
+            "module_init_l0": _pi_opening_adapter_l0(),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14523,6 +14688,7 @@ def test_pi_opening_review_adapter_accepts_untouched_normalized_raw_page_row(
             "facts": _pi_opening_adapter_facts(
                 task["source"]["source_id"], [0],
             ),
+            "module_init_l0": _pi_opening_adapter_l0(),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14596,6 +14762,7 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
             "facts": _pi_opening_adapter_facts(
                 task["source"]["source_id"], [0],
             ),
+            "module_init_l0": _pi_opening_adapter_l0(),
             "source_bundle_path": task["source_bundle_path"],
             "failure_class": None,
         }
@@ -14642,6 +14809,7 @@ def test_pi_opening_review_adapter_failed_producer_does_not_forge_fulfillment(
             "source_bundle_path": None,
             "failure_class": "pdf_scope_failed",
             "facts": None,
+            "module_init_l0": None,
         }
 
     monkeypatch.setattr(adapter, "_run_pi", fake_pi)

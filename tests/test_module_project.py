@@ -2776,6 +2776,68 @@ def test_on_enter_sandbox_hub_defers_all_map_neighbor_prefetch(tmp_path: Path):
     assert "done" not in result["queue"]
 
 
+def test_on_enter_materializes_only_exact_location_and_keeper_opening_sections(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    index = {
+        "schema_version": 1,
+        "sections": [
+            {
+                "section_id": "sec-current",
+                "audience": "keeper_only",
+                "timing": "on_demand",
+                "payload": "narrative",
+                "binding": {
+                    "kind": "entity", "entity_kind": "location",
+                    "entity_ids": ["library"],
+                },
+                "parse_state": "indexed",
+            },
+            {
+                "section_id": "sec-opening",
+                "audience": "keeper_only",
+                "timing": "opening",
+                "payload": "narrative",
+                "binding": {"kind": "global", "entity_kind": None, "entity_ids": []},
+                "parse_state": "indexed",
+            },
+            {
+                "section_id": "sec-other",
+                "audience": "keeper_only",
+                "timing": "on_demand",
+                "payload": "narrative",
+                "binding": {
+                    "kind": "entity", "entity_kind": "location",
+                    "entity_ids": ["finale"],
+                },
+                "parse_state": "indexed",
+            },
+        ],
+    }
+    assets.section_index_path(tmp_path, "prog-demo").write_text(
+        json.dumps(index), encoding="utf-8",
+    )
+
+    result = project.on_enter_scene(tmp_path, camp.name, "library")
+
+    materialized = [
+        row["section_materialization"] for row in result["actions"]
+        if "section_materialization" in row
+    ]
+    assert {row["section_id"] for row in materialized} == {
+        "sec-current", "sec-opening",
+    }
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    queued = {
+        row["target_id"] for row in queue["pending"]
+        if row.get("kind") == assets.EXTRACT_SECTION_KIND
+    }
+    assert queued == {"sec-current", "sec-opening"}
+
+
 def test_on_enter_non_progressive_skips(tmp_path: Path):
     camp = _make_campaign(tmp_path, "plain-camp")
     # no progressive marker / asset root

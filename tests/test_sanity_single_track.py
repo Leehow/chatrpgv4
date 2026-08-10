@@ -505,7 +505,7 @@ def test_finalize_requires_sanity_bout_realization(campaign_ws):
     journaled = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "直面黑暗中的东西后调查员精神崩塌", "decision_id": "bout-turn-journal"},
+        {"summary": "直面黑暗中的东西后调查员精神崩塌", "player_text": "我直面黑暗中的东西。", "decision_id": "bout-turn-journal"},
     )
     assert journaled["ok"] is True, journaled
 

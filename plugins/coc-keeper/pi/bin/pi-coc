@@ -76,6 +76,9 @@ export PATH
 
 PI_CODING_AGENT_DIR=${PI_COC_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/coc-agent}}
 export PI_CODING_AGENT_DIR
+# Skill 3 scene supply is Pi-Coc-only. Direct extension probes and the retired
+# semantic-source coordinator remain unaffected unless launched through pi-coc.
+export COC_PI_SCENE_SUPPLY=1
 
 HOST_SYSTEM_PROMPT=$REPO_ROOT/plugins/coc-keeper/pi/prompts/host-system.md
 DEFAULT_SESSION_ID=${PI_COC_SESSION_ID:-coc-keeper}
@@ -110,6 +113,24 @@ if [ ! -f "$HOST_SYSTEM_PROMPT" ]; then
   printf '%s\n' "pi-coc: missing host system prompt: $HOST_SYSTEM_PROMPT" >&2
   exit 1
 fi
+
+# pi-subagents discovers distributable custom agents only from the project
+# `.pi/agents/` surface. Keep canonical definitions in the Pi package (tracked
+# by git), then mirror only this owned prefix into the ignored runtime surface.
+STEWARD_AGENT_SOURCE=$REPO_ROOT/plugins/coc-keeper/pi/agents
+STEWARD_AGENT_RUNTIME=$REPO_ROOT/.pi/agents
+if [ ! -d "$STEWARD_AGENT_SOURCE" ]; then
+  printf '%s\n' "pi-coc: missing bundled steward agents: $STEWARD_AGENT_SOURCE" >&2
+  exit 1
+fi
+mkdir -p "$STEWARD_AGENT_RUNTIME"
+for steward_agent in "$STEWARD_AGENT_SOURCE"/steward-*.md; do
+  [ -f "$steward_agent" ] || continue
+  target_agent=$STEWARD_AGENT_RUNTIME/$(basename "$steward_agent")
+  if [ ! -f "$target_agent" ] || ! cmp -s "$steward_agent" "$target_agent"; then
+    cp "$steward_agent" "$target_agent"
+  fi
+done
 
 case "$(pwd -P)/" in
   "$REPO_ROOT"/*|"$REPO_ROOT"/) ;;

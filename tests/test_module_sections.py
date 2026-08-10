@@ -49,13 +49,18 @@ def _rows(*pairs):
     ]
 
 
-def _request(*pairs, previews=None):
+def _request(*pairs, previews=None, entity_catalog=None):
     outline = _outline(_rows(*pairs))
+    catalog = (
+        [{"kind": "location", "id": "fixture-location"}]
+        if entity_catalog is None else entity_catalog
+    )
     return sections.build_classification_request(
         outline=outline,
         page_previews=previews or {},
         accepted_pdf_indices=list(range(1, 21)),
         job_id="job-1",
+        entity_catalog=catalog,
     )
 
 
@@ -77,10 +82,18 @@ def _row(section_id, title, pages, **over):
 # --- request projection ----------------------------------------------------
 
 def test_request_offers_every_heading_as_a_candidate():
-    request = _request((2, "给守密人的信息"), (7, "附录III-NPC"))
+    catalog = [
+        {"kind": "location", "id": "fixture-location"},
+        {"kind": "npc", "id": "fixture-npc"},
+    ]
+    request = _request(
+        (2, "给守密人的信息"), (7, "附录III-NPC"),
+        entity_catalog=list(reversed(catalog)),
+    )
     assert [row["title"] for row in request["candidates"]] == [
         "给守密人的信息", "附录III-NPC",
     ]
+    assert request["entity_catalog"] == catalog
     assert request["request_purpose"] == sections.CLASSIFY_PURPOSE
 
 
@@ -199,7 +212,10 @@ def test_source_text_cannot_be_smuggled_through_an_extra_field():
 
 
 def test_entity_binding_requires_a_kind_and_at_least_one_id():
-    request = _request((9, "附录III-NPC"))
+    request = _request(
+        (9, "附录III-NPC"),
+        entity_catalog=[{"kind": "npc", "id": "npc-seth"}],
+    )
     sid = request["candidates"][0]["section_id"]
     with pytest.raises(sections.SectionIndexError):
         sections.validate_section_rows([_row(
@@ -212,6 +228,20 @@ def test_entity_binding_requires_a_kind_and_at_least_one_id():
                  "entity_ids": ["npc-seth"]},
     )], request=request)
     assert validated[0]["binding"]["entity_ids"] == ["npc-seth"]
+
+
+def test_entity_binding_must_reference_the_request_catalog():
+    request = _request(
+        (9, "附录III-NPC"),
+        entity_catalog=[{"kind": "npc", "id": "npc-known"}],
+    )
+    sid = request["candidates"][0]["section_id"]
+    with pytest.raises(sections.SectionIndexError, match="entity_catalog"):
+        sections.validate_section_rows([_row(
+            sid, "附录III-NPC", [9],
+            binding={"kind": "entity", "entity_kind": "npc",
+                     "entity_ids": ["npc-unknown"]},
+        )], request=request)
 
 
 def test_global_binding_may_not_name_an_entity():
@@ -264,6 +294,15 @@ def test_index_digest_binds_rows_to_the_outline_that_produced_them():
     assert index["section_index_sha256"] != sections.section_index_digest(
         index["sections"], "c" * 64,
     )
+
+
+def test_empty_catalog_all_global_rows_cannot_complete_an_index():
+    request = _request((2, "背景"), entity_catalog=[])
+    sid = request["candidates"][0]["section_id"]
+    with pytest.raises(sections.SectionIndexError, match="empty entity catalog"):
+        sections.build_section_index(
+            rows=[_row(sid, "背景", [2])], request=request,
+        )
 
 
 def test_coverage_ledger_reports_pages_no_section_reached():

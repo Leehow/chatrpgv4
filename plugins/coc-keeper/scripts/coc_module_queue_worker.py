@@ -1395,6 +1395,18 @@ def _cached_page_refs(
     return refs
 
 
+def _classification_entity_catalog(
+    workspace: Path,
+    asset_root_id: str,
+    skeleton: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Compatibility projection of the one module-assets catalog owner."""
+    del skeleton
+    return coc_module_assets.classification_entity_catalog_snapshot(
+        workspace, asset_root_id,
+    )["entity_catalog"]
+
+
 def _write_host_work_request(
     workspace: Path,
     asset_root_id: str,
@@ -1703,8 +1715,11 @@ def _write_host_work_request(
             "module and an NPC roster in another. Emit no source text, "
             "summary, or quotation. Omit a candidate you cannot place rather "
             "than guessing; an unclassified heading can be revisited, a "
-            "mislabeled one silently misroutes play. When the packet declares "
-            "a chunk of a larger book, classify only what that slice shows "
+            "mislabeled one silently misroutes play. An entity binding may name "
+            "only an exact same-kind ID from classification_request.entity_catalog; "
+            "never invent an ID. A truly global section may stay global, but when "
+            "an entity binding is uncertain omit the candidate. When the packet "
+            "declares a chunk of a larger book, classify only what that slice shows "
             "and never infer that an absent section does not exist."
             if job_kind == coc_module_assets.CLASSIFY_SECTIONS_KIND
             else
@@ -1858,11 +1873,18 @@ def _write_host_work_request(
         previews = coc_module_outline_store.cached_page_previews(
             workspace, asset_root_id, pdf_indices=requested_indices,
         )
+        catalog_snapshot = coc_module_assets.classification_entity_catalog_snapshot(
+            workspace, asset_root_id,
+        )
         requests = coc_module_sections.build_classification_requests(
             outline=outline,
             page_previews=previews,
             accepted_pdf_indices=requested_indices,
             job_id=jid,
+            entity_catalog=catalog_snapshot["entity_catalog"],
+            entity_catalog_provenance=catalog_snapshot[
+                "entity_catalog_provenance"
+            ],
         )
         payload["classification_request"] = requests[0]
         if len(requests) > 1:

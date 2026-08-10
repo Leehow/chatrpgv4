@@ -109,7 +109,11 @@ def _finalize_current_turn(ws, decision_id: str) -> dict:
     journaled = _run(
         ws,
         "state.journal",
-        {"summary": f"journal for {decision_id}", "decision_id": f"{decision_id}-journal"},
+        {
+            "summary": f"journal for {decision_id}",
+            "player_text": f"我完成了 {decision_id} 的测试行动。",
+            "decision_id": f"{decision_id}-journal",
+        },
     )
     assert journaled["ok"] is True, journaled
     output = _run(ws, "turn.output_context")
@@ -222,6 +226,73 @@ def test_finalize_writes_commit_snapshot(campaign_ws):
     )
     assert latest is not None
     assert latest[0] == finalization_id
+
+
+def test_creation_receipts_bind_luck_and_characteristic_rolls():
+    luck_reference = {
+        "campaign_id": "creation-binding-test",
+        "decision_id": "creation-luck",
+        "roll_id": "creation-luck-roll",
+    }
+    bound = coc_turn_finalization.creation_receipt_bound_roll_ids(
+        "creation-binding-test",
+        [
+            {
+                "luck_roll_receipt": luck_reference,
+                "characteristic_roll_receipts": {
+                    "STR": {
+                        "campaign_id": "creation-binding-test",
+                        "decision_id": "creation-str",
+                        "roll_id": "creation-str-roll",
+                    },
+                    "Luck": luck_reference,
+                },
+            },
+        ],
+    )
+    assert bound == {"creation-luck-roll", "creation-str-roll"}
+
+
+def test_resume_skips_creation_bound_luck_roll(campaign_ws):
+    creation_luck = _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {
+            "expression": "3D6",
+            "purpose": "investigator_creation_luck",
+            "reason": "canonical Quick Fire Luck source",
+            "seed": 7,
+            "decision_id": "creation-luck-for-quarantine",
+        },
+    )
+    assert creation_luck["ok"] is True, creation_luck
+    creation_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "creation.json"
+    )
+    creation = json.loads(creation_path.read_text(encoding="utf-8"))
+    creation["luck_roll_receipt"] = {
+        "campaign_id": campaign_ws["campaign_id"],
+        "decision_id": "creation-luck-for-quarantine",
+        "roll_id": creation_luck["data"]["roll_id"],
+    }
+    _write_json(creation_path, creation)
+
+    assert coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(
+        campaign_ws["campaign_dir"]
+    ) == {creation_luck["data"]["roll_id"]}
+    assert coc_turn_finalization.unbound_public_roll_ids(
+        campaign_ws["campaign_dir"]
+    ) == []
+
+    resumed = _run(campaign_ws, "session.resume", {})
+    assert resumed["ok"] is True, resumed
+    assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == []
+    assert not (
+        campaign_ws["campaign_dir"] / "save" / "roll-dispositions.json"
+    ).exists()
 
 
 def test_resume_quarantines_unfinalized_turn_tail(campaign_ws):

@@ -96,6 +96,17 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     assert result["activeToolNames"] == result["toolNames"]
 
 
+def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
+    result = _node(ROOT / "tests/pi/steward-subagent-routing.mjs", str(ROOT))
+    assert result == {
+        "ok": True,
+        "activeTools": [
+            "coc_capabilities", "coc_discover", "coc_invoke",
+            "coc_progressive_ocr", "subagent", "subagent_wait",
+        ],
+    }
+
+
 def test_pi_opening_forwards_only_contract_selected_era_adaptive_creation():
     result = _node(
         ROOT / "tests/pi/guided-character-contract-smoke.mjs",
@@ -260,6 +271,12 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
     assert "Never ask" in text or "无需" in text or "never ask" in text.lower()
     assert "coc_capabilities" in text
     assert "never call or construct `coc_dispatch_source_work`" in text
+    assert "the Pi extension's private source locator" in text
+    assert "never guess a bundle path or reuse an old bundle" in text
+    assert "do not use any legacy `coc_progressive_ocr` fast/enhance/export route" in " ".join(text.split()).lower()
+    prompt_compact = " ".join(text.split())
+    assert "Skill 1: L0 package and source-facts adoption" in prompt_compact
+    assert "then start the bounded steward group, and let Skill 3 supply future scenes" in prompt_compact
     assert "zh-Hans" in text
     script = wrapper.read_text(encoding="utf-8")
     assert "--no-context-files" in script
@@ -1757,6 +1774,7 @@ def test_pi_opening_source_review_transport_lifecycle():
             "duplicate_suppressed": True,
             "restart_reconciled_without_duplicate_launch": True,
             "outer_failures_remain_retryable": True,
+            "producer_death_emits_terminal_audit_and_evidence": True,
             "timeout_and_abort_remain_retryable": True,
             "exact_hidden_facts_card": True,
             "misaligned_state_still_delivers_reviewed_adopt_card": True,
@@ -3809,6 +3827,26 @@ def test_pdf_skill_adapter_validates_bundle_bound_opening_facts(tmp_path: Path):
         "player_safe_summary": unresolved,
         "content_flags": source(["haunting"]),
     }
+    l0 = {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "module_meta": {
+            "title_zh": "测试模组", "title_en": "Test Module",
+            "authors": [], "translator": [], "era": "1920s",
+            "locale": "Boston", "party_size": "1-4",
+            "duration_hint": "one session", "tone_tags": ["mystery"],
+            "mythos_entities": [], "campaign_hooks": ["letter"],
+            "warnings": [], "safety_notes": None,
+            "structure_type": "linear_investigation",
+        },
+        "pregens": [],
+        "opening_hooks": [{
+            "id": "letter", "audience": "player",
+            "text": "A letter arrives.", "variant_of": None,
+        }],
+        "chargen_deltas": [],
+        "opening_handouts": [],
+    }
     valid = {
         "schema_version": 1,
         "contract_id": "coc.pi-opening-pdf-producer-result.v1",
@@ -3820,6 +3858,7 @@ def test_pdf_skill_adapter_validates_bundle_bound_opening_facts(tmp_path: Path):
         "source_bundle_path": str(tmp_path / "bundle"),
         "failure_class": None,
         "facts": facts,
+        "module_init_l0": l0,
     }
     assert adapter._validate_opening_result(valid, task) == valid
     with pytest.raises(RuntimeError, match="invalid"):
@@ -3896,6 +3935,7 @@ def test_pdf_skill_adapter_validates_bundle_bound_opening_facts(tmp_path: Path):
         "source_bundle_path": None,
         "failure_class": "pdf_failed",
         "facts": None,
+        "module_init_l0": None,
     }
     assert adapter._validate_opening_result(failed, task) == failed
     with pytest.raises(RuntimeError, match="failed.*invalid"):
@@ -3939,6 +3979,8 @@ def test_opening_producer_task_does_not_launder_placeholder_era(
     assert task["opening_fast_facts_schema"]["properties"]["era"][
         "additionalProperties"
     ] is False
+    assert task["module_init_l0_schema"]["secrecy"] == "keeper_only"
+    assert task["module_init_l0_schema"]["additional_properties_allowed"] is True
 
 
 def _splice_page(pdf_index, body):

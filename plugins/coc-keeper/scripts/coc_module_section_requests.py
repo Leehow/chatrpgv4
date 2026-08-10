@@ -14,6 +14,7 @@ of the whole document distinguishes them.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -30,6 +31,7 @@ from coc_module_sections import (  # noqa: E402
     CLASSIFY_PURPOSE,
     CONFIDENCE,
     CONTRACT_ID,
+    MAX_ENTITY_CATALOG,
     MAX_SECTIONS,
     PAYLOADS,
     PREVIEW_MAX_BYTES,
@@ -39,6 +41,7 @@ from coc_module_sections import (  # noqa: E402
     SCHEMA_VERSION,
     TIMINGS,
     SectionIndexError,
+    _ENTITY_ID,
     _require_sha256,
     section_id_for,
 )
@@ -86,6 +89,8 @@ def build_classification_request(
     page_previews: dict[int, str],
     accepted_pdf_indices: list[int],
     job_id: str,
+    entity_catalog: list[dict[str, Any]] | None = None,
+    entity_catalog_provenance: dict[str, Any] | None = None,
     preview_max_bytes: int = PREVIEW_MAX_BYTES,
     chunk: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -105,6 +110,49 @@ def build_classification_request(
         raise SectionIndexError(
             f"outline has {len(rows)} headings, over the {MAX_SECTIONS} cap"
         )
+    catalog = entity_catalog or []
+    if not isinstance(catalog, list) or len(catalog) > MAX_ENTITY_CATALOG:
+        raise SectionIndexError("entity_catalog exceeds the bounded catalog cap")
+    normalized_catalog: list[dict[str, str]] = []
+    seen_catalog: set[tuple[str, str]] = set()
+    for index, entry in enumerate(catalog):
+        if not isinstance(entry, dict) or set(entry) != {"kind", "id"}:
+            raise SectionIndexError(f"entity_catalog[{index}] must contain kind and id")
+        kind = str(entry.get("kind") or "")
+        entity_id = str(entry.get("id") or "").strip()
+        if kind not in BINDING_ENTITY_KINDS or not _ENTITY_ID.match(entity_id):
+            raise SectionIndexError(f"entity_catalog[{index}] is invalid")
+        key = (kind, entity_id)
+        if key in seen_catalog:
+            raise SectionIndexError(f"entity_catalog[{index}] is duplicated")
+        seen_catalog.add(key)
+        normalized_catalog.append({"kind": kind, "id": entity_id})
+    normalized_catalog.sort(key=lambda entry: (entry["kind"], entry["id"]))
+    normalized_provenance: dict[str, Any] | None = None
+    if entity_catalog_provenance is not None:
+        if (
+            not isinstance(entity_catalog_provenance, dict)
+            or set(entity_catalog_provenance) != {
+                "source", "version", "catalog_sha256",
+            }
+            or not isinstance(entity_catalog_provenance.get("source"), str)
+            or not entity_catalog_provenance["source"].strip()
+            or isinstance(entity_catalog_provenance.get("version"), bool)
+            or not isinstance(entity_catalog_provenance.get("version"), int)
+            or entity_catalog_provenance["version"] < 1
+        ):
+            raise SectionIndexError("entity_catalog_provenance is invalid")
+        catalog_sha256 = hashlib.sha256(json.dumps(
+            normalized_catalog, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        if entity_catalog_provenance.get("catalog_sha256") != catalog_sha256:
+            raise SectionIndexError("entity_catalog_provenance digest drift")
+        normalized_provenance = {
+            "source": entity_catalog_provenance["source"].strip(),
+            "version": entity_catalog_provenance["version"],
+            "catalog_sha256": catalog_sha256,
+        }
     chunk = dict(chunk or {"index": 1, "count": 1, "page_from": 1, "page_to": 0})
     file_sha256 = _require_sha256(outline.get("file_sha256"), "outline.file_sha256")
     outline_sha256 = _require_sha256(
@@ -154,6 +202,9 @@ def build_classification_request(
         "outline_confidence_class": str(outline.get("confidence_class") or ""),
         "page_count": int(outline.get("page_count") or 0),
         "accepted_pdf_indices": accepted,
+        "entity_catalog": normalized_catalog,
+        **({"entity_catalog_provenance": normalized_provenance}
+           if normalized_provenance is not None else {}),
         # A source whose outline does not fit one packet is classified in
         # contiguous page slices.  The classifier is told so explicitly, so a
         # missing later appendix reads as "not in this slice" rather than as
@@ -189,6 +240,10 @@ def build_classification_request(
                 "candidate's own pdf_index and stopping before the next "
                 "classified candidate's page.",
                 "Never emit source text, summaries, or quoted passages.",
+                "Entity bindings may name only an exact id from entity_catalog with "
+                "the same kind; never invent an id. Use global only when the "
+                "section truly applies globally, and omit a candidate when its "
+                "entity binding is uncertain.",
                 "Omit a candidate entirely rather than guessing its labels; a "
                 "missing row leaves that heading unclassified, which is "
                 "recoverable, while a wrong label is not.",
@@ -211,6 +266,8 @@ def build_classification_requests(
     page_previews: dict[int, str],
     accepted_pdf_indices: list[int],
     job_id: str,
+    entity_catalog: list[dict[str, Any]] | None = None,
+    entity_catalog_provenance: dict[str, Any] | None = None,
     preview_max_bytes: int = PREVIEW_MAX_BYTES,
 ) -> list[dict[str, Any]]:
     """One packet when the outline fits; contiguous page chunks when it does not.
@@ -230,6 +287,8 @@ def build_classification_requests(
         return [build_classification_request(
             outline=outline, page_previews=page_previews,
             accepted_pdf_indices=accepted_pdf_indices, job_id=job_id,
+            entity_catalog=entity_catalog,
+            entity_catalog_provenance=entity_catalog_provenance,
             preview_max_bytes=preview_max_bytes,
         )]
     except SectionIndexError as exc:
@@ -260,6 +319,8 @@ def build_classification_requests(
                     },
                     accepted_pdf_indices=accepted_pdf_indices,
                     job_id=f"{job_id}-c{index + 1}",
+                    entity_catalog=entity_catalog,
+                    entity_catalog_provenance=entity_catalog_provenance,
                     preview_max_bytes=preview_max_bytes,
                     chunk={
                         "index": index + 1, "count": chunks,

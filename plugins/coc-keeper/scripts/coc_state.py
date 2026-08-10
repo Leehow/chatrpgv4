@@ -1884,8 +1884,15 @@ def restore_snapshot(root: Path, campaign_id: str, label: str) -> Path:
 # holds rules/state authority and is written only through the transactional
 # ``steward.*`` toolbox operations (idempotent via decision_id).
 
-STEWARD_STATE_DOCUMENT_SCHEMA_VERSION = 1
+# Schema v2 adds the asynchronous parser's domain snapshots and failure
+# ledger.  Old v1 documents are intentionally rejected under clean-slate
+# persistence rather than silently migrated.
+STEWARD_STATE_DOCUMENT_SCHEMA_VERSION = 2
 STEWARD_SECRECY_LEVELS = frozenset({"keeper_only", "player_safe"})
+STEWARD_PARSE_DOMAINS = frozenset({"init", "npc", "scene", "clue", "rule"})
+STEWARD_DOMAIN_STATUSES = frozenset({"pending", "ready", "partial", "failed"})
+_STEWARD_MAX_FAILED_CHUNKS = 256
+_STEWARD_MAX_DOMAIN_JSON_BYTES = 5_000_000
 
 _STEWARD_SEGMENT_FIELDS = frozenset({"text", "page", "source_refs"})
 _STEWARD_DELIVERY_FIELDS = frozenset({
@@ -1934,8 +1941,14 @@ def empty_steward_state(campaign_id: str) -> dict[str, Any]:
     return {
         "schema_version": STEWARD_STATE_DOCUMENT_SCHEMA_VERSION,
         "campaign_id": str(campaign_id),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
         "deliveries": {},
         "notebook": {},
+        "domains": {
+            domain: {"status": "pending"}
+            for domain in sorted(STEWARD_PARSE_DOMAINS)
+        },
+        "failed_chunks": [],
     }
 
 
@@ -2038,6 +2051,191 @@ def _validated_annotation(value: Any, field: str) -> str:
     return text
 
 
+def _validated_steward_json(value: Any, field: str) -> Any:
+    """Return a JSON-only deep copy, bounded so a bad parser cannot bloat saves."""
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        normalized = json.loads(encoded)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{field} must contain only JSON values") from exc
+    if len(encoded.encode("utf-8")) > _STEWARD_MAX_DOMAIN_JSON_BYTES:
+        raise ValueError(f"{field} exceeds {_STEWARD_MAX_DOMAIN_JSON_BYTES} UTF-8 bytes")
+    return normalized
+
+
+def validated_steward_domain_content(value: Any) -> dict[str, Any]:
+    """Validate extensible parser output while reserving its status field."""
+    if not isinstance(value, dict):
+        raise ValueError("content must be a JSON object")
+    if "status" in value:
+        raise ValueError("content must not contain status; pass status separately")
+    return _validated_steward_json(value, "content")
+
+
+_SCENE_EDGE_KINDS = frozenset({"next", "if", "timeline", "clue", "fail_loop"})
+_SCENE_EDGE_PROVENANCE = frozenset({
+    "source_authored",
+    "directory_adjacency",
+    "parent_child",
+    "timeline",
+    "semantic_inference",
+})
+_STEWARD_MAX_SCENE_BUNDLES = 64
+_STEWARD_MAX_SCENE_NEIGHBORS = 32
+
+
+def _validated_steward_source_refs(value: Any, field: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field} must be a non-empty array of source references")
+    if len(value) > _STEWARD_MAX_SOURCE_REFS:
+        raise ValueError(f"{field} exceeds {_STEWARD_MAX_SOURCE_REFS} source references")
+    refs: list[str] = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"{field}[{index}] must be a non-empty string")
+        ref = raw.strip()
+        if len(ref) > _STEWARD_MAX_SOURCE_REF_CHARS:
+            raise ValueError(
+                f"{field}[{index}] exceeds {_STEWARD_MAX_SOURCE_REF_CHARS} characters"
+            )
+        refs.append(ref)
+    return refs
+
+
+def _validated_steward_scene_entity(value: Any, field: str) -> dict[str, Any]:
+    entity = _validated_steward_json(value, field)
+    if not isinstance(entity, dict):
+        raise ValueError(f"{field} must be an object")
+    entity_id = entity.get("id")
+    if entity_id is None:
+        entity_id = entity.get("scene_id", entity.get("location_id"))
+    entity["id"] = _validated_identifier(entity_id, f"{field}.id")
+    name = entity.get("name", entity.get("title", entity["id"]))
+    entity["name"] = _validated_identifier(name, f"{field}.name")
+    entity["source_refs"] = _validated_steward_source_refs(
+        entity.get("source_refs"), f"{field}.source_refs"
+    )
+    secrecy = entity.get("secrecy")
+    if secrecy is not None and secrecy not in STEWARD_SECRECY_LEVELS:
+        raise ValueError(
+            f"{field}.secrecy must be one of {sorted(STEWARD_SECRECY_LEVELS)}"
+        )
+    return entity
+
+
+def _validated_steward_scene_edge(
+    value: Any, field: str, *, from_scene_id: str, to_scene_id: str,
+) -> dict[str, Any]:
+    edge = _validated_steward_json(value, field)
+    if not isinstance(edge, dict):
+        raise ValueError(f"{field} must be an object")
+    if _validated_identifier(edge.get("from"), f"{field}.from") != from_scene_id:
+        raise ValueError(f"{field}.from must equal the bundle current scene id")
+    if _validated_identifier(edge.get("to"), f"{field}.to") != to_scene_id:
+        raise ValueError(f"{field}.to must equal its neighbor scene id")
+    if edge.get("kind") not in _SCENE_EDGE_KINDS:
+        raise ValueError(f"{field}.kind must be one of {sorted(_SCENE_EDGE_KINDS)}")
+    condition = edge.get("condition_text")
+    if condition is not None and (not isinstance(condition, str) or len(condition) > _STEWARD_MAX_NOTE_CHARS):
+        raise ValueError(f"{field}.condition_text must be a string or null")
+    if edge.get("provenance") not in _SCENE_EDGE_PROVENANCE:
+        raise ValueError(
+            f"{field}.provenance must be one of {sorted(_SCENE_EDGE_PROVENANCE)}"
+        )
+    edge["source_refs"] = _validated_steward_source_refs(
+        edge.get("source_refs"), f"{field}.source_refs"
+    )
+    return edge
+
+
+def validated_steward_scene_bundles(value: Any) -> list[dict[str, Any]]:
+    """Validate source-bound SceneBundle records before merging the scene cache."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("bundles must be a non-empty array")
+    if len(value) > _STEWARD_MAX_SCENE_BUNDLES:
+        raise ValueError(f"bundles exceeds {_STEWARD_MAX_SCENE_BUNDLES} records")
+    normalized: list[dict[str, Any]] = []
+    ids: set[str] = set()
+    for index, raw in enumerate(value):
+        bundle = _validated_steward_json(raw, f"bundles[{index}]")
+        if not isinstance(bundle, dict):
+            raise ValueError(f"bundles[{index}] must be an object")
+        current = _validated_steward_scene_entity(bundle.get("current"), f"bundles[{index}].current")
+        current_id = current["id"]
+        if current_id in ids:
+            raise ValueError(f"bundles contains duplicate current scene id {current_id!r}")
+        ids.add(current_id)
+        neighbors_raw = bundle.get("neighbors")
+        if not isinstance(neighbors_raw, list) or len(neighbors_raw) > _STEWARD_MAX_SCENE_NEIGHBORS:
+            raise ValueError(
+                f"bundles[{index}].neighbors must be an array of at most "
+                f"{_STEWARD_MAX_SCENE_NEIGHBORS} records"
+            )
+        neighbors: list[dict[str, Any]] = []
+        for neighbor_index, raw_neighbor in enumerate(neighbors_raw):
+            neighbor = _validated_steward_json(
+                raw_neighbor, f"bundles[{index}].neighbors[{neighbor_index}]"
+            )
+            if not isinstance(neighbor, dict):
+                raise ValueError(f"bundles[{index}].neighbors[{neighbor_index}] must be an object")
+            scene = _validated_steward_scene_entity(
+                neighbor.get("scene"), f"bundles[{index}].neighbors[{neighbor_index}].scene"
+            )
+            neighbor["scene"] = scene
+            neighbor["edge"] = _validated_steward_scene_edge(
+                neighbor.get("edge"),
+                f"bundles[{index}].neighbors[{neighbor_index}].edge",
+                from_scene_id=current_id,
+                to_scene_id=scene["id"],
+            )
+            neighbors.append(neighbor)
+        bundle["current"] = current
+        bundle["neighbors"] = neighbors
+        bundle["source_refs"] = _validated_steward_source_refs(
+            bundle.get("source_refs"), f"bundles[{index}].source_refs"
+        )
+        prefetched_from = bundle.get("prefetched_from")
+        if prefetched_from is not None:
+            bundle["prefetched_from"] = _validated_identifier(
+                prefetched_from, f"bundles[{index}].prefetched_from"
+            )
+        normalized.append(bundle)
+    return normalized
+
+
+def validated_steward_failed_chunks(value: Any, *, domain: str | None = None) -> list[dict[str, Any]]:
+    """Validate append-only parser failures without constraining module-specific detail."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > _STEWARD_MAX_FAILED_CHUNKS:
+        raise ValueError(f"failed_chunks must be an array of at most {_STEWARD_MAX_FAILED_CHUNKS} records")
+    records: list[dict[str, Any]] = []
+    for index, raw in enumerate(value):
+        record = _validated_steward_json(raw, f"failed_chunks[{index}]")
+        if not isinstance(record, dict):
+            raise ValueError(f"failed_chunks[{index}] must be an object")
+        actual_domain = record.get("domain", domain)
+        if actual_domain not in STEWARD_PARSE_DOMAINS:
+            raise ValueError(f"failed_chunks[{index}].domain must be one of {sorted(STEWARD_PARSE_DOMAINS)}")
+        chunk_id = _validated_identifier(record.get("chunk_id"), f"failed_chunks[{index}].chunk_id")
+        reason = _validated_optional_text(record.get("reason"), f"failed_chunks[{index}].reason", maximum=_STEWARD_MAX_NOTE_CHARS)
+        if not reason:
+            raise ValueError(f"failed_chunks[{index}].reason must be a non-empty string")
+        attempts = record.get("attempts", 1)
+        if not _is_exact_int(attempts) or attempts < 1:
+            raise ValueError(f"failed_chunks[{index}].attempts must be an integer >= 1")
+        refs = record.get("source_refs", [])
+        if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+            raise ValueError(f"failed_chunks[{index}].source_refs must be an array of non-empty strings")
+        record["domain"] = actual_domain
+        record["chunk_id"] = chunk_id
+        record["reason"] = reason
+        record["attempts"] = attempts
+        record["source_refs"] = [ref.strip() for ref in refs]
+        records.append(record)
+    return records
+
+
 def validate_steward_state_document(
     data: Any, campaign_id: str,
 ) -> dict[str, Any]:
@@ -2048,7 +2246,8 @@ def validate_steward_state_document(
     enforced so the document can never become internally inconsistent.
     """
     if not isinstance(data, dict) or set(data) != {
-        "schema_version", "campaign_id", "deliveries", "notebook",
+        "schema_version", "campaign_id", "updated_at", "deliveries", "notebook",
+        "domains", "failed_chunks",
     }:
         raise ValueError(
             "save/steward-state.json does not match the current schema-v1 document"
@@ -2067,12 +2266,34 @@ def validate_steward_state_document(
             f"expected {expected_campaign!r}, got {campaign!r}"
         )
 
+    updated_at = data["updated_at"]
+    if not isinstance(updated_at, str) or not updated_at.strip():
+        raise ValueError("save/steward-state.json updated_at must be a non-empty string")
     deliveries_raw = data["deliveries"]
     notebook_raw = data["notebook"]
+    domains_raw = data["domains"]
+    failed_chunks_raw = data["failed_chunks"]
     if not isinstance(deliveries_raw, dict) or not isinstance(notebook_raw, dict):
         raise ValueError(
             "save/steward-state.json deliveries/notebook must be objects"
         )
+    if not isinstance(domains_raw, dict) or set(domains_raw) != STEWARD_PARSE_DOMAINS:
+        raise ValueError(
+            "save/steward-state.json domains must contain exactly "
+            + ", ".join(sorted(STEWARD_PARSE_DOMAINS))
+        )
+    domains: dict[str, Any] = {}
+    for domain in sorted(STEWARD_PARSE_DOMAINS):
+        raw_domain = _validated_steward_json(domains_raw[domain], f"domains.{domain}")
+        if not isinstance(raw_domain, dict):
+            raise ValueError(f"domains.{domain} must be an object")
+        status = raw_domain.get("status")
+        if status not in STEWARD_DOMAIN_STATUSES:
+            raise ValueError(
+                f"domains.{domain}.status must be one of {sorted(STEWARD_DOMAIN_STATUSES)}"
+            )
+        domains[domain] = raw_domain
+    failed_chunks = validated_steward_failed_chunks(failed_chunks_raw)
 
     deliveries: dict[str, Any] = {}
     for key, record in deliveries_raw.items():
@@ -2212,8 +2433,11 @@ def validate_steward_state_document(
     return {
         "schema_version": STEWARD_STATE_DOCUMENT_SCHEMA_VERSION,
         "campaign_id": campaign,
+        "updated_at": updated_at.strip(),
         "deliveries": deliveries,
         "notebook": notebook,
+        "domains": domains,
+        "failed_chunks": failed_chunks,
     }
 
 
@@ -2241,5 +2465,7 @@ def load_steward_state(campaign_dir: Path) -> dict[str, Any]:
 def save_steward_state(campaign_dir: Path, payload: dict[str, Any]) -> None:
     """Validate then atomically persist one steward state document."""
     campaign_dir = Path(campaign_dir)
-    normalized = validate_steward_state_document(payload, campaign_dir.name)
+    next_payload = dict(payload)
+    next_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    normalized = validate_steward_state_document(next_payload, campaign_dir.name)
     write_json_atomic(steward_state_path(campaign_dir), normalized)

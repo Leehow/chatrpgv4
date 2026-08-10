@@ -62,6 +62,171 @@ def _segments(extra: str = "a") -> list[dict]:
     }]
 
 
+def test_steward_domain_put_persists_thin_domain_and_failed_chunks(campaign):
+    result = _run(campaign, "steward.domain_put", {
+        "domain": "npc",
+        "status": "partial",
+        "content": {
+            "index": [{
+                "id": "npc-anna",
+                "name": "安娜",
+                "summary": "谨慎的证人",
+                "source_refs": ["module-assets/pdf-abc/pages/0007.md#pdf_index-7"],
+                "secrecy": "keeper_only",
+            }],
+            "items": [],
+            "module_specific": {"loyalty_title": "党内信誉"},
+        },
+        "failed_chunks": [{
+            "chunk_id": "npc-appendix",
+            "reason": "OCR 页没有可用文字",
+            "attempts": 2,
+            "source_refs": ["module-assets/pdf-abc/pages/0044.md#pdf_index-44"],
+        }],
+        "decision_id": "npc-domain-1",
+    })
+    assert result["ok"] is True, result
+    assert result["data"] == {
+        "domain": "npc",
+        "status": "partial",
+        "content_keys": ["index", "items", "module_specific"],
+        "failed_chunks_recorded": 1,
+    }
+
+    document = _doc(campaign)
+    assert document["schema_version"] == 2
+    assert document["updated_at"]
+    assert document["domains"]["npc"]["status"] == "partial"
+    assert document["domains"]["npc"]["module_specific"] == {"loyalty_title": "党内信誉"}
+    assert document["failed_chunks"] == [{
+        "chunk_id": "npc-appendix",
+        "reason": "OCR 页没有可用文字",
+        "attempts": 2,
+        "source_refs": ["module-assets/pdf-abc/pages/0044.md#pdf_index-44"],
+        "domain": "npc",
+        "decision_id": "npc-domain-1",
+        "ts": document["failed_chunks"][0]["ts"],
+    }]
+
+    replay = _run(campaign, "steward.domain_put", {
+        "domain": "npc", "status": "failed", "content": {},
+        "decision_id": "npc-domain-1",
+    })
+    assert replay["ok"] is True
+    assert replay["data"] == result["data"]
+    assert len(_doc(campaign)["failed_chunks"]) == 1
+
+    invalid = _run(campaign, "steward.domain_put", {
+        "domain": "npc", "status": "ready", "content": {"status": "failed"},
+        "decision_id": "npc-domain-invalid",
+    })
+    assert invalid["ok"] is False
+    assert invalid["error"]["code"] == "invalid_param"
+
+
+def test_scene_bundle_cache_reads_prefetched_neighbor_and_validates_schema(campaign):
+    configured = _run(campaign, "steward.domain_put", {
+        "domain": "scene",
+        "status": "ready",
+        "content": {
+            "scene_supply": {"enabled": True, "source_cache_path": "pages"},
+            "index": [{
+                "id": "scene-b", "name": "钟楼", "source_refs": ["pages/002.md"],
+                "clues_index": [{"id": "clue-b", "source_refs": ["pages/002.md"]}],
+            }],
+        },
+        "decision_id": "scene-config",
+    })
+    assert configured["ok"] is True, configured
+
+    pending = _run(campaign, "steward.scene_supply", {"scene_id": "scene-b"})
+    assert pending["ok"] is True
+    assert pending["data"]["enforced"] is True
+    assert pending["data"]["ready"] is False
+    assert pending["data"]["fallback_available"] is True
+
+    bundles = [{
+        "current": {"id": "scene-a", "name": "码头", "source_refs": ["pages/001.md"]},
+        "neighbors": [{
+            "scene": {"id": "scene-b", "name": "钟楼", "source_refs": ["pages/002.md"]},
+            "edge": {
+                "from": "scene-a", "to": "scene-b", "kind": "if",
+                "condition_text": "取得钥匙后", "provenance": "source_authored",
+                "source_refs": ["pages/001.md"],
+            },
+        }],
+        "source_refs": ["pages/001.md"],
+    }, {
+        "current": {"id": "scene-b", "name": "钟楼", "source_refs": ["pages/002.md"]},
+        "neighbors": [],
+        "prefetched_from": "scene-a",
+        "source_refs": ["pages/002.md"],
+    }]
+    stored = _run(campaign, "steward.scene_bundle_put", {
+        "bundles": bundles, "decision_id": "scene-prefetch-a",
+    })
+    assert stored["ok"] is True, stored
+    assert stored["data"] == {
+        "status": "ready", "bundle_ids": ["scene-a", "scene-b"], "cache_size": 2,
+    }
+    document = _doc(campaign)
+    assert document["domains"]["scene"]["bundles"]["scene-a"]["neighbors"][0]["edge"]["kind"] == "if"
+
+    hit = _run(campaign, "steward.scene_supply", {"scene_id": "scene-b"})
+    assert hit["ok"] is True
+    assert hit["data"]["status"] == "ready"
+    assert hit["data"]["cache_hit"] is True
+    assert hit["data"]["bundle"]["current"]["id"] == "scene-b"
+
+    invalid = _run(campaign, "steward.scene_bundle_put", {
+        "bundles": [{
+            "current": {"id": "scene-c", "name": "无效", "source_refs": ["pages/003.md"]},
+            "neighbors": [{
+                "scene": {"id": "scene-d", "name": "无效邻居", "source_refs": ["pages/004.md"]},
+                "edge": {
+                    "from": "scene-c", "to": "scene-d", "kind": "travel",
+                    "condition_text": None, "provenance": "source_authored",
+                    "source_refs": ["pages/003.md"],
+                },
+            }],
+            "source_refs": ["pages/003.md"],
+        }],
+        "decision_id": "scene-invalid-edge",
+    })
+    assert invalid["ok"] is False
+    assert invalid["error"]["code"] == "invalid_param"
+
+
+def test_scene_supply_allows_only_source_bound_minimal_fallback(campaign):
+    assert _run(campaign, "steward.domain_put", {
+        "domain": "scene",
+        "status": "failed",
+        "content": {
+            "scene_supply": {"enabled": True},
+            "index": [{
+                "id": "scene-fallback", "name": "有出处的地点",
+                "source_refs": ["pages/009.md"],
+                "clues_index": [{"id": "known-clue", "source_refs": ["pages/009.md"]}],
+            }],
+        },
+        "decision_id": "scene-fallback-config",
+    })["ok"] is True
+    blocked = _run(campaign, "steward.scene_supply", {"scene_id": "scene-fallback"})
+    assert blocked["data"]["status"] == "failed"
+    assert blocked["data"]["ready"] is False
+    minimal = _run(campaign, "steward.scene_supply", {
+        "scene_id": "scene-fallback", "allow_minimal_fallback": True,
+    })
+    assert minimal["ok"] is True
+    assert minimal["data"]["status"] == "minimal_ready"
+    assert minimal["data"]["degraded"] is True
+    assert minimal["data"]["minimal_scene"] == {
+        "id": "scene-fallback", "name": "有出处的地点",
+        "source_refs": ["pages/009.md"],
+        "clues_index": [{"id": "known-clue", "source_refs": ["pages/009.md"]}],
+    }
+
+
 def test_steward_deliver_writes_document_and_replays_idempotently(campaign):
     first = _run(campaign, "steward.deliver", {
         "delivery_id": "del-1",
@@ -373,7 +538,7 @@ def test_steward_document_corruption_fails_closed_without_overwrite(campaign):
     })
     path = campaign / ".coc" / "campaigns" / "steward-camp" / "save" / "steward-state.json"
     original = path.read_bytes()
-    broken = b'{"schema_version": 1, "campaign_id": "steward-camp", "deliveries": {}, "notebook": "broken"}'
+    broken = b'{"schema_version": 2, "campaign_id": "steward-camp", "updated_at": "now", "deliveries": {}, "notebook": "broken", "domains": {}, "failed_chunks": []}'
     path.write_bytes(broken)
 
     result = _run(campaign, "steward.deliveries")
@@ -404,10 +569,13 @@ def test_steward_ops_registered_in_mcp_contract_archive(campaign):
     assert steward_ops == [
         "steward.deliver",
         "steward.deliveries",
+        "steward.domain_put",
         "steward.mark_consumed",
         "steward.notebook",
         "steward.notebook_pay",
         "steward.notebook_put",
+        "steward.scene_bundle_put",
+        "steward.scene_supply",
     ]
     assert on_disk["content_sha256"] == rebuilt["content_sha256"]
 

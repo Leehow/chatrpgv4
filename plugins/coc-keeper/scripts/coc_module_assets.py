@@ -67,6 +67,8 @@ SECTION_INDEX_TARGET_ID = "section-index"
 SECTION_INDEX_NAME = "section-index.json"
 SECTIONS_DIR = "sections"
 HOST_WORK_SCHEMA_VERSION = 2
+CLASSIFICATION_ENTITY_CATALOG_MAX = 800
+CLASSIFICATION_ENTITY_CATALOG_PROVENANCE_VERSION = 1
 HOST_WORK_CLOSED_STATUSES = frozenset({
     "fulfilled", "cancelled", "superseded", "quarantined",
 })
@@ -5967,6 +5969,20 @@ def put_section_index_and_fulfill_host_work(
             raise ModuleAssetsError(
                 "section host-work request carries no classification packet"
             )
+        if (
+            _classification_catalog_is_empty(request)
+            and _classification_rows_are_global(section_rows)
+        ):
+            request["classification_incomplete"] = {
+                "reason": "entity_catalog_empty",
+                "entity_catalog_provenance": json.loads(json.dumps(
+                    classification.get("entity_catalog_provenance") or {}
+                )),
+            }
+            _write_json(path, request)
+            raise ModuleAssetsError(
+                "section classification cannot complete with an empty entity catalog"
+            )
         started = time.perf_counter()
         index = _sections_module().build_section_index(
             rows=section_rows, request=classification,
@@ -6119,6 +6135,65 @@ def _sections_module():
 _SECTIONS_MODULE = None
 
 
+def _classification_rows_are_global(rows: Any) -> bool:
+    return bool(rows) and isinstance(rows, list) and all(
+        isinstance(row, dict)
+        and isinstance(row.get("binding"), dict)
+        and row["binding"].get("kind") == "global"
+        and row["binding"].get("entity_kind") is None
+        and row["binding"].get("entity_ids") in (None, [])
+        for row in rows
+    )
+
+
+def _classification_catalog_is_empty(request: dict[str, Any]) -> bool:
+    classification = request.get("classification_request")
+    return (
+        isinstance(classification, dict)
+        and isinstance(classification.get("entity_catalog"), list)
+        and not classification["entity_catalog"]
+    )
+
+
+def _refresh_classification_entity_catalog(
+    workspace: Path,
+    asset_root_id: str,
+    request: dict[str, Any],
+) -> bool:
+    """Durably refresh one open structure request before claim projection."""
+    if str(request.get("kind") or "") != CLASSIFY_SECTIONS_KIND:
+        return False
+    classification = request.get("classification_request")
+    if not isinstance(classification, dict):
+        return False
+    snapshot = classification_entity_catalog_snapshot(workspace, asset_root_id)
+    changed = False
+    for field in ("entity_catalog", "entity_catalog_provenance"):
+        value = snapshot[field]
+        if classification.get(field) != value:
+            classification[field] = json.loads(json.dumps(value))
+            changed = True
+    provenance = snapshot["entity_catalog_provenance"]
+    if request.get("classification_catalog_provenance") != provenance:
+        request["classification_catalog_provenance"] = json.loads(
+            json.dumps(provenance)
+        )
+        changed = True
+    if snapshot["entity_catalog"]:
+        if "classification_incomplete" in request:
+            request.pop("classification_incomplete", None)
+            changed = True
+    else:
+        incomplete = {
+            "reason": "entity_catalog_empty",
+            "entity_catalog_provenance": json.loads(json.dumps(provenance)),
+        }
+        if request.get("classification_incomplete") != incomplete:
+            request["classification_incomplete"] = incomplete
+            changed = True
+    return changed
+
+
 def _refresh_host_work_cache(
     workspace: Path,
     asset_root_id: str,
@@ -6183,8 +6258,11 @@ def host_work_operational_class(request: dict[str, Any]) -> str:
     if str(request.get("kind") or "") == CLASSIFY_SECTIONS_KIND:
         # A structure pass answers from its own packet of headings and
         # previews, so it holds no page window and can never satisfy the
-        # cached-scope gate below.  Its evidence completeness was already
-        # settled when that packet was built from the accepted cache.
+        # cached-scope gate below. A missing canonical identity catalog is an
+        # explicit defer: all-global output would otherwise falsely complete
+        # an index that cannot yet bind authored entity sections.
+        if _classification_catalog_is_empty(request):
+            return "awaiting_scope"
         return "runnable"
     if str(request.get("kind") or "") == "full_parse":
         # Whole-book background parse is dispatchable while pages are still
@@ -6530,9 +6608,12 @@ def claim_host_work_requests(
                     reason=str(exc),
                 )
                 continue
+            changed = _refresh_classification_entity_catalog(
+                workspace, asset_root_id, request,
+            )
             changed = _refresh_host_work_lifecycle(
                 workspace, asset_root_id, request, now=now,
-            )
+            ) or changed
             if changed:
                 _write_json(path, request)
             if host_work_operational_class(request) != "runnable":
@@ -7503,6 +7584,78 @@ def _prepare_npc_mechanics_revision(
         "updated_at": _now_iso(),
     }
     return ref, (head_path, head_doc)
+
+
+def classification_entity_catalog_snapshot(
+    workspace: Path,
+    asset_root_id: str,
+) -> dict[str, Any]:
+    """Return the bounded canonical identities available to section binding.
+
+    This is intentionally a module-assets projection, not a heading heuristic:
+    skeleton rosters and an already compiled opening pack are the only inputs.
+    The digest is the durable version carried by the request and leaf packet.
+    """
+    skeleton = get_skeleton(workspace, asset_root_id) or {}
+    identities: set[tuple[str, str]] = set()
+
+    def add(kind: str, value: Any) -> None:
+        if kind not in ENTITY_KINDS:
+            return
+        try:
+            identities.add((kind, _require_id(value, "entity_catalog.id")))
+        except ModuleAssetsError:
+            return
+
+    for kind, collection, field in (
+        ("location", "locations", "location_id"),
+        ("npc", "npc_roster", "npc_id"),
+        ("item", "item_roster", "item_id"),
+        ("handout", "handouts", "handout_id"),
+        ("threat", "threats", "threat_id"),
+    ):
+        for row in skeleton.get(collection) or []:
+            if isinstance(row, dict):
+                add(kind, row.get(field))
+
+    for opening_id in skeleton.get("start_candidates") or []:
+        try:
+            opening = get_entity(
+                workspace, asset_root_id, "location", str(opening_id),
+            )
+        except (OSError, ValueError, ModuleAssetsError):
+            continue
+        if not isinstance(opening, dict):
+            continue
+        add("location", opening.get("location_id"))
+        for clue_id in opening.get("available_clue_ids") or []:
+            add("clue", clue_id)
+        for clue in opening.get("clues") or []:
+            if isinstance(clue, dict):
+                add("clue", clue.get("clue_id"))
+        for npc_id in opening.get("npc_ids") or []:
+            add("npc", npc_id)
+        for npc in opening.get("npcs") or []:
+            if isinstance(npc, dict):
+                add("npc", npc.get("npc_id"))
+
+    entity_catalog = [
+        {"kind": kind, "id": entity_id}
+        for kind, entity_id in sorted(identities)
+    ]
+    if len(entity_catalog) > CLASSIFICATION_ENTITY_CATALOG_MAX:
+        raise ModuleAssetsError("classification entity catalog exceeds its cap")
+    encoded = json.dumps(
+        entity_catalog, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "entity_catalog": entity_catalog,
+        "entity_catalog_provenance": {
+            "source": "canonical_module_assets",
+            "version": CLASSIFICATION_ENTITY_CATALOG_PROVENANCE_VERSION,
+            "catalog_sha256": hashlib.sha256(encoded).hexdigest(),
+        },
+    }
 
 
 def get_entity(

@@ -248,6 +248,7 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
     call("state.journal", {
         "summary": "托马斯第一次与露丝和阿蒂实质交谈。",
         "player_action": "向柜台后的两名工作人员说明来意",
+        "player_text": "我向柜台后的两名工作人员说明来意。",
         "intent_class": "social",
         "decision_id": "journal-multi-first-impression",
     })
@@ -432,6 +433,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
     call("state.journal", {
         "summary": "托马斯替露丝澄清登记错误，随后请阿蒂核对另一页登记。",
         "player_action": "帮助露丝后与阿蒂交涉",
+        "player_text": "我先帮助露丝，再请阿蒂核对另一页登记。",
         "intent_class": "social",
         "decision_id": "journal-unrelated-npc-does-not-consume-reward",
     })
@@ -511,6 +513,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
     call("state.journal", {
         "summary": "托马斯帮助露丝后，在下一次对她的说服中用掉了这份人情。",
         "player_action": "先替露丝解决登记错误，再请求延长查档",
+        "player_text": "我替露丝解决登记错误，再请求延长查档。",
         "intent_class": "social",
         "decision_id": "journal-relationship-reward",
     })
@@ -624,6 +627,7 @@ def test_state_delta_preserves_canonical_tool_call_order(tmp_path: Path) -> None
     call("state.journal", {
         "summary": "检修员按约抵达并完成限缩检查。",
         "player_action": "等待检修员并记录检查报告",
+        "player_text": "我等待检修员并记录检查报告。",
         "intent_class": "investigate",
         "decision_id": "turn25-journal-limited-gas-inspection",
     })

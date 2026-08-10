@@ -310,7 +310,11 @@ try {
     };
     await fs.writeFile(
       path.join(hostWork, "job-spill.json"),
-      JSON.stringify({ job_id: "job-spill", classification_request: structure }),
+      JSON.stringify({
+        job_id: "job-spill",
+        asset_root_id: "dust-to-dust",
+        classification_request: structure,
+      }),
     );
     const structureDigest = `sha256:${createHash("sha256")
       .update(canonicalJson(structure)).digest("hex")}`;
@@ -357,6 +361,163 @@ try {
         rejects(
           () => runtime.validateLeafTask(doubled),
           (error) => error.message.includes("cannot contain"),
+        ));
+
+      // Three independent extract_section leaves mirror workspace06: each
+      // keeps a distinct closed contract and multi-page source refs, while the
+      // repeated instruction and extraction request arrive as host-work refs.
+      // Pi must restore exact leaf input before the worker is ever spawned.
+      const extractRows = ["a", "b", "c"].map((suffix, index) => {
+        const pageCount = index === 2 ? 3 : 1;
+        const refs = Array.from({ length: pageCount }, (_value, pageOffset) => ({
+          source_id: "pdf:spill-test",
+          pdf_index: index * 10 + pageOffset,
+          path: `/cache/section-${suffix}-${pageOffset}.md`,
+          text_sha256: `${suffix}`.repeat(64),
+        }));
+        const resultContract = {
+          contract_id: "coc.section-pack.v1",
+          allowed_pack_kinds: index === 0
+            ? ["rules_note", "reference"]
+            : ["keeper_truth", "reference"],
+          row_template: { section_id: `sec-spill-${suffix}`, pack_kind: "reference" },
+        };
+        const extractionRequest = {
+          schema_version: 1,
+          contract_id: "coc.section-extraction-request.v1",
+          job_id: `job-extract-spill-${suffix}`,
+          section_id: `sec-spill-${suffix}`,
+          title: `Spill section ${suffix}`,
+          requested_pdf_indices: refs.map((ref) => ref.pdf_index),
+          cached_page_refs: refs,
+          result_contract: resultContract,
+        };
+        return {
+          jobId: `job-extract-spill-${suffix}`,
+          instruction: `Extract section ${suffix}: ${suffix.toUpperCase().repeat(900)}`,
+          extractionRequest,
+          resultContract,
+        };
+      });
+      const hostWorkRef = (jobId, field, value) => ({
+        host_work_path: `.coc/module-assets/dust-to-dust/host-work/${jobId}.json`,
+        field,
+        sha256: `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`,
+      });
+      const projectedExtractTasks = [];
+      for (const [index, row] of extractRows.entries()) {
+        await fs.writeFile(
+          path.join(hostWork, `${row.jobId}.json`),
+          JSON.stringify({
+            job_id: row.jobId,
+            asset_root_id: "dust-to-dust",
+            instruction: row.instruction,
+            extraction_request: row.extractionRequest,
+            result_contract: row.resultContract,
+          }),
+        );
+        const task = structuredClone(clockTask);
+        task.packet.asset_root_id = "dust-to-dust";
+        task.packet.packet_id = `packet-extract-spill-${index}`;
+        task.packet.work_group_id = `group-extract-spill-${index}`;
+        const request = task.packet.requests[0];
+        request.job_id = row.jobId;
+        request.kind = "extract_section";
+        request.instruction_ref = hostWorkRef(
+          row.jobId, "instruction", row.instruction,
+        );
+        request.extraction_request_ref = hostWorkRef(
+          row.jobId, "extraction_request", row.extractionRequest,
+        );
+        request.result_contract = structuredClone(row.resultContract);
+        projectedExtractTasks.push(task);
+      }
+      const inflatedExtractTasks = projectedExtractTasks.map((task) => (
+        runtime.validateLeafTask(structuredClone(task))
+      ));
+      check("three spilled extract leaves restore exact fields before spawn",
+        inflatedExtractTasks.length === 3
+        && inflatedExtractTasks.every((task, index) => {
+          const request = task.packet.requests[0];
+          const row = extractRows[index];
+          return request.job_id === row.jobId
+            && request.instruction === row.instruction
+            && JSON.stringify(request.extraction_request)
+              === JSON.stringify(row.extractionRequest)
+            && JSON.stringify(request.result_contract)
+              === JSON.stringify(row.resultContract)
+            && !Object.hasOwn(request, "instruction_ref")
+            && !Object.hasOwn(request, "extraction_request_ref");
+        }));
+
+      const instructionDigestDrift = structuredClone(projectedExtractTasks[0]);
+      instructionDigestDrift.packet.requests[0].instruction_ref.sha256 = (
+        `sha256:${"0".repeat(64)}`
+      );
+      check("spilled instruction digest drift is fail closed",
+        rejects(
+          () => runtime.validateLeafTask(instructionDigestDrift),
+          (error) => error.message.includes("digest drift"),
+        ));
+
+      const missingInstruction = structuredClone(projectedExtractTasks[0]);
+      const missingRequest = missingInstruction.packet.requests[0];
+      const missingJobId = "job-extract-spill-missing";
+      missingRequest.job_id = missingJobId;
+      missingRequest.instruction_ref.host_work_path = (
+        `.coc/module-assets/dust-to-dust/host-work/${missingJobId}.json`
+      );
+      missingRequest.extraction_request_ref.host_work_path = (
+        `.coc/module-assets/dust-to-dust/host-work/${missingJobId}.json`
+      );
+      await fs.writeFile(
+        path.join(hostWork, `${missingJobId}.json`),
+        JSON.stringify({
+          job_id: missingJobId,
+          asset_root_id: "dust-to-dust",
+          extraction_request: extractRows[0].extractionRequest,
+        }),
+      );
+      check("missing spilled instruction is fail closed",
+        rejects(
+          () => runtime.validateLeafTask(missingInstruction),
+          (error) => error.message.includes("host work document has no instruction"),
+        ));
+
+      const pathRebound = structuredClone(projectedExtractTasks[0]);
+      pathRebound.packet.requests[0].instruction_ref.host_work_path = (
+        ".coc/module-assets/dust-to-dust/host-work/job-extract-spill-b.json"
+      );
+      check("spill ref must bind its exact request job",
+        rejects(
+          () => runtime.validateLeafTask(pathRebound),
+          (error) => error.message.includes("does not bind its exact job"),
+        ));
+
+      const shapeJobId = "job-extract-spill-shape";
+      const shapeTask = structuredClone(projectedExtractTasks[0]);
+      const shapeRequest = shapeTask.packet.requests[0];
+      shapeRequest.job_id = shapeJobId;
+      shapeRequest.extraction_request_ref = hostWorkRef(
+        shapeJobId, "extraction_request", extractRows[0].extractionRequest,
+      );
+      shapeRequest.instruction_ref = hostWorkRef(
+        shapeJobId, "instruction", { invalid: true },
+      );
+      await fs.writeFile(
+        path.join(hostWork, `${shapeJobId}.json`),
+        JSON.stringify({
+          job_id: shapeJobId,
+          asset_root_id: "dust-to-dust",
+          instruction: { invalid: true },
+          extraction_request: extractRows[0].extractionRequest,
+          result_contract: extractRows[0].resultContract,
+        }),
+      );
+      check("spilled instruction shape drift is fail closed",
+        rejects(
+          () => runtime.validateLeafTask(shapeTask),
+          (error) => error.message.includes("restored field shape is invalid"),
         ));
     } finally {
       process.chdir(previousCwd);

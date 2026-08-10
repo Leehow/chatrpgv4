@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.pi-section-classification-discrimination-fixture.v1",
+  "entity_catalog": [
+    {"kind": "location", "id": "fixture-location"},
+    {"kind": "npc", "id": "fixture-npc"}
+  ],
+  "all_global_pack": {
+    "sections": [
+      {
+        "section_id": "fixture-global-a",
+        "payload": "narrative",
+        "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}
+      },
+      {
+        "section_id": "fixture-global-b",
+        "payload": "procedure",
+        "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}
+      }
+    ]
+  },
+  "mixed_pack": {
+    "sections": [
+      {
+        "section_id": "fixture-global-a",
+        "payload": "narrative",
+        "binding": {"kind": "global", "entity_kind": null, "entity_ids": []}
+      },
+      {
+        "section_id": "fixture-location-a",
+        "payload": "setting_lore",
+        "binding": {"kind": "entity", "entity_kind": "location", "entity_ids": ["fixture-location"]}
+      }
+    ]
+  }
+}

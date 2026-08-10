@@ -862,6 +862,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 investigator_ids.append(candidate)
 
     investigators: list[dict[str, Any]] = []
+    creation_receipt_records: list[Any] = []
     for investigator_id in investigator_ids:
         character = creation = None
         character_bases = [
@@ -881,6 +882,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             run_dir, f"{campaign_relative}/save/investigator-state/{investigator_id}.json",
             "json", manifest,
         ) if campaign_relative else None
+        creation_receipt_records.append(creation)
         investigators.append(
             {
                 "investigator_id": investigator_id,
@@ -977,6 +979,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     roll_dispositions: dict[str, Any] = {}
     malformed_lines: list[int] = []
     bound_roll_ids: set[str] = set()
+    creation_bound_roll_ids: set[str] = set()
     zero_roll_receipt_ids: list[str] = []
     undispositioned_orphans: list[dict[str, Any]] = []
     dispositioned_orphan_ids: list[str] = []
@@ -986,10 +989,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             str(value).casefold()
             for value in turn_finalization.SUPERSEDED_ROLL_VISIBILITIES
         }
-        # The finalization receipt is the only artifact that binds a roll to a
-        # turn: rolls.jsonl rows carry no turn identity by design, and receipt
-        # validation already enforces seen_sources == expected_sources, so the
-        # bound set is complete by construction. A receipt with an empty
+        # Finalization receipts bind ordinary played-turn rolls: rolls.jsonl
+        # rows carry no turn identity by design, and receipt validation already
+        # enforces seen_sources == expected_sources. A receipt with an empty
         # source_roll_ids is the zero-roll attestation for its turn.
         for row in turn_finalizations or []:
             if not isinstance(row, dict):
@@ -1003,11 +1005,15 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 bound_roll_ids.update(receipt_roll_ids)
             elif row.get("finalization_id"):
                 zero_roll_receipt_ids.append(str(row["finalization_id"]))
-        # The turn-finalization receipt is the primary artifact that binds a
-        # roll to played output, but two other canonical receipts bind rolls
-        # outside ordinary turns: the table-opening evidence (opening
-        # first-impression rolls) and development settlement receipts
-        # (improvement/gain/Luck rolls). Both carry their roll ids explicitly.
+        # Creation, table-opening, and development receipts bind rolls outside
+        # ordinary turns. Creation references were verified by
+        # investigator.create; the other receipt types carry their roll ids
+        # explicitly.
+        creation_bound_roll_ids = turn_finalization.creation_receipt_bound_roll_ids(
+            Path(campaign_relative).name,
+            creation_receipt_records,
+        )
+        bound_roll_ids.update(creation_bound_roll_ids)
         for call in toolbox_calls or []:
             if not isinstance(call, dict) or call.get("ok") is not True:
                 continue
@@ -1084,9 +1090,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     # audit-listed only, never player-facing.
                     dispositioned_orphan_ids.append(roll_id)
                     continue
-                # Fail loud: a player-facing roll bound to no finalization and
-                # carrying no abandonment disposition must never be silently
-                # eaten nor silently rendered.
+                # Fail loud: a player-facing roll bound to no canonical
+                # receipt and carrying no abandonment disposition must never be
+                # silently eaten nor silently rendered.
                 undispositioned_orphans.append(
                     {"roll_id": roll_id, "source_line": source_line}
                 )
@@ -1100,7 +1106,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             )
             public_rolls.append(projected)
         manifest[rolls_relative]["included_record_count"] = len(public_rolls)
-        manifest[rolls_relative]["projection"] = "player_facing_and_bound_to_finalization_receipt"
+        manifest[rolls_relative]["projection"] = "player_facing_and_bound_to_canonical_receipt"
 
     roll_ids = [_roll_id(row) for row in public_rolls]
     duplicate_roll_ids = sorted(
@@ -1201,13 +1207,13 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     dice_findings: list[str] = []
     if dice_ok:
         dice_findings.append(
-            "structured public-roll evidence is traceable exactly once and every rendered roll is bound to a finalization receipt"
+            "structured public-roll evidence is traceable exactly once and every rendered roll is bound to a canonical receipt"
         )
     else:
         dice_findings.append("structured roll evidence is missing or invalid")
     if undispositioned_orphans:
         dice_findings.append(
-            "public roll rows bound to no finalization and carrying no abandonment disposition: "
+            "public roll rows bound to no canonical receipt and carrying no abandonment disposition: "
             + ", ".join(
                 f"{orphan['roll_id'] or 'MISSING_ROLL_ID'} (source line {orphan['source_line']})"
                 for orphan in undispositioned_orphans
@@ -1287,7 +1293,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         reasons.append("duplicate public roll IDs: " + ", ".join(duplicate_roll_ids))
     if undispositioned_orphans:
         reasons.append(
-            f"{len(undispositioned_orphans)} public roll rows are bound to no finalization and carry no abandonment disposition: "
+            f"{len(undispositioned_orphans)} public roll rows are bound to no canonical receipt and carry no abandonment disposition: "
             + ", ".join(
                 f"{orphan['roll_id'] or 'MISSING_ROLL_ID'} (source line {orphan['source_line']})"
                 for orphan in undispositioned_orphans
@@ -1465,7 +1471,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "malformed_source_lines": malformed_lines,
             "records": public_rolls,
             "finalization_binding": {
-                "contract": "render iff player-facing and bound to a turn-finalization receipt",
+                "contract": "render iff player-facing and bound to a canonical receipt",
                 "bound_roll_id_count": len(bound_roll_ids),
                 "zero_roll_receipt_ids": zero_roll_receipt_ids,
                 "undispositioned_orphans": undispositioned_orphans,
@@ -1903,7 +1909,7 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "**FAIL**": "**未通过**",
         "run metadata and campaign directory resolved": "已解析运行元数据和战役目录",
         "every journaled player message and finalized Keeper response is present exactly once": "每条已入账玩家消息和已定稿 KP 回复都恰好出现一次",
-        "structured public-roll evidence is traceable exactly once and every rendered roll is bound to a finalization receipt": "结构化公开骰点证据均可追溯、恰好出现一次，且每个已渲染骰点都绑定到定稿回执",
+        "structured public-roll evidence is traceable exactly once and every rendered roll is bound to a canonical receipt": "结构化公开骰点证据均可追溯、恰好出现一次，且每个已渲染骰点都绑定到规范回执",
         "initial card and final dynamic state are present": "初始角色卡和最终动态状态均存在",
         "visited scenes and discovered-clue receipts are projected": "已投影访问场景和已发现线索回执",
         "structured ending or development settlement is missing": "缺少结构化结局或成长结算",

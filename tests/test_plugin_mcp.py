@@ -138,6 +138,38 @@ def _custom_setup_source_bundle(tmp_path: Path) -> Path:
     return bundle
 
 
+def _module_init_l0() -> dict:
+    return {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "module_meta": {
+            "title_zh": "契约门控模组",
+            "title_en": "Contract Gate Module",
+            "authors": [],
+            "translator": [],
+            "era": "1920s",
+            "locale": "Boston",
+            "party_size": "1-4",
+            "duration_hint": "one session",
+            "tone_tags": ["mystery"],
+            "mythos_entities": [],
+            "campaign_hooks": ["haunting"],
+            "warnings": [],
+            "safety_notes": None,
+            "structure_type": "linear_investigation",
+        },
+        "pregens": [],
+        "opening_hooks": [{
+            "id": "opening",
+            "audience": "player",
+            "text": "A sealed letter arrives.",
+            "variant_of": None,
+        }],
+        "chargen_deltas": [],
+        "opening_handouts": [],
+    }
+
+
 def _mcp_opening_workspace(
     tmp_path: Path,
     *,
@@ -843,6 +875,13 @@ def test_grok_focused_source_worker_must_resolve_as_exact_user_projection(
     ]
 
 
+def test_pi_semantic_supply_removes_obsolete_compile_ready_override():
+    coordinator = (PLUGIN_ROOT / "pi" / "extensions" / "coordinator.ts").read_text(
+        encoding="utf-8",
+    )
+    assert "markSemanticCompileFulfilled" not in coordinator
+
+
 def test_mcp_contract_archive_matches_toolbox_and_is_deterministic():
     archive_mod = _load_archive_module()
     server = _load_server()
@@ -918,8 +957,14 @@ def test_mcp_contract_archive_matches_toolbox_and_is_deterministic():
     assert set(worker_result["properties"]) == {
         "job_id", "pack", "related_packs", "opening_setup",
     }
+    on_enter_schema = on_disk["operations"]["progressive.on_enter_scene"]["inputSchema"]
+    assert on_enter_schema["required"] == ["campaign", "scene_id"]
+    assert "never section prose" in on_disk["operations"][
+        "progressive.on_enter_scene"
+    ]["description"]
     for operation in (
         "progressive.opening_bootstrap",
+        "progressive.on_enter_scene",
         "progressive.renew_host_work_leases",
         "progressive.release_host_work_leases",
     ):
@@ -1288,7 +1333,10 @@ def test_wire_contract_response_carries_persisted_opening_gate_for_recovery(
         "content_flags": {"status": "source", "value": ["haunting"], "source_refs": selector},
     }
     server.toolbox.coc_runtime_ops._apply_opening_source_review_fulfillment(
-        tmp_path, review_receipt, source_facts=facts,
+        tmp_path,
+        review_receipt,
+        source_facts=facts,
+        module_init_l0=_module_init_l0(),
     )
     scenario_path = (
         tmp_path / ".coc" / "campaigns" / "contract-gate"

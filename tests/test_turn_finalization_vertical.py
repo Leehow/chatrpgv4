@@ -390,6 +390,7 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
         {
             "summary": "托马斯开枪后又试图用借口拖住赶来的档案员。",
             "player_action": "开枪，再用临场借口稳住对方",
+            "player_text": "我开枪后立刻向档案员解释来意。",
             "intent_class": "combat-social",
             "decision_id": "journal-turn-one",
         },
@@ -609,7 +610,7 @@ def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
     )
     call(
         "state.journal",
-        {"summary": "The attempt fumbled.", "decision_id": "missing-effect-journal"},
+        {"summary": "The attempt fumbled.", "player_text": "我孤注一掷地继续搜索。", "decision_id": "missing-effect-journal"},
     )
     context = call("turn.output_context")["data"]
     turn_id = context["turn_id"]
@@ -634,7 +635,7 @@ def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
         "state.journal",
         workspace,
         "exceptional-missing",
-        {"summary": "must not become another turn", "decision_id": "blocked-journal"},
+        {"summary": "must not become another turn", "player_text": "我试图开始另一轮行动。", "decision_id": "blocked-journal"},
     )
     assert blocked["ok"] is False
     assert blocked["error"]["code"] == "turn_finalization_pending"
@@ -793,7 +794,7 @@ def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
 
     second_journal = call(
         "state.journal",
-        {"summary": "A genuinely new turn.", "decision_id": "second-journal"},
+        {"summary": "A genuinely new turn.", "player_text": "我开始一轮新的行动。", "decision_id": "second-journal"},
     )
     second_context = call("turn.output_context")["data"]
     assert second_journal["data"]["turn_id"] != turn_id
@@ -1145,6 +1146,7 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
         {
             "summary": "调查员试图稳住档案员。",
             "player_action": "稳住档案员",
+            "player_text": "我放缓语气，重新说明来意。",
             "intent_class": "social",
             "decision_id": "journal-collect",
         },

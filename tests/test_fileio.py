@@ -80,6 +80,42 @@ def test_replace_failure_leaves_original_intact(tmp_path, fileio, monkeypatch):
     assert json.loads(before) == original
 
 
+def test_advisory_file_lock_releases_when_holder_dies(tmp_path, fileio):
+    """The stable empty flock file is not an orphaned lock after a crash."""
+    lock_path = tmp_path / "opening-source-review-transport.lock"
+    ready_path = tmp_path / "holder-ready"
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import fcntl, os, sys, time; "
+                "fd=os.open(sys.argv[1], os.O_CREAT|os.O_RDWR, 0o600); "
+                "fcntl.flock(fd, fcntl.LOCK_EX); "
+                "open(sys.argv[2], 'w').write('ready'); time.sleep(30)"
+            ),
+            str(lock_path),
+            str(ready_path),
+        ],
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready_path.exists():
+            assert holder.poll() is None
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        holder.kill()
+        holder.wait(timeout=5)
+        # The path remains as a reusable flock inode, but the dead descriptor
+        # cannot block a fresh opening-review transport.
+        with fileio.advisory_file_lock(lock_path, wait_seconds=0.2):
+            assert lock_path.is_file()
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=5)
+
+
 def test_campaign_lock_exclusive(tmp_path, fileio):
     campaign_dir = tmp_path / "campaigns" / "c1"
     campaign_dir.mkdir(parents=True)

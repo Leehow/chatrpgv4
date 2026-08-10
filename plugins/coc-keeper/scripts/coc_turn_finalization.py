@@ -1133,14 +1133,109 @@ def is_player_facing_roll(raw: dict[str, Any]) -> bool:
     return visibility in {value.casefold() for value in PLAYER_FACING_ROLL_VISIBILITIES}
 
 
-def unbound_public_roll_ids(campaign_dir: Path) -> list[str]:
-    """Player-facing roll rows bound to no finalization and no disposition.
+_CREATION_ROLL_REFERENCE_FIELDS = frozenset({
+    "campaign_id", "decision_id", "roll_id",
+})
 
-    Dispositioned rows (row-level or disposition-file visibility in
+
+def _creation_receipt_roll_id(
+    reference: Any, *, campaign_id: str,
+) -> str | None:
+    """Return one current-schema creation roll id, never a guessed reference."""
+    if (
+        not isinstance(reference, dict)
+        or set(reference) != _CREATION_ROLL_REFERENCE_FIELDS
+        or reference.get("campaign_id") != campaign_id
+    ):
+        return None
+    decision_id = reference.get("decision_id")
+    roll_id = reference.get("roll_id")
+    if (
+        not isinstance(decision_id, str)
+        or not decision_id.strip()
+        or not isinstance(roll_id, str)
+        or not roll_id.strip()
+    ):
+        return None
+    return roll_id
+
+
+def creation_receipt_bound_roll_ids(
+    campaign_id: str,
+    creation_records: Iterable[Any],
+) -> set[str]:
+    """Collect public-roll ids already verified by investigator.create.
+
+    Quick Fire records bind ``luck_roll_receipt``. KP-guided rolled-character
+    records additionally bind every same-shaped
+    ``characteristic_roll_receipts`` entry. The create runtime has already
+    verified the dice recipe and campaign identity; this read-side helper only
+    recognizes that durable authoritative receipt shape.
+    """
+    if not isinstance(campaign_id, str) or not campaign_id:
+        return set()
+    bound: set[str] = set()
+    for creation in creation_records:
+        if not isinstance(creation, dict):
+            continue
+        luck_roll_id = _creation_receipt_roll_id(
+            creation.get("luck_roll_receipt"), campaign_id=campaign_id,
+        )
+        if luck_roll_id is not None:
+            bound.add(luck_roll_id)
+        characteristic_receipts = creation.get("characteristic_roll_receipts")
+        if not isinstance(characteristic_receipts, dict):
+            continue
+        for reference in characteristic_receipts.values():
+            roll_id = _creation_receipt_roll_id(
+                reference, campaign_id=campaign_id,
+            )
+            if roll_id is not None:
+                bound.add(roll_id)
+    return bound
+
+
+def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
+    """Read current creation receipts without treating malformed files as proof."""
+    investigators_dir = Path(campaign_dir).parent.parent / "investigators"
+    if not investigators_dir.is_dir() or investigators_dir.is_symlink():
+        return []
+    try:
+        investigator_dirs = sorted(investigators_dir.iterdir(), key=lambda path: path.name)
+    except OSError:
+        return []
+    records: list[Any] = []
+    for investigator_dir in investigator_dirs:
+        if investigator_dir.is_symlink() or not investigator_dir.is_dir():
+            continue
+        creation_path = investigator_dir / "creation.json"
+        if creation_path.is_symlink() or not creation_path.is_file():
+            continue
+        try:
+            records.append(json.loads(creation_path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+    return records
+
+
+def campaign_creation_receipt_bound_roll_ids(campaign_dir: Path) -> set[str]:
+    """Return creation-bound roll ids for this campaign's investigator root."""
+    campaign_dir = Path(campaign_dir)
+    return creation_receipt_bound_roll_ids(
+        campaign_dir.name,
+        _campaign_creation_records(campaign_dir),
+    )
+
+
+def unbound_public_roll_ids(campaign_dir: Path) -> list[str]:
+    """Player-facing rolls bound to no canonical receipt or disposition.
+
+    Turn-finalization and creation receipts both bind public rolls. Dispositioned
+    rows (row-level or disposition-file visibility in
     SUPERSEDED_ROLL_VISIBILITIES) are excluded, so this returns exactly the
     rolls that would otherwise fail the report's dice-completeness gate.
     """
-    bound: set[str] = set()
+    bound: set[str] = campaign_creation_receipt_bound_roll_ids(campaign_dir)
     for receipt in load_finalizations(campaign_dir):
         if not isinstance(receipt, dict):
             continue

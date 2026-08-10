@@ -26,6 +26,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 | Investigator selection / parameters in play; personal horror weaving; first contact, multi-NPC engagement, live relationships | `references/investigators-horror-npc.md` |
 | Style, Table Wit, foreign-language dialogue, action-prompt shape, scene craft | `references/style-scene-craft.md` |
 | Failed SAN table performance; horror craft; content boundaries; ending a story / `state.end_session` | `references/horror-san-content-endings.md` |
+| Pi-Coc source-backed建卡期间的后台管家解析、resume、完成通知 | `../coc-steward-parse/SKILL.md` |
 | Full ordinary-turn tool walkthrough, combat/dying/recovery chains, typed non-turn operations | `references/turn-tooling-and-typed-ops.md` |
 
 ## Host Tool Discovery

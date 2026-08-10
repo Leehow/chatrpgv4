@@ -106,23 +106,46 @@ function appendBounded(current: string, chunk: Buffer | string, label: string): 
   return next;
 }
 
-const SPILLABLE_STRUCTURE_KEYS = [
+const SPILLABLE_REQUEST_FIELDS = [
   "classification_request",
   "extraction_request",
+  "instruction",
 ] as const;
+type SpillableRequestField = typeof SPILLABLE_REQUEST_FIELDS[number];
 
-// The claim projector moves whole-book structure payloads out of the hot
-// transport envelope when the batch would otherwise blow the budget and void
-// every lease (see coc_mcp_wire._spill_structure_requests). The bytes never
-// left the workspace — they are still in the host-work job file — so read them
-// back and re-verify the digest before the leaf is spawned. The worker
-// contract is unchanged: a leaf always sees the inflated packet.
-function inflateSpilledStructureRequests(packet: JsonObject): void {
+function validSpilledRequestFieldShape(
+  field: SpillableRequestField,
+  value: unknown,
+): boolean {
+  if (field === "instruction") {
+    return typeof value === "string" && value.trim().length > 0;
+  }
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hostWorkPathSegment(
+  value: unknown,
+  label: string,
+  refKey: string,
+): string {
+  const text = nonEmpty(value, label);
+  if (text.includes("/") || text.includes("\\") || text === "." || text === "..") {
+    throw new Error(`${refKey} host-work identity is unsafe`);
+  }
+  return text;
+}
+
+// The claim projector moves complete, job-backed request fields out of the hot
+// transport envelope when a valid claim would otherwise exceed its fixed
+// budget. The bytes never leave the workspace: the Pi side accepts only the
+// requesting packet's exact host-work file, then verifies identity, field
+// shape, and content digest before a leaf is spawned.
+function inflateSpilledRequestFields(packet: JsonObject): void {
   const requests = packet.requests;
   if (!Array.isArray(requests)) return;
   for (const value of requests) {
     const request = asObject(value, "source request");
-    for (const key of SPILLABLE_STRUCTURE_KEYS) {
+    for (const key of SPILLABLE_REQUEST_FIELDS) {
       const refKey = `${key}_ref`;
       const refValue = request[refKey];
       if (refValue === undefined) continue;
@@ -130,15 +153,35 @@ function inflateSpilledStructureRequests(packet: JsonObject): void {
         throw new Error(`source request cannot contain ${key} and its ref`);
       }
       const ref = asObject(refValue, `${refKey}`);
-      const field = nonEmpty(ref.field, `${refKey}.field`);
-      if (field !== key) throw new Error(`${refKey} field mismatch`);
+      exactKeys(ref, ["host_work_path", "field", "sha256"], refKey);
+      if (ref.field !== key) throw new Error(`${refKey} field mismatch`);
       const digest = nonEmpty(ref.sha256, `${refKey}.sha256`);
-      if (!/^sha256:[a-f0-9]{64}$/.test(digest)) {
+      if (ref.sha256 !== digest || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
         throw new Error(`${refKey} sha256 is malformed`);
       }
       const relative = nonEmpty(ref.host_work_path, `${refKey}.host_work_path`);
-      if (relative.startsWith("/") || relative.split("/").includes("..")) {
+      if (
+        ref.host_work_path !== relative
+        || relative.startsWith("/")
+        || relative.split("/").includes("..")
+      ) {
         throw new Error(`${refKey} host_work_path must stay inside the workspace`);
+      }
+      const assetRootId = hostWorkPathSegment(
+        packet.asset_root_id,
+        "source packet asset_root_id",
+        refKey,
+      );
+      const jobId = hostWorkPathSegment(
+        request.job_id,
+        "source request job_id",
+        refKey,
+      );
+      const expectedRelative = (
+        `.coc/module-assets/${assetRootId}/host-work/${jobId}.json`
+      );
+      if (relative !== expectedRelative) {
+        throw new Error(`${refKey} host_work_path does not bind its exact job`);
       }
       const absolute = resolve(process.cwd(), relative);
       let document: JsonObject;
@@ -150,9 +193,15 @@ function inflateSpilledStructureRequests(packet: JsonObject): void {
       } catch {
         throw new Error(`${refKey} host work document is unreadable`);
       }
-      const restored = document[field];
+      if (document.job_id !== jobId || document.asset_root_id !== assetRootId) {
+        throw new Error(`${refKey} host work identity drift`);
+      }
+      const restored = document[key];
       if (restored === undefined) {
-        throw new Error(`${refKey} host work document has no ${field}`);
+        throw new Error(`${refKey} host work document has no ${key}`);
+      }
+      if (!validSpilledRequestFieldShape(key, restored)) {
+        throw new Error(`${refKey} restored field shape is invalid`);
       }
       const actual = `sha256:${createHash("sha256").update(
         jsonCanonical(restored),
@@ -167,7 +216,7 @@ function inflateSpilledStructureRequests(packet: JsonObject): void {
 function inflateProjectedLeafTask(input: unknown): JsonObject {
   const task = structuredClone(asObject(input, "Pi leaf task"));
   const packet = asObject(task.packet, "source packet");
-  inflateSpilledStructureRequests(packet);
+  inflateSpilledRequestFields(packet);
   const registryValue = packet.wire_result_contracts;
   const requests = packet.requests;
   const hasContractRefs = Array.isArray(requests) && requests.some((value) => (
@@ -243,11 +292,19 @@ export type SectionBindingPreflightFinding = {
 export type SectionBindingPreflight = {
   pack_sha256: string;
   section_count: number;
+  entity_catalog_count: number;
+  non_discriminating: boolean;
+  catalog_empty_global: boolean;
   invalid_bindings: SectionBindingPreflightFinding[];
 };
 
 type SourcePackRepairTrigger = {
-  kind: "empty_entity_binding_preflight" | "canonical_fulfill_rejected";
+  kind: (
+    | "empty_entity_binding_preflight"
+    | "entity_catalog_empty_preflight"
+    | "section_classification_non_discriminating"
+    | "canonical_fulfill_rejected"
+  );
   failure_class: string;
   message: string;
   path: string;
@@ -420,15 +477,32 @@ function splitPiPrivateRepairDiagnostics(value: JsonObject): {
  */
 export function preflightSectionEntityBindings(
   packValue: unknown,
+  classificationRequest: unknown = undefined,
 ): SectionBindingPreflight {
   const pack = (
     packValue && typeof packValue === "object" && !Array.isArray(packValue)
   ) ? packValue as JsonObject : {};
+  const request = (
+    classificationRequest && typeof classificationRequest === "object"
+    && !Array.isArray(classificationRequest)
+  ) ? classificationRequest as JsonObject : {};
+  const catalog = Array.isArray(request.entity_catalog)
+    ? request.entity_catalog
+    : [];
+  const entity_catalog_count = catalog.filter((value) => (
+    value && typeof value === "object" && !Array.isArray(value)
+    && smallStringOrNull((value as JsonObject).kind, 64) !== null
+    && smallStringOrNull((value as JsonObject).id, 128) !== null
+  )).length;
   const sections = Array.isArray(pack.sections) ? pack.sections : [];
   const invalid_bindings: SectionBindingPreflightFinding[] = [];
+  let allGlobalOrZeroEntityBindings = sections.length > 0;
+  let allGlobalBindings = sections.length > 0;
   for (let index = 0; index < sections.length; index += 1) {
     const section = sections[index];
     if (!section || typeof section !== "object" || Array.isArray(section)) {
+      allGlobalOrZeroEntityBindings = false;
+      allGlobalBindings = false;
       continue;
     }
     const row = section as JsonObject;
@@ -436,16 +510,22 @@ export function preflightSectionEntityBindings(
     if (
       !bindingValue || typeof bindingValue !== "object"
       || Array.isArray(bindingValue)
-    ) continue;
+    ) {
+      allGlobalOrZeroEntityBindings = false;
+      allGlobalBindings = false;
+      continue;
+    }
     const binding = bindingValue as JsonObject;
     const entityIds = binding.entity_ids;
-    if (
-      binding.kind !== "entity"
-      || !(
-        entityIds === undefined || entityIds === null
-        || (Array.isArray(entityIds) && entityIds.length === 0)
-      )
-    ) continue;
+    const zeroEntityIds = (
+      entityIds === undefined || entityIds === null
+      || (Array.isArray(entityIds) && entityIds.length === 0)
+    );
+    if (binding.kind !== "global" && !(binding.kind === "entity" && zeroEntityIds)) {
+      allGlobalOrZeroEntityBindings = false;
+    }
+    if (binding.kind !== "global") allGlobalBindings = false;
+    if (binding.kind !== "entity" || !zeroEntityIds) continue;
     invalid_bindings.push({
       path: `sections[${index}].binding`,
       section_id: smallStringOrNull(row.section_id),
@@ -456,6 +536,11 @@ export function preflightSectionEntityBindings(
   return {
     pack_sha256: canonicalValueSha256(packValue),
     section_count: sections.length,
+    entity_catalog_count,
+    non_discriminating: (
+      entity_catalog_count > 0 && allGlobalOrZeroEntityBindings
+    ),
+    catalog_empty_global: entity_catalog_count === 0 && allGlobalBindings,
     invalid_bindings,
   };
 }
@@ -484,8 +569,12 @@ function validateSourcePackRepairContext(value: unknown): JsonObject {
   const trigger = asObject(context.trigger, "Pi source-pack repair trigger");
   exactKeys(trigger, ["kind", "failure_class", "message", "path"], "Pi source-pack repair trigger");
   if (
-    !["empty_entity_binding_preflight", "canonical_fulfill_rejected"].includes(
-      String(trigger.kind),
+    ![
+      "empty_entity_binding_preflight",
+      "entity_catalog_empty_preflight",
+      "section_classification_non_discriminating",
+      "canonical_fulfill_rejected",
+    ].includes(String(trigger.kind),
     )
     || !smallStringOrNull(trigger.failure_class)
     || !boundedRepairText(trigger.message, "Pi source-pack repair message")
@@ -730,7 +819,7 @@ export function leafEvidenceMessage(envelope: Readonly<JsonObject>): JsonObject 
     : "This is one bounded repair attempt for the same source-worker task. "
       + "repair_context is non-authoritative structural feedback about the prior output. "
       + "Return a replacement for the exact same task: bind entity only with an "
-      + "entity id already present in the task packet; use global only when the "
+      + "exact same-kind id from classification_request.entity_catalog; use global only when the "
       + "section is truly global; otherwise omit the candidate as unresolved under "
       + "the existing contract. Never invent an id, alter task/job/lease identity, "
       + "or widen source scope.\n";
@@ -1717,7 +1806,10 @@ function classifySectionsRepairCandidate(
   if (request?.kind !== "classify_sections") return null;
   return {
     job_id: nonEmpty(workerResult.job_id, "worker result job_id"),
-    preflight: preflightSectionEntityBindings(workerResult.pack),
+    preflight: preflightSectionEntityBindings(
+      workerResult.pack,
+      request.classification_request,
+    ),
   };
 }
 
@@ -1770,17 +1862,40 @@ function canonicalRepairTrigger(error: unknown): SourcePackRepairTrigger | null 
   };
 }
 
+function emptyCatalogPreflightTrigger(): SourcePackRepairTrigger {
+  return {
+    kind: "entity_catalog_empty_preflight",
+    failure_class: "section_classification_entity_catalog_empty",
+    message: (
+      "classify_sections cannot complete all-global output while its canonical "
+      + "entity_catalog is empty"
+    ),
+    path: "progressive.fulfill_host_work",
+  };
+}
+
 function preflightRepairTrigger(
   candidates: SourcePackRepairCandidate[],
 ): SourcePackRepairTrigger {
   const first = candidates.flatMap(
     (candidate) => candidate.preflight.invalid_bindings,
   )[0];
+  if (first) {
+    return {
+      kind: "empty_entity_binding_preflight",
+      failure_class: "section_binding_empty_entity_ids",
+      message: "classify_sections entity binding requires at least one entity id",
+      path: first.path,
+    };
+  }
   return {
-    kind: "empty_entity_binding_preflight",
-    failure_class: "section_binding_empty_entity_ids",
-    message: "classify_sections entity binding requires at least one entity id",
-    path: first?.path ?? "progressive.fulfill_host_work",
+    kind: "section_classification_non_discriminating",
+    failure_class: "section_classification_non_discriminating",
+    message: (
+      "classify_sections returned only global or zero-entity bindings despite "
+      + "a non-empty entity_catalog"
+    ),
+    path: "progressive.fulfill_host_work",
   };
 }
 
@@ -2739,6 +2854,29 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       ));
       if (pendingRows.length === 0) break;
 
+      // An empty catalog is a durable canonical defer, never permission to
+      // complete an all-global index or invent an entity. This extra guard
+      // handles an already-dispatched stale task without issuing a fulfillment
+      // or consuming the one semantic repair.
+      const emptyCatalogCandidates = pendingRows.map((row) => (
+        classifySectionsRepairCandidate(tasks[index], row)
+      )).filter((candidate): candidate is SourcePackRepairCandidate => (
+        candidate !== null
+        && candidate.preflight.invalid_bindings.length === 0
+        && candidate.preflight.catalog_empty_global
+      ));
+      if (emptyCatalogCandidates.length > 0) {
+        failureClass ??= "leaf_result_invalid";
+        await reportRepair(
+          emptyCatalogCandidates,
+          emptyCatalogPreflightTrigger(),
+          1,
+          "section_classification_entity_catalog_empty",
+          true,
+        );
+        break;
+      }
+
       // This guard never changes a pack. It only detects the one known
       // impossible classifier shape before canonical fulfillment, so a repair
       // leaf receives the exact task plus a bounded structural explanation.
@@ -2746,7 +2884,10 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
         classifySectionsRepairCandidate(tasks[index], row)
       )).filter((candidate): candidate is SourcePackRepairCandidate => (
         candidate !== null
-        && candidate.preflight.invalid_bindings.length > 0
+        && (
+          candidate.preflight.invalid_bindings.length > 0
+          || candidate.preflight.non_discriminating
+        )
       ));
       if (preflightCandidates.length > 0) {
         const trigger = preflightRepairTrigger(preflightCandidates);
@@ -2761,7 +2902,9 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
             preflightCandidates,
             trigger,
             Math.max(1, repairAttempts),
-            failureClass,
+            trigger.kind === "section_classification_non_discriminating"
+              ? trigger.failure_class
+              : failureClass,
             true,
           );
           break;

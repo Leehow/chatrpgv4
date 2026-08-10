@@ -4106,6 +4106,52 @@ def on_enter_scene(
     skeleton = coc_module_assets.get_skeleton(workspace, root_id) or {}
     host_hints: list[str] = []
     actions: list[dict[str, Any]] = []
+    # The global section index is the only semantic authority for non-map
+    # material.  Select current-location rows structurally (never by title or
+    # prose) and the small Keeper opening/pre-session lane, then reuse the
+    # existing extract_section queue/worker lifecycle.
+    section_index = coc_module_assets.read_section_index(workspace, root_id) or {}
+    section_actions: list[dict[str, Any]] = []
+    for section in section_index.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        binding = section.get("binding") if isinstance(section.get("binding"), dict) else {}
+        is_current_location = (
+            binding.get("kind") == "entity"
+            and binding.get("entity_kind") == "location"
+            and sid in {str(value) for value in (binding.get("entity_ids") or [])}
+        )
+        is_keeper_opening = (
+            binding.get("kind") == "global"
+            and section.get("audience") == "keeper_only"
+            and section.get("timing") in {"pre_session", "opening"}
+        )
+        if not (is_current_location or is_keeper_opening):
+            continue
+        section_id = str(section.get("section_id") or "").strip()
+        if not section_id:
+            continue
+        stored = coc_module_assets.get_section_pack(workspace, root_id, section_id)
+        if stored and stored.get("body_present") and section.get("parse_state") == "resolved":
+            section_actions.append({"section_id": section_id, "status": "resolved"})
+            continue
+        queued = coc_module_assets.enqueue_job(
+            workspace, root_id,
+            kind=coc_module_assets.EXTRACT_SECTION_KIND,
+            target_id=section_id,
+            priority=100 if is_current_location else 90,
+            reason=("scene_materialize:" if is_current_location else "opening_materialize:") + sid,
+            consumer_refs=_campaign_consumer_refs(
+                workspace, campaign_id, root_id, intent_kind="scene_enter",
+            ),
+        )
+        section_actions.append({
+            "section_id": section_id,
+            "binding": "active_location" if is_current_location else "keeper_opening",
+            "enqueue": queued,
+        })
+    if section_actions:
+        actions.extend({"section_materialization": row} for row in section_actions)
     campaign_local_scene = False
     campaign_scene: dict[str, Any] | None = None
     try:

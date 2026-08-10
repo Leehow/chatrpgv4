@@ -2098,6 +2098,11 @@ def _project_claim_dispatch(data: Any) -> dict[str, Any]:
 
 
 _SPILLABLE_STRUCTURE_KEYS = ("classification_request", "extraction_request")
+# A closed source-worker instruction is repeated on every leased leaf and is
+# already persisted verbatim in that leaf's host-work job. Keep it inline for
+# ordinary claims, then spill it only if structure projection still exceeds the
+# hot envelope budget.
+_SPILLABLE_REPEATED_REQUEST_KEYS = ("instruction",)
 
 
 def _iter_claim_packets(projected: Any) -> Iterator[dict[str, Any]]:
@@ -2121,19 +2126,12 @@ def _iter_claim_packets(projected: Any) -> Iterator[dict[str, Any]]:
             yield packet
 
 
-def _spill_structure_requests(projected: Any) -> bool:
-    """Move whole-book structure payloads out of the hot claim envelope.
-
-    A ``classify_sections`` request carries the entire candidate list for the
-    book — 42 rows and ~13 KiB for `dust-to-dust`, which on its own exceeds the
-    claim budget and voids every lease in the batch, so the section lane can
-    never start. Those exact bytes already sit in the host-work job file, so
-    send a workspace-relative path plus a digest instead: the same shape
-    ``cached_page_refs`` already uses. The Pi runtime inflates and re-verifies
-    the digest before a leaf is spawned, so the worker contract is unchanged.
-
-    Returns True when anything was spilled.
-    """
+def _spill_request_fields(
+    projected: Any,
+    *,
+    keys: tuple[str, ...],
+) -> bool:
+    """Replace selected durable request fields with exact host-work receipts."""
     spilled = False
     for packet in _iter_claim_packets(projected):
         root_id = packet.get("asset_root_id")
@@ -2145,9 +2143,12 @@ def _spill_structure_requests(projected: Any) -> bool:
             job_id = request.get("job_id")
             if not isinstance(job_id, str) or not job_id:
                 continue
-            for key in _SPILLABLE_STRUCTURE_KEYS:
+            for key in keys:
                 value = request.get(key)
-                if not isinstance(value, dict) or not value:
+                if key == "instruction":
+                    if not isinstance(value, str) or not value.strip():
+                        continue
+                elif not isinstance(value, dict) or not value:
                     continue
                 if f"{key}_ref" in request:
                     continue
@@ -2161,6 +2162,33 @@ def _spill_structure_requests(projected: Any) -> bool:
                 del request[key]
                 spilled = True
     return spilled
+
+
+def _spill_structure_requests(projected: Any) -> bool:
+    """Move whole-book structure payloads out of the hot claim envelope.
+
+    A ``classify_sections`` request carries the entire candidate list for the
+    book — 42 rows and ~13 KiB for `dust-to-dust`, which on its own exceeds the
+    claim budget and voids every lease in the batch, so the section lane can
+    never start. Those exact bytes already sit in the host-work job file, so
+    send a workspace-relative path plus a digest instead: the same shape
+    ``cached_page_refs`` already uses. The Pi runtime inflates and re-verifies
+    the digest before a leaf is spawned, so the worker contract is unchanged.
+
+    Returns True when anything was spilled.
+    """
+    return _spill_request_fields(
+        projected,
+        keys=_SPILLABLE_STRUCTURE_KEYS,
+    )
+
+
+def _spill_repeated_request_fields(projected: Any) -> bool:
+    """Spill repeated durable fields only after structure spill was insufficient."""
+    return _spill_request_fields(
+        projected,
+        keys=_SPILLABLE_REPEATED_REQUEST_KEYS,
+    )
 
 
 def _claim_projection_failure(data: Any) -> dict[str, Any]:
@@ -2483,6 +2511,14 @@ def project_envelope(
     ):
         result["wire"]["payload_projected"] = True
         result["wire"]["claim_structure_requests_spilled"] = True
+
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "progressive.claim_host_work"
+        and _spill_repeated_request_fields(result.get("data"))
+    ):
+        result["wire"]["payload_projected"] = True
+        result["wire"]["claim_request_instructions_spilled"] = True
 
     if (
         transport_bytes(result) > MAX_INLINE_BYTES

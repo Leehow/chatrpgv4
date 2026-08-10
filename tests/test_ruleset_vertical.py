@@ -310,6 +310,7 @@ def test_public_second_ruleset_create_check_and_resource_receipts(
         {
             "summary": "Ada succeeded and spent energy.",
             "player_action": "Make the Spark attempt.",
+            "player_text": "I make the Spark attempt.",
             "decision_id": "spark-journal-1",
         },
     )
