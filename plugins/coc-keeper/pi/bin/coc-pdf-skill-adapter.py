@@ -53,6 +53,12 @@ MCP_OPERATION_CONTRACTS = (
     PLUGIN_ROOT / "references" / "mcp-operation-contracts.json"
 )
 PI_MODEL = "xai/grok-4.5"
+# Opening semantic extraction consumes only router-materialized native
+# Markdown pages and must never depend on the visual Grok/PDF-skill child.
+# The default is a text model; COC_PI_OPENING_MODEL overrides it (Grok stays
+# a valid explicit choice for the same text-only job, but it is no longer
+# hardwired into the opening review).
+OPENING_TEXT_MODEL = "deepseek/deepseek-chat"
 PI_THINKING = "low"
 PI_TOOLS = "read,bash,write"
 MAX_FACT_EVIDENCE_PAGES = 8
@@ -81,6 +87,38 @@ def _pi_command() -> str:
     if not command or not Path(command).is_absolute():
         _fail("Pi CLI is unavailable")
     return command
+
+
+# One shared child-env allowlist so every model child sees exactly the same
+# bounded surface. Model selection is resolved by the adapter into --model;
+# the child itself never needs the override variables.
+_PI_CHILD_ENV_KEYS = frozenset({
+    "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
+    "LOGNAME", "SHELL", "PI_CODING_AGENT_DIR",
+})
+
+
+def _pi_child_env() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key in _PI_CHILD_ENV_KEYS
+    }
+
+
+def _pi_model() -> str:
+    """Locator/full-parse PDF-skill child model; env overrides the Grok default."""
+    return os.environ.get("COC_PI_PDF_MODEL", "").strip() or PI_MODEL
+
+
+def _opening_text_model() -> str:
+    """Text model for the opening facts + module_init_l0 extraction child.
+
+    The extractor reads only native Markdown pages the router (or the
+    locator's bound copy) already materialized, so a vision model is never
+    required. Defaults to DeepSeek; COC_PI_OPENING_MODEL overrides it.
+    """
+    return os.environ.get("COC_PI_OPENING_MODEL", "").strip() or OPENING_TEXT_MODEL
 
 
 def _pdf_skill() -> Path:
@@ -123,7 +161,7 @@ def _pdf_inspector_request(
         "source": {
             "path": source["path"],
             "source_id": source["source_id"],
-            "title": source["title"],
+            "title": source.get("title") or task.get("title"),
             "file_sha256": source["file_sha256"],
         },
         "source_bundle_path": task["source_bundle_path"],
@@ -139,6 +177,18 @@ def _pdf_inspector_request(
             request[key] = task[key]
     if missing_pdf_indices is not None:
         request["missing_pdf_indices"] = list(missing_pdf_indices)
+    if mode == "opening_review":
+        # The opening producer task carries the locator window plus the bound
+        # native pages so the router can select opening/fact pages and write
+        # the schema-v1 bundle from already-materialized Markdown.
+        for key in (
+            "opening_locator_pdf_indices",
+            "max_selected_opening_pages",
+            "max_fact_evidence_pages",
+            "reusable_bound_source",
+        ):
+            if key in task:
+                request[key] = task[key]
     return request
 
 
@@ -222,12 +272,37 @@ def _try_external_pdf_router(
         rendered = list(bundle_indices)
     elif rendered != bundle_indices:
         return None
-    return {
+    adopted = {
         "source_bundle_path": task["source_bundle_path"],
         "rendered_pdf_indices": list(rendered),
         "bundle": bundle,
         "reason": result.get("reason"),
     }
+    if mode == "opening_review":
+        selected = result.get("selected_opening_pdf_indices")
+        fact_evidence = result.get("fact_evidence_pdf_indices")
+        if (
+            not isinstance(selected, list)
+            or not isinstance(fact_evidence, list)
+            or any(
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
+                for index in list(selected) + list(fact_evidence)
+            )
+        ):
+            return None
+        if (
+            not 1 <= len(selected) <= 3
+            or selected != sorted(set(selected))
+            or selected
+            != list(range(selected[0], selected[0] + len(selected)))
+            or not 1 <= len(fact_evidence) <= MAX_FACT_EVIDENCE_PAGES
+            or fact_evidence != sorted(set(fact_evidence))
+            or sorted(set(selected) | set(fact_evidence)) != bundle_indices
+        ):
+            return None
+        adopted["selected_opening_pdf_indices"] = list(selected)
+        adopted["fact_evidence_pdf_indices"] = list(fact_evidence)
+    return adopted
 
 
 def _capabilities() -> dict[str, Any]:
@@ -258,8 +333,11 @@ def _opening_review_capabilities() -> dict[str, Any]:
     return {
         "schema_version": 1,
         "contract_id": "coc.pi-opening-source-review-transport-capabilities.v1",
-        "capability": "pi_grok_pdf_skill_one_shot",
+        "capability": "router_materialized_pages_text_extraction",
         "producer_contract_id": "coc.pi-opening-pdf-producer-result.v1",
+        "materialization": "external_pdf_router_native_markdown_or_preseed",
+        "extraction_model": _opening_text_model(),
+        "visual_review": False,
         "private_fulfillment": True,
         "repository_pdf_parser": False,
     }
@@ -1127,7 +1205,7 @@ def _run_pi(
         "--no-extensions", "--no-skills", "--no-prompt-templates",
         "--no-context-files", "--approve",
         "--tools", PI_TOOLS,
-        "--model", PI_MODEL,
+        "--model", _pi_model(),
         "--thinking", PI_THINKING,
         "--skill", str(_pdf_skill()),
         prompt,
@@ -1149,15 +1227,7 @@ def _run_pi(
                 timeout=timeout,
                 cwd=cwd,
                 shutdown=flag,
-                env={
-                    key: value
-                    for key, value in os.environ.items()
-                    if key in {
-                        "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG",
-                        "LC_ALL", "USER", "LOGNAME", "SHELL",
-                        "PI_CODING_AGENT_DIR",
-                    }
-                },
+                env=_pi_child_env(),
             )
         except _SessionLaunchError as exc:
             # Pi path does not fall back; surface launch failure as hard error.
@@ -1596,93 +1666,108 @@ def _module_init_l0_schema() -> dict[str, Any]:
     }
 
 
-def _opening_prompt(task: dict[str, Any]) -> str:
+def _opening_text_prompt(
+    task: dict[str, Any], materialized: dict[str, Any],
+) -> str:
+    opening = set(materialized["selected_opening_pdf_indices"])
+    pages = [
+        {
+            "pdf_index": int(page["pdf_index"]),
+            "markdown_path": page["markdown_path"],
+            "role": (
+                "opening" if int(page["pdf_index"]) in opening
+                else "fact_evidence"
+            ),
+        }
+        for page in materialized["bundle"].get("pages", [])
+    ]
+    extraction = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-task.v1",
+        "workspace_root": task["workspace_root"],
+        "campaign_id": task["campaign_id"],
+        "scenario_id": task["scenario_id"],
+        "source_id": task["source"]["source_id"],
+        "title": task["title"],
+        "play_language": task["play_language"],
+        "source_bundle_path": task["source_bundle_path"],
+        "selected_opening_pdf_indices": materialized[
+            "selected_opening_pdf_indices"
+        ],
+        "fact_evidence_pdf_indices": materialized[
+            "fact_evidence_pdf_indices"
+        ],
+        "pages": pages,
+        "opening_fast_facts_schema": task["opening_fast_facts_schema"],
+        "module_init_l0_schema": task["module_init_l0_schema"],
+    }
     return (
-        "Use the loaded PDF skill directly. You are one isolated document "
-        "producer, not a Keeper and not a gameplay agent. Locate the named "
-        "scenario's complete current player-facing opening beat, using the "
-        "locator pages only as hints. Select the smallest contiguous 1..3 page "
-        "window that includes authored time/place, every materially present "
-        "NPC, the full briefing or pressure, and actionable routes when they "
-        "exist. Render and visually inspect every selected page yourself with "
-        "the read tool. Write exactly the canonical schema-v1 bundle defined by "
-        "task.source_bundle_manifest_contract.template at source_bundle_path. "
-        "That template's manifest.json keys and page keys are required. Legacy "
-        "task-oriented coc.codex-pdf-skill-bundle.v1 shortcut manifests and "
-        "alternate page keys markdown_file, file_sha256, or confidence are "
-        "unsupported and will be rejected. The output is preseeded from "
-        "task.reusable_bound_source: every pdf_index in that manifest is "
-        "already bound, and its files are read-only. Never rewrite, "
-        "retranscribe, delete, or move a preseeded page file. You do not own "
-        "those manifest rows: select such a page by listing its index in "
-        "selected_opening_pdf_indices or fact_evidence_pdf_indices only, and "
-        "do not restate, copy, or reformat its manifest row -- the repository "
-        "splices the retained rows in and rewrites manifest.pages itself. "
-        "Separately select the smallest fact-evidence set from cover, front "
-        "matter, or Keeper background needed for the six opening facts. It may "
-        "be non-contiguous, is bounded by task.max_fact_evidence_pages, and "
-        "must not widen or alter the contiguous playable opening window. Build "
-        "module_init_l0 from the complete preseeded page cache: information "
-        "positions are not fixed. Use grep/find anchors such as 预设、建卡、角色、"
-        "年代、人数、难度、适合、职业、技能、警告 to locate candidates, then read "
+        "You are one isolated document producer, not a Keeper and not a "
+        "gameplay agent. The scenario's opening source pages are ALREADY "
+        "materialized as native UTF-8 Markdown files under "
+        "task.source_bundle_path; there is no PDF to render, inspect, or "
+        "read, and no image tool is available. Use the read tool on every "
+        "task.pages markdown_path (each relative to "
+        "task.source_bundle_path) and extract, from that source text only, "
+        "the six opening fast facts and the private keeper-only "
+        "module_init_l0. task.pages role marks the contiguous playable "
+        "opening window (opening) versus the separate fact-evidence set "
+        "(fact_evidence). Use grep/find anchors such as 预设、建卡、角色、年代、"
+        "人数、难度、适合、职业、技能、警告 to locate candidates, then read "
         "their surrounding Markdown and make the final inclusion decision "
-        "semantically. Anchor hits are location aids only, never keyword proof. "
-        "Do not assume the first N pages or any fixed appendix pages; when "
-        "anchors are insufficient, sample a small opening and ending window and "
-        "judge the source context. L0 must satisfy task.module_init_l0_schema, "
-        "remain keeper_only, and use null or [] for a source value that is absent "
-        "rather than inventing it. Every opening_hooks item MUST contain all four "
-        "keys id, audience, text, variant_of: id and text are non-empty strings "
-        "(text up to 20000 characters), "
-        "audience is exactly player or keeper, and variant_of is present as null "
-        "when there is no variant (otherwise a non-empty string). Every pregen "
-        "and opening_handouts item MUST include every field named by its required "
-        "fields list. Pregen field rules: name and occupation are non-empty "
-        "strings or null, age is a string, integer, or null, hooks_to_plot is an "
-        "array of non-empty strings (use [] when the source lists no hooks -- "
-        "never null and never empty-string entries), backstory_blocks is null, a "
-        "string, an array, or an object, and stats_ref is null, a string, or an "
-        "object. Handout rules: id is a non-empty string, and title and "
-        "when_to_give are non-empty strings or null. module_meta MUST include "
-        "every field named by its required fields list. module_meta field rules: "
-        "title_zh, title_en, era, locale, duration_hint, and structure_type are "
-        "non-empty strings or null, party_size is a string, integer, or null "
-        "(never boolean), authors, translator, and safety_notes are null, a "
-        "string, or an array of non-empty strings ([] when the source names "
-        "none), and tone_tags, mythos_entities, campaign_hooks, and warnings are "
-        "arrays of non-empty strings (use [] when the source names none -- never "
-        "null). chargen_deltas MUST be an array of objects and may be [] when "
-        "the source makes no creation adjustments; a single dict or any other "
-        "non-array is invalid. Each delta item records one source-derived "
-        "creation adjustment (for example a skill, equipment, or resource "
-        "change) and has no required fields; do not invent adjustments the "
-        "source does not state. Do not expose full source text in L0. Write "
-        "manifest.pages rows only for the pages you newly render, which is "
-        "every selected index absent from task.reusable_bound_source.manifest; "
-        "extra or missing retained rows are ignored, and unselected preseed "
-        "files may remain unreferenced. manifest.source.source_id, "
-        "path, and file_sha256 must exactly match task.source; "
-        "manifest.source.title must exactly match task.title. "
-        "Do not use OCR. Do not read .coc, saves, "
+        "semantically. Anchor hits are location aids only, never keyword "
+        "proof. Do not assume the first N pages or any fixed appendix pages; "
+        "information positions are not fixed. When anchors are insufficient, "
+        "sample a small opening and ending window and judge the source "
+        "context. L0 must satisfy "
+        "task.module_init_l0_schema, remain keeper_only, and use null or [] "
+        "for a source value that is absent rather than inventing it. Every "
+        "opening_hooks item MUST contain all four keys id, audience, text, "
+        "variant_of: id and text are non-empty strings (text up to 20000 "
+        "characters), audience is exactly player or keeper, and variant_of "
+        "is present as null when there is no variant (otherwise a non-empty "
+        "string). Every pregen and opening_handouts item MUST include every "
+        "field named by its required fields list. Pregen field rules: name "
+        "and occupation are non-empty strings or null, age is a string, "
+        "integer, or null, hooks_to_plot is an array of non-empty strings "
+        "(use [] when the source lists no hooks -- never null and never "
+        "empty-string entries), backstory_blocks is null, a string, an "
+        "array, or an object, and stats_ref is null, a string, or an object. "
+        "Handout rules: id is a non-empty string, and title and when_to_give "
+        "are non-empty strings or null. module_meta MUST include every field "
+        "named by its required fields list. module_meta field rules: "
+        "title_zh, title_en, era, locale, duration_hint, and structure_type "
+        "are non-empty strings or null, party_size is a string, integer, or "
+        "null (never boolean), authors, translator, and safety_notes are "
+        "null, a string, or an array of non-empty strings ([] when the "
+        "source names none), and tone_tags, mythos_entities, campaign_hooks, "
+        "and warnings are arrays of non-empty strings (use [] when the "
+        "source names none -- never null). chargen_deltas MUST be an array "
+        "of objects and may be [] when the source makes no creation "
+        "adjustments; a single dict or any other non-array is invalid. Each "
+        "delta item records one source-derived creation adjustment (for "
+        "example a skill, equipment, or resource change) and has no required "
+        "fields; do not invent adjustments the source does not state. Do not "
+        "expose full source text in L0. Do not read .coc, saves, "
         "transcripts, AGENTS.md, or repository source. Do not call gameplay "
-        "tools or write outside source_bundle_path. Return only one strict JSON "
-        "object with exact fields schema_version, contract_id, status, "
-        "campaign_id, scenario_id, selected_opening_pdf_indices, "
-        "fact_evidence_pdf_indices, source_bundle_path, failure_class, facts, "
-        "module_init_l0. "
-        "contract_id is "
-        "coc.pi-opening-pdf-producer-result.v1; status is reviewed or failed. "
-        "For reviewed, indices are unique ascending contiguous and failure_class "
-        "is null. facts must exactly satisfy task.opening_fast_facts_schema: "
-        "answer all six questions only from fact_evidence_pdf_indices; "
-        "source answers use minimal {source_id,pdf_index} source_refs and "
-        "unresolved answers use minimal inspected_source_refs for pages actually "
-        "checked. Never use a campaign era, default era, title hint, or task "
-        "placeholder as evidence. Return concise values only: no source text, "
-        "excerpts, manifest body, or reasoning. For failed, both index arrays "
-        "are empty, source_bundle_path=null, failure_class is non-empty, and "
-        "facts=null and module_init_l0=null.\n"
-        + json.dumps(task, ensure_ascii=False, separators=(",", ":"))
+        "tools or write outside source_bundle_path. Return only one strict "
+        "JSON object with exact fields schema_version, contract_id, status, "
+        "campaign_id, scenario_id, source_bundle_path, failure_class, facts, "
+        "module_init_l0. contract_id is "
+        "coc.pi-opening-text-extractor-result.v1; status is reviewed or "
+        "failed. For reviewed, failure_class is null, facts is a valid "
+        "coc.opening-fast-facts.v1 object and module_init_l0 satisfies "
+        "task.module_init_l0_schema. facts must exactly satisfy "
+        "task.opening_fast_facts_schema: answer all six questions only from "
+        "task.fact_evidence_pdf_indices; source answers use minimal "
+        "{source_id,pdf_index} source_refs with source_id exactly "
+        "task.source_id and unresolved answers use minimal "
+        "inspected_source_refs for pages actually checked. Never use a "
+        "campaign era, default era, title hint, or task placeholder as "
+        "evidence. Return concise values only: no source text, excerpts, "
+        "manifest body, or reasoning. For failed, source_bundle_path=null, "
+        "failure_class is non-empty, and facts=null and module_init_l0=null.\n"
+        + json.dumps(extraction, ensure_ascii=False, separators=(",", ":"))
     )
 
 
@@ -2097,6 +2182,185 @@ def _write_opening_l0_failure_evidence(
     return destination
 
 
+def _materialize_opening_bundle(
+    task: dict[str, Any],
+    private: dict[str, Any],
+    pdf_bundle: Any,
+    request: dict[str, Any],
+    shutdown: _ShutdownFlag,
+) -> dict[str, Any]:
+    """Materialize the reviewed opening bundle without any model rendering.
+
+    The native Markdown pages already exist: the locator wrote the bound
+    bundle (preseeded into the output root by _opening_producer_task) and the
+    Firecrawl router can select pages + write the schema-v1 bundle from its
+    own native page cache. Only when the router is unset or unable does the
+    adapter fall back to the locator's already-materialized bound pages as
+    both the opening window and the fact-evidence set. No PDF skill, image
+    tool, or visual model is ever invoked here.
+    """
+    routed = _try_external_pdf_router(
+        "opening_review",
+        task,
+        timeout=_opening_producer_timeout(request),
+        shutdown=shutdown,
+    )
+    _run_post_child_hook()
+    _fail_if_shutdown(shutdown)
+    if routed is not None:
+        return {
+            "selected_opening_pdf_indices": list(
+                routed["selected_opening_pdf_indices"]
+            ),
+            "fact_evidence_pdf_indices": list(
+                routed["fact_evidence_pdf_indices"]
+            ),
+            "bundle": routed["bundle"],
+            "source": "router",
+        }
+    bound_indices = list(int(index) for index in private["allowed_pdf_indices"])
+    bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+    if (
+        [int(row["pdf_index"]) for row in bundle.get("pages", [])]
+        != bound_indices
+        or not 1 <= len(bound_indices) <= 3
+        or bound_indices
+        != list(range(bound_indices[0], bound_indices[0] + len(bound_indices)))
+    ):
+        _fail(
+            "opening fallback bound window is not a contiguous 1..3 page scope"
+        )
+    return {
+        "selected_opening_pdf_indices": list(bound_indices),
+        "fact_evidence_pdf_indices": list(bound_indices),
+        "bundle": bundle,
+        "source": "preseed",
+    }
+
+
+def _run_opening_text_extractor(
+    task: dict[str, Any],
+    materialized: dict[str, Any],
+    *,
+    timeout: int,
+    shutdown: _ShutdownFlag,
+) -> dict[str, Any]:
+    """Text-model extraction of the six opening facts + module_init_l0.
+
+    Reads only the router-materialized native Markdown pages; never renders
+    the PDF and never loads the visual PDF skill. The model defaults to a
+    text model (DeepSeek) and is overridable via COC_PI_OPENING_MODEL.
+    """
+    args = [
+        _pi_command(),
+        "--mode", "text", "-p", "--no-session",
+        "--no-extensions", "--no-skills", "--no-prompt-templates",
+        "--no-context-files", "--approve",
+        "--tools", PI_TOOLS,
+        "--model", _opening_text_model(),
+        "--thinking", PI_THINKING,
+        _opening_text_prompt(task, materialized),
+    ]
+    _fail_if_shutdown(shutdown)
+    try:
+        completed = _run_session_command(
+            args,
+            timeout=timeout,
+            cwd=Path(task["workspace_root"]),
+            shutdown=shutdown,
+            env=_pi_child_env(),
+        )
+    except _SessionLaunchError as exc:
+        _fail(f"opening text extractor launch failed: {exc}")
+    except subprocess.TimeoutExpired:
+        _fail("opening text extractor timed out")
+    _run_post_child_hook()
+    _fail_if_shutdown(shutdown)
+    if completed.returncode != 0:
+        _fail(_child_failure_detail(completed.returncode, completed.stderr))
+    payload = (completed.stdout or "").encode()
+    if len(payload) > MAX_OUTPUT_BYTES:
+        _fail("opening text extractor receipt exceeds output limit")
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        raise
+    if not isinstance(parsed, dict):
+        return _object(parsed, "opening text extractor receipt")
+    _fail_if_shutdown(shutdown)
+    return parsed
+
+
+def _validate_opening_extractor_result(
+    value: Any,
+    task: dict[str, Any],
+    selected: list[int],
+    fact_evidence: list[int],
+) -> dict[str, Any]:
+    """Validate the text extractor and assemble the producer-result envelope.
+
+    The materialization step owns the page split; the extractor supplies only
+    facts + module_init_l0. The assembled envelope then passes the canonical
+    _validate_opening_result gate so the downstream bind/fulfill seam is
+    byte-for-byte unchanged.
+    """
+    result = _object(value, "opening text extractor result")
+    if (
+        set(result) != {
+            "schema_version", "contract_id", "status", "campaign_id",
+            "scenario_id", "source_bundle_path", "failure_class",
+            "facts", "module_init_l0",
+        }
+        or result.get("schema_version") != 1
+        or result.get("contract_id") != "coc.pi-opening-text-extractor-result.v1"
+        or result.get("campaign_id") != task["campaign_id"]
+        or result.get("scenario_id") != task["scenario_id"]
+        or result.get("status") not in {"reviewed", "failed"}
+    ):
+        _fail("opening text extractor result invalid")
+    if result["status"] == "failed":
+        if (
+            result.get("source_bundle_path") is not None
+            or not isinstance(result.get("failure_class"), str)
+            or not result["failure_class"].strip()
+            or result.get("facts") is not None
+            or result.get("module_init_l0") is not None
+        ):
+            _fail("failed opening text extractor result invalid")
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "status": "failed",
+            "campaign_id": task["campaign_id"],
+            "scenario_id": task["scenario_id"],
+            "selected_opening_pdf_indices": [],
+            "fact_evidence_pdf_indices": [],
+            "source_bundle_path": None,
+            "failure_class": result["failure_class"],
+            "facts": None,
+            "module_init_l0": None,
+        }
+    if (
+        result.get("source_bundle_path") != task["source_bundle_path"]
+        or result.get("failure_class") is not None
+        or not isinstance(result.get("module_init_l0"), dict)
+    ):
+        _fail("reviewed opening text extractor result invalid")
+    return _validate_opening_result({
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+        "status": "reviewed",
+        "campaign_id": task["campaign_id"],
+        "scenario_id": task["scenario_id"],
+        "selected_opening_pdf_indices": list(selected),
+        "fact_evidence_pdf_indices": list(fact_evidence),
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
+        "facts": result["facts"],
+        "module_init_l0": result["module_init_l0"],
+    }, task)
+
+
 def _run_opening_review() -> dict[str, Any]:
     raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(raw) > MAX_INPUT_BYTES:
@@ -2123,25 +2387,37 @@ def _run_opening_review() -> dict[str, Any]:
         task = _opening_producer_task(
             workspace, request, scenario, campaign, private, pdf_bundle,
         )
-        # Opening does not use the external router, but the Pi child and the
-        # bind/fulfill receipt still share one producer-lane abort boundary.
+        # Page materialization is router-native: the Firecrawl router selects
+        # the opening/fact pages and writes the schema-v1 bundle from its
+        # already-materialized Markdown pages; without a router the adapter
+        # reuses the locator's bound native pages. Neither path renders a PDF
+        # or needs the visual Grok/PDF-skill child. Only the semantic
+        # facts + L0 extraction runs a separate text-model child, and the
+        # bind/fulfill receipt still shares one producer-lane abort boundary.
         shutdown = _ShutdownFlag()
         handlers, old_mask = _enter_producer_lane(shutdown)
         try:
-            producer_payload = _run_pi(
-                _opening_prompt(task),
-                Path(task["source_bundle_path"]).parent,
+            materialized = _materialize_opening_bundle(
+                task, private, pdf_bundle, request, shutdown,
+            )
+            selected = materialized["selected_opening_pdf_indices"]
+            fact_evidence = materialized["fact_evidence_pdf_indices"]
+            extractor_payload = _run_opening_text_extractor(
+                task,
+                materialized,
                 timeout=_opening_producer_timeout(request),
                 shutdown=shutdown,
             )
             try:
-                result = _validate_opening_result(producer_payload, task)
+                result = _validate_opening_extractor_result(
+                    extractor_payload, task, selected, fact_evidence,
+                )
             except RuntimeError as exc:
-                if isinstance(producer_payload, dict) and "module_init_l0" in producer_payload:
+                if isinstance(extractor_payload, dict) and "module_init_l0" in extractor_payload:
                     _write_opening_l0_failure_evidence(
                         campaign_dir,
                         request,
-                        producer_payload["module_init_l0"],
+                        extractor_payload["module_init_l0"],
                         str(exc),
                     )
                 raise
@@ -2154,8 +2430,6 @@ def _run_opening_review() -> dict[str, Any]:
                 )
                 _fail_if_shutdown(shutdown)
                 return receipt
-            selected = result["selected_opening_pdf_indices"]
-            fact_evidence = result["fact_evidence_pdf_indices"]
             try:
                 module_init_l0 = ops._validate_module_init_l0(
                     result["module_init_l0"]

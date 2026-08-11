@@ -235,9 +235,10 @@ export COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND=<repo>/plugins/coc-keeper/pi/bin/coc-
 The bundled thin adapter starts one isolated, logged-in Pi child in one-shot
 `pi -p` mode and loads the installed external `pdf` skill explicitly. Override
 the Pi executable with `COC_PI_COMMAND` and the skill directory or `SKILL.md`
-path with `COC_PI_PDF_SKILL` when needed. The child pins
-`xai/grok-4.5` with `thinking low` and receives only the
-`read,bash,write` tool allowlist. Sessions, implicit skills/extensions, prompt
+path with `COC_PI_PDF_SKILL` when needed. The locator/full-parse PDF-skill
+child defaults to `xai/grok-4.5` with `thinking low` (overridable via
+`COC_PI_PDF_MODEL`) and receives only the `read,bash,write` tool allowlist.
+Sessions, implicit skills/extensions, prompt
 templates, and context files stay disabled. The main KP receives no PDF/image
 tools or child built-ins. xAI Grok 4.5 does not support true thinking-off: Pi
 would clamp a direct `off` request to `low`. The matching
@@ -245,18 +246,31 @@ would clamp a direct `off` request to `low`. The matching
 to reduce spoiler exposure, but it does not disable provider reasoning or its
 latency.
 
-Optional external native router (raw locator + full-parse batch only): set
-`COC_PI_PDF_INSPECTOR_COMMAND` to an absolute executable. The adapter never
-opens or parses the PDF; it only subprocesses that command with a versioned
-JSON request on stdin and expects a versioned JSON result on stdout. On
-`status=ok` the command must have written a legal schema-v1 source bundle
-(`producer: codex-pdf-skill`) at the task's absolute `source_bundle_path`.
-The adapter still runs `load_host_bundle` (and the existing register/fulfill
-half-chain for full-parse) before adopting the result. Any unset/invalid
-command, non-zero exit, timeout, bad JSON, `fallback` / `needs_ocr` /
-`unsupported` / `failed`, path drift, or illegal bundle falls through to the
-existing Pi PDF-skill path. Opening review does not call this router in v1
-(still needs semantic opening facts via the Grok/PDF skill path).
+Optional external native router (locator + full-parse batch + opening
+review): set `COC_PI_PDF_INSPECTOR_COMMAND` to an absolute executable. The
+adapter never opens or parses the PDF; it only subprocesses that command
+with a versioned JSON request on stdin and expects a versioned JSON result
+on stdout. On `status=ok` the command must have written a legal schema-v1
+source bundle (`producer: codex-pdf-skill`) at the task's absolute
+`source_bundle_path`. The adapter still runs `load_host_bundle` (and the
+existing register/fulfill half-chain for full-parse) before adopting the
+result. Any unset/invalid command, non-zero exit, timeout, bad JSON,
+`fallback` / `needs_ocr` / `unsupported` / `failed`, path drift, or illegal
+bundle falls through to the existing Pi PDF-skill path (locator/full-parse)
+or to the locator's already-materialized bound pages (opening review).
+
+Opening review is split into two child boundaries and no longer depends on
+the visual Grok/PDF-skill path: (1) page materialization goes through the
+router with mode `opening_review` — the router selects the opening window
+and the fact-evidence set and writes the schema-v1 bundle from its native
+Markdown pages; without a router the adapter reuses the locator's bound
+native pages as both sets. (2) facts + module_init_l0 extraction runs a
+separate text-model `pi -p` child that reads only the materialized Markdown
+and never renders a PDF; its model defaults to a text model (DeepSeek) and
+is overridable via `COC_PI_OPENING_MODEL` (Grok remains an explicit
+option). The bind + `_apply_opening_source_review_fulfillment` seam and the
+transport contract `coc.pi-opening-source-review-transport-result.v1` are
+unchanged.
 
 The adapter contains no PDF parser, renderer, OCR, page-text scanner, queue, or
 fulfillment engine.

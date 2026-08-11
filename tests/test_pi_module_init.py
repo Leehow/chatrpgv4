@@ -369,13 +369,23 @@ def test_opening_prompt_carries_chargen_deltas_and_module_meta_shape_rules(
     """The producer prompt states the chargen_deltas and module_meta shapes."""
     _bundle, source_id = _source_bundle(tmp_path)
     task = {
+        "workspace_root": str(tmp_path),
         "campaign_id": "prompt-shape",
         "scenario_id": "far-page-letter",
-        "source_bundle_path": str(tmp_path / "reviewed-bundle"),
+        "title": "Far Page Letter",
+        "play_language": "zh-Hans",
         "source": {"source_id": source_id},
+        "source_bundle_path": str(tmp_path / "reviewed-bundle"),
+        "opening_fast_facts_schema": {},
+        "module_init_l0_schema": {},
         "reusable_bound_source": {"manifest": {"pages": []}},
     }
-    prompt = adapter._opening_prompt(task)
+    materialized = {
+        "selected_opening_pdf_indices": [10, 11],
+        "fact_evidence_pdf_indices": [3, 10, 11],
+        "bundle": {"pages": []},
+    }
+    prompt = adapter._opening_text_prompt(task, materialized)
     assert "chargen_deltas MUST be an array of objects" in prompt
     assert "may be [] when the source makes no creation adjustments" in prompt
     assert "a single dict or any other non-array is invalid" in prompt
@@ -624,7 +634,20 @@ def test_l0_soft_location_accepts_non_front_matter_fixture_without_page_rule(
         "module_init_l0": _l0(),
     }
     assert adapter._validate_opening_result(result, task)["fact_evidence_pdf_indices"] == [23]
-    prompt = adapter._opening_prompt(task)
+    materialized = {
+        "selected_opening_pdf_indices": [17],
+        "fact_evidence_pdf_indices": [23],
+        "bundle": {"pages": []},
+    }
+    task = {
+        **task,
+        "workspace_root": str(tmp_path),
+        "title": "Far Page Letter",
+        "play_language": "zh-Hans",
+        "opening_fast_facts_schema": {},
+        "module_init_l0_schema": {},
+    }
+    prompt = adapter._opening_text_prompt(task, materialized)
     assert "positions are not fixed" in prompt
     assert "grep/find anchors" in prompt
     assert "semantically" in prompt

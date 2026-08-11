@@ -3127,7 +3127,9 @@ def _locator_task(workspace: Path, bundle_dir: Path, pdf: Path) -> dict:
     }
 
 
-def _locator_bundle(root: Path, pdf: Path, pdf_indices: list[int]) -> None:
+def _locator_bundle(
+    root: Path, pdf: Path, pdf_indices: list[int], *, title: str = "module.pdf",
+) -> None:
     """Write a load_host_bundle-valid codex-pdf-skill bundle."""
     pages = root / "pages"
     pages.mkdir(parents=True)
@@ -3151,7 +3153,7 @@ def _locator_bundle(root: Path, pdf: Path, pdf_indices: list[int]) -> None:
         "producer": "codex-pdf-skill",
         "source": {
             "source_id": "pdf:module",
-            "title": "module.pdf",
+            "title": title,
             "path": str(pdf),
             "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
             "page_count": 48,
@@ -3318,6 +3320,8 @@ def _fake_pdf_inspector(
     write_bundle: bool = True,
     source_bundle_path: str | None = None,
     rendered_pdf_indices: list[int] | None = None,
+    opening_selected: list[int] | None = None,
+    opening_fact_evidence: list[int] | None = None,
     exit_code: int = 0,
     stdout: str | None = None,
     bad_json: bool = False,
@@ -3330,6 +3334,8 @@ def _fake_pdf_inspector(
         "write_bundle": write_bundle,
         "source_bundle_path": source_bundle_path,
         "rendered_pdf_indices": rendered_pdf_indices,
+        "opening_selected": opening_selected,
+        "opening_fact_evidence": opening_fact_evidence,
         "exit_code": exit_code,
         "stdout": stdout,
         "bad_json": bad_json,
@@ -3357,21 +3363,44 @@ def _fake_pdf_inspector(
         "    sys.stdout.write(str(CFG['stdout']))\n"
         "    raise SystemExit(int(CFG['exit_code']))\n"
         "bundle_path = CFG.get('source_bundle_path') or req['source_bundle_path']\n"
-        "rendered = CFG.get('rendered_pdf_indices')\n"
-        "if rendered is None:\n"
-        "    rendered = (\n"
-        "        [0, 1, 2]\n"
-        "        if req.get('mode') == 'locator_first_bundle'\n"
-        "        else list(req.get('missing_pdf_indices') or [0])\n"
+        "opening_selected = CFG.get('opening_selected')\n"
+        "opening_fact = CFG.get('opening_fact_evidence')\n"
+        "if req.get('mode') == 'opening_review':\n"
+        "    if opening_selected is None:\n"
+        "        opening_selected = list(req.get('opening_locator_pdf_indices') or [0])\n"
+        "    if opening_fact is None:\n"
+        "        opening_fact = list(opening_selected)\n"
+        "    rendered = CFG.get('rendered_pdf_indices') or sorted(\n"
+        "        set(opening_selected) | set(opening_fact)\n"
         "    )\n"
+        "else:\n"
+        "    rendered = CFG.get('rendered_pdf_indices')\n"
+        "    if rendered is None:\n"
+        "        rendered = (\n"
+        "            [0, 1, 2]\n"
+        "            if req.get('mode') == 'locator_first_bundle'\n"
+        "            else list(req.get('missing_pdf_indices') or [0])\n"
+        "        )\n"
         "if CFG.get('write_bundle') and CFG.get('status') == 'ok':\n"
         "    root = Path(bundle_path)\n"
         "    pages = root / 'pages'\n"
         "    pages.mkdir(parents=True, exist_ok=True)\n"
         "    source = req['source']\n"
         "    page_template = CFG['page_template'].encode('utf-8').decode('unicode_escape')\n"
+        "    preseed_pages = {}\n"
+        "    if req.get('mode') == 'opening_review':\n"
+        "        for row in ((req.get('reusable_bound_source') or {}).get('manifest') or {}).get('pages') or []:\n"
+        "            preseed_pages[row['pdf_index']] = row\n"
         "    manifest_pages = []\n"
         "    for index in rendered:\n"
+        "        row = preseed_pages.get(index)\n"
+        "        if row is not None:\n"
+        "            # Bound native page: the adapter already materialized it,\n"
+        "            # so the router must not rewrite its bytes. Declare the\n"
+        "            # retained row; the adapter splices it into the final\n"
+        "            # manifest.\n"
+        "            manifest_pages.append(row)\n"
+        "            continue\n"
         "        page_bytes = page_template.format(n=index + 1, i=index).encode()\n"
         "        (pages / f'{index:04d}.md').write_bytes(page_bytes)\n"
         "        manifest_pages.append({\n"
@@ -3407,6 +3436,9 @@ def _fake_pdf_inspector(
         "    'source_bundle_path': bundle_path,\n"
         "    'rendered_pdf_indices': rendered,\n"
         "}\n"
+        "if req.get('mode') == 'opening_review':\n"
+        "    result['selected_opening_pdf_indices'] = opening_selected\n"
+        "    result['fact_evidence_pdf_indices'] = opening_fact\n"
         "sys.stdout.write(\n"
         "    json.dumps(result, ensure_ascii=False, separators=(',', ':'))\n"
         ")\n"
@@ -3754,37 +3786,494 @@ def test_pdf_skill_adapter_full_parse_router_fallback_uses_pdf_skill(
     assert result["results"][0]["pack"]["failure_class"] == "skill_fallback_path"
 
 
-def test_pdf_skill_adapter_opening_review_does_not_call_router(
+def test_pdf_skill_adapter_opening_review_routes_router_materialization_not_pi_skill(
     tmp_path: Path, monkeypatch,
 ):
-    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_no_router_test")
-    router_calls: list[str] = []
+    """The opening lane must materialize pages via the router (or the
+    locator's bound preseed) and extract facts/L0 through the text-model
+    child. The visual Grok/PDF-skill _run_pi path must never be entered."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_router_lane_test")
+    calls: list[str] = []
 
-    def track_router(*_args, **_kwargs):
-        router_calls.append("router")
+    def track(*_args, **_kwargs):
+        calls.append("router")
         return {"should": "not-be-used"}
 
-    monkeypatch.setattr(adapter, "_try_external_pdf_router", track_router)
+    monkeypatch.setattr(adapter, "_try_external_pdf_router", track)
+    monkeypatch.setattr(adapter, "_run_pi", track)
 
     # Fail closed early in opening review before any producer work. The
-    # assertion under test is only that the router helper is never entered.
+    # assertion under test is only that the router helper is entered and the
+    # Pi skill child is never the materialization route.
     class _Stdin:
         buffer = io.BytesIO(b"{")
 
     monkeypatch.setattr(sys, "stdin", _Stdin())
     with pytest.raises((RuntimeError, json.JSONDecodeError, ValueError)):
         adapter._run_opening_review()
-    assert router_calls == []
+    assert calls == []
 
     source = (
         PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"
     ).read_text(encoding="utf-8")
-    # Opening lane must not invoke the external router helper.
     opening_fn = source.split("def _run_opening_review", 1)[1].split(
         "\ndef _validate_full_parse_task", 1,
     )[0]
-    assert "_try_external_pdf_router" not in opening_fn
-    assert "_run_pi" in opening_fn
+    assert "_run_pi" not in opening_fn
+    assert "_materialize_opening_bundle" in opening_fn
+    assert "_run_opening_text_extractor" in opening_fn
+    assert "_validate_opening_extractor_result" in opening_fn
+    # The text extractor is a model child but never loads the visual PDF
+    # skill and never hardcodes the Grok vision model.
+    extractor_fn = source.split(
+        "def _run_opening_text_extractor", 1,
+    )[1].split("\ndef _validate_opening_extractor_result", 1)[0]
+    assert "--skill" not in extractor_fn
+    assert "_opening_text_model()" in extractor_fn
+    assert "xai/grok-4.5" not in extractor_fn
+
+
+def test_pdf_skill_adapter_opening_text_model_env_override(monkeypatch):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_model_test")
+    # Opening extraction defaults to a text model, never the visual Grok pin.
+    monkeypatch.delenv("COC_PI_OPENING_MODEL", raising=False)
+    assert adapter._opening_text_model() == "deepseek/deepseek-chat"
+    assert adapter._opening_text_model() != adapter.PI_MODEL
+    # Env override replaces the default; Grok remains an explicit option.
+    monkeypatch.setenv("COC_PI_OPENING_MODEL", "xai/grok-4.5")
+    assert adapter._opening_text_model() == "xai/grok-4.5"
+    # Locator/full-parse Pi skill path: Grok stays the default but is also
+    # env-overridable, so it is a selectable option, not a hardcoded pin.
+    monkeypatch.delenv("COC_PI_PDF_MODEL", raising=False)
+    assert adapter._pi_model() == "xai/grok-4.5"
+    monkeypatch.setenv("COC_PI_PDF_MODEL", "openai/gpt-5")
+    assert adapter._pi_model() == "openai/gpt-5"
+
+
+def test_pdf_skill_adapter_opening_router_materializes_split_bundle(
+    tmp_path: Path, monkeypatch,
+):
+    """The external router selects opening + fact pages and writes the
+    schema-v1 bundle from its native Markdown; the adapter validates the
+    split and the bundle cover exactly the union."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_router_split_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-opening-source-review" / "camp" / "reviewed"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _opening_producer_component_task(workspace, bundle_dir, pdf)
+    router = _fake_pdf_inspector(
+        tmp_path / "router",
+        opening_selected=[10, 11, 12],
+        opening_fact_evidence=[3, 10, 11, 12],
+        request_log=tmp_path / "opening-router-request.json",
+    )
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+
+    adopted = adapter._try_external_pdf_router("opening_review", task)
+
+    assert adopted is not None
+    assert adopted["selected_opening_pdf_indices"] == [10, 11, 12]
+    assert adopted["fact_evidence_pdf_indices"] == [3, 10, 11, 12]
+    assert adopted["rendered_pdf_indices"] == [3, 10, 11, 12]
+    assert [
+        int(page["pdf_index"]) for page in adopted["bundle"]["pages"]
+    ] == [3, 10, 11, 12]
+    request = json.loads(
+        (tmp_path / "opening-router-request.json").read_text(encoding="utf-8")
+    )
+    assert request["mode"] == "opening_review"
+    assert request["contract_id"] == "coc.pi-pdf-inspector-request.v1"
+    assert request["opening_locator_pdf_indices"] == [10, 11, 12]
+    assert request["max_selected_opening_pages"] == 3
+    assert request["max_fact_evidence_pages"] == 8
+    assert request["reusable_bound_source"] == {"source_bundle_path": "bound"}
+    assert request["manifest_producer_literal"] == "codex-pdf-skill"
+    assert request["source"]["file_sha256"] == task["source"]["file_sha256"]
+
+
+def test_pdf_skill_adapter_opening_router_rejects_invalid_split(
+    tmp_path: Path, monkeypatch,
+):
+    """A non-contiguous opening window or a union that drifts from the
+    written bundle must fall back (None), never adopt a malformed split."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_router_bad_split_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-opening-source-review" / "camp" / "reviewed"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _opening_producer_component_task(workspace, bundle_dir, pdf)
+
+    # Opening window must be contiguous.
+    router = _fake_pdf_inspector(
+        tmp_path / "router-noncontiguous",
+        opening_selected=[10, 12],
+        opening_fact_evidence=[3, 10, 11, 12],
+    )
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    assert adapter._try_external_pdf_router("opening_review", task) is None
+
+    # Fact evidence must not exceed the bound.
+    router = _fake_pdf_inspector(
+        tmp_path / "router-too-many",
+        opening_selected=[10, 11, 12],
+        opening_fact_evidence=[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12],
+    )
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    assert adapter._try_external_pdf_router("opening_review", task) is None
+
+
+def test_pdf_skill_adapter_opening_extractor_assembly_keeps_producer_envelope(
+    tmp_path: Path,
+):
+    """The text extractor supplies facts + L0 only; the adapter assembles
+    the canonical producer envelope so the bind/fulfill seam is unchanged."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_extractor_assembly_test")
+    task = {
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "source": {"source_id": "pdf:scenario-a"},
+    }
+    refs = [{"source_id": "pdf:scenario-a", "pdf_index": 3}]
+    source = lambda value: {
+        "status": "source", "value": value, "source_refs": refs,
+    }
+    unresolved = {
+        "status": "unresolved", "inspected_source_refs": refs,
+    }
+    facts = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": source("1920s"),
+        "place": source("Boston"),
+        "investigator_hook": unresolved,
+        "investigator_constraints": unresolved,
+        "player_safe_summary": unresolved,
+        "content_flags": source(["haunting"]),
+    }
+    l0 = {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "module_meta": {
+            "title_zh": "测试模组", "title_en": "Test Module",
+            "authors": [], "translator": [], "era": "1920s",
+            "locale": "Boston", "party_size": "1-4",
+            "duration_hint": "one session", "tone_tags": ["mystery"],
+            "mythos_entities": [], "campaign_hooks": ["letter"],
+            "warnings": [], "safety_notes": None,
+            "structure_type": "linear_investigation",
+        },
+        "pregens": [],
+        "opening_hooks": [{
+            "id": "letter", "audience": "player",
+            "text": "A letter arrives.", "variant_of": None,
+        }],
+        "chargen_deltas": [],
+        "opening_handouts": [],
+    }
+    extractor = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "failure_class": None,
+        "facts": facts,
+        "module_init_l0": l0,
+    }
+    result = adapter._validate_opening_extractor_result(
+        extractor, task, [10, 11], [3, 10, 11],
+    )
+    assert result["contract_id"] == "coc.pi-opening-pdf-producer-result.v1"
+    assert result["status"] == "reviewed"
+    assert result["selected_opening_pdf_indices"] == [10, 11]
+    assert result["fact_evidence_pdf_indices"] == [3, 10, 11]
+    assert result["facts"]["era"]["status"] == "source"
+    assert result["module_init_l0"]["module_meta"]["title_en"] == "Test Module"
+
+    failed = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "failed",
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source_bundle_path": None,
+        "failure_class": "pdf_scope_failed",
+        "facts": None,
+        "module_init_l0": None,
+    }
+    failed_result = adapter._validate_opening_extractor_result(
+        failed, task, [10, 11], [3, 10, 11],
+    )
+    assert failed_result["status"] == "failed"
+    assert failed_result["failure_class"] == "pdf_scope_failed"
+    assert failed_result["selected_opening_pdf_indices"] == []
+
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_extractor_result(
+            {**extractor, "contract_id": "foreign"},
+            task, [10, 11], [3, 10, 11],
+        )
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_extractor_result(
+            {**extractor, "source_bundle_path": str(tmp_path / "other")},
+            task, [10, 11], [3, 10, 11],
+        )
+
+
+def test_pdf_skill_adapter_opening_review_full_flow_router_text_extraction_l0(
+    tmp_path: Path, monkeypatch,
+):
+    """End-to-end adapter lane: the router materializes the opening bundle,
+    the text extractor supplies facts + L0, and the canonical bind + L0
+    fulfillment seam writes module-init.json -- with _run_pi never entered."""
+    receipt, captured, workspace = _run_opening_full_flow(
+        tmp_path, monkeypatch, use_router=True,
+    )
+
+    assert receipt["status"] == "reviewed"
+    assert receipt["opening_review_generation"] == 2
+    assert receipt["facts"]["era"]["status"] == "source"
+    assert captured["materialized"]["source"] == "router"
+    assert captured["materialized"]["selected_opening_pdf_indices"] == [10, 11, 12]
+    assert captured["materialized"]["fact_evidence_pdf_indices"] == [3, 10, 11, 12]
+    assert captured["task"]["source"]["source_id"] == "pdf:module"
+    _assert_opening_flow_landed(workspace, [3, 10, 11, 12])
+
+
+def test_pdf_skill_adapter_opening_review_fallback_reuses_locator_pages(
+    tmp_path: Path, monkeypatch,
+):
+    """Without a router the opening lane reuses the locator's bound native
+    pages as both the opening window and the fact-evidence set; extraction
+    and the canonical L0 seam still run with no _run_pi call."""
+    receipt, captured, workspace = _run_opening_full_flow(
+        tmp_path, monkeypatch, use_router=False,
+    )
+
+    assert receipt["status"] == "reviewed"
+    assert receipt["facts"]["era"]["status"] == "source"
+    assert captured["materialized"]["source"] == "preseed"
+    assert captured["materialized"]["selected_opening_pdf_indices"] == [10, 11, 12]
+    assert captured["materialized"]["fact_evidence_pdf_indices"] == [10, 11, 12]
+    _assert_opening_flow_landed(workspace, [10, 11, 12])
+
+
+def _run_opening_full_flow(
+    tmp_path: Path, monkeypatch, *, use_router: bool,
+) -> tuple[dict, dict, Path]:
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_full_flow_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    # The opening transport requires the workspace to BE the process cwd and
+    # to carry uv.lock plus the canonical plugin root. Symlink those so the
+    # whole run stays hermetic under tmp_path.
+    (workspace / "uv.lock").write_text("", encoding="utf-8")
+    (workspace / "plugins").mkdir()
+    os.symlink(
+        PLUGIN, workspace / "plugins" / "coc-keeper",
+        target_is_directory=True,
+    )
+    monkeypatch.chdir(workspace)
+
+    scripts = PLUGIN / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    import coc_runtime_ops as ops
+
+    created = ops.execute_setup_operation(workspace, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "opening-router-e2e",
+            "title": "Opening Router E2E",
+            "play_language": "zh-Hans",
+        },
+    })
+    assert created.get("status") == "PASS"
+
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    bound = workspace / ".tmp" / "fixtures" / "bound-bundle"
+    _locator_bundle(bound, pdf, [10, 11, 12], title="Opening Router E2E")
+    bound_result = ops.execute_setup_operation(workspace, operation={
+        "schema_version": 1,
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": "opening-router-e2e",
+            "scenario_id": "opening-router-e2e",
+            "title": "Opening Router E2E",
+            "source_bundle_path": str(bound),
+        },
+    })
+    assert bound_result.get("status") == "PASS"
+
+    if use_router:
+        router = _fake_pdf_inspector(
+            tmp_path / "router",
+            opening_selected=[10, 11, 12],
+            opening_fact_evidence=[3, 10, 11, 12],
+        )
+        monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", str(router))
+    else:
+        monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
+
+    run_pi_calls: list[str] = []
+
+    def boom_run_pi(*_args, **_kwargs):
+        run_pi_calls.append("run_pi")
+        raise AssertionError("_run_pi must never be called in opening review")
+
+    monkeypatch.setattr(adapter, "_run_pi", boom_run_pi)
+
+    # Router path widens fact evidence to include page 3; the preseed
+    # fallback only has the bound locator pages, so refs must stay inside
+    # the materialized set either way.
+    ref_index = 3 if use_router else 10
+    refs = [{"source_id": "pdf:module", "pdf_index": ref_index}]
+    source = lambda value: {
+        "status": "source", "value": value, "source_refs": refs,
+    }
+    unresolved = {
+        "status": "unresolved", "inspected_source_refs": refs,
+    }
+    facts = {
+        "schema_version": 1,
+        "contract_id": "coc.opening-fast-facts.v1",
+        "era": source("1920s"),
+        "place": source("Boston"),
+        "investigator_hook": unresolved,
+        "investigator_constraints": unresolved,
+        "player_safe_summary": unresolved,
+        "content_flags": source(["haunting"]),
+    }
+    l0 = {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "module_meta": {
+            "title_zh": "测试模组", "title_en": "Opening Router E2E",
+            "authors": [], "translator": [], "era": "1920s",
+            "locale": "Boston", "party_size": "1-4",
+            "duration_hint": "one session", "tone_tags": ["mystery"],
+            "mythos_entities": [], "campaign_hooks": ["letter"],
+            "warnings": [], "safety_notes": None,
+            "structure_type": "linear_investigation",
+        },
+        "pregens": [],
+        "opening_hooks": [{
+            "id": "letter", "audience": "player",
+            "text": "A letter arrives.", "variant_of": None,
+        }],
+        "chargen_deltas": [],
+        "opening_handouts": [],
+    }
+    captured: dict = {}
+
+    def fake_extractor(
+        task_arg, materialized, *, timeout, shutdown,
+    ):
+        captured["task"] = task_arg
+        captured["materialized"] = materialized
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
+            "status": "reviewed",
+            "campaign_id": task_arg["campaign_id"],
+            "scenario_id": task_arg["scenario_id"],
+            "source_bundle_path": task_arg["source_bundle_path"],
+            "failure_class": None,
+            "facts": facts,
+            "module_init_l0": l0,
+        }
+
+    monkeypatch.setattr(adapter, "_run_opening_text_extractor", fake_extractor)
+
+    request = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-source-review-transport.v1",
+        "workspace_root": str(workspace),
+        "campaign_id": "opening-router-e2e",
+        "scenario_id": "opening-router-e2e",
+        "opening_review_generation": 1,
+        "transport_timeout_seconds": 600,
+    }
+
+    class _Stdin:
+        buffer = io.BytesIO(
+            json.dumps(request, ensure_ascii=False).encode(),
+        )
+
+    monkeypatch.setattr(sys, "stdin", _Stdin())
+    receipt = adapter._run_opening_review()
+
+    assert run_pi_calls == []
+    return receipt, captured, workspace
+
+
+def _assert_opening_flow_landed(
+    workspace: Path, expected_indices: list[int],
+) -> None:
+    scenario = json.loads((
+        workspace / ".coc" / "campaigns" / "opening-router-e2e"
+        / "scenario" / "scenario.json"
+    ).read_text(encoding="utf-8"))
+    assert scenario["opening_source_provenance"] == (
+        "coordinator_reviewed_playable_opening"
+    )
+    assert scenario["opening_source_review_task"]["status"] == "fulfilled"
+    assert scenario["opening_source_review_task"]["generation"] == 2
+    assert scenario["opening_source_review_task"]["allowed_pdf_indices"] == (
+        expected_indices
+    )
+    facts_transport = scenario.get("opening_source_facts_transport")
+    assert facts_transport is not None
+    assert facts_transport["status"] == "pending_public_adoption"
+    assert facts_transport["scenario_id"] == "opening-router-e2e"
+    module_init = json.loads((
+        workspace / ".coc" / "campaigns" / "opening-router-e2e"
+        / "save" / "module-init.json"
+    ).read_text(encoding="utf-8"))
+    assert module_init["l0"]["module_meta"]["title_en"] == "Opening Router E2E"
+    assert module_init["secrecy"] == "keeper_only"
+
+
+
+def _opening_producer_component_task(
+    workspace: Path, bundle_dir: Path, pdf: Path,
+) -> dict:
+    """Minimal opening producer task shape for router component tests."""
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-pdf-producer-task.v1",
+        "workspace_root": str(workspace),
+        "campaign_id": "camp",
+        "scenario_id": "scenario-a",
+        "title": "module.pdf",
+        "play_language": "zh-Hans",
+        "source": {
+            "path": str(pdf),
+            "source_id": "pdf:module",
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+        },
+        "opening_locator_pdf_indices": [10, 11, 12],
+        "max_selected_opening_pages": 3,
+        "max_fact_evidence_pages": 8,
+        "source_bundle_path": str(bundle_dir),
+        "source_bundle_manifest_contract": {"schema_version": 1},
+        "opening_fast_facts_schema": {},
+        "module_init_l0_schema": {},
+        "reusable_bound_source": {"source_bundle_path": "bound"},
+    }
 
 
 def test_extension_locator_environment_whitelists_pdf_inspector_command():
@@ -3795,6 +4284,8 @@ def test_extension_locator_environment_whitelists_pdf_inspector_command():
     assert "COC_PI_PDF_INSPECTOR_COMMAND" in block
     assert "COC_PI_COMMAND" in block
     assert "COC_PI_PDF_SKILL" in block
+    assert "COC_PI_OPENING_MODEL" in block
+    assert "COC_PI_PDF_MODEL" in block
 
 
 def _load_assets_module():
