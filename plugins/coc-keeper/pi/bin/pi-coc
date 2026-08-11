@@ -213,6 +213,27 @@ node "$SCRIPT_DIR/pi-coc-thinking-preflight.mjs" \
 # Auto-configure bundled adapters (user env overrides win).
 export COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND="${COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND:-$SCRIPT_DIR/coc-pdf-skill-adapter.py}"
 export COC_PROGRESSIVE_OCR_COMMAND="${COC_PROGRESSIVE_OCR_COMMAND:-$SCRIPT_DIR/coc-ocr-adapter.py}"
+# External Firecrawl pdf-inspector router: stable user install outside the
+# repo ($HOME/.pi/coc-tools/pdf-inspector/), because the AGENTS PDF contract
+# keeps parsers out of the repository. The adapter validates the path and
+# falls back to the Pi PDF-skill path (locator/full-parse) or the locator's
+# bound pages (opening review) when the file is missing, so a stale default
+# is harmless. User env overrides win.
+export COC_PI_PDF_INSPECTOR_COMMAND="${COC_PI_PDF_INSPECTOR_COMMAND:-$HOME/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router}"
+# Adapter child model defaults (user env overrides win):
+#   COC_PI_PDF_MODEL     locator/full-parse visual PDF-skill child (Grok 4.5)
+#   COC_PI_OPENING_MODEL opening facts+L0 text extractor (DeepSeek text model,
+#                       never a vision model — it reads router materialized
+#                       Markdown only)
+export COC_PI_PDF_MODEL="${COC_PI_PDF_MODEL:-xai/grok-4.5}"
+export COC_PI_OPENING_MODEL="${COC_PI_OPENING_MODEL:-deepseek/deepseek-v4-flash}"
+
+# Quiet game desktop: suppress pi update/package/changelog noise inside the
+# pi-coc session. PI_OFFLINE disables startup network operations (version
+# check, package update check, install/update telemetry) and pi maps it to
+# PI_SKIP_VERSION_CHECK as well. Users may re-enable the checks by exporting
+# PI_OFFLINE=0 before launching pi-coc.
+export PI_OFFLINE="${PI_OFFLINE:-1}"
 
 # The two bundled adapters need *different* interpreters, so neither may be
 # left to whatever `python3` the user's shell resolves first.

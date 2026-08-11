@@ -8,6 +8,8 @@ const root = resolve(process.argv[2] || ".");
 const mod = await import(pathToFileURL(resolve(root, "plugins/coc-keeper/pi/lib/welcome.ts")).href);
 
 const full = mod.fullWelcomeGuide();
+const loadingFresh = mod.startupLoadingMessage(null);
+const loadingResume = mod.startupLoadingMessage("startup-campaign");
 const resume = mod.resumeWelcomeGuide();
 const forResume = mod.welcomeBodyForReason("resume");
 const forNew = mod.welcomeBodyForReason("new");
@@ -43,6 +45,9 @@ const lifecycleAgentDir = mkdtempSync(
 );
 let startupInstructionTriggered = false;
 let resumedHiddenResumeInstruction = false;
+let loadingFirst = false;
+let welcomeAfterLoading = false;
+let resumeLoadingFirst = false;
 try {
   const startWelcome = mod.registerCocWelcome(
     lifecyclePi,
@@ -63,6 +68,16 @@ try {
     },
   };
   await startWelcome({ reason: "startup" }, ctx, "startup-campaign");
+  const firstSend = lifecycleSent[0];
+  loadingFirst = (
+    firstSend?.message?.customType === mod.LOADING_CUSTOM_TYPE
+    && firstSend?.options?.triggerTurn === false
+  );
+  welcomeAfterLoading = (
+    lifecycleSent.find((entry) => (
+      entry.message.customType === mod.WELCOME_CUSTOM_TYPE
+    ))?.options?.triggerTurn === false
+  );
   const tableOpenEntry = lifecycleSent.find((entry) => (
     entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
   ));
@@ -87,6 +102,12 @@ try {
     },
     "startup-campaign",
   );
+  const resumedFirst = lifecycleSent[0];
+  resumeLoadingFirst = (
+    resumedFirst?.message?.customType === mod.LOADING_CUSTOM_TYPE
+    && resumedFirst?.message?.content.includes("正在恢复战役")
+    && resumedFirst?.message?.content.includes("startup-campaign")
+  );
   const resumedEntry = lifecycleSent.find((entry) => (
     entry.message.customType === mod.STARTUP_RESUME_CUSTOM_TYPE
   ));
@@ -102,10 +123,23 @@ try {
 process.stdout.write(JSON.stringify({
   ok: true,
   fullHasWelcome: full.includes("欢迎使用 COC Keeper"),
-  fullHasAlreadyActive: full.includes("即已进入 COC 模式"),
+  fullHasAlreadyActive: full.includes("COC 模式已激活"),
   fullNoActivatePrompt: !full.includes("激活 COC」或「继续"),
-  fullHasTools: full.includes("coc_capabilities"),
+  fullShort: (
+    full.split("\n").filter((line) => line.trim()).length <= 5
+    && full.length < 200
+  ),
+  fullHasContinueList: (
+    full.includes("继续之前的战役")
+    && full.includes("列出已有战役")
+  ),
+  fullNoGuessId: full.includes("不会让你报 ID"),
   fullHasNew: full.includes("pi-coc --new"),
+  loadingFreshText: loadingFresh.includes("正在加载"),
+  loadingResumeText: loadingResume.includes("正在恢复战役 startup-campaign"),
+  loadingFirst,
+  welcomeAfterLoading,
+  resumeLoadingFirst,
   resumeIsShort: resume.length < full.length && resume.includes("已续接"),
   resumeAlreadyActive: resume.includes("模式已激活"),
   resumeReason: forResume === resume,
@@ -114,13 +148,12 @@ process.stdout.write(JSON.stringify({
   headerSaysActive: header.some((l) => l.includes("已激活")),
   customType: mod.WELCOME_CUSTOM_TYPE,
   tableOpenNoAskActivate: open.includes("already active") && open.includes("Do not ask"),
-  noEnvTableOpenUnchanged: open === [
-    "pi-coc table open: COC mode is already active on this dedicated desktop.",
-    "Do not ask the player to activate COC.",
-    "Follow coc-main now: call setup.inspect (and session.resume if a campaign is already in play),",
-    "greet in zh-Hans, and offer continue / built-in starter quick_start / create investigator.",
-    "Begin the onboarding or continuation immediately.",
-  ].join(" "),
+  noEnvTableOpenListsCampaigns: (
+    open.includes("result.campaigns")
+    && open.includes("never guess")
+    && open.includes("session.resume")
+    && !open.includes("offer continue / built-in starter")
+  ),
   startupOpenExactResume: (
     startupOpen.includes('"operation":"session.resume"')
     && startupOpen.includes('"root":"/workspace"')

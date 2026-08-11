@@ -284,18 +284,25 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
         "exact `setup.adopt_source_facts` next operation",
         "Run the idempotent opening bootstrap",
         "Load campaign, 1 → 2 → 3",
-        "select it and call `session.resume`",
+        "`result.campaigns` for the player",
         "Never guess filesystem paths",
         "hidden wait card is not a producer failure",
     ):
         assert phrase in text, phrase
     assert "zh-Hans" in text
+    # KP must never guess a campaign_id; the continue route lists campaigns.
+    assert "Never guess or invent a campaign_id" in text
+    assert "result.campaigns" in text
+    assert "list its" in text and "result.campaigns" in text
+    assert "do not probe candidate ids" in text
     script = wrapper.read_text(encoding="utf-8")
     assert "--no-context-files" in script
     assert "host-system.md" in script
     assert "--session-id" in script
     assert "coc-keeper" in script
     assert "quietStartup" in script
+    # The game desktop suppresses pi update/package/changelog startup noise.
+    assert 'export PI_OFFLINE="${PI_OFFLINE:-1}"' in script
     assert wrapper.stat().st_mode & 0o111
     main = (PLUGIN / "skills" / "coc-main" / "SKILL.md").read_text(encoding="utf-8")
     assert "pi-coc" in main
@@ -328,6 +335,9 @@ def _pi_coc_test_home(
             'for arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n'
             'printf "%s" "${PI_COC_CAMPAIGN_ID-}" > "$PI_COC_TEST_CAMPAIGN"\n'
             'printf "%s" "$PATH" > "$PI_COC_TEST_PATH"\n'
+            'if [ -n "${PI_COC_TEST_INSPECTOR-}" ]; then printf "%s" "${COC_PI_PDF_INSPECTOR_COMMAND-}" > "$PI_COC_TEST_INSPECTOR"; fi\n'
+            'if [ -n "${PI_COC_TEST_PDF_MODEL-}" ]; then printf "%s" "${COC_PI_PDF_MODEL-}" > "$PI_COC_TEST_PDF_MODEL"; fi\n'
+            'if [ -n "${PI_COC_TEST_OPENING_MODEL-}" ]; then printf "%s" "${COC_PI_OPENING_MODEL-}" > "$PI_COC_TEST_OPENING_MODEL"; fi\n'
         ),
         encoding="utf-8",
     )
@@ -365,6 +375,11 @@ def _run_pi_coc(
         "PI_COC_TEST_ARGS": str(args_path),
         "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
         "PI_COC_TEST_PATH": str(tmp_path / "child-path.txt"),
+        "PI_COC_TEST_INSPECTOR": str(tmp_path / "pi-coc-inspector.txt"),
+        "PI_COC_TEST_PDF_MODEL": str(tmp_path / "pi-coc-pdf-model.txt"),
+        "PI_COC_TEST_OPENING_MODEL": str(
+            tmp_path / "pi-coc-opening-model.txt"
+        ),
         **(extra_env or {}),
     }
     wrapper_args = [str(PLUGIN / "pi" / "bin" / "pi-coc")]
@@ -437,6 +452,48 @@ def test_pi_coc_exports_validated_fallback_uv_directory_to_pi_children(
     assert args_path.read_text(encoding="utf-8").splitlines()[-2:] == [
         "--model", "test/model",
     ]
+
+
+def test_pi_coc_exports_pdf_inspector_router_default_from_home(
+    tmp_path: Path,
+):
+    """pi-coc exports COC_PI_PDF_INSPECTOR_COMMAND pointing at the stable
+    out-of-repo router under $HOME/.pi/coc-tools (AGENTS PDF contract keeps
+    parsers out of the repo), plus the adapter child model defaults. A
+    user-set value always wins."""
+    settings, models = _supported_pi_settings()
+    home = tmp_path / "home"
+    completed, _args_path = _run_pi_coc(
+        tmp_path, settings=settings, models=models, args=[],
+        extra_env={"HOME": str(home)},
+    )
+    assert completed.returncode == 0, completed.stderr
+    captured = (
+        tmp_path / "pi-coc-inspector.txt"
+    ).read_text(encoding="utf-8")
+    assert captured == str(
+        home / ".pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router"
+    )
+    assert (
+        tmp_path / "pi-coc-pdf-model.txt"
+    ).read_text(encoding="utf-8") == "xai/grok-4.5"
+    assert (
+        tmp_path / "pi-coc-opening-model.txt"
+    ).read_text(encoding="utf-8") == "deepseek/deepseek-v4-flash"
+
+
+def test_pi_coc_pdf_inspector_command_user_env_override_wins(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    completed, _args_path = _run_pi_coc(
+        tmp_path, settings=settings, models=models, args=[],
+        extra_env={
+            "COC_PI_PDF_INSPECTOR_COMMAND": "/custom/pdf-inspector-router",
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        tmp_path / "pi-coc-inspector.txt"
+    ).read_text(encoding="utf-8") == "/custom/pdf-inspector-router"
 
 
 def test_pi_coc_fails_before_pi_when_required_uv_is_missing(tmp_path: Path):
@@ -693,8 +750,15 @@ def test_pi_coc_welcome_guide_copy():
     assert result["fullHasWelcome"] is True
     assert result["fullHasAlreadyActive"] is True
     assert result["fullNoActivatePrompt"] is True
-    assert result["fullHasTools"] is True
+    assert result["fullShort"] is True
+    assert result["fullHasContinueList"] is True
+    assert result["fullNoGuessId"] is True
     assert result["fullHasNew"] is True
+    assert result["loadingFreshText"] is True
+    assert result["loadingResumeText"] is True
+    assert result["loadingFirst"] is True
+    assert result["welcomeAfterLoading"] is True
+    assert result["resumeLoadingFirst"] is True
     assert result["resumeIsShort"] is True
     assert result["resumeAlreadyActive"] is True
     assert result["resumeReason"] is True
@@ -703,13 +767,102 @@ def test_pi_coc_welcome_guide_copy():
     assert result["headerSaysActive"] is True
     assert result["customType"] == "coc-pi-welcome"
     assert result["tableOpenNoAskActivate"] is True
-    assert result["noEnvTableOpenUnchanged"] is True
+    assert result["noEnvTableOpenListsCampaigns"] is True
     assert result["startupOpenExactResume"] is True
     assert result["startupOpenNoMenuFirst"] is True
     assert result["startupInstructionTriggered"] is True
     assert result["resumedHiddenResumeInstruction"] is True
     assert result["autoOpenFreshStartup"] is True
     assert result["noAutoOpenResumeHistory"] is True
+
+
+def test_pi_coc_setup_inspect_lists_campaigns(tmp_path: Path):
+    # Onboarding item "continue previous campaign" must come from a list, so
+    # setup.inspect has to enumerate .coc/campaigns/ as campaign_id + title.
+    toolbox = _load_toolbox()
+    campaigns = tmp_path / ".coc" / "campaigns"
+    for campaign_id, title in (
+        ("amaranthine-desire", "紫藤之欲"),
+        ("the-haunting-live", "The Haunting · Live"),
+    ):
+        (campaigns / campaign_id).mkdir(parents=True)
+        (campaigns / campaign_id / "campaign.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "campaign_id": campaign_id,
+                "title": title,
+                "status": "active",
+                "play_language": "zh-Hans",
+            }),
+            encoding="utf-8",
+        )
+    inspected = toolbox.run_tool("setup.inspect", tmp_path, None, {})
+    assert inspected["ok"] is True, inspected
+    listed = inspected["data"]["result"]["campaigns"]
+    assert [row["campaign_id"] for row in listed] == [
+        "amaranthine-desire", "the-haunting-live",
+    ]
+    assert listed[0]["title"] == "紫藤之欲"
+    assert listed[1]["title"] == "The Haunting · Live"
+    assert listed[1]["play_language"] == "zh-Hans"
+
+
+def test_pi_coc_launcher_exports_quiet_offline_env(tmp_path: Path):
+    # The dedicated game desktop suppresses pi version/package/changelog noise
+    # by exporting PI_OFFLINE=1 (user override wins) before exec'ing pi.
+    settings, models = _supported_pi_settings()
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path, settings=settings, models=models,
+    )
+    envdump = tmp_path / "pi-env.txt"
+    fake_pi = fake_bin / "pi"
+    fake_pi.write_text(
+        '#!/bin/sh\nenv | sort > "$PI_COC_TEST_ENVDUMP"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "PI_COC_AGENT_DIR": str(agent_dir),
+        "PI_COC_TEST_ENVDUMP": str(envdump),
+    }
+    completed = subprocess.run(
+        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new"],
+        cwd=ROOT, env=env, check=False, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    dumped = envdump.read_text(encoding="utf-8")
+    assert "PI_OFFLINE=1" in dumped
+
+
+def test_pi_coc_user_can_re_enable_update_checks(tmp_path: Path):
+    # PI_OFFLINE is a default, not a mandate: a user-set value wins.
+    settings, models = _supported_pi_settings()
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path, settings=settings, models=models,
+    )
+    envdump = tmp_path / "pi-env.txt"
+    fake_pi = fake_bin / "pi"
+    fake_pi.write_text(
+        '#!/bin/sh\nenv | sort > "$PI_COC_TEST_ENVDUMP"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "PI_COC_AGENT_DIR": str(agent_dir),
+        "PI_COC_TEST_ENVDUMP": str(envdump),
+        "PI_OFFLINE": "0",
+    }
+    completed = subprocess.run(
+        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new"],
+        cwd=ROOT, env=env, check=False, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    dumped = envdump.read_text(encoding="utf-8")
+    assert "PI_OFFLINE=0" in dumped
 
 
 def test_revision_component_chain_bindings_activation_roles_and_secrets():

@@ -9,23 +9,31 @@ import type { McpJsonlClient } from "./runtime.ts";
 export const WELCOME_CUSTOM_TYPE = "coc-pi-welcome";
 export const TABLE_OPEN_CUSTOM_TYPE = "coc-pi-table-open";
 export const STARTUP_RESUME_CUSTOM_TYPE = "coc-startup-resume-required";
+export const LOADING_CUSTOM_TYPE = "coc-pi-loading";
 
 export type WelcomeReason = "startup" | "reload" | "new" | "resume" | "fork" | string;
 
+/**
+ * Startup waiting prompt shown immediately at session_start, before the MCP
+ * warm-up and the KP's auto-open turn complete. The player always gets a
+ * visible "loading/waiting" signal instead of a silent gap.
+ */
+export function startupLoadingMessage(
+  startupCampaignId: string | null,
+): string {
+  if (startupCampaignId !== null && startupCampaignId.trim() !== "") {
+    return `正在恢复战役 ${startupCampaignId.trim()}……请稍候。`;
+  }
+  return "正在加载 COC Keeper……请稍候。";
+}
+
 export function fullWelcomeGuide(): string {
   return [
-    "欢迎使用 COC Keeper 桌面（pi-coc）",
+    "欢迎使用 COC Keeper 桌面（pi-coc）· COC 模式已激活。",
     "",
-    "进入本桌面即已进入 COC 模式，无需再说「激活 COC」。",
-    "这不是写代码的 pi；内置 read/bash/edit/write 已关闭。",
-    "",
-    "常用：",
-    "· 直接开玩：继续已有战役，或选内置 starter / 自建调查员",
-    "· 工具链：coc_capabilities → coc_discover → coc_invoke",
-    "· /hud bind <campaign_id> 绑定桌面状态条；/hud 刷新",
-    "· /skill:coc-main 查看主技能；/welcome 重看本指南",
-    "· 改仓库代码请另开 pi；本会话默认续接 session-id coc-keeper",
-    "· 开新桌面：pi-coc --new",
+    "· 新开局：直接说想玩的剧本，或选内置 starter（无需 PDF）",
+    "· 继续之前的战役：我会先列出已有战役（id + 标题）供你选择，不会让你报 ID",
+    "· /hud 看状态 · /welcome 重看本指南 · pi-coc --new 开新桌面",
   ].join("\n");
 }
 
@@ -76,8 +84,12 @@ export function tableOpenInstruction(
   return [
     "pi-coc table open: COC mode is already active on this dedicated desktop.",
     "Do not ask the player to activate COC.",
-    "Follow coc-main now: call setup.inspect (and session.resume if a campaign is already in play),",
-    "greet in zh-Hans, and offer continue / built-in starter quick_start / create investigator.",
+    "Follow coc-main now: call setup.inspect and read its result.campaigns",
+    "(campaign_id + title) so you can list existing campaigns; never guess or",
+    "invent a campaign_id, and never call session.resume until the player",
+    "picked a listed campaign or stated an exact id.",
+    "greet in zh-Hans, and offer continue (from the listed campaigns) /",
+    "built-in starter quick_start / create investigator.",
     "Begin the onboarding or continuation immediately.",
   ].join(" ");
 }
@@ -187,7 +199,27 @@ export function registerCocWelcome(
         invalidate() {},
       }));
     }
-    if (ctx.hasUI) showWelcome(reason);
+    if (ctx.hasUI) {
+      // Startup waiting prompt first: the player sees it while the MCP
+      // warm-up and any auto-open KP turn are still running.
+      const loading = startupLoadingMessage(startupCampaignId);
+      ctx.ui.setStatus("coc-loading", loading);
+      pi.sendMessage(
+        {
+          customType: LOADING_CUSTOM_TYPE,
+          content: loading,
+          display: true,
+          details: {
+            reason,
+            host: "pi-coc",
+            mode: "active",
+            startup_campaign_id: startupCampaignId,
+          },
+        },
+        { triggerTurn: false },
+      );
+      showWelcome(reason);
+    }
 
     try {
       await getClient(ctx).callTool("coc_capabilities", {}, undefined);

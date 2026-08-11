@@ -247,17 +247,37 @@ to reduce spoiler exposure, but it does not disable provider reasoning or its
 latency.
 
 Optional external native router (locator + full-parse batch + opening
-review): set `COC_PI_PDF_INSPECTOR_COMMAND` to an absolute executable. The
-adapter never opens or parses the PDF; it only subprocesses that command
+review): the router is a thin Node subprocess over the Firecrawl
+`@firecrawl/pdf-inspector` binding (1.12.0). It is deployed **outside the
+repo** at `$HOME/.pi/coc-tools/pdf-inspector/` (the AGENTS PDF contract keeps
+parsers out of the repository); the `pi-coc` launcher exports
+`COC_PI_PDF_INSPECTOR_COMMAND` pointing at
+`$HOME/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router` by default
+and a user-set value always wins. Reinstall/upgrade the binding with
+`cd ~/.pi/coc-tools/pdf-inspector && npm install --save-exact
+@firecrawl/pdf-inspector@1.12.0` (needs Node ≥ 20; verified with Node
+22.19.0 / npm 10.9.3). `COC_PI_PDF_INSPECTOR_BINDING` (optional absolute
+path) overrides the binding module for alternate installs and hermetic
+tests.
+
+The adapter never opens or parses the PDF; it only subprocesses that command
 with a versioned JSON request on stdin and expects a versioned JSON result
-on stdout. On `status=ok` the command must have written a legal schema-v1
+on stdout. The router implements three modes: `locator_first_bundle`
+(native-extract the requested window, default pages 0-4),
+`full_parse_batch` (native-extract `missing_pdf_indices`), and
+`opening_review` (native-extract the opening window, select the contiguous
+1..3 opening slice plus the ≤8 fact-evidence set, and write the bundle at
+the preseeded `source_bundle_path` while retaining preseeded bound pages
+verbatim). On `status=ok` the command must have written a legal schema-v1
 source bundle (`producer: codex-pdf-skill`) at the task's absolute
-`source_bundle_path`. The adapter still runs `load_host_bundle` (and the
-existing register/fulfill half-chain for full-parse) before adopting the
-result. Any unset/invalid command, non-zero exit, timeout, bad JSON,
-`fallback` / `needs_ocr` / `unsupported` / `failed`, path drift, or illegal
-bundle falls through to the existing Pi PDF-skill path (locator/full-parse)
-or to the locator's already-materialized bound pages (opening review).
+`source_bundle_path`. Any requested page that needs OCR yields
+`status=fallback reason=needs_ocr` — the router never OCRs. The adapter
+still runs `load_host_bundle` (and the existing register/fulfill half-chain
+for full-parse) before adopting the result. Any unset/invalid command,
+non-zero exit, timeout, bad JSON, `fallback` / `needs_ocr` / `unsupported` /
+`failed`, path drift, or illegal bundle falls through to the existing Pi
+PDF-skill path (locator/full-parse) or to the locator's already-materialized
+bound pages (opening review).
 
 Opening review is split into two child boundaries and no longer depends on
 the visual Grok/PDF-skill path: (1) page materialization goes through the
