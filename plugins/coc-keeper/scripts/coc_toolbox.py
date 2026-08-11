@@ -12514,11 +12514,8 @@ def _attach_source_host_projection(
 ) -> dict[str, Any]:
     projection = _source_host_work_projection(ctx, asset_root_id)
     result["host_work"] = projection
-    for field in (
-        "background_takeover", "full_parse_dispatch",
-    ):
-        if projection.get(field) is not None:
-            result[field] = projection[field]
+    if projection.get("background_takeover") is not None:
+        result["background_takeover"] = projection["background_takeover"]
     return projection
 
 
@@ -14981,14 +14978,137 @@ def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
     return data, [], hints
 
 
+def _l0_direct_opening_projection(
+    ctx: Ctx,
+    *,
+    root_info: dict[str, Any],
+    location_id: str,
+    title: str,
+    pages: list[int],
+    scope: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Direct-write the opening scene from the source-reviewed module-init L0.
+
+    Returns a ``source_work``-shaped receipt when the module-init L0 is present
+    and validated for this campaign, or ``None`` when the legacy foreground
+    ``partial_opening`` host-work lane must be used instead.  The direct write
+    lifts the L0 opening hooks into a canonical source-bound location pack
+    (player hooks -> read_aloud, keeper hooks -> keeper_only), stores it through
+    the ordinary entity boundary, projects the canonical opening slice, and
+    drains the exact campaign watch — with no claim/fulfill coordinator spine.
+    """
+    module_init_ready, _module_init_reason, document = (
+        coc_runtime_ops._pi_module_init_l0_status(
+            ctx.root, str(ctx.campaign_id),
+        )
+    )
+    if not module_init_ready or not isinstance(document, dict):
+        return None
+    l0 = document.get("l0")
+    if not isinstance(l0, dict):
+        return None
+    assets_mod = coc_module_project.coc_module_assets
+    # Idempotent short-circuit: the direct write already projected this exact
+    # source window (durable receipt + binding + ready L0 pack).  A duplicate
+    # bootstrap then reports current and the outer flow drains the watch to
+    # re-project, instead of re-writing the entity pack.
+    current_binding = (
+        coc_module_project.current_opening_projection_source_binding(
+            ctx.campaign_dir,
+        )
+    )
+    if (
+        isinstance(current_binding, dict)
+        and str(current_binding.get("start_location_id") or "") == location_id
+        and coc_module_project.current_opening_projection_receipt(
+            ctx.campaign_dir,
+        ) is not None
+        and bool(coc_module_project.opening_pack_readiness(
+            ctx.root,
+            root_info["asset_root_id"],
+            location_id,
+            required_source_scope=scope,
+        ).get("ready"))
+    ):
+        return {
+            "status": "current",
+            "idempotent": True,
+            "direct_write": True,
+            "origin": "module_init_l0",
+            "asset_root_id": root_info["asset_root_id"],
+            "start_location_id": location_id,
+        }
+    try:
+        refs = assets_mod._cached_source_refs(
+            ctx.root,
+            root_info["asset_root_id"],
+            {"source_refs": list(scope["page_refs"])},
+            field="opening_l0_direct",
+        )
+        pack = coc_module_project.build_l0_direct_opening_pack(
+            l0,
+            location_id=location_id,
+            title=title,
+            source_refs=refs,
+            scope_pdf_indices=pages,
+        )
+        stored = assets_mod.put_entity(
+            ctx.root,
+            root_info["asset_root_id"],
+            "location",
+            location_id,
+            pack,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError(
+            "opening_l0_direct_write_invalid", str(exc),
+        ) from exc
+    try:
+        projection = coc_module_project.project_selected_opening(
+            ctx.root,
+            str(ctx.campaign_id),
+            root_info["asset_root_id"],
+            str(root_info["file_sha256"]),
+            location_id,
+            pages,
+        )
+        drain = coc_module_project.drain_opening_projection_watches(
+            ctx.root,
+            root_info["asset_root_id"],
+            start_location_id=location_id,
+            source_scope_signature=assets_mod.opening_source_scope_signature(
+                scope
+            ),
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    except coc_module_project.ModuleProjectError as exc:
+        raise ToolError("opening_projection_failed", str(exc)) from exc
+    return {
+        "status": "complete",
+        "idempotent": False,
+        "direct_write": True,
+        "origin": "module_init_l0",
+        "asset_root_id": root_info["asset_root_id"],
+        "start_location_id": location_id,
+        "stored_entity": stored,
+        "opening_projection": projection,
+        "watch_drain": drain,
+    }
+
+
 @tool(
     "progressive.opening_bootstrap",
     "Deterministically publishes the minimal source-bound opening skeleton, "
-    "projects sparse pristine campaign state, enqueues one exact foreground "
-    "source window, and records a campaign-owned auto-projection watch. It "
-    "never reads prose, moves a scene, narrates, waits, claims, or fulfills. "
-    "Invoke once for the accepted setup decision and retain its receipt/watch; "
-    "follow the returned host lifecycle instead of repeating bootstrap.",
+    "projects sparse pristine campaign state, and records a campaign-owned "
+    "auto-projection watch. With a source-reviewed module-init L0 present it "
+    "direct-writes the opening scene from the L0 hooks (player hooks -> "
+    "read_aloud, keeper hooks -> keeper_only) with zero host-work/coordinator "
+    "dependency; without L0 it enqueues the exact foreground partial_opening "
+    "request. It never reads prose, moves a scene, narrates, waits, claims, "
+    "or fulfills. Invoke once for the accepted setup decision and retain its "
+    "receipt/watch; follow the returned host lifecycle instead of repeating "
+    "bootstrap.",
     {
         "start_location": {
             "type": "object",
@@ -15169,15 +15289,26 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
     except coc_module_project.ModuleProjectError as exc:
         raise ToolError("opening_sparse_projection_failed", str(exc)) from exc
     request_data, request_warnings, request_hints = (
-        _tool_progressive_request_opening_pack(ctx, {
-            "asset_root_id": root_info["asset_root_id"],
-            "source_file_sha256": root_info["file_sha256"],
-            "start_location_id": location_id,
-            "opening_pdf_indices": pages,
-            "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
-            "execution_owner": "opening_source_coordinator",
-        })
-    )
+        _l0_direct_opening_projection(
+            ctx,
+            root_info=root_info,
+            location_id=location_id,
+            title=title,
+            pages=pages,
+            scope=scope,
+        )
+    ), [], []
+    if request_data is None:
+        request_data, request_warnings, request_hints = (
+            _tool_progressive_request_opening_pack(ctx, {
+                "asset_root_id": root_info["asset_root_id"],
+                "source_file_sha256": root_info["file_sha256"],
+                "start_location_id": location_id,
+                "opening_pdf_indices": pages,
+                "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
+                "execution_owner": "opening_source_coordinator",
+            })
+        )
     if request_data.get("status") == "current":
         request_data["automatic_projection"] = (
             coc_module_project.drain_opening_projection_watches(

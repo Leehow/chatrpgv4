@@ -75,7 +75,6 @@ const OCR_TIMEOUT_MS = 15 * 60 * 1000;
 // outer budget would have accepted.
 const SOURCE_SCOPE_LOCATOR_TIMEOUT_MS = 20 * 60 * 1000;
 const OPENING_SOURCE_REVIEW_TIMEOUT_MS = 20 * 60 * 1000;
-const FULL_PARSE_BATCH_TIMEOUT_MS = 20 * 60 * 1000;
 const RAW_PDF_BIND_BUNDLE_ERROR = (
   "host source bundle must be a directory (not a file) containing manifest.json"
 );
@@ -6617,264 +6616,6 @@ export async function autoDispatchPiPendingStewardDomains(
   return { status: "submitted", campaign_id: campaignId, domains: queued.sort() };
 }
 
-export function findPiFullParseDispatch(value: unknown): JsonObject | null {
-  const envelope = objectOrNull(value);
-  if (envelope?.ok !== true) return null;
-  const data = objectOrNull(envelope.data);
-  const progressive = objectOrNull(data?.progressive);
-  const sceneContext = objectOrNull(data?.scene_context);
-  const resumeProgressive = objectOrNull(sceneContext?.progressive);
-  const candidates = [
-    objectOrNull(data?.full_parse_dispatch),
-    objectOrNull(progressive?.full_parse_dispatch),
-    objectOrNull(resumeProgressive?.full_parse_dispatch),
-  ].filter((candidate) => candidate !== null) as JsonObject[];
-  if (candidates.length !== 1) return null;
-  const dispatch = candidates[0];
-  const action = objectOrNull(dispatch.next_host_action);
-  const task = objectOrNull(action?.task);
-  return (
-    dispatch.kind === "full_parse_render"
-    && action?.action === "invoke_coc_dispatch_full_parse"
-    && task?.contract_id === "coc.pi-full-parse-render-task.v1"
-  ) ? task : null;
-}
-
-interface FullParseAutoDispatchDeps {
-  isCurrent(): boolean;
-  workspaceRoot: string;
-  command(): string | undefined;
-  call(name: string, args: JsonObject, signal?: AbortSignal): Promise<JsonObject>;
-  states: Map<string, JsonObject>;
-  controllers: Map<string, AbortController>;
-  audit(entry: JsonObject): void;
-  timeoutMs?: number;
-}
-
-export function validatePiFullParseRenderTask(input: unknown): JsonObject {
-  const task = asObject(input, "Pi full-parse render task");
-  exactKeys(task, [
-    "schema_version", "contract_id", "workspace_root", "campaign_id",
-    "asset_root_id", "job_id", "reason", "source", "page_count",
-    "requested_pdf_indices", "cached_pdf_indices", "batch_limit",
-    "source_bundle_path", "source_bundle_manifest_contract",
-    "register_operation", "fulfill_operation", "result_delivery",
-  ], "Pi full-parse render task");
-  if (
-    task.schema_version !== 1
-    || task.contract_id !== "coc.pi-full-parse-render-task.v1"
-    || task.result_delivery !== "natural_completion_notification_only"
-  ) throw new Error("Pi full-parse render task contract drift");
-  for (const field of [
-    "workspace_root", "campaign_id", "asset_root_id", "job_id",
-    "source_bundle_path",
-  ]) nonEmpty(task[field], field);
-  if (
-    !isAbsolute(String(task.workspace_root))
-    || !isAbsolute(String(task.source_bundle_path))
-  ) throw new Error("Pi full-parse render paths must be absolute");
-  const pageCount = task.page_count;
-  if (!Number.isInteger(pageCount) || Number(pageCount) < 1) {
-    throw new Error("Pi full-parse render page_count is invalid");
-  }
-  const batchLimit = task.batch_limit;
-  if (!Number.isInteger(batchLimit) || Number(batchLimit) < 1 || Number(batchLimit) > 32) {
-    throw new Error("Pi full-parse render batch_limit is invalid");
-  }
-  const requested = task.requested_pdf_indices;
-  if (
-    !Array.isArray(requested)
-    || JSON.stringify(requested) !== JSON.stringify(
-      [...Array(Number(pageCount)).keys()],
-    )
-  ) throw new Error("Pi full-parse render requested indices drift");
-  const cached = task.cached_pdf_indices;
-  if (
-    !Array.isArray(cached)
-    || cached.some(
-      (value) => !Number.isInteger(value) || Number(value) < 0,
-    )
-    || JSON.stringify(cached) !== JSON.stringify(
-      [...new Set(cached as number[])].sort((a, b) => a - b),
-    )
-  ) throw new Error("Pi full-parse render cached indices invalid");
-  const workspaceRoot = resolve(String(task.workspace_root));
-  const bundlePath = resolve(String(task.source_bundle_path));
-  if (!bundlePath.startsWith(`${resolve(workspaceRoot, ".tmp", "coc-full-parse")}${sep}`)) {
-    throw new Error("Pi full-parse render bundle path escapes its workspace");
-  }
-  const source = asObject(task.source, "full-parse source");
-  exactKeys(
-    source,
-    ["path", "source_id", "title", "file_sha256"],
-    "full-parse source",
-  );
-  if (
-    !isAbsolute(nonEmpty(source.path, "source.path"))
-    || !nonEmpty(source.source_id, "source.source_id")
-    || !nonEmpty(source.title, "source.title")
-    || !/^[a-f0-9]{64}$/.test(
-      nonEmpty(source.file_sha256, "source.file_sha256"),
-    )
-  ) throw new Error("Pi full-parse render source identity is invalid");
-  return structuredClone(task);
-}
-
-async function runPiFullParseBatch(
-  task: JsonObject,
-  command: string,
-  signal: AbortSignal | undefined,
-  timeoutMs: number | undefined,
-): Promise<JsonObject> {
-  return runLocatorProcess(
-    command,
-    ["--run-full-parse-batch"],
-    JSON.stringify(task),
-    timeoutMs ?? FULL_PARSE_BATCH_TIMEOUT_MS,
-    signal,
-  );
-}
-
-export async function autoDispatchPiFullParse(
-  deps: FullParseAutoDispatchDeps,
-  toolName: string,
-  value: unknown,
-): Promise<JsonObject | null> {
-  if (toolName !== "coc_invoke") return null;
-  const rawTask = findPiFullParseDispatch(value);
-  if (rawTask === null) return null;
-  let task: JsonObject;
-  try { task = validatePiFullParseRenderTask(rawTask); }
-  catch {
-    const failure = {
-      status: "validation_failed",
-      dispatch_key: null,
-      failure_class: "full_parse_render_task_invalid",
-    };
-    deps.audit(failure);
-    return failure;
-  }
-  const key = `full-parse:${nonEmpty(task.job_id, "job_id")}`;
-  const previous = deps.states.get(key);
-  if (previous !== undefined) return previous;
-  const finish = (entry: JsonObject) => {
-    deps.states.set(key, entry);
-    deps.audit(entry);
-    return entry;
-  };
-  const retryable = (entry: JsonObject) => {
-    deps.audit(entry);
-    deps.states.delete(key);
-    return entry;
-  };
-  const submitted = { status: "submitted", dispatch_key: key };
-  finish(submitted);
-  const command = deps.command();
-  if (!command || !isAbsolute(command) || !deps.isCurrent()) {
-    return retryable({
-      status: "retryable_failure",
-      dispatch_key: key,
-      failure_class: !deps.isCurrent()
-        ? "session_closed"
-        : "full_parse_render_command_unavailable",
-    });
-  }
-  const controller = new AbortController();
-  deps.controllers.set(key, controller);
-  const fulfill = async (
-    pack: JsonObject,
-  ): Promise<"fulfilled" | "rejected"> => {
-    try {
-      const envelope = await deps.call("coc_invoke", {
-        operation: "progressive.fulfill_host_work",
-        root: task.workspace_root,
-        campaign: task.campaign_id,
-        arguments: {
-          worker_result: {
-            job_id: task.job_id,
-            pack,
-            related_packs: [],
-          },
-        },
-      }, controller.signal);
-      return objectOrNull(envelope)?.ok === true ? "fulfilled" : "rejected";
-    } catch {
-      return "rejected";
-    }
-  };
-  try {
-    let receipt: JsonObject;
-    try {
-      receipt = await runPiFullParseBatch(
-        task, command, controller.signal, deps.timeoutMs,
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      const failure = {
-        status: "failed",
-        dispatch_key: key,
-        failure_class: controller.signal.aborted
-          ? "full_parse_render_aborted"
-          : message.includes("timed out")
-            ? "full_parse_render_timeout"
-            : message.includes("capability")
-              ? "full_parse_render_preflight_failed"
-              : "full_parse_render_process_failed",
-      };
-      if (failure.failure_class === "full_parse_render_timeout") {
-        await fulfill({ status: "failed", failure_class: "render_timeout" });
-      }
-      return finish(failure);
-    }
-    if (!deps.isCurrent()) {
-      return finish({
-        status: "session_closed",
-        dispatch_key: key,
-        failure_class: "session_closed_before_fulfillment",
-      });
-    }
-    const rows = (receipt as { results?: unknown }).results;
-    if (
-      receipt.contract_id !== "coc.source-pack-worker.v1"
-      || receipt.status !== "usable"
-      || !Array.isArray(rows)
-      || rows.length !== 1
-    ) {
-      return finish({
-        status: "failed",
-        dispatch_key: key,
-        failure_class: "full_parse_render_receipt_invalid",
-      });
-    }
-    const row = objectOrNull(rows[0]);
-    if (row === null || row.job_id !== task.job_id) {
-      return finish({
-        status: "failed",
-        dispatch_key: key,
-        failure_class: "full_parse_render_receipt_binding_drift",
-      });
-    }
-    const pack = objectOrNull(row.pack);
-    if (pack === null) {
-      return finish({
-        status: "failed",
-        dispatch_key: key,
-        failure_class: "full_parse_render_receipt_invalid",
-      });
-    }
-    const delivered = await fulfill(pack);
-    return finish({
-      status: delivered === "fulfilled" ? "fulfilled" : "fulfill_rejected",
-      dispatch_key: key,
-      ...(delivered === "rejected" ? { failure_class: "fulfill_rejected" } : {}),
-    });
-  } finally {
-    if (deps.controllers.get(key) === controller) {
-      deps.controllers.delete(key);
-    }
-  }
-}
-
 function blockingOpeningProjectionCall(
   originalParams: JsonObject,
   bootstrapValue: unknown,
@@ -7091,9 +6832,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let rawPdfBindBundleInflightCampaigns = new Map<string, string>();
   let rawPdfBindBundleWaitNotifiedCampaigns = new Set<string>();
   let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
-  let fullParseRenderStates = new Map<string, JsonObject>();
-  let fullParseRenderControllers = new Map<string, AbortController>();
-  let fullParseRenderRuns = new Set<Promise<unknown>>();
   let pendingStewardRefillStates = new Map<string, JsonObject>();
   let pendingStewardRefillRuns = new Set<Promise<unknown>>();
   let startupResumeGate: StartupResumeGate | null = null;
@@ -7332,22 +7070,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* lifecycle audit is best effort */ }
     },
   });
-  const fullParseDispatchDeps = (
-    ctx: ExtensionContext,
-    epoch: number,
-  ): FullParseAutoDispatchDeps => ({
-
-    isCurrent: () => isCurrent(epoch),
-    workspaceRoot: resolve(ctx.cwd),
-    command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
-    call: (name, args, signal) => client(ctx).callTool(name, args, signal),
-    states: fullParseRenderStates,
-    controllers: fullParseRenderControllers,
-    audit: (entry) => {
-      try { pi.appendEntry("coc-full-parse-render-lifecycle", entry); }
-      catch { /* lifecycle audit is best effort */ }
-    },
-  });
   const initializeSession = (ctx: ExtensionContext): string | null => {
     sessionEpoch += 1;
     sessionClosing = false;
@@ -7362,9 +7084,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleInflightCampaigns = new Map<string, string>();
     rawPdfBindBundleWaitNotifiedCampaigns = new Set<string>();
     rawPdfBindBundleRuns = new Set<Promise<unknown>>();
-    fullParseRenderStates = new Map<string, JsonObject>();
-    fullParseRenderControllers = new Map<string, AbortController>();
-    fullParseRenderRuns = new Set<Promise<unknown>>();
     pendingStewardRefillStates = new Map<string, JsonObject>();
     pendingStewardRefillRuns = new Set<Promise<unknown>>();
     const startupCampaignId = overrides.startupCampaignId === undefined
@@ -8308,15 +8027,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       sourceProducerRuns.add(openingReviewRun);
       void openingReviewRun.catch(() => {}).finally(() => {
         sourceProducerRuns.delete(openingReviewRun);
-      });
-      const fullParseRun = autoDispatchPiFullParse(
-        fullParseDispatchDeps(ctx, epoch),
-        name,
-        value,
-      );
-      fullParseRenderRuns.add(fullParseRun);
-      void fullParseRun.catch(() => {}).finally(() => {
-        fullParseRenderRuns.delete(fullParseRun);
       });
       const pendingStewardRefillRun = autoDispatchPiPendingStewardDomains(
         pendingStewardRefillDispatchDeps(ctx, epoch), params, value,

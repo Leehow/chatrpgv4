@@ -12456,6 +12456,190 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     assert _opening_state_bytes_without_audit(ws["workspace"]) == before_repeat
 
 
+def _l0_direct_opening_l0() -> dict:
+    """L0 with one player hook, one keeper hook, and handout refs."""
+    l0 = _minimal_module_init_l0()
+    l0["opening_hooks"] = [
+        {
+            "id": "opening-player",
+            "audience": "player",
+            "text": "A bounded authored opening.",
+            "variant_of": None,
+        },
+        {
+            "id": "opening-keeper",
+            "audience": "keeper",
+            "text": "Keeper-only opening note.",
+            "variant_of": None,
+        },
+    ]
+    l0["opening_handouts"] = [
+        {"id": "handout-1", "title": "小卡片#1", "when_to_give": "开场简报"},
+    ]
+    return l0
+
+
+def test_opening_bootstrap_l0_direct_write_skips_coordinator(
+    tmp_path: Path, monkeypatch,
+):
+    """A validated module-init L0 writes the opening scene without any
+    partial_opening claim/fulfill or coordinator spine, and evidence.
+    table_opening still gates on the projected source."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(
+        tmp_path, extra_pdf_indices=(1,), source_page_count=2,
+    )
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=_l0_direct_opening_l0(),
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    args = {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    }
+    boot = _run(ws, "progressive.opening_bootstrap", args)
+    assert boot["ok"] is True, boot
+    data = boot["data"]
+    assert data["status"] == "complete"
+    source_work = data["source_work"]
+    assert source_work["direct_write"] is True
+    assert source_work["origin"] == "module_init_l0"
+    assert "background_takeover" not in source_work
+    assert "job_id" not in source_work
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    all_work = assets.list_host_work_requests(
+        ws["workspace"], ws["asset_root_id"],
+        include_closed=True, limit=None,
+    )
+    assert all(
+        row.get("kind") != "partial_opening" for row in all_work
+    ), [row for row in all_work if row.get("kind") == "partial_opening"]
+    queue = assets.list_queue(ws["workspace"], ws["asset_root_id"])
+    assert all(
+        row.get("kind") != "partial_opening"
+        for row in [
+            *queue.get("pending", []),
+            *queue.get("in_flight", []),
+            *queue.get("done", []),
+        ]
+    )
+
+    scenario = json.loads((
+        ws["campaign_dir"] / "scenario" / "scenario.json"
+    ).read_text(encoding="utf-8"))
+    assert scenario["opening_projection_watch"]["status"] == "complete"
+    assert "opening_projection_receipt" in scenario
+    assert "opening_projection_source_binding" in scenario
+
+    readiness = coc_toolbox.coc_module_project.opening_source_readiness(
+        ws["campaign_dir"],
+    )
+    assert readiness["state"] == "ready", readiness
+
+    # The L0 text landed in the durable canonical opening pack with the same
+    # source-evidence discipline a foreground partial slice would carry.
+    pack = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    assert pack["parse_state"] == "partial"
+    assert pack["evidence_gap"] is False
+    assert [row["text"] for row in pack["read_aloud"]] == [
+        "A bounded authored opening."
+    ]
+    assert [row["note"] for row in pack["keeper_only"]] == [
+        "Keeper-only opening note."
+    ]
+    assert pack["source_evidence"]["pdf_indices"] == [0]
+    assert pack["provenance"]["authority"] == "source_authored"
+    assert pack["provenance"]["basis"] == "module_init_l0"
+
+    # The projected-source gate lets the player-visible opening be recorded.
+    # (A duplicate bootstrap while pristine re-sparses the IR and the gate
+    # then issues the project_opening refresh card — same transient recovery
+    # as the legacy partial lane — so the opening evidence runs first.)
+    opening = _run(ws, "evidence.table_opening", {
+        "text": "A bounded authored opening.",
+        "run_id": "l0-direct-run",
+        "presented_roll_ids": [],
+        "decision_id": "l0-direct-opening-evidence",
+    })
+    assert opening["ok"] is True, opening
+    assert opening["data"]["text"]
+
+    # Duplicate bootstrap is idempotent-current with no second materialization.
+    repeated = _run(ws, "progressive.opening_bootstrap", args)
+    assert repeated["ok"] is True, repeated
+    assert repeated["data"]["status"] == "current"
+    assert repeated["data"]["idempotent"] is True
+    assert repeated["data"]["source_work"]["status"] == "current"
+
+
+def test_l0_direct_opening_pack_is_equivalent_partial_structure():
+    """The pure L0 builder emits the same projection fields a foreground
+    partial opening slice would, with read_aloud/keeper_only split by hook
+    audience and cache-backed source evidence."""
+    project = coc_toolbox.coc_module_project
+    l0 = _l0_direct_opening_l0()
+    refs = [{
+        "source_id": "pdf:opening-component",
+        "pdf_index": 0,
+        "text_sha256": "a" * 64,
+        "bundle_sha256s": ["b" * 64],
+    }]
+    pack = project.build_l0_direct_opening_pack(
+        l0,
+        location_id="opening",
+        title="Opening",
+        source_refs=refs,
+        scope_pdf_indices=[0],
+    )
+    assert set(pack) >= {
+        "location_id", "title", "parse_state", "evidence_gap",
+        "player_safe_summary", "read_aloud", "keeper_only",
+        "source_refs", "source_page_indices", "origin", "provenance",
+    }
+    assert pack["parse_state"] == "partial"
+    assert pack["player_safe_summary"] == "A bounded authored opening."
+    assert pack["read_aloud"][0]["trigger"] == "on_enter"
+    assert pack["read_aloud"][0]["source_refs"] == refs
+    assert pack["keeper_only"][0]["note"] == "Keeper-only opening note."
+    assert pack["source_page_indices"] == [0]
+
+
+def test_opening_bootstrap_l0_direct_write_falls_back_without_module_init(
+    tmp_path: Path, monkeypatch,
+):
+    """Without a validated module-init L0 the legacy foreground partial_opening
+    lane stays available (no behavior regression for non-Pi/host flows)."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    args = {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    }
+    boot = _run(ws, "progressive.opening_bootstrap", args)
+    assert boot["ok"] is True, boot
+    assert boot["data"]["status"] == "queued"
+    assert boot["data"]["source_work"]["job_id"]
+    assert (
+        boot["data"]["source_work"]["background_takeover"]["next_host_action"]
+        ["action"] == "invoke_coc_dispatch_source_work"
+    )
+
+
 def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
     tmp_path: Path, monkeypatch,
 ):
@@ -13559,7 +13743,9 @@ def _minimal_module_init_l0() -> dict:
     }
 
 
-def _stage_reviewed_facts_transport(ws: dict) -> tuple[Path, dict]:
+def _stage_reviewed_facts_transport(
+    ws: dict, *, module_init_l0: dict | None = None,
+) -> tuple[Path, dict]:
     scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
     scenario.update({
@@ -13591,7 +13777,8 @@ def _stage_reviewed_facts_transport(ws: dict) -> tuple[Path, dict]:
         ws["workspace"],
         receipt,
         source_facts=facts,
-        module_init_l0=_minimal_module_init_l0(),
+        module_init_l0=module_init_l0
+        if module_init_l0 is not None else _minimal_module_init_l0(),
     )
     return scenario_path, facts
 
@@ -14307,10 +14494,17 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         scenario_path.read_text(encoding="utf-8")
     )["source"]["bundle_sha256"]
 
-    def fake_pi(prompt: str, cwd: Path, *, timeout: int, shutdown=None) -> dict:
+    # The page split now lives in _materialize_opening_bundle; with no
+    # router configured the preseed lane keeps the bound page set. Only the
+    # text extractor is mocked, so the full bind/fulfill seam stays real.
+    monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
+
+    def fake_extractor(
+        task_arg: dict, materialized: dict, *, timeout: int, shutdown=None,
+    ) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
-        assert "challenge" not in prompt
-        task = json.loads(prompt.splitlines()[-1])
+        assert "challenge" not in json.dumps(task_arg)
+        task = task_arg
         manifest_contract = json.loads(
             (
                 REPO / "plugins/coc-keeper/references"
@@ -14339,37 +14533,39 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         )
         assert reusable["bundle_sha256"] == expected_bundle_sha256
         assert [row["pdf_index"] for row in reusable["manifest"]["pages"]] == [0]
-        captured.update({"task": task, "cwd": cwd, "calls": 1})
+        captured.update({"task": task, "calls": 1})
         output = Path(task["source_bundle_path"])
         assert output != ws["workspace"] / "opening-source"
         assert output.is_relative_to(
             ws["workspace"] / ".tmp" / "coc-opening-source-review"
             / ws["campaign_id"]
         )
-        assert cwd == output.parent
         preseeded = json.loads(
             (output / "manifest.json").read_text(encoding="utf-8")
         )
         assert preseeded == reusable["manifest"]
         relative = Path(preseeded["pages"][0]["markdown_path"])
         assert (output / relative).read_bytes() == cached_before
+        assert materialized["selected_opening_pdf_indices"] == [0]
+        assert materialized["fact_evidence_pdf_indices"] == [0]
+        assert materialized["source"] == "preseed"
         return {
             "schema_version": 1,
-            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
             "status": "reviewed",
             "campaign_id": task["campaign_id"],
             "scenario_id": task["scenario_id"],
-            "selected_opening_pdf_indices": [0],
-            "fact_evidence_pdf_indices": [0],
+            "source_bundle_path": task["source_bundle_path"],
+            "failure_class": None,
             "facts": _pi_opening_adapter_facts(
                 task["source"]["source_id"], [0],
             ),
             "module_init_l0": _pi_opening_adapter_l0(),
-            "source_bundle_path": task["source_bundle_path"],
-            "failure_class": None,
         }
 
-    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+    monkeypatch.setattr(
+        adapter, "_run_opening_text_extractor", fake_extractor,
+    )
 
     class AdapterInput:
         def __init__(self):
@@ -14455,10 +14651,12 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
     )
     cached_before = cached_path.read_bytes()
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
-        assert timeout == adapter.PI_TIMEOUT_SECONDS
-        task = json.loads(prompt.splitlines()[-1])
-        output = Path(task["source_bundle_path"])
+    # Materialization owns the page split now: the router lane mixes the
+    # retained page 0 with a new adjacent page 1 it adds to the bundle.
+    def fake_materialize(
+        task_arg: dict, private: dict, pdf_bundle, request: dict, shutdown,
+    ) -> dict:
+        output = Path(task_arg["source_bundle_path"])
         manifest_path = output / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert [row["pdf_index"] for row in manifest["pages"]] == [0]
@@ -14477,22 +14675,36 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
         })
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         return {
-            "schema_version": 1,
-            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
-            "status": "reviewed",
-            "campaign_id": task["campaign_id"],
-            "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0, 1],
             "fact_evidence_pdf_indices": [1],
-            "facts": _pi_opening_adapter_facts(
-                task["source"]["source_id"], [1],
-            ),
-            "module_init_l0": _pi_opening_adapter_l0(),
-            "source_bundle_path": task["source_bundle_path"],
-            "failure_class": None,
+            "bundle": None,
+            "source": "router",
         }
 
-    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+    def fake_extractor(
+        task_arg: dict, materialized: dict, *, timeout: int, shutdown=None,
+    ) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        assert materialized["selected_opening_pdf_indices"] == [0, 1]
+        assert materialized["fact_evidence_pdf_indices"] == [1]
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
+            "status": "reviewed",
+            "campaign_id": task_arg["campaign_id"],
+            "scenario_id": task_arg["scenario_id"],
+            "source_bundle_path": task_arg["source_bundle_path"],
+            "failure_class": None,
+            "facts": _pi_opening_adapter_facts(
+                task_arg["source"]["source_id"], [1],
+            ),
+            "module_init_l0": _pi_opening_adapter_l0(),
+        }
+
+    monkeypatch.setattr(adapter, "_materialize_opening_bundle", fake_materialize)
+    monkeypatch.setattr(
+        adapter, "_run_opening_text_extractor", fake_extractor,
+    )
 
     class AdapterInput:
         def __init__(self):
@@ -14534,10 +14746,12 @@ def test_pi_opening_review_adapter_rejects_changed_reused_page(
     )
     cached_before = cached_path.read_bytes()
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
-        assert timeout == adapter.PI_TIMEOUT_SECONDS
-        task = json.loads(prompt.splitlines()[-1])
-        output = Path(task["source_bundle_path"])
+    # The materializer (router lane) rewrites the retained page's bytes; the
+    # splice seam must reject the edit before any receipt is authored.
+    def fake_materialize(
+        task_arg: dict, private: dict, pdf_bundle, request: dict, shutdown,
+    ) -> dict:
+        output = Path(task_arg["source_bundle_path"])
         manifest_path = output / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         page = manifest["pages"][0]
@@ -14547,22 +14761,35 @@ def test_pi_opening_review_adapter_rejects_changed_reused_page(
         page["grep_anchors"] = ["A changed retranscription."]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         return {
-            "schema_version": 1,
-            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
-            "status": "reviewed",
-            "campaign_id": task["campaign_id"],
-            "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
             "fact_evidence_pdf_indices": [0],
-            "facts": _pi_opening_adapter_facts(
-                task["source"]["source_id"], [0],
-            ),
-            "module_init_l0": _pi_opening_adapter_l0(),
-            "source_bundle_path": task["source_bundle_path"],
-            "failure_class": None,
+            "bundle": None,
+            "source": "router",
         }
 
-    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+    def fake_extractor(
+        task_arg: dict, materialized: dict, *, timeout: int, shutdown=None,
+    ) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        assert materialized["selected_opening_pdf_indices"] == [0]
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
+            "status": "reviewed",
+            "campaign_id": task_arg["campaign_id"],
+            "scenario_id": task_arg["scenario_id"],
+            "source_bundle_path": task_arg["source_bundle_path"],
+            "failure_class": None,
+            "facts": _pi_opening_adapter_facts(
+                task_arg["source"]["source_id"], [0],
+            ),
+            "module_init_l0": _pi_opening_adapter_l0(),
+        }
+
+    monkeypatch.setattr(adapter, "_materialize_opening_bundle", fake_materialize)
+    monkeypatch.setattr(
+        adapter, "_run_opening_text_extractor", fake_extractor,
+    )
 
     class AdapterInput:
         def __init__(self):
@@ -14603,11 +14830,13 @@ def test_pi_opening_review_adapter_splices_an_equivalent_raw_page_row_rewrite(
     cached_before = cached_path.read_bytes()
     captured: dict = {}
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
-        assert timeout == adapter.PI_TIMEOUT_SECONDS
-        task = json.loads(prompt.splitlines()[-1])
-        captured.update({"task": task})
-        manifest_path = Path(task["source_bundle_path"]) / "manifest.json"
+    # The materializer echoes a cosmetically equivalent page-0 row; the
+    # splice seam must author the retained row back over it.
+    def fake_materialize(
+        task_arg: dict, private: dict, pdf_bundle, request: dict, shutdown,
+    ) -> dict:
+        captured.update({"task": task_arg})
+        manifest_path = Path(task_arg["source_bundle_path"]) / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         assert manifest["pages"][0]["markdown_path"] == "page-0000.md"
         manifest["pages"][0] = {
@@ -14624,22 +14853,34 @@ def test_pi_opening_review_adapter_splices_an_equivalent_raw_page_row_rewrite(
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         captured.update({"echoed": manifest["pages"][0]})
         return {
-            "schema_version": 1,
-            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
-            "status": "reviewed",
-            "campaign_id": task["campaign_id"],
-            "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
             "fact_evidence_pdf_indices": [0],
-            "facts": _pi_opening_adapter_facts(
-                task["source"]["source_id"], [0],
-            ),
-            "module_init_l0": _pi_opening_adapter_l0(),
-            "source_bundle_path": task["source_bundle_path"],
-            "failure_class": None,
+            "bundle": None,
+            "source": "router",
         }
 
-    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+    def fake_extractor(
+        task_arg: dict, materialized: dict, *, timeout: int, shutdown=None,
+    ) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
+            "status": "reviewed",
+            "campaign_id": task_arg["campaign_id"],
+            "scenario_id": task_arg["scenario_id"],
+            "source_bundle_path": task_arg["source_bundle_path"],
+            "failure_class": None,
+            "facts": _pi_opening_adapter_facts(
+                task_arg["source"]["source_id"], [0],
+            ),
+            "module_init_l0": _pi_opening_adapter_l0(),
+        }
+
+    monkeypatch.setattr(adapter, "_materialize_opening_bundle", fake_materialize)
+    monkeypatch.setattr(
+        adapter, "_run_opening_text_extractor", fake_extractor,
+    )
 
     class AdapterInput:
         def __init__(self):
@@ -14687,37 +14928,41 @@ def test_pi_opening_review_adapter_accepts_untouched_normalized_raw_page_row(
         / "pages" / "0000.md"
     )
     cached_before = cached_path.read_bytes()
+    # The retained bundle itself is already normalized; the preseed lane
+    # keeps that spelling through materialize, splice, and the final bundle.
+    monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
     captured: dict = {}
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
+    def fake_extractor(
+        task_arg: dict, materialized: dict, *, timeout: int, shutdown=None,
+    ) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
-        task = json.loads(prompt.splitlines()[-1])
         output_manifest = json.loads(
             (
-                Path(task["source_bundle_path"]) / "manifest.json"
+                Path(task_arg["source_bundle_path"]) / "manifest.json"
             ).read_text(encoding="utf-8")
         )
         assert output_manifest["pages"][0]["markdown_path"] == (
             "./page-0000.md"
         )
-        captured.update(task)
+        captured.update(task_arg)
         return {
             "schema_version": 1,
-            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
             "status": "reviewed",
-            "campaign_id": task["campaign_id"],
-            "scenario_id": task["scenario_id"],
-            "selected_opening_pdf_indices": [0],
-            "fact_evidence_pdf_indices": [0],
+            "campaign_id": task_arg["campaign_id"],
+            "scenario_id": task_arg["scenario_id"],
+            "source_bundle_path": task_arg["source_bundle_path"],
+            "failure_class": None,
             "facts": _pi_opening_adapter_facts(
-                task["source"]["source_id"], [0],
+                task_arg["source"]["source_id"], [0],
             ),
             "module_init_l0": _pi_opening_adapter_l0(),
-            "source_bundle_path": task["source_bundle_path"],
-            "failure_class": None,
         }
 
-    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+    monkeypatch.setattr(
+        adapter, "_run_opening_text_extractor", fake_extractor,
+    )
 
     class AdapterInput:
         def __init__(self):
@@ -14750,10 +14995,12 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
         adapter, "_validate_opening_review_transport", lambda value: value,
     )
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
-        assert timeout == adapter.PI_TIMEOUT_SECONDS
-        task = json.loads(prompt.splitlines()[-1])
-        output = Path(task["source_bundle_path"])
+    # The materializer writes a legacy shortcut manifest over the preseed;
+    # the post-splice host-bundle validation must reject it.
+    def fake_materialize(
+        task_arg: dict, private: dict, pdf_bundle, request: dict, shutdown,
+    ) -> dict:
+        output = Path(task_arg["source_bundle_path"])
         page = b"# Legacy shortcut\n\nThis shape is unsupported.\n"
         # A retained preseed file is read-only; write the legacy page beside
         # it so this test exercises the legacy manifest shape, not the
@@ -14763,10 +15010,10 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
             "schema_version": 1,
             "contract_id": "coc.codex-pdf-skill-bundle.v1",
             "source": {
-                "source_id": task["source"]["source_id"],
-                "title": task["title"],
-                "path": task["source"]["path"],
-                "file_sha256": task["source"]["file_sha256"],
+                "source_id": task_arg["source"]["source_id"],
+                "title": task_arg["title"],
+                "path": task_arg["source"]["path"],
+                "file_sha256": task_arg["source"]["file_sha256"],
             },
             "pages": [{
                 "pdf_index": 0,
@@ -14776,22 +15023,34 @@ def test_pi_opening_review_adapter_rejects_legacy_shortcut_bundle(
             }],
         }), encoding="utf-8")
         return {
-            "schema_version": 1,
-            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
-            "status": "reviewed",
-            "campaign_id": task["campaign_id"],
-            "scenario_id": task["scenario_id"],
             "selected_opening_pdf_indices": [0],
             "fact_evidence_pdf_indices": [0],
-            "facts": _pi_opening_adapter_facts(
-                task["source"]["source_id"], [0],
-            ),
-            "module_init_l0": _pi_opening_adapter_l0(),
-            "source_bundle_path": task["source_bundle_path"],
-            "failure_class": None,
+            "bundle": None,
+            "source": "router",
         }
 
-    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+    def fake_extractor(
+        task_arg: dict, materialized: dict, *, timeout: int, shutdown=None,
+    ) -> dict:
+        assert timeout == adapter.PI_TIMEOUT_SECONDS
+        return {
+            "schema_version": 1,
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
+            "status": "reviewed",
+            "campaign_id": task_arg["campaign_id"],
+            "scenario_id": task_arg["scenario_id"],
+            "source_bundle_path": task_arg["source_bundle_path"],
+            "failure_class": None,
+            "facts": _pi_opening_adapter_facts(
+                task_arg["source"]["source_id"], [0],
+            ),
+            "module_init_l0": _pi_opening_adapter_l0(),
+        }
+
+    monkeypatch.setattr(adapter, "_materialize_opening_bundle", fake_materialize)
+    monkeypatch.setattr(
+        adapter, "_run_opening_text_extractor", fake_extractor,
+    )
 
     class AdapterInput:
         def __init__(self):
@@ -14817,26 +15076,30 @@ def test_pi_opening_review_adapter_failed_producer_does_not_forge_fulfillment(
     monkeypatch.setattr(
         adapter, "_validate_opening_review_transport", lambda value: value,
     )
+    # The preseed materialization lane is deterministic; the extractor
+    # reports a failed review that must never forge a fulfillment receipt.
+    monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
     calls = []
 
-    def fake_pi(prompt: str, _cwd: Path, *, timeout: int, shutdown=None) -> dict:
-        calls.append((prompt, timeout))
-        task = json.loads(prompt.splitlines()[-1])
+    def fake_extractor(
+        task_arg: dict, materialized: dict, *, timeout: int, shutdown=None,
+    ) -> dict:
+        calls.append((task_arg, timeout))
         return {
             "schema_version": 1,
-            "contract_id": "coc.pi-opening-pdf-producer-result.v1",
+            "contract_id": "coc.pi-opening-text-extractor-result.v1",
             "status": "failed",
-            "campaign_id": task["campaign_id"],
-            "scenario_id": task["scenario_id"],
-            "selected_opening_pdf_indices": [],
-            "fact_evidence_pdf_indices": [],
+            "campaign_id": task_arg["campaign_id"],
+            "scenario_id": task_arg["scenario_id"],
             "source_bundle_path": None,
             "failure_class": "pdf_scope_failed",
             "facts": None,
             "module_init_l0": None,
         }
 
-    monkeypatch.setattr(adapter, "_run_pi", fake_pi)
+    monkeypatch.setattr(
+        adapter, "_run_opening_text_extractor", fake_extractor,
+    )
 
     class AdapterInput:
         def __init__(self):

@@ -1642,6 +1642,23 @@ def _opening_pack_claims_match_revalidation(
     return all(stored.get(field) == revalidated.get(field) for field in evidence_fields)
 
 
+def _l0_direct_pack_marker(pack: dict[str, Any]) -> bool:
+    """True when a partial opening pack was repository-authored from L0.
+
+    opening_bootstrap writes the L0 opening slice directly through put_entity;
+    such a pack is the exact selected-window scope by construction and never
+    carries a host-work ingest receipt, so the partial binding check must not
+    demand one.  The marker is validated here so a spoofed marker still needs
+    the full source-evidence and scope-coverage proof below.
+    """
+    marker = pack.get("l0_direct_opening")
+    return (
+        isinstance(marker, dict)
+        and marker.get("schema_version") == 1
+        and str(marker.get("source") or "") == "module-init.json"
+    )
+
+
 def _opening_pack_has_accepted_source_evidence(pack: dict[str, Any]) -> bool:
     evidence = (
         pack.get("source_evidence")
@@ -1787,69 +1804,84 @@ def opening_pack_readiness(
     if state not in {"deep", "body_parsed", "partial"}:
         blockers.append({"code": "opening_pack_depth_missing", "entity_id": start_location_id})
     if state == "partial":
-        ingest_receipt = coc_module_assets.current_ingest_fulfillment_receipt(
-            pack
-        )
-        job_id = str((ingest_receipt or {}).get("job_id") or "").strip()
-        requests = coc_module_assets.list_host_work_requests(
-            workspace, asset_root_id, include_closed=True, limit=None,
-        )
-        request = next(
-            (
-                row for row in requests
-                if str(row.get("job_id") or "") == job_id
-            ),
-            None,
-        )
-        exact_partial = False
-        if (
-            job_id
-            and isinstance(request, dict)
-            and request.get("status") == "fulfilled"
-            and request.get("kind") == "partial_opening"
-            and request.get("request_purpose")
-            == coc_module_assets.FOREGROUND_OPENING_PURPOSE
-            and str(request.get("target_id") or "") == start_location_id
-            and coc_module_assets.fulfilled_request_matches_current_pack(
-                request,
-                pack,
-                kind="location",
-                entity_id=start_location_id,
+        # A repository-authored L0 opening slice is a partial opening without
+        # any host-work claim/fulfill spine: opening_bootstrap wrote it from
+        # the source-reviewed module-init L0 and it is already the exact
+        # selected-window scope.  It needs the same source-scope coverage
+        # proof the deep/body_parsed lane uses, never a host-work receipt.
+        if _l0_direct_pack_marker(pack):
+            if (
+                canonical_scope is not None
+                and not _opening_pack_covers_source_scope(pack, canonical_scope)
+            ):
+                blockers.append({
+                    "code": "opening_pack_source_scope_mismatch",
+                    "entity_id": start_location_id,
+                })
+        else:
+            ingest_receipt = coc_module_assets.current_ingest_fulfillment_receipt(
+                pack
             )
-        ):
-            try:
-                exact_scope = coc_module_assets.validate_opening_source_scope(
-                    workspace,
-                    asset_root_id,
-                    request.get("requested_source_scope"),
+            job_id = str((ingest_receipt or {}).get("job_id") or "").strip()
+            requests = coc_module_assets.list_host_work_requests(
+                workspace, asset_root_id, include_closed=True, limit=None,
+            )
+            request = next(
+                (
+                    row for row in requests
+                    if str(row.get("job_id") or "") == job_id
+                ),
+                None,
+            )
+            exact_partial = False
+            if (
+                job_id
+                and isinstance(request, dict)
+                and request.get("status") == "fulfilled"
+                and request.get("kind") == "partial_opening"
+                and request.get("request_purpose")
+                == coc_module_assets.FOREGROUND_OPENING_PURPOSE
+                and str(request.get("target_id") or "") == start_location_id
+                and coc_module_assets.fulfilled_request_matches_current_pack(
+                    request,
+                    pack,
+                    kind="location",
+                    entity_id=start_location_id,
                 )
-                expected_signature = coc_module_assets.opening_source_scope_signature(
-                    exact_scope
-                )
-                canonical_pack_refs = [
-                    _opening_scope_page_ref(row)
-                    for row in (pack.get("source_refs") or [])
-                    if isinstance(row, dict) and isinstance(row.get("pdf_index"), int)
-                ]
-                exact_partial = (
-                    str(request.get("source_scope_signature") or "")
-                    == expected_signature
-                    and canonical_pack_refs == exact_scope["page_refs"]
-                    and coc_module_assets._source_indices(
-                        pack, field="opening_partial_pack",
+            ):
+                try:
+                    exact_scope = coc_module_assets.validate_opening_source_scope(
+                        workspace,
+                        asset_root_id,
+                        request.get("requested_source_scope"),
                     )
-                    == exact_scope["pdf_indices"]
-                    and canonical_scope is not None
-                    and exact_scope == canonical_scope
-                )
-            except coc_module_assets.ModuleAssetsError:
-                exact_partial = False
-        if not exact_partial:
-            blockers.append({
-                "code": "opening_partial_binding_invalid",
-                "entity_id": start_location_id,
-                "job_id": job_id or None,
-            })
+                    expected_signature = coc_module_assets.opening_source_scope_signature(
+                        exact_scope
+                    )
+                    canonical_pack_refs = [
+                        _opening_scope_page_ref(row)
+                        for row in (pack.get("source_refs") or [])
+                        if isinstance(row, dict) and isinstance(row.get("pdf_index"), int)
+                    ]
+                    exact_partial = (
+                        str(request.get("source_scope_signature") or "")
+                        == expected_signature
+                        and canonical_pack_refs == exact_scope["page_refs"]
+                        and coc_module_assets._source_indices(
+                            pack, field="opening_partial_pack",
+                        )
+                        == exact_scope["pdf_indices"]
+                        and canonical_scope is not None
+                        and exact_scope == canonical_scope
+                    )
+                except coc_module_assets.ModuleAssetsError:
+                    exact_partial = False
+            if not exact_partial:
+                blockers.append({
+                    "code": "opening_partial_binding_invalid",
+                    "entity_id": start_location_id,
+                    "job_id": job_id or None,
+                })
     elif state in {"body_parsed", "deep"} and canonical_scope is not None:
         if not _opening_pack_covers_source_scope(pack, canonical_scope):
             blockers.append({
@@ -2824,6 +2856,119 @@ def _opening_expected_seed_ir(start_location_id: str) -> dict[str, Any]:
         "pacing-map.json": {"curve": []},
         "improvisation-boundaries.json": {"keeper_secrets": []},
     }
+
+
+def build_l0_direct_opening_pack(
+    l0: dict[str, Any],
+    *,
+    location_id: str,
+    title: str,
+    source_refs: list[dict[str, Any]],
+    scope_pdf_indices: list[int],
+) -> dict[str, Any]:
+    """Build the minimal source-bound opening location pack from module-init L0.
+
+    The source-reviewed module-init L0 carries the authored opening text as
+    ``opening_hooks``: player hooks are boxed passages the Keeper reads out as
+    written and keeper hooks are Keeper-only notes.  This pack is the direct-
+    write equivalent of a foreground ``partial_opening`` slice without any
+    host-work claim/fulfill spine: same entity contract, same source-evidence
+    discipline, zero coordinator dependency.  Handout refs intentionally stay
+    on the L0 document itself (the established private delivery path); this
+    pack lifts only the scene text and provenance the projection needs.
+    """
+    hooks = [
+        row for row in (l0.get("opening_hooks") or []) if isinstance(row, dict)
+    ]
+    player_hooks = [
+        row for row in hooks
+        if row.get("audience") == "player"
+        and isinstance(row.get("text"), str)
+        and str(row["text"]).strip()
+    ]
+    keeper_hooks = [
+        row for row in hooks
+        if row.get("audience") == "keeper"
+        and isinstance(row.get("text"), str)
+        and str(row["text"]).strip()
+    ]
+    refs = json.loads(json.dumps(source_refs))
+    read_aloud: list[dict[str, Any]] = []
+    seen_read_ids: set[str] = set()
+    for hook in player_hooks:
+        hook_id = str(hook.get("id") or "").strip()
+        if not hook_id or hook_id in seen_read_ids:
+            continue
+        seen_read_ids.add(hook_id)
+        read_aloud.append({
+            "id": hook_id,
+            "trigger": "on_enter",
+            "text": str(hook["text"]).strip(),
+            "source_refs": json.loads(json.dumps(refs)),
+        })
+    keeper_only: list[dict[str, Any]] = []
+    seen_keeper_ids: set[str] = set()
+    for hook in keeper_hooks:
+        hook_id = str(hook.get("id") or "").strip()
+        if not hook_id or hook_id in seen_keeper_ids:
+            continue
+        seen_keeper_ids.add(hook_id)
+        keeper_only.append({
+            "id": hook_id,
+            "note": str(hook["text"]).strip(),
+            "source_refs": json.loads(json.dumps(refs)),
+        })
+    indices = [int(value) for value in scope_pdf_indices]
+    return {
+        "location_id": location_id,
+        "title": title,
+        "display_name": title,
+        "parse_state": "partial",
+        "evidence_gap": False,
+        "player_safe_summary": _l0_direct_player_safe_summary(
+            l0, player_hooks, title,
+        ),
+        "read_aloud": read_aloud,
+        "keeper_only": keeper_only,
+        "source_page_indices": indices,
+        "source_refs": json.loads(json.dumps(refs)),
+        "origin": "source",
+        "provenance": {
+            "authority": "source_authored",
+            "source_refs": json.loads(json.dumps(refs)),
+            "basis": "module_init_l0",
+        },
+        "l0_direct_opening": {
+            "schema_version": 1,
+            "source": "module-init.json",
+            "hook_count": len(read_aloud) + len(keeper_only),
+        },
+    }
+
+
+def _l0_direct_player_safe_summary(
+    l0: dict[str, Any],
+    player_hooks: list[dict[str, Any]],
+    title: str,
+) -> str:
+    """One source-grounded player-safe scene summary for the L0 direct pack.
+
+    Preferred order: the first player hook text (the authored opening premise)
+    before the module campaign hook before the location title.  Nothing is
+    invented: every candidate is source-derived text from the reviewed L0.
+    """
+    for hook in player_hooks:
+        text = str(hook.get("text") or "").strip()
+        if text:
+            return text
+    meta = l0.get("module_meta")
+    if isinstance(meta, dict):
+        campaign_hooks = meta.get("campaign_hooks")
+        if isinstance(campaign_hooks, list):
+            for hook in campaign_hooks:
+                if isinstance(hook, str) and hook.strip():
+                    return hook.strip()
+    return title
 
 
 def _build_canonical_opening_slice(

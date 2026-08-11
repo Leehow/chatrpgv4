@@ -1,7 +1,7 @@
 # 模组解析与衔接：单一管理文档（pi-coc）
 
 > 维护入口。一句话：**模组解析 = 内容寻址的 progressive 资产库 + 队列/host-work 编排树**。仓库永不打开 PDF；权威逻辑全在 canonical Python，Pi 侧只编排/适配。
-> 快照：2026-08-07。由 `module-parse-map-a/b` + `parse-audit` 三路只读调研合成，file:line 均已核实。
+> 快照：2026-08-11（P0 开场瘦身：开场 L0 直写，不再依赖 coordinator/partial_opening；`full_parse_dispatch` 死槽已清）。由 `module-parse-map-a/b` + `parse-audit` 三路只读调研合成，file:line 均已核实。
 
 ---
 
@@ -15,7 +15,9 @@
 ## 1. 怎么解析的（链路）
 
 ### A. 开场车道（1–3 页，阻塞）— 🟢 已实现并实测打通
-PDF 窗口 → 宿主 pdf skill 出 bundle → `bind_pdf` → `register_source_bundle` → pages 落盘 → `opening-source-review` → `adopt_source_facts` → `prepare_opening`/`opening_bootstrap` → `publish_skeleton` + `partial_opening` host-work → coordinator 认领 → leaf 抽 → 开场出来。（shreds-e2e-r2 实测：spawn→claim→fulfill，开场叙述落地。）
+PDF 窗口 → 宿主 pdf skill 出 bundle → `bind_pdf` → `register_source_bundle` → pages 落盘 → `opening-source-review` → `adopt_source_facts`（同时落 L0 `module-init.json`）→ `prepare_opening`/`opening_bootstrap` → **L0 直写开场**（player hooks→read_aloud、keeper hooks→keeper_only 直接进 sparse IR；不再走 partial_opening host-work/coordinator）→ `evidence.table_opening` 门控放行。
+
+**L0 直写**：`opening_bootstrap` 在 `save/module-init.json` 存在且校验通过时，直接把 L0 opening hooks 写成 `parse_state=partial` 的 location pack（`l0_direct_opening` 标记），经 `put_entity` → `project_selected_opening` → watch complete，零 claim/fulfill。模块 init 缺失时回退旧 partial_opening/coordinator 车道（保留）。
 
 ### B. 全书车道（S1 full_parse → 分章 → 抽实体）— 🟡 半通
 bind → enqueue `full_parse`（queue_worker 跑 baiduocr）→ `ocr-corpus` → pages → `full-parse.json: complete` → enqueue `classify_sections` → `outline.json`（无类型）+ classification_request → fulfill → `section-index.json` →（按需）`extract_section` → sections/。
@@ -75,14 +77,14 @@ leaf→fulfill→put_entity→campaign IR（skeleton→sparse scenes/npcs）→ 
 
 | 项 | 证据 | 判定 |
 |---|---|---|
-| `extract_section` | JOB_KINDS 在（`assets.py:49`），fulfill 分支在，但**全仓无 enqueue 点** | 🔴 有契约无需求方——classify 即使 fulfill 也没人触发 extract |
+| `extract_section` | JOB_KINDS 在（`assets.py:49`），fulfill 分支在；**有 enqueue 点**（`project.py:on_enter_scene` 对当前地点/keeper-opening 绑定的 section 入队）——依赖 classify 先出 section-index，live 未触发 | 🟡 有需求方但上游未通（保留） |
 | `reconcile_sections` | `reconcile.py:37` 有 kind，**不在 JOB_KINDS**，仅测试 | 🔴 从未进队列 |
 | `mentions-index.json` | `assets.py:2295` 创建 + `_record_mention` 写；**无 read API / 投影引用** | 🔴 写后无消费 |
 | `handouts/` 目录 | `assets.py:2226` mkdir；handout 实体实际写 `entities/handout-*.json` | 🔴 空壳目录 |
 | `ensure_stub`（job kind） | 在 JOB_KINDS（`assets.py:48`）但无 `kind=ensure_stub` 入队；函数本身被调 | 🟡 kind 名存实亡 |
 | `classification_request_chunks` | `queue_worker.py:1869` 只写；无读者 | 🔴 孤儿字段 |
-| `full_parse_dispatch` 转发槽 | `toolbox.py:12509`；测试断言已不在 projection（`test_module_queue_worker.py:3691`）；index.ts 仍监听（`6192,7570`） | 🔴 生产者已撤、消费者残（死链路） |
-| `autoDispatchPiFullParse` | `index.ts:6302,7570` | 🔴 死链路 |
+| `full_parse_dispatch` 转发槽 | **已删**（P0）：`toolbox.py _attach_source_host_projection` 不再转发；index.ts `findPiFullParseDispatch`/`autoDispatchPiFullParse`/`validatePiFullParseRenderTask` 全部移除；测试断言已不在 projection（`test_module_queue_worker.py:3691`） | ✅ 已清 |
+| `autoDispatchPiFullParse` | **已删**（P0）：index.ts 无该函数；`--run-full-parse-batch` 适配器入口保留但无消费者（死入口，待后续清理） | ✅ 已清（入口残留） |
 | host-outline.json | outline_store 优先读（`65-67`）但无生产入口（仅测） | 🟡 可选输入，默认走 cached_pages/OCR |
 
 > ledger 旧线索 `read_psychology_concealed`/`end_day`/`combined_roll_rule` 经核实**不在模组解析范围**，不列入。
@@ -126,7 +128,8 @@ leaf→fulfill→put_entity→campaign IR（skeleton→sparse scenes/npcs）→ 
 ## 3. 合并决策（给你下一步的抓手）
 
 1. **真断点**：classify_sections live 从未 fulfill → 没有 section-index → extract 无从下手 → 全场实体（NPC/线索/handout/附录）基本没 materialize。**开场之后 KP 拿到的模组内容很稀。** 这是全场结构化命门，比附录 fan-out 更该先攻。
-2. **可安全清理**（降散乱）：`autoDispatchPiFullParse` + adapter `--run-full-parse-batch` + `full_parse_dispatch` 槽 + `mentions-index.json` + `handouts/` 空目录 + `ensure_stub` job kind + `classification_request_chunks`。
+2. **可安全清理**（降散乱）：~~`autoDispatchPiFullParse` + adapter `--run-full-parse-batch`~~（前者已删，后者留死入口）+ ~~`full_parse_dispatch` 槽~~（已删）+ `mentions-index.json` + `handouts/` 空目录 + `ensure_stub` job kind + `classification_request_chunks`。
+3. **P0 开场瘦身已完成**：开场不再依赖 coordinator/partial_opening（L0 直写）；`extract_section` **不是**死链（on_enter_scene 有 enqueue），按“确认无 enqueue 才删”的闸保留。
 3. **文档/契约同步**（改完代码顺手）：limit_maximum/claim "four"→32、worker pi `unavailable`/`same_task_retry:false`、README heartbeat pending、handoff leaves=4。
 4. **别误删**：deepen（双轨未收敛，现网依赖）；opening `--run` bootstrap。
 5. **真没做的设计**：附录 W3 fan-out 等挂在 classify 通了之后才有挂载点。

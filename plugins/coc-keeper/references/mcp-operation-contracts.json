@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:afb7b1c512f89cb7ee506ccc462a6d0925f9b5e70de6bd89f2fff9350b8c1faa",
+  "content_sha256": "sha256:bfacf0dbe7c306b32bf85e5a3a851a94ccafd366989aa7fbf19a3a69f370bb2d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1116,7 +1116,7 @@
     },
     "progressive.opening_bootstrap": {
       "canonical_operation": "progressive.opening_bootstrap",
-      "description": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap. Canonical operation `progressive.opening_bootstrap`; the result envelope is authoritative.",
+      "description": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, and records a campaign-owned auto-projection watch. With a source-reviewed module-init L0 present it direct-writes the opening scene from the L0 hooks (player hooks -> read_aloud, keeper hooks -> keeper_only) with zero host-work/coordinator dependency; without L0 it enqueues the exact foreground partial_opening request. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap. Canonical operation `progressive.opening_bootstrap`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1168,7 +1168,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap."
+      "summary": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, and records a campaign-owned auto-projection watch. With a source-reviewed module-init L0 present it direct-writes the opening scene from the L0 hooks (player hooks -> read_aloud, keeper hooks -> keeper_only) with zero host-work/coordinator dependency; without L0 it enqueues the exact foreground partial_opening request. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap."
     },
     "progressive.prepare_opening": {
       "canonical_operation": "progressive.prepare_opening",
