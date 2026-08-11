@@ -38,12 +38,20 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   conversationally in the campaign `play_language`, then ask exactly one next
   character-creation question. Never dump the Markdown document, its headings,
   generation metadata, or operational instructions into table chat.
-- Before rolling or assigning characteristics, ask the player to choose the
-  characteristic generation method. Supported methods are the rules JSON
-  entries in `../../rules-json/characteristic-dice.json`: roll in fixed
-  order, roll a pool then assign results, point-buy 460, or Quick Fire array.
-  Record the selected method in the creation draft and validate fixed/point-buy
-  values with `../../../../scripts/coc_character.py`.
+- When the player selects an L0 module pregen with a source-backed complete
+  `stats_ref` (for example, the module appendix), do not ask for a
+  characteristic-generation method and do not roll Luck. Obtain every required
+  source value through the canonical read-only delivery/notebook surfaces, then
+  submit the complete sheet with `creation.input_mode="import_complete_sheet"`;
+  omit `campaign_id`, `luck_roll_total`, and `luck_roll_receipt`. This is the
+  preset route in a Pi live opening, including an era without the package-owned
+  standard Quick Fire sheet. For a custom investigator, before rolling or
+  assigning characteristics, ask the player to choose the characteristic
+  generation method. Supported methods are the rules JSON entries in
+  `../../rules-json/characteristic-dice.json`: roll in fixed order, roll a pool
+  then assign results, point-buy 460, or Quick Fire array. Record the selected
+  method in the creation draft and validate fixed/point-buy values with
+  `../../../../scripts/coc_character.py`.
 - **Quick Fire deterministic materialization:** after semantic assignment,
   submit `creation.input_mode="guided_quick_fire"` and
   `creation.method="quick_fire_array"`,
@@ -102,9 +110,11 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `investigator_creation_luck` receipt. The rules layer still owns catalog
   bases, skill budgets, starting caps, derived values, age adjustments, and
   receipt verification. This is a deterministic reconciliation gate, not a
-  second occupation-allocation engine. An already complete external sheet is
-  accepted outside an owned Pi live-opening route only through the explicit
-  `creation.input_mode="import_complete_sheet"` branch.
+  second occupation-allocation engine. A selected L0 source pregen with a
+  source-backed complete `stats_ref` instead uses the explicit
+  `creation.input_mode="import_complete_sheet"` branch, including during an
+  owned Pi live opening; it must not be recast as KP-guided creation. Other
+  already complete external sheets use that same explicit import branch.
 - **Quick-Fire Luck exact recipe:** invoke `coc_invoke` exactly once with
   `operation="rules.roll_dice"`, the current campaign, and `arguments`
   containing required fields `expression="3D6"`, a stable creation-scoped

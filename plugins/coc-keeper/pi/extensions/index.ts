@@ -6468,6 +6468,154 @@ export async function autoDispatchPiOpeningSourceReview(
   }
 }
 
+type PendingStewardDomain = "npc" | "scene" | "clue" | "rule";
+
+const PENDING_STEWARD_DOMAINS: PendingStewardDomain[] = [
+  "npc", "scene", "clue", "rule",
+];
+
+function piOpeningGateCleared(
+  params: JsonObject,
+  value: unknown,
+): string | null {
+  if (
+    params.operation !== "progressive.opening_bootstrap"
+    && params.operation !== "progressive.project_opening"
+  ) return null;
+  const campaignId = typeof params.campaign === "string"
+    ? params.campaign.trim()
+    : "";
+  const envelope = objectOrNull(value);
+  const data = objectOrNull(envelope?.data);
+  return (
+    campaignId
+    && envelope?.ok === true
+    && (data?.status === "current" || data?.status === "complete")
+  ) ? campaignId : null;
+}
+
+async function pendingStewardDomains(
+  workspaceRoot: string,
+  campaignId: string,
+): Promise<Array<{ domain: PendingStewardDomain; content: JsonObject }>> {
+  const root = resolve(workspaceRoot);
+  const saveRoot = resolve(root, ".coc", "campaigns", campaignId, "save");
+  const statePath = resolve(saveRoot, "steward-state.json");
+  if (!statePath.startsWith(`${saveRoot}${sep}`)) return [];
+  let document: JsonObject | null = null;
+  try {
+    const info = await stat(statePath);
+    if (!info.isFile() || info.size > 5_000_000) return [];
+    document = objectOrNull(JSON.parse(await readFile(statePath, "utf8")));
+  } catch (error) {
+    // A missing document is the expected result when every initial domain_put
+    // was rejected by the opening gate.  All background domains are pending;
+    // malformed/unreadable existing state is not safe to overwrite.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return PENDING_STEWARD_DOMAINS.map((domain) => ({ domain, content: {} }));
+    }
+    return [];
+  }
+  if (
+    document?.schema_version !== 2
+    || document.campaign_id !== campaignId
+  ) return [];
+  const domains = objectOrNull(document.domains);
+  if (domains === null) return [];
+  return PENDING_STEWARD_DOMAINS.flatMap((domain) => {
+    const snapshot = objectOrNull(domains[domain]);
+    if (snapshot?.status !== "pending") return [];
+    const { status: _status, ...content } = snapshot;
+    return [{ domain, content }];
+  });
+}
+
+function pendingStewardTask(
+  workspaceRoot: string,
+  campaignId: string,
+  domain: PendingStewardDomain,
+  dispatchKey: string,
+): JsonObject {
+  const agentId = domain === "npc"
+    ? "steward-npc"
+    : domain === "scene"
+      ? "steward-scene"
+      : "steward-rule";
+  return {
+    schema_version: 1,
+    contract_id: "coc.pi-steward-pending-refill.v1",
+    dispatch_key: dispatchKey,
+    campaign_id: campaignId,
+    workspace_root: resolve(workspaceRoot),
+    domain,
+    agent_id: agentId,
+    instruction: (
+      `Host opening gate is clear. Dispatch ${agentId} once for only the ${domain} domain `
+      + `of campaign ${campaignId}. Locate the campaign's canonical page/OCR caches, `
+      + "write only the requested pending domain through steward.domain_put, and do not "
+      + "rewrite another domain that is already ready. This is host-owned refill work: "
+      + "do not ask the player, do not repeat an existing dispatch_key, and do not block play."
+    ),
+  };
+}
+
+interface PendingStewardRefillDeps {
+  isCurrent(): boolean;
+  workspaceRoot: string;
+  states: Map<string, JsonObject>;
+  send(task: JsonObject): void;
+  recordFailure(
+    campaignId: string,
+    domain: PendingStewardDomain,
+    content: JsonObject,
+    dispatchKey: string,
+  ): Promise<void>;
+  audit(entry: JsonObject): void;
+}
+
+/**
+ * Queue the normal Pi subagent work for every steward domain still pending when
+ * the persisted opening gate clears.  The host owns this recovery fanout; the
+ * KP receives exact hidden subagent tasks rather than having to remember a
+ * compensating manual retry.  State is keyed per campaign/domain so repeated
+ * current-opening receipts and a concurrent manual completion cannot requeue a
+ * ready domain.
+ */
+export async function autoDispatchPiPendingStewardDomains(
+  deps: PendingStewardRefillDeps,
+  params: JsonObject,
+  value: unknown,
+): Promise<JsonObject | null> {
+  const campaignId = piOpeningGateCleared(params, value);
+  if (campaignId === null || !deps.isCurrent()) return null;
+  const pending = await pendingStewardDomains(deps.workspaceRoot, campaignId);
+  const queued: string[] = [];
+  await Promise.all(pending.map(async ({ domain, content }) => {
+    const dispatchKey = `steward-refill:${campaignId}:${domain}`;
+    if (deps.states.has(dispatchKey)) return;
+    const task = pendingStewardTask(
+      deps.workspaceRoot, campaignId, domain, dispatchKey,
+    );
+    deps.states.set(dispatchKey, { status: "submitted", dispatch_key: dispatchKey });
+    deps.audit({ status: "submitted", dispatch_key: dispatchKey, campaign_id: campaignId, domain });
+    try {
+      if (!deps.isCurrent()) throw new Error("session_closed");
+      deps.send(task);
+      queued.push(domain);
+    } catch {
+      deps.states.set(dispatchKey, { status: "failed", dispatch_key: dispatchKey });
+      deps.audit({ status: "failed", dispatch_key: dispatchKey, campaign_id: campaignId, domain });
+      try {
+        await deps.recordFailure(campaignId, domain, content, dispatchKey);
+        deps.audit({ status: "failure_recorded", dispatch_key: dispatchKey, campaign_id: campaignId, domain });
+      } catch {
+        deps.audit({ status: "failure_record_failed", dispatch_key: dispatchKey, campaign_id: campaignId, domain });
+      }
+    }
+  }));
+  return { status: "submitted", campaign_id: campaignId, domains: queued.sort() };
+}
+
 export function findPiFullParseDispatch(value: unknown): JsonObject | null {
   const envelope = objectOrNull(value);
   if (envelope?.ok !== true) return null;
@@ -6945,6 +7093,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let fullParseRenderStates = new Map<string, JsonObject>();
   let fullParseRenderControllers = new Map<string, AbortController>();
   let fullParseRenderRuns = new Set<Promise<unknown>>();
+  let pendingStewardRefillStates = new Map<string, JsonObject>();
+  let pendingStewardRefillRuns = new Set<Promise<unknown>>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
@@ -7142,10 +7292,50 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       catch { /* audit is best effort */ }
     },
   });
+  const pendingStewardRefillDispatchDeps = (
+    ctx: ExtensionContext,
+    epoch: number,
+  ): PendingStewardRefillDeps => ({
+    isCurrent: () => isCurrent(epoch),
+    workspaceRoot: ctx.cwd,
+    states: pendingStewardRefillStates,
+    send: (task) => {
+      pi.sendMessage({
+        customType: "coc-steward-pending-refill",
+        content: JSON.stringify(task),
+        display: false,
+        details: task,
+      }, { triggerTurn: true, deliverAs: "followUp" });
+    },
+    recordFailure: async (campaignId, domain, content, dispatchKey) => {
+      await client(ctx).callTool("coc_invoke", {
+        operation: "steward.domain_put",
+        root: ctx.cwd,
+        campaign: campaignId,
+        arguments: {
+          domain,
+          status: "pending",
+          content,
+          failed_chunks: [{
+            chunk_id: dispatchKey,
+            reason: "Pi pending-steward refill dispatch could not be delivered",
+            attempts: 1,
+            source_refs: [],
+          }],
+          decision_id: `${dispatchKey}:delivery-failure`,
+        },
+      });
+    },
+    audit: (entry) => {
+      try { pi.appendEntry("coc-steward-pending-refill", entry); }
+      catch { /* lifecycle audit is best effort */ }
+    },
+  });
   const fullParseDispatchDeps = (
     ctx: ExtensionContext,
     epoch: number,
   ): FullParseAutoDispatchDeps => ({
+
     isCurrent: () => isCurrent(epoch),
     workspaceRoot: resolve(ctx.cwd),
     command: () => process.env.COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND,
@@ -7174,6 +7364,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     fullParseRenderStates = new Map<string, JsonObject>();
     fullParseRenderControllers = new Map<string, AbortController>();
     fullParseRenderRuns = new Set<Promise<unknown>>();
+    pendingStewardRefillStates = new Map<string, JsonObject>();
+    pendingStewardRefillRuns = new Set<Promise<unknown>>();
     const startupCampaignId = overrides.startupCampaignId === undefined
       ? explicitPiStartupCampaignId()
       : overrides.startupCampaignId();
@@ -8125,6 +8317,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       void fullParseRun.catch(() => {}).finally(() => {
         fullParseRenderRuns.delete(fullParseRun);
       });
+      const pendingStewardRefillRun = autoDispatchPiPendingStewardDomains(
+        pendingStewardRefillDispatchDeps(ctx, epoch), params, value,
+      );
+      pendingStewardRefillRuns.add(pendingStewardRefillRun);
+      void pendingStewardRefillRun.catch(() => {}).finally(() => {
+        pendingStewardRefillRuns.delete(pendingStewardRefillRun);
+      });
       if (startupResumeAttempt) {
         const selectedCampaignId = startupResumeGate?.campaignId ?? "";
         const disposition = classifyStartupResumeResult(
@@ -8796,6 +8995,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     await Promise.allSettled([
       ...sourceProducerRuns,
       ...rawPdfBindBundleRuns,
+      ...pendingStewardRefillRuns,
     ]);
     sourceProducerControllers.clear();
     sourceProducerRuns.clear();
@@ -8806,6 +9006,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleInflightCampaigns.clear();
     rawPdfBindBundleWaitNotifiedCampaigns.clear();
     rawPdfBindBundleStates.clear();
+    pendingStewardRefillStates.clear();
+    pendingStewardRefillRuns.clear();
     const ownedMcp = mcp;
     mcp = null;
     await ownedMcp?.close();
@@ -8823,6 +9025,7 @@ export const __test = {
   autoDispatchPiOpeningSourceReview,
   autoDispatchPiRawPdfBindBundle,
   findPiOpeningSourceReviewTrigger,
+  autoDispatchPiPendingStewardDomains,
   runPiSourceScopeProducer,
   validatePiSourceScopeLocatorTask,
   MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,

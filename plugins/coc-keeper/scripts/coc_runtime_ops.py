@@ -4662,10 +4662,14 @@ def _kp_guided_era_adaptive_contract(
         },
         "module_pregen_option": {
             "available": True,
-            "when": "source investigator_constraints indicate a preset investigator",
+            "when": (
+                "the player selects an L0 pregen with a source-backed complete "
+                "stats_ref"
+            ),
             "read_channel": "existing progressive/lookup read-only channel",
             "new_parser": False,
-            "validation_route": coc_character.ERA_ADAPTIVE_INPUT_MODE,
+            "validation_route": "import_complete_sheet",
+            "input_mode": "import_complete_sheet",
         },
     }
     return {"definitions": definitions, "branch": branch, "fallback": fallback}

@@ -466,6 +466,28 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
     )
 
 
+def test_module_pregen_complete_sheet_import_needs_no_luck_receipt(
+    tmp_path: Path,
+) -> None:
+    _create_campaign(tmp_path, era="medieval")
+    fallback = _query(tmp_path)["result"]["guided_quick_fire_campaign_era"]["fallback"]
+    assert fallback["module_pregen_option"]["input_mode"] == "import_complete_sheet"
+
+    payload = _complete_payload("module-pregen")
+    receipt = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        },
+    )
+
+    assert receipt["status"] == "PASS"
+    assert "campaign_id" not in payload
+    assert not {"luck_roll_total", "luck_roll_receipt"} & set(payload["creation"])
+
+
 def test_medieval_contract_exposes_kp_guided_fallback_and_creates(
     tmp_path: Path,
 ) -> None:
@@ -519,7 +541,17 @@ def test_medieval_contract_exposes_kp_guided_fallback_and_creates(
     ]
     assert fallback["allowed_mechanics"]["occupation"]["catalog_membership_required"] is False
     assert fallback["allowed_mechanics"]["skills"]["period_omission_allowed"] is True
-    assert fallback["module_pregen_option"]["new_parser"] is False
+    assert fallback["module_pregen_option"] == {
+        "available": True,
+        "when": (
+            "the player selects an L0 pregen with a source-backed complete "
+            "stats_ref"
+        ),
+        "read_channel": "existing progressive/lookup read-only channel",
+        "new_parser": False,
+        "validation_route": "import_complete_sheet",
+        "input_mode": "import_complete_sheet",
+    }
     assert [
         branch["title"] for branch in contract["payload_schema"]["oneOf"]
     ] == [
@@ -795,6 +827,7 @@ def test_kp_guided_rolled_characteristics_bind_existing_roll_receipts(
         ("missing_characteristic_receipt", "characteristic_roll_receipts"),
         ("wrong_characteristic_recipe", "KP-guided SIZ source receipt does not match"),
         ("divergent_luck_receipt", "KP-guided Luck characteristic_roll_receipts entry must equal luck_roll_receipt"),
+        ("luck_total_mismatch", "Quick Fire Luck source receipt does not match"),
         ("duplicate_characteristic_roll", "must use distinct authoritative roll_id values"),
         ("unknown_occupation_formula", "pinned 7e formula"),
         ("custom_skill_without_provenance", "requires skill_provenance.custom=true"),
@@ -850,6 +883,8 @@ def test_kp_guided_adaptive_mutations_fail_closed_before_write(
             "decision_id": f"{investigator_id}-divergent-luck",
             "roll_id": divergent_luck["data"]["roll_id"],
         }
+    elif mutation == "luck_total_mismatch":
+        payload["creation"]["luck_roll_total"] += 1
     elif mutation == "duplicate_characteristic_roll":
         references["CON"] = dict(references["STR"])
         payload["sheet"]["characteristics"]["CON"] = characteristics["STR"]
@@ -1057,12 +1092,17 @@ def test_keeper_hot_projection_keeps_adaptive_payload_schema_under_budget(
     result = projected["data"]["result"]
     assert [
         branch["title"] for branch in result["payload_schema"]["oneOf"]
-    ] == ["KP-guided era-adaptive creation"]
+    ] == [
+        "KP-guided era-adaptive creation",
+        "Explicit complete-sheet import",
+    ]
     definitions = result["payload_schema"]["$defs"]
     assert "kp_guided_era_adaptive_sheet" in definitions
     assert "kp_guided_era_adaptive_creation" in definitions
     assert "quick_fire_sheet" not in definitions
     assert "quick_fire_creation" not in definitions
+    assert "complete_sheet" in definitions
+    assert "complete_sheet_creation" in definitions
     catalog = result.get("guided_quick_fire_skill_catalog")
     assert isinstance(catalog, dict)
     assert "rows" not in catalog

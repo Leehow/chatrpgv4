@@ -2230,12 +2230,6 @@ _INVESTIGATOR_CONTRACT_BRANCH_DEF_KEYS = {
         "kp_guided_player_sheet",
     ),
 }
-_INVESTIGATOR_CONTRACT_IMPORT_DEF_KEYS = (
-    "complete_sheet",
-    "complete_sheet_creation",
-)
-
-
 def _investigator_contract_input_mode(result: dict[str, Any]) -> str | None:
     """Resolve the sole guided create route encoded on the contract result."""
     era_contract = result.get("guided_quick_fire_campaign_era")
@@ -2319,17 +2313,23 @@ def _project_investigator_contract(data: Any) -> Any:
     if input_mode == _GUIDED_QUICK_FIRE_INPUT_MODE:
         return projected
 
+    # The adaptive branch owns custom era creation, while the pre-existing
+    # complete-sheet branch owns source-backed L0 preset investigators. Keep
+    # both typed routes visible: a preset must never be coerced into an
+    # invented KP-guided Luck roll merely because the campaign era lacks the
+    # package's standard Quick Fire sheet.
+    selected_modes = {input_mode, "import_complete_sheet"}
     selected = [
         deepcopy(branch)
         for branch in branches
         if _investigator_contract_branch_input_mode(branch, definitions)
-        == input_mode
+        in selected_modes
     ]
-    if len(selected) != 1:
+    if len(selected) != len(selected_modes):
         return projected
     schema["oneOf"] = selected
 
-    drop_keys = set(_INVESTIGATOR_CONTRACT_IMPORT_DEF_KEYS)
+    drop_keys: set[str] = set()
     for mode, keys in _INVESTIGATOR_CONTRACT_BRANCH_DEF_KEYS.items():
         if mode != input_mode:
             drop_keys.update(keys)
