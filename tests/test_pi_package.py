@@ -1702,6 +1702,23 @@ def test_pi_raw_pdf_bind_dispatch_deduplicates_concurrent_retries():
     assert completed.stdout.strip() == "raw-pdf-bind dedup smoke OK"
 
 
+def test_pi_player_pdf_bind_instruction_injection():
+    """The extension injects exactly one hidden scenario.bind_pdf instruction
+    per session per real local PDF path into the KP context, and stays silent
+    for PDF-free messages, URLs, tool results, and files that do not exist.
+    This is the extension-layer guarantee that the KP's first call after a
+    player PDF path is bind_pdf without relying on the model reading any skill
+    (observed DeepSeek sessions never bound and claimed the system was
+    producing a bundle while nothing parsed)."""
+    completed = subprocess.run(
+        ["node", "--experimental-strip-types", str(ROOT / "tests/pi/player-pdf-bind-instruction.mjs"), str(ROOT)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    assert completed.stdout.strip() == (
+        "player-pdf-bind instruction smoke OK"
+    )
+
+
 def test_pi_cold_harvest_classify_sections_empty_entity_fixture_contract():
     """Keep the observed Pi failure shape without retaining source prose."""
     fixture = json.loads((

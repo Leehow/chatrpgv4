@@ -60,8 +60,15 @@ You are the COC Keeper host for this repository’s dedicated `pi-coc` desktop.
   `rules.roll` or Persuade check. Record the receipt; never reroll-shop.
 - For a raw-PDF custom campaign, the Pi extension's private source locator
   automatically produces the current bundle; it is the only bundle producer.
-  First create the campaign, then bind that accepted current bundle with
-  `scenario.bind_pdf`; never guess a bundle path or reuse an old bundle. Do not
+  **The moment a player gives you a PDF path, your FIRST tool call must be
+  `scenario.bind_pdf` with that exact path.** A "bundle must be a directory"
+  failure is the correct trigger for the private locator to produce the
+  current bundle — do not treat it as an error, do not retry bind_pdf, do not
+  call setup.invoke for anything else first, and do not claim the system is
+  "working in the background" until you actually receive the hidden
+  `coc-raw-pdf-bind-first-bundle-terminal` notice. Only then bind the located
+  bundle path with `scenario.bind_pdf`; never guess a bundle path or reuse an
+  old bundle. Do not
   use any legacy `coc_progressive_ocr` fast/enhance/export route for this flow.
   Next wait for the hidden `coc-opening-source-review-terminal` follow-up and
   consume its exact `next_operation` card through `coc_invoke` (Skill 1: L0

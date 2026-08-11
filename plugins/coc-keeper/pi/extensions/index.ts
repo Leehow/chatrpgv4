@@ -5197,6 +5197,193 @@ export function registerPlayerTranscriptGate(
   });
 }
 
+/**
+ * Extension-layer forced injection for raw-PDF module binds.
+ *
+ * Skills are advisory for the live KP: observed DeepSeek sessions receive a
+ * player message carrying a local PDF path, never load coc-module-init's bind
+ * flow (pi docs: models do not always load SKILL.md), and instead call
+ * unrelated setup.invoke operations or claim the system is "producing a source
+ * bundle" while no parsing ever happens. This hook structurally detects the
+ * `.pdf` path in the player's user message and steers one hidden instruction
+ * into the KP context BEFORE its first model call, so `scenario.bind_pdf`
+ * becomes the KP's first tool call without relying on the model reading any
+ * skill. Injection is once per session per normalized PDF path.
+ */
+export const PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE =
+  "coc-player-pdf-bind-instruction";
+
+/** One-shot hidden instruction: bind the player-provided raw PDF first. */
+export function playerPdfBindInstruction(pdfPath: string): string {
+  return (
+    `玩家提供了 PDF：${pdfPath}。第一步必须调 \`scenario.bind_pdf\`（参数 `
+    + `source_bundle_path=${pdfPath}）。若返回 bundle-must-be-directory 错误，`
+    + "这是正确触发，系统会自动产包；等 hidden "
+    + "`coc-raw-pdf-bind-first-bundle-terminal` 通知（含真实 bundle 路径）后"
+    + "再 bind。不要调 setup.invoke 其他操作，不要宣称系统在后台工作直到收到"
+    + "通知。"
+  );
+}
+
+export type PlayerPdfBindDetection =
+  | { status: "inject"; pdfPath: string }
+  | { status: "skip"; reason: string };
+
+/**
+ * Extract the text payload of a user message (ignores toolResult parts so
+ * tool-result transcripts never look like new player input).
+ */
+function userMessageText(message: unknown): string | null {
+  if (!message || typeof message !== "object") return null;
+  const value = message as { role?: unknown; content?: unknown };
+  if (value.role !== "user") return null;
+  if (!Array.isArray(value.content)) return null;
+  const texts: string[] = [];
+  for (const part of value.content) {
+    if (!part || typeof part !== "object") continue;
+    const candidate = part as { type?: unknown; text?: unknown };
+    if (candidate.type !== "text" || typeof candidate.text !== "string") {
+      continue;
+    }
+    texts.push(candidate.text);
+  }
+  const text = texts.join("\n").trim();
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * Normalize a raw `.pdf` token into an absolute path. URLs and empty tokens
+ * are rejected structurally; `~` and relative paths resolve against the
+ * workspace root exactly like the canonical toolbox does for
+ * `source_bundle_path`.
+ */
+function normalizePlayerPdfPath(
+  raw: string,
+  workspaceRoot: string,
+): string | null {
+  const stripped = raw.trim().replace(
+    /^[`"'“”『「]+|[`"'“”『」]+$/g,
+    "",
+  );
+  if (!stripped) return null;
+  // Structural guard: a URL is a link, not a local PDF path. Never treat
+  // http(s)://…/x.pdf as a bindable source.
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(stripped)) return null;
+  const expanded = stripped.startsWith("~/")
+    ? join(homedir(), stripped.slice(2))
+    : stripped;
+  return isAbsolute(expanded)
+    ? resolve(expanded)
+    : resolve(workspaceRoot, expanded);
+}
+
+/**
+ * Extract the raw `.pdf` path token from a user message. Priority order:
+ * quote-delimited `.pdf` substrings (paths containing spaces), then
+ * whitespace tokens ending in `.pdf`. A token's path portion begins at the
+ * first path separator so CJK prose directly abutting an absolute path
+ * (「跑这个本：/tmp/x.pdf」) never pollutes the resolved path; URL tokens are
+ * excluded before extraction.
+ */
+function extractPdfPathToken(text: string): string | null {
+  const quoted = text.match(
+    /(?:[`"'“”『「])([^`"'“”『」]*?\.pdf)(?:[`"'“”『」])/i,
+  );
+  if (quoted) return quoted[1];
+  for (const token of text.split(/\s+/)) {
+    if (!/\.pdf$/i.test(token)) continue;
+    if (token.includes("://")) continue;
+    const candidate = token.startsWith("~/")
+      ? token
+      : (() => {
+        const index = token.search(/[/\\]/);
+        return index >= 0 ? token.slice(index) : token;
+      })();
+    const cleaned = candidate.replace(/[\])},.，。、；：]+$/g, "");
+    if (!/\.pdf$/i.test(cleaned)) continue;
+    return cleaned;
+  }
+  return null;
+}
+
+/**
+ * Structural detection, not keyword matching: the only signal is a `.pdf`
+ * path token in the player's user message (quote-delimited first so paths
+ * containing spaces survive, then any whitespace-delimited token). Returns
+ * the normalized absolute path when detected.
+ */
+export function detectPlayerPdfBindRequest(
+  message: unknown,
+  workspaceRoot: string,
+): PlayerPdfBindDetection {
+  const text = userMessageText(message);
+  if (text === null) {
+    return { status: "skip", reason: "not_a_user_text_message" };
+  }
+  const rawCandidate = extractPdfPathToken(text);
+  if (rawCandidate === null) {
+    return { status: "skip", reason: "no_pdf_path_token" };
+  }
+  const pdfPath = normalizePlayerPdfPath(rawCandidate, workspaceRoot);
+  if (pdfPath === null) {
+    return { status: "skip", reason: "pdf_path_url_or_empty" };
+  }
+  return { status: "inject", pdfPath };
+}
+
+/**
+ * Register the forced-injection listener. On a player user message carrying a
+ * real local `.pdf` path, one hidden instruction is steered into the KP
+ * context before the first model call of that turn (`deliverAs: "steer"` is
+ * drained by the agent loop before `streamAssistantResponse`). Once-per-path
+ * dedup survives within the caller-provided session set and is rolled back on
+ * a delivery failure so one transient drop does not burn the injection.
+ */
+export function registerPlayerPdfBindInstruction(
+  pi: ExtensionAPI,
+  options: {
+    workspaceRoot: (ctx: ExtensionContext) => string;
+    isCurrent: (epoch: number) => boolean;
+    epoch: () => number;
+    injectedPaths?: Set<string>;
+  },
+): void {
+  const injectedPaths = options.injectedPaths ?? new Set<string>();
+  pi.on("message_start", async (event, ctx) => {
+    const detection = await detectPlayerPdfBindRequest(
+      event.message,
+      options.workspaceRoot(ctx),
+    );
+    if (detection.status !== "inject") return;
+    if (!options.isCurrent(options.epoch())) return;
+    if (injectedPaths.has(detection.pdfPath)) return;
+    // Only bindable reality is injected: a path that does not exist on disk is
+    // a document mention, not a player-provided module, so it stays silent.
+    let fileStat;
+    try {
+      fileStat = await stat(detection.pdfPath);
+    } catch {
+      return;
+    }
+    if (!fileStat.isFile()) return;
+    injectedPaths.add(detection.pdfPath);
+    try {
+      pi.sendMessage({
+        customType: PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE,
+        content: playerPdfBindInstruction(detection.pdfPath),
+        display: false,
+        details: {
+          schema_version: 1,
+          pdf_path: detection.pdfPath,
+          instruction_ref: "pi.player-pdf-bind.first-instruction.v1",
+        },
+      }, { deliverAs: "steer" });
+    } catch {
+      injectedPaths.delete(detection.pdfPath);
+    }
+  });
+}
+
 export async function publishCoordinatorTerminal(
   pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
   receipt: JsonObject,
@@ -6834,6 +7021,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
   let pendingStewardRefillStates = new Map<string, JsonObject>();
   let pendingStewardRefillRuns = new Set<Promise<unknown>>();
+  let injectedPlayerPdfPaths = new Set<string>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
@@ -8639,6 +8827,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     },
     (message) => openingContinuationGate.observeMessageStart(message),
   );
+  // Forced raw-PDF bind injection: the KP must not need to read coc-module-init
+  // to know the first call after a player PDF path is scenario.bind_pdf.
+  registerPlayerPdfBindInstruction(pi, {
+    workspaceRoot: (ctx) => ctx.cwd,
+    isCurrent,
+    epoch: () => sessionEpoch,
+    injectedPaths: injectedPlayerPdfPaths,
+  });
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();
   });
@@ -8719,6 +8915,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleStates.clear();
     pendingStewardRefillStates.clear();
     pendingStewardRefillRuns.clear();
+    injectedPlayerPdfPaths.clear();
     const ownedMcp = mcp;
     mcp = null;
     await ownedMcp?.close();
