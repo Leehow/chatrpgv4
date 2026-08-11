@@ -277,6 +277,18 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
     prompt_compact = " ".join(text.split())
     assert "Skill 1: L0 package and source-facts adoption" in prompt_compact
     assert "then start the bounded steward group, and let Skill 3 supply future scenes" in prompt_compact
+    for phrase in (
+        "Pi-Coc campaign lifecycle is a fixed entry workflow",
+        "New campaign, 1 → 2 → 3",
+        "hidden first-bundle `located` notification",
+        "exact `setup.adopt_source_facts` next operation",
+        "Run the idempotent opening bootstrap",
+        "Load campaign, 1 → 2 → 3",
+        "select it and call `session.resume`",
+        "Never guess filesystem paths",
+        "hidden wait card is not a producer failure",
+    ):
+        assert phrase in text, phrase
     assert "zh-Hans" in text
     script = wrapper.read_text(encoding="utf-8")
     assert "--no-context-files" in script

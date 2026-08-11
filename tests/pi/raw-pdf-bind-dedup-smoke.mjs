@@ -80,6 +80,8 @@ const deps = {
   states: new Map(),
   controllers: new Map(),
   inflight: new Map(),
+  inflightCampaigns: new Map(),
+  waitNotifiedCampaigns: new Set(),
   onTerminal: () => {},
   audit: () => {},
   timeoutMs: 30_000,
@@ -105,4 +107,156 @@ assert.equal(
   1,
   "completed retries must not respawn the producer",
 );
+// A valid raw PDF job can still be producing when the KP guesses another
+// path. That guessed path must produce a waiting hint, not a false terminal
+// failure; only the original producer is allowed to decide its outcome.
+const pendingMarker = path.join(temp, "pending-launches");
+const pendingProducer = path.join(temp, "pending-producer.mjs");
+await writeFile(pendingProducer, `#!/usr/bin/env node
+import fs from "node:fs";
+const argv = process.argv.slice(2);
+if (argv[0] === "--capabilities") {
+  process.stdout.write(JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-producer-capabilities.v1",
+    capability: "bounded_pdf_visual_locator",
+    producer: "pi-grok-pdf-skill",
+    max_selected_pages: 3,
+    writes_canonical_bundle: true,
+    visual_review: true,
+    repository_pdf_parser: false,
+    ocr: false,
+    cache_reference: false,
+  }));
+  process.exit(0);
+}
+let input = "";
+for await (const chunk of process.stdin) input += chunk;
+const task = JSON.parse(input);
+fs.writeFileSync(${JSON.stringify(pendingMarker)}, "run\\n");
+await new Promise((resolve) => setTimeout(resolve, 250));
+process.stdout.write(JSON.stringify({
+  schema_version: 1,
+  contract_id: "coc.pi-source-scope-locator-producer-result.v1",
+  job_id: task.job_id,
+  status: "located",
+  kind: task.kind,
+  target_id: task.target_id,
+  pdf_indices: [1],
+  source_bundle_path: task.source_bundle_path,
+  failure_class: null,
+}));
+`, "utf8");
+await chmod(pendingProducer, 0o755);
+const pendingTerminals = [];
+const pendingDeps = {
+  ...deps,
+  command: () => pendingProducer,
+  states: new Map(),
+  controllers: new Map(),
+  inflight: new Map(),
+  inflightCampaigns: new Map(),
+  waitNotifiedCampaigns: new Set(),
+  onTerminal: (entry) => pendingTerminals.push(entry),
+};
+const pendingParams = {
+  ...params,
+  campaign: "pending-camp",
+  arguments: {
+    ...params.arguments,
+    payload: { source_bundle_path: pdf, campaign_id: "pending-camp" },
+  },
+};
+const pendingRun = autoDispatchPiRawPdfBindBundle(
+  pendingDeps, "coc_invoke", value, pendingParams,
+);
+for (let attempt = 0; attempt < 50; attempt += 1) {
+  try {
+    if ((await readFile(pendingMarker, "utf8")).includes("run")) break;
+  } catch { /* producer has not reached --run yet */ }
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  if (attempt === 49) throw new Error("pending producer did not start");
+}
+const guessed = await autoDispatchPiRawPdfBindBundle(
+  pendingDeps,
+  "coc_invoke",
+  value,
+  {
+    ...pendingParams,
+    arguments: {
+      ...pendingParams.arguments,
+      payload: {
+        source_bundle_path: path.join(temp, "guessed-not-a-bundle.pdf"),
+        campaign_id: "pending-camp",
+      },
+    },
+  },
+);
+assert.equal(guessed.status, "waiting");
+assert.deepEqual(
+  pendingTerminals.map((entry) => entry.status),
+  ["waiting"],
+  "an active first-bundle producer must suppress false failure terminals",
+);
+const pendingResult = await pendingRun;
+assert.equal(pendingResult.status, "located");
+assert.deepEqual(
+  pendingTerminals.map((entry) => entry.status),
+  ["waiting", "located"],
+);
+
+// A real producer failure remains terminal after no first-bundle job is active.
+const failureProducer = path.join(temp, "failure-producer.mjs");
+await writeFile(failureProducer, `#!/usr/bin/env node
+const argv = process.argv.slice(2);
+if (argv[0] === "--capabilities") {
+  process.stdout.write(JSON.stringify({
+    schema_version: 1,
+    contract_id: "coc.pi-source-scope-locator-producer-capabilities.v1",
+    capability: "bounded_pdf_visual_locator",
+    producer: "pi-grok-pdf-skill",
+    max_selected_pages: 3,
+    writes_canonical_bundle: true,
+    visual_review: true,
+    repository_pdf_parser: false,
+    ocr: false,
+    cache_reference: false,
+  }));
+  process.exit(0);
+}
+process.stderr.write("fixture producer failed");
+process.exit(7);
+`, "utf8");
+await chmod(failureProducer, 0o755);
+const failureTerminals = [];
+const failure = await autoDispatchPiRawPdfBindBundle(
+  {
+    ...deps,
+    command: () => failureProducer,
+    states: new Map(),
+    controllers: new Map(),
+    inflight: new Map(),
+    inflightCampaigns: new Map(),
+    waitNotifiedCampaigns: new Set(),
+    onTerminal: (entry) => failureTerminals.push(entry),
+  },
+  "coc_invoke",
+  value,
+  {
+    ...params,
+    campaign: "failure-camp",
+    arguments: {
+      ...params.arguments,
+      payload: { source_bundle_path: pdf, campaign_id: "failure-camp" },
+    },
+  },
+);
+assert.equal(failure.status, "failed");
+assert.equal(failure.failure_class, "raw_pdf_bind_bundle_failed");
+assert.deepEqual(
+  failureTerminals.map((entry) => entry.status),
+  ["failed"],
+  "a real producer failure must still send a terminal failure",
+);
+
 console.log("raw-pdf-bind dedup smoke OK");

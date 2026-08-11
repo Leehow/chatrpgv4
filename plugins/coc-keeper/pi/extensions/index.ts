@@ -6114,6 +6114,8 @@ interface RawPdfBindBundleDispatchDeps {
   states: Map<string, JsonObject>;
   controllers: Map<string, AbortController>;
   inflight: Map<string, Promise<JsonObject>>;
+  inflightCampaigns: Map<string, string>;
+  waitNotifiedCampaigns: Set<string>;
   onTerminal(result: JsonObject): void;
   audit(entry: JsonObject): void;
   timeoutMs?: number;
@@ -6175,6 +6177,29 @@ export async function autoDispatchPiRawPdfBindBundle(
   if (previous !== undefined) return previous;
   const inflight = deps.inflight.get(key);
   if (inflight !== undefined) return inflight;
+  // A raw PDF bind commonly reaches the KP as one canonical failure before
+  // the private producer can return its accepted bundle path. Do not turn a
+  // later guessed path in that same campaign into a second, false terminal
+  // failure: it has not been examined by a producer and the active job is the
+  // only authority that can say whether first-bundle production failed.
+  const activeDispatchKey = deps.inflightCampaigns.get(failedBind.campaign_id);
+  if (activeDispatchKey !== undefined) {
+    const waiting = {
+      status: "waiting",
+      dispatch_key: key,
+      campaign_id: failedBind.campaign_id,
+      active_dispatch_key: activeDispatchKey,
+    };
+    deps.audit(waiting);
+    if (
+      deps.isCurrent()
+      && !deps.waitNotifiedCampaigns.has(failedBind.campaign_id)
+    ) {
+      deps.waitNotifiedCampaigns.add(failedBind.campaign_id);
+      deps.onTerminal(waiting);
+    }
+    return waiting;
+  }
   // One producer run per bind path: a retry while the first locator child is
   // still in flight must await the same run instead of launching a second
   // concurrent child (two children render the same PDF against the same
@@ -6320,17 +6345,27 @@ export async function autoDispatchPiRawPdfBindBundle(
     };
     // A preflight rejection is a property of this environment and will repeat;
     // everything else here is the producer failing to answer, which the next
-    // attempt may well get past.
-    return failureClass === "raw_pdf_bind_bundle_preflight_failed"
-      ? finish(entry)
-      : retryable(entry);
+    // attempt may well get past. Retryability does not erase the terminal
+    // notification: a real producer exit/timeout is the active job's verdict,
+    // unlike a guessed path while that job is still in flight.
+    if (failureClass === "raw_pdf_bind_bundle_preflight_failed") {
+      return finish(entry);
+    }
+    const retry = retryable(entry);
+    if (deps.isCurrent()) deps.onTerminal(entry);
+    return retry;
   } finally {
     if (deps.controllers.get(key) === controller) deps.controllers.delete(key);
   }
   })();
+  deps.inflightCampaigns.set(failedBind.campaign_id, key);
   deps.inflight.set(key, run);
   void run.finally(() => {
     if (deps.inflight.get(key) === run) deps.inflight.delete(key);
+    if (deps.inflightCampaigns.get(failedBind.campaign_id) === key) {
+      deps.inflightCampaigns.delete(failedBind.campaign_id);
+      deps.waitNotifiedCampaigns.delete(failedBind.campaign_id);
+    }
   });
   return run;
 }
@@ -6904,6 +6939,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let rawPdfBindBundleStates = new Map<string, JsonObject>();
   let rawPdfBindBundleControllers = new Map<string, AbortController>();
   let rawPdfBindBundleInflight = new Map<string, Promise<JsonObject>>();
+  let rawPdfBindBundleInflightCampaigns = new Map<string, string>();
+  let rawPdfBindBundleWaitNotifiedCampaigns = new Set<string>();
   let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
   let fullParseRenderStates = new Map<string, JsonObject>();
   let fullParseRenderControllers = new Map<string, AbortController>();
@@ -7030,8 +7067,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     states: rawPdfBindBundleStates,
     controllers: rawPdfBindBundleControllers,
     inflight: rawPdfBindBundleInflight,
+    inflightCampaigns: rawPdfBindBundleInflightCampaigns,
+    waitNotifiedCampaigns: rawPdfBindBundleWaitNotifiedCampaigns,
     onTerminal: (terminal) => {
-      const content = terminal.status === "located"
+      const content = terminal.status === "waiting"
+        ? {
+          schema_version: 1,
+          status: "waiting",
+          campaign_id: terminal.campaign_id,
+          instruction: "raw PDF 首包正在生成。请等待 hidden located 通知给出的 source_bundle_path；不要猜测路径，也不要重试 scenario.bind_pdf。",
+        }
+        : terminal.status === "located"
         ? {
           schema_version: 1,
           status: "located",
@@ -7049,7 +7095,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         };
       try {
         pi.sendMessage({
-          customType: "coc-raw-pdf-bind-first-bundle-terminal",
+          customType: terminal.status === "waiting"
+            ? "coc-raw-pdf-bind-first-bundle-wait"
+            : "coc-raw-pdf-bind-first-bundle-terminal",
           content: JSON.stringify(content),
           display: false,
           details: content,
@@ -7120,6 +7168,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleStates = new Map<string, JsonObject>();
     rawPdfBindBundleControllers = new Map<string, AbortController>();
     rawPdfBindBundleInflight = new Map<string, Promise<JsonObject>>();
+    rawPdfBindBundleInflightCampaigns = new Map<string, string>();
+    rawPdfBindBundleWaitNotifiedCampaigns = new Set<string>();
     rawPdfBindBundleRuns = new Set<Promise<unknown>>();
     fullParseRenderStates = new Map<string, JsonObject>();
     fullParseRenderControllers = new Map<string, AbortController>();
@@ -8753,6 +8803,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleControllers.clear();
     rawPdfBindBundleRuns.clear();
     rawPdfBindBundleInflight.clear();
+    rawPdfBindBundleInflightCampaigns.clear();
+    rawPdfBindBundleWaitNotifiedCampaigns.clear();
     rawPdfBindBundleStates.clear();
     const ownedMcp = mcp;
     mcp = null;
