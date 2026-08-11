@@ -266,11 +266,16 @@ and the fact-evidence set and writes the schema-v1 bundle from its native
 Markdown pages; without a router the adapter reuses the locator's bound
 native pages as both sets. (2) facts + module_init_l0 extraction runs a
 separate text-model `pi -p` child that reads only the materialized Markdown
-and never renders a PDF; its model defaults to a text model (DeepSeek) and
-is overridable via `COC_PI_OPENING_MODEL` (Grok remains an explicit
-option). The bind + `_apply_opening_source_review_fulfillment` seam and the
-transport contract `coc.pi-opening-source-review-transport-result.v1` are
-unchanged.
+and never renders a PDF; its model defaults to `deepseek/deepseek-v4-flash`
+(pi's built-in deepseek catalog ships only v4-flash/v4-pro, so
+`deepseek/deepseek-chat` is not resolvable and falls back to unauthenticated
+openrouter) and is overridable via `COC_PI_OPENING_MODEL` (Grok remains an
+explicit option). The adapter forwards `DEEPSEEK_API_KEY` (and
+`DEEPSEEK_BASE_URL` for a custom provider override) to that child's
+environment; the extractor tolerates fenced/prose stdout with one retry and
+fails as `extractor_invalid_output` rather than a bare JSON error. The bind
++ `_apply_opening_source_review_fulfillment` seam and the transport
+contract `coc.pi-opening-source-review-transport-result.v1` are unchanged.
 
 The adapter contains no PDF parser, renderer, OCR, page-text scanner, queue, or
 fulfillment engine.

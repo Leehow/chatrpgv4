@@ -3836,8 +3836,12 @@ def test_pdf_skill_adapter_opening_review_routes_router_materialization_not_pi_s
 def test_pdf_skill_adapter_opening_text_model_env_override(monkeypatch):
     adapter = _load_pdf_adapter("coc_pdf_adapter_opening_model_test")
     # Opening extraction defaults to a text model, never the visual Grok pin.
+    # The default is the deepseek provider's shipped text model: pi's built-in
+    # deepseek catalog has no "deepseek-chat", and that id resolves to
+    # unauthenticated openrouter on this host (real-run: "No API key found
+    # for openrouter"), so deepseek/deepseek-v4-flash is the usable default.
     monkeypatch.delenv("COC_PI_OPENING_MODEL", raising=False)
-    assert adapter._opening_text_model() == "deepseek/deepseek-chat"
+    assert adapter._opening_text_model() == "deepseek/deepseek-v4-flash"
     assert adapter._opening_text_model() != adapter.PI_MODEL
     # Env override replaces the default; Grok remains an explicit option.
     monkeypatch.setenv("COC_PI_OPENING_MODEL", "xai/grok-4.5")
@@ -3848,6 +3852,295 @@ def test_pdf_skill_adapter_opening_text_model_env_override(monkeypatch):
     assert adapter._pi_model() == "xai/grok-4.5"
     monkeypatch.setenv("COC_PI_PDF_MODEL", "openai/gpt-5")
     assert adapter._pi_model() == "openai/gpt-5"
+
+
+def _opening_extractor_parse_fixture(tmp_path: Path):
+    """Minimal task/materialized for _run_opening_text_extractor unit tests."""
+    task = {
+        "workspace_root": str(tmp_path),
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source": {
+            "source_id": "pdf:module-a",
+            "path": str(tmp_path / "module.pdf"),
+            "title": "Module A",
+            "file_sha256": "a" * 64,
+        },
+        "title": "Module A",
+        "play_language": "zh-Hans",
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "opening_fast_facts_schema": {"schema_version": 1},
+        "module_init_l0_schema": {"schema_version": 1},
+    }
+    materialized = {
+        "selected_opening_pdf_indices": [0],
+        "fact_evidence_pdf_indices": [0],
+        "bundle": {
+            "pages": [{
+                "pdf_index": 0,
+                "markdown_path": "pages/0000.md",
+                "role": "opening",
+            }],
+        },
+    }
+    return task, materialized
+
+
+def test_pdf_skill_adapter_opening_extractor_parses_bare_json(
+    tmp_path: Path, monkeypatch,
+):
+    """Bare JSON stdout parses on the first attempt with no retry, and the
+    child is invoked with the usable DeepSeek text-model default."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_bare_json_test")
+    task, materialized = _opening_extractor_parse_fixture(tmp_path)
+    calls: list[str] = []
+    receipt = {"schema_version": 1, "status": "reviewed"}
+
+    def fake_session(args, *, timeout, cwd, shutdown=None, env=None):
+        calls.append("session")
+        assert args[args.index("--model") + 1] == "deepseek/deepseek-v4-flash"
+        assert env and env.get("PATH")
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps(receipt), "",
+        )
+
+    monkeypatch.setattr(adapter, "_pi_command", lambda: "/no/such/pi")
+    monkeypatch.setattr(adapter, "_run_session_command", fake_session)
+    result = adapter._run_opening_text_extractor(
+        task, materialized, timeout=120, shutdown=None,
+    )
+    assert result == receipt
+    assert calls == ["session"]
+
+
+def test_pdf_skill_adapter_opening_extractor_strips_json_fence(
+    tmp_path: Path, monkeypatch,
+):
+    """A ```json (or plain ```) fenced JSON block parses on the first attempt.
+    This is the exact observed shape of the reproduction: the model wrapped
+    valid JSON in a markdown fence, which the old strict json.loads
+    rejected with JSONDecodeError."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_fence_test")
+    task, materialized = _opening_extractor_parse_fixture(tmp_path)
+    receipt = {"schema_version": 1, "status": "reviewed"}
+
+    for fence in ("```json", "```"):
+        calls: list[str] = []
+
+        def fake_session(args, *, timeout, cwd, shutdown=None, env=None):
+            calls.append("session")
+            return subprocess.CompletedProcess(
+                args, 0, f"{fence}\n{json.dumps(receipt)}\n```", "",
+            )
+
+        monkeypatch.setattr(adapter, "_pi_command", lambda: "/no/such/pi")
+        monkeypatch.setattr(adapter, "_run_session_command", fake_session)
+        result = adapter._run_opening_text_extractor(
+            task, materialized, timeout=120, shutdown=None,
+        )
+        assert result == receipt
+        assert calls == ["session"]
+
+
+def test_pdf_skill_adapter_opening_extractor_retries_after_prose_then_succeeds(
+    tmp_path: Path, monkeypatch,
+):
+    """Prose stdout triggers exactly one retry; the second child call returns
+    valid JSON and the extractor succeeds. The retry stays inside the same
+    remaining budget (never above the original timeout)."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_retry_prose_test")
+    task, materialized = _opening_extractor_parse_fixture(tmp_path)
+    receipt = {"schema_version": 1, "status": "reviewed"}
+    calls: list[str] = []
+    timeouts: list[int] = []
+
+    def fake_session(args, *, timeout, cwd, shutdown=None, env=None):
+        calls.append("session")
+        timeouts.append(timeout)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(
+                args, 0, "Here is my answer: the era is 1920s.", "",
+            )
+        return subprocess.CompletedProcess(args, 0, json.dumps(receipt), "")
+
+    monkeypatch.setattr(adapter, "_pi_command", lambda: "/no/such/pi")
+    monkeypatch.setattr(adapter, "_run_session_command", fake_session)
+    result = adapter._run_opening_text_extractor(
+        task, materialized, timeout=120, shutdown=None,
+    )
+    assert result == receipt
+    assert calls == ["session", "session"]
+    assert timeouts[0] == 120
+    assert 60 <= timeouts[1] <= 120
+
+
+def test_pdf_skill_adapter_opening_extractor_unparseable_returns_structured_receipt(
+    tmp_path: Path, monkeypatch,
+):
+    """Two prose attempts produce the structured extractor_invalid_output
+    receipt with a bounded stdout sample and never a fabricated reviewed
+    result (observed 2/4 real runs: prose instead of JSON)."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_invalid_receipt_test")
+    task, materialized = _opening_extractor_parse_fixture(tmp_path)
+    calls: list[str] = []
+
+    def fake_session(args, *, timeout, cwd, shutdown=None, env=None):
+        calls.append("session")
+        return subprocess.CompletedProcess(
+            args, 0,
+            "Sure! The opening happens in Boston. Regards, the model.", "",
+        )
+
+    monkeypatch.setattr(adapter, "_pi_command", lambda: "/no/such/pi")
+    monkeypatch.setattr(adapter, "_run_session_command", fake_session)
+    result = adapter._run_opening_text_extractor(
+        task, materialized, timeout=120, shutdown=None,
+    )
+    assert calls == ["session", "session"]
+    assert result["status"] == "failed"
+    assert result["failure_class"] == "extractor_invalid_output"
+    assert result["contract_id"] == "coc.pi-opening-text-extractor-result.v1"
+    assert result["campaign_id"] == "campaign-a"
+    assert result["scenario_id"] == "scenario-a"
+    assert result["source_bundle_path"] is None
+    assert result["facts"] is None
+    assert result["module_init_l0"] is None
+    assert "Boston" in result["stdout_sample"]
+    assert (
+        len(result["stdout_sample"])
+        <= adapter.OPENING_EXTRACTOR_OUTPUT_SAMPLE_CHARS
+    )
+
+
+def test_pdf_skill_adapter_opening_extractor_empty_stdout_returns_structured_receipt(
+    tmp_path: Path, monkeypatch,
+):
+    """Empty stdout (observed 1/4 real runs) takes the retry path and then
+    fails with the same structured receipt, never a JSONDecodeError."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_empty_stdout_test")
+    task, materialized = _opening_extractor_parse_fixture(tmp_path)
+    calls: list[str] = []
+
+    def fake_session(args, *, timeout, cwd, shutdown=None, env=None):
+        calls.append("session")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(adapter, "_pi_command", lambda: "/no/such/pi")
+    monkeypatch.setattr(adapter, "_run_session_command", fake_session)
+    result = adapter._run_opening_text_extractor(
+        task, materialized, timeout=120, shutdown=None,
+    )
+    assert calls == ["session", "session"]
+    assert result["status"] == "failed"
+    assert result["failure_class"] == "extractor_invalid_output"
+    assert result["stdout_sample"] == ""
+    assert result["facts"] is None
+    assert result["module_init_l0"] is None
+
+
+def test_pdf_skill_adapter_opening_extractor_invalid_receipt_passes_failed_gate(
+    tmp_path: Path,
+):
+    """Failed extractor results accept both the plain required-shape receipt
+    and the extractor_invalid_output receipt with its optional bounded
+    stdout_sample; the reviewer folds them into the failed producer envelope
+    without forging reviewed status. Reviewed results keep the exact required
+    shape (extra or missing keys stay rejected)."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_invalid_gate_test")
+    task = {
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "source": {"source_id": "pdf:scenario-a"},
+    }
+    plain_failed = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "failed",
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source_bundle_path": None,
+        "failure_class": "pdf_scope_failed",
+        "facts": None,
+        "module_init_l0": None,
+    }
+    result = adapter._validate_opening_extractor_result(
+        plain_failed, task, [10, 11], [3, 10, 11],
+    )
+    assert result["status"] == "failed"
+    assert result["failure_class"] == "pdf_scope_failed"
+    assert result["selected_opening_pdf_indices"] == []
+    assert result["fact_evidence_pdf_indices"] == []
+
+    invalid = {
+        **plain_failed,
+        "failure_class": "extractor_invalid_output",
+        "stdout_sample": "Sure! The opening happens in Boston.",
+    }
+    result = adapter._validate_opening_extractor_result(
+        invalid, task, [10, 11], [3, 10, 11],
+    )
+    assert result["status"] == "failed"
+    assert result["failure_class"] == "extractor_invalid_output"
+    assert result["selected_opening_pdf_indices"] == []
+    assert result["fact_evidence_pdf_indices"] == []
+
+    reviewed = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": "campaign-a",
+        "scenario_id": "scenario-a",
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "failure_class": None,
+        "facts": {"schema_version": 1},
+        "module_init_l0": {"schema_version": 1},
+    }
+    # A non-string sample or a foreign field stays rejected on failed results.
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_extractor_result(
+            {**invalid, "stdout_sample": 123}, task, [10, 11], [3, 10, 11],
+        )
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_extractor_result(
+            {**invalid, "foreign": 1}, task, [10, 11], [3, 10, 11],
+        )
+    # A failed result missing a required field stays rejected.
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_extractor_result(
+            {k: v for k, v in plain_failed.items() if k != "failure_class"},
+            task, [10, 11], [3, 10, 11],
+        )
+    # Reviewed keeps the exact required shape: extra and missing keys reject.
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_extractor_result(
+            {**reviewed, "stdout_sample": "no"}, task, [10, 11], [3, 10, 11],
+        )
+    with pytest.raises(RuntimeError, match="invalid"):
+        adapter._validate_opening_extractor_result(
+            {k: v for k, v in reviewed.items() if k != "facts"},
+            task, [10, 11], [3, 10, 11],
+        )
+
+
+def test_pdf_skill_adapter_child_env_allowlist_carries_deepseek_keys(monkeypatch):
+    """The shared child-env allowlist forwards the DeepSeek provider key so
+    the opening text extractor child can use the configured DeepSeek model,
+    while the model override variables stay adapter-side only."""
+    adapter = _load_pdf_adapter("coc_pdf_adapter_child_env_keys_test")
+    for key in ("PATH", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"):
+        monkeypatch.setenv(key, f"value-{key}")
+    monkeypatch.setenv("COC_PI_OPENING_MODEL", "deepseek/deepseek-v4-flash")
+    env = adapter._pi_child_env()
+    assert env["PATH"] == "value-PATH"
+    assert env["DEEPSEEK_API_KEY"] == "value-DEEPSEEK_API_KEY"
+    assert env["DEEPSEEK_BASE_URL"] == "value-DEEPSEEK_BASE_URL"
+    assert "COC_PI_OPENING_MODEL" not in env
+    assert "PI_MODEL" not in env
+    monkeypatch.delenv("DEEPSEEK_API_KEY")
+    monkeypatch.delenv("DEEPSEEK_BASE_URL")
+    assert "DEEPSEEK_API_KEY" not in adapter._pi_child_env()
+    assert "DEEPSEEK_BASE_URL" not in adapter._pi_child_env()
 
 
 def test_pdf_skill_adapter_opening_router_materializes_split_bundle(

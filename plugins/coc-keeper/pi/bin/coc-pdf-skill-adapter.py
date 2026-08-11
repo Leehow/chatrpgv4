@@ -57,8 +57,11 @@ PI_MODEL = "xai/grok-4.5"
 # Markdown pages and must never depend on the visual Grok/PDF-skill child.
 # The default is a text model; COC_PI_OPENING_MODEL overrides it (Grok stays
 # a valid explicit choice for the same text-only job, but it is no longer
-# hardwired into the opening review).
-OPENING_TEXT_MODEL = "deepseek/deepseek-chat"
+# hardwired into the opening review). pi's built-in deepseek catalog ships
+# only v4-flash/v4-pro: "deepseek/deepseek-chat" is not resolvable on this
+# host and pi routes it to openrouter, which has no configured key
+# (real-run evidence: "No API key found for openrouter").
+OPENING_TEXT_MODEL = "deepseek/deepseek-v4-flash"
 PI_THINKING = "low"
 PI_TOOLS = "read,bash,write"
 MAX_FACT_EVIDENCE_PAGES = 8
@@ -91,10 +94,14 @@ def _pi_command() -> str:
 
 # One shared child-env allowlist so every model child sees exactly the same
 # bounded surface. Model selection is resolved by the adapter into --model;
-# the child itself never needs the override variables.
+# the child itself never needs the override variables. Provider keys pi reads
+# from the environment are allowed through so the opening text extractor child
+# can use the configured DeepSeek provider (DEEPSEEK_BASE_URL supports a
+# custom provider override).
 _PI_CHILD_ENV_KEYS = frozenset({
     "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
     "LOGNAME", "SHELL", "PI_CODING_AGENT_DIR",
+    "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL",
 })
 
 
@@ -116,7 +123,10 @@ def _opening_text_model() -> str:
 
     The extractor reads only native Markdown pages the router (or the
     locator's bound copy) already materialized, so a vision model is never
-    required. Defaults to DeepSeek; COC_PI_OPENING_MODEL overrides it.
+    required. Defaults to DeepSeek V4 Flash -- the deepseek provider's
+    shipped text model. "deepseek/deepseek-chat" is not in pi's built-in
+    deepseek catalog and resolves to unauthenticated openrouter, so it is
+    not a usable default on this host. COC_PI_OPENING_MODEL overrides it.
     """
     return os.environ.get("COC_PI_OPENING_MODEL", "").strip() or OPENING_TEXT_MODEL
 
@@ -2249,7 +2259,17 @@ def _run_opening_text_extractor(
 
     Reads only the router-materialized native Markdown pages; never renders
     the PDF and never loads the visual PDF skill. The model defaults to a
-    text model (DeepSeek) and is overridable via COC_PI_OPENING_MODEL.
+    text model (DeepSeek V4 Flash; COC_PI_OPENING_MODEL overrides it).
+
+    The child often wraps its strict JSON in a markdown fence or answers
+    with prose instead of bare JSON. Parse order: bare JSON object, then a
+    ```json (or ```) fenced JSON object; if neither parses, run the child
+    once more (at most two child calls) inside the remaining budget, then
+    emit a structured extractor_invalid_output failure receipt carrying a
+    bounded stdout sample instead of a bare JSONDecodeError. Empty stdout
+    takes the same retry/failure path. A receipt is never fabricated: an
+    invalid-output result stays status=failed with facts and module_init_l0
+    null.
     """
     args = [
         _pi_command(),
@@ -2261,12 +2281,105 @@ def _run_opening_text_extractor(
         "--thinking", PI_THINKING,
         _opening_text_prompt(task, materialized),
     ]
+    cwd = Path(task["workspace_root"])
+    _fail_if_shutdown(shutdown)
+    started = time.monotonic()
+    completed = _run_opening_extractor_child(
+        args, timeout=timeout, cwd=cwd, shutdown=shutdown,
+    )
+    parsed = _parse_opening_extractor_stdout(completed.stdout or "")
+    if parsed is None:
+        # One retry inside the same remaining budget. Invalid output usually
+        # returns fast, so the second call keeps nearly the full timeout;
+        # the floor keeps a meaningful budget when the first call did not.
+        remaining = max(60, int(timeout - (time.monotonic() - started)))
+        completed = _run_opening_extractor_child(
+            args, timeout=remaining, cwd=cwd, shutdown=shutdown,
+        )
+        parsed = _parse_opening_extractor_stdout(completed.stdout or "")
+        if parsed is None:
+            _fail_if_shutdown(shutdown)
+            return _opening_extractor_invalid_output_receipt(
+                task, completed.stdout or "",
+            )
+    _fail_if_shutdown(shutdown)
+    return parsed
+
+
+# Bounded diagnostic sample of unparseable extractor stdout. It never feeds
+# facts or module_init_l0; it exists so an invalid-output failure is
+# diagnosable instead of a bare JSONDecodeError.
+OPENING_EXTRACTOR_OUTPUT_SAMPLE_CHARS = 500
+
+
+def _strip_markdown_json_fence(text: str) -> str | None:
+    """Extract the body of one ``` or ```lang fenced block, else None.
+
+    Accepts exactly one opening fence line (``` optionally followed by a
+    language tag) and one closing ``` line. The body may be JSON, prose, or
+    empty; the caller still has to parse it. Anything else (extra fence
+    lines, prose outside the fence, a bare ``` inside the body) returns None
+    so the caller can retry or fail instead of guessing.
+    """
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return None
+    first = lines[0].strip()
+    last = lines[-1].strip()
+    if re.fullmatch(r"```[A-Za-z0-9_+-]*", first) is None or last != "```":
+        return None
+    return "\n".join(lines[1:-1])
+
+
+def _parse_opening_extractor_stdout(
+    stdout_text: str,
+) -> dict[str, Any] | None:
+    """Tolerantly parse the extractor child's stdout into one JSON object.
+
+    Order: bare JSON object, then a ```json (or ```) fenced JSON object.
+    Returns None (caller retries once, then emits a structured
+    invalid-output receipt) for empty stdout, prose, a fenced non-JSON body,
+    or any JSON that is not exactly an object. Never infers a value from
+    prose and never fabricates a result.
+    """
+    text = (stdout_text or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed
+    fenced = _strip_markdown_json_fence(text)
+    if fenced is None:
+        return None
+    try:
+        parsed = json.loads(fenced.strip())
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _run_opening_extractor_child(
+    args: list[str],
+    *,
+    timeout: int,
+    cwd: Path,
+    shutdown: _ShutdownFlag,
+) -> subprocess.CompletedProcess[str]:
+    """Run one bounded text-extractor child and fail closed on its own errors.
+
+    Launch, timeout, host-abort, non-zero exit, and oversized output are hard
+    transport errors (never retried and never converted into a failure
+    receipt); only invalid JSON output is retried by the caller.
+    """
     _fail_if_shutdown(shutdown)
     try:
         completed = _run_session_command(
             args,
             timeout=timeout,
-            cwd=Path(task["workspace_root"]),
+            cwd=cwd,
             shutdown=shutdown,
             env=_pi_child_env(),
         )
@@ -2281,14 +2394,36 @@ def _run_opening_text_extractor(
     payload = (completed.stdout or "").encode()
     if len(payload) > MAX_OUTPUT_BYTES:
         _fail("opening text extractor receipt exceeds output limit")
-    try:
-        parsed = json.loads(payload)
-    except json.JSONDecodeError:
-        raise
-    if not isinstance(parsed, dict):
-        return _object(parsed, "opening text extractor receipt")
-    _fail_if_shutdown(shutdown)
-    return parsed
+    return completed
+
+
+def _opening_extractor_invalid_output_receipt(
+    task: dict[str, Any],
+    stdout_text: str,
+) -> dict[str, Any]:
+    """Structured failure receipt for two unparseable extractor attempts.
+
+    The child ran twice and never emitted exactly one JSON object. This is a
+    real failed result: facts and module_init_l0 stay None -- never a
+    fabricated reviewed receipt. The bounded stdout sample is diagnostic
+    evidence only and is tolerated (never required) by the failed-result
+    validator.
+    """
+    sample = " ".join((stdout_text or "").split())[
+        :OPENING_EXTRACTOR_OUTPUT_SAMPLE_CHARS
+    ]
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "failed",
+        "campaign_id": task["campaign_id"],
+        "scenario_id": task["scenario_id"],
+        "source_bundle_path": None,
+        "failure_class": "extractor_invalid_output",
+        "facts": None,
+        "module_init_l0": None,
+        "stdout_sample": sample,
+    }
 
 
 def _validate_opening_extractor_result(
@@ -2305,12 +2440,23 @@ def _validate_opening_extractor_result(
     byte-for-byte unchanged.
     """
     result = _object(value, "opening text extractor result")
+    required_fields = {
+        "schema_version", "contract_id", "status", "campaign_id",
+        "scenario_id", "source_bundle_path", "failure_class",
+        "facts", "module_init_l0",
+    }
+    if result.get("status") == "failed":
+        # stdout_sample is an optional diagnostic on failed results only: both
+        # the plain failed receipt and the extractor_invalid_output receipt
+        # (with its bounded stdout sample) are legal. Every required field
+        # must still be present.
+        allowed_fields = required_fields | {"stdout_sample"}
+        shape_ok = required_fields <= set(result) <= allowed_fields
+    else:
+        # Reviewed results keep the exact required shape.
+        shape_ok = set(result) == required_fields
     if (
-        set(result) != {
-            "schema_version", "contract_id", "status", "campaign_id",
-            "scenario_id", "source_bundle_path", "failure_class",
-            "facts", "module_init_l0",
-        }
+        not shape_ok
         or result.get("schema_version") != 1
         or result.get("contract_id") != "coc.pi-opening-text-extractor-result.v1"
         or result.get("campaign_id") != task["campaign_id"]
@@ -2325,6 +2471,10 @@ def _validate_opening_extractor_result(
             or not result["failure_class"].strip()
             or result.get("facts") is not None
             or result.get("module_init_l0") is not None
+            or (
+                "stdout_sample" in result
+                and not isinstance(result["stdout_sample"], str)
+            )
         ):
             _fail("failed opening text extractor result invalid")
         return {
