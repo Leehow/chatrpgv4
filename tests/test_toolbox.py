@@ -12431,6 +12431,30 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     )
     assert scenario["opening_projection_watch"]["status"] == "complete"
 
+    # The opening is now projected and the first scene transition has made the
+    # campaign non-pristine. A duplicate bootstrap must return its receipt
+    # without re-projecting or turning the completed opening into a deadlock.
+    # This component test does not create Pi's required investigator/evidence
+    # route; perform the canonical initial scene mutation on the neutral host,
+    # then switch back to Pi for the duplicate-bootstrap regression.
+    monkeypatch.setenv("COC_HOST", "codex")
+    moved = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "opening-bootstrap-post-ready-move",
+    })
+    assert moved["ok"] is True, moved
+    monkeypatch.setenv("COC_HOST", "pi")
+    before_repeat = _opening_state_bytes_without_audit(ws["workspace"])
+    post_ready = _run(ws, "progressive.opening_bootstrap", args)
+    assert post_ready["ok"] is True, post_ready
+    assert post_ready["data"]["status"] == "current"
+    assert post_ready["data"]["idempotent"] is True
+    assert post_ready["data"]["idempotent_reason"] == (
+        "opening_already_current_after_play"
+    )
+    assert post_ready["data"]["source_work"]["status"] == "current"
+    assert _opening_state_bytes_without_audit(ws["workspace"]) == before_repeat
+
 
 def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
     tmp_path: Path, monkeypatch,
@@ -17705,6 +17729,31 @@ def test_pending_watch_with_no_live_owner_re_arms_the_bootstrap(
     }
     assert next_operation["missing_arguments"] == []
     assert next_operation["hard_gate"] is True
+
+
+def test_lost_watch_never_rearms_bootstrap_after_scene_evidence(
+    tmp_path: Path, monkeypatch,
+):
+    """Lost source work cannot use bootstrap to overwrite played state."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    _pending_opening_watch(ws, age_seconds=6000)
+    module_dir = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+    )
+    module_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(module_dir / "skeleton.json", ws["skeleton"])
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "opening"
+    _write_json(world_path, world)
+
+    blocked = _run(ws, "scene.map")
+    assert blocked["ok"] is False, blocked
+    details = blocked["error"]["details"]
+    assert details["source_lifecycle_status"] == "lost_after_play"
+    assert details["next_operation"] is None
 
 
 def test_re_arm_falls_back_to_a_missing_start_location(

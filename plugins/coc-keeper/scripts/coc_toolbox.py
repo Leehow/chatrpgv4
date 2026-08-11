@@ -1661,11 +1661,13 @@ def _pi_opening_setup_gate(
             )
         elif watch_status == "pending":
             lost_kind = _opening_watch_lost_kind(root, asset_root_id, watch)
-            if lost_kind is not None:
+            if lost_kind is not None and (
+                coc_module_project.campaign_is_pristine_for_opening(campaign_dir)
+            ):
                 # dispatch_lost: never-leased ready work past the short grace.
                 # resolver_lost: once-leased (or long grace) work with no live
-                # lease left. Both re-arm bootstrap; they must not share the
-                # short threshold or an in-flight batch is mistaken for a corpse.
+                # lease left. Both re-arm bootstrap only while no scene has
+                # played; a re-bootstrap must never overwrite live state.
                 rearm = _opening_watch_rearm_bootstrap_card(
                     root, asset_root_id, watch,
                 )
@@ -1688,6 +1690,12 @@ def _pi_opening_setup_gate(
                         "retained opening; do not rebind, rediscover, or narrate "
                         "an opening"
                     )
+            elif lost_kind is not None:
+                gate["source_lifecycle_status"] = "lost_after_play"
+                gate["instruction"] = (
+                    "opening source work was lost after scene evidence began; "
+                    "do not re-bootstrap over played state"
+                )
             else:
                 # Still pending with a plausible live owner. Never leave
                 # next_operation=null: hand back an honest lifecycle poll card
@@ -15039,6 +15047,54 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
         raise ToolError(exc.code, exc.message) from exc
     except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
         raise ToolError("opening_source_window_invalid", str(exc)) from exc
+    # A duplicate bootstrap can arrive after the opening has already reached
+    # live play (for example, an extension retry races the initial scene move).
+    # It must never attempt a second projection over played state.  Verify the
+    # exact requested source-bound projection is still current, then return a
+    # purely read-only receipt before the pristine-only bootstrap path.
+    if not coc_module_project.campaign_is_pristine_for_opening(
+        root_info["campaign_dir"]
+    ) and coc_module_project.opening_projection_state_is_fresh(
+        ctx.root,
+        root_info["campaign_dir"],
+        root_info["asset_root_id"],
+        location_id,
+        scope,
+    ):
+        receipt = coc_module_project.current_opening_projection_receipt(
+            root_info["campaign_dir"],
+        )
+        return {
+            "status": "current",
+            "idempotent": True,
+            "idempotent_reason": "opening_already_current_after_play",
+            "asset_root_id": root_info["asset_root_id"],
+            "source_file_sha256": root_info["file_sha256"],
+            "start_location": {
+                "location_id": location_id,
+                "title": title,
+            },
+            "opening_pdf_indices": pages,
+            "skeleton_store": None,
+            "sparse_projection": {
+                "status": "current",
+                "projected": True,
+                "idempotent": True,
+                "opening_projection_receipt": receipt,
+            },
+            "projection_watch": None,
+            "source_work": {
+                "status": "current",
+                "idempotent": True,
+                "worker_kick": {
+                    "started": False,
+                    "reason": "opening_already_current_after_play",
+                },
+            },
+        }, [], [
+            "opening is already current in played campaign state; duplicate "
+            "bootstrap was a no-op"
+        ]
     if not coc_module_project.campaign_is_pristine_for_opening(
         root_info["campaign_dir"]
     ):

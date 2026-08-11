@@ -77,7 +77,59 @@ KP 消化 → turn.finalize → 玩家
 4. 场景未就绪 **KP 等待，不即兴**（硬门控，复用 opening bootstrap evidence 门控模式）；
 5. 玩家边界 = finalize rendered_text（既有机制，不新增）。
 
-## 4. Skill 设计
+## 4. 战役生命周期 workflow（固定流程）
+
+跑团是固定流程：会话开始先二选一（新建/加载），各走固定 123 步骤，然后进入游玩循环。KP 只按流程推进，不自由发挥入口。
+
+### 4.1 新建战役（123 流程）
+
+```
+① 创建与绑定
+   玩家：提供模组 PDF（或选已解析模组）
+   KP：campaign.create（era/locale 默认从模组）
+   → Skill 1 模组初始化：Firecrawl 快解析 → 首包 bind → opening review → L0 就绪
+② 建卡（阻塞最小包已就绪）
+   玩家：选 L0 预设卡 或 自定义建卡
+   KP：用 coc-character skill → investigator_contract → create → link（不再重复确认）
+   → 同时 Skill 2 管家群异步解析（npc/scene/clue/rule）
+③ 开局
+   建卡完成 → opening bootstrap（幂等）→ Skill 3 场景预取（开场+周边）→ 开场
+   → 进入游玩循环
+```
+
+### 4.2 加载战役（123 流程）
+
+```
+① 选择与校验
+   玩家：选 campaign（或 KP 列出可加载列表）
+   KP：session.resume 恢复战役 → 校验 campaign/状态/管家域一致（freshness）
+   → 重建 Skill 4 briefing（从 steward-state 重新注入）
+② 状态恢复
+   确认：调查员、当前场景、steward-state domains（ready/partial）、SceneBundle 缓存
+   → 未就绪域：派对应管家补齐（异步）
+③ 继续
+   场景就绪 → 恢复游玩循环（Skill 3 预取当前+周边）
+   → 玩家继续上一句的自然行动
+```
+
+### 4.3 游玩循环（两种入口汇合后）
+
+```
+玩家一句自然行动 → KP 消化（briefing 索引 + 按需拉取管家素材）
+  → 需要新场景素材：Skill 3（当前+周边预取；未就绪则等待不即兴）
+  → 检定：rules 骰 → 结果 → 需要 handout：检定后投递（player-safe 全文/原图）
+  → KP 叙事 → turn.finalize（玩家可见 rendered_text）
+  → 直到 structured ending → state.end_session + development.settle → 战报导出
+```
+
+### 4.4 关键约定
+
+- **入口固定**：KP 不得跳过 123 顺序（如未建卡直接开局、未校验直接加载）；
+- **建卡不重复确认**：玩家确认预设卡后，KP 立即 contract→create（SAFE 重写应推动行动而非再问）；
+- **加载校验**：加载旧战役先验状态一致（campaign fresh、管家域不漂移），不一致则补/重建后继续；
+- **管家 resume**：同 campaign 的管家 agentId 固定，跨会话 resume 保留领域上下文。
+
+## 5. Skill 设计
 
 ### Skill 1：模组初始化（coc-module-init，阻塞建卡最小包）
 

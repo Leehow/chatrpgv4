@@ -44,7 +44,10 @@ const sectionClassificationFixture = JSON.parse(readFileSync(
 ));
 const problems = [];
 const safeCharacterSetupPrompt = (
-  "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
+  "建卡尚未完成。请按 coc-character 流程立即推进，不要再次向玩家索要职业、特征或技能确认："
+  + "若本轮尚未取得当前战役的 setup.investigator_contract，则先调用它以获得 payload_schema；"
+  + "若已取得当前 contract，则直接使用其 payload_schema、玩家已选择的预设与守秘 L0 资料调用 "
+  + "setup.invoke（kind: investigator.create）创建调查员。不得猜测字段或预设数值；创建后继续按保留路由链接调查员。"
 );
 
 function check(label, condition) {
@@ -1243,6 +1246,63 @@ async function exerciseFailureDrain(mode) {
     "observer does not reject live queued bootstrap as invalid",
     observed.reason !== "opening_bootstrap_result_invalid",
   );
+}
+
+// A delayed duplicate bootstrap can complete after the first response has
+// already put Pi into its post-source ready phase. Legacy backends returned
+// invalid_param/non_pristine here after the initial scene move; that must be a
+// no-op, never a new terminal opening blocker.
+{
+  const campaignId = "post-ready-bootstrap-noop";
+  const gate = new main.OpeningTerminalContinuationGate();
+  bindOpeningRoute(gate, campaignId, "post-ready-bind");
+  prepareOpeningRoute(gate, campaignId, "post-ready-prepare");
+  const params = bootstrapOpeningParams(campaignId);
+  check("first concurrent bootstrap is admitted",
+    gate.openingSetupToolError("coc_invoke", params, "post-ready-first") === null);
+  check("delayed duplicate bootstrap is admitted on the same revision",
+    gate.openingSetupToolError("coc_invoke", params, "post-ready-delayed") === null);
+  check("transport-delayed duplicate bootstrap is admitted on the same revision",
+    gate.openingSetupToolError("coc_invoke", params, "post-ready-transport") === null);
+  const current = gate.observeOpeningSetupInvocation(
+    "progressive.opening_bootstrap",
+    params,
+    openingBootstrapWithoutTakeover(coordinatorTask("post-ready-current", {
+      campaignId,
+    }), "current"),
+    "post-ready-first",
+  );
+  check("first bootstrap reaches current ready state",
+    current.accepted === true && current.reason === "opening_bootstrap_current_waiting_for_character");
+  const delayed = gate.observeOpeningSetupInvocation(
+    "progressive.opening_bootstrap",
+    params,
+    {
+      ok: false,
+      tool: "progressive.opening_bootstrap",
+      error: { code: "opening_bootstrap_non_pristine" },
+    },
+    "post-ready-delayed",
+  );
+  check("post-ready non-pristine bootstrap failure is ignored",
+    delayed.accepted === true && delayed.reason === "post_ready_bootstrap_noop");
+  gate.markOpeningSetupRouteAttemptFailure(
+    "post-ready-transport",
+    params,
+    {
+      ok: false,
+      tool: "progressive.opening_bootstrap",
+      error: { code: "invalid_param" },
+    },
+  );
+  const postReadyAudits = gate.takeOpeningSetupAudits();
+  check("post-ready bootstrap failures are audited without terminal blocker",
+    ["opening_bootstrap_non_pristine", "invalid_param"].every((code) => (
+      postReadyAudits.some((entry) => (
+        entry.reason === "post_ready_bootstrap_failure_ignored"
+        && entry.error_code === code
+      ))
+    )) && gate.takeDeliveredOpeningSetupTerminalBlocker() === null);
 }
 
 // Matching takeover triggers exactly one submit with the exact task.

@@ -250,7 +250,10 @@ type CanonicalModuleInitPrivateContext = {
   instruction: string;
 };
 const SAFE_CHARACTER_SETUP_PROMPT = (
-  "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
+  "建卡尚未完成。请按 coc-character 流程立即推进，不要再次向玩家索要职业、特征或技能确认："
+  + "若本轮尚未取得当前战役的 setup.investigator_contract，则先调用它以获得 payload_schema；"
+  + "若已取得当前 contract，则直接使用其 payload_schema、玩家已选择的预设与守秘 L0 资料调用 "
+  + "setup.invoke（kind: investigator.create）创建调查员。不得猜测字段或预设数值；创建后继续按保留路由链接调查员。"
 );
 
 /**
@@ -3533,6 +3536,21 @@ export class OpeningTerminalContinuationGate {
             : "opening_bootstrap_current_waiting_for_character",
         };
       }
+      if (this.postReadyBootstrapNoopFailure(attempt, state, error)) {
+        this.finalizeOpeningSetupAttempt(invocationId);
+        this.recordOpeningSetupAudit({
+          status: "ignored",
+          reason: "post_ready_bootstrap_failure_ignored",
+          campaign_id: attempt.campaignId,
+          invocation_id: invocationId,
+          error_code: error?.code,
+        });
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "post_ready_bootstrap_noop",
+        };
+      }
       const sourceWork = objectOrNull(data?.source_work);
       const bootstrapStatus = String(
         sourceWork?.status ?? data?.status ?? "",
@@ -3826,6 +3844,21 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
+  private postReadyBootstrapNoopFailure(
+    attempt: OpeningSetupAttempt,
+    state: OpeningSetupState,
+    error: JsonObject | null,
+  ): boolean {
+    return (
+      attempt.operation === "progressive.opening_bootstrap"
+      && state.phase === "ready"
+      && (
+        error?.code === "invalid_param"
+        || error?.code === "opening_bootstrap_non_pristine"
+      )
+    );
+  }
+
   markOpeningSetupRouteAttemptFailure(
     invocationId: string,
     params: JsonObject,
@@ -3868,6 +3901,17 @@ export class OpeningTerminalContinuationGate {
         reason: "failed_attempt_identity_mismatch",
         invocation_id: invocationId,
         dispatch_key: dispatchKey,
+      });
+      return;
+    }
+    if (this.postReadyBootstrapNoopFailure(attempt, state, failureError)) {
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "post_ready_bootstrap_failure_ignored",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+        dispatch_key: dispatchKey,
+        error_code: failureError?.code,
       });
       return;
     }
