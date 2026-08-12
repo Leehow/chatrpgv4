@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Menu, PanelRightOpen, RefreshCw } from "lucide-react";
 import * as api from "./api";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
+import { CampaignSidebar } from "./components/CampaignSidebar";
 import { Chat } from "./components/Chat";
-import { ModelPicker } from "./components/ModelPicker";
-import { Panel } from "./components/Panel";
-import { NEW_INVESTIGATOR, Sidebar } from "./components/Sidebar";
+import { ModelMenu } from "./components/ModelMenu";
+import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
+import { Panel, PanelContent } from "./components/Panel";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -41,6 +46,10 @@ export default function App() {
   const openingRef = useRef<string | null>(null);
   /** Session id waiting for automatic coc-character kickoff turn. */
   const kickoffRef = useRef<string | null>(null);
+  /* Pure UI state (layout only — no effect on the session state machine). */
+  const [navOpen, setNavOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     api.fetchModels().then(setModels).catch((e) => setError(String(e.message ?? e)));
@@ -57,7 +66,14 @@ export default function App() {
     const nextProvider = providerOk ? provider : models.default.provider;
     const modelList = models.providers[nextProvider]?.models ?? [];
     const modelOk = modelList.some((m) => m.id === model);
-    const nextModel = modelOk ? model : models.providers[nextProvider]?.models[0]?.id ?? "";
+    // Fallback must honor the bridge-declared default (e.g. gpt-5.6-luna),
+    // not the catalog's first entry: keeper turns are contract-driven and
+    // silently degrade to the weaker first-listed model otherwise.
+    const fallbackModel =
+      nextProvider === models.default.provider
+        ? models.default.model
+        : models.providers[nextProvider]?.models[0]?.id ?? "";
+    const nextModel = modelOk ? model : fallbackModel;
     if (nextProvider !== provider || nextModel !== model) {
       setProvider(nextProvider);
       setModel(nextModel);
@@ -74,6 +90,8 @@ export default function App() {
       campaignId: string,
       opts?: { kickCharacterSetup?: boolean },
     ): Promise<SessionInfo | null> => {
+      // In-flight guard only: released in `finally` so the same campaign can be
+      // reopened later (e.g. to pick up turns played in the CLI).
       if (openingRef.current === campaignId) return null;
       openingRef.current = campaignId;
       setBusy(true);
@@ -131,9 +149,10 @@ export default function App() {
         return info;
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
-        openingRef.current = null;
         setBusy(false);
         return null;
+      } finally {
+        openingRef.current = null;
       }
     },
     [],
@@ -157,6 +176,7 @@ export default function App() {
             sourceBundlePath: string;
             investigatorId: string;
             title: string;
+            era: string;
           }
         | {
             mode: "library";
@@ -185,6 +205,7 @@ export default function App() {
                 source_bundle_path: args.sourceBundlePath,
                 ...(invId ? { investigator_id: invId } : {}),
                 ...(args.title ? { title: args.title } : {}),
+                ...(args.era ? { era: args.era } : {}),
               })
             : args.mode === "library"
               ? await api.createCampaign({
@@ -419,26 +440,56 @@ export default function App() {
     void send(CHARACTER_SETUP_KICKOFF);
   }, [session, busy, send]);
 
+  const sidebarContent = (close: () => void) => (
+    <CampaignSidebar
+      bootstrap={bootstrap}
+      activeCampaign={session?.campaign_id ?? null}
+      busy={busy}
+      onOpen={(id) => {
+        close();
+        setCreating(false);
+        void openCampaign(id);
+      }}
+      onNew={() => {
+        close();
+        setCreating(true);
+      }}
+    />
+  );
+
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="topbar__brand">
-          <span className="topbar__sigil">🐙</span>
-          <span className="topbar__title">Cthulhu Keeper</span>
-          <span className="topbar__sub">pi · SSE</span>
+    <div className="flex h-dvh flex-col">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card/70 px-3 backdrop-blur md:px-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden"
+          onClick={() => setNavOpen(true)}
+          title="战役列表"
+        >
+          <Menu className="size-4" />
+        </Button>
+        <div className="flex items-baseline gap-2.5">
+          <span className="font-display text-lg font-bold tracking-wide text-foreground">
+            Cthulhu Keeper
+          </span>
+          <span className="hidden text-[10px] tracking-[0.25em] text-muted-foreground uppercase sm:inline">
+            pi · SSE
+          </span>
         </div>
-        <div className="topbar__actions">
+        <div className="ml-auto flex items-center gap-1.5">
           {session && (
-            <button
-              className="btn btn--ghost"
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => void refresh()}
               disabled={busy}
               title="从战役存档刷新对话与状态（CLI 端玩过的回合会同步过来）"
             >
-              ⟳ 刷新
-            </button>
+              <RefreshCw className={cn("size-4", busy && "animate-spin")} />
+            </Button>
           )}
-          <ModelPicker
+          <ModelMenu
             models={models}
             provider={provider}
             model={model}
@@ -448,36 +499,88 @@ export default function App() {
               setModel(m);
             }}
           />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="xl:hidden"
+            onClick={() => setPanelOpen(true)}
+            title="角色面板"
+          >
+            <PanelRightOpen className="size-4" />
+          </Button>
         </div>
       </header>
 
       {error && (
-        <div className="errorbar" onClick={() => setError(null)}>
+        <div
+          className="cursor-pointer border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-800"
+          onClick={() => setError(null)}
+        >
           {error}（点击关闭）
         </div>
       )}
 
-      <div className="layout">
-        <Sidebar
-          bootstrap={bootstrap}
-          activeCampaign={session?.campaign_id ?? null}
-          busy={busy}
-          onOpen={openCampaign}
-          onCreate={createCampaign}
-          onBootstrapRefresh={async () => {
-            const fresh = await api.fetchBootstrap();
-            setBootstrap(fresh.result);
-          }}
-        />
-        <Chat
-          messages={messages}
-          toolTrail={toolTrail}
-          busy={busy}
-          connected={!!session}
-          pendingChoice={state?.pending_choice}
-          onSend={send}
-        />
-        <Panel state={state} investigatorId={session?.investigator_id ?? null} />
+      <div className="flex min-h-0 flex-1">
+        {/* ≥ md：固定战役侧栏 */}
+        <aside className="hidden w-72 shrink-0 border-r border-border bg-card/40 md:block">
+          {sidebarContent(() => undefined)}
+        </aside>
+
+        {/* < md：左侧抽屉 */}
+        <Sheet open={navOpen} onOpenChange={setNavOpen}>
+          <SheetContent side="left" className="w-80 p-0">
+            <SheetTitle className="sr-only">战役卷宗</SheetTitle>
+            {sidebarContent(() => setNavOpen(false))}
+          </SheetContent>
+        </Sheet>
+
+        <main className="flex min-h-0 min-w-0 flex-1">
+          {creating ? (
+            <NewCampaignFlow
+              bootstrap={bootstrap}
+              busy={busy}
+              onCreate={(args) => {
+                setCreating(false);
+                void createCampaign(args);
+              }}
+              onBack={() => setCreating(false)}
+              onBootstrapRefresh={async () => {
+                const fresh = await api.fetchBootstrap();
+                setBootstrap(fresh.result);
+              }}
+            />
+          ) : (
+            <Chat
+              messages={messages}
+              toolTrail={toolTrail}
+              busy={busy}
+              connected={!!session}
+              error={error}
+              pendingChoice={state?.pending_choice}
+              onSend={send}
+            />
+          )}
+
+          {/* ≥ xl：常驻角色面板 */}
+          <div className="hidden w-80 shrink-0 border-l border-border bg-card/40 xl:block">
+            <Panel state={state} investigatorId={session?.investigator_id ?? null} />
+          </div>
+        </main>
+
+        {/* < xl：角色面板右侧抽屉 */}
+        <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
+          <SheetContent side="right" className="w-80 overflow-y-auto px-4 py-5">
+            <SheetTitle className="font-display text-lg font-semibold">
+              角色卷宗
+            </SheetTitle>
+            <div className="mt-3">
+              <PanelContent
+                state={state}
+                investigatorId={session?.investigator_id ?? null}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );

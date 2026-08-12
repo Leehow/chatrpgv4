@@ -1,0 +1,649 @@
+import { useRef, useState } from "react";
+import {
+  ChevronLeft,
+  FileText,
+  Library,
+  Loader2,
+  Package,
+  ScrollText,
+  UploadCloud,
+} from "lucide-react";
+import * as api from "../api";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import type { BootstrapResult, PdfUploadResult } from "../types";
+
+/** Sentinel for「新建调查员」— main panel will guide creation after 开局. */
+export const NEW_INVESTIGATOR = "__new__";
+
+export type CreateStarterArgs = {
+  mode: "starter";
+  scenarioId: string;
+  pregenId: string;
+  title: string;
+};
+
+export type CreatePdfArgs = {
+  mode: "pdf";
+  sourceBundlePath: string;
+  /** Existing investigator id, or `NEW_INVESTIGATOR` to create in main UI. */
+  investigatorId: string;
+  title: string;
+  /** Player-declared era, e.g. "1890s" / "1920s" / "modern". */
+  era: string;
+};
+
+export type CreateLibraryArgs = {
+  mode: "library";
+  moduleId: string;
+  investigatorId: string;
+  title: string;
+};
+
+export type CreateArgs = CreateStarterArgs | CreatePdfArgs | CreateLibraryArgs;
+
+interface Props {
+  bootstrap: BootstrapResult | null;
+  busy: boolean;
+  onCreate: (args: CreateArgs) => void;
+  onBack: () => void;
+  onBootstrapRefresh?: () => Promise<void>;
+}
+
+type SourceMode = "starter" | "pdf" | "library";
+
+const MODE_CARDS: Array<{
+  id: SourceMode;
+  label: string;
+  desc: string;
+  Icon: typeof ScrollText;
+}> = [
+  {
+    id: "starter",
+    label: "预置剧本",
+    desc: "自带预生成调查员，开箱即玩",
+    Icon: ScrollText,
+  },
+  {
+    id: "library",
+    label: "已解析剧本",
+    desc: "从剧本库安装，跨战役复用",
+    Icon: Library,
+  },
+  {
+    id: "pdf",
+    label: "PDF 源包",
+    desc: "上传 PDF，哈希登记后开局",
+    Icon: Package,
+  },
+];
+
+const EMPTY = "__empty__";
+
+/** Common CoC eras the player can declare at PDF 开局. */
+/** Sentinel: omit era from campaign.create so the opening-source review
+ * establishes it from the module's own facts (avoids declared-vs-source
+ * era conflicts, e.g. campaign 163241). Radix Select rejects "", hence a
+ * named sentinel. */
+const ERA_FOLLOW_SOURCE = "__follow_source__";
+const ERA_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: ERA_FOLLOW_SOURCE, label: "跟随模组源事实（推荐）" },
+  { value: "1890s", label: "1890年代" },
+  { value: "1920s", label: "1920年代（经典）" },
+  { value: "modern", label: "当代" },
+];
+
+/** Guided new-campaign flow shown in the main area (replaces the old in-sidebar wizard). */
+export function NewCampaignFlow({
+  bootstrap,
+  busy,
+  onCreate,
+  onBack,
+  onBootstrapRefresh,
+}: Props) {
+  const [mode, setMode] = useState<SourceMode | null>(null);
+  const [scenarioId, setScenarioId] = useState("");
+  const [pregenId, setPregenId] = useState("");
+  const [bundlePath, setBundlePath] = useState("");
+  const [era, setEra] = useState(ERA_FOLLOW_SOURCE);
+  const [moduleId, setModuleId] = useState("");
+  const [investigatorId, setInvestigatorId] = useState(NEW_INVESTIGATOR);
+  const [title, setTitle] = useState("");
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const [uploadInfo, setUploadInfo] = useState<PdfUploadResult | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [startMsg, setStartMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const starters = bootstrap?.starters ?? [];
+  const starter = starters.find((s) => s.scenario_id === scenarioId) ?? null;
+  const bundles = bootstrap?.source_bundles ?? [];
+  const libraryModules = bootstrap?.library_modules ?? [];
+  const investigators = bootstrap?.investigators ?? [];
+  const selectedBundle = bundles.find((b) => b.path === bundlePath) ?? null;
+  const selectedModule =
+    libraryModules.find((m) => m.canonical_module_id === moduleId) ?? null;
+
+  const sourceReady =
+    mode === "starter"
+      ? Boolean(scenarioId && pregenId)
+      : mode === "library"
+        ? Boolean(moduleId)
+        : Boolean(bundlePath && !uploadBusy);
+
+  const invReady =
+    mode === "starter" ? true : Boolean(investigatorId); /* includes __new__ */
+
+  const canStart = Boolean(mode) && sourceReady && invReady && !busy && !uploadBusy;
+
+  const handlePdfFile = async (file: File | null) => {
+    if (!file) return;
+    setUploadBusy(true);
+    setUploadMsg(null);
+    setUploadInfo(null);
+    try {
+      const resp = await api.uploadPdf(file);
+      setUploadInfo(resp.result);
+      setUploadMsg(resp.result.message ?? "上传完成");
+      if (resp.result.matched_bundle?.path) {
+        setBundlePath(resp.result.matched_bundle.path);
+        if (!title) {
+          setTitle(
+            resp.result.matched_bundle.title ||
+              resp.result.matched_bundle.bundle_id,
+          );
+        }
+      }
+      if (onBootstrapRefresh) await onBootstrapRefresh();
+      if (resp.result.status === "stored_pending_ingest") {
+        // No matching bundle yet: trigger external-router parsing now.
+        setUploadMsg("正在快速解析…");
+        try {
+          const ingest = await api.ingestPdf({
+            file_sha256: resp.result.file_sha256,
+          });
+          const result = ingest.result;
+          setUploadMsg(
+            result.message ?? (result.status === "matched_bundle" ? "解析完成，可以开局" : "解析中"),
+          );
+          if (result.matched_bundle?.path) {
+            setBundlePath(result.matched_bundle.path);
+            if (!title) {
+              setTitle(
+                result.matched_bundle.title || result.matched_bundle.bundle_id,
+              );
+            }
+          }
+          if (onBootstrapRefresh) await onBootstrapRefresh();
+        } catch (err) {
+          setUploadMsg(
+            `解析失败：${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    } catch (e) {
+      setUploadMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploadBusy(false);
+    }
+  };
+
+  const handleStart = () => {
+    setStartMsg(null);
+    if (mode === "starter") {
+      if (!canStart) return;
+      onCreate({ mode: "starter", scenarioId, pregenId, title: title.trim() });
+      return;
+    }
+    if (!sourceReady) {
+      setStartMsg(
+        mode === "library" ? "请先选择已解析剧本。" : "请先选择或匹配 PDF 源包。",
+      );
+      return;
+    }
+    if (!investigatorId) {
+      setStartMsg("请选择调查员，或选第一项「新建调查员」。");
+      return;
+    }
+    if (mode === "library") {
+      onCreate({
+        mode: "library",
+        moduleId,
+        investigatorId,
+        title: title.trim(),
+      });
+    } else if (mode === "pdf") {
+      onCreate({
+        mode: "pdf",
+        sourceBundlePath: bundlePath,
+        investigatorId,
+        title: title.trim(),
+        era: era === ERA_FOLLOW_SOURCE ? "" : era,
+      });
+    }
+  };
+
+  /* ── Step 1 · 三选一 ─────────────────────────────── */
+  if (!mode) {
+    return (
+      <div className="flex h-full flex-col overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl px-6 py-10">
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-8 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronLeft className="size-4" />
+            返回战役
+          </button>
+          <p className="text-xs font-medium tracking-[0.25em] text-primary uppercase">
+            New Campaign
+          </p>
+          <h1 className="font-display mt-2 text-3xl font-semibold text-foreground">
+            开一场新的遭遇
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            选择剧本来源，Keeper 将为你铺开故事。
+          </p>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            {MODE_CARDS.map(({ id, label, desc, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setMode(id);
+                  setStartMsg(null);
+                  if (id !== "starter" && !investigatorId) {
+                    setInvestigatorId(NEW_INVESTIGATOR);
+                  }
+                }}
+                className={cn(
+                  "group flex flex-col items-start gap-3 rounded-2xl border border-border bg-card p-5 text-left",
+                  "transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md",
+                )}
+              >
+                <span className="flex size-11 items-center justify-center rounded-xl bg-secondary text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                  <Icon className="size-5" />
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold text-foreground">
+                    {label}
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    {desc}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Step 2 · 模式配置 ───────────────────────────── */
+  const modeLabel =
+    mode === "starter" ? "预置剧本" : mode === "library" ? "已解析剧本" : "PDF 源包";
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-2xl px-6 py-10">
+        <button
+          type="button"
+          onClick={() => {
+            setMode(null);
+            setStartMsg(null);
+          }}
+          className="mb-8 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronLeft className="size-4" />
+          重新选择来源
+        </button>
+        <p className="text-xs font-medium tracking-[0.25em] text-primary uppercase">
+          {modeLabel}
+        </p>
+        <h1 className="font-display mt-2 text-2xl font-semibold text-foreground">
+          配置这场遭遇
+        </h1>
+
+        <div className="mt-8 space-y-5">
+          {mode === "starter" && (
+            <>
+              <Field label="剧本">
+                <Select
+                  value={scenarioId || undefined}
+                  onValueChange={(v) => {
+                    setScenarioId(v);
+                    setPregenId("");
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择剧本…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {starters.map((s) => (
+                      <SelectItem key={s.scenario_id} value={s.scenario_id}>
+                        {s.title}（{s.era ?? "?"}）
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {starter?.one_liner && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {starter.one_liner}
+                  </p>
+                )}
+              </Field>
+              <Field label="预生成调查员">
+                <Select
+                  value={pregenId || undefined}
+                  onValueChange={setPregenId}
+                  disabled={!starter}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择预生成调查员…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(starter?.pregens ?? []).map((p) => (
+                      <SelectItem key={p.pregen_id} value={p.pregen_id}>
+                        {p.name ?? p.pregen_id}
+                        {p.occupation ? ` · ${p.occupation}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </>
+          )}
+
+          {mode === "library" && (
+            <>
+              <p className="text-xs text-muted-foreground">
+                从已编译库安装到新战役（跨战役复用，不重解析 PDF）。
+              </p>
+              <Field label="已解析剧本">
+                {libraryModules.length ? (
+                  <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-border bg-card p-2">
+                    {libraryModules.map((m) => {
+                      const selected = m.canonical_module_id === moduleId;
+                      return (
+                        <button
+                          key={m.canonical_module_id}
+                          type="button"
+                          onClick={() => {
+                            setModuleId(m.canonical_module_id);
+                            if (!title) {
+                              setTitle(m.title || m.canonical_module_id);
+                            }
+                          }}
+                          className={cn(
+                            "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
+                            selected
+                              ? "border-primary/60 bg-primary/5"
+                              : "border-transparent hover:bg-secondary",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "block text-sm font-medium",
+                              selected ? "text-primary" : "text-foreground",
+                            )}
+                          >
+                            {m.title || m.canonical_module_id}
+                            {m.chapter ? ` · ${m.chapter}` : ""}
+                          </span>
+                          {selected && (
+                            <span className="mt-0.5 block break-all text-[11px] text-muted-foreground">
+                              <code>
+                                {m.location_hint ||
+                                  `.coc/module-library/${m.canonical_module_id}/`}
+                              </code>
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-xs text-muted-foreground">
+                    剧本库为空。编译完成的模组会出现在
+                    <code className="mx-1">.coc/module-library/</code>。
+                  </p>
+                )}
+              </Field>
+            </>
+          )}
+
+          {mode === "pdf" && (
+            <>
+              <p className="text-xs text-muted-foreground">
+                源包：<code>.coc/source-bundles/&lt;id&gt;/</code>（仅做 SHA-256
+                登记，不重复解析）
+              </p>
+              <div
+                className={cn(
+                  "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors",
+                  dragOver
+                    ? "border-primary bg-primary/5"
+                    : "border-border bg-card hover:border-primary/40",
+                  uploadBusy && "pointer-events-none opacity-70",
+                )}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  void handlePdfFile(e.dataTransfer.files?.[0] ?? null);
+                }}
+                onClick={() => fileRef.current?.click()}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    fileRef.current?.click();
+                  }
+                }}
+              >
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  hidden
+                  onChange={(e) => {
+                    void handlePdfFile(e.target.files?.[0] ?? null);
+                    e.target.value = "";
+                  }}
+                />
+                {uploadBusy ? (
+                  <Loader2 className="size-8 animate-spin text-primary" />
+                ) : uploadInfo ? (
+                  <FileText className="size-8 text-primary" />
+                ) : (
+                  <UploadCloud className="size-8 text-muted-foreground" />
+                )}
+                <div className="text-sm font-medium text-foreground">
+                  {uploadBusy
+                    ? "上传登记中…"
+                    : uploadInfo
+                      ? uploadInfo.filename
+                      : "拖拽 PDF 到此处，或点击选择"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  自动哈希；若已有相同源包则直接选用
+                </div>
+              </div>
+              {uploadMsg && (
+                <p
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-xs",
+                    uploadInfo?.status === "matched_bundle"
+                      ? "bg-emerald-50 text-emerald-700"
+                      : uploadInfo
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-red-50 text-red-700",
+                  )}
+                >
+                  {uploadMsg}
+                </p>
+              )}
+              <Field label="PDF 源包">
+                <Select
+                  value={bundlePath || EMPTY}
+                  onValueChange={(v) => {
+                    const next = v === EMPTY ? "" : v;
+                    setBundlePath(next);
+                    const b = bundles.find((x) => x.path === next);
+                    if (b && !title) setTitle(b.title || b.bundle_id);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择已有 PDF 源包…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={EMPTY}>（不选择）</SelectItem>
+                    {bundles.map((b) => (
+                      <SelectItem key={b.bundle_id} value={b.path}>
+                        {b.title || b.bundle_id}
+                        {typeof b.page_count === "number"
+                          ? ` · ${b.page_count} 页`
+                          : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedBundle && (
+                  <p className="mt-1.5 break-all text-xs text-muted-foreground">
+                    <code>{selectedBundle.location_hint || selectedBundle.path}</code>
+                  </p>
+                )}
+              </Field>
+              <Field label="故事年代">
+                <Select value={era} onValueChange={setEra}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择故事年代…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ERA_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  推荐「跟随模组源事实」：不预先声明年代，开局评审从模组原文建立，避免与源事实冲突。
+                </p>
+              </Field>
+            </>
+          )}
+
+          {mode !== "starter" && (
+            <Field label="调查员">
+              <Select
+                value={investigatorId || NEW_INVESTIGATOR}
+                onValueChange={(v) => {
+                  setInvestigatorId(v);
+                  setStartMsg(null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择调查员…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NEW_INVESTIGATOR}>
+                    ＋ 新建调查员…
+                  </SelectItem>
+                  {investigators.map((inv) => (
+                    <SelectItem key={inv.investigator_id} value={inv.investigator_id}>
+                      {inv.name ?? inv.investigator_id}
+                      {inv.occupation ? ` · ${inv.occupation}` : ""}
+                      {inv.era ? ` · ${inv.era}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {investigatorId === NEW_INVESTIGATOR && (
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                  选「新建」后点开局：主界面由 KP 按
+                  <code className="mx-1">coc-character</code>
+                  skill 引导建卡（与 CLI 相同），无需在此填表。
+                </p>
+              )}
+            </Field>
+          )}
+
+          <Field label="战役标题（可选）">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="战役标题（可选）"
+              className="flex h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            />
+          </Field>
+
+          {startMsg && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {startMsg}
+            </p>
+          )}
+
+          <Separator />
+
+          <div className="flex items-center justify-end gap-3 pb-4">
+            <Button variant="ghost" onClick={onBack} disabled={busy}>
+              取消
+            </Button>
+            <Button disabled={!canStart} onClick={handleStart} className="min-w-28">
+              {busy || uploadBusy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  开局中…
+                </>
+              ) : (
+                "开局"
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-medium tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}

@@ -1,0 +1,137 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+/* ── 自托管标题字体 ────────────────────────────────────────────
+ * Cormorant Garamond（可变字重 500–700，latin / latin-ext 两个子集，
+ * 共约 72 KB）。以前走 fonts.googleapis.com，离线或国内网络会卡到
+ * 超时才回退；本地打包后首屏不再依赖外部请求。
+ * 中文标题不再下载 Noto Serif SC（全量 CJK 衬线是 MB 级，只为几行
+ * 标题不值），改为直接用系统衬线：macOS Songti SC / STSong、
+ * Windows SimSun、Linux Noto Serif CJK SC。 */
+@font-face {
+  font-family: "Cormorant Garamond";
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url("./assets/fonts/cormorant-garamond-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url("./assets/fonts/cormorant-garamond-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
+    U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF,
+    U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ── Dossier · 卷宗纸面浅色主题 ─────────────────────────────── */
+:root {
+  --background: oklch(0.975 0.008 82);
+  --foreground: oklch(0.29 0.02 60);
+  --card: oklch(0.992 0.005 85);
+  --card-foreground: oklch(0.29 0.02 60);
+  --popover: oklch(0.995 0.004 85);
+  --popover-foreground: oklch(0.29 0.02 60);
+  --primary: oklch(0.46 0.13 30);
+  --primary-foreground: oklch(0.97 0.015 85);
+  --secondary: oklch(0.94 0.014 82);
+  --secondary-foreground: oklch(0.34 0.03 55);
+  --muted: oklch(0.945 0.012 82);
+  --muted-foreground: oklch(0.55 0.03 65);
+  --accent: oklch(0.925 0.02 80);
+  --accent-foreground: oklch(0.34 0.03 55);
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-foreground: oklch(0.985 0.003 85);
+  --border: oklch(0.9 0.02 82);
+  --input: oklch(0.9 0.02 82);
+  --ring: oklch(0.46 0.13 30);
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-display:
+    "Cormorant Garamond", "Songti SC", "STSong", "Noto Serif CJK SC",
+    "Source Han Serif SC", "SimSun", serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* 纸面颗粒 —— 极淡的噪点纹理，让浅色界面不至寡淡 */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.028'/%3E%3C/svg%3E");
+  }
+  ::selection {
+    background: oklch(0.46 0.13 30 / 0.18);
+  }
+}
+
+/* 细滚动条，融于纸面 */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: oklch(0.82 0.02 75);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.7 0.04 65);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 打字机光标（聊天区流式状态行沿用） */
+@keyframes cursor-blink {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  56%,
+  100% {
+    opacity: 0;
+  }
+}
+.cursor-blink {
+  animation: cursor-blink 1s steps(1) infinite;
+}

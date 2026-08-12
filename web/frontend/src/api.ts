@@ -96,6 +96,41 @@ export async function uploadPdf(file: File): Promise<{
   return data as { ok: boolean; result: import("./types").PdfUploadResult };
 }
 
+export interface IngestPdfBackgroundWindow {
+  bundle_id: string;
+  pdf_indices: number[];
+  status: string;
+}
+
+export interface IngestPdfResult {
+  status: "matched_bundle" | "in_progress" | string;
+  file_sha256: string;
+  message?: string;
+  matched_bundle?: import("./types").SourceBundle | null;
+  source_bundle_path?: string;
+  bundle_id?: string;
+  page_count?: number | null;
+  rendered_pdf_indices?: number[];
+  validation?: string;
+  background_window?: IngestPdfBackgroundWindow | null;
+}
+
+/**
+ * Trigger external-router parsing of a registered PDF into a source bundle.
+ * Both bridges expose the identical contract at /api/uploads/pdf/ingest.
+ */
+export function ingestPdf(payload: {
+  file_sha256?: string;
+  stored_path?: string;
+  pdf_indices?: number[];
+}): Promise<{ ok: boolean; result: IngestPdfResult }> {
+  return request("/api/uploads/pdf/ingest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createInvestigator(payload: {
   name: string;
   occupation?: string;
