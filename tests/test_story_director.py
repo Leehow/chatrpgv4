@@ -3761,3 +3761,50 @@ def test_main_line_completion_is_pressure_not_a_gate():
     assert coc_story_director._main_line_complete(
         {"clue_graph": {"conclusions": []}, "world_state": {}},
     ) is False
+
+
+def test_cut_scoring_reads_both_restored_signals():
+    """Exercise the CUT branch itself, not the helpers it calls.
+
+    Both of these were computed by the engine and wired to nothing. Asserting
+    they were connected is not evidence: the first attempt to check this built a
+    context with no story_graph, so `transition_candidates` came back empty and
+    every case scored 0.0 — the branch under test never ran and the run looked
+    like a clean negative.
+    """
+    import coc_story_director
+
+    story = {"scenes": [
+        {"scene_id": "s1", "available_clues": ["clue-a"],
+         "scene_edges": [{"to": "s2", "kind": "travel", "when": {"kind": "always"}}],
+         "exit_conditions": [{"kind": "narrative", "description": "守秘人判断这场戏结束了"}]},
+        {"scene_id": "s2", "scene_edges": [], "is_final": True, "available_clues": []},
+    ]}
+    clue_graph = {"conclusions": [
+        {"conclusion_id": "c1", "importance": "core", "minimum_routes": 1,
+         "clues": [{"clue_id": "clue-a"}]},
+    ]}
+
+    def ctx(discovered, scene):
+        return {
+            "clue_graph": clue_graph, "story_graph": story,
+            "world_state": {
+                "discovered_clue_ids": discovered,
+                "unlocked_scene_ids": ["s1", "s2"], "visited_scene_ids": ["s1"],
+                "active_scene_id": "s1",
+            },
+            "active_scene_id": "s1", "active_scene": scene,
+            "rule_signals": {"stalled_turns": 0},
+            "player_intent_class": "continue", "flags": {},
+        }
+
+    scene = story["scenes"][0]
+    # Nothing found yet: no ledger signal, no main line, no stall.
+    assert coc_story_director._base_score("CUT", ctx([], scene)) == 0.0
+    # The scene has given up everything it holds — the ledger fallback survives
+    # the prose exit condition that used to mute it.
+    assert coc_story_director._base_score("CUT", ctx(["clue-a"], scene)) == 0.8
+    # Main line answered while this scene still holds an undiscovered clue:
+    # only the objective pressure applies, and it sits below the ledger's 0.8.
+    unfinished = {**scene, "available_clues": ["clue-a", "clue-unfound"]}
+    assert coc_story_director._base_score("CUT", ctx(["clue-a"], unfinished)) == 0.7
