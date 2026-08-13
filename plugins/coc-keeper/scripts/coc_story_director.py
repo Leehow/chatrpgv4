@@ -770,6 +770,7 @@ def build_director_context(
         "bout_active": bool(inv_state.get("bout_active")) or "bout_active" in conditions,
         "delusion_active": bool(inv_state.get("active_delusion")),
     }
+
     # Structured phobia/mania exposure (W1-4): scene threat_tags ∩ stored
     # phobia_tags/mania_tags. No free-text scanning.
     threat_tags = {
@@ -859,6 +860,18 @@ def build_director_context(
         authored_threats, persisted_threats
     )
     clue_graph = _read_json(scenario / "clue-graph.json", {"conclusions": []})
+    # Main-line progress, from the same authored objectives the Keeper is shown
+    # in scene.context. The engine computed this and kept it inside the
+    # epistemic subsystem, so transition pacing had no notion of whether the
+    # story had advanced — only of whether play had stalled. Computed here
+    # because this is where the clue graph is first in hand.
+    _objectives = (
+        coc_belief_state.core_objective_progress(clue_graph, world.get("discovered_clue_ids"))
+        if coc_belief_state is not None else {}
+    )
+    rule_signals["core_objectives_total"] = int(_objectives.get("core_total", 0) or 0)
+    rule_signals["core_objectives_answered"] = int(_objectives.get("core_answered", 0) or 0)
+    rule_signals["main_line_complete"] = bool(_objectives.get("main_line_complete"))
     npc_agendas = _read_json(scenario / "npc-agendas.json", {"npcs": []})
     a21_findings = coc_npc_state.validate_a21_contract(npc_agendas, clue_graph)
     if a21_findings:
@@ -1709,9 +1722,25 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
             return 1.0
         if not _is_low_agency_continue(ctx):
             return 0.0
-        exit_met = any(_eval_exit(e, ctx) for e in scene.get("exit_conditions", []))
+        # Same rule the apply layer uses: prose is not a machine condition, so a
+        # scene whose ending is only described falls back to the clue ledger
+        # rather than losing its readiness signal entirely.
+        exit_conditions = scene.get("exit_conditions", [])
+        if coc_exit_conditions.has_machine_condition(exit_conditions):
+            exit_met = any(_eval_exit(e, ctx) for e in exit_conditions)
+        else:
+            discovered_ids = set(ctx["world_state"].get("discovered_clue_ids", []))
+            scene_clues = [str(c) for c in (scene.get("available_clues") or []) if c]
+            exit_met = bool(scene_clues) and all(c in discovered_ids for c in scene_clues)
         if exit_met:
             return 0.8
+        # The main line is the other reason a scene is done: once every core
+        # objective has been worked out, the story wants its ending, and a scene
+        # that is not the ending is holding it up. Pressure, not a gate — it
+        # scores below a met exit condition and the Keeper overrides either by
+        # simply moving.
+        if _main_line_complete(ctx) and not scene.get("is_final"):
+            return 0.7
         # Existing stalled_turns pacing raises transition pressure when a
         # reachable unlocked target already exists (no new keyword system).
         stalled = int(sig.get("stalled_turns", 0) or 0)
@@ -1743,6 +1772,16 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         return min(0.85, 0.15 + top * 0.05)
 
     return 0.0
+
+
+def _main_line_complete(ctx: dict[str, Any]) -> bool:
+    """True when every core objective the module authored has been worked out."""
+    if coc_belief_state is None:
+        return False
+    progress = coc_belief_state.core_objective_progress(
+        ctx.get("clue_graph"), (ctx.get("world_state") or {}).get("discovered_clue_ids"),
+    )
+    return bool(progress.get("main_line_complete"))
 
 
 def _eval_exit(condition: Any, ctx: dict[str, Any]) -> bool:

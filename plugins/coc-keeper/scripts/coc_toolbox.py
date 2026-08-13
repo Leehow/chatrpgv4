@@ -13169,6 +13169,16 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             },
         } if scene and (source_context_mentions or scene_source_refs) else None,
         "scene_contract": _scene_contract_projection(ctx, active_id, world),
+        # Where the main line stands: which authored objectives the investigators
+        # have worked out, and how many independent routes each still wants. The
+        # engine computes this and used to keep it inside the epistemic
+        # subsystem, so the Keeper had no passive read on whether the story had
+        # advanced — the only pacing signal that reached transition scoring was
+        # "play has stalled". Advisory, and never a gate: the Keeper moves the
+        # story wherever the fiction goes and reads this while deciding.
+        "story_progress": coc_belief_state.core_objective_progress(
+            ctx.clue_graph, world.get("discovered_clue_ids"),
+        ),
         "npcs_present": npcs,
         "clues_here": clues,
         "discovered_clue_count": len(discovered),

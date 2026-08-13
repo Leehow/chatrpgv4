@@ -3695,3 +3695,69 @@ def test_plan_carries_rule_signal_notes_for_notable_credit_tier(tmp_path):
     assert notes[0]["value"] == "wealthy"
     assert notes[0]["note"]
     assert notes[0]["rule_ref"]
+
+
+def test_core_objective_progress_reports_routes_against_the_bar():
+    """The quest-log view: each authored objective against the clues found.
+
+    A conclusion is an objective, its clues are the evidence and
+    ``minimum_routes`` is the bar — the model video games use for main-line
+    progression, already extracted and validated for every module. The engine
+    computed the answered/outstanding split and kept it inside the epistemic
+    subsystem, so neither the Keeper's projection nor transition scoring could
+    see whether the story had advanced.
+    """
+    import coc_belief_state
+
+    clue_graph = {"conclusions": [
+        {"conclusion_id": "the-coup", "importance": "core", "minimum_routes": 2,
+         "description": "Bradan means to take the throne.",
+         "clues": [{"clue_id": "clue-a"}, {"clue_id": "clue-b"}, {"clue_id": "clue-c"}]},
+        {"conclusion_id": "the-cult", "importance": "core", "minimum_routes": 2,
+         "clues": [{"clue_id": "clue-d"}, {"clue_id": "clue-e"}]},
+        {"conclusion_id": "an-aside", "importance": "optional", "minimum_routes": 1,
+         "clues": [{"clue_id": "clue-f"}]},
+    ]}
+
+    empty = coc_belief_state.core_objective_progress(clue_graph, [])
+    assert (empty["core_total"], empty["core_answered"]) == (2, 0)
+    assert empty["main_line_complete"] is False
+    # core objectives sort ahead of the optional one
+    assert [row["importance"] for row in empty["objectives"]][:2] == ["core", "core"]
+
+    partial = coc_belief_state.core_objective_progress(clue_graph, ["clue-a", "clue-d"])
+    coup = next(r for r in partial["objectives"] if r["conclusion_id"] == "the-coup")
+    assert (coup["routes_found"], coup["routes_outstanding"], coup["answered"]) == (1, 1, False)
+    assert partial["main_line_complete"] is False
+
+    # The optional objective staying unanswered must not hold the main line back.
+    done = coc_belief_state.core_objective_progress(
+        clue_graph, ["clue-a", "clue-b", "clue-d", "clue-e"],
+    )
+    assert (done["core_answered"], done["main_line_complete"]) == (2, True)
+    assert next(r for r in done["objectives"] if r["conclusion_id"] == "an-aside")["answered"] is False
+
+
+def test_main_line_completion_is_pressure_not_a_gate():
+    """Once every core objective is worked out the story wants its ending.
+
+    It scores below a met exit condition and above nothing, and it is checked
+    on the active scene rather than on the route — the point is that the Keeper
+    is told the main line is done, not that any door is shut. `is_final` is
+    exempt: the ending is not holding the ending up.
+    """
+    import coc_story_director
+
+    clue_graph = {"conclusions": [
+        {"conclusion_id": "c1", "importance": "core", "minimum_routes": 1,
+         "clues": [{"clue_id": "clue-a"}]},
+    ]}
+    ctx_done = {"clue_graph": clue_graph, "world_state": {"discovered_clue_ids": ["clue-a"]}}
+    ctx_open = {"clue_graph": clue_graph, "world_state": {"discovered_clue_ids": []}}
+
+    assert coc_story_director._main_line_complete(ctx_done) is True
+    assert coc_story_director._main_line_complete(ctx_open) is False
+    # A module that authors no core objective never claims its main line is done.
+    assert coc_story_director._main_line_complete(
+        {"clue_graph": {"conclusions": []}, "world_state": {}},
+    ) is False

@@ -4146,6 +4146,12 @@ def _apply_plan_impl(
             available = current_scene.get("available_clues", [])
             flags_set = _truthy_flag_ids(_read_json(save / "flags.json", {}))
             exit_conditions = current_scene.get("exit_conditions", [])
+            # A scene that describes its ending in prose has declared no machine
+            # condition, so it keeps the clue-ledger fallback: the scene is ready
+            # when it has given up everything it had to give. Keying this on
+            # `exit_conditions` being non-empty meant that writing the ending
+            # down — which is what the Keeper reads while judging — switched off
+            # the only automatic readiness signal in the engine.
             exit_met = (
                 any(
                     _director_exit_eval(
@@ -4157,7 +4163,7 @@ def _apply_plan_impl(
                     )
                     for condition in exit_conditions
                 )
-                if exit_conditions
+                if coc_exit_conditions.has_machine_condition(exit_conditions)
                 else bool(available and all(clue_id in discovered for clue_id in available))
             )
             should_advance = (

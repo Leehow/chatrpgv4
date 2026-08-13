@@ -617,3 +617,80 @@ def apply_belief_turn(
         for event in events:
             _append_jsonl(path, event)
     return events
+
+
+# --- Main-line objective progress -------------------------------------------
+#
+# A conclusion in clue-graph.json is an objective: something the investigators
+# are meant to work out, with `minimum_routes` independent clues as the bar and
+# `importance` saying whether the story turns on it. That is the quest-objective
+# model video games use for main-line progression, and the whole of it is
+# already extracted and already validated.
+#
+# It was computed and then went nowhere. `answered_question_ids` circulates
+# inside the epistemic subsystem — metrics, lifecycle, policy — and reaches
+# neither the Keeper's scene projection nor the Story Director's transition
+# scoring. So the engine knew whether the main line had advanced and never said
+# so, and the only automatic pacing pressure left was "play has stalled".
+#
+# This is deliberately a progress report and never a gate. Games gate a chapter
+# on its main quest, not every door on the way, and the Keeper is not blocked by
+# anything here: they read where the story stands and decide.
+
+_OBJECTIVE_IMPORTANCE_ORDER = {"core": 0, "supporting": 1, "optional": 2}
+
+
+def core_objective_progress(
+    clue_graph: dict[str, Any] | None,
+    discovered_clue_ids: Any,
+) -> dict[str, Any]:
+    """Report each authored objective against the clues actually discovered.
+
+    Pure: reads no files and holds no state, so the toolbox and the director can
+    both call it on whatever they already have in hand.
+    """
+    discovered = set(_ordered_strings(discovered_clue_ids))
+    objectives: list[dict[str, Any]] = []
+    for conclusion in (clue_graph or {}).get("conclusions") or []:
+        if not isinstance(conclusion, dict):
+            continue
+        conclusion_id = str(conclusion.get("conclusion_id") or "").strip()
+        if not conclusion_id:
+            continue
+        clue_ids = [
+            clue_id
+            for clue in conclusion.get("clues") or []
+            if isinstance(clue, dict)
+            for clue_id in _ordered_strings(clue.get("clue_id"))
+        ]
+        required = _positive_int(conclusion.get("minimum_routes")) or 1
+        found = sorted(set(clue_ids) & discovered)
+        objectives.append({
+            "conclusion_id": conclusion_id,
+            "importance": str(conclusion.get("importance") or "supporting"),
+            "description": conclusion.get("description"),
+            "routes_required": required,
+            "routes_found": len(found),
+            # Capped: a scenario whose remaining clues cannot reach the bar is
+            # short of routes, not short of play, and `fallback_policy` is the
+            # author's answer to that.
+            "routes_outstanding": max(0, required - len(found)),
+            "answered": len(found) >= required,
+            "available_routes": len(clue_ids),
+            "fallback_policy": conclusion.get("fallback_policy"),
+        })
+    objectives.sort(key=lambda row: (
+        _OBJECTIVE_IMPORTANCE_ORDER.get(row["importance"], 3),
+        row["conclusion_id"],
+    ))
+    core = [row for row in objectives if row["importance"] == "core"]
+    core_answered = [row for row in core if row["answered"]]
+    return {
+        "schema_version": 1,
+        "keeper_only": True,
+        "authority": "advisory",
+        "objectives": objectives,
+        "core_total": len(core),
+        "core_answered": len(core_answered),
+        "main_line_complete": bool(core) and len(core_answered) == len(core),
+    }

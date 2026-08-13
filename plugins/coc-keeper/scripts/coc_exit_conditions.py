@@ -55,10 +55,23 @@ def normalize_exit_condition(raw: Any) -> dict[str, Any]:
     """
     if isinstance(raw, dict):
         kind = str(raw.get("kind") or "")
+        # ``description`` carries the module's own sentence for this gate, and it
+        # survives normalization on every kind rather than only on ``narrative``.
+        # The machine form answers whether the edge is open; the sentence is the
+        # only thing that tells the Keeper what the book actually said about it,
+        # and dropping it here dropped it everywhere — ``scene.map`` and the
+        # off-design move warning both print normalized edges.
+        described = str(raw.get("description") or "").strip()
+
+        def _with_description(out: dict[str, Any]) -> dict[str, Any]:
+            if described:
+                out["description"] = described
+            return out
+
         if kind == "clue_discovered":
             clue_id = str(raw.get("clue_id") or "").strip()
             if clue_id:
-                return {"kind": "clue_discovered", "clue_id": clue_id}
+                return _with_description({"kind": "clue_discovered", "clue_id": clue_id})
         elif kind == "clock_reaches":
             try:
                 threshold = int(raw.get("threshold"))
@@ -69,13 +82,13 @@ def normalize_exit_condition(raw: Any) -> dict[str, Any]:
                 clock_id = str(raw.get("clock_id") or "").strip()
                 if clock_id:
                     out["clock_id"] = clock_id
-                return out
+                return _with_description(out)
         elif kind == "flag_set":
             flag_id = str(raw.get("flag_id") or "").strip()
             if flag_id:
-                return {"kind": "flag_set", "flag_id": flag_id}
+                return _with_description({"kind": "flag_set", "flag_id": flag_id})
         elif kind == "always":
-            return {"kind": "always"}
+            return _with_description({"kind": "always"})
         elif kind == "narrative":
             return {"kind": "narrative", "description": str(raw.get("description") or "")}
         return {"kind": "narrative", "description": str(raw.get("description") or raw)}
@@ -96,6 +109,25 @@ def normalize_exit_condition(raw: Any) -> dict[str, Any]:
             "legacy_source": text,
         }
     return {"kind": "narrative", "description": text}
+
+
+def has_machine_condition(conditions: Any) -> bool:
+    """True when any condition can actually be evaluated against world state.
+
+    ``narrative`` is a note to the Keeper, not a condition: it is False forever
+    by design. Callers use this to tell "the scenario authored a machine gate"
+    from "the scenario described the ending in words", because the two want
+    opposite fallbacks. A scene carrying only narrative conditions has no
+    machine opinion about when it ends, and should be treated as if it declared
+    none — otherwise writing the ending down in prose silently switches off
+    whatever the caller does when nothing is declared.
+    """
+    if not isinstance(conditions, (list, tuple)):
+        return False
+    return any(
+        normalize_exit_condition(condition).get("kind") != "narrative"
+        for condition in conditions
+    )
 
 
 def evaluate_exit_condition(
@@ -130,5 +162,6 @@ def evaluate_exit_condition(
 __all__ = [
     "EXIT_CONDITION_KINDS",
     "normalize_exit_condition",
+    "has_machine_condition",
     "evaluate_exit_condition",
 ]

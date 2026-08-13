@@ -1424,6 +1424,61 @@ def test_apply_marks_scene_exit_ready_when_clues_exhausted(tmp_path):
     assert world2["exit_ready_scene_ids"] == ["scene-1"]
 
 
+def test_apply_marks_exit_ready_when_conditions_are_prose_only(tmp_path):
+    """Describing the ending in words must not switch off the clue-ledger signal.
+
+    ``narrative`` conditions evaluate False forever, so a scene that only
+    describes how it ends has no machine opinion about when it ends. Keying the
+    fallback on ``exit_conditions`` being non-empty meant that writing the
+    sentence the Keeper reads while judging — which is the whole point of the
+    field — silently removed the only automatic readiness signal the engine has.
+    """
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["discovered_clue_ids"] = ["clue-A"]
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"], "dramatic_question": "q1",
+         "entry_conditions": [],
+         "exit_conditions": [{"kind": "narrative", "description": "调查员弄清了委托的内容并动身"}]},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"], "dramatic_question": "q2",
+         "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert world2["exit_ready_scene_ids"] == ["scene-1"]
+
+
+def test_apply_keeps_machine_condition_authority_over_the_ledger(tmp_path):
+    """A real machine condition still decides on its own — the fallback is only
+    for scenes that declared none. Here every clue is found and the authored
+    condition is not met, so the scene is not ready."""
+    camp = _campaign(tmp_path)
+    world = json.loads((camp / "save" / "world-state.json").read_text())
+    world["discovered_clue_ids"] = ["clue-A"]
+    world["active_scene_id"] = "scene-1"
+    (camp / "save" / "world-state.json").write_text(json.dumps(world))
+    sg = {"scenes": [
+        {"scene_id": "scene-1", "available_clues": ["clue-A"], "dramatic_question": "q1",
+         "entry_conditions": [],
+         "exit_conditions": [{"kind": "clue_discovered", "clue_id": "clue-elsewhere"}]},
+        {"scene_id": "scene-2", "available_clues": ["clue-B"], "dramatic_question": "q2",
+         "entry_conditions": [], "exit_conditions": []},
+    ]}
+    (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
+    plan = {"decision_id": "d1", "scene_action": "REVEAL",
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
+            "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    world2 = json.loads((camp / "save" / "world-state.json").read_text())
+    assert not world2.get("exit_ready_scene_ids")
+
+
 def test_apply_does_not_advance_when_clues_remain(tmp_path):
     """Scene with undiscovered clues stays active."""
     camp = _campaign(tmp_path)
