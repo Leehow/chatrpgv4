@@ -14,6 +14,9 @@ Markdown 渲染），右侧角色参数 / 物品 / 游戏时间，顶栏可选�
    - 源包位置：`.coc/source-bundles/<id>/`（须含 `manifest.json`）。
    - 拖拽/上传 PDF → `POST /api/uploads/pdf`：只做 SHA-256 登记与去重，**不解析**。
    - 开局：`campaign.create` → `scenario.bind_pdf` → `campaign.link_investigator`。
+   - era 未建立（未过 `setup.adopt_source_facts`）时，内核 era gate 拒建卡/入队；
+     两桥此时以**未入队的 setup draft** 开会话并 seed 占位状态（刻意容错，非 bug），
+     供会话内完成开局评审与 adopt；era 建立后正常建卡流自动重链。
 
 **新建调查员**（PDF / 已解析剧本模式）：侧栏调查员下拉第一项「＋ 新建调查员…」，
 点「开局」后先建战役（不预建卡），中间主界面由 **live KP 按 coc-character skill**

@@ -29,6 +29,43 @@ if str(_REPO_ROOT) not in sys.path:
 
 from runtime.sdk import api as sdk  # noqa: E402
 
+
+def _arm_pi_source_lifecycle_defaults() -> None:
+    """Arm the canonical Pi source-lifecycle lanes for the keeper agent.
+
+    The pi-coc CLI launcher exports the same defaults; the web keeper
+    session is launched directly (run_keeper_turn.mjs) and would otherwise
+    silently skip the opening-source-review auto-dispatch
+    (COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND unset => retryable "command
+    unavailable") and progressive OCR. Values already exported by the
+    operator always win.
+    """
+    pi_bin = _REPO_ROOT / "plugins" / "coc-keeper" / "pi" / "bin"
+    defaults = {
+        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND": str(pi_bin / "coc-pdf-skill-adapter"),
+        "COC_PROGRESSIVE_OCR_COMMAND": str(pi_bin / "coc-ocr-adapter.py"),
+        # Text model for the opening facts + module-init L0 extraction child.
+        # The adapter's deepseek default needs an API key the extension's
+        # child env allowlist never carries; the web keeper's relay catalog
+        # does. Must be a strong model: the strict coc.opening-fast-facts.v1
+        # contract (exact key set incl. schema_version/contract_id) is
+        # systematically dropped by gpt-5.4-mini (campaign 163241: 3/3
+        # producer failures).
+        "COC_PI_OPENING_MODEL": "coding-relay/gpt-5.6-luna",
+    }
+    router_default = (
+        Path.home() / ".pi" / "coc-tools" / "pdf-inspector"
+        / "coc-pi-pdf-inspector-router"
+    )
+    if router_default.exists():
+        defaults["COC_PI_PDF_INSPECTOR_COMMAND"] = str(router_default)
+    for key, value in defaults.items():
+        if not os.environ.get(key, "").strip():
+            os.environ[key] = value
+
+
+_arm_pi_source_lifecycle_defaults()
+
 _DIST_DIR = _REPO_ROOT / "web" / "frontend" / "dist"
 
 # One turn at a time: concurrent keeper turns against shared campaign state
@@ -39,6 +76,15 @@ _TURN_LOCK = threading.Lock()
 _SESSIONS: dict[str, dict[str, str]] = {}
 
 _WORKSPACE: Path = _REPO_ROOT
+
+
+class _HttpApiError(Exception):
+    """Handler failure carrying the exact HTTP status for the JSON reply."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
 
 
 # ---------------------------------------------------------------------------
@@ -133,12 +179,39 @@ def _ensure_setup_draft_investigator() -> str:
             "kind": "investigator.create",
             "payload": {
                 "investigator_id": SETUP_DRAFT_INVESTIGATOR_ID,
+                # Import a complete shell sheet: the deterministic validator
+                # rejects Quick Fire inputs unless
+                # creation.input_mode=guided_quick_fire, and that guided branch
+                # requires a campaign context plus an authoritative dice
+                # receipt — unavailable for this workspace-level placeholder.
+                # Numbers are the package's Quick Fire array
+                # (characteristic-dice.json) with Luck 12*5 and age 28, exactly
+                # as derive_values computes them.
                 "sheet": {
                     "id": SETUP_DRAFT_INVESTIGATOR_ID,
                     "name": "（建卡引导中）",
                     "occupation": "调查员",
                     "era": "1920s",
                     "age": 28,
+                    "characteristics": {
+                        "INT": 80,
+                        "POW": 70,
+                        "DEX": 60,
+                        "EDU": 60,
+                        "CON": 50,
+                        "APP": 50,
+                        "SIZ": 50,
+                        "STR": 40,
+                    },
+                    "derived": {
+                        "HP": 10,
+                        "MP": 14,
+                        "SAN": 70,
+                        "Luck": 60,
+                        "DB": "none",
+                        "Build": 0,
+                        "MOV": 8,
+                    },
                     "skills": {
                         "Credit Rating": 20,
                         "Spot Hidden": 25,
@@ -147,18 +220,8 @@ def _ensure_setup_draft_investigator() -> str:
                     },
                 },
                 "creation": {
-                    "method": "quick_fire_array",
-                    "characteristic_assignment_order": [
-                        "INT",
-                        "POW",
-                        "DEX",
-                        "EDU",
-                        "CON",
-                        "APP",
-                        "SIZ",
-                        "STR",
-                    ],
-                    "luck_roll_total": 12,
+                    "input_mode": "import_complete_sheet",
+                    "method": "complete_sheet_placeholder",
                 },
             },
         },
@@ -169,17 +232,36 @@ def _ensure_setup_draft_investigator() -> str:
 def _link_setup_draft(campaign_id: str) -> str:
     """Link the setup draft so the live Keeper can run coc-character guidance."""
     draft_id = _ensure_setup_draft_investigator()
-    sdk.setup_workspace(
-        _WORKSPACE,
-        {
-            "schema_version": 1,
-            "kind": "campaign.link_investigator",
-            "payload": {
-                "campaign_id": campaign_id,
-                "investigator_ids": [draft_id],
+    try:
+        sdk.setup_workspace(
+            _WORKSPACE,
+            {
+                "schema_version": 1,
+                "kind": "campaign.link_investigator",
+                "payload": {
+                    "campaign_id": campaign_id,
+                    "investigator_ids": [draft_id],
+                },
             },
-        },
-    )
+        )
+    except Exception as exc:  # noqa: BLE001 — era-gate deadlock recovery below
+        # Era-gate deadlock: a source-bound campaign whose era is not yet
+        # established fail-closes party linking (character creation) until
+        # setup.adopt_source_facts answers the fast-facts era question — but
+        # that adoption can only be driven from inside a live session. Open
+        # the session with the unlinked draft anyway; the kernel still blocks
+        # every creation operation until adoption, and the link is
+        # re-attempted by the normal character-creation flow afterwards.
+        if "era is not source-established" in str(exc):
+            # The kernel seeds draft runtime state inside link_party; while
+            # the gate defers the link, seed the identical placeholder state
+            # through the canonical helper so the session's state snapshot
+            # can load. link_party keeps an existing file on the later link.
+            _load_plugin_module("coc_state").seed_investigator_state_if_missing(
+                _WORKSPACE, campaign_id, draft_id,
+            )
+            return draft_id
+        raise
     return draft_id
 
 
@@ -742,6 +824,424 @@ def _uploads_pdf_dir() -> Path:
     return path
 
 
+# ---------------------------------------------------------------------------
+# PDF ingest (external firecrawl router -> schema-v1 bundle -> repo validation)
+#
+# Mirror of web/server-node/server.mjs handleIngestPdf: same endpoint,
+# same JSON fields, same fail-closed behavior. The repository still never
+# parses PDFs itself; it shells out to the external router and validates the
+# result through plugins/coc-keeper/scripts/coc_pdf_bundle.py.
+
+_INGEST_WINDOW_MAX = 32  # router MAX_PAGES per batch
+_INGEST_ROUTER_TIMEOUT_S = 300
+_INGEST_REQUEST_CONTRACT = "coc.pi-pdf-inspector-request.v1"
+_INGEST_RESULT_CONTRACT = "coc.pi-pdf-inspector-result.v1"
+_INGEST_PRODUCER_LITERAL = "codex-pdf-skill"
+
+_INGEST_LOCK_GUARD = threading.Lock()
+_INGEST_LOCKS: set[str] = set()
+
+
+def _resolve_pdf_inspector_command() -> str | None:
+    import os as _os
+
+    candidates: list[Path] = []
+    configured = _os.environ.get("COC_PI_PDF_INSPECTOR_COMMAND", "").strip()
+    if configured:
+        candidates.append(Path(configured).expanduser().resolve())
+    candidates.append(
+        Path.home() / ".pi" / "coc-tools" / "pdf-inspector" / "coc-pi-pdf-inspector-router"
+    )
+    for candidate in candidates:
+        try:
+            if candidate.is_absolute() and candidate.is_file() and _os.access(
+                candidate, _os.X_OK
+            ):
+                return str(candidate)
+        except OSError:
+            continue
+    return None
+
+
+def _run_pdf_inspector(request: dict[str, Any]) -> dict[str, Any]:
+    import subprocess
+
+    command = _resolve_pdf_inspector_command()
+    if command is None:
+        raise _HttpApiError(
+            503,
+            "外部 PDF 解析路由器不可用：请安装 coc-pi-pdf-inspector-router，"
+            "或导出 COC_PI_PDF_INSPECTOR_COMMAND 指向其可执行文件"
+            "（缺省查找 ~/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router）。"
+            "仓库本身不解析 PDF。",
+        )
+    try:
+        proc = subprocess.run(
+            [command],
+            input=json.dumps(request, ensure_ascii=False) + "\n",
+            capture_output=True,
+            text=True,
+            timeout=_INGEST_ROUTER_TIMEOUT_S,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise _HttpApiError(504, "PDF 解析超时（300 秒），请稍后重试。") from exc
+    except OSError as exc:
+        raise _HttpApiError(502, f"解析路由器启动失败：{exc}") from exc
+    result: Any = None
+    tail = (proc.stdout or "").strip().splitlines()
+    if tail:
+        try:
+            result = json.loads(tail[-1])
+        except json.JSONDecodeError:
+            result = None
+    if not isinstance(result, dict) or result.get("contract_id") != _INGEST_RESULT_CONTRACT:
+        detail = (proc.stderr or proc.stdout or "")[:500]
+        raise _HttpApiError(
+            502, f"解析路由器输出无效（exit={proc.returncode}）：{detail}"
+        )
+    return result
+
+
+def _validate_bundle_dir(bundle_dir: Path) -> tuple[bool, str]:
+    import subprocess
+
+    output = (
+        _coc_root()
+        / "pdf-cache"
+        / "bundle-validation"
+        / f"{bundle_dir.name}.json"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--frozen",
+                "python",
+                "plugins/coc-keeper/scripts/coc_pdf_bundle.py",
+                str(bundle_dir),
+                "--output",
+                str(output),
+            ],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return False, f"uv 启动失败：{exc}"
+    if proc.returncode == 0:
+        return True, ""
+    return False, (proc.stderr or "").strip()[-800:]
+
+
+def _find_registered_pdf(file_sha256: str) -> Path | None:
+    directory = _coc_root() / "uploads" / "pdfs"
+    if not directory.is_dir():
+        return None
+    digest = file_sha256.lower()
+    entries = sorted(directory.iterdir())
+
+    def is_prefix_hit(entry: Path) -> bool:
+        name = entry.name.lower()
+        return name.startswith(f"{digest[:16]}_") or name.startswith(f"{digest}_")
+
+    # Prefer the cheap name-prefix candidates before hashing every file.
+    for entry in sorted(entries, key=lambda e: (not is_prefix_hit(e), e.name)):
+        try:
+            if entry.is_file() and _sha256_file(entry) == digest:
+                return entry
+        except OSError:
+            continue
+    return None
+
+
+def _ingest_identity(stored: Path) -> tuple[str, str]:
+    import re as _re
+
+    base = _re.sub(r"^[0-9a-f]{16}_", "", stored.name, flags=_re.IGNORECASE)
+    base = _re.sub(r"\.pdf$", "", base, flags=_re.IGNORECASE)
+    slug = _re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-") or "pdf-source"
+    title = _re.sub(r"_+", " ", base).strip() or slug
+    return slug, title
+
+
+def _parse_ingest_indices(raw: Any) -> list[int] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw or len(raw) > _INGEST_WINDOW_MAX:
+        raise _HttpApiError(
+            400, f"pdf_indices 必须是 1..{_INGEST_WINDOW_MAX} 个页码"
+        )
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in raw
+    ):
+        raise _HttpApiError(400, "pdf_indices 必须是非负整数页码")
+    return sorted(set(raw))
+
+
+def _read_bundle_page_count(bundle_dir: Path) -> int | None:
+    try:
+        manifest = json.loads((bundle_dir / "manifest.json").read_text("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    source = manifest.get("source") if isinstance(manifest, dict) else None
+    page_count = source.get("page_count") if isinstance(source, dict) else None
+    if isinstance(page_count, int) and page_count > 0:
+        return page_count
+    return None
+
+
+def _build_inspector_request(
+    stored_path: Path,
+    file_sha256: str,
+    bundle_dir: Path,
+    bundle_id: str,
+    title: str,
+    indices: list[int],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "contract_id": _INGEST_REQUEST_CONTRACT,
+        "mode": "full_parse_batch",
+        "source": {
+            "path": str(stored_path),
+            "source_id": f"pdf:{bundle_id}",
+            "title": title,
+            "file_sha256": file_sha256,
+        },
+        "source_bundle_path": str(bundle_dir),
+        "manifest_producer_literal": _INGEST_PRODUCER_LITERAL,
+        "missing_pdf_indices": list(indices),
+    }
+
+
+def _start_background_window(
+    stored_path: Path,
+    file_sha256: str,
+    slug: str,
+    title: str,
+    indices: list[int],
+) -> dict[str, Any]:
+    import subprocess
+
+    bundle_id = f"{slug}-w2"
+    payload = json.dumps(
+        {
+            "workspace": str(_WORKSPACE),
+            "stored_path": str(stored_path),
+            "file_sha256": file_sha256,
+            "bundle_id": bundle_id,
+            "title": title,
+            "pdf_indices": list(indices),
+        },
+        ensure_ascii=False,
+    )
+    try:
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--ingest-window", payload],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {"bundle_id": bundle_id, "pdf_indices": list(indices), "status": "started"}
+    except OSError:
+        return {"bundle_id": bundle_id, "pdf_indices": list(indices), "status": "failed"}
+
+
+def _ingest_window_worker(payload: dict[str, Any]) -> int:
+    global _WORKSPACE
+    workspace = payload.get("workspace")
+    if isinstance(workspace, str) and workspace:
+        _WORKSPACE = Path(workspace).expanduser().resolve()
+    bundle_dir = _coc_root() / "source-bundles" / str(payload.get("bundle_id"))
+    # Idempotent: an existing validated bundle wins without re-parsing.
+    if (bundle_dir / "manifest.json").is_file():
+        ok, _ = _validate_bundle_dir(bundle_dir)
+        if ok:
+            return 0
+    indices = payload.get("pdf_indices") or []
+    result = _run_pdf_inspector(
+        _build_inspector_request(
+            Path(str(payload.get("stored_path"))),
+            str(payload.get("file_sha256")),
+            bundle_dir,
+            str(payload.get("bundle_id")),
+            str(payload.get("title") or payload.get("bundle_id")),
+            [int(i) for i in indices],
+        )
+    )
+    # Same OCR-skip degradation as the foreground window.
+    if (
+        result.get("status") == "fallback"
+        and result.get("reason") == "needs_ocr"
+        and isinstance(result.get("pages_needing_ocr_0indexed"), list)
+        and result["pages_needing_ocr_0indexed"]
+    ):
+        ocr_set = set(result["pages_needing_ocr_0indexed"])
+        reduced = [int(i) for i in indices if int(i) not in ocr_set]
+        if not reduced:
+            return 1
+        import shutil as _shutil
+
+        if bundle_dir.exists():
+            _shutil.rmtree(bundle_dir, ignore_errors=True)
+        result = _run_pdf_inspector(
+            _build_inspector_request(
+                Path(str(payload.get("stored_path"))),
+                str(payload.get("file_sha256")),
+                bundle_dir,
+                str(payload.get("bundle_id")),
+                str(payload.get("title") or payload.get("bundle_id")),
+                reduced,
+            )
+        )
+    if result.get("status") != "ok":
+        return 1
+    ok, _ = _validate_bundle_dir(bundle_dir)
+    return 0 if ok else 1
+
+
+def _ingest_success_payload(
+    file_sha256: str,
+    bundle_dir: Path,
+    rendered: list[int],
+    background_window: dict[str, Any] | None,
+    message: str,
+    skipped_ocr: list[int] | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": "matched_bundle",
+        "file_sha256": file_sha256,
+        "message": message,
+        "matched_bundle": _find_bundle_by_pdf_sha256(file_sha256),
+        "source_bundle_path": str(bundle_dir.resolve()),
+        "bundle_id": bundle_dir.name,
+        "page_count": _read_bundle_page_count(bundle_dir),
+        "rendered_pdf_indices": list(rendered),
+        "skipped_ocr_pdf_indices": list(skipped_ocr or []),
+        "validation": "passed",
+        "background_window": background_window,
+    }
+
+
+def _run_ingest(
+    stored_path: Path, file_sha256: str, requested_indices: list[int] | None
+) -> dict[str, Any]:
+    slug, title = _ingest_identity(stored_path)
+    bundles_root = _coc_root() / "source-bundles"
+    is_default_window = requested_indices is None
+    indices = (
+        requested_indices
+        if requested_indices is not None
+        else list(range(_INGEST_WINDOW_MAX))
+    )
+    # Default first window owns <slug>; explicit windows get their own suffix
+    # so multiple windows never overwrite each other.
+    bundle_id = slug if is_default_window else f"{slug}-p{indices[0]}"
+    bundle_dir = bundles_root / bundle_id
+
+    # Idempotent: an existing validated bundle is reused without re-parsing.
+    if (bundle_dir / "manifest.json").is_file():
+        ok, _ = _validate_bundle_dir(bundle_dir)
+        if ok:
+            return _ingest_success_payload(
+                file_sha256,
+                bundle_dir,
+                indices,
+                None,
+                "已存在校验通过的源包，直接复用，可以开局。",
+            )
+
+    router_result = _run_pdf_inspector(
+        _build_inspector_request(
+            stored_path, file_sha256, bundle_dir, bundle_id, title, indices
+        )
+    )
+    # Graceful degradation: image pages (cover/art) that need OCR are skipped
+    # and the text-layer pages are re-parsed. The repository still never OCRs.
+    skipped_ocr: list[int] = []
+    if (
+        router_result.get("status") == "fallback"
+        and router_result.get("reason") == "needs_ocr"
+        and isinstance(router_result.get("pages_needing_ocr_0indexed"), list)
+        and router_result["pages_needing_ocr_0indexed"]
+    ):
+        ocr_set = set(router_result["pages_needing_ocr_0indexed"])
+        reduced = [index for index in indices if index not in ocr_set]
+        if not reduced:
+            raise _HttpApiError(
+                502,
+                "外部解析路由器无法完成本 PDF：请求窗口内全部页面都需要 OCR。"
+                "仓库不做 OCR，请改用文字层完整的 PDF。",
+            )
+        import shutil as _shutil
+
+        if bundle_dir.exists():
+            _shutil.rmtree(bundle_dir, ignore_errors=True)
+        skipped_ocr = sorted(ocr_set)
+        router_result = _run_pdf_inspector(
+            _build_inspector_request(
+                stored_path, file_sha256, bundle_dir, bundle_id, title, reduced
+            )
+        )
+    if router_result.get("status") != "ok":
+        reason = router_result.get("reason") or "unknown"
+        ocr_pages = router_result.get("pages_needing_ocr_0indexed")
+        ocr_suffix = (
+            f"，需 OCR 页: {','.join(str(p) for p in ocr_pages)}"
+            if isinstance(ocr_pages, list)
+            else ""
+        )
+        raise _HttpApiError(
+            502,
+            f"外部解析路由器无法完成本 PDF（status={router_result.get('status')}, "
+            f"reason={reason}{ocr_suffix}）。仓库不做 OCR，请改用文字层完整的 PDF。",
+        )
+
+    ok, validation_error = _validate_bundle_dir(bundle_dir)
+    if not ok:
+        raise _HttpApiError(
+            502, f"路由器产物未通过仓库 coc_pdf_bundle 校验：{validation_error}"
+        )
+
+    # Remaining pages beyond the default first window: background second window.
+    background_window: dict[str, Any] | None = None
+    if is_default_window:
+        page_count = _read_bundle_page_count(bundle_dir)
+        if page_count is not None and page_count > _INGEST_WINDOW_MAX:
+            rest = list(
+                range(
+                    _INGEST_WINDOW_MAX,
+                    min(page_count, _INGEST_WINDOW_MAX * 2),
+                )
+            )
+            background_window = _start_background_window(
+                stored_path, file_sha256, slug, title, rest
+            )
+    rendered = router_result.get("rendered_pdf_indices")
+    if not isinstance(rendered, list):
+        rendered = indices
+    message = (
+        "解析完成，已生成合法源包，可以开局"
+        f"（图片页 {'、'.join(str(p + 1) for p in skipped_ocr)} 需 OCR，已跳过）。"
+        if skipped_ocr
+        else "解析完成，已生成合法源包，可以开局。"
+    )
+    return _ingest_success_payload(
+        file_sha256,
+        bundle_dir,
+        rendered,
+        background_window,
+        message,
+        skipped_ocr,
+    )
+
+
 def _list_library_modules() -> list[dict[str, Any]]:
     """List compiled modules under ``.coc/module-library/`` for reuse.
 
@@ -1208,6 +1708,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._handle_upload_pdf()
                 return
             body = self._read_json()
+            if path == "/api/uploads/pdf/ingest":
+                self._handle_ingest_pdf(body)
+                return
             if path == "/api/campaigns":
                 self._handle_create_campaign(body)
                 return
@@ -1229,6 +1732,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._handle_turn(parts[2], body)
                 return
             self._send_json(404, {"error": "not found"})
+        except _HttpApiError as exc:
+            self._send_json(exc.status, {"error": exc.message})
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
         except Exception as exc:  # noqa: BLE001
@@ -1321,6 +1826,63 @@ class Handler(BaseHTTPRequestHandler):
                 (_coc_root() / "source-bundles").resolve()
             )
         self._send_json(200, {"ok": True, "result": payload_out})
+
+    def _handle_ingest_pdf(self, body: dict[str, Any]) -> None:
+        """Parse a registered PDF through the external router into a bundle.
+
+        Field-for-field mirror of the Node bridge's /api/uploads/pdf/ingest.
+        """
+        requested_indices = _parse_ingest_indices(body.get("pdf_indices"))
+        stored_path: Path | None = None
+        file_sha256: str | None = None
+        sha = str(body.get("file_sha256") or "").strip().lower()
+        import re as _re
+
+        if _re.fullmatch(r"[0-9a-f]{64}", sha):
+            file_sha256 = sha
+            stored_path = _find_registered_pdf(file_sha256)
+            if stored_path is None:
+                raise _HttpApiError(
+                    404,
+                    f"找不到已登记的 PDF（sha256={file_sha256[:16]}…），"
+                    "请先通过 /api/uploads/pdf 上传登记。",
+                )
+        elif isinstance(body.get("stored_path"), str) and body["stored_path"].strip():
+            uploads_dir = (_coc_root() / "uploads" / "pdfs").resolve()
+            candidate = Path(body["stored_path"].strip()).expanduser().resolve()
+            if (
+                uploads_dir not in candidate.parents
+                or not candidate.is_file()
+            ):
+                raise _HttpApiError(
+                    404, "stored_path 必须是 .coc/uploads/pdfs/ 下已登记的 PDF 文件"
+                )
+            stored_path = candidate
+            file_sha256 = _sha256_file(candidate)
+        else:
+            raise _HttpApiError(400, "需要 file_sha256 或 stored_path")
+
+        with _INGEST_LOCK_GUARD:
+            if file_sha256 in _INGEST_LOCKS:
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "result": {
+                            "status": "in_progress",
+                            "file_sha256": file_sha256,
+                            "message": "同一 PDF 的解析正在进行中，请稍候再查询。",
+                        },
+                    },
+                )
+                return
+            _INGEST_LOCKS.add(file_sha256)
+        try:
+            result = _run_ingest(stored_path, file_sha256, requested_indices)
+            self._send_json(200, {"ok": True, "result": result})
+        finally:
+            with _INGEST_LOCK_GUARD:
+                _INGEST_LOCKS.discard(file_sha256)
 
     def _handle_create_investigator(self, body: dict[str, Any]) -> None:
         """Create a reusable investigator via Quick Fire materialization."""
@@ -1516,6 +2078,9 @@ class Handler(BaseHTTPRequestHandler):
         source_bundle_path = str(body.get("source_bundle_path") or "").strip()
         investigator_id = str(body.get("investigator_id") or "").strip()
         title = str(body.get("title") or "").strip()
+        # Player-declared era for raw-PDF 开局; omitted → stays unestablished
+        # and character creation is blocked by the kernel's era gate.
+        era = str(body.get("era") or "").strip()
         if not source_bundle_path:
             raise ValueError("source_bundle_path is required for PDF 开局")
         bundle = Path(source_bundle_path).expanduser().resolve()
@@ -1546,6 +2111,7 @@ class Handler(BaseHTTPRequestHandler):
                         "campaign_id": campaign_id,
                         "title": title,
                         "play_language": "zh-Hans",
+                        **({"era": era} if era else {}),
                     },
                 },
             )
@@ -1904,4 +2470,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if "--ingest-window" in sys.argv:
+        # Detached background-window worker (no HTTP server).
+        try:
+            _worker_payload = json.loads(
+                sys.argv[sys.argv.index("--ingest-window") + 1] or "{}"
+            )
+            sys.exit(_ingest_window_worker(_worker_payload))
+        except Exception:  # noqa: BLE001
+            sys.exit(1)
     main()

@@ -14,7 +14,9 @@
  */
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { Sidecar, SidecarError } from "./sidecar.mjs";
@@ -35,6 +37,46 @@ import {
   tensionDisplayLabel,
   timeExtras,
 } from "./projections.mjs";
+
+/**
+ * Arm the canonical Pi source-lifecycle lanes for the keeper agent this
+ * bridge spawns. The pi-coc CLI launcher exports the same defaults; the
+ * web keeper session is launched directly (run_keeper_turn.mjs) and would
+ * otherwise silently skip the opening-source-review auto-dispatch
+ * (COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND unset => retryable "command
+ * unavailable") and progressive OCR. Values already exported by the
+ * operator always win.
+ */
+{
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const piBin = path.join(repoRoot, "plugins", "coc-keeper", "pi", "bin");
+  const defaults = {
+    COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND: path.join(piBin, "coc-pdf-skill-adapter"),
+    COC_PROGRESSIVE_OCR_COMMAND: path.join(piBin, "coc-ocr-adapter.py"),
+    // Text model for the opening facts + module-init L0 extraction child.
+    // The adapter's deepseek default needs an API key the extension's child
+    // env allowlist never carries; the web keeper's relay catalog does.
+    // Must be a strong model: the strict coc.opening-fast-facts.v1 contract
+    // (exact key set incl. schema_version/contract_id) is systematically
+    // dropped by gpt-5.4-mini (campaign 163241: 3/3 producer failures).
+    COC_PI_OPENING_MODEL: "coding-relay/gpt-5.6-luna",
+  };
+  const routerDefault = path.join(
+    os.homedir(),
+    ".pi",
+    "coc-tools",
+    "pdf-inspector",
+    "coc-pi-pdf-inspector-router",
+  );
+  if (fs.existsSync(routerDefault)) {
+    defaults.COC_PI_PDF_INSPECTOR_COMMAND = routerDefault;
+  }
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!(process.env[key] || "").trim()) {
+      process.env[key] = value;
+    }
+  }
+}
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DIST_DIR = path.join(REPO_ROOT, "web", "frontend", "dist");
@@ -134,12 +176,37 @@ async function ensureSetupDraftInvestigator() {
       kind: "investigator.create",
       payload: {
         investigator_id: SETUP_DRAFT_INVESTIGATOR_ID,
+        // Import a complete shell sheet: the deterministic validator rejects
+        // Quick Fire inputs unless creation.input_mode=guided_quick_fire, and
+        // that guided branch requires a campaign context plus an authoritative
+        // dice receipt — unavailable for this workspace-level placeholder.
+        // Numbers are the package's Quick Fire array (characteristic-dice.json)
+        // with Luck 12*5 and age 28, exactly as derive_values computes them.
         sheet: {
           id: SETUP_DRAFT_INVESTIGATOR_ID,
           name: "（建卡引导中）",
           occupation: "调查员",
           era: "1920s",
           age: 28,
+          characteristics: {
+            INT: 80,
+            POW: 70,
+            DEX: 60,
+            EDU: 60,
+            CON: 50,
+            APP: 50,
+            SIZ: 50,
+            STR: 40,
+          },
+          derived: {
+            HP: 10,
+            MP: 14,
+            SAN: 70,
+            Luck: 60,
+            DB: "none",
+            Build: 0,
+            MOV: 8,
+          },
           skills: {
             "Credit Rating": 20,
             "Spot Hidden": 25,
@@ -148,18 +215,8 @@ async function ensureSetupDraftInvestigator() {
           },
         },
         creation: {
-          method: "quick_fire_array",
-          characteristic_assignment_order: [
-            "INT",
-            "POW",
-            "DEX",
-            "EDU",
-            "CON",
-            "APP",
-            "SIZ",
-            "STR",
-          ],
-          luck_roll_total: 12,
+          input_mode: "import_complete_sheet",
+          method: "complete_sheet_placeholder",
         },
       },
     },
@@ -188,14 +245,72 @@ function resolveInvestigator(campaignId) {
 
 async function linkSetupDraft(campaignId) {
   const draftId = await ensureSetupDraftInvestigator();
-  await sidecar.request("setup_workspace", {
-    operation: {
-      schema_version: 1,
-      kind: "campaign.link_investigator",
-      payload: { campaign_id: campaignId, investigator_ids: [draftId] },
-    },
-  });
+  try {
+    await sidecar.request("setup_workspace", {
+      operation: {
+        schema_version: 1,
+        kind: "campaign.link_investigator",
+        payload: { campaign_id: campaignId, investigator_ids: [draftId] },
+      },
+    });
+  } catch (err) {
+    // Era-gate deadlock: a source-bound campaign whose era is not yet
+    // established fail-closes party linking (character creation) until
+    // setup.adopt_source_facts answers the fast-facts era question — but
+    // that adoption can only be driven from inside a live session. Open the
+    // session with the unlinked draft anyway; the kernel still blocks every
+    // creation operation until adoption, and the link is re-attempted by the
+    // normal character-creation flow once the era is established.
+    if (
+      err instanceof SidecarError &&
+      /era is not source-established/.test(err.message)
+    ) {
+      // The kernel seeds draft runtime state inside link_party; while the
+      // gate defers the link, seed the identical placeholder state so the
+      // session's state snapshot can load. The file is never touched again
+      // once the real link runs (link_party keeps existing state).
+      seedDraftInvestigatorState(campaignId, draftId);
+      return draftId;
+    }
+    throw err;
+  }
   return draftId;
+}
+
+function seedDraftInvestigatorState(campaignId, draftId) {
+  const statePath = path.join(
+    campaignDir(WORKSPACE, campaignId),
+    "save",
+    "investigator-state",
+    `${draftId}.json`,
+  );
+  if (fs.existsSync(statePath)) return;
+  let sheet = {};
+  try {
+    sheet = readJsonFile(
+      path.join(cocRoot(WORKSPACE), "investigators", draftId, "character.json"),
+    );
+  } catch {
+    sheet = {};
+  }
+  const derived = sheet?.derived && typeof sheet.derived === "object" ? sheet.derived : {};
+  const chars =
+    sheet?.characteristics && typeof sheet.characteristics === "object"
+      ? sheet.characteristics
+      : {};
+  const state = {
+    schema_version: 1,
+    campaign_id: campaignId,
+    investigator_id: draftId,
+    current_hp: Number(derived.HP || 10),
+    current_san: Number(derived.SAN || chars.POW || 50),
+    current_mp: Number(derived.MP || Math.max(1, Math.floor(Number(chars.POW || 50) / 5))),
+    current_luck: Number(derived.Luck || chars.LUCK || 50),
+    conditions: [],
+    skill_checks_earned: [],
+  };
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n", "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +597,9 @@ async function handleCreateCampaignFromPdf(res, body) {
     );
   }
   const title = String(body.title || "").trim() || path.basename(bundle);
+  // Player-declared era for raw-PDF 开局; omitted → stays unestablished and
+  // character creation is blocked by the kernel's era gate.
+  const era = String(body.era || "").trim();
   const slug = slugify(path.basename(bundle), "pdf-module");
   const stamp = timestampIso();
   const campaignId =
@@ -494,7 +612,12 @@ async function handleCreateCampaignFromPdf(res, body) {
       operation: {
         schema_version: 1,
         kind: "campaign.create",
-        payload: { campaign_id: campaignId, title, play_language: "zh-Hans" },
+        payload: {
+          campaign_id: campaignId,
+          title,
+          play_language: "zh-Hans",
+          ...(era ? { era } : {}),
+        },
       },
     });
     const bound = await sidecar.request("setup_workspace", {
@@ -837,6 +960,461 @@ async function handleUploadPdf(req, res) {
 }
 
 // ---------------------------------------------------------------------------
+// PDF ingest (external firecrawl router -> schema-v1 bundle -> repo validation)
+//
+// The repository still never parses PDFs itself: this endpoint shells out to
+// the external coc-pi-pdf-inspector-router (COC_PI_PDF_INSPECTOR_COMMAND, or
+// the default ~/.pi/coc-tools/pdf-inspector install) and then validates the
+// produced bundle through plugins/coc-keeper/scripts/coc_pdf_bundle.py. Both
+// steps are fail-closed with player-readable Chinese errors.
+
+const INGEST_WINDOW_MAX = 32; // router MAX_PAGES per batch
+const INGEST_ROUTER_TIMEOUT_MS = 300_000;
+const INGEST_REQUEST_CONTRACT = "coc.pi-pdf-inspector-request.v1";
+const INGEST_RESULT_CONTRACT = "coc.pi-pdf-inspector-result.v1";
+const INGEST_PRODUCER_LITERAL = "codex-pdf-skill";
+
+/** sha256 -> true while an ingest for that PDF is running (memory lock). */
+const INGEST_LOCKS = new Map();
+
+function resolvePdfInspectorCommand() {
+  const candidates = [];
+  const configured = (process.env.COC_PI_PDF_INSPECTOR_COMMAND || "").trim();
+  if (configured) candidates.push(path.resolve(configured));
+  candidates.push(
+    path.join(
+      os.homedir(),
+      ".pi",
+      "coc-tools",
+      "pdf-inspector",
+      "coc-pi-pdf-inspector-router",
+    ),
+  );
+  for (const candidate of candidates) {
+    try {
+      if (
+        path.isAbsolute(candidate) &&
+        fs.statSync(candidate).isFile()
+      ) {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      }
+    } catch {
+      /* keep looking */
+    }
+  }
+  return null;
+}
+
+/** Run one router envelope round-trip; resolves with the parsed result. */
+function runPdfInspector(request) {
+  return new Promise((resolve, reject) => {
+    const command = resolvePdfInspectorCommand();
+    if (!command) {
+      reject(
+        httpError(
+          503,
+          "外部 PDF 解析路由器不可用：请安装 coc-pi-pdf-inspector-router，" +
+            "或导出 COC_PI_PDF_INSPECTOR_COMMAND 指向其可执行文件" +
+            "（缺省查找 ~/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router）。" +
+            "仓库本身不解析 PDF。",
+        ),
+      );
+      return;
+    }
+    const child = spawn(command, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(httpError(504, "PDF 解析超时（300 秒），请稍后重试。"));
+    }, INGEST_ROUTER_TIMEOUT_MS);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(httpError(502, `解析路由器启动失败：${err.message}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      let result = null;
+      try {
+        result = JSON.parse(stdout.trim().split("\n").pop());
+      } catch {
+        result = null;
+      }
+      if (!result || result.contract_id !== INGEST_RESULT_CONTRACT) {
+        reject(
+          httpError(
+            502,
+            `解析路由器输出无效（exit=${code}）：${String(stderr || stdout).slice(0, 500)}`,
+          ),
+        );
+        return;
+      }
+      resolve(result);
+    });
+    child.stdin.write(`${JSON.stringify(request)}\n`);
+    child.stdin.end();
+  });
+}
+
+/** Canonical repository validation of one bundle directory. */
+function validateBundleDir(bundleDir) {
+  return new Promise((resolve) => {
+    const output = path.join(
+      cocRoot(WORKSPACE),
+      "pdf-cache",
+      "bundle-validation",
+      `${path.basename(bundleDir)}.json`,
+    );
+    fs.mkdirSync(path.dirname(output), { recursive: true });
+    const child = spawn(
+      "uv",
+      [
+        "run",
+        "--frozen",
+        "python",
+        "plugins/coc-keeper/scripts/coc_pdf_bundle.py",
+        bundleDir,
+        "--output",
+        output,
+      ],
+      { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stderr = "";
+    child.stdout.on("data", () => undefined);
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (err) => resolve({ ok: false, error: `uv 启动失败：${err.message}` }));
+    child.on("close", (code) =>
+      resolve(code === 0 ? { ok: true } : { ok: false, error: stderr.trim().slice(-800) }),
+    );
+  });
+}
+
+function findRegisteredPdf(fileSha256) {
+  const dir = path.join(cocRoot(WORKSPACE), "uploads", "pdfs");
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return null;
+  }
+  const digest = String(fileSha256).toLowerCase();
+  const ordered = [...entries].sort((a, b) => {
+    // Prefer the cheap name-prefix candidates before hashing every file.
+    const hit = (name) =>
+      name.toLowerCase().startsWith(`${digest.slice(0, 16)}_`) ||
+      name.toLowerCase().startsWith(`${digest}_`);
+    return Number(hit(b)) - Number(hit(a));
+  });
+  for (const name of ordered) {
+    const full = path.join(dir, name);
+    try {
+      if (fs.statSync(full).isFile() && sha256File(full) === digest) return full;
+    } catch {
+      /* unreadable entry */
+    }
+  }
+  return null;
+}
+
+function ingestIdentity(storedPath) {
+  const base = path
+    .basename(storedPath)
+    .replace(/^[0-9a-f]{16}_/i, "")
+    .replace(/\.pdf$/i, "");
+  const slug = slugify(base, "pdf-source");
+  const title = base.replace(/_+/g, " ").trim() || slug;
+  return { slug, title };
+}
+
+function parseIngestIndices(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > INGEST_WINDOW_MAX) {
+    throw httpError(400, `pdf_indices 必须是 1..${INGEST_WINDOW_MAX} 个页码`);
+  }
+  if (raw.some((value) => !Number.isInteger(value) || value < 0)) {
+    throw httpError(400, "pdf_indices 必须是非负整数页码");
+  }
+  return [...new Set(raw)].sort((a, b) => a - b);
+}
+
+function readBundlePageCount(bundleDir) {
+  const manifest = readJsonFile(path.join(bundleDir, "manifest.json"));
+  const pageCount = manifest?.source?.page_count;
+  return typeof pageCount === "number" && pageCount > 0 ? pageCount : null;
+}
+
+function buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, indices) {
+  return {
+    schema_version: 1,
+    contract_id: INGEST_REQUEST_CONTRACT,
+    mode: "full_parse_batch",
+    source: {
+      path: storedPath,
+      source_id: `pdf:${bundleId}`,
+      title,
+      file_sha256: fileSha256,
+    },
+    source_bundle_path: bundleDir,
+    manifest_producer_literal: INGEST_PRODUCER_LITERAL,
+    missing_pdf_indices: indices,
+  };
+}
+
+/** Fire-and-forget second window for the remaining pages (detached self). */
+function startBackgroundWindow(storedPath, fileSha256, slug, title, indices) {
+  const bundleId = `${slug}-w2`;
+  const payload = JSON.stringify({
+    workspace: WORKSPACE,
+    stored_path: storedPath,
+    file_sha256: fileSha256,
+    bundle_id: bundleId,
+    title,
+    pdf_indices: indices,
+  });
+  try {
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(import.meta.url), "--ingest-window", payload],
+      { detached: true, stdio: "ignore" },
+    );
+    child.unref();
+    return { bundle_id: bundleId, pdf_indices: indices, status: "started" };
+  } catch {
+    return { bundle_id: bundleId, pdf_indices: indices, status: "failed" };
+  }
+}
+
+/** Detached worker entry: parse + validate one background window bundle. */
+async function ingestWindowWorker(payload) {
+  if (payload && typeof payload.workspace === "string" && payload.workspace) {
+    WORKSPACE = path.resolve(payload.workspace);
+  }
+  const bundleDir = path.join(
+    cocRoot(WORKSPACE),
+    "source-bundles",
+    String(payload.bundle_id),
+  );
+  // Idempotent: an existing validated bundle wins without re-parsing.
+  if (fs.existsSync(path.join(bundleDir, "manifest.json"))) {
+    const existing = await validateBundleDir(bundleDir);
+    if (existing.ok) return 0;
+  }
+  const result = await runPdfInspector(
+    buildInspectorRequest(
+      payload.stored_path,
+      payload.file_sha256,
+      bundleDir,
+      payload.bundle_id,
+      payload.title,
+      payload.pdf_indices,
+    ),
+  );
+  // Same OCR-skip degradation as the foreground window.
+  let finalResult = result;
+  if (
+    result.status === "fallback" &&
+    result.reason === "needs_ocr" &&
+    Array.isArray(result.pages_needing_ocr_0indexed) &&
+    result.pages_needing_ocr_0indexed.length > 0
+  ) {
+    const ocrSet = new Set(result.pages_needing_ocr_0indexed);
+    const reduced = payload.pdf_indices.filter((index) => !ocrSet.has(index));
+    if (reduced.length === 0) return 1;
+    if (fs.existsSync(bundleDir)) {
+      fs.rmSync(bundleDir, { recursive: true, force: true });
+    }
+    finalResult = await runPdfInspector(
+      buildInspectorRequest(
+        payload.stored_path,
+        payload.file_sha256,
+        bundleDir,
+        payload.bundle_id,
+        payload.title,
+        reduced,
+      ),
+    );
+  }
+  if (finalResult.status !== "ok") return 1;
+  const check = await validateBundleDir(bundleDir);
+  return check.ok ? 0 : 1;
+}
+
+async function ingestSuccessPayload(fileSha256, bundleDir, rendered, backgroundWindow, message, skippedOcr) {
+  const matched = findBundleByPdfSha256(WORKSPACE, fileSha256);
+  return {
+    status: "matched_bundle",
+    file_sha256: fileSha256,
+    message,
+    matched_bundle: matched,
+    source_bundle_path: path.resolve(bundleDir),
+    bundle_id: path.basename(bundleDir),
+    page_count: readBundlePageCount(bundleDir),
+    rendered_pdf_indices: rendered,
+    skipped_ocr_pdf_indices: skippedOcr ?? [],
+    validation: "passed",
+    background_window: backgroundWindow,
+  };
+}
+
+async function runIngest(storedPath, fileSha256, requestedIndices) {
+  const { slug, title } = ingestIdentity(storedPath);
+  const bundlesRoot = path.join(cocRoot(WORKSPACE), "source-bundles");
+  const isDefaultWindow = requestedIndices === null;
+  const indices = requestedIndices ?? Array.from({ length: INGEST_WINDOW_MAX }, (_, i) => i);
+  // Default first window owns <slug>; explicit windows get their own suffix so
+  // multiple windows never overwrite each other.
+  const bundleId = isDefaultWindow ? slug : `${slug}-p${indices[0]}`;
+  const bundleDir = path.join(bundlesRoot, bundleId);
+
+  // Idempotent: an existing validated bundle is reused without re-parsing.
+  if (fs.existsSync(path.join(bundleDir, "manifest.json"))) {
+    const existing = await validateBundleDir(bundleDir);
+    if (existing.ok) {
+      return ingestSuccessPayload(
+        fileSha256,
+        bundleDir,
+        indices,
+        null,
+        "已存在校验通过的源包，直接复用，可以开局。",
+      );
+    }
+  }
+
+  let routerResult = await runPdfInspector(
+    buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, indices),
+  );
+  // Graceful degradation: image pages (cover/art) that need OCR are skipped
+  // and the text-layer pages are re-parsed. The repository still never OCRs.
+  let skippedOcr = [];
+  if (
+    routerResult.status === "fallback" &&
+    routerResult.reason === "needs_ocr" &&
+    Array.isArray(routerResult.pages_needing_ocr_0indexed) &&
+    routerResult.pages_needing_ocr_0indexed.length > 0
+  ) {
+    const ocrSet = new Set(routerResult.pages_needing_ocr_0indexed);
+    const reduced = indices.filter((index) => !ocrSet.has(index));
+    if (reduced.length === 0) {
+      throw httpError(
+        502,
+        "外部解析路由器无法完成本 PDF：请求窗口内全部页面都需要 OCR。"
+          + "仓库不做 OCR，请改用文字层完整的 PDF。",
+      );
+    }
+    if (fs.existsSync(bundleDir)) {
+      fs.rmSync(bundleDir, { recursive: true, force: true });
+    }
+    skippedOcr = [...ocrSet].sort((a, b) => a - b);
+    routerResult = await runPdfInspector(
+      buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, reduced),
+    );
+  }
+  if (routerResult.status !== "ok") {
+    const reason = routerResult.reason || "unknown";
+    const ocrPages = Array.isArray(routerResult.pages_needing_ocr_0indexed)
+      ? routerResult.pages_needing_ocr_0indexed.join(",")
+      : "";
+    throw httpError(
+      502,
+      `外部解析路由器无法完成本 PDF（status=${routerResult.status}, reason=${reason}` +
+        `${ocrPages ? `，需 OCR 页: ${ocrPages}` : ""}）。仓库不做 OCR，` +
+        "请改用文字层完整的 PDF。",
+    );
+  }
+
+  const check = await validateBundleDir(bundleDir);
+  if (!check.ok) {
+    throw httpError(
+      502,
+      `路由器产物未通过仓库 coc_pdf_bundle 校验：${check.error}`,
+    );
+  }
+
+  // Remaining pages beyond the default first window: background second window.
+  let backgroundWindow = null;
+  if (isDefaultWindow) {
+    const pageCount = readBundlePageCount(bundleDir);
+    if (pageCount !== null && pageCount > INGEST_WINDOW_MAX) {
+      const rest = Array.from(
+        { length: Math.min(pageCount, INGEST_WINDOW_MAX * 2) - INGEST_WINDOW_MAX },
+        (_, i) => INGEST_WINDOW_MAX + i,
+      );
+      backgroundWindow = startBackgroundWindow(storedPath, fileSha256, slug, title, rest);
+    }
+  }
+  return ingestSuccessPayload(
+    fileSha256,
+    bundleDir,
+    routerResult.rendered_pdf_indices ?? indices,
+    backgroundWindow,
+    skippedOcr.length > 0
+      ? `解析完成，已生成合法源包，可以开局（图片页 ${skippedOcr.map((p) => p + 1).join("、")} 需 OCR，已跳过）。`
+      : "解析完成，已生成合法源包，可以开局。",
+    skippedOcr,
+  );
+}
+
+async function handleIngestPdf(req, res) {
+  const body = await readJsonBody(req);
+  const requestedIndices = parseIngestIndices(body.pdf_indices);
+  let storedPath = null;
+  let fileSha256 = null;
+  const sha = typeof body.file_sha256 === "string" ? body.file_sha256.trim().toLowerCase() : "";
+  if (/^[0-9a-f]{64}$/.test(sha)) {
+    fileSha256 = sha;
+    storedPath = findRegisteredPdf(fileSha256);
+    if (!storedPath) {
+      throw httpError(
+        404,
+        `找不到已登记的 PDF（sha256=${fileSha256.slice(0, 16)}…），请先通过 /api/uploads/pdf 上传登记。`,
+      );
+    }
+  } else if (typeof body.stored_path === "string" && body.stored_path.trim()) {
+    const candidate = path.resolve(body.stored_path.trim());
+    const uploadsDir = path.resolve(path.join(cocRoot(WORKSPACE), "uploads", "pdfs"));
+    if (
+      !candidate.startsWith(uploadsDir + path.sep) ||
+      !fs.existsSync(candidate) ||
+      !fs.statSync(candidate).isFile()
+    ) {
+      throw httpError(404, "stored_path 必须是 .coc/uploads/pdfs/ 下已登记的 PDF 文件");
+    }
+    storedPath = candidate;
+    fileSha256 = sha256File(candidate);
+  } else {
+    throw httpError(400, "需要 file_sha256 或 stored_path");
+  }
+
+  if (INGEST_LOCKS.get(fileSha256)) {
+    sendJson(res, 200, {
+      ok: true,
+      result: {
+        status: "in_progress",
+        file_sha256: fileSha256,
+        message: "同一 PDF 的解析正在进行中，请稍候再查询。",
+      },
+    });
+    return;
+  }
+  INGEST_LOCKS.set(fileSha256, true);
+  try {
+    const result = await runIngest(storedPath, fileSha256, requestedIndices);
+    sendJson(res, 200, { ok: true, result });
+  } finally {
+    INGEST_LOCKS.delete(fileSha256);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Static files
 
 const CONTENT_TYPES = {
@@ -914,6 +1492,7 @@ async function route(req, res) {
   }
 
   if (method === "POST") {
+    if (urlPath === "/api/uploads/pdf/ingest") return handleIngestPdf(req, res);
     if (urlPath === "/api/uploads/pdf") return handleUploadPdf(req, res);
     if (urlPath === "/api/campaigns") return handleCreateCampaign(req, res);
     if (urlPath === "/api/campaigns/attach-investigator") return handleAttachInvestigator(req, res);
@@ -979,4 +1558,18 @@ function main() {
   }
 }
 
-main();
+if (process.argv.includes("--ingest-window")) {
+  // Detached background-window worker (no HTTP server, no sidecar).
+  try {
+    const payload = JSON.parse(
+      process.argv[process.argv.indexOf("--ingest-window") + 1] || "{}",
+    );
+    ingestWindowWorker(payload)
+      .then((code) => process.exit(code))
+      .catch(() => process.exit(1));
+  } catch {
+    process.exit(1);
+  }
+} else {
+  main();
+}
