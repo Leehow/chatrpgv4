@@ -663,13 +663,27 @@ def core_objective_progress(
             if isinstance(clue, dict)
             for clue_id in _ordered_strings(clue.get("clue_id"))
         ]
-        required = _positive_int(conclusion.get("minimum_routes")) or 1
+        # What the module prints, kept honest by the extraction contract: this
+        # is how many independent routes the book actually provides.
+        printed = _positive_int(conclusion.get("minimum_routes")) or 1
+        available = len(set(clue_ids))
+        # What this engine calls "worked out", which is a play decision and not
+        # a fact about the book. A majority of the routes the module offers.
+        #
+        # Reading the printed number as the bar made 126 of the library's 132
+        # core objectives all-or-nothing — the threshold equalled the clue count,
+        # so one failed roll locked the main line as unreachable for the rest of
+        # the session. Observed: a nine-route conclusion stalled at 8/9 on a
+        # failed Psychology check and a failed push, with no other route left to
+        # try, and `main_line_complete` could never become true again.
+        required = max(1, -(-min(printed, available) * 2 // 3)) if available else printed
         found = sorted(set(clue_ids) & discovered)
         objectives.append({
             "conclusion_id": conclusion_id,
             "importance": str(conclusion.get("importance") or "supporting"),
             "description": conclusion.get("description"),
             "routes_required": required,
+            "routes_printed": printed,
             "routes_found": len(found),
             # Capped: a scenario whose remaining clues cannot reach the bar is
             # short of routes, not short of play, and `fallback_policy` is the

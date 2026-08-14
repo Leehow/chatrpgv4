@@ -592,6 +592,29 @@ def _compact_source_ref(value: Any) -> dict[str, Any]:
     }
 
 
+PENDING_DELIVERY_LIMIT = 6
+
+
+def _compact_pending_deliveries(value: Any) -> dict[str, Any] | None:
+    """Bounded list of the module's own pushes for this scene.
+
+    Carries the delivery text — what happens — because that is what the Keeper
+    narrates from, and the player-safe summary of what it tells them. Core
+    objectives sort first, so a long scene's list leads with the main line.
+    """
+    if not isinstance(value, dict):
+        return None
+    clues = [
+        _pick(row, ("clue_id", "delivery_kind", "delivery", "player_safe_summary",
+                    "serves_objective", "objective_importance"))
+        for row in (value.get("clues") or [])[:PENDING_DELIVERY_LIMIT]
+        if isinstance(row, dict)
+    ]
+    projected = _pick(value, ("keeper_only", "authority", "note"))
+    projected["clues"] = clues
+    return projected
+
+
 NEARBY_DESTINATION_LIMIT = 6
 NEARBY_ROUTE_LIMIT = 4
 
@@ -877,6 +900,10 @@ def _compact_scene(
     # projection the Keeper never sees.
     if isinstance(value.get("nearby_routes"), dict):
         projected["nearby_routes"] = _compact_nearby_routes(value["nearby_routes"])
+    if isinstance(value.get("pending_deliveries"), dict):
+        projected["pending_deliveries"] = _compact_pending_deliveries(
+            value["pending_deliveries"]
+        )
     source_material = _compact_source_material(value.get("source_material"))
     if source_material is not None:
         projected["source_material"] = source_material

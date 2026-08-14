@@ -4980,3 +4980,52 @@ def test_mcp_wire_carries_bounded_nearby_routes():
         tight=True,
     )
     assert "nearby_routes" not in without
+
+
+def test_mcp_wire_carries_pending_deliveries():
+    """The module's own pushes reach the Keeper, bounded, and are not routes.
+
+    A clue delivered by `event` or `automatic` is one the module makes happen:
+    the messenger arrives, the corpse is found. It is deliberately not an
+    affordance — an affordance is something the players elect — and nothing
+    else surfaced it either, so 137 clues across the library, 23% of everything
+    extracted, could only reach play if the Keeper read clues_here and
+    remembered. That is the part of a module meant to be pushed rather than
+    searched for, sitting in the "stored somewhere, go find it" pile.
+    """
+    server = _load_server()
+    wire = server.wire_projection
+    clues = [
+        {"clue_id": f"clue-{i}", "delivery_kind": "event",
+         "delivery": "信使在黄昏抵达，带来一封火漆封缄的信。",
+         "player_safe_summary": "布拉丹要私下见你们。",
+         "serves_objective": "bradan-plots", "objective_importance": "core",
+         "internal_note": "不该出现的内部字段"}
+        for i in range(9)
+    ]
+    compact = server.wire_projection._compact_scene(
+        {
+            "campaign_id": "play2", "active_scene_id": "negotiation",
+            "scene": {"scene_type": "social"},
+            "pending_deliveries": {
+                "schema_version": 1, "keeper_only": True, "authority": "advisory",
+                "note": "模组主动送的", "clues": clues,
+            },
+            "npcs_present": [], "clues_here": [], "action_routes": [], "exits": [],
+        },
+        tight=True,
+    )
+    carried = compact["pending_deliveries"]
+    assert carried["keeper_only"] is True
+    assert len(carried["clues"]) == wire.PENDING_DELIVERY_LIMIT
+    row = carried["clues"][0]
+    assert row["delivery"].startswith("信使在黄昏抵达")
+    assert row["objective_importance"] == "core"
+    assert "internal_note" not in row
+
+    without = server.wire_projection._compact_scene(
+        {"campaign_id": "c", "active_scene_id": "s", "scene": {"scene_type": "social"},
+         "npcs_present": [], "clues_here": [], "action_routes": [], "exits": []},
+        tight=True,
+    )
+    assert "pending_deliveries" not in without

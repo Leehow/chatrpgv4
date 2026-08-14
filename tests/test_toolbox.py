@@ -18231,3 +18231,40 @@ def test_whole_module_audit_reads_the_field_scenarios_actually_write(campaign_ws
     # Scene scope stays scene scope: the module-wide truth is not smuggled in.
     scoped = _run(campaign_ws, "secrets.briefing", {})
     assert "keeper_overview" not in scoped["data"]["module_meta"]
+
+
+def test_pending_deliveries_lists_only_what_the_module_pushes(campaign_ws):
+    """Event/automatic clues are surfaced; elected routes are not duplicated here.
+
+    The split matters: offering an event clue as a choice would be wrong, and
+    leaving it unsurfaced is how 23% of the library's clues could only arrive if
+    the Keeper happened to remember them.
+    """
+    scenario = campaign_ws["campaign_dir"] / "scenario"
+    story = json.loads((scenario / "story-graph.json").read_text(encoding="utf-8"))
+    active = story["scenes"][0]
+    active["available_clues"] = ["clue-pushed", "clue-earned"]
+    (scenario / "story-graph.json").write_text(
+        json.dumps(story, ensure_ascii=False), encoding="utf-8"
+    )
+    (scenario / "clue-graph.json").write_text(json.dumps({"conclusions": [
+        {"conclusion_id": "c-core", "importance": "core", "minimum_routes": 1, "clues": [
+            {"clue_id": "clue-pushed", "delivery_kind": "event",
+             "delivery": "信使在黄昏抵达。", "player_safe_summary": "有人要见你们。"},
+        ]},
+        {"conclusion_id": "c-side", "importance": "supporting", "minimum_routes": 1, "clues": [
+            {"clue_id": "clue-earned", "delivery_kind": "search",
+             "delivery": "翻找书桌。", "player_safe_summary": "抽屉里有信。"},
+        ]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = active["scene_id"]
+    world_path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
+
+    data = _run(campaign_ws, "scene.context", {})["data"]
+    rows = data["pending_deliveries"]["clues"]
+    assert [row["clue_id"] for row in rows] == ["clue-pushed"]
+    assert rows[0]["delivery"] == "信使在黄昏抵达。"
+    assert data["pending_deliveries"]["keeper_only"] is True

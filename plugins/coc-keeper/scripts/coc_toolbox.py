@@ -13207,6 +13207,20 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "affordance_operations": affordance_operations,
             "npc_profiles": current_npc_mechanics,
         },
+        # The module's own pushes, waiting in this scene. Kept beside the routes
+        # so the Keeper sees both halves of what is available: what the players
+        # can reach for, and what the module intends to reach for them.
+        "pending_deliveries": {
+            "schema_version": 1,
+            "keeper_only": True,
+            "authority": "advisory",
+            "note": (
+                "Clues this scene delivers by event rather than by the players "
+                "earning them. They are not routes and must not be offered as "
+                "choices; the module means them to happen. Timing is yours."
+            ),
+            "clues": _pending_deliveries(ctx),
+        },
         "nearby_routes": {
             "schema_version": 1,
             "keeper_only": True,
@@ -19041,6 +19055,56 @@ def _current_open_affordances(ctx: Ctx) -> list[dict[str, Any]]:
         )
     except RuntimeError as exc:
         raise ToolError("state_corrupt", str(exc)) from exc
+
+
+def _pending_deliveries(ctx: Ctx) -> list[dict[str, Any]]:
+    """What this scene is holding that arrives without the players earning it.
+
+    A clue whose delivery is `event` or `automatic` is one the module makes
+    happen — the messenger arrives, the corpse is found, the sky changes. It is
+    deliberately not an affordance, because an affordance is something the
+    players elect to do, and offering these as menu items would be wrong.
+
+    But nothing else surfaced them either, so the only way they reached play was
+    the Keeper reading `clues_here` and remembering. Across the library that is
+    137 clues, 23% of everything extracted, and it is the part of a module that
+    is supposed to be pushed rather than searched for.
+
+    Advisory and keeper-only: this says "the module has these waiting here", not
+    "deliver them now". Timing is the Keeper's, and nothing here forces a turn.
+    """
+    world = ctx.world()
+    scene = _scene_by_id(ctx.story_graph, world.get("active_scene_id"))
+    if not isinstance(scene, dict):
+        return []
+    discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
+    by_id = {}
+    for conclusion in (ctx.clue_graph or {}).get("conclusions") or []:
+        for clue in (conclusion or {}).get("clues") or []:
+            if isinstance(clue, dict) and clue.get("clue_id"):
+                by_id[str(clue["clue_id"])] = (clue, conclusion)
+    rows: list[dict[str, Any]] = []
+    for clue_id in scene.get("available_clues") or []:
+        if str(clue_id) in discovered:
+            continue
+        entry = by_id.get(str(clue_id))
+        if entry is None:
+            continue
+        clue, conclusion = entry
+        if str(clue.get("delivery_kind") or "") not in {"event", "automatic"}:
+            continue
+        rows.append({
+            "clue_id": str(clue_id),
+            "delivery_kind": clue.get("delivery_kind"),
+            # The module's own words for what happens, which is what the Keeper
+            # narrates from.
+            "delivery": clue.get("delivery"),
+            "player_safe_summary": clue.get("player_safe_summary"),
+            "serves_objective": (conclusion or {}).get("conclusion_id"),
+            "objective_importance": (conclusion or {}).get("importance"),
+        })
+    rows.sort(key=lambda row: (row.get("objective_importance") != "core", row["clue_id"]))
+    return rows
 
 
 def _nearby_route_index(ctx: Ctx) -> list[dict[str, Any]]:
