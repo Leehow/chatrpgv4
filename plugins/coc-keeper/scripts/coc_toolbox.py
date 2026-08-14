@@ -21029,8 +21029,25 @@ def _tool_secrets_briefing(ctx: Ctx, args: dict[str, Any]):
     # module_meta overview is only included on explicit whole-module audit.
     module_meta: dict[str, Any] = {"title": meta.get("title")}
     if scope_raw == "whole_module_audit":
+        # `keeper_secret_summary` is what a scenario actually writes: both
+        # shipped starters use it and so does every extracted module. Reading
+        # only `keeper_overview`/`overview` meant this returned {"value": null}
+        # for every scenario that has ever existed, so the one place a Keeper
+        # can ask what the module is really about answered with nothing, and
+        # they reconstructed the plot from scenes and clues instead.
         module_meta["keeper_overview"] = {
-            "value": meta.get("keeper_overview") or meta.get("overview"),
+            "value": (
+                meta.get("keeper_secret_summary")
+                or meta.get("keeper_overview")
+                or meta.get("overview")
+            ),
+            "secret": True,
+        }
+        # What winning looks like, which is the other half of "what is this
+        # module": the secret says what is really going on, this says what the
+        # investigators are up against it for.
+        module_meta["win_condition"] = {
+            "value": meta.get("win_condition"),
             "secret": True,
         }
     data = {

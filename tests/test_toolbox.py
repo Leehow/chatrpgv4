@@ -18196,3 +18196,38 @@ def test_an_old_pending_watch_with_leased_work_still_waits(
         "pending materialization must never leave next_operation=null"
     )
     assert next_operation["operation"] == "progressive.status"
+
+
+def test_whole_module_audit_reads_the_field_scenarios_actually_write(campaign_ws):
+    """The one place a Keeper can ask what the module is about must answer.
+
+    secrets.briefing read `keeper_overview`/`overview` on the whole-module
+    audit path, and no scenario has ever written either name: both shipped
+    starters and every extracted module write `keeper_secret_summary`. So the
+    audit answered {"value": null} for every scenario that has ever existed,
+    and the Keeper reconstructed the plot from scenes and clues instead.
+
+    That matters more than it looks. A Keeper improvising freely is the game
+    working as intended; a Keeper improvising because nothing ever told them
+    what the module is about is the tool failing quietly.
+
+    Driven through run_tool against the shipped the-haunting starter, so it
+    fails if the production lookup regresses — asserting the same expression
+    the code uses would pass either way.
+    """
+    meta = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "module-meta.json")
+        .read_text(encoding="utf-8")
+    )
+    assert meta.get("keeper_secret_summary"), "starter fixture lost its secret summary"
+    assert "keeper_overview" not in meta and "overview" not in meta
+
+    envelope = _run(campaign_ws, "secrets.briefing", {"scope": "whole_module_audit"})
+    module_meta = envelope["data"]["module_meta"]
+    assert module_meta["keeper_overview"]["value"] == meta["keeper_secret_summary"]
+    assert module_meta["keeper_overview"]["secret"] is True
+    assert module_meta["win_condition"]["value"] == meta.get("win_condition")
+
+    # Scene scope stays scene scope: the module-wide truth is not smuggled in.
+    scoped = _run(campaign_ws, "secrets.briefing", {})
+    assert "keeper_overview" not in scoped["data"]["module_meta"]
