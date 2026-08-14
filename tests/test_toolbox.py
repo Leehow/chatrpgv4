@@ -18268,3 +18268,37 @@ def test_pending_deliveries_lists_only_what_the_module_pushes(campaign_ws):
     assert [row["clue_id"] for row in rows] == ["clue-pushed"]
     assert rows[0]["delivery"] == "信使在黄昏抵达。"
     assert data["pending_deliveries"]["keeper_only"] is True
+
+
+def test_story_thread_orders_by_what_the_main_line_needs(campaign_ws):
+    """Assembled by objective, not by location, and grouped per destination."""
+    scenario = campaign_ws["campaign_dir"] / "scenario"
+    story = json.loads((scenario / "story-graph.json").read_text(encoding="utf-8"))
+    here, there = story["scenes"][0], story["scenes"][1]
+    here["available_clues"] = ["clue-here"]
+    here["scene_edges"] = [{"to": there["scene_id"], "kind": "travel",
+                            "when": {"kind": "always", "description": "沿河向北半日。"}}]
+    there["available_clues"] = ["clue-there-a", "clue-there-b"]
+    (scenario / "story-graph.json").write_text(
+        json.dumps(story, ensure_ascii=False), encoding="utf-8"
+    )
+    (scenario / "clue-graph.json").write_text(json.dumps({"conclusions": [
+        {"conclusion_id": "the-plot", "importance": "core", "minimum_routes": 3, "clues": [
+            {"clue_id": "clue-here", "delivery_kind": "search", "delivery": "翻找市集流言。"},
+            {"clue_id": "clue-there-a", "delivery_kind": "skill_check", "delivery": "与祭司交谈。"},
+            {"clue_id": "clue-there-b", "delivery_kind": "search", "delivery": "查看祭坛。"},
+        ]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = here["scene_id"]
+    world_path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
+
+    rows = _run(campaign_ws, "scene.context", {})["data"]["story_thread"]["outstanding"]
+    assert [row["objective"] for row in rows] == ["the-plot"]
+    row = rows[0]
+    assert [c["clue_id"] for c in row["in_this_scene"]] == ["clue-here"]
+    # Both remote clues live in one destination, carrying the module's sentence once.
+    assert len(row["one_move_away"]) == 1
+    assert row["one_move_away"][0]["transition"] == "沿河向北半日。"
+    assert len(row["one_move_away"][0]["clues"]) == 2

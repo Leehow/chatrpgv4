@@ -13207,6 +13207,19 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "affordance_operations": affordance_operations,
             "npc_profiles": current_npc_mechanics,
         },
+        # The main line with what would advance it, assembled so that planning a
+        # next beat costs the Keeper one read instead of four cross-references.
+        "story_thread": {
+            "schema_version": 1,
+            "keeper_only": True,
+            "authority": "advisory",
+            "note": (
+                "What the main line still wants, and where it can be reached "
+                "from here. Proposes nothing and gates nothing — the beat is "
+                "yours; this is the same facts in planning order."
+            ),
+            "outstanding": _story_thread(ctx),
+        },
         # The module's own pushes, waiting in this scene. Kept beside the routes
         # so the Keeper sees both halves of what is available: what the players
         # can reach for, and what the module intends to reach for them.
@@ -19055,6 +19068,100 @@ def _current_open_affordances(ctx: Ctx) -> list[dict[str, Any]]:
         )
     except RuntimeError as exc:
         raise ToolError("state_corrupt", str(exc)) from exc
+
+
+def _story_thread(ctx: Ctx) -> list[dict[str, Any]]:
+    """The main line, with what would advance it and where that sits.
+
+    The Keeper already receives everything in here, spread across four flat
+    lists organised by location: what this scene offers, what the neighbours
+    hold, what the module pushes, and how far each objective has to go. Nothing
+    changed in play when those arrived — same tools called, same two clues
+    recorded — because using them means assembling the four into one chain
+    every turn, and a Keeper with narrative momentum will not stop to do that.
+
+    So the assembly happens here instead, organised by what the story still
+    needs rather than by where the party is standing:
+
+        objective still short  ->  the clues that would answer it
+                               ->  which are reachable here, next door, or not yet
+                               ->  the module's own sentence for getting there
+
+    Advisory, keeper-only, and it proposes nothing: it is the same facts in the
+    order a Keeper would need them to plan a next beat, so that planning is
+    cheap rather than mandatory.
+    """
+    world = ctx.world()
+    active_id = str(world.get("active_scene_id") or "")
+    discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
+    progress = coc_belief_state.core_objective_progress(
+        ctx.clue_graph, world.get("discovered_clue_ids"),
+    )
+    clue_meta: dict[str, dict[str, Any]] = {}
+    clues_by_objective: dict[str, list[str]] = {}
+    for conclusion in (ctx.clue_graph or {}).get("conclusions") or []:
+        cid = str((conclusion or {}).get("conclusion_id") or "")
+        for clue in (conclusion or {}).get("clues") or []:
+            if not isinstance(clue, dict) or not clue.get("clue_id"):
+                continue
+            clue_meta[str(clue["clue_id"])] = clue
+            clues_by_objective.setdefault(cid, []).append(str(clue["clue_id"]))
+
+    # Where each undiscovered clue can be reached from here.
+    here: set[str] = set()
+    nearby: dict[str, tuple[str, str | None]] = {}
+    active_scene = _scene_by_id(ctx.story_graph, active_id)
+    if isinstance(active_scene, dict):
+        here = {str(c) for c in active_scene.get("available_clues") or []}
+    for edge in coc_scene_graph.derive_scene_edges(ctx.story_graph).get(active_id, []):
+        destination = str(edge.get("to") or "")
+        scene = _scene_by_id(ctx.story_graph, destination)
+        if not isinstance(scene, dict):
+            continue
+        transition = (edge.get("when") or {}).get("description")
+        for clue_id in scene.get("available_clues") or []:
+            nearby.setdefault(str(clue_id), (destination, transition))
+
+    rows: list[dict[str, Any]] = []
+    for objective in progress.get("objectives") or []:
+        if objective.get("importance") != "core" or objective.get("answered"):
+            continue
+        wanted = [
+            cid for cid in clues_by_objective.get(objective["conclusion_id"], [])
+            if cid not in discovered
+        ]
+        def _brief(clue_id: str) -> dict[str, Any]:
+            clue = clue_meta.get(clue_id) or {}
+            return {
+                "clue_id": clue_id,
+                "delivery_kind": clue.get("delivery_kind"),
+                "delivery": clue.get("delivery"),
+            }
+        in_reach = [_brief(c) for c in wanted if c in here]
+        # Grouped by destination: four clues in the same grove is one move, and
+        # repeating the module's sentence for getting there four times buries
+        # the chain it was assembled to make readable.
+        grouped: dict[str, dict[str, Any]] = {}
+        for clue_id in wanted:
+            if clue_id in here or clue_id not in nearby:
+                continue
+            destination, transition = nearby[clue_id]
+            row = grouped.setdefault(destination, {
+                "scene_id": destination,
+                "transition": transition,
+                "clues": [],
+            })
+            row["clues"].append(_brief(clue_id))
+        one_move = list(grouped.values())
+        rows.append({
+            "objective": objective["conclusion_id"],
+            "description": objective.get("description"),
+            "still_needs": objective.get("routes_outstanding"),
+            "in_this_scene": in_reach[:4],
+            "one_move_away": one_move[:4],
+            "elsewhere": max(0, len(wanted) - len(in_reach) - len(one_move)),
+        })
+    return rows
 
 
 def _pending_deliveries(ctx: Ctx) -> list[dict[str, Any]]:

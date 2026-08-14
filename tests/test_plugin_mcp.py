@@ -5029,3 +5029,61 @@ def test_mcp_wire_carries_pending_deliveries():
         tight=True,
     )
     assert "pending_deliveries" not in without
+
+
+def test_mcp_wire_carries_the_assembled_story_thread():
+    """The chain reaches the Keeper grouped and bounded.
+
+    Two rounds of adding flat panels changed nothing in play — same tools, same
+    two clues — because using them meant assembling four location-organised
+    lists into one chain every turn. Reordering the same facts by what the story
+    still needs changed the Keeper's answer on the first open-ended turn. So the
+    grouping is the feature, and the wire must not flatten it back out.
+    """
+    server = _load_server()
+    wire = server.wire_projection
+    outstanding = [
+        {
+            "objective": f"obj-{i}", "description": "布拉丹正在密谋废黜康尼尔。",
+            "still_needs": 6, "elsewhere": 2,
+            "in_this_scene": [
+                {"clue_id": f"clue-here-{n}", "delivery_kind": "search",
+                 "delivery": "与居民闲聊时有人低声说起大母神。", "secret_note": "不该出现"}
+                for n in range(5)
+            ],
+            "one_move_away": [
+                {"scene_id": f"scene-{n}", "transition": "提图斯可以拜访部族的圣林之地。",
+                 "clues": [{"clue_id": f"clue-there-{m}", "delivery_kind": "skill_check",
+                            "delivery": "与凯斯巴德讨论宗教话题。"} for m in range(5)]}
+                for n in range(5)
+            ],
+        }
+        for i in range(5)
+    ]
+    compact = server.wire_projection._compact_scene(
+        {
+            "campaign_id": "play2", "active_scene_id": "negotiation",
+            "scene": {"scene_type": "social"},
+            "story_thread": {
+                "schema_version": 1, "keeper_only": True, "authority": "advisory",
+                "note": "主线还差什么", "outstanding": outstanding,
+            },
+            "npcs_present": [], "clues_here": [], "action_routes": [], "exits": [],
+        },
+        tight=True,
+    )
+    thread = compact["story_thread"]
+    assert thread["keeper_only"] is True
+    assert len(thread["outstanding"]) == wire.THREAD_OBJECTIVE_LIMIT
+    row = thread["outstanding"][0]
+    assert row["still_needs"] == 6 and row["elsewhere"] == 2
+    assert len(row["in_this_scene"]) == wire.THREAD_CLUE_LIMIT
+    assert "secret_note" not in row["in_this_scene"][0]
+
+    # One destination carries its clues; the module's sentence is not repeated
+    # once per clue, which is what buried the chain before grouping.
+    destination = row["one_move_away"][0]
+    assert destination["scene_id"] == "scene-0"
+    assert destination["transition"].startswith("提图斯可以拜访")
+    assert len(destination["clues"]) == wire.THREAD_CLUE_LIMIT
+    assert all("transition" not in clue for clue in destination["clues"])

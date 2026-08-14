@@ -592,6 +592,47 @@ def _compact_source_ref(value: Any) -> dict[str, Any]:
     }
 
 
+THREAD_OBJECTIVE_LIMIT = 3
+THREAD_CLUE_LIMIT = 3
+
+
+def _compact_story_thread(value: Any) -> dict[str, Any] | None:
+    """The assembled main line, bounded.
+
+    Three objectives deep and three clues wide: this is a planning aid, and a
+    Keeper who has to scroll it will do what they did with the four flat lists
+    it replaces, which is nothing.
+    """
+    if not isinstance(value, dict):
+        return None
+    rows = []
+    for row in (value.get("outstanding") or [])[:THREAD_OBJECTIVE_LIMIT]:
+        if not isinstance(row, dict):
+            continue
+        projected_row = _pick(row, ("objective", "description", "still_needs", "elsewhere"))
+        projected_row["in_this_scene"] = [
+            _pick(clue, ("clue_id", "delivery_kind", "delivery"))
+            for clue in (row.get("in_this_scene") or [])[:THREAD_CLUE_LIMIT]
+            if isinstance(clue, dict)
+        ]
+        projected_row["one_move_away"] = [
+            {
+                **_pick(dest, ("scene_id", "transition")),
+                "clues": [
+                    _pick(clue, ("clue_id", "delivery_kind", "delivery"))
+                    for clue in (dest.get("clues") or [])[:THREAD_CLUE_LIMIT]
+                    if isinstance(clue, dict)
+                ],
+            }
+            for dest in (row.get("one_move_away") or [])[:THREAD_CLUE_LIMIT]
+            if isinstance(dest, dict)
+        ]
+        rows.append(projected_row)
+    projected = _pick(value, ("keeper_only", "authority", "note"))
+    projected["outstanding"] = rows
+    return projected
+
+
 PENDING_DELIVERY_LIMIT = 6
 
 
@@ -900,6 +941,8 @@ def _compact_scene(
     # projection the Keeper never sees.
     if isinstance(value.get("nearby_routes"), dict):
         projected["nearby_routes"] = _compact_nearby_routes(value["nearby_routes"])
+    if isinstance(value.get("story_thread"), dict):
+        projected["story_thread"] = _compact_story_thread(value["story_thread"])
     if isinstance(value.get("pending_deliveries"), dict):
         projected["pending_deliveries"] = _compact_pending_deliveries(
             value["pending_deliveries"]
