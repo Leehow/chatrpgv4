@@ -774,6 +774,12 @@ async function createKeeperSession(request) {
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(cwd),
   });
+  // The SDK entry never binds extension lifecycle events on its own: the
+  // COC pi extension arms its session epoch only on "session_start" (fired
+  // by bindExtensions). Without it every host auto-dispatch (opening source
+  // review, raw-pdf bind, steward refill) fails closed as "session_closed".
+  // Mirror the print-mode host so the headless keeper gets the same lifecycle.
+  await session.bindExtensions({ mode: "print" });
   return session;
 }
 
