@@ -4916,3 +4916,67 @@ def test_mcp_wire_carries_story_progress_to_the_keeper():
         tight=True,
     )
     assert "story_progress" not in without
+
+
+def test_mcp_wire_carries_bounded_nearby_routes():
+    """The Keeper is told what the next scene holds, in bounded form.
+
+    action_routes is the active scene and nothing else, which is correct for
+    what it is and leaves the Keeper with an empty working set whenever a
+    player reaches for something the module keeps one move away. Reproduced
+    with the same player line in two scenes: where the rumours lived the Keeper
+    called actions.advise and recorded three clues; one scene earlier it called
+    neither and improvised, and the objective those clues belong to did not
+    move.
+
+    Bounded on both axes and cues only — this is a pointer, not a second scene
+    projection, and it must never carry what a clue says.
+    """
+    server = _load_server()
+    wire = server.wire_projection
+    destinations = [
+        {
+            "scene_id": f"scene-{index}",
+            "display_name": f"场景 {index}",
+            "transition": "第二天一早，大家开始谈判。",
+            "open_route_count": 9,
+            "open_routes": [
+                {"affordance_id": f"route-{index}-{n}", "cue": "在城中与居民闲聊",
+                 "skills": ["侦察"], "player_safe_summary": "不该出现的线索内容"}
+                for n in range(9)
+            ],
+        }
+        for index in range(9)
+    ]
+
+    compact = server.wire_projection._compact_scene(
+        {
+            "campaign_id": "play-toomany",
+            "active_scene_id": "welcome-banquet",
+            "scene": {"scene_type": "social"},
+            "nearby_routes": {
+                "schema_version": 1, "keeper_only": True, "authority": "advisory",
+                "note": "隔壁有什么", "destinations": destinations,
+            },
+            "npcs_present": [], "clues_here": [], "action_routes": [], "exits": [],
+        },
+        tight=True,
+    )
+
+    carried = compact["nearby_routes"]
+    assert carried["keeper_only"] is True
+    assert len(carried["destinations"]) == wire.NEARBY_DESTINATION_LIMIT
+    first = carried["destinations"][0]
+    assert first["transition"] == "第二天一早，大家开始谈判。"
+    assert first["open_route_count"] == 9
+    assert len(first["open_routes"]) == wire.NEARBY_ROUTE_LIMIT
+    # Cues describe what the investigators do; nothing carries what they learn.
+    assert set(first["open_routes"][0]) == {"affordance_id", "cue", "skills"}
+    assert "不该出现的线索内容" not in json.dumps(carried, ensure_ascii=False)
+
+    without = server.wire_projection._compact_scene(
+        {"campaign_id": "c", "active_scene_id": "s", "scene": {"scene_type": "social"},
+         "npcs_present": [], "clues_here": [], "action_routes": [], "exits": []},
+        tight=True,
+    )
+    assert "nearby_routes" not in without

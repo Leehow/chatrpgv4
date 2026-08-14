@@ -13207,6 +13207,18 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "affordance_operations": affordance_operations,
             "npc_profiles": current_npc_mechanics,
         },
+        "nearby_routes": {
+            "schema_version": 1,
+            "keeper_only": True,
+            "authority": "advisory",
+            "note": (
+                "What neighbouring scenes are holding. When a player reaches for "
+                "something this scene does not carry, the module usually keeps it "
+                "one move away: move there and the route becomes executable, "
+                "rather than improvising content the ledger never sees."
+            ),
+            "destinations": _nearby_route_index(ctx),
+        },
         "action_routes": _project_action_route_cards(
             ctx, include_operation_opportunities=False
         ),
@@ -14742,6 +14754,59 @@ def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
             except coc_module_project.OpeningPreparationError as exc:
                 if exc.code == "opening_source_window_required":
                     blocking.append({"code": exc.code, "entity_id": selected})
+                    if pages_arg is None:
+                        # The durable skeleton carries no exact opening locator
+                        # for this start, so the host must semantically pick
+                        # the window.  Never leave the Keeper on a bare
+                        # blocking row: surface the bounded candidate catalog
+                        # and an explicit re-entry card, mirroring the
+                        # skeleton-missing selection lane.
+                        try:
+                            data.update(assets_mod.opening_page_candidate_catalog(
+                                ctx.root,
+                                root_id,
+                                bundle_sha256=str(root_info["bundle_sha256"]),
+                            ))
+                        except assets_mod.ModuleAssetsError as catalog_exc:
+                            raise ToolError(
+                                "opening_source_catalog_invalid", str(catalog_exc),
+                            ) from catalog_exc
+                        window_selection_card = _opening_card(
+                            "progressive.opening_bootstrap",
+                            {
+                                "start_location": {
+                                    "location_id": selected,
+                                    "title": next(
+                                        (
+                                            str(row.get("title") or "")
+                                            for row in candidates
+                                            if str(row.get("location_id") or "")
+                                            == selected
+                                        ),
+                                        "",
+                                    ),
+                                },
+                            },
+                            ["opening_pdf_indices"],
+                        )
+                        window_selection_card.update({
+                            "hard_gate": True,
+                            "authority": "canonical_setup",
+                            "selection_contract": {
+                                "opening_pdf_indices": (
+                                    "shortest sufficient contiguous 1..3-page "
+                                    "authored opening chosen from "
+                                    "opening_page_candidates"
+                                ),
+                            },
+                            "reason": (
+                                "the durable skeleton carries no exact opening "
+                                "locator for this start; choose "
+                                "opening_pdf_indices from the bounded candidate "
+                                "catalog and bootstrap the exact opening once."
+                            ),
+                        })
+                        data["next_operation"] = window_selection_card
                 else:
                     raise ToolError(exc.code, exc.message) from exc
             if window is not None:
@@ -18976,6 +19041,67 @@ def _current_open_affordances(ctx: Ctx) -> list[dict[str, Any]]:
         )
     except RuntimeError as exc:
         raise ToolError("state_corrupt", str(exc)) from exc
+
+
+def _nearby_route_index(ctx: Ctx) -> list[dict[str, Any]]:
+    """What the neighbouring scenes are holding, for the Keeper only.
+
+    `action_routes` is strictly the active scene, which is correct for what it
+    is and leaves one thing unsaid: a player asking about something the module
+    keeps one scene away produces no route at all, and the Keeper — with an
+    empty working set — improvises it instead. That was reproduced twice with
+    the same player line: in the scene holding the rumours the Keeper called
+    actions.advise and then state.record_clue three times; in the scene next
+    door it called neither, told an equally good story, and nothing reached the
+    ledger, so the main-line objective it belonged to stayed where it was.
+
+    So this says what is next door and how the module gets play there. It is
+    advisory and keeper-only, it does not move anyone, and it carries route
+    cues — what the investigators would do — never the clue's content.
+    """
+    world = ctx.world()
+    active_id = str(world.get("active_scene_id") or "")
+    if not active_id:
+        return []
+    discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for edge in coc_scene_graph.derive_scene_edges(ctx.story_graph).get(active_id, []):
+        destination = str(edge.get("to") or "")
+        if not destination or destination in seen:
+            continue
+        seen.add(destination)
+        scene = _scene_by_id(ctx.story_graph, destination)
+        if not isinstance(scene, dict):
+            continue
+        try:
+            open_routes = coc_action_resolver._open_affordances(
+                scene,
+                discovered,
+                coc_action_resolver._route_receipt_ids(world, destination, "consumed"),
+                coc_action_resolver._route_receipt_ids(world, destination, "blocked"),
+            )
+        except RuntimeError:
+            continue
+        if not open_routes:
+            continue
+        rows.append({
+            "scene_id": destination,
+            "display_name": scene.get("display_name"),
+            # The module's own sentence for how play gets there, which is what
+            # the Keeper needs to move without inventing a reason.
+            "transition": (edge.get("when") or {}).get("description"),
+            "open_routes": [
+                {
+                    "affordance_id": row.get("affordance_id"),
+                    "cue": row.get("player_visible_cue"),
+                    "skills": row.get("skills") or [],
+                }
+                for row in open_routes[:6]
+            ],
+            "open_route_count": len(open_routes),
+        })
+    return rows
 
 
 def _route_operation_cards(

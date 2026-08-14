@@ -592,6 +592,36 @@ def _compact_source_ref(value: Any) -> dict[str, Any]:
     }
 
 
+NEARBY_DESTINATION_LIMIT = 6
+NEARBY_ROUTE_LIMIT = 4
+
+
+def _compact_nearby_routes(value: Any) -> dict[str, Any] | None:
+    """Bounded index of what the neighbouring scenes hold.
+
+    Cues only, never clue content, and capped on both axes: this is a pointer
+    ("the rumours live in the negotiation scene, and the module gets you there
+    the morning after the feast"), not a second scene projection.
+    """
+    if not isinstance(value, dict):
+        return None
+    destinations = []
+    for row in (value.get("destinations") or [])[:NEARBY_DESTINATION_LIMIT]:
+        if not isinstance(row, dict):
+            continue
+        projected_row = _pick(row, ("scene_id", "display_name", "transition",
+                                    "open_route_count"))
+        projected_row["open_routes"] = [
+            _pick(route, ("affordance_id", "cue", "skills"))
+            for route in (row.get("open_routes") or [])[:NEARBY_ROUTE_LIMIT]
+            if isinstance(route, dict)
+        ]
+        destinations.append(projected_row)
+    projected = _pick(value, ("keeper_only", "authority", "note"))
+    projected["destinations"] = destinations
+    return projected
+
+
 def _compact_story_progress(value: Any) -> dict[str, Any] | None:
     """The Keeper's quest log: which authored objectives are worked out.
 
@@ -842,6 +872,11 @@ def _compact_scene(
     # reach the table. It took one turn of real play to find that.
     if isinstance(value.get("story_progress"), dict):
         projected["story_progress"] = _compact_story_progress(value["story_progress"])
+    # Same lesson, applied on the way in this time rather than after a playtest
+    # found the field missing: a projection the RPC path does not name is a
+    # projection the Keeper never sees.
+    if isinstance(value.get("nearby_routes"), dict):
+        projected["nearby_routes"] = _compact_nearby_routes(value["nearby_routes"])
     source_material = _compact_source_material(value.get("source_material"))
     if source_material is not None:
         projected["source_material"] = source_material
