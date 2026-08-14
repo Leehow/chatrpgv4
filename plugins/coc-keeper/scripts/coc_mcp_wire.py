@@ -592,6 +592,36 @@ def _compact_source_ref(value: Any) -> dict[str, Any]:
     }
 
 
+def _compact_story_progress(value: Any) -> dict[str, Any] | None:
+    """The Keeper's quest log: which authored objectives are worked out.
+
+    Compacted rather than passed through, because the objective descriptions are
+    the module's own truths and a scene projection is not the place to dump all
+    of them. Core objectives keep their description — that is the main line the
+    Keeper paces against; supporting and optional ones travel as counts, and the
+    Keeper reads the clue graph when they want the detail.
+    """
+    if not isinstance(value, dict):
+        return None
+    rows = []
+    others = {"answered": 0, "open": 0}
+    for row in value.get("objectives") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("importance") or "") != "core":
+            others["answered" if row.get("answered") else "open"] += 1
+            continue
+        rows.append(_pick(row, (
+            "conclusion_id", "description", "routes_required", "routes_found",
+            "routes_outstanding", "answered",
+        )))
+    projected = _pick(value, ("keeper_only", "authority", "core_total",
+                              "core_answered", "main_line_complete"))
+    projected["core_objectives"] = rows
+    projected["other_objectives"] = others
+    return projected
+
+
 def _compact_source_material(value: Any) -> dict[str, Any] | None:
     """Pack raw Keeper-only authored context once for every wire path."""
     if not isinstance(value, dict) or value.get("keeper_only") is not True:
@@ -804,6 +834,14 @@ def _compact_scene(
             "drilldown_refs",
         ),
     )
+    # Where the main line stands. This is the second projection between the
+    # producer and the Keeper: scene.context builds it, the CLI shows it, and
+    # this whitelist decides what the RPC path — the one a player actually
+    # runs — is allowed to carry. A field can therefore be correct at the
+    # producer, correct at the consumer, verified on the CLI, and still never
+    # reach the table. It took one turn of real play to find that.
+    if isinstance(value.get("story_progress"), dict):
+        projected["story_progress"] = _compact_story_progress(value["story_progress"])
     source_material = _compact_source_material(value.get("source_material"))
     if source_material is not None:
         projected["source_material"] = source_material

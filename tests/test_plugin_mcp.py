@@ -4843,3 +4843,76 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
     )
 
 
+
+
+def test_mcp_wire_carries_story_progress_to_the_keeper():
+    """The RPC path is a second projection, and it drops what it does not name.
+
+    scene.context builds `story_progress`, the toolbox CLI shows it, and this
+    whitelist decides what the path a player actually runs is allowed to carry.
+    It was not on the list, so the quest log was correct at the producer,
+    correct at the consumer, verified on the CLI, and absent from the live
+    Keeper's entire event stream — found on the first turn of real play, after
+    a day of checking at the wrong layer.
+    """
+    server = _load_server()
+    progress = {
+        "schema_version": 1,
+        "keeper_only": True,
+        "authority": "advisory",
+        "core_total": 2,
+        "core_answered": 1,
+        "main_line_complete": False,
+        "objectives": [
+            {"conclusion_id": "bradan-plots", "importance": "core",
+             "description": "布拉丹正在密谋废黜国王康尼尔。",
+             "routes_required": 4, "routes_found": 4, "routes_outstanding": 0,
+             "answered": True, "available_routes": 4, "fallback_policy": "政变照常发生"},
+            {"conclusion_id": "cult-persists", "importance": "core",
+             "description": "六镰教派仍在暗中崇拜莎比·尼格兰。",
+             "routes_required": 9, "routes_found": 2, "routes_outstanding": 7,
+             "answered": False, "available_routes": 9},
+            {"conclusion_id": "an-aside", "importance": "optional",
+             "description": "康尼尔去年禁了人祭。", "routes_required": 1,
+             "routes_found": 1, "routes_outstanding": 0, "answered": True},
+            {"conclusion_id": "a-thread", "importance": "supporting",
+             "description": "凯斯巴德与仙丘人会面。", "routes_required": 2,
+             "routes_found": 0, "routes_outstanding": 2, "answered": False},
+        ],
+    }
+
+    compact = server.wire_projection._compact_scene(
+        {
+            "campaign_id": "play-toomany",
+            "active_scene_id": "negotiations",
+            "scene": {"scene_type": "social"},
+            "story_progress": progress,
+            "npcs_present": [],
+            "clues_here": [],
+            "action_routes": [],
+            "exits": [],
+        },
+        tight=True,
+    )
+
+    carried = compact["story_progress"]
+    assert (carried["core_total"], carried["core_answered"]) == (2, 1)
+    assert carried["main_line_complete"] is False
+    assert carried["keeper_only"] is True
+
+    # Core objectives keep their description — that is the line the Keeper paces
+    # against. Everything else travels as counts so a scene projection does not
+    # become a dump of every truth in the module.
+    ids = [row["conclusion_id"] for row in carried["core_objectives"]]
+    assert ids == ["bradan-plots", "cult-persists"]
+    assert carried["core_objectives"][1]["routes_outstanding"] == 7
+    assert carried["other_objectives"] == {"answered": 1, "open": 1}
+    assert all("description" in row for row in carried["core_objectives"])
+
+    # A scene with no progress block must not grow an empty one.
+    without = server.wire_projection._compact_scene(
+        {"campaign_id": "c", "active_scene_id": "s", "scene": {"scene_type": "social"},
+         "npcs_present": [], "clues_here": [], "action_routes": [], "exits": []},
+        tight=True,
+    )
+    assert "story_progress" not in without
