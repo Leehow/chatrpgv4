@@ -1,0 +1,183 @@
+[extract] {"stage":"extract"}
+[index] {"stage":"index","unit":"kenya-nairobi","pages":64}
+[batch] {"stage":"batch","batch":6,"sections":1,"total":17}
+[batch] {"stage":"batch","batch":1,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":5,"sections":1,"total":17}
+[batch] {"stage":"batch","batch":8,"sections":6,"total":17}
+[batch] {"stage":"batch","batch":10,"sections":7,"total":17}
+[batch] {"stage":"batch","batch":11,"sections":4,"total":17}
+[batch] {"stage":"batch","batch":0,"sections":3,"total":17}
+[batch] {"stage":"batch","batch":15,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":14,"sections":3,"total":17}
+[batch] {"stage":"batch","batch":16,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":13,"sections":4,"total":17}
+[batch] {"stage":"batch","batch":12,"sections":5,"total":17}
+[batch] {"stage":"batch","batch":4,"sections":5,"total":17}
+[batch] {"stage":"batch","batch":7,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":9,"sections":3,"total":17}
+[batch] {"stage":"batch","batch":3,"sections":6,"total":17}
+[batch] {"stage":"batch","batch":2,"sections":2,"total":17}
+[ocr] {"stage":"ocr","pages":29,"of":29}
+[done] {"stage":"done","sections":58,"ocr_demand":29}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "reused": false,
+  "unit_id": "kenya-nairobi",
+  "pages": 64,
+  "batches": 17,
+  "failed_batches": 0,
+  "sections": 58,
+  "text_quality": {
+    "usable": 50,
+    "missing": 8
+  },
+  "ocr_demand_pages": [
+    393,
+    394,
+    395,
+    396,
+    397,
+    398,
+    409,
+    410,
+    411,
+    412,
+    413,
+    422,
+    426,
+    427,
+    431,
+    434,
+    435,
+    439,
+    440,
+    441,
+    442,
+    443,
+    444,
+    445,
+    446,
+    447,
+    448,
+    449,
+    451
+  ],
+  "ocr_pages_written": [
+    393,
+    394,
+    395,
+    396,
+    397,
+    398,
+    409,
+    410,
+    411,
+    412,
+    413,
+    422,
+    426,
+    427,
+    431,
+    434,
+    435,
+    439,
+    440,
+    441,
+    442,
+    443,
+    444,
+    445,
+    446,
+    447,
+    448,
+    449,
+    451
+  ],
+  "batch_seams": 41
+}
+[pages] {"stage":"pages"}
+[pages] {"stage":"pages","pages_dir":"/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages","written":0,"reused":669}
+[wave] {"stage":"wave","wave":1,"files":["npc-agendas.json","module-meta.json"]}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"passed","attempts":3,"seconds":53}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"passed","attempts":3,"seconds":375}
+[wave] {"stage":"wave","wave":2,"files":["clue-graph.json"]}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"passed","attempts":2,"seconds":371}
+[wave] {"stage":"wave","wave":3,"files":["story-graph.json"]}
+[agent] {"stage":"agent","file":"story-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"story-graph.json","state":"passed","attempts":3,"seconds":511}
+[wave] {"stage":"wave","wave":4,"files":["threat-fronts.json"]}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"start"}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"passed","attempts":2,"seconds":232}
+[link] {"stage":"link","edges_compiled":23,"exit_conditions_compiled":14,"linked":13,"npcs_with_facts":8,"npcs_total":31,"unattributed_npc_question_clues":[],"dangling_npc_refs":[],"affordances":25,"scenes_with_affordances":8,"scenes_total":14,"unroutable":[]}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "pages": {
+    "pages_dir": "/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages",
+    "written": 0,
+    "reused": 669
+  },
+  "unit": "kenya-nairobi",
+  "ir_dir": "ir/kenya-nairobi",
+  "passed": 5,
+  "failed": 0,
+  "known_targets": [
+    "npc-agendas.json",
+    "module-meta.json",
+    "clue-graph.json",
+    "story-graph.json",
+    "threat-fronts.json"
+  ],
+  "results": [
+    {
+      "file": "npc-agendas.json",
+      "passed": true,
+      "validator_output": "npc-agendas: 31 npcs, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 375,
+      "exists": true
+    },
+    {
+      "file": "module-meta.json",
+      "passed": true,
+      "validator_output": "module-meta: 14 fields, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 53,
+      "exists": true
+    },
+    {
+      "file": "clue-graph.json",
+      "passed": true,
+      "validator_output": "clue-graph: 8 conclusions (24 clues), 0 findings [31 npc ids available to reference]",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 371,
+      "exists": true
+    },
+    {
+      "file": "story-graph.json",
+      "passed": true,
+      "validator_output": "story-graph: 14 scenes, 0 findings [1 final scenes, 23 edges, all open — the Keeper decides what the fiction has earned]",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 511,
+      "exists": true
+    },
+    {
+      "file": "threat-fronts.json",
+      "passed": true,
+      "validator_output": "dynamics: 19 rows (fronts + pacing), 0 findings",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 232,
+      "exists": true
+    }
+  ]
+}
+EXIT:0

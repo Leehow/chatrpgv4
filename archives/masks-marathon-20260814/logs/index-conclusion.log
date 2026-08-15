@@ -1,0 +1,106 @@
+[extract] {"stage":"extract"}
+[index] {"stage":"index","unit":"grand-conclusion","pages":5}
+[batch] {"stage":"batch","batch":1,"sections":2,"total":2}
+[batch] {"stage":"batch","batch":0,"sections":1,"total":2}
+[done] {"stage":"done","sections":3,"ocr_demand":0}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "reused": false,
+  "unit_id": "grand-conclusion",
+  "pages": 5,
+  "batches": 2,
+  "failed_batches": 0,
+  "sections": 3,
+  "text_quality": {
+    "usable": 3
+  },
+  "ocr_demand_pages": [],
+  "ocr_pages_written": [],
+  "batch_seams": 2
+}
+[pages] {"stage":"pages"}
+[pages] {"stage":"pages","pages_dir":"/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages","written":0,"reused":669}
+[wave] {"stage":"wave","wave":1,"files":["npc-agendas.json","module-meta.json"]}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"passed","attempts":2,"seconds":51}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"passed","attempts":2,"seconds":81}
+[wave] {"stage":"wave","wave":2,"files":["clue-graph.json"]}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"passed","attempts":2,"seconds":130}
+[wave] {"stage":"wave","wave":3,"files":["story-graph.json"]}
+[agent] {"stage":"agent","file":"story-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"story-graph.json","state":"passed","attempts":3,"seconds":231}
+[wave] {"stage":"wave","wave":4,"files":["threat-fronts.json"]}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"start"}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"passed","attempts":2,"seconds":99}
+[link] {"stage":"link","edges_compiled":24,"exit_conditions_compiled":10,"linked":0,"npcs_with_facts":0,"npcs_total":0,"unattributed_npc_question_clues":[],"dangling_npc_refs":[],"affordances":0,"scenes_with_affordances":0,"scenes_total":10,"unroutable":[]}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "pages": {
+    "pages_dir": "/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages",
+    "written": 0,
+    "reused": 669
+  },
+  "unit": "grand-conclusion",
+  "ir_dir": "ir/grand-conclusion",
+  "passed": 5,
+  "failed": 0,
+  "known_targets": [
+    "npc-agendas.json",
+    "module-meta.json",
+    "clue-graph.json",
+    "story-graph.json",
+    "threat-fronts.json"
+  ],
+  "results": [
+    {
+      "file": "npc-agendas.json",
+      "passed": true,
+      "validator_output": "npc-agendas: 0 npcs, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 81,
+      "exists": true
+    },
+    {
+      "file": "module-meta.json",
+      "passed": true,
+      "validator_output": "module-meta: 14 fields, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 51,
+      "exists": true
+    },
+    {
+      "file": "clue-graph.json",
+      "passed": true,
+      "validator_output": "clue-graph: 3 conclusions (6 clues), 0 findings [npc-agendas.json not present — npc_id unchecked]",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 130,
+      "exists": true
+    },
+    {
+      "file": "story-graph.json",
+      "passed": true,
+      "validator_output": "story-graph: 10 scenes, 0 findings [3 final scenes, 24 edges, all open — the Keeper decides what the fiction has earned]",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 231,
+      "exists": true
+    },
+    {
+      "file": "threat-fronts.json",
+      "passed": true,
+      "validator_output": "dynamics: 12 rows (fronts + pacing), 0 findings",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 99,
+      "exists": true
+    }
+  ]
+}
+EXIT:0

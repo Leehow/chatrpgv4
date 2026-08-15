@@ -1,0 +1,188 @@
+[extract] {"stage":"extract"}
+[index] {"stage":"index","unit":"australia-western-australia","pages":70}
+[batch] {"stage":"batch","batch":7,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":13,"sections":5,"total":17}
+[batch] {"stage":"batch","batch":3,"sections":4,"total":17}
+[batch] {"stage":"batch","batch":6,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":1,"sections":3,"total":17}
+[batch] {"stage":"batch","batch":15,"sections":14,"total":17}
+[batch] {"stage":"batch","batch":14,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":0,"sections":5,"total":17}
+[batch] {"stage":"batch","batch":8,"sections":5,"total":17}
+[batch] {"stage":"batch","batch":16,"sections":2,"total":17}
+[batch] {"stage":"batch","batch":10,"sections":3,"total":17}
+[batch] {"stage":"batch","batch":5,"sections":3,"total":17}
+[batch] {"stage":"batch","batch":4,"sections":7,"total":17}
+[batch] {"stage":"batch","batch":9,"sections":3,"total":17}
+[batch] {"stage":"batch","batch":12,"sections":5,"total":17}
+[batch] {"stage":"batch","batch":11,"sections":6,"total":17}
+[batch] {"stage":"batch","batch":2,"sections":2,"total":17}
+[ocr] {"stage":"ocr","pages":31,"of":31}
+[done] {"stage":"done","sections":73,"ocr_demand":31}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "reused": false,
+  "unit_id": "australia-western-australia",
+  "pages": 70,
+  "batches": 17,
+  "failed_batches": 0,
+  "sections": 73,
+  "text_quality": {
+    "usable": 60,
+    "missing": 8,
+    "degraded": 5
+  },
+  "ocr_demand_pages": [
+    459,
+    460,
+    461,
+    462,
+    468,
+    469,
+    470,
+    474,
+    478,
+    480,
+    487,
+    489,
+    497,
+    498,
+    500,
+    501,
+    502,
+    503,
+    505,
+    506,
+    509,
+    510,
+    511,
+    512,
+    513,
+    514,
+    515,
+    516,
+    517,
+    518,
+    519
+  ],
+  "ocr_pages_written": [
+    459,
+    460,
+    461,
+    462,
+    468,
+    469,
+    470,
+    474,
+    478,
+    480,
+    487,
+    489,
+    497,
+    498,
+    500,
+    501,
+    502,
+    503,
+    505,
+    506,
+    509,
+    510,
+    511,
+    512,
+    513,
+    514,
+    515,
+    516,
+    517,
+    518,
+    519
+  ],
+  "batch_seams": 42
+}
+[pages] {"stage":"pages"}
+[pages] {"stage":"pages","pages_dir":"/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages","written":0,"reused":669}
+[wave] {"stage":"wave","wave":1,"files":["npc-agendas.json","module-meta.json"]}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"passed","attempts":2,"seconds":75}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"passed","attempts":4,"seconds":439}
+[wave] {"stage":"wave","wave":2,"files":["clue-graph.json"]}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"passed","attempts":3,"seconds":289}
+[wave] {"stage":"wave","wave":3,"files":["story-graph.json"]}
+[agent] {"stage":"agent","file":"story-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"story-graph.json","state":"passed","attempts":3,"seconds":422}
+[wave] {"stage":"wave","wave":4,"files":["threat-fronts.json"]}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"start"}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"passed","attempts":3,"seconds":240}
+[link] {"stage":"link","edges_compiled":43,"exit_conditions_compiled":20,"linked":14,"npcs_with_facts":9,"npcs_total":36,"unattributed_npc_question_clues":[],"dangling_npc_refs":[],"affordances":27,"scenes_with_affordances":10,"scenes_total":20,"unroutable":[]}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "pages": {
+    "pages_dir": "/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages",
+    "written": 0,
+    "reused": 669
+  },
+  "unit": "australia-western-australia",
+  "ir_dir": "ir/australia-western-australia",
+  "passed": 5,
+  "failed": 0,
+  "known_targets": [
+    "npc-agendas.json",
+    "module-meta.json",
+    "clue-graph.json",
+    "story-graph.json",
+    "threat-fronts.json"
+  ],
+  "results": [
+    {
+      "file": "npc-agendas.json",
+      "passed": true,
+      "validator_output": "npc-agendas: 36 npcs, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 4,
+      "seconds": 439,
+      "exists": true
+    },
+    {
+      "file": "module-meta.json",
+      "passed": true,
+      "validator_output": "module-meta: 14 fields, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 75,
+      "exists": true
+    },
+    {
+      "file": "clue-graph.json",
+      "passed": true,
+      "validator_output": "clue-graph: 8 conclusions (31 clues), 0 findings [36 npc ids available to reference]",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 289,
+      "exists": true
+    },
+    {
+      "file": "story-graph.json",
+      "passed": true,
+      "validator_output": "story-graph: 20 scenes, 0 findings [1 final scenes, 43 edges, all open — the Keeper decides what the fiction has earned]",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 422,
+      "exists": true
+    },
+    {
+      "file": "threat-fronts.json",
+      "passed": true,
+      "validator_output": "dynamics: 24 rows (fronts + pacing), 0 findings",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 240,
+      "exists": true
+    }
+  ]
+}
+EXIT:0

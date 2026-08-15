@@ -1,0 +1,185 @@
+[extract] {"stage":"extract"}
+[index] {"stage":"index","unit":"egypt-cairo","pages":90}
+[batch] {"stage":"batch","batch":13,"sections":1,"total":26}
+[batch] {"stage":"batch","batch":10,"sections":2,"total":26}
+[batch] {"stage":"batch","batch":3,"sections":2,"total":26}
+[batch] {"stage":"batch","batch":7,"sections":6,"total":26}
+[batch] {"stage":"batch","batch":19,"sections":7,"total":26}
+[batch] {"stage":"batch","batch":1,"sections":1,"total":26}
+[batch] {"stage":"batch","batch":14,"sections":1,"total":26}
+[batch] {"stage":"batch","batch":2,"sections":2,"total":26}
+[batch] {"stage":"batch","batch":9,"sections":3,"total":26}
+[batch] {"stage":"batch","batch":0,"sections":5,"total":26}
+[batch] {"stage":"batch","batch":21,"sections":1,"total":26}
+[batch] {"stage":"batch","batch":15,"sections":2,"total":26}
+[batch] {"stage":"batch","batch":4,"sections":3,"total":26}
+[batch] {"stage":"batch","batch":12,"sections":3,"total":26}
+[batch] {"stage":"batch","batch":16,"sections":8,"total":26}
+[batch] {"stage":"batch","batch":18,"sections":3,"total":26}
+[batch] {"stage":"batch","batch":23,"sections":2,"total":26}
+[batch] {"stage":"batch","batch":6,"sections":2,"total":26}
+[batch] {"stage":"batch","batch":24,"sections":4,"total":26}
+[batch] {"stage":"batch","batch":11,"sections":5,"total":26}
+[batch] {"stage":"batch","batch":5,"sections":4,"total":26}
+[batch] {"stage":"batch","batch":22,"sections":6,"total":26}
+[batch] {"stage":"batch","batch":25,"sections":3,"total":26}
+[batch] {"stage":"batch","batch":8,"sections":5,"total":26}
+[batch] {"stage":"batch","batch":20,"sections":6,"total":26}
+[batch] {"stage":"batch","batch":17,"sections":5,"total":26}
+[ocr] {"stage":"ocr","pages":25,"of":25}
+[done] {"stage":"done","sections":92,"ocr_demand":25}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "reused": false,
+  "unit_id": "egypt-cairo",
+  "pages": 90,
+  "batches": 26,
+  "failed_batches": 0,
+  "sections": 92,
+  "text_quality": {
+    "usable": 84,
+    "missing": 7,
+    "degraded": 1
+  },
+  "ocr_demand_pages": [
+    306,
+    307,
+    308,
+    309,
+    317,
+    322,
+    324,
+    329,
+    336,
+    337,
+    349,
+    354,
+    365,
+    375,
+    376,
+    377,
+    378,
+    379,
+    380,
+    381,
+    382,
+    383,
+    384,
+    385,
+    386
+  ],
+  "ocr_pages_written": [
+    306,
+    307,
+    308,
+    309,
+    317,
+    322,
+    324,
+    329,
+    336,
+    337,
+    349,
+    354,
+    365,
+    375,
+    376,
+    377,
+    378,
+    379,
+    380,
+    381,
+    382,
+    383,
+    384,
+    385,
+    386
+  ],
+  "batch_seams": 67
+}
+[pages] {"stage":"pages"}
+[pages] {"stage":"pages","pages_dir":"/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages","written":0,"reused":669}
+[wave] {"stage":"wave","wave":1,"files":["npc-agendas.json","module-meta.json"]}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"start"}
+[agent] {"stage":"agent","file":"module-meta.json","state":"passed","attempts":2,"seconds":85}
+[agent] {"stage":"agent","file":"npc-agendas.json","state":"passed","attempts":3,"seconds":519}
+[wave] {"stage":"wave","wave":2,"files":["clue-graph.json"]}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"clue-graph.json","state":"passed","attempts":3,"seconds":292}
+[wave] {"stage":"wave","wave":3,"files":["story-graph.json"]}
+[agent] {"stage":"agent","file":"story-graph.json","state":"start"}
+[agent] {"stage":"agent","file":"story-graph.json","state":"passed","attempts":3,"seconds":481}
+[wave] {"stage":"wave","wave":4,"files":["threat-fronts.json"]}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"start"}
+[agent] {"stage":"agent","file":"threat-fronts.json","state":"passed","attempts":2,"seconds":216}
+[link] {"stage":"link","edges_compiled":36,"exit_conditions_compiled":17,"linked":27,"npcs_with_facts":14,"npcs_total":38,"unattributed_npc_question_clues":[],"dangling_npc_refs":[],"affordances":31,"scenes_with_affordances":12,"scenes_total":17,"unroutable":[]}
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "pages": {
+    "pages_dir": "/Users/haoli/leehow/code/chatrpgv4/.tmp/masks-work/pages",
+    "written": 0,
+    "reused": 669
+  },
+  "unit": "egypt-cairo",
+  "ir_dir": "ir/egypt-cairo",
+  "passed": 5,
+  "failed": 0,
+  "known_targets": [
+    "npc-agendas.json",
+    "module-meta.json",
+    "clue-graph.json",
+    "story-graph.json",
+    "threat-fronts.json"
+  ],
+  "results": [
+    {
+      "file": "npc-agendas.json",
+      "passed": true,
+      "validator_output": "npc-agendas: 38 npcs, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 519,
+      "exists": true
+    },
+    {
+      "file": "module-meta.json",
+      "passed": true,
+      "validator_output": "module-meta: 14 fields, 0 findings",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 85,
+      "exists": true
+    },
+    {
+      "file": "clue-graph.json",
+      "passed": true,
+      "validator_output": "clue-graph: 12 conclusions (33 clues), 0 findings [38 npc ids available to reference]",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 292,
+      "exists": true
+    },
+    {
+      "file": "story-graph.json",
+      "passed": true,
+      "validator_output": "story-graph: 17 scenes, 0 findings [1 final scenes, 36 edges, all open — the Keeper decides what the fiction has earned]",
+      "agent_error": null,
+      "validator_attempts": 3,
+      "seconds": 481,
+      "exists": true
+    },
+    {
+      "file": "threat-fronts.json",
+      "passed": true,
+      "validator_output": "dynamics: 21 rows (fronts + pacing), 0 findings",
+      "agent_error": null,
+      "validator_attempts": 2,
+      "seconds": 216,
+      "exists": true
+    }
+  ]
+}
+EXIT:0
