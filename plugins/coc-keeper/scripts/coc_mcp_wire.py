@@ -2091,6 +2091,10 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
         "rendered_sha256",
         "checkpoint_id",
         "source_digest",
+        # A restarted host rebuilds its in-memory opening route state from
+        # exactly this receipt field; dropping it in the identity collapse
+        # defeats the recovery contract (mirrors the bind receipt).
+        "opening_gate",
     )
     projected = {
         **_pick(data, identity_fields),
