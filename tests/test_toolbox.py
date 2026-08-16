@@ -1294,6 +1294,21 @@ def test_tool_requiring_campaign_without_id_errors():
     assert '"campaign": "<campaign_id>"' in envelope["error"]["message"]
 
 
+def test_roll_dice_batch_expression_error_names_one_per_call_syntax(tmp_path):
+    coc_toolbox.run_tool(
+        "setup.invoke", tmp_path, None,
+        {"kind": "campaign.create", "payload": {"campaign_id": "dice-steer", "title": "D"}},
+    )
+    envelope = coc_toolbox.run_tool(
+        "rules.roll_dice", tmp_path, "dice-steer",
+        {"expression": "3D6x2;3D6x2;2D6+6", "decision_id": "dice-steer-1"},
+    )
+    assert envelope["ok"] is False
+    message = envelope["error"]["message"]
+    assert "one NdM(+/-k) expression per call" in message
+    assert "roll each part of an array as its own rules.roll_dice call" in message
+
+
 def test_campaign_create_warns_when_a_recent_campaign_already_exists(
     tmp_path,
 ):

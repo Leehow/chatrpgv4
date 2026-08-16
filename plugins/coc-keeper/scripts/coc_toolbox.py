@@ -3390,7 +3390,12 @@ def _roll_dice_semantic_operation(args: dict[str, Any]) -> dict[str, Any]:
     """Bind player/keeper meaning while treating the test RNG seed as transport."""
     expression = str(args["expression"]).strip().upper()
     if coc_roll.ROLL_PATTERN.fullmatch(expression) is None:
-        raise ValueError(f"unsupported dice expression: {args['expression']}")
+        raise ValueError(
+            f"unsupported dice expression: {args['expression']!r}; pass one "
+            "NdM(+/-k) expression per call (e.g. '3D6', '2D6+6'); there is no "
+            "batch or multiplier syntax — roll each part of an array as its "
+            "own rules.roll_dice call"
+        )
     operation = {
         "expression": expression,
         "reason": str(args["reason"]) if args.get("reason") is not None else None,
