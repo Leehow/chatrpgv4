@@ -7715,7 +7715,17 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
     except coc_runtime_ops.RuntimeOperationError as exc:
         raise ToolError("setup_failed", str(exc)) from exc
     campaign_id = str((receipt.get("result") or {}).get("campaign_id") or "")
-    return receipt, [], [
+    warnings: list[str] = []
+    recent = _recently_created_campaigns(ctx.root, exclude=campaign_id)
+    if recent:
+        warnings.append(
+            "quick_start created campaign '" + campaign_id + "', but these "
+            "campaigns were also created minutes ago: "
+            + ", ".join(recent)
+            + ". Mid-setup duplicate campaigns split durable state; "
+            "continue the intended campaign instead of creating another."
+        )
+    return receipt, warnings, [
         "this campaign was created in the current host setup context; retain "
         "this receipt and continue setup/opening directly without session.resume",
         "use session.resume only when continuing a campaign generation that "

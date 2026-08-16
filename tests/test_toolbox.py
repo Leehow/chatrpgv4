@@ -867,6 +867,24 @@ def test_setup_tools_reuse_canonical_pre_session_gateway(tmp_path):
         .read_text(encoding="utf-8")
     )
     assert campaign["play_language"] == "zh-Hans"
+    assert started["warnings"] == []
+
+    duplicate = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            "scenario_id": "the-haunting",
+            "pregen_id": "eleanor-reed",
+            "campaign_id": "typed-setup-second",
+            "title": "Typed Setup Second",
+        },
+    )
+    assert duplicate["ok"] is True, duplicate
+    assert any(
+        "typed-setup" in warning and "Mid-setup duplicate campaigns" in warning
+        for warning in duplicate["warnings"]
+    ), duplicate["warnings"]
 
     unsupported = coc_toolbox.run_tool(
         "setup.quick_start",
