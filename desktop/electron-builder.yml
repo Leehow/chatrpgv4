@@ -5,7 +5,6 @@ directories:
   buildResources: buildResources
 files:
   - electron/**
-  - wizard/dist/**
   - package.json
 extraResources:
   - from: build/payload

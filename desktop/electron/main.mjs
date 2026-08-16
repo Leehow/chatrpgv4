@@ -13,7 +13,13 @@ import { buildMainWindowOptions } from "./main-window-options.mjs";
 import { clearPidRecord, reapStaleBridges, writePidRecord } from "./bridge-lifecycle.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WIZARD_INDEX = path.join(__dirname, "..", "wizard", "dist", "index.html");
+// The onboarding/settings wizard ships inside the single web frontend build
+// (web/frontend/dist/wizard.html); the shell links to that one artifact in
+// both dev (repo checkout) and packaged (resources/payload) layouts.
+function wizardIndex() {
+  const root = currentPaths?.payloadRoot ?? path.resolve(app.getAppPath(), "..");
+  return path.join(root, "web", "frontend", "dist", "wizard.html");
+}
 const PRELOAD = path.join(__dirname, "preload.cjs");
 // Click-away dismiss delay: long enough that refocusing the settings window
 // (设置 button click) cancels it, short enough to feel immediate.
@@ -48,8 +54,9 @@ function settingsParent() {
  * window with the 编辑模型 editor already open (top-bar pencil button).
  */
 function openWizardWindow({ asSheet = false, edit = false } = {}) {
-  if (!fs.existsSync(WIZARD_INDEX)) {
-    dialog.showErrorBox("COC Keeper", `配置界面未构建：${WIZARD_INDEX}\n请在 desktop/ 下运行 npm run build:wizard`);
+  const indexFile = wizardIndex();
+  if (!fs.existsSync(indexFile)) {
+    dialog.showErrorBox("COC Keeper", `配置界面未构建：${indexFile}\n请在 web/frontend/ 下运行 npm run build`);
     return null;
   }
   const parent = asSheet ? settingsParent() : null;
@@ -106,7 +113,7 @@ function openWizardWindow({ asSheet = false, edit = false } = {}) {
   win.once("ready-to-show", () => {
     if (!win.isDestroyed()) win.show();
   });
-  win.loadFile(WIZARD_INDEX, { query: loadQuery });
+  win.loadFile(indexFile, { query: loadQuery });
   return win;
 }
 

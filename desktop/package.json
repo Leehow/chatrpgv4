@@ -8,9 +8,9 @@
   "main": "electron/main.mjs",
   "scripts": {
     "start": "electron .",
-    "build:wizard": "npm --prefix wizard install && npm --prefix wizard run build",
+    "build:web": "npm --prefix ../web/frontend install && npm --prefix ../web/frontend run build",
     "build:payload": "node scripts/payload.mjs",
-    "dist": "npm run build:wizard && node scripts/payload.mjs && electron-builder --mac"
+    "dist": "npm run build:web && node scripts/payload.mjs && electron-builder --mac"
   },
   "devDependencies": {
     "electron": "^43.4.0",

@@ -7,7 +7,7 @@ const settingsSource = fs.readFileSync(new URL("./settings.mjs", import.meta.url
 const ipcSource = fs.readFileSync(new URL("./ipc.mjs", import.meta.url), "utf8");
 const preloadSource = fs.readFileSync(new URL("./preload.cjs", import.meta.url), "utf8");
 const wizardSource = fs.readFileSync(
-  new URL("../wizard/src/App.tsx", import.meta.url),
+  new URL("../../web/frontend/src/wizard/App.tsx", import.meta.url),
   "utf8",
 );
 

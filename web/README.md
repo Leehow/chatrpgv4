@@ -28,7 +28,8 @@ pi-coc 宿主。侧栏战役管理和右侧只读投影仍读磁盘。
 ## 启动
 
 ```bash
-# 1. 构建前端（只需在源码变化后重新执行）
+# 1. 构建前端（只需在源码变化后重新执行；单一构建同时产出主界面
+#    index.html 与桌面配置向导 wizard.html，Electron 壳直接 link 后者）
 cd web/frontend && npm install && npm run build && cd ../..
 
 # 2. 启动服务器（默认 workspace 为仓库根，端口 8765；Node 桥）
