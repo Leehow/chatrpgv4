@@ -985,6 +985,30 @@ def test_toolbox_contract_query_is_small_read_only_and_exact(tmp_path: Path) -> 
     )
     assert result["ok"] is True, result
     assert result["data"]["result"]["ruleset_id"] == "coc7"
+    assert any(
+        "purpose': 'investigator_creation_luck'" in hint
+        and "rules.roll_dice" in hint
+        for hint in result["hints"]
+    ), result["hints"]
+
+    wrong_key = coc_toolbox.run_tool(
+        "setup.investigator_contract",
+        tmp_path,
+        None,
+        {"campaign": "contract-campaign"},
+    )
+    assert wrong_key["error"]["code"] == "missing_param"
+    assert "campaign_id" in wrong_key["error"]["message"]
+    both_keys = coc_toolbox.run_tool(
+        "setup.investigator_contract",
+        tmp_path,
+        None,
+        {"campaign": "contract-campaign", "campaign_id": "contract-campaign"},
+    )
+    assert both_keys["error"]["code"] == "invalid_param"
+    assert "top-level key is campaign_id, not campaign" in (
+        both_keys["error"]["message"]
+    )
 
     extra = coc_toolbox.run_tool(
         "setup.investigator_contract",

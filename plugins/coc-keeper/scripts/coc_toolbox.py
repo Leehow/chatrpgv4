@@ -7737,9 +7737,16 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
 )
 def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
     if set(args) != {"campaign_id"}:
+        detail = (
+            " (received "
+            + ", ".join(sorted(args))
+            + "; this operation's top-level key is campaign_id, not campaign)"
+            if "campaign" in args
+            else ""
+        )
         raise ToolError(
             "invalid_param",
-            "setup.investigator_contract requires exactly campaign_id",
+            "setup.investigator_contract requires exactly campaign_id" + detail,
         )
     try:
         receipt = coc_runtime_ops.execute_setup_operation(
@@ -7769,6 +7776,12 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
         "payload; deterministic runtime validation remains authoritative",
         "retain this campaign-bound contract for the current creation flow; "
         "do not rediscover or requery it before investigator.create",
+        "when the payload_schema requires luck_roll_receipt, issue the Luck "
+        "source roll as rules.roll_dice with campaign="
+        f"{args['campaign_id']}, arguments={{'expression': '3D6', "
+        "'decision_id': '<new-unique-id>', 'purpose': "
+        "'investigator_creation_luck'}} and copy its returned roll_id/total "
+        "into luck_roll_receipt/luck_roll_total verbatim",
     ]
 
 
