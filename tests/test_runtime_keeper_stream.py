@@ -133,3 +133,44 @@ def test_runner_timeout_still_raises(workspace: Path) -> None:
     )
     with pytest.raises(adapter.KeeperAdapterError, match="timed out"):
         adapter.keeper_send_turn(_request(workspace), runner_path=runner, timeout_s=1)
+
+
+def test_warm_pool_key_separates_thinking_levels() -> None:
+    """A thinking-level switch must start a fresh warm worker: the level is
+    bound when the agent session is created, so it belongs in the pool key
+    next to provider/model."""
+    make_key = adapter._KeeperWarmServerPool.make_key
+    base = {
+        "runtime_session_id": "sess-1",
+        "campaign_id": "camp-1",
+        "workspace": "/tmp/w",
+        "provider": "xai",
+        "model_id": "grok-4.5",
+        "runner_hash": "abc",
+    }
+    off = make_key(thinking="off", **base)
+    low = make_key(thinking="low", **base)
+    unset = make_key(**base)  # legacy callers that never send a level
+    assert len({off, low, unset}) == 3
+
+
+def test_thinking_level_rides_one_env_name_through_the_stack() -> None:
+    """The turn's thinking level travels as COC_KEEPER_MODEL_THINKING through
+    every layer: rpc_server sets it per request, the warm-pool key includes
+    it, and the runner validates it against the pi --thinking enum before
+    creating the agent session."""
+    repo = Path(__file__).resolve().parents[1]
+    rpc_server = (repo / "runtime/sdk/rpc_server.py").read_text(encoding="utf-8")
+    adapter_src = (repo / "runtime/adapters/keeper/adapter.py").read_text(
+        encoding="utf-8"
+    )
+    runner = (repo / "runtime/adapters/keeper/run_keeper_turn.mjs").read_text(
+        encoding="utf-8"
+    )
+    assert 'params.get("thinking")' in rpc_server
+    assert 'os.environ["COC_KEEPER_MODEL_THINKING"] = thinking' in rpc_server
+    assert 'os.environ.get("COC_KEEPER_MODEL_THINKING")' in adapter_src
+    assert "thinking=thinking," in adapter_src
+    assert "COC_KEEPER_MODEL_THINKING" in runner
+    assert "thinkingLevel: requestedThinkingLevel()" in runner
+    assert '"off", "minimal", "low", "medium", "high", "xhigh", "max"' in runner

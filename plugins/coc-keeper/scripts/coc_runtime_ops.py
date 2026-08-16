@@ -1271,13 +1271,34 @@ def _require_established_source_facts(
             "setup.adopt_source_facts; do not guess the era"
         )
     if not coc_state.campaign_place_is_established(campaign):
-        raise RuntimeOperationError(
-            f"campaign {campaign_id!r} setting place is not source-established: "
-            "character creation is blocked until the fast source parse answers "
-            f"the {OPENING_FAST_FACTS_CONTRACT_ID} place question through "
-            "setup.adopt_source_facts; do not guess the country, city, or "
-            "region"
+        # The place question exists only for campaigns whose scenario is
+        # PDF source-bound (a fast source parse answered from bundle pages).
+        # A built-in starter — or any scenario installed without a PDF
+        # bundle — never had a source parse to ask; its scenario files are
+        # the source. This mirrors campaign_place_is_established's own
+        # contract note and the era exemption starters already enjoy.
+        scenario_path = (
+            root / ".coc" / "campaigns" / campaign_id / "scenario" / "scenario.json"
         )
+        scenario: dict[str, Any] = {}
+        if scenario_path.is_file():
+            try:
+                scenario = _read_object(scenario_path)
+            except RuntimeOperationError:
+                scenario = {}
+        source = scenario.get("source") if isinstance(scenario.get("source"), dict) else {}
+        source_bound = bool(
+            str(source.get("source_id") or "").strip()
+            and str(source.get("bundle_sha256") or "").strip()
+        )
+        if source_bound:
+            raise RuntimeOperationError(
+                f"campaign {campaign_id!r} setting place is not source-established: "
+                "character creation is blocked until the fast source parse answers "
+                f"the {OPENING_FAST_FACTS_CONTRACT_ID} place question through "
+                "setup.adopt_source_facts; do not guess the country, city, or "
+                "region"
+            )
     return _require_pi_module_init_l0(root, campaign_id)
 
 
@@ -4829,27 +4850,33 @@ def execute_setup_operation(
         }
     if kind == "campaign.quick_start":
         allowed = {"scenario_id", "pregen_id", "campaign_id", "title"}
-        if set(payload) - allowed or not {"scenario_id", "pregen_id"} <= set(payload):
+        if set(payload) - allowed or "scenario_id" not in payload:
             raise RuntimeOperationError("campaign.quick_start has unsupported or missing fields")
         result = coc_starter.quick_start(
             root,
             _id(payload.get("scenario_id"), "scenario_id"),
-            _id(payload.get("pregen_id"), "pregen_id"),
+            (
+                _id(payload["pregen_id"], "pregen_id")
+                if payload.get("pregen_id") is not None
+                else None
+            ),
             campaign_id=(
                 _id(payload["campaign_id"], "campaign_id")
                 if payload.get("campaign_id") is not None else None
             ),
             title=(str(payload["title"]) if payload.get("title") else None),
         )
+        state_refs = [f".coc/campaigns/{result['campaign_id']}"]
+        if result.get("investigator_id"):
+            state_refs.append(
+                f".coc/investigators/{result['investigator_id']}/character.json"
+            )
         return {
             "schema_version": 1,
             "status": "PASS",
             "kind": kind,
             "result": result,
-            "state_refs": [
-                f".coc/campaigns/{result['campaign_id']}",
-                f".coc/investigators/{result['investigator_id']}/character.json",
-            ],
+            "state_refs": state_refs,
         }
     if kind == "campaign.create":
         allowed = {

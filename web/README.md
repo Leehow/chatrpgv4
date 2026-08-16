@@ -1,7 +1,8 @@
-# COC Keeper Web UI（pi）
+# COC Keeper Web UI（pi-coc 的可视化）
 
-浏览器里的 pi 版 Keeper 界面：左侧战役列表，中间对话（**真 SSE 流式** +
-Markdown 渲染），右侧角色参数 / 物品 / 游戏时间，顶栏可选择 Keeper 模型。
+浏览器 / Electron 是 **pi-coc 交互宿主的 UI**，不是第二条 Keeper 壳。
+回合通道是 `pi-coc --mode rpc`：建卡、开局、steward、实况回合都走同一套
+pi-coc 宿主。侧栏战役管理和右侧只读投影仍读磁盘。
 
 ## 新战役
 
@@ -19,9 +20,10 @@ Markdown 渲染），右侧角色参数 / 物品 / 游戏时间，顶栏可选�
      供会话内完成开局评审与 adopt；era 建立后正常建卡流自动重链。
 
 **新建调查员**（PDF / 已解析剧本模式）：侧栏调查员下拉第一项「＋ 新建调查员…」，
-点「开局」后先建战役（不预建卡），中间主界面由 **live KP 按 coc-character skill**
-引导创建（与 CLI 同一套：briefing → 属性生成方式 → 确认 →
-`investigator.create` + `link_investigator`）。
+点「开局」后先建战役（不预建卡），然后由 **pi-coc 宿主按 coc-character**
+引导创建（与 TUI 同一套：`setup.investigator_contract` →
+`investigator.create` + `link_investigator`）。不再注入建卡 kickoff，也不再
+挂 `web-char-setup-draft` 占位卡。
 
 ## 启动
 
@@ -43,53 +45,55 @@ node web/server-node/server.mjs --workspace . --port 8765
 
 ## 架构
 
-- `web/server-node/server.mjs` — Node HTTP + SSE 桥（零依赖，Node ≥22），
-  是当前默认 web 服务器。只做 HTTP 面、静态文件、multipart PDF 登记、
-  纯文件显示投影（时间/场景/张力/线索/transcript 时序/`models.json`），
-  外加全局回合锁。所有规则、状态、叙事语义仍属 canonical runtime 与
-  keeper runner。
+- `web/server-node/server.mjs` — Node HTTP + SSE 桥（零依赖，Node ≥22）。
+  产品回合走 `web/server-node/pi-coc-rpc.mjs`（每战役一个
+  `pi-coc --mode rpc` 子进程）。sidecar 只做战役管理与只读投影。
+- `web/server-node/pi-coc-rpc.mjs` — Pi RPC JSONL 客户端。玩家输入是
+  `prompt`；开桌回合用 `attach` 接上宿主自己的 auto-open。传输层**不**
+  再要求 `turn.finalize` 收据。
 - `web/server-node/sidecar.mjs` — stdio 换行 JSON-RPC 客户端，长驻一个
-  `runtime/sdk/rpc_server.py` 进程；请求/响应带 id，keeper 流式事件以
-  notification 形式按请求 id 回传。
-- `runtime/sdk/rpc_server.py` — 薄壳 sidecar：把 `runtime/sdk/api.py`
-  的 `setup_workspace` / `create_session` / `get_state` / `send` 等方法
-  暴露为 JSON-RPC；`send` 的 `on_keeper_stream` 回调原样转发为
-  notification。线程派发，长回合不阻塞只读请求。
+  `runtime/sdk/rpc_server.py` 进程，供 bootstrap / 战役管理 /
+  `project_campaign_state` / 角色卡投影使用。
+- `runtime/sdk/rpc_server.py` — 薄壳 sidecar：战役管理与只读投影。
+  `send` 仍在，但 web UI 不再调用它作为回合通道。
 - `runtime/sdk/web_views.py` — 只能由 canonical Python 插件完成的投影
-  （角色卡 `player_facing_sheet_zh`、module-library 列表/安装、引擎
-  transcript 回退），经 sidecar 提供给 Node。
-- `web/server/app.py` — 旧版 Python stdlib 桥（保留作黄金参照；行为契约
-  与 Node 桥一致，用于双跑 diff 验收）。
-- `runtime/adapters/keeper/run_keeper_turn.mjs` — 在原有 `session.subscribe`
-  上把玩家安全的实时进度以 `{"$stream":...}` NDJSON 标记行写到 stderr：
-  工具活动（仅工具名，不含参数）与 `turn.finalize` 成功之后的叙述
-  `text_delta`。stdout 结果契约不变。支持 `--server` JSONL 热会话：同一
-  agent 跨回合保留聊天记忆（CLI 式），玩家仍只看到 finalize 定稿。
-- `runtime/adapters/keeper/adapter.py` — `keeper_send_turn(..., on_stream=...)`
-  默认对带 `runtime_session_id` 的请求走 warm `--server` 进程池（按
-  session/campaign/model 键控）；失败或关会话时退役 worker。
-  `session.send` / `sdk.send` 透传。
+  （角色卡、module-library、引擎 transcript 回退、无 session 的
+  public state）。
+- `web/server/app.py` — 旧版 Python 桥，**不是**产品回合通道。
 - `POST /api/sessions/<sid>/turns` — SSE：`status` → `tool`* / `delta`* →
-  `turn`（最终 events + 最新 state）/ `error`；15s 心跳。回合由全局锁串行。
+  `turn` / `error`；`{ attach: true }` 接开桌流。回合由全局锁串行。
 
 ## 剧透边界
 
-keeper 回合中模型在 `turn.finalize` 之前的文本是主持人内部推演，可能引用
-模组秘密。流式只转发 finalize **执行成功**之后的最终叙述 token（keeper
-系统提示词禁止 finalize 后再调工具，且最终消息逐字等于
-`rendered_text`）。闸门只认真实执行（toolbox bash 调用或
-`coc_invoke:turn.finalize`），schema 发现（`coc_discover` /
-`coc_capabilities`）不会打开闸门；若 finalize 之后模型又发起工具调用，
-runner 发出 `delta_reset` 让前端丢弃已流出的草稿，等下一次成功
-finalize 再重新流出。工具活动也只暴露工具名。
+流式转发的是 pi-coc 宿主自己的助手文本与 thinking（与 TUI 同一条事件流）。
+thinking 在界面上标为 KP 侧笔记，可能含模组秘密，不是对玩家发布的叙述。
+工具活动只暴露工具名。传输层不再用 `turn.finalize` 当闸门；结算仍由
+pi-coc 宿主按 `coc-keeper-play` 自己决定。
 
 ## 模型选择
 
 顶栏下拉来自 `$PI_AGENT_DIR/models.json`（缺省 `~/.pi/agent/models.json`，
-即 pi 的模型注册表），例如 `coding-relay` / `grok-relay` 下的各个模型。
-选择随每个回合请求通过 `COC_KEEPER_MODEL_PROVIDER` / `COC_KEEPER_MODEL_ID`
-环境变量传给 keeper runner，可在会话中途切换。缺省
-`coding-relay / gpt-5.6-luna`。
+桌面壳则是应用自管的 `pi-agent`）。每个回合通过 Pi RPC `set_model` /
+`set_thinking_level` 切到当前选择。
+
+## 战役管理（重命名 / 删除 / 回收站）
+
+侧栏每个战役卡片悬停可见「重命名 / 删除」操作：
+
+- **重命名**：`POST /api/campaigns/rename` → sidecar `campaign_rename`，
+  原子改写 `campaign.json` 的 `title`（identity 仍以 `campaign_id` 为键）。
+- **删除**：`POST /api/campaigns/trash` → sidecar `campaign_trash`，把整个
+  `.coc/campaigns/<id>/` 目录移入 `.coc/trash/campaigns/<key>/` 并登记
+  `.coc/trash/meta/<key>.json`（`deleted_at` / `purge_at`）。**不是立即销毁**：
+  运行证据在回收站保持原样，24 小时内可恢复（遵守 playtest-evidence 法则）。
+  回合进行中返回 409；该战役的活跃会话会先被关闭再移动。
+- **回收站**：`GET /api/trash` 列出可恢复条目（列出前顺带惰性清除过期项）；
+  `POST /api/trash/restore` 按 `trash_key` 恢复（原 id 被新战役占用时报冲突，
+  双方数据都保留）。过期清除由 sidecar `campaign_trash_purge` 完成：服务器
+  启动时、每 15 分钟、以及每次列回收站时执行。
+
+语义实现集中在 `runtime/sdk/campaign_admin.py`（文件级工作区管理，无任何
+规则/状态/叙事语义）；Node 桥只做 HTTP 路由与会话关闭。
 
 ## 战役兼容性
 
@@ -124,11 +128,10 @@ keeper 自己的角色卡渲染一致。物品优先用 `player_facing_sheet_zh.
 ## CLI / Web 双端互通
 
 战役状态与日志（`save/*.json`、`logs/events.jsonl`、
-`logs/turn-finalizations.jsonl`）是 canonical 磁盘事实，web 与 CLI
-（pi TUI、各 coding host）都只是其上的 host：两端写同一批
-`state.journal` / `turn.finalize` 工件，因此可以**交替**游玩——CLI 玩的
-回合，web 打开同一战役（或点顶栏「⟳ 刷新」，切回浏览器标签页也会自动
-刷新）即可看到并继续；web 玩的回合，CLI 端 `session.resume` 同样接着跑。
+`logs/turn-finalizations.jsonl`）是 canonical 磁盘事实。web/Electron 与
+`pi-coc` TUI 是同一宿主的两种表面：两端写同一批战役工件，因此可以
+**交替**游玩——TUI 玩的回合，web 打开同一战役（或点顶栏「⟳ 刷新」）
+即可看到并继续。
 
 限制：同一时刻只能一端在跑回合（并发写同一战役不安全）；`setup` 阶段
 的战役还没有调查员绑定，web 会拒绝并说明；web 不监听文件变化，CLI 的

@@ -83,8 +83,51 @@ export COC_PI_SCENE_SUPPLY=1
 HOST_SYSTEM_PROMPT=$REPO_ROOT/plugins/coc-keeper/pi/prompts/host-system.md
 DEFAULT_SESSION_ID=${PI_COC_SESSION_ID:-coc-keeper}
 
+attached_ui_enabled() {
+  case "${COC_PI_ATTACHED_UI:-}" in
+    1|true|TRUE|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The web/Electron UI owns an app-local agent dir (models + auth) that the
+# old runtime Keeper never needed to turn into a full pi-coc home. When the
+# UI is attached, write the missing settings and tool binaries there so the
+# same host can start. Bare TUI still fails closed with the bootstrap hint.
 if [ ! -f "$PI_CODING_AGENT_DIR/settings.json" ]; then
-  cat <<EOF >&2
+  if attached_ui_enabled; then
+    mkdir -p "$PI_CODING_AGENT_DIR/sessions"
+    node -e '
+      const fs = require("fs");
+      const settingsPath = process.argv[1];
+      const repoRoot = process.argv[2];
+      const modelsPath = process.argv[3];
+      const settings = {
+        packages: [repoRoot],
+        theme: "light",
+        quietStartup: true,
+      };
+      try {
+        const raw = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+        const providers = raw.providers && typeof raw.providers === "object"
+          ? raw.providers
+          : raw;
+        const ids = Object.keys(providers || {});
+        if (ids.length) {
+          settings.defaultProvider = ids[0];
+          const models = providers[ids[0]] && providers[ids[0]].models;
+          if (Array.isArray(models) && models[0] && models[0].id) {
+            settings.defaultModel = models[0].id;
+          }
+        }
+      } catch {
+        /* models.json is optional; set_model from the UI fills this in */
+      }
+      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    ' "$PI_CODING_AGENT_DIR/settings.json" "$REPO_ROOT" "$PI_CODING_AGENT_DIR/models.json"
+    printf '%s\n' "pi-coc: wrote attached-UI agent settings at $PI_CODING_AGENT_DIR/settings.json" >&2
+  else
+    cat <<EOF >&2
 pi-coc: missing COC agent home settings: $PI_CODING_AGENT_DIR/settings.json
 
 One-time bootstrap (example):
@@ -106,7 +149,8 @@ One-time bootstrap (example):
 
 See plugins/coc-keeper/pi/README.md for the dual-entry workflow.
 EOF
-  exit 1
+    exit 1
+  fi
 fi
 
 if [ ! -f "$HOST_SYSTEM_PROMPT" ]; then
@@ -118,7 +162,9 @@ fi
 # `.pi/agents/` surface. Keep canonical definitions in the Pi package (tracked
 # by git), then mirror only this owned prefix into the ignored runtime surface.
 STEWARD_AGENT_SOURCE=$REPO_ROOT/plugins/coc-keeper/pi/agents
-STEWARD_AGENT_RUNTIME=$REPO_ROOT/.pi/agents
+# Mirror into the play workspace when the UI sets COC_WORKSPACE (Electron
+# payload is read-only). TUI keeps the repo-local `.pi/agents` surface.
+STEWARD_AGENT_RUNTIME=${COC_WORKSPACE:-$REPO_ROOT}/.pi/agents
 if [ ! -d "$STEWARD_AGENT_SOURCE" ]; then
   printf '%s\n' "pi-coc: missing bundled steward agents: $STEWARD_AGENT_SOURCE" >&2
   exit 1
@@ -132,12 +178,39 @@ for steward_agent in "$STEWARD_AGENT_SOURCE"/steward-*.md; do
   fi
 done
 
-case "$(pwd -P)/" in
-  "$REPO_ROOT"/*|"$REPO_ROOT"/) ;;
-  *) cd -- "$REPO_ROOT" || exit 1 ;;
-esac
+# Play workspace (campaign `.coc/`) may differ from the package repo root.
+# The web/Electron UI sets COC_WORKSPACE to the player workspace; TUI and
+# repo-local `pi-coc` keep the historical "cwd is the package root" default.
+if [ -n "${COC_WORKSPACE:-}" ]; then
+  if [ ! -d "$COC_WORKSPACE" ]; then
+    printf '%s\n' "pi-coc: COC_WORKSPACE is not a directory: $COC_WORKSPACE" >&2
+    exit 1
+  fi
+  cd -- "$COC_WORKSPACE" || exit 1
+else
+  case "$(pwd -P)/" in
+    "$REPO_ROOT"/*|"$REPO_ROOT"/) ;;
+    *) cd -- "$REPO_ROOT" || exit 1 ;;
+  esac
+fi
 
-if ! command -v pi >/dev/null 2>&1; then
+resolve_pi_cli() {
+  if command -v pi >/dev/null 2>&1; then
+    printf '%s\n' "pi"
+    return 0
+  fi
+  if [ -n "${COC_PI_CLI:-}" ] && [ -f "$COC_PI_CLI" ]; then
+    printf '%s\n' "$COC_PI_CLI"
+    return 0
+  fi
+  bundled=$REPO_ROOT/runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/dist/cli.js
+  if [ -f "$bundled" ]; then
+    printf '%s\n' "$bundled"
+    return 0
+  fi
+  return 1
+}
+if ! resolve_pi_cli >/dev/null; then
   printf '%s\n' "pi-coc: 'pi' not found on PATH (install @earendil-works/pi-coding-agent)" >&2
   exit 1
 fi
@@ -145,9 +218,33 @@ fi
 # Pi looks up fd/rg under $PI_CODING_AGENT_DIR/bin. Share coding-home binaries
 # instead of letting interactive startup download into an empty COC home.
 if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ] || [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
-  printf '%s\n' "pi-coc: missing fd/rg under $PI_CODING_AGENT_DIR/bin" >&2
-  printf '%s\n' "Fix: ln -sfn \"\$HOME/.pi/agent/bin\" \"$PI_CODING_AGENT_DIR/bin\"" >&2
-  exit 1
+  if attached_ui_enabled; then
+    mkdir -p "$PI_CODING_AGENT_DIR/bin"
+    for src in "$HOME/.pi/agent/bin" "$HOME/.pi/coc-agent/bin"; do
+      if [ -x "$src/fd" ] && [ -x "$src/rg" ]; then
+        ln -sfn "$src/fd" "$PI_CODING_AGENT_DIR/bin/fd"
+        ln -sfn "$src/rg" "$PI_CODING_AGENT_DIR/bin/rg"
+        break
+      fi
+    done
+    if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ]; then
+      fd_src=$(command -v fd || true)
+      if [ -n "$fd_src" ] && [ -x "$fd_src" ]; then
+        ln -sfn "$fd_src" "$PI_CODING_AGENT_DIR/bin/fd"
+      fi
+    fi
+    if [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
+      rg_src=$(command -v rg || true)
+      if [ -n "$rg_src" ] && [ -x "$rg_src" ]; then
+        ln -sfn "$rg_src" "$PI_CODING_AGENT_DIR/bin/rg"
+      fi
+    fi
+  fi
+  if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ] || [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
+    printf '%s\n' "pi-coc: missing fd/rg under $PI_CODING_AGENT_DIR/bin" >&2
+    printf '%s\n' "Fix: ln -sfn \"\$HOME/.pi/agent/bin\" \"$PI_CODING_AGENT_DIR/bin\"" >&2
+    exit 1
+  fi
 fi
 
 # Wrapper-only --new: open a fresh Pi session (omit default session-id).
@@ -274,4 +371,15 @@ else
   printf '%s\n' "pi-coc: no $REPO_ROOT/.venv/bin/python3; run 'uv sync --frozen' or PDF ingest will fail" >&2
 fi
 
-exec pi "${PI_ARGS[@]}"
+PI_CLI=$(resolve_pi_cli) || {
+  printf '%s\n' "pi-coc: 'pi' not found on PATH (install @earendil-works/pi-coding-agent)" >&2
+  exit 1
+}
+case "$PI_CLI" in
+  *.js|*.mjs)
+    exec node "$PI_CLI" "${PI_ARGS[@]}"
+    ;;
+  *)
+    exec "$PI_CLI" "${PI_ARGS[@]}"
+    ;;
+esac

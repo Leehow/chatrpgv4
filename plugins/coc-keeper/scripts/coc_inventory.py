@@ -18,9 +18,14 @@ Inventory shape (investigator-state)::
 
     {"entries": [{"item_id": str, "kind": "gear"|"weapon",
                   "label": str, "weapon": {"weapon_id": str, ...}?,
-                  "note": str?, "acquired": {...}?}],
+                  "note": str?, "acquired": {...}?,
+                  "consumable": bool?, "quantity": int?}],
      "lost_weapon_ids": [weapon_id, ...],
      "lost_equipment_ids": [sheet_equipment_id, ...]}
+
+``consumable``/``quantity`` (gear entries only) model use-it-up items:
+``use_entry`` decrements ``quantity`` (default 1) and removes the entry at
+zero, so a consumed bandage truly leaves the inventory.
 
 Effective investigator weapons = (character-sheet weapons minus
 ``lost_weapon_ids``) merged with ``kind == "weapon"`` entries; entries win on
@@ -47,7 +52,10 @@ import re
 from typing import Any
 
 ENTRY_KINDS = ("gear", "weapon")
-ENTRY_KEYS = {"item_id", "kind", "label", "weapon", "note", "acquired"}
+ENTRY_KEYS = {
+    "item_id", "kind", "label", "weapon", "note", "acquired",
+    "consumable", "quantity",
+}
 
 # Module rules_operation opponent lookup walks this exact path in story-graph.
 _SCENE_LIST_KEYS = ("scenes",)
@@ -143,6 +151,18 @@ def validate_entry(entry: Any) -> list[str]:
     acquired = entry.get("acquired")
     if acquired is not None and not isinstance(acquired, dict):
         problems.append("entry.acquired must be an object")
+    consumable = entry.get("consumable")
+    if consumable is not None and not isinstance(consumable, bool):
+        problems.append("entry.consumable must be a boolean")
+    quantity = entry.get("quantity")
+    if quantity is not None and (
+        not isinstance(quantity, int)
+        or isinstance(quantity, bool)
+        or quantity < 1
+    ):
+        problems.append("entry.quantity must be an integer >= 1")
+    if kind == "weapon" and (consumable is not None or quantity is not None):
+        problems.append("weapon entries must not carry consumable/quantity")
     return problems
 
 
@@ -307,6 +327,37 @@ def lose_weapon(inventory: dict[str, Any], weapon_id: str,
                 sheet_weapon_ids: set[str] | None = None) -> tuple[dict[str, Any], str]:
     """Combat-loss path: remove a weapon wherever it currently lives."""
     return remove_item(inventory, weapon_id, sheet_weapon_ids)
+
+
+def use_entry(
+    inventory: dict[str, Any],
+    item_id: str,
+    count: int = 1,
+) -> tuple[dict[str, Any], str, int | None]:
+    """Consume ``count`` charges of a consumable runtime entry.
+
+    Returns ``(inventory, outcome, remaining)``; outcomes:
+    ``decremented`` (charges left), ``consumed`` (entry removed at zero),
+    ``not_consumable`` (entry exists but is not consumable), ``not_found``.
+    Sheet-derived equipment is never here: it carries no consumable
+    tracking, so spending it is a ``remove_item`` decision, not a use.
+    """
+    item_id = str(item_id or "").strip()
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        raise ValueError("count must be a positive integer")
+    entries = inventory["entries"]
+    for index, row in enumerate(entries):
+        if row["item_id"] != item_id:
+            continue
+        if row.get("consumable") is not True:
+            return inventory, "not_consumable", None
+        quantity = row.get("quantity", 1)
+        if count >= quantity:
+            del entries[index]
+            return inventory, "consumed", 0
+        row["quantity"] = quantity - count
+        return inventory, "decremented", quantity - count
+    return inventory, "not_found", None
 
 
 # --------------------------------------------------------------------------- #

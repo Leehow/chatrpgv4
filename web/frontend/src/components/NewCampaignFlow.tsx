@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
   FileText,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import * as api from "../api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -27,7 +28,8 @@ export const NEW_INVESTIGATOR = "__new__";
 export type CreateStarterArgs = {
   mode: "starter";
   scenarioId: string;
-  pregenId: string;
+  /** Pregen id, or null to start investigator-less (guided coc-character creation in play). */
+  pregenId: string | null;
   title: string;
 };
 
@@ -56,6 +58,8 @@ interface Props {
   onCreate: (args: CreateArgs) => void;
   onBack: () => void;
   onBootstrapRefresh?: () => Promise<void>;
+  /** Skip the mode-select step (first-run guide hands off pre-chosen). */
+  initialMode?: SourceMode;
 }
 
 type SourceMode = "starter" | "pdf" | "library";
@@ -108,21 +112,37 @@ export function NewCampaignFlow({
   onCreate,
   onBack,
   onBootstrapRefresh,
+  initialMode,
 }: Props) {
-  const [mode, setMode] = useState<SourceMode | null>(null);
+  const [mode, setMode] = useState<SourceMode | null>(initialMode ?? null);
   const [scenarioId, setScenarioId] = useState("");
   const [pregenId, setPregenId] = useState("");
+  const [charSource, setCharSource] = useState<"pregen" | "new">("pregen");
   const [bundlePath, setBundlePath] = useState("");
   const [era, setEra] = useState(ERA_FOLLOW_SOURCE);
   const [moduleId, setModuleId] = useState("");
   const [investigatorId, setInvestigatorId] = useState(NEW_INVESTIGATOR);
   const [title, setTitle] = useState("");
   const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadStartedAt, setUploadStartedAt] = useState(0);
+  const [uploadElapsed, setUploadElapsed] = useState(0);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const [uploadInfo, setUploadInfo] = useState<PdfUploadResult | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [startMsg, setStartMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Parse can legitimately take minutes on a big module; a visible elapsed
+  // timer keeps the wait honest instead of looking frozen.
+  useEffect(() => {
+    if (!uploadBusy) return;
+    const startedAt = uploadStartedAt || Date.now();
+    if (!uploadStartedAt) setUploadStartedAt(startedAt);
+    const timer = setInterval(() => {
+      setUploadElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [uploadBusy, uploadStartedAt]);
 
   const starters = bootstrap?.starters ?? [];
   const starter = starters.find((s) => s.scenario_id === scenarioId) ?? null;
@@ -135,7 +155,7 @@ export function NewCampaignFlow({
 
   const sourceReady =
     mode === "starter"
-      ? Boolean(scenarioId && pregenId)
+      ? Boolean(scenarioId) && (charSource === "new" || Boolean(pregenId))
       : mode === "library"
         ? Boolean(moduleId)
         : Boolean(bundlePath && !uploadBusy);
@@ -148,6 +168,8 @@ export function NewCampaignFlow({
   const handlePdfFile = async (file: File | null) => {
     if (!file) return;
     setUploadBusy(true);
+    setUploadStartedAt(Date.now());
+    setUploadElapsed(0);
     setUploadMsg(null);
     setUploadInfo(null);
     try {
@@ -185,9 +207,11 @@ export function NewCampaignFlow({
           }
           if (onBootstrapRefresh) await onBootstrapRefresh();
         } catch (err) {
-          setUploadMsg(
-            `解析失败：${err instanceof Error ? err.message : String(err)}`,
-          );
+          const message = err instanceof Error ? err.message : String(err);
+          const ocrHint = /ocr/i.test(message)
+            ? "扫描版 PDF（无文本层）需要外部 OCR 能力，暂不支持。"
+            : "";
+          setUploadMsg(`解析失败：${message}${ocrHint ? `；${ocrHint}` : ""}`);
         }
       }
     } catch (e) {
@@ -201,7 +225,12 @@ export function NewCampaignFlow({
     setStartMsg(null);
     if (mode === "starter") {
       if (!canStart) return;
-      onCreate({ mode: "starter", scenarioId, pregenId, title: title.trim() });
+      onCreate({
+        mode: "starter",
+        scenarioId,
+        pregenId: charSource === "new" ? null : pregenId,
+        title: title.trim(),
+      });
       return;
     }
     if (!sourceReady) {
@@ -345,25 +374,71 @@ export function NewCampaignFlow({
                   </p>
                 )}
               </Field>
-              <Field label="预生成调查员">
-                <Select
-                  value={pregenId || undefined}
-                  onValueChange={setPregenId}
-                  disabled={!starter}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择预生成调查员…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(starter?.pregens ?? []).map((p) => (
-                      <SelectItem key={p.pregen_id} value={p.pregen_id}>
-                        {p.name ?? p.pregen_id}
-                        {p.occupation ? ` · ${p.occupation}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <Field label="调查员来源">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setCharSource("pregen")}
+                    className={cn(
+                      "rounded-xl border px-4 py-3 text-left transition-colors",
+                      charSource === "pregen"
+                        ? "border-primary/60 bg-primary/5"
+                        : "border-border bg-card hover:border-primary/40",
+                    )}
+                  >
+                    <span className="block text-sm font-medium text-foreground">
+                      预设角色卡
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      使用剧本自带调查员，立即开始
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCharSource("new")}
+                    className={cn(
+                      "rounded-xl border px-4 py-3 text-left transition-colors",
+                      charSource === "new"
+                        ? "border-primary/60 bg-primary/5"
+                        : "border-border bg-card hover:border-primary/40",
+                    )}
+                  >
+                    <span className="block text-sm font-medium text-foreground">
+                      自己创建
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      开局后由 KP 引导逐步建卡
+                    </span>
+                  </button>
+                </div>
               </Field>
+              {charSource === "pregen" ? (
+                <Field label="预设角色卡">
+                  <Select
+                    value={pregenId || undefined}
+                    onValueChange={setPregenId}
+                    disabled={!starter}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择预生成调查员…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(starter?.pregens ?? []).map((p) => (
+                        <SelectItem key={p.pregen_id} value={p.pregen_id}>
+                          {p.name ?? p.pregen_id}
+                          {p.occupation ? ` · ${p.occupation}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ) : (
+                <p className="rounded-lg bg-secondary px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                  开局后主界面由 KP 按
+                  <code className="mx-1">coc-character</code>
+                  skill 引导建卡（与 CLI 相同）：选择属性生成方式、职业、技能与背景，无需预先填表。
+                </p>
+              )}
             </>
           )}
 
@@ -484,7 +559,7 @@ export function NewCampaignFlow({
                 )}
                 <div className="text-sm font-medium text-foreground">
                   {uploadBusy
-                    ? "上传登记中…"
+                    ? `解析中… 已用 ${uploadElapsed}s（大模组可能需要几分钟）`
                     : uploadInfo
                       ? uploadInfo.filename
                       : "拖拽 PDF 到此处，或点击选择"}
@@ -496,12 +571,12 @@ export function NewCampaignFlow({
               {uploadMsg && (
                 <p
                   className={cn(
-                    "rounded-lg px-3 py-2 text-xs",
+                    "rounded-lg border px-3 py-2 text-xs",
                     uploadInfo?.status === "matched_bundle"
-                      ? "bg-emerald-50 text-emerald-700"
+                      ? "border-success/40 bg-success-soft text-success"
                       : uploadInfo
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-red-50 text-red-700",
+                        ? "border-warning/40 bg-warning-soft text-warning"
+                        : "border-destructive/40 bg-destructive-soft text-destructive",
                   )}
                 >
                   {uploadMsg}
@@ -594,16 +669,15 @@ export function NewCampaignFlow({
           )}
 
           <Field label="战役标题（可选）">
-            <input
+            <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="战役标题（可选）"
-              className="flex h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             />
           </Field>
 
           {startMsg && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <p className="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-xs text-warning">
               {startMsg}
             </p>
           )}

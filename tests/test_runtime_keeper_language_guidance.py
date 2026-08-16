@@ -54,6 +54,37 @@ def test_system_prompt_carries_language_guidance() -> None:
     assert "ok" in proc.stdout
 
 
+def test_keeper_prompt_preserves_structured_combat_defense() -> None:
+    script = r'''
+        import { buildPromptText } from "./runtime/adapters/keeper/run_keeper_turn.mjs";
+        const player_intent = {
+          primary_intent: "combat",
+          secondary_intents: [],
+          target_entities: ["attack-1"],
+          risk_posture: "neutral",
+          explicit_roll_request: false,
+          player_hypothesis: null,
+          action_atoms: [{kind: "combat_defense", action: "fight_back", attack_id: "attack-1"}],
+          npc_interactions: [],
+        };
+        for (const warmContinue of [false, true]) {
+          const prompt = buildPromptText({player_input: "反击", player_intent}, {warmContinue});
+          if (!prompt.includes(JSON.stringify(player_intent))) throw new Error("intent JSON missing");
+          if (!prompt.includes("combat.resolve")) throw new Error("combat route missing");
+          if (!prompt.includes("Do not substitute rules.roll")) throw new Error("generic-roll guard missing");
+        }
+        console.log("ok");
+    '''
+    proc = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "ok" in proc.stdout
+
+
 def test_session_request_includes_language_guidance(tmp_path) -> None:
     """send() threads the plugin's canonical language profile into the request."""
     from runtime.sdk import api

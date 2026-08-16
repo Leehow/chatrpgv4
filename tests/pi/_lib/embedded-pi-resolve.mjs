@@ -18,8 +18,12 @@ function pkgDir(specifier) {
   const m = /^@earendil-works\/([^/]+)/.exec(specifier);
   if (!m) return null;
   const pkg = m[1];
-  const base = pkg === "pi-coding-agent" ? join(embedded, pkg) : join(nested, pkg);
-  return existsSync(base) ? base : null;
+  // 0.81.x nested every sibling under pi-coding-agent/node_modules; 0.84.x
+  // hoists them next to pi-coding-agent at the top level. Accept either.
+  const candidates = pkg === "pi-coding-agent"
+    ? [join(embedded, pkg)]
+    : [join(nested, pkg), join(embedded, pkg)];
+  return candidates.find((dir) => existsSync(dir)) || null;
 }
 
 export async function resolve(specifier, context, nextResolve) {

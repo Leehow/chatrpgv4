@@ -1,13 +1,12 @@
-"""Stdlib HTTP + SSE bridge between the React web UI and the runtime SDK.
+"""Legacy stdlib HTTP + SSE bridge (reference only).
+
+The product web/Electron turn channel is ``web/server-node/server.mjs``
+talking to ``pi-coc --mode rpc``. Do not extend this Python bridge's
+``send`` / setup-draft path.
 
 Run from the repository root:
 
     uv run --frozen python web/server/app.py [--workspace .] [--port 8765]
-
-The server is a thin transport: all game semantics live in the canonical
-runtime SDK and the keeper runner. It adds no rules, state, or narration
-behavior of its own. SSE wraps one SDK ``send`` per player turn; live
-``delta`` events are the keeper runner's own post-finalize token stream.
 """
 from __future__ import annotations
 
@@ -1956,6 +1955,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, receipt)
 
     def _handle_create_campaign(self, body: dict[str, Any]) -> None:
+        import time
+
         mode = str(body.get("mode") or "starter").strip() or "starter"
         if mode == "pdf":
             self._handle_create_campaign_from_pdf(body)
@@ -1965,14 +1966,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload: dict[str, Any] = {
             "scenario_id": str(body.get("scenario_id") or "").strip(),
-            "pregen_id": str(body.get("pregen_id") or "").strip(),
+            # pregen_id optional: without it the campaign ships scenario-ready
+            # but investigator-less (needs_investigator), like the pdf/library
+            # paths, so character creation runs through play (coc-character).
+            "pregen_id": str(body.get("pregen_id") or "").strip() or None,
         }
-        if not payload["scenario_id"] or not payload["pregen_id"]:
-            raise ValueError("scenario_id and pregen_id are required")
+        if not payload["scenario_id"]:
+            raise ValueError("scenario_id is required")
         for key in ("campaign_id", "title"):
             value = str(body.get(key) or "").strip()
             if value:
                 payload[key] = value
+        # quick_start's default id is fixed ("{scenario}-qs"), so a second run
+        # of the same starter would collide — degrade to a timestamped id
+        # (same convention as the node bridge) instead of erroring.
+        if not payload.get("campaign_id"):
+            default_id = f"{payload['scenario_id']}-qs"
+            if (_coc_root() / "campaigns" / default_id).is_dir():
+                payload["campaign_id"] = f"{default_id}-{time.strftime('%Y%m%dT%H%M%S')}"
         result = sdk.setup_workspace(
             _WORKSPACE,
             {"schema_version": 1, "kind": "campaign.quick_start", "payload": payload},

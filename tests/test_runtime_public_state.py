@@ -205,7 +205,11 @@ def test_public_state_projects_player_safe_combat_defense(tmp_path):
     spec.loader.exec_module(combat_mod)
     session = combat_mod.CombatSession("fight-1", "dock", 7, rng=random.Random(1))
     session.add_participant("cultist", "npc", 70, 50, 0, 9)
-    session.add_participant("inv-alice", "investigator", 60, 50, 0, 11)
+    session.add_participant(
+        "inv-alice", "investigator", 60, 50, 0, 11,
+        dodge_skill=40, damage_bonus="+1D4",
+        weapons=[{"weapon_id": "club_small"}],
+    )
     session.begin_round()
     session.revision = 4
     session.pending_attack = {
@@ -225,6 +229,15 @@ def test_public_state_projects_player_safe_combat_defense(tmp_path):
             {"action": "fight_back", "label": "Fight Back"},
         ],
         "attack_id": "attack-1", "audience": "player",
+        "combat_context": {
+            "attack_kind": "melee",
+            "dodge_skill": 40,
+            "fighting_skill": 50,
+            "counter_damage": "1D6+1D4",
+            "already_defended_this_round": False,
+            "incoming_bonus_dice": 0,
+            "incoming_penalty_dice": 0,
+        },
     }
     assert "declared_intent" not in json.dumps(choice)
 
@@ -248,6 +261,46 @@ def test_public_state_only_projects_defense_for_current_investigator(tmp_path):
     }
     session.save(campaign)
     assert _load().build_public_state(tmp_path, "camp-1")["pending_choice"] is None
+
+
+def test_public_state_projects_firearm_cover_tradeoff_and_outnumbered_bonus(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    path = Path("plugins/coc-keeper/scripts/coc_combat.py")
+    spec = importlib.util.spec_from_file_location("public_state_firearm_choice", path)
+    combat_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(combat_mod)
+    session = combat_mod.CombatSession("fight-firearm", "dock", 7, rng=random.Random(1))
+    session.add_participant("gunman", "npc", 70, 50, 0, 9)
+    session.add_participant(
+        "inv-alice", "investigator", 60, 50, 0, 11,
+        dodge_skill=40, damage_bonus="+1D4",
+    )
+    session.begin_round()
+    session.participants["inv-alice"]["_defended_this_round"] = True
+    session.revision = 5
+    session.pending_attack = {
+        "attack_command_id": "shot-2", "actor_id": "gunman",
+        "target_actor_id": "inv-alice", "declared_intent": "hidden",
+        "resolution_hint": "firearm_attack", "weapon_id": "revolver_38",
+        "allowed_defenses": ["dive_for_cover", "none"],
+    }
+    session.save(campaign)
+
+    choice = _load().build_public_state(tmp_path, "camp-1")["pending_choice"]
+
+    assert choice["options"] == [
+        {"action": "dive_for_cover", "label": "Dive for Cover"},
+        {"action": "none", "label": "Take No Defense"},
+    ]
+    assert choice["combat_context"] == {
+        "attack_kind": "firearm",
+        "dodge_skill": 40,
+        "fighting_skill": 50,
+        "counter_damage": "1D3+1D4",
+        "already_defended_this_round": True,
+        "incoming_bonus_dice": 1,
+        "incoming_penalty_dice": 0,
+    }
 
 
 def test_build_public_state_brain_reflects_runtime_json(tmp_path):

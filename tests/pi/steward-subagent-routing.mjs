@@ -38,7 +38,7 @@ for (const handler of handlers.get("session_start") || []) {
   await handler({ reason: "probe" }, ctx);
 }
 assert.deepEqual(activeTools.at(-1), [
-  "coc_capabilities", "coc_discover", "coc_invoke", "coc_progressive_ocr",
+  "read", "coc_capabilities", "coc_discover", "coc_invoke", "coc_progressive_ocr",
   "coc_map_supply", "subagent", "subagent_wait",
 ]);
 assert.match(

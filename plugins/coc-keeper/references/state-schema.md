@@ -92,7 +92,10 @@ Campaigns store temporary and scenario-specific state:
 │   │   └── delivery-receipts.jsonl # exact Keeper-output transport acknowledgements
 │   └── investigator-state/         # per-investigator campaign-local HP/SAN/conditions
 │                                   # + optional "inventory": runtime item truth —
-│                                   #   entries[] (kind gear|weapon) gained in play,
+│                                   #   entries[] (kind gear|weapon) gained in play;
+│                                   #   gear entries may carry consumable: true and
+│                                   #   quantity: N (state.item_use spends charges,
+│                                   #   the entry leaves the inventory at zero),
 │                                   #   lost_weapon_ids[] for sheet weapons lost
 ├── scenario/                       # compiled story-graph, clue-graph, npc-agendas,
 │                                   # threat-fronts, pacing-map, improvisation-boundaries
@@ -199,8 +202,11 @@ set is (character-sheet weapons minus `inventory.lost_weapon_ids`) merged
 with `kind: "weapon"` inventory entries; combat projections read this merged
 set, so a disarmed or granted weapon is a legal combat selection. When a
 combat concludes, recorded disarm transfers are committed to both sides'
-runtime truth (idempotent replay). Permanent library write-back happens only
-at development settlement (see `inventory-history.jsonl` above).
+runtime truth (idempotent replay). Consumable gear entries carry
+`consumable: true` plus `quantity: N`; `state.item_use` decrements the count
+and removes the entry at zero, so a spent bandage is really gone. Permanent
+library write-back happens only at development settlement (see
+`inventory-history.jsonl` above).
 
 Social disclosure uses this exact order: NPC availability, fact knowledge,
 fact revealability, active reaction, willingness (trust or authored leverage),

@@ -361,6 +361,21 @@ function writeResult(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
+/** Pi thinking levels, mirroring the pi CLI --thinking enum. Default "off"
+ *  keeps the pre-knob behavior; per-model support is resolved by Pi itself
+ *  (e.g. grok-4.5 has no true off and Pi clamps it). */
+const THINKING_LEVELS = new Set([
+  "off", "minimal", "low", "medium", "high", "xhigh", "max",
+]);
+
+function requestedThinkingLevel() {
+  const level = process.env.COC_KEEPER_MODEL_THINKING || "off";
+  if (!THINKING_LEVELS.has(level)) {
+    throw new Error(`unsupported thinking level: ${level}`);
+  }
+  return level;
+}
+
 export async function resolveRequestedModel({ agentDir, provider, modelId }) {
   const modelRuntime = await ModelRuntime.create({
     authPath: path.join(agentDir, "auth.json"),
@@ -549,7 +564,31 @@ export function keeperSystemPrompt(request) {
   ].join("\n");
 }
 
-function buildPromptText(request, { warmContinue = false } = {}) {
+function structuredPlayerIntentSection(request) {
+  const intent = request && request.player_intent;
+  if (!intent || typeof intent !== "object" || Array.isArray(intent)) return [];
+  const actionAtoms = Array.isArray(intent.action_atoms) ? intent.action_atoms : [];
+  const combatDefense = actionAtoms.find((atom) => (
+    atom && typeof atom === "object" && atom.kind === "combat_defense"
+  ));
+  const lines = [
+    "## Host-confirmed structured player intent",
+    "This JSON is validated semantic evidence from the Pi-Coc client. Preserve it exactly;",
+    "do not replace its action with a prose guess or a generic check.",
+    JSON.stringify(intent),
+  ];
+  if (combatDefense) {
+    lines.push(
+      "The player selected an exact pending combat defense. Read combat.context, then",
+      "resolve that pending attack through combat.resolve with defense_kind equal to the",
+      "action atom's exact action. Do not substitute rules.roll, rules.damage, or a new attack.",
+    );
+  }
+  lines.push("");
+  return lines;
+}
+
+export function buildPromptText(request, { warmContinue = false } = {}) {
   const sections = [];
   if (warmContinue) {
     sections.push(
@@ -561,6 +600,7 @@ function buildPromptText(request, { warmContinue = false } = {}) {
       "## Player input (this turn)",
       String(request.player_input ?? ""),
       "",
+      ...structuredPlayerIntentSection(request),
       "Continue the table now. Final assistant message = turn.finalize.rendered_text only.",
       "Drafting order: enact THIS player input first (action uptake), then consequences.",
     );
@@ -588,6 +628,7 @@ function buildPromptText(request, { warmContinue = false } = {}) {
     "## Player input (this turn)",
     String(request.player_input ?? ""),
     "",
+    ...structuredPlayerIntentSection(request),
     "Run the keeper turn now. Remember: final message = pure player-facing narration.",
     "Ordinary reply drafting order: first enact THIS player input in fiction (action uptake),",
     "then the settled consequences, dice, and reveals. Do not re-enact fabricated prior beats.",
@@ -663,8 +704,27 @@ function attachStreamBridge(session, usageState) {
           if (Number.isInteger(usage.output)) {
             usageState.output = (usageState.output || 0) + usage.output;
           }
+          // Live cumulative token usage so hosts can show honest counters
+          // while a long tool-chain turn is still running.
+          streamLine({
+            $stream: "usage",
+            input: usageState.input,
+            output: usageState.output,
+          });
         }
       }
+      return;
+    }
+    if (
+      event.type === "message_update" &&
+      event.assistantMessageEvent &&
+      event.assistantMessageEvent.type === "thinking_delta" &&
+      typeof event.assistantMessageEvent.delta === "string" &&
+      event.assistantMessageEvent.delta
+    ) {
+      // Observer feed only: hosts must label it as keeper-side notes (it can
+      // discuss hidden module material), never as table narration.
+      streamLine({ $stream: "thinking", text: event.assistantMessageEvent.delta });
       return;
     }
     if (event.type === "tool_execution_start") {
@@ -705,7 +765,50 @@ function attachStreamBridge(session, usageState) {
   });
 }
 
-async function createKeeperSession(request) {
+export const KEEPER_SKILL_READ_TOOL = "read";
+export const KEEPER_BLOCKED_BUILTIN_TOOLS = Object.freeze(["bash", "edit", "write"]);
+
+/**
+ * Pi only injects <available_skills> when the builtin `read` tool is active.
+ * Keep bash/edit/write off so campaign writes stay on the canonical toolbox.
+ */
+export function enableKeeperSkillRead(session) {
+  if (
+    typeof session?.getActiveToolNames !== "function" ||
+    typeof session?.setActiveToolsByName !== "function"
+  ) {
+    throw new Error("keeper session cannot change active tools");
+  }
+  const active = session.getActiveToolNames();
+  if (!active.includes(KEEPER_SKILL_READ_TOOL)) {
+    session.setActiveToolsByName([...active, KEEPER_SKILL_READ_TOOL]);
+  }
+  const next = session.getActiveToolNames();
+  if (!next.includes(KEEPER_SKILL_READ_TOOL)) {
+    throw new Error("keeper session failed to activate builtin read for skills");
+  }
+  const blocked = KEEPER_BLOCKED_BUILTIN_TOOLS.filter((name) => next.includes(name));
+  if (blocked.length) {
+    throw new Error(`keeper session must not activate ${blocked.join(", ")}`);
+  }
+  return next;
+}
+
+/** Select the Pi executable used only by the PDF producer child. The native
+ * inspector still runs first inside coc-pdf-skill-adapter. A text-only main
+ * model gets a thin guard that delegates ordinary/opening text invocations
+ * and rejects only an actual PDF-skill visual fallback. */
+export function defaultPdfChildCommand(model, baseDir = __dirname) {
+  const supportsImages = Array.isArray(model?.input) && model.input.includes("image");
+  return path.resolve(
+    baseDir,
+    supportsImages
+      ? "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+      : "pi-visual-model-guard.mjs",
+  );
+}
+
+export async function createKeeperSession(request, sessionOverrides = {}) {
   const cwd = path.resolve(String(request.workspace));
   const agentDir = getAgentDir();
   const skillDirs = request.skills_dirs;
@@ -720,11 +823,18 @@ async function createKeeperSession(request) {
     path.dirname(path.resolve(request.toolbox_path)),
     "../pi/extensions/index.ts",
   );
+  const provider = process.env.COC_KEEPER_MODEL_PROVIDER || "coding-relay";
+  const modelId = process.env.COC_KEEPER_MODEL_ID || "gpt-5.6-luna";
+  const resolved = sessionOverrides.model
+    ? {
+        model: sessionOverrides.model,
+        modelRuntime: sessionOverrides.modelRuntime,
+      }
+    : await resolveRequestedModel({
+        agentDir, provider, modelId,
+      });
   if (!process.env.COC_PI_COMMAND) {
-    process.env.COC_PI_COMMAND = path.resolve(
-      __dirname,
-      "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
-    );
+    process.env.COC_PI_COMMAND = defaultPdfChildCommand(resolved.model);
   }
 
   // Capture bootstrap request for system prompt; warm turns keep this shell.
@@ -758,28 +868,31 @@ async function createKeeperSession(request) {
   });
   await loader.reload();
 
-  const provider = process.env.COC_KEEPER_MODEL_PROVIDER || "coding-relay";
-  const modelId = process.env.COC_KEEPER_MODEL_ID || "gpt-5.6-luna";
-  const { model, modelRuntime } = await resolveRequestedModel({
-    agentDir, provider, modelId,
-  });
-
-  const { session } = await createAgentSession({
+  const sessionOptions = {
     cwd,
     agentDir,
     noTools: "builtin",
-    model,
-    modelRuntime,
-    thinkingLevel: "off",
+    model: resolved.model,
+    thinkingLevel: requestedThinkingLevel(),
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(cwd),
-  });
+  };
+  if (resolved.modelRuntime) {
+    sessionOptions.modelRuntime = resolved.modelRuntime;
+  }
+
+  const { session } = await createAgentSession(sessionOptions);
   // The SDK entry never binds extension lifecycle events on its own: the
   // COC pi extension arms its session epoch only on "session_start" (fired
   // by bindExtensions). Without it every host auto-dispatch (opening source
   // review, raw-pdf bind, steward refill) fails closed as "session_closed".
   // Mirror the print-mode host so the headless keeper gets the same lifecycle.
-  await session.bindExtensions({ mode: "print" });
+  // session_start also replaces the active tool set with kpActiveTools, so
+  // re-enable builtin read after that overwrite.
+  if (sessionOverrides.bindExtensions !== false) {
+    await session.bindExtensions({ mode: "print" });
+  }
+  enableKeeperSkillRead(session);
   return session;
 }
 

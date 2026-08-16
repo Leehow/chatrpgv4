@@ -572,9 +572,10 @@ class _WarmWorker:
 class _KeeperWarmServerPool:
     """Keep one ``run_keeper_turn.mjs --server`` process warm per runtime session.
 
-    Keyed by runtime session + campaign + model so model switches start a fresh
-    agent (system prompt / auth bind at process start). Streaming progress still
-    flows on stderr; results are one JSONL response per request on stdout.
+    Keyed by runtime session + campaign + model + thinking level so either
+    switch starts a fresh agent (system prompt / auth bind at process start).
+    Streaming progress still flows on stderr; results are one JSONL response
+    per request on stdout.
     """
 
     def __init__(self) -> None:
@@ -593,6 +594,7 @@ class _KeeperWarmServerPool:
         workspace: str,
         provider: str,
         model_id: str,
+        thinking: str = "",
         runner_hash: str = "",
     ) -> str:
         return "|".join(
@@ -602,6 +604,7 @@ class _KeeperWarmServerPool:
                 str(Path(workspace).resolve()),
                 provider.strip(),
                 model_id.strip(),
+                thinking.strip(),
                 runner_hash.strip(),
             ]
         )
@@ -834,6 +837,7 @@ def keeper_send_turn(
 
         provider = str(os.environ.get("COC_KEEPER_MODEL_PROVIDER") or "coding-relay")
         model_id = str(os.environ.get("COC_KEEPER_MODEL_ID") or "gpt-5.6-luna")
+        thinking = str(os.environ.get("COC_KEEPER_MODEL_THINKING") or "")
         runner_hash = hashlib.sha256(runner.read_bytes()).hexdigest()[:12]
         key = _WARM_POOL.make_key(
             runtime_session_id=runtime_session_id.strip(),
@@ -841,6 +845,7 @@ def keeper_send_turn(
             workspace=prepared["workspace"],
             provider=provider,
             model_id=model_id,
+            thinking=thinking,
             runner_hash=runner_hash,
         )
         try:

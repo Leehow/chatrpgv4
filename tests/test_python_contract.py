@@ -16,11 +16,16 @@ ACTIVE_COMMAND_SUFFIXES = {".md", ".py", ".sh", ".js", ".mjs"}
 EXCLUDED_COMMAND_PARTS = {
     ".coc",
     ".git",
+    ".pi",
     ".pytest_cache",
     ".superpowers",
     ".tmp",
     ".venv",
     "active-plans",
+    # Desktop dist artifacts (bundled CPython stdlib, payload copies) are
+    # generated trees, same category as vendored node_modules.
+    "build",
+    "dist",
     "node_modules",
     "superpowers",
     "tests",

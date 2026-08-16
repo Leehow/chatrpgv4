@@ -101,7 +101,7 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
     assert result == {
         "ok": True,
         "activeTools": [
-            "coc_capabilities", "coc_discover", "coc_invoke",
+            "read", "coc_capabilities", "coc_discover", "coc_invoke",
             "coc_progressive_ocr", "coc_map_supply", "subagent", "subagent_wait",
         ],
     }
@@ -381,6 +381,7 @@ def _pi_coc_test_home(
             'for arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n'
             'printf "%s" "${PI_COC_CAMPAIGN_ID-}" > "$PI_COC_TEST_CAMPAIGN"\n'
             'printf "%s" "$PATH" > "$PI_COC_TEST_PATH"\n'
+            'if [ -n "${PI_COC_TEST_CWD-}" ]; then pwd > "$PI_COC_TEST_CWD"; fi\n'
             'if [ -n "${PI_COC_TEST_INSPECTOR-}" ]; then printf "%s" "${COC_PI_PDF_INSPECTOR_COMMAND-}" > "$PI_COC_TEST_INSPECTOR"; fi\n'
             'if [ -n "${PI_COC_TEST_PDF_MODEL-}" ]; then printf "%s" "${COC_PI_PDF_MODEL-}" > "$PI_COC_TEST_PDF_MODEL"; fi\n'
             'if [ -n "${PI_COC_TEST_OPENING_MODEL-}" ]; then printf "%s" "${COC_PI_OPENING_MODEL-}" > "$PI_COC_TEST_OPENING_MODEL"; fi\n'
@@ -862,6 +863,10 @@ def test_pi_coc_welcome_guide_copy():
     assert result["fullHasNew"] is True
     assert result["loadingFreshText"] is True
     assert result["loadingResumeText"] is True
+    assert result["loadingSetupText"] is True
+    assert result["setupOpenUsesContract"] is True
+    assert result["setupIntentFromEnv"] is True
+    assert result["continueIntentDefault"] is True
     assert result["loadingFirst"] is True
     assert result["welcomeAfterLoading"] is True
     assert result["resumeLoadingFirst"] is True
@@ -880,6 +885,10 @@ def test_pi_coc_welcome_guide_copy():
     assert result["resumedHiddenResumeInstruction"] is True
     assert result["autoOpenFreshStartup"] is True
     assert result["noAutoOpenResumeHistory"] is True
+    assert result["attachedUiHelper"] is True
+    assert result["attachedUiOff"] is True
+    assert result["rpcBareNoAutoOpen"] is True
+    assert result["rpcAttachedAutoOpen"] is True
 
 
 def test_pi_coc_setup_inspect_lists_campaigns(tmp_path: Path):
@@ -940,6 +949,94 @@ def test_pi_coc_launcher_exports_quiet_offline_env(tmp_path: Path):
     assert completed.returncode == 0, completed.stderr
     dumped = envdump.read_text(encoding="utf-8")
     assert "PI_OFFLINE=1" in dumped
+
+
+def test_pi_coc_launcher_respects_coc_workspace_and_rpc_mode(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    workspace = tmp_path / "play-workspace"
+    workspace.mkdir()
+    cwd_path = tmp_path / "pi-cwd.txt"
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--mode", "rpc", "--campaign", "haunting-1"],
+        extra_env={
+            "COC_WORKSPACE": str(workspace),
+            "PI_COC_TEST_CWD": str(cwd_path),
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    args = args_path.read_text(encoding="utf-8").splitlines()
+    assert "--mode" in args
+    assert args[args.index("--mode") + 1] == "rpc"
+    assert "--campaign" not in args
+    assert cwd_path.read_text(encoding="utf-8").strip() == str(workspace.resolve())
+    assert (tmp_path / "campaign-id.txt").read_text(encoding="utf-8") == "haunting-1"
+
+
+def test_pi_coc_attached_ui_bootstraps_agent_home(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    donor, fake_bin = _pi_coc_test_home(
+        tmp_path / "donor", settings=settings, models=models,
+    )
+    bare = tmp_path / "desktop-pi-agent"
+    bare.mkdir()
+    (bare / "models.json").write_text(
+        json.dumps({
+            "providers": {
+                "xai": {"models": [{"id": "grok-4.6", "name": "Grok 4.6"}]},
+            },
+        }),
+        encoding="utf-8",
+    )
+    args_path = tmp_path / "pi-args.txt"
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{donor / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "HOME": str(tmp_path / "empty-home"),
+        "PI_COC_AGENT_DIR": str(bare),
+        "COC_PI_ATTACHED_UI": "1",
+        "PI_COC_TEST_ARGS": str(args_path),
+        "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
+        "PI_COC_TEST_PATH": str(tmp_path / "child-path.txt"),
+    }
+    completed = subprocess.run(
+        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new"],
+        cwd=ROOT, env=env, check=False, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    written = json.loads((bare / "settings.json").read_text(encoding="utf-8"))
+    assert written["packages"] == [str(ROOT)]
+    assert written["quietStartup"] is True
+    assert written["defaultProvider"] == "xai"
+    assert written["defaultModel"] == "grok-4.6"
+    assert (bare / "bin" / "fd").is_file()
+    assert (bare / "bin" / "rg").is_file()
+
+
+def test_pi_coc_tui_still_requires_settings_without_attached_ui(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    _agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path / "donor", settings=settings, models=models,
+    )
+    bare = tmp_path / "desktop-pi-agent"
+    bare.mkdir()
+    completed = subprocess.run(
+        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new"],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PI_COC_AGENT_DIR": str(bare),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 1
+    assert "missing COC agent home settings" in completed.stderr
+    assert not (bare / "settings.json").exists()
 
 
 def test_pi_coc_user_can_re_enable_update_checks(tmp_path: Path):

@@ -1,0 +1,4526 @@
+{
+  "completeness": {
+    "claim_scope": "report_source_evidence_only",
+    "classification": "INCOMPLETE",
+    "dialogue_role_counts": {
+      "keeper": 9,
+      "player": 9
+    },
+    "dimensions": {
+      "character_and_final_state": {
+        "findings": [
+          "initial card and final dynamic state are present"
+        ],
+        "status": "PASS"
+      },
+      "dice": {
+        "findings": [
+          "structured roll evidence is missing or invalid",
+          "public roll rows bound to no finalization and carrying no abandonment disposition: toolbox-shreds-e2e-0806-000001 (source line 1)"
+        ],
+        "status": "FAIL"
+      },
+      "ending_and_development": {
+        "findings": [
+          "structured ending or development settlement is missing"
+        ],
+        "status": "FAIL"
+      },
+      "exact_transcript": {
+        "findings": [
+          "final exact transcript source is missing"
+        ],
+        "status": "FAIL"
+      },
+      "initial_final_snapshot_separation": {
+        "findings": [
+          "initial skill snapshot is creation-frozen, never the live final map"
+        ],
+        "status": "PASS"
+      },
+      "player_safe_projection": {
+        "findings": [
+          "explicit per-source allowlists applied"
+        ],
+        "status": "PASS"
+      },
+      "progression": {
+        "findings": [
+          "world progression sources or visited path are missing"
+        ],
+        "status": "FAIL"
+      },
+      "settlement_session_uniqueness": {
+        "findings": [
+          "settlement boundaries are unique per session and investigator"
+        ],
+        "status": "PASS"
+      },
+      "source_identity": {
+        "findings": [
+          "run metadata and campaign directory resolved"
+        ],
+        "status": "PASS"
+      }
+    },
+    "final_transcript_present": false,
+    "not_claimed": [
+      "prose_quality",
+      "director_use",
+      "whole_product_kp_quality",
+      "play_conduct_quality_judgment"
+    ],
+    "reasons": [
+      "final exact transcript source is missing",
+      "structured roll evidence is missing or invalid",
+      "public roll rows bound to no finalization and carrying no abandonment disposition: toolbox-shreds-e2e-0806-000001 (source line 1)",
+      "world progression sources or visited path are missing",
+      "structured ending or development settlement is missing",
+      "partial transcript exported by explicit request",
+      "1 public roll rows are bound to no finalization and carry no abandonment disposition: toolbox-shreds-e2e-0806-000001 (source line 1)"
+    ]
+  },
+  "development_settlements": [],
+  "ending": null,
+  "exceptional_effects": [],
+  "first_impressions": [],
+  "investigators": [
+    {
+      "character": {
+        "age": 28,
+        "characteristics": {
+          "APP": 80,
+          "CON": 50,
+          "DEX": 70,
+          "EDU": 60,
+          "INT": 50,
+          "POW": 60,
+          "SIZ": 40,
+          "STR": 50
+        },
+        "creation": {
+          "era": "early_modern",
+          "era_adaptive": true,
+          "input_mode": "kp_guided_era_adaptive",
+          "kp_guided": true,
+          "method": "quick_fire_array",
+          "occupation": {
+            "era_adaptive": true,
+            "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+            "name": "演员",
+            "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+            "skill_point_formula": "EDU×2 + APP×2"
+          },
+          "skill_budget": {
+            "occupation_points": {
+              "allocations": {
+                "Charm": 40,
+                "Credit Rating": 40,
+                "Disguise": 40,
+                "Fast Talk": 20,
+                "History": 40,
+                "Language (Own)": 15,
+                "Listen": 30,
+                "Persuade": 30,
+                "Psychology": 25
+              },
+              "budget": 280,
+              "spent": 280
+            },
+            "personal_interest_points": {
+              "allocations": {
+                "Climb": 10,
+                "Intimidate": 20,
+                "Sleight of Hand": 15,
+                "Spot Hidden": 25,
+                "Stealth": 30
+              },
+              "budget": 100,
+              "spent": 100
+            }
+          }
+        },
+        "derived": {
+          "Build": 0,
+          "DB": "none",
+          "HP": 9,
+          "Luck": 30,
+          "MOV": 9,
+          "MP": 12,
+          "SAN": 60
+        },
+        "era": "early_modern",
+        "era_adaptive": true,
+        "id": "simon-page",
+        "initial_skill_rows": [
+          {
+            "key": "Charm",
+            "label": "魅力",
+            "value": 55
+          },
+          {
+            "key": "Credit Rating",
+            "label": "信誉/社会地位",
+            "value": 40
+          },
+          {
+            "key": "Disguise",
+            "label": "易容/扮相",
+            "value": 45
+          },
+          {
+            "key": "Dodge",
+            "label": "闪避",
+            "value": 35
+          },
+          {
+            "key": "History",
+            "label": "历史掌故",
+            "value": 45
+          },
+          {
+            "key": "Language (Own)",
+            "label": "母语（英语）",
+            "value": 75
+          },
+          {
+            "key": "Listen",
+            "label": "聆听",
+            "value": 50
+          },
+          {
+            "key": "Persuade",
+            "label": "说服",
+            "value": 40
+          },
+          {
+            "key": "Psychology",
+            "label": "察言观色",
+            "value": 35
+          },
+          {
+            "key": "Fast Talk",
+            "label": "花言巧语",
+            "value": 25
+          },
+          {
+            "key": "Spot Hidden",
+            "label": "侦察/眼力",
+            "value": 50
+          },
+          {
+            "key": "Stealth",
+            "label": "潜行",
+            "value": 50
+          },
+          {
+            "key": "Climb",
+            "label": "攀爬",
+            "value": 30
+          },
+          {
+            "key": "Intimidate",
+            "label": "恐吓",
+            "value": 35
+          },
+          {
+            "key": "Sleight of Hand",
+            "label": "巧手",
+            "value": 25
+          }
+        ],
+        "initial_skills": {
+          "Charm": 55,
+          "Climb": 30,
+          "Credit Rating": 40,
+          "Disguise": 45,
+          "Dodge": 35,
+          "Fast Talk": 25,
+          "History": 45,
+          "Intimidate": 35,
+          "Language (Own)": 75,
+          "Listen": 50,
+          "Persuade": 40,
+          "Psychology": 35,
+          "Sleight of Hand": 25,
+          "Spot Hidden": 50,
+          "Stealth": 50
+        },
+        "kp_guided": true,
+        "name": "Simon Page",
+        "nationality": null,
+        "occupation": {
+          "era_adaptive": true,
+          "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+          "name": "演员",
+          "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+          "skill_point_formula": "EDU×2 + APP×2"
+        },
+        "player_facing_sheet_zh": {
+          "display_name": "西蒙·佩奇",
+          "skills": [
+            {
+              "key": "Charm",
+              "label": "魅力",
+              "value": 55
+            },
+            {
+              "key": "Credit Rating",
+              "label": "信誉/社会地位",
+              "value": 40
+            },
+            {
+              "key": "Disguise",
+              "label": "易容/扮相",
+              "value": 45
+            },
+            {
+              "key": "Dodge",
+              "label": "闪避",
+              "value": 35
+            },
+            {
+              "key": "History",
+              "label": "历史掌故",
+              "value": 45
+            },
+            {
+              "key": "Language (Own)",
+              "label": "母语（英语）",
+              "value": 75
+            },
+            {
+              "key": "Listen",
+              "label": "聆听",
+              "value": 50
+            },
+            {
+              "key": "Persuade",
+              "label": "说服",
+              "value": 40
+            },
+            {
+              "key": "Psychology",
+              "label": "察言观色",
+              "value": 35
+            },
+            {
+              "key": "Fast Talk",
+              "label": "花言巧语",
+              "value": 25
+            },
+            {
+              "key": "Spot Hidden",
+              "label": "侦察/眼力",
+              "value": 50
+            },
+            {
+              "key": "Stealth",
+              "label": "潜行",
+              "value": 50
+            },
+            {
+              "key": "Climb",
+              "label": "攀爬",
+              "value": 30
+            },
+            {
+              "key": "Intimidate",
+              "label": "恐吓",
+              "value": 35
+            },
+            {
+              "key": "Sleight of Hand",
+              "label": "巧手",
+              "value": 25
+            }
+          ]
+        },
+        "skill_provenance": {
+          "Charm": {
+            "era_adaptive": true,
+            "original_name": "Charm",
+            "reskinned_name": "魅力"
+          },
+          "Climb": {
+            "era_adaptive": true,
+            "original_name": "Climb",
+            "reskinned_name": "攀爬"
+          },
+          "Credit Rating": {
+            "era_adaptive": true,
+            "original_name": "Credit Rating",
+            "reskinned_name": "信誉/社会地位"
+          },
+          "Disguise": {
+            "era_adaptive": true,
+            "original_name": "Disguise",
+            "reskinned_name": "易容/扮相"
+          },
+          "Dodge": {
+            "era_adaptive": true,
+            "original_name": "Dodge",
+            "reskinned_name": "闪避"
+          },
+          "Fast Talk": {
+            "era_adaptive": true,
+            "original_name": "Fast Talk",
+            "reskinned_name": "花言巧语"
+          },
+          "History": {
+            "era_adaptive": true,
+            "original_name": "History",
+            "reskinned_name": "历史掌故"
+          },
+          "Intimidate": {
+            "era_adaptive": true,
+            "original_name": "Intimidate",
+            "reskinned_name": "恐吓"
+          },
+          "Language (Own)": {
+            "era_adaptive": true,
+            "original_name": "Language (Own)",
+            "reskinned_name": "母语（英语）"
+          },
+          "Listen": {
+            "era_adaptive": true,
+            "original_name": "Listen",
+            "reskinned_name": "聆听"
+          },
+          "Persuade": {
+            "era_adaptive": true,
+            "original_name": "Persuade",
+            "reskinned_name": "说服"
+          },
+          "Psychology": {
+            "era_adaptive": true,
+            "original_name": "Psychology",
+            "reskinned_name": "察言观色"
+          },
+          "Sleight of Hand": {
+            "era_adaptive": true,
+            "original_name": "Sleight of Hand",
+            "reskinned_name": "巧手"
+          },
+          "Spot Hidden": {
+            "era_adaptive": true,
+            "original_name": "Spot Hidden",
+            "reskinned_name": "侦察/眼力"
+          },
+          "Stealth": {
+            "era_adaptive": true,
+            "original_name": "Stealth",
+            "reskinned_name": "潜行"
+          }
+        },
+        "skills": {
+          "Charm": 55,
+          "Climb": 30,
+          "Credit Rating": 40,
+          "Disguise": 45,
+          "Dodge": 35,
+          "Fast Talk": 25,
+          "History": 45,
+          "Intimidate": 35,
+          "Language (Own)": 75,
+          "Listen": 50,
+          "Persuade": 40,
+          "Psychology": 35,
+          "Sleight of Hand": 25,
+          "Spot Hidden": 50,
+          "Stealth": 50
+        }
+      },
+      "creation": {
+        "era": "early_modern",
+        "era_adaptive": true,
+        "input_mode": "kp_guided_era_adaptive",
+        "kp_guided": true,
+        "method": "quick_fire_array",
+        "occupation": {
+          "era_adaptive": true,
+          "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+          "name": "演员",
+          "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+          "skill_point_formula": "EDU×2 + APP×2"
+        },
+        "skill_budget": {
+          "occupation_points": {
+            "allocations": {
+              "Charm": 40,
+              "Credit Rating": 40,
+              "Disguise": 40,
+              "Fast Talk": 20,
+              "History": 40,
+              "Language (Own)": 15,
+              "Listen": 30,
+              "Persuade": 30,
+              "Psychology": 25
+            },
+            "budget": 280,
+            "spent": 280
+          },
+          "personal_interest_points": {
+            "allocations": {
+              "Climb": 10,
+              "Intimidate": 20,
+              "Sleight of Hand": 15,
+              "Spot Hidden": 25,
+              "Stealth": 30
+            },
+            "budget": 100,
+            "spent": 100
+          }
+        }
+      },
+      "investigator_id": "simon-page",
+      "source_status": {
+        "character": "PRESENT",
+        "creation": "PRESENT",
+        "state": "PRESENT"
+      },
+      "state": {
+        "conditions": [],
+        "current_hp": 9,
+        "current_luck": 30,
+        "current_mp": 12,
+        "current_san": 60,
+        "investigator_id": "simon-page"
+      }
+    }
+  ],
+  "keeper_internal": {
+    "advisory_adoption_count": 0,
+    "audience": "keeper_development_audit_only",
+    "dispositioned_orphan_rolls": {
+      "count": 0,
+      "roll_ids": []
+    },
+    "not_player_facing": true,
+    "schema_version": 1,
+    "tool_call_count": 32,
+    "turn_capsules": [
+      {
+        "advisory_adoptions": [],
+        "schema_version": 1,
+        "tool_calls": [
+          {
+            "args": {},
+            "attempt": 1,
+            "cache": {
+              "key": "622f9286f1591059e82fd174e37864bf2a68250fc29ba7ad1c795693244fb4ef",
+              "ref": "save/working-set-cache/scene.context/622f9286f1591059e82fd174e37864bf2a68250fc29ba7ad1c795693244fb4ef.json",
+              "revision": "ws-v1-622f9286f1591059e82fd174",
+              "status": "miss"
+            },
+            "data": {
+              "projection_ref": "save/working-set-cache/scene.context/622f9286f1591059e82fd174e37864bf2a68250fc29ba7ad1c795693244fb4ef.json",
+              "result_digest": "sha256:614bbc6506a48d78b15d485f7338b0aa60cf3e91a7f956ccb74aa232791f2ad8",
+              "working_set": {
+                "mode": "full",
+                "read_domains": {
+                  "active_effects": 1,
+                  "clues": 1,
+                  "flags": 1,
+                  "mechanics": 1,
+                  "module_archive": 1,
+                  "npc": 1,
+                  "npc_presence": 1,
+                  "pacing": 1,
+                  "party": 1,
+                  "scene": 1,
+                  "time": 1,
+                  "world": 1
+                },
+                "revision": "ws-v1-622f9286f1591059e82fd174"
+              }
+            },
+            "hints": [
+              "optional pacing support: call director.advise on scene entry, after repeated approaches, or when momentum stalls; its suggestions are advisory and may be ignored",
+              "optional enrichment support: call storylets.suggest when a personal callback or atmospheric beat would help; absence of a fitting storylet never blocks play"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T11:41:11.051553+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [
+              "active scene 'None' not found in story graph — use scene.map / state.move_scene"
+            ],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "kind": "scenario.bind_pdf",
+              "payload": {
+                "campaign_id": "shreds-e2e-0806",
+                "scenario_id": "the-king-of-shreds-and-patches",
+                "source_bundle_path": "/Users/haoli/Documents/TRPG/克苏鲁的呼唤/[COC模组翻译]褴褛之王-The King of Shreds and Patches.pdf",
+                "title": "褴褛之王 · The King of Shreds and Patches"
+              }
+            },
+            "attempt": 1,
+            "data": null,
+            "error": "setup_failed",
+            "error_message": "scenario.bind_pdf requires a valid Codex pdf-skill source bundle: host source bundle must be a directory (not a file) containing manifest.json; got /Users/haoli/Documents/TRPG/克苏鲁的呼唤/[COC模组翻译]褴褛之王-The King of Shreds and Patches.pdf. Pass the bundle directory, not manifest.json or normalized.json.",
+            "hints": [
+              "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.invoke",
+            "ts": "2026-08-07T11:41:31.036347+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "cache": {
+              "key": "622f9286f1591059e82fd174e37864bf2a68250fc29ba7ad1c795693244fb4ef",
+              "ref": "save/working-set-cache/scene.context/622f9286f1591059e82fd174e37864bf2a68250fc29ba7ad1c795693244fb4ef.json",
+              "revision": "ws-v1-622f9286f1591059e82fd174",
+              "status": "hit"
+            },
+            "data": {
+              "projection_ref": "save/working-set-cache/scene.context/622f9286f1591059e82fd174e37864bf2a68250fc29ba7ad1c795693244fb4ef.json",
+              "result_digest": "sha256:614bbc6506a48d78b15d485f7338b0aa60cf3e91a7f956ccb74aa232791f2ad8",
+              "working_set": {
+                "mode": "full",
+                "read_domains": {
+                  "active_effects": 1,
+                  "clues": 1,
+                  "flags": 1,
+                  "mechanics": 1,
+                  "module_archive": 1,
+                  "npc": 1,
+                  "npc_presence": 1,
+                  "pacing": 1,
+                  "party": 1,
+                  "scene": 1,
+                  "time": 1,
+                  "world": 1
+                },
+                "revision": "ws-v1-622f9286f1591059e82fd174"
+              }
+            },
+            "hints": [
+              "optional pacing support: call director.advise on scene entry, after repeated approaches, or when momentum stalls; its suggestions are advisory and may be ignored",
+              "optional enrichment support: call storylets.suggest when a personal callback or atmospheric beat would help; absence of a fitting storylet never blocks play"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T11:41:31.039016+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [
+              "active scene 'None' not found in story graph — use scene.map / state.move_scene"
+            ],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "kind": "scenario.bind_pdf",
+              "payload": {
+                "campaign_id": "shreds-e2e-0806",
+                "scenario_id": "the-king-of-shreds-and-patches",
+                "source_bundle_path": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.tmp/coc-source-scope/shreds-e2e-0806/dbecb79eab1e3aba-first-bundle",
+                "title": "褴褛之王 · The King of Shreds and Patches"
+              }
+            },
+            "attempt": 1,
+            "data": {
+              "kind": "scenario.bind_pdf",
+              "opening_gate": {
+                "activation_allowed": false,
+                "campaign_id": "shreds-e2e-0806",
+                "character_setup_complete": false,
+                "hard_gate": true,
+                "instruction": "retain this fast locator only as spoiler-free character background; the canonical coc-opening-source-coordinator must visually review and rebind the complete current player-facing opening window before progressive preparation, projection, table-opening evidence, scene mutation, or narration",
+                "next_operation": null,
+                "opening_review_generation": 1,
+                "phase": "opening_source_review_required",
+                "required_source_owner": "coc-opening-source-coordinator",
+                "scenario_id": "the-king-of-shreds-and-patches",
+                "schema_version": 1,
+                "source_provenance": "selection_hint_only_not_provenance",
+                "status": "blocked"
+              },
+              "result": {
+                "campaign_id": "shreds-e2e-0806",
+                "character_creation_briefing": {
+                  "briefing_path": ".coc/campaigns/shreds-e2e-0806/assets/character-creation/the-king-of-shreds-and-patches-briefing.md",
+                  "generated_at": "2026-08-07T11:42:23.228222+00:00",
+                  "language": "zh-Hans",
+                  "public_setup_sha256": "9bbc73a524895fa4645d49c903cda10da7abf0c67517f47d7af33ceabf12e403"
+                },
+                "compile": null,
+                "full_parse": {
+                  "dedupe_state": "",
+                  "deduped": false,
+                  "enqueued": true,
+                  "job_id": "job-eb9a068461cf",
+                  "triggered": true,
+                  "worker_kick": {
+                    "already_running": false,
+                    "cmd": [
+                      "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                      "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_module_queue_worker.py",
+                      "--workspace",
+                      "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740",
+                      "run",
+                      "--parallel",
+                      "4",
+                      "--poll",
+                      "0.4",
+                      "--idle-exit",
+                      "45.0",
+                      "--write-pid",
+                      "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/module-assets/_worker/queue-worker.pid"
+                    ],
+                    "log_file": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/module-assets/_worker/queue-worker.log",
+                    "pid": 13162,
+                    "started": true
+                  }
+                },
+                "scenario_id": "the-king-of-shreds-and-patches",
+                "source": {
+                  "bundle_sha256": "12b654fb6c13e6bd87db906d5a89aec6ff7d0412ddca1fd7a3674cfc66fe6097",
+                  "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "page_count": 42,
+                  "producer": "codex-pdf-skill",
+                  "source_bundle_path": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.tmp/coc-source-scope/shreds-e2e-0806/dbecb79eab1e3aba-first-bundle",
+                  "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "title": "[COC模组翻译]褴褛之王-The King of Shreds and Patches.pdf"
+                },
+                "source_cache": {
+                  "asset_root_id": "king-of-shreds-and-patches-r2",
+                  "auto_recovered_from_drift": {
+                    "drifted_pdf_index": 1,
+                    "fresh_asset_root_id": "king-of-shreds-and-patches-r2",
+                    "requested_asset_root_id": "the-king-of-shreds-and-patches",
+                    "superseded_asset_root_id": "king-of-shreds-and-patches"
+                  },
+                  "bundle_sha256": "12b654fb6c13e6bd87db906d5a89aec6ff7d0412ddca1fd7a3674cfc66fe6097",
+                  "bundle_validation_and_cache_ms": 8,
+                  "cached_pdf_indices": [
+                    0,
+                    1,
+                    2
+                  ],
+                  "new_page_count": 3,
+                  "page_revisions": [
+                    {
+                      "pdf_index": 0,
+                      "text_sha256": "42d4a2971dee3d7e2c4cbb291e60cc2402005ae4ac729a0e06052a7126b8050d"
+                    },
+                    {
+                      "pdf_index": 1,
+                      "text_sha256": "7ecc57b885b935902f3081da8298dea8db982d334af2a91e0460749bc5b8aa48"
+                    },
+                    {
+                      "pdf_index": 2,
+                      "text_sha256": "ebd234dbcafb182fa35198fd661259422f747d677fffd33029084978d2876a79"
+                    }
+                  ],
+                  "referenced_cached_page_count": 0,
+                  "referenced_cached_pdf_indices": [],
+                  "requested_asset_root_id": "the-king-of-shreds-and-patches",
+                  "reused_existing_root": false,
+                  "reused_page_count": 0,
+                  "warnings": [
+                    "cached page 1 content drift in asset root 'king-of-shreds-and-patches'; this extraction was registered into fresh asset root 'king-of-shreds-and-patches-r2' instead. The superseded root was left untouched as prior extraction evidence, and by_file_sha256 now resolves to the recovered root."
+                  ]
+                }
+              },
+              "schema_version": 1,
+              "state_refs": [
+                ".coc/campaigns/shreds-e2e-0806/campaign.json",
+                ".coc/campaigns/shreds-e2e-0806/scenario/scenario.json",
+                ".coc/campaigns/shreds-e2e-0806/index/source-map.json",
+                ".coc/campaigns/shreds-e2e-0806/assets/character-creation/the-king-of-shreds-and-patches-briefing.md"
+              ],
+              "status": "PASS"
+            },
+            "hints": [
+              "opening source materialization is already running; retain its bootstrap receipt and wait for the host terminal lifecycle without polling, rebinding, resuming, or entering play",
+              "retain this current setup receipt and complete only the remaining canonical setup/opening steps without session.resume",
+              "use session.resume only to recover a campaign generation that predates the current host context, never merely because a campaign id now exists",
+              "consume the exact result.character_creation_briefing.briefing_path directly from this receipt, rooted at the current workspace; do not rerender it or rediscover it through campaign.json, find, ls, glob, or directory listing under .coc",
+              "call campaign.render_briefing only if a bind receipt lacks that path or player-safe public setup metadata later changes",
+              "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-c93356a128066a6855 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.invoke",
+            "ts": "2026-08-07T11:42:23.229669+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T11:42:23.233792+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "session.resume is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "session.resume",
+            "ts": "2026-08-07T12:03:13.921598+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "campaign_id": "shreds-e2e-0806",
+              "facts": {
+                "content_flags": {
+                  "source_refs": [
+                    {
+                      "pdf_index": 4,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    }
+                  ],
+                  "status": "source",
+                  "value": [
+                    "plague",
+                    "suicide",
+                    "corpse",
+                    "violence",
+                    "alcohol"
+                  ]
+                },
+                "contract_id": "coc.opening-fast-facts.v1",
+                "era": {
+                  "source_refs": [
+                    {
+                      "pdf_index": 2,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    },
+                    {
+                      "pdf_index": 4,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    }
+                  ],
+                  "status": "source",
+                  "value": "1603年1月，伊丽莎白一世晚期"
+                },
+                "investigator_constraints": {
+                  "inspected_source_refs": [
+                    {
+                      "pdf_index": 1,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    },
+                    {
+                      "pdf_index": 2,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    },
+                    {
+                      "pdf_index": 4,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    }
+                  ],
+                  "status": "unresolved"
+                },
+                "investigator_hook": {
+                  "source_refs": [
+                    {
+                      "pdf_index": 4,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    }
+                  ],
+                  "status": "source",
+                  "value": "演员西蒙·佩奇接约翰·考夫特1月4日来信，邀其与友人于石街叙旧"
+                },
+                "place": {
+                  "source_refs": [
+                    {
+                      "pdf_index": 2,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    },
+                    {
+                      "pdf_index": 4,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    }
+                  ],
+                  "status": "source",
+                  "value": "英格兰伦敦；开场赴萨瑟克区石街"
+                },
+                "player_safe_summary": {
+                  "source_refs": [
+                    {
+                      "pdf_index": 4,
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                    }
+                  ],
+                  "status": "source",
+                  "value": "1603年冬疫阴影下的伦敦，调查员应邀探访萨瑟克石街的剧作家友人，却发现其已身亡并留下可追查的手稿与日记"
+                },
+                "schema_version": 1
+              }
+            },
+            "attempt": 1,
+            "data": {
+              "kind": "campaign.adopt_source_facts",
+              "result": {
+                "already_established": false,
+                "campaign_id": "shreds-e2e-0806",
+                "character_creation_briefing_path": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/assets/character-creation/the-king-of-shreds-and-patches-briefing.md",
+                "character_creation_unblocked": true,
+                "era": "early_modern",
+                "era_source": "authored",
+                "facts": {
+                  "content_flags": {
+                    "source_refs": [
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 4,
+                        "review_state": "manual_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                      }
+                    ],
+                    "status": "source",
+                    "value": [
+                      "plague",
+                      "suicide",
+                      "corpse",
+                      "violence",
+                      "alcohol"
+                    ]
+                  },
+                  "contract_id": "coc.opening-fast-facts.v1",
+                  "era": {
+                    "source_refs": [
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 2,
+                        "review_state": "auto_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "ebd234dbcafb182fa35198fd661259422f747d677fffd33029084978d2876a79"
+                      },
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 4,
+                        "review_state": "manual_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                      }
+                    ],
+                    "status": "source",
+                    "value": "1603年1月，伊丽莎白一世晚期"
+                  },
+                  "investigator_constraints": {
+                    "inspected_source_refs": [
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 1,
+                        "review_state": "auto_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "7ecc57b885b935902f3081da8298dea8db982d334af2a91e0460749bc5b8aa48"
+                      },
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 2,
+                        "review_state": "auto_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "ebd234dbcafb182fa35198fd661259422f747d677fffd33029084978d2876a79"
+                      },
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 4,
+                        "review_state": "manual_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                      }
+                    ],
+                    "status": "unresolved"
+                  },
+                  "investigator_hook": {
+                    "source_refs": [
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 4,
+                        "review_state": "manual_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                      }
+                    ],
+                    "status": "source",
+                    "value": "演员西蒙·佩奇接约翰·考夫特1月4日来信，邀其与友人于石街叙旧"
+                  },
+                  "place": {
+                    "source_refs": [
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 2,
+                        "review_state": "auto_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "ebd234dbcafb182fa35198fd661259422f747d677fffd33029084978d2876a79"
+                      },
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 4,
+                        "review_state": "manual_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                      }
+                    ],
+                    "status": "source",
+                    "value": "英格兰伦敦；开场赴萨瑟克区石街"
+                  },
+                  "player_safe_summary": {
+                    "source_refs": [
+                      {
+                        "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                        "bundle_sha256s": [
+                          "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9"
+                        ],
+                        "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "parse_confidence": 0.95,
+                        "pdf_index": 4,
+                        "review_state": "manual_accepted",
+                        "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                        "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                      }
+                    ],
+                    "status": "source",
+                    "value": "1603年冬疫阴影下的伦敦，调查员应邀探访萨瑟克石街的剧作家友人，却发现其已身亡并留下可追查的手稿与日记"
+                  },
+                  "schema_version": 1
+                },
+                "unresolved_blocking_facts": []
+              },
+              "schema_version": 1,
+              "state_refs": [
+                ".coc/campaigns/shreds-e2e-0806/campaign.json",
+                "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/assets/character-creation/the-king-of-shreds-and-patches-briefing.md"
+              ],
+              "status": "PASS"
+            },
+            "hints": [
+              "after both era and place resolve, call setup.investigator_contract; do not treat this receipt as investigator creation or linkage",
+              "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-bcd2f17dc857f6cd86 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.adopt_source_facts",
+            "ts": "2026-08-07T12:05:51.478150+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:05:51.483642+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "campaign_id": "shreds-e2e-0806"
+            },
+            "attempt": 1,
+            "data": {
+              "projection_ref": null,
+              "result_digest": "sha256:831491eac5619e3a124ce256a2c3918eea764b17e862c75d54c9c06f4f5efb28",
+              "working_set": null
+            },
+            "hints": [
+              "use result.payload_schema to construct the final investigator.create payload; deterministic runtime validation remains authoritative",
+              "retain this campaign-bound contract for the current creation flow; do not rediscover or requery it before investigator.create"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.investigator_contract",
+            "ts": "2026-08-07T12:05:54.609196+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:05:54.619596+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "decision_id": "luck-simon-page-e2e-0806",
+              "expression": "3D6",
+              "purpose": "investigator_creation_luck",
+              "reason": "KP-guided era-adaptive investigator creation luck for Simon Page"
+            },
+            "attempt": 1,
+            "data": {
+              "count": 3,
+              "expression": "3D6",
+              "modifier": 0,
+              "purpose": "investigator_creation_luck",
+              "reason": "KP-guided era-adaptive investigator creation luck for Simon Page",
+              "roll_id": "toolbox-shreds-e2e-0806-000001",
+              "rolls": [
+                3,
+                2,
+                1
+              ],
+              "sides": 6,
+              "total": 6
+            },
+            "hints": [
+              "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-bcd2f17dc857f6cd86 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "rules.roll_dice",
+            "ts": "2026-08-07T12:06:00.722525+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:06:00.726421+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "kind": "investigator.create",
+              "payload": {
+                "campaign_id": "shreds-e2e-0806",
+                "creation": {
+                  "era": "early_modern",
+                  "era_adaptive": true,
+                  "input_mode": "kp_guided_era_adaptive",
+                  "kp_guided": true,
+                  "luck_roll_receipt": {
+                    "campaign_id": "shreds-e2e-0806",
+                    "decision_id": "luck-simon-page-e2e-0806",
+                    "roll_id": "toolbox-shreds-e2e-0806-000001"
+                  },
+                  "luck_roll_total": 6,
+                  "method": "quick_fire_array",
+                  "occupation": {
+                    "era_adaptive": true,
+                    "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+                    "name": "演员",
+                    "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+                    "skill_point_formula": "EDU×2 + APP×2"
+                  },
+                  "skill_budget": {
+                    "occupation_points": {
+                      "allocations": {
+                        "Art/Craft (Acting)": 65,
+                        "Charm": 30,
+                        "Credit Rating": 35,
+                        "Disguise": 35,
+                        "History": 35,
+                        "Language (Own)": 10,
+                        "Listen": 15,
+                        "Persuade": 20,
+                        "Psychology": 20,
+                        "Spot Hidden": 10,
+                        "Stealth": 5
+                      },
+                      "budget": 280,
+                      "spent": 280
+                    },
+                    "personal_interest_points": {
+                      "allocations": {
+                        "Art/Craft (Acting)": 0,
+                        "Charm": 10,
+                        "Climb": 10,
+                        "Disguise": 0,
+                        "Dodge": 0,
+                        "Fast Talk": 25,
+                        "History": 0,
+                        "Language (Own)": 0,
+                        "Listen": 10,
+                        "Navigate": 20,
+                        "Persuade": 10,
+                        "Psychology": 10,
+                        "Spot Hidden": 10,
+                        "Stealth": 15
+                      },
+                      "budget": 120,
+                      "spent": 120
+                    }
+                  }
+                },
+                "investigator_id": "simon-page",
+                "sheet": {
+                  "age": 28,
+                  "characteristics": {
+                    "APP": 80,
+                    "CON": 50,
+                    "DEX": 70,
+                    "EDU": 60,
+                    "INT": 60,
+                    "POW": 60,
+                    "SIZ": 40,
+                    "STR": 50
+                  },
+                  "derived": {
+                    "Build": 0,
+                    "DB": 0,
+                    "HP": 9,
+                    "Luck": 30,
+                    "MOV": 9,
+                    "MP": 12,
+                    "SAN": 60
+                  },
+                  "era": "early_modern",
+                  "era_adaptive": true,
+                  "id": "simon-page",
+                  "kp_guided": true,
+                  "name": "Simon Page",
+                  "occupation": {
+                    "era_adaptive": true,
+                    "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+                    "name": "演员",
+                    "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+                    "skill_point_formula": "EDU×2 + APP×2"
+                  },
+                  "player_facing_sheet_zh": {
+                    "display_name": "西蒙·佩奇",
+                    "skills": [
+                      {
+                        "key": "Art/Craft (Acting)",
+                        "label": "演艺/舞台表演",
+                        "value": 70
+                      },
+                      {
+                        "key": "Charm",
+                        "label": "魅力",
+                        "value": 55
+                      },
+                      {
+                        "key": "Credit Rating",
+                        "label": "信誉/社会地位",
+                        "value": 35
+                      },
+                      {
+                        "key": "Disguise",
+                        "label": "易容/扮相",
+                        "value": 40
+                      },
+                      {
+                        "key": "Dodge",
+                        "label": "闪避",
+                        "value": 35
+                      },
+                      {
+                        "key": "History",
+                        "label": "历史掌故",
+                        "value": 40
+                      },
+                      {
+                        "key": "Language (Own)",
+                        "label": "母语（英语）",
+                        "value": 70
+                      },
+                      {
+                        "key": "Listen",
+                        "label": "聆听",
+                        "value": 45
+                      },
+                      {
+                        "key": "Persuade",
+                        "label": "说服",
+                        "value": 40
+                      },
+                      {
+                        "key": "Psychology",
+                        "label": "察言观色",
+                        "value": 40
+                      },
+                      {
+                        "key": "Spot Hidden",
+                        "label": "侦察/眼力",
+                        "value": 45
+                      },
+                      {
+                        "key": "Stealth",
+                        "label": "潜行",
+                        "value": 40
+                      },
+                      {
+                        "key": "Climb",
+                        "label": "攀爬",
+                        "value": 30
+                      }
+                    ]
+                  },
+                  "skill_provenance": {
+                    "Art/Craft (Acting)": {
+                      "era_adaptive": true,
+                      "original_name": "Art/Craft (Acting)",
+                      "reskinned_name": "演艺/舞台表演"
+                    },
+                    "Charm": {
+                      "era_adaptive": true,
+                      "original_name": "Charm",
+                      "reskinned_name": "魅力"
+                    },
+                    "Climb": {
+                      "era_adaptive": true,
+                      "original_name": "Climb",
+                      "reskinned_name": "攀爬"
+                    },
+                    "Credit Rating": {
+                      "era_adaptive": true,
+                      "original_name": "Credit Rating",
+                      "reskinned_name": "信誉/社会地位"
+                    },
+                    "Disguise": {
+                      "era_adaptive": true,
+                      "original_name": "Disguise",
+                      "reskinned_name": "易容/扮相"
+                    },
+                    "Dodge": {
+                      "era_adaptive": true,
+                      "original_name": "Dodge",
+                      "reskinned_name": "闪避"
+                    },
+                    "History": {
+                      "era_adaptive": true,
+                      "original_name": "History",
+                      "reskinned_name": "历史掌故"
+                    },
+                    "Language (Own)": {
+                      "era_adaptive": true,
+                      "original_name": "Language (Own)",
+                      "reskinned_name": "母语（英语）"
+                    },
+                    "Listen": {
+                      "era_adaptive": true,
+                      "original_name": "Listen",
+                      "reskinned_name": "聆听"
+                    },
+                    "Persuade": {
+                      "era_adaptive": true,
+                      "original_name": "Persuade",
+                      "reskinned_name": "说服"
+                    },
+                    "Psychology": {
+                      "era_adaptive": true,
+                      "original_name": "Psychology",
+                      "reskinned_name": "察言观色"
+                    },
+                    "Spot Hidden": {
+                      "era_adaptive": true,
+                      "original_name": "Spot Hidden",
+                      "reskinned_name": "侦察/眼力"
+                    },
+                    "Stealth": {
+                      "era_adaptive": true,
+                      "original_name": "Stealth",
+                      "reskinned_name": "潜行"
+                    }
+                  },
+                  "skills": {
+                    "Art/Craft (Acting)": 70,
+                    "Charm": 55,
+                    "Climb": 30,
+                    "Credit Rating": 35,
+                    "Disguise": 40,
+                    "Dodge": 35,
+                    "History": 40,
+                    "Language (Own)": 70,
+                    "Listen": 45,
+                    "Persuade": 40,
+                    "Psychology": 40,
+                    "Spot Hidden": 45,
+                    "Stealth": 40
+                  }
+                }
+              }
+            },
+            "attempt": 1,
+            "data": null,
+            "error": "setup_failed",
+            "error_message": "invalid investigator sheet: skill_provenance.'Art/Craft (Acting)'.original_name must be a canonical catalog skill; skill_budget.occupation_points allocation uses unselected skill 'Art/Craft (Acting)'; skill_budget.occupation_points derived allocation total 215 must equal spent and budget 280/280; skill_budget.personal_interest_points allocation uses unselected skill 'Art/Craft (Acting)'; skill_budget.personal_interest_points allocation uses unselected skill 'Fast Talk'; skill_budget.personal_interest_points allocation uses unselected skill 'Navigate'; skill_budget.personal_interest_points derived allocation total 75 must equal spent and budget 120/120; quick_fire_array values must be [40, 50, 50, 50, 60, 60, 70, 80]; derived DB 0 does not match rules value 'none'",
+            "hints": [
+              "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.invoke",
+            "ts": "2026-08-07T12:06:30.915138+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:06:30.919821+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "kind": "investigator.create",
+              "payload": {
+                "campaign_id": "shreds-e2e-0806",
+                "creation": {
+                  "era": "early_modern",
+                  "era_adaptive": true,
+                  "input_mode": "kp_guided_era_adaptive",
+                  "kp_guided": true,
+                  "luck_roll_receipt": {
+                    "campaign_id": "shreds-e2e-0806",
+                    "decision_id": "luck-simon-page-e2e-0806",
+                    "roll_id": "toolbox-shreds-e2e-0806-000001"
+                  },
+                  "luck_roll_total": 6,
+                  "method": "quick_fire_array",
+                  "occupation": {
+                    "era_adaptive": true,
+                    "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+                    "name": "演员",
+                    "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+                    "skill_point_formula": "EDU×2 + APP×2"
+                  },
+                  "skill_budget": {
+                    "occupation_points": {
+                      "allocations": {
+                        "Art/Craft": 65,
+                        "Charm": 40,
+                        "Credit Rating": 35,
+                        "Disguise": 35,
+                        "History": 35,
+                        "Listen": 25,
+                        "Own Language": 10,
+                        "Persuade": 15,
+                        "Psychology": 20
+                      },
+                      "budget": 280,
+                      "spent": 280
+                    },
+                    "personal_interest_points": {
+                      "allocations": {
+                        "Climb": 10,
+                        "Fast Talk": 25,
+                        "Persuade": 15,
+                        "Spot Hidden": 25,
+                        "Stealth": 25
+                      },
+                      "budget": 100,
+                      "spent": 100
+                    }
+                  }
+                },
+                "investigator_id": "simon-page",
+                "sheet": {
+                  "age": 28,
+                  "characteristics": {
+                    "APP": 80,
+                    "CON": 50,
+                    "DEX": 70,
+                    "EDU": 60,
+                    "INT": 50,
+                    "POW": 60,
+                    "SIZ": 40,
+                    "STR": 50
+                  },
+                  "derived": {
+                    "Build": 0,
+                    "DB": "none",
+                    "HP": 9,
+                    "Luck": 30,
+                    "MOV": 9,
+                    "MP": 12,
+                    "SAN": 60
+                  },
+                  "era": "early_modern",
+                  "era_adaptive": true,
+                  "id": "simon-page",
+                  "kp_guided": true,
+                  "name": "Simon Page",
+                  "occupation": {
+                    "era_adaptive": true,
+                    "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+                    "name": "演员",
+                    "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+                    "skill_point_formula": "EDU×2 + APP×2"
+                  },
+                  "player_facing_sheet_zh": {
+                    "display_name": "西蒙·佩奇",
+                    "skills": [
+                      {
+                        "key": "Art/Craft",
+                        "label": "演艺/舞台表演",
+                        "value": 70
+                      },
+                      {
+                        "key": "Charm",
+                        "label": "魅力",
+                        "value": 55
+                      },
+                      {
+                        "key": "Credit Rating",
+                        "label": "信誉/社会地位",
+                        "value": 35
+                      },
+                      {
+                        "key": "Disguise",
+                        "label": "易容/扮相",
+                        "value": 40
+                      },
+                      {
+                        "key": "Dodge",
+                        "label": "闪避",
+                        "value": 35
+                      },
+                      {
+                        "key": "History",
+                        "label": "历史掌故",
+                        "value": 40
+                      },
+                      {
+                        "key": "Own Language",
+                        "label": "母语（英语）",
+                        "value": 70
+                      },
+                      {
+                        "key": "Listen",
+                        "label": "聆听",
+                        "value": 45
+                      },
+                      {
+                        "key": "Persuade",
+                        "label": "说服",
+                        "value": 40
+                      },
+                      {
+                        "key": "Psychology",
+                        "label": "察言观色",
+                        "value": 40
+                      },
+                      {
+                        "key": "Spot Hidden",
+                        "label": "侦察/眼力",
+                        "value": 50
+                      },
+                      {
+                        "key": "Stealth",
+                        "label": "潜行",
+                        "value": 45
+                      },
+                      {
+                        "key": "Climb",
+                        "label": "攀爬",
+                        "value": 30
+                      },
+                      {
+                        "key": "Fast Talk",
+                        "label": "花言巧语",
+                        "value": 40
+                      }
+                    ]
+                  },
+                  "skill_provenance": {
+                    "Art/Craft": {
+                      "era_adaptive": true,
+                      "original_name": "Art/Craft",
+                      "reskinned_name": "演艺/舞台表演"
+                    },
+                    "Charm": {
+                      "era_adaptive": true,
+                      "original_name": "Charm",
+                      "reskinned_name": "魅力"
+                    },
+                    "Climb": {
+                      "era_adaptive": true,
+                      "original_name": "Climb",
+                      "reskinned_name": "攀爬"
+                    },
+                    "Credit Rating": {
+                      "era_adaptive": true,
+                      "original_name": "Credit Rating",
+                      "reskinned_name": "信誉/社会地位"
+                    },
+                    "Disguise": {
+                      "era_adaptive": true,
+                      "original_name": "Disguise",
+                      "reskinned_name": "易容/扮相"
+                    },
+                    "Dodge": {
+                      "era_adaptive": true,
+                      "original_name": "Dodge",
+                      "reskinned_name": "闪避"
+                    },
+                    "Fast Talk": {
+                      "era_adaptive": true,
+                      "original_name": "Fast Talk",
+                      "reskinned_name": "花言巧语"
+                    },
+                    "History": {
+                      "era_adaptive": true,
+                      "original_name": "History",
+                      "reskinned_name": "历史掌故"
+                    },
+                    "Listen": {
+                      "era_adaptive": true,
+                      "original_name": "Listen",
+                      "reskinned_name": "聆听"
+                    },
+                    "Own Language": {
+                      "era_adaptive": true,
+                      "original_name": "Own Language",
+                      "reskinned_name": "母语（英语）"
+                    },
+                    "Persuade": {
+                      "era_adaptive": true,
+                      "original_name": "Persuade",
+                      "reskinned_name": "说服"
+                    },
+                    "Psychology": {
+                      "era_adaptive": true,
+                      "original_name": "Psychology",
+                      "reskinned_name": "察言观色"
+                    },
+                    "Spot Hidden": {
+                      "era_adaptive": true,
+                      "original_name": "Spot Hidden",
+                      "reskinned_name": "侦察/眼力"
+                    },
+                    "Stealth": {
+                      "era_adaptive": true,
+                      "original_name": "Stealth",
+                      "reskinned_name": "潜行"
+                    }
+                  },
+                  "skills": {
+                    "Art/Craft": 70,
+                    "Charm": 55,
+                    "Climb": 30,
+                    "Credit Rating": 35,
+                    "Disguise": 40,
+                    "Dodge": 35,
+                    "Fast Talk": 40,
+                    "History": 40,
+                    "Listen": 45,
+                    "Own Language": 70,
+                    "Persuade": 40,
+                    "Psychology": 40,
+                    "Spot Hidden": 50,
+                    "Stealth": 45
+                  }
+                }
+              }
+            },
+            "attempt": 1,
+            "data": null,
+            "error": "setup_failed",
+            "error_message": "invalid investigator sheet: skill_provenance.'Art/Craft'.original_name must be a canonical catalog skill; skill_provenance.'Own Language'.original_name must be a canonical catalog skill; skill_budget.occupation_points allocation uses unselected skill 'Art/Craft'; skill_budget.occupation_points allocation uses unselected skill 'Own Language'; skill_budget.occupation_points derived allocation total 205 must equal spent and budget 280/280; KP-guided era-adaptive skill 'Psychology' value 40 must equal catalog base plus allocation deltas (30); KP-guided era-adaptive skill 'Fast Talk' value 40 must equal catalog base plus allocation deltas (30)",
+            "hints": [
+              "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.invoke",
+            "ts": "2026-08-07T12:06:50.597635+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:06:50.601816+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "kind": "investigator.create",
+              "payload": {
+                "campaign_id": "shreds-e2e-0806",
+                "creation": {
+                  "era": "early_modern",
+                  "era_adaptive": true,
+                  "input_mode": "kp_guided_era_adaptive",
+                  "kp_guided": true,
+                  "luck_roll_receipt": {
+                    "campaign_id": "shreds-e2e-0806",
+                    "decision_id": "luck-simon-page-e2e-0806",
+                    "roll_id": "toolbox-shreds-e2e-0806-000001"
+                  },
+                  "luck_roll_total": 6,
+                  "method": "quick_fire_array",
+                  "occupation": {
+                    "era_adaptive": true,
+                    "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+                    "name": "演员",
+                    "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+                    "skill_point_formula": "EDU×2 + APP×2"
+                  },
+                  "skill_budget": {
+                    "occupation_points": {
+                      "allocations": {
+                        "Charm": 40,
+                        "Credit Rating": 40,
+                        "Disguise": 40,
+                        "Fast Talk": 20,
+                        "History": 40,
+                        "Language (Own)": 15,
+                        "Listen": 30,
+                        "Persuade": 30,
+                        "Psychology": 25
+                      },
+                      "budget": 280,
+                      "spent": 280
+                    },
+                    "personal_interest_points": {
+                      "allocations": {
+                        "Climb": 10,
+                        "Intimidate": 20,
+                        "Sleight of Hand": 15,
+                        "Spot Hidden": 25,
+                        "Stealth": 30
+                      },
+                      "budget": 100,
+                      "spent": 100
+                    }
+                  }
+                },
+                "investigator_id": "simon-page",
+                "sheet": {
+                  "age": 28,
+                  "characteristics": {
+                    "APP": 80,
+                    "CON": 50,
+                    "DEX": 70,
+                    "EDU": 60,
+                    "INT": 50,
+                    "POW": 60,
+                    "SIZ": 40,
+                    "STR": 50
+                  },
+                  "derived": {
+                    "Build": 0,
+                    "DB": "none",
+                    "HP": 9,
+                    "Luck": 30,
+                    "MOV": 9,
+                    "MP": 12,
+                    "SAN": 60
+                  },
+                  "era": "early_modern",
+                  "era_adaptive": true,
+                  "id": "simon-page",
+                  "kp_guided": true,
+                  "name": "Simon Page",
+                  "occupation": {
+                    "era_adaptive": true,
+                    "formula_reason": "舞台职业：教育支撑剧本文字与记诵，外貌支撑登台魅力与 patronage",
+                    "name": "演员",
+                    "reason": "开场钩子为演员西蒙·佩奇接友人来信；与模块 investigator_hook 对齐",
+                    "skill_point_formula": "EDU×2 + APP×2"
+                  },
+                  "player_facing_sheet_zh": {
+                    "display_name": "西蒙·佩奇",
+                    "skills": [
+                      {
+                        "key": "Charm",
+                        "label": "魅力",
+                        "value": 55
+                      },
+                      {
+                        "key": "Credit Rating",
+                        "label": "信誉/社会地位",
+                        "value": 40
+                      },
+                      {
+                        "key": "Disguise",
+                        "label": "易容/扮相",
+                        "value": 45
+                      },
+                      {
+                        "key": "Dodge",
+                        "label": "闪避",
+                        "value": 35
+                      },
+                      {
+                        "key": "History",
+                        "label": "历史掌故",
+                        "value": 45
+                      },
+                      {
+                        "key": "Language (Own)",
+                        "label": "母语（英语）",
+                        "value": 75
+                      },
+                      {
+                        "key": "Listen",
+                        "label": "聆听",
+                        "value": 50
+                      },
+                      {
+                        "key": "Persuade",
+                        "label": "说服",
+                        "value": 40
+                      },
+                      {
+                        "key": "Psychology",
+                        "label": "察言观色",
+                        "value": 35
+                      },
+                      {
+                        "key": "Fast Talk",
+                        "label": "花言巧语",
+                        "value": 25
+                      },
+                      {
+                        "key": "Spot Hidden",
+                        "label": "侦察/眼力",
+                        "value": 50
+                      },
+                      {
+                        "key": "Stealth",
+                        "label": "潜行",
+                        "value": 50
+                      },
+                      {
+                        "key": "Climb",
+                        "label": "攀爬",
+                        "value": 30
+                      },
+                      {
+                        "key": "Intimidate",
+                        "label": "恐吓",
+                        "value": 35
+                      },
+                      {
+                        "key": "Sleight of Hand",
+                        "label": "巧手",
+                        "value": 25
+                      }
+                    ]
+                  },
+                  "skill_provenance": {
+                    "Charm": {
+                      "era_adaptive": true,
+                      "original_name": "Charm",
+                      "reskinned_name": "魅力"
+                    },
+                    "Climb": {
+                      "era_adaptive": true,
+                      "original_name": "Climb",
+                      "reskinned_name": "攀爬"
+                    },
+                    "Credit Rating": {
+                      "era_adaptive": true,
+                      "original_name": "Credit Rating",
+                      "reskinned_name": "信誉/社会地位"
+                    },
+                    "Disguise": {
+                      "era_adaptive": true,
+                      "original_name": "Disguise",
+                      "reskinned_name": "易容/扮相"
+                    },
+                    "Dodge": {
+                      "era_adaptive": true,
+                      "original_name": "Dodge",
+                      "reskinned_name": "闪避"
+                    },
+                    "Fast Talk": {
+                      "era_adaptive": true,
+                      "original_name": "Fast Talk",
+                      "reskinned_name": "花言巧语"
+                    },
+                    "History": {
+                      "era_adaptive": true,
+                      "original_name": "History",
+                      "reskinned_name": "历史掌故"
+                    },
+                    "Intimidate": {
+                      "era_adaptive": true,
+                      "original_name": "Intimidate",
+                      "reskinned_name": "恐吓"
+                    },
+                    "Language (Own)": {
+                      "era_adaptive": true,
+                      "original_name": "Language (Own)",
+                      "reskinned_name": "母语（英语）"
+                    },
+                    "Listen": {
+                      "era_adaptive": true,
+                      "original_name": "Listen",
+                      "reskinned_name": "聆听"
+                    },
+                    "Persuade": {
+                      "era_adaptive": true,
+                      "original_name": "Persuade",
+                      "reskinned_name": "说服"
+                    },
+                    "Psychology": {
+                      "era_adaptive": true,
+                      "original_name": "Psychology",
+                      "reskinned_name": "察言观色"
+                    },
+                    "Sleight of Hand": {
+                      "era_adaptive": true,
+                      "original_name": "Sleight of Hand",
+                      "reskinned_name": "巧手"
+                    },
+                    "Spot Hidden": {
+                      "era_adaptive": true,
+                      "original_name": "Spot Hidden",
+                      "reskinned_name": "侦察/眼力"
+                    },
+                    "Stealth": {
+                      "era_adaptive": true,
+                      "original_name": "Stealth",
+                      "reskinned_name": "潜行"
+                    }
+                  },
+                  "skills": {
+                    "Charm": 55,
+                    "Climb": 30,
+                    "Credit Rating": 40,
+                    "Disguise": 45,
+                    "Dodge": 35,
+                    "Fast Talk": 25,
+                    "History": 45,
+                    "Intimidate": 35,
+                    "Language (Own)": 75,
+                    "Listen": 50,
+                    "Persuade": 40,
+                    "Psychology": 35,
+                    "Sleight of Hand": 25,
+                    "Spot Hidden": 50,
+                    "Stealth": 50
+                  }
+                }
+              }
+            },
+            "attempt": 1,
+            "data": {
+              "kind": "investigator.create",
+              "next_operation": {
+                "authority": "canonical_setup",
+                "hard_gate": true,
+                "invoke_via": "coc_invoke",
+                "missing_arguments": [],
+                "operation": "progressive.prepare_opening",
+                "prefilled_arguments": {},
+                "reason": "Select the shortest sufficient source opening before any live-play operation."
+              },
+              "opening_gate": {
+                "activation_allowed": false,
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "campaign_id": "shreds-e2e-0806",
+                "hard_gate": true,
+                "instruction": "invoke this exact progressive.prepare_opening card now; do not rebind, rediscover, resume, inspect scene/play APIs, or narrate an opening first",
+                "next_operation": {
+                  "authority": "canonical_setup",
+                  "hard_gate": true,
+                  "invoke_via": "coc_invoke",
+                  "missing_arguments": [],
+                  "operation": "progressive.prepare_opening",
+                  "prefilled_arguments": {},
+                  "reason": "Select the shortest sufficient source opening before any live-play operation."
+                },
+                "phase": "opening_selection",
+                "schema_version": 1,
+                "status": "blocked"
+              },
+              "result": {
+                "investigator_id": "simon-page"
+              },
+              "schema_version": 1,
+              "state_refs": [
+                ".coc/investigators/simon-page/character.json"
+              ],
+              "status": "PASS"
+            },
+            "hints": [
+              "opening setup is hard-gated: invoke data.next_operation exactly before any live-play discovery, read, mutation, session.resume, rebind, or opening narration",
+              "retain this current setup receipt and complete only the remaining canonical setup/opening steps without session.resume",
+              "use session.resume only to recover a campaign generation that predates the current host context, never merely because a campaign id now exists",
+              "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-bcd2f17dc857f6cd86 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.invoke",
+            "ts": "2026-08-07T12:07:24.275794+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:07:24.279276+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "kind": "campaign.link_investigator",
+              "payload": {
+                "campaign_id": "shreds-e2e-0806",
+                "investigator_ids": [
+                  "simon-page"
+                ]
+              }
+            },
+            "attempt": 1,
+            "data": {
+              "kind": "campaign.link_investigator",
+              "next_operation": {
+                "authority": "canonical_setup",
+                "hard_gate": true,
+                "invoke_via": "coc_invoke",
+                "missing_arguments": [],
+                "operation": "progressive.prepare_opening",
+                "prefilled_arguments": {},
+                "reason": "Select the shortest sufficient source opening before any live-play operation."
+              },
+              "opening_gate": {
+                "activation_allowed": false,
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "campaign_id": "shreds-e2e-0806",
+                "hard_gate": true,
+                "instruction": "invoke this exact progressive.prepare_opening card now; do not rebind, rediscover, resume, inspect scene/play APIs, or narrate an opening first",
+                "next_operation": {
+                  "authority": "canonical_setup",
+                  "hard_gate": true,
+                  "invoke_via": "coc_invoke",
+                  "missing_arguments": [],
+                  "operation": "progressive.prepare_opening",
+                  "prefilled_arguments": {},
+                  "reason": "Select the shortest sufficient source opening before any live-play operation."
+                },
+                "phase": "opening_selection",
+                "schema_version": 1,
+                "status": "blocked"
+              },
+              "result": {
+                "campaign_id": "shreds-e2e-0806",
+                "investigator_ids": [
+                  "simon-page"
+                ]
+              },
+              "schema_version": 1,
+              "state_refs": [
+                ".coc/campaigns/shreds-e2e-0806/party.json"
+              ],
+              "status": "PASS"
+            },
+            "hints": [
+              "opening setup is hard-gated: invoke data.next_operation exactly before any live-play discovery, read, mutation, session.resume, rebind, or opening narration",
+              "retain this current setup receipt and complete only the remaining canonical setup/opening steps without session.resume",
+              "use session.resume only to recover a campaign generation that predates the current host context, never merely because a campaign id now exists",
+              "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-aafbb1ed25ec944b82 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "setup.invoke",
+            "ts": "2026-08-07T12:07:26.855624+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:07:26.859258+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": {
+              "projection_ref": null,
+              "result_digest": "sha256:45f4211d3c3dd1cc1e1fc6fe6f0847e5c0ee512a4a9b55c2dc0e0e0659b8ce7a",
+              "working_set": null
+            },
+            "hints": [
+              "use only the mutation cards whose prerequisites fit the current setup; this diagnostic does not impose a Keeper call sequence or gate play",
+              "opening_page_candidates is the bounded complete cached selection catalog: semantically choose a structured source-grounded start and the shortest sufficient contiguous 1..3-page authored opening, then invoke data.next_operation as progressive.opening_bootstrap exactly once; never guess page indices, scan beyond this catalog, publish a skeleton separately, or enter live play first"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.prepare_opening",
+            "ts": "2026-08-07T12:07:28.924376+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "opening_pdf_indices": [
+                4,
+                5
+              ],
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              }
+            },
+            "attempt": 1,
+            "data": {
+              "asset_root_id": "king-of-shreds-and-patches-r2",
+              "idempotent": false,
+              "opening_pdf_indices": [
+                4,
+                5
+              ],
+              "projection_watch": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                "campaign_id": "shreds-e2e-0806",
+                "created_at": "2026-08-07T12:07:36.149849+00:00",
+                "schema_version": 1,
+                "source_file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                "source_scope": {
+                  "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                  "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "page_refs": [
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 4,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                    },
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 5,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "095753322cd05d790a8a56fcc43e0adfb97cb7d9d08b1c04e89dec92ad0bfad6"
+                    }
+                  ],
+                  "pdf_indices": [
+                    4,
+                    5
+                  ],
+                  "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                },
+                "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                "start_location_id": "stone-street-croft-lodging",
+                "status": "pending"
+              },
+              "skeleton_store": {
+                "location_count": 1,
+                "path": "/Users/haoli/leehow/code/chatrpgv4/.coc/module-assets/king-of-shreds-and-patches-r2/skeleton.json"
+              },
+              "source_file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+              "source_work": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "background_takeover": {
+                  "authority": "advisory",
+                  "capability_status": "unavailable_pending_real_lifecycle_probe",
+                  "coordinator_dispatch": {
+                    "agent_type": "coc-source-coordinator",
+                    "packet": {
+                      "adapter_mode": "manager_exact_forward",
+                      "asset_root_id": "king-of-shreds-and-patches-r2",
+                      "campaign_id": "shreds-e2e-0806",
+                      "claim_operation": {
+                        "authority": "advisory",
+                        "hard_gate": false,
+                        "invoke_via": "canonical_typed_operation_gateway",
+                        "missing_arguments": [],
+                        "operation": "progressive.claim_host_work",
+                        "prefilled_arguments": {
+                          "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                          "limit": 2,
+                          "max_dispatch_attempts": 2,
+                          "result_delivery": "task_return_to_parent"
+                        }
+                      },
+                      "contract_id": "coc.source-coordinator.v1",
+                      "failure_policy": {
+                        "authority": "prompt_first_advisory",
+                        "automatic_retry": {
+                          "max_attempts": 2,
+                          "require_positive_claimed": true,
+                          "require_status": "failed",
+                          "require_zero_fulfilled": true,
+                          "retryable_failure_classes": [
+                            "fulfill_rejected"
+                          ]
+                        },
+                        "narrative_gate": false,
+                        "output_gate": false,
+                        "player_action_gate": false,
+                        "same_failure_escalation_threshold": 3,
+                        "same_task_retry": true,
+                        "single_failure": "transient_allowed",
+                        "threshold_outcome": "design_issue"
+                      },
+                      "fulfill_operation": {
+                        "authority": "source_fulfillment",
+                        "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                        "fixed_arguments": {},
+                        "hard_gate": false,
+                        "invoke_via": "canonical_typed_operation_gateway",
+                        "missing_arguments": [
+                          "worker_result"
+                        ],
+                        "operation": "progressive.fulfill_host_work"
+                      },
+                      "leaf_worker": {
+                        "agent_type": "coc-source-pack-worker",
+                        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                        "model_policy": "inherit_parent",
+                        "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                        "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                        "run_in_background": false
+                      },
+                      "max_leaves": 2,
+                      "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                      "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                      "schema_version": 1,
+                      "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                      "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                    },
+                    "pi_task": {
+                      "contract_id": "coc.pi-source-coordinator-task.v1",
+                      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-coordinator.md",
+                      "model_policy": "inherit_parent",
+                      "packet": {
+                        "adapter_mode": "manager_exact_forward",
+                        "asset_root_id": "king-of-shreds-and-patches-r2",
+                        "campaign_id": "shreds-e2e-0806",
+                        "claim_operation": {
+                          "authority": "advisory",
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [],
+                          "operation": "progressive.claim_host_work",
+                          "prefilled_arguments": {
+                            "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                            "limit": 2,
+                            "max_dispatch_attempts": 2,
+                            "result_delivery": "task_return_to_parent"
+                          }
+                        },
+                        "contract_id": "coc.source-coordinator.v1",
+                        "failure_policy": {
+                          "authority": "prompt_first_advisory",
+                          "automatic_retry": {
+                            "max_attempts": 2,
+                            "require_positive_claimed": true,
+                            "require_status": "failed",
+                            "require_zero_fulfilled": true,
+                            "retryable_failure_classes": [
+                              "fulfill_rejected"
+                            ]
+                          },
+                          "narrative_gate": false,
+                          "output_gate": false,
+                          "player_action_gate": false,
+                          "same_failure_escalation_threshold": 3,
+                          "same_task_retry": true,
+                          "single_failure": "transient_allowed",
+                          "threshold_outcome": "design_issue"
+                        },
+                        "fulfill_operation": {
+                          "authority": "source_fulfillment",
+                          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                          "fixed_arguments": {},
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [
+                            "worker_result"
+                          ],
+                          "operation": "progressive.fulfill_host_work"
+                        },
+                        "leaf_worker": {
+                          "agent_type": "coc-source-pack-worker",
+                          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                          "model_policy": "inherit_parent",
+                          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                          "run_in_background": false
+                        },
+                        "max_leaves": 2,
+                        "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                        "schema_version": 1,
+                        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                      },
+                      "schema_version": 1
+                    },
+                    "run_in_background": true,
+                    "task_prompt": "one exact host dispatch object without campaign transcript"
+                  },
+                  "dispatch_mode": "coordinator_fanout",
+                  "hard_gate": false,
+                  "host_adapter": "pi",
+                  "host_dispatch": {
+                    "background": true,
+                    "direct_submit_parent_calls_fulfill_host_work": false,
+                    "direct_submit_parent_output_retrieval": false,
+                    "direct_submit_parent_result_polls": 0,
+                    "direct_submit_parent_waits": false,
+                    "fallback_without_direct_submit": "forward exact completed results[i] once through progressive.fulfill_host_work",
+                    "packet_binding": "one exact returned dispatch_tasks[] value per child when result_delivery=named_submit",
+                    "worker_profile": "coc-source-pack-worker"
+                  },
+                  "kind": "ready_background_source_work",
+                  "next_host_action": {
+                    "action": "invoke_coc_dispatch_source_work",
+                    "parent_output_retrieval": false,
+                    "parent_result_polls": 0,
+                    "parent_waits": false,
+                    "schema_version": 1,
+                    "task": {
+                      "contract_id": "coc.pi-source-coordinator-task.v1",
+                      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-coordinator.md",
+                      "model_policy": "inherit_parent",
+                      "packet": {
+                        "adapter_mode": "manager_exact_forward",
+                        "asset_root_id": "king-of-shreds-and-patches-r2",
+                        "campaign_id": "shreds-e2e-0806",
+                        "claim_operation": {
+                          "authority": "advisory",
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [],
+                          "operation": "progressive.claim_host_work",
+                          "prefilled_arguments": {
+                            "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                            "limit": 2,
+                            "max_dispatch_attempts": 2,
+                            "result_delivery": "task_return_to_parent"
+                          }
+                        },
+                        "contract_id": "coc.source-coordinator.v1",
+                        "failure_policy": {
+                          "authority": "prompt_first_advisory",
+                          "automatic_retry": {
+                            "max_attempts": 2,
+                            "require_positive_claimed": true,
+                            "require_status": "failed",
+                            "require_zero_fulfilled": true,
+                            "retryable_failure_classes": [
+                              "fulfill_rejected"
+                            ]
+                          },
+                          "narrative_gate": false,
+                          "output_gate": false,
+                          "player_action_gate": false,
+                          "same_failure_escalation_threshold": 3,
+                          "same_task_retry": true,
+                          "single_failure": "transient_allowed",
+                          "threshold_outcome": "design_issue"
+                        },
+                        "fulfill_operation": {
+                          "authority": "source_fulfillment",
+                          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                          "fixed_arguments": {},
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [
+                            "worker_result"
+                          ],
+                          "operation": "progressive.fulfill_host_work"
+                        },
+                        "leaf_worker": {
+                          "agent_type": "coc-source-pack-worker",
+                          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                          "model_policy": "inherit_parent",
+                          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                          "run_in_background": false
+                        },
+                        "max_leaves": 2,
+                        "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                        "schema_version": 1,
+                        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                      },
+                      "schema_version": 1
+                    }
+                  },
+                  "play_boundary": {
+                    "blocking_micro_applies_only_to_current_dependent_settlement": true,
+                    "narrative_gate": false,
+                    "nondependent_play_may_continue": true,
+                    "output_gate": false,
+                    "player_action_gate": false
+                  },
+                  "schema_version": 1
+                },
+                "dedupe_state": null,
+                "host_request_id": "job-55ab54b16460",
+                "host_work": {
+                  "asset_root_id": "king-of-shreds-and-patches-r2",
+                  "awaiting_cache_count": 0,
+                  "awaiting_scope_count": 0,
+                  "blocking_micro_ready_count": 1,
+                  "campaign_id": "shreds-e2e-0806",
+                  "current_dependency_snapshot_complete": true,
+                  "current_dependency_waits": [],
+                  "leased_count": 0,
+                  "open_host_work": [
+                    {
+                      "cached_scope_complete": true,
+                      "deadline_class": "blocking_micro",
+                      "dependency_ref": {
+                        "operation": "progressive.project_opening",
+                        "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                        "subject": {
+                          "id": "stone-street-croft-lodging",
+                          "kind": "location"
+                        }
+                      },
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-55ab54b16460",
+                      "kind": "partial_opening",
+                      "priority": 100,
+                      "requested_pdf_indices": [
+                        4,
+                        5
+                      ],
+                      "source_aspect": "body",
+                      "target_id": "stone-street-croft-lodging",
+                      "work_group_id": "source-work-238398b90a366eec",
+                      "work_level": "current_dependency"
+                    },
+                    {
+                      "cached_scope_complete": false,
+                      "deadline_class": "next_turn_hot",
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-7b0502529204",
+                      "kind": "classify_sections",
+                      "priority": 60,
+                      "requested_pdf_indices": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                        41
+                      ],
+                      "source_aspect": "structure",
+                      "target_id": "section-index",
+                      "work_group_id": "source-work-1becdf816b58ed20",
+                      "work_level": "near_term"
+                    }
+                  ],
+                  "open_host_work_count": 2,
+                  "ready_background_requests": [
+                    {
+                      "cached_scope_complete": true,
+                      "deadline_class": "blocking_micro",
+                      "dependency_ref": {
+                        "operation": "progressive.project_opening",
+                        "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                        "subject": {
+                          "id": "stone-street-croft-lodging",
+                          "kind": "location"
+                        }
+                      },
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-55ab54b16460",
+                      "kind": "partial_opening",
+                      "priority": 100,
+                      "requested_pdf_indices": [
+                        4,
+                        5
+                      ],
+                      "source_aspect": "body",
+                      "target_id": "stone-street-croft-lodging",
+                      "work_group_id": "source-work-238398b90a366eec",
+                      "work_level": "current_dependency"
+                    },
+                    {
+                      "cached_scope_complete": false,
+                      "deadline_class": "next_turn_hot",
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-7b0502529204",
+                      "kind": "classify_sections",
+                      "priority": 60,
+                      "requested_pdf_indices": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                        41
+                      ],
+                      "source_aspect": "structure",
+                      "target_id": "section-index",
+                      "work_group_id": "source-work-1becdf816b58ed20",
+                      "work_level": "near_term"
+                    }
+                  ],
+                  "ready_for_background_count": 2,
+                  "runnable_count": 2,
+                  "stale_count": 0,
+                  "stranded_ready_count": 0
+                },
+                "idempotent": false,
+                "job_id": "job-55ab54b16460",
+                "request_purpose": "foreground_opening_slice",
+                "requested_source_scope": {
+                  "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                  "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "page_refs": [
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 4,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                    },
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 5,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "095753322cd05d790a8a56fcc43e0adfb97cb7d9d08b1c04e89dec92ad0bfad6"
+                    }
+                  ],
+                  "pdf_indices": [
+                    4,
+                    5
+                  ],
+                  "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                },
+                "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                "start_location_id": "stone-street-croft-lodging",
+                "status": "queued",
+                "stub_created": true,
+                "worker_kick": {
+                  "reason": "caller_owns_materialization",
+                  "started": false
+                }
+              },
+              "sparse_projection": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "campaign_id": "shreds-e2e-0806",
+                "parse_tier": 1,
+                "paths": [
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/module-meta.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/story-graph.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/clue-graph.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/npc-agendas.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/threat-fronts.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/pacing-map.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/improvisation-boundaries.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/assets/character-creation/the-king-of-shreds-and-patches-briefing.md"
+                ],
+                "reapplied_deep_entities": [],
+                "scene_count": 1
+              },
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              },
+              "status": "queued"
+            },
+            "hints": [
+              "host-work materialization is deterministic bookkeeping; a host source worker must still return the exact partial pack"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.opening_bootstrap",
+            "ts": "2026-08-07T12:07:36.198830+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "opening_pdf_indices": [
+                5
+              ],
+              "start_location": {
+                "location_id": "stone-street",
+                "title": "石街"
+              }
+            },
+            "attempt": 1,
+            "data": null,
+            "error": "opening_bootstrap_conflict",
+            "error_message": "existing skeleton has a different start location id/title",
+            "hints": [
+              "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.opening_bootstrap",
+            "ts": "2026-08-07T12:07:47.078213+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "opening_pdf_indices": [
+                5,
+                6
+              ],
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              }
+            },
+            "attempt": 1,
+            "data": null,
+            "error": "opening_projection_watch_conflict",
+            "error_message": "campaign already owns a different opening projection watch",
+            "hints": [
+              "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.opening_bootstrap",
+            "ts": "2026-08-07T12:07:54.014476+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "opening_pdf_indices": [
+                4,
+                5
+              ],
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              }
+            },
+            "attempt": 1,
+            "data": {
+              "asset_root_id": "king-of-shreds-and-patches-r2",
+              "idempotent": true,
+              "opening_pdf_indices": [
+                4,
+                5
+              ],
+              "projection_watch": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                "campaign_id": "shreds-e2e-0806",
+                "created_at": "2026-08-07T12:07:36.149849+00:00",
+                "schema_version": 1,
+                "source_file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                "source_scope": {
+                  "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                  "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "page_refs": [
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 4,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                    },
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 5,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "095753322cd05d790a8a56fcc43e0adfb97cb7d9d08b1c04e89dec92ad0bfad6"
+                    }
+                  ],
+                  "pdf_indices": [
+                    4,
+                    5
+                  ],
+                  "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                },
+                "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                "start_location_id": "stone-street-croft-lodging",
+                "status": "pending"
+              },
+              "skeleton_store": null,
+              "source_file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+              "source_work": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "background_takeover": {
+                  "authority": "advisory",
+                  "capability_status": "unavailable_pending_real_lifecycle_probe",
+                  "coordinator_dispatch": {
+                    "agent_type": "coc-source-coordinator",
+                    "packet": {
+                      "adapter_mode": "manager_exact_forward",
+                      "asset_root_id": "king-of-shreds-and-patches-r2",
+                      "campaign_id": "shreds-e2e-0806",
+                      "claim_operation": {
+                        "authority": "advisory",
+                        "hard_gate": false,
+                        "invoke_via": "canonical_typed_operation_gateway",
+                        "missing_arguments": [],
+                        "operation": "progressive.claim_host_work",
+                        "prefilled_arguments": {
+                          "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                          "limit": 2,
+                          "max_dispatch_attempts": 2,
+                          "result_delivery": "task_return_to_parent"
+                        }
+                      },
+                      "contract_id": "coc.source-coordinator.v1",
+                      "failure_policy": {
+                        "authority": "prompt_first_advisory",
+                        "automatic_retry": {
+                          "max_attempts": 2,
+                          "require_positive_claimed": true,
+                          "require_status": "failed",
+                          "require_zero_fulfilled": true,
+                          "retryable_failure_classes": [
+                            "fulfill_rejected"
+                          ]
+                        },
+                        "narrative_gate": false,
+                        "output_gate": false,
+                        "player_action_gate": false,
+                        "same_failure_escalation_threshold": 3,
+                        "same_task_retry": true,
+                        "single_failure": "transient_allowed",
+                        "threshold_outcome": "design_issue"
+                      },
+                      "fulfill_operation": {
+                        "authority": "source_fulfillment",
+                        "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                        "fixed_arguments": {},
+                        "hard_gate": false,
+                        "invoke_via": "canonical_typed_operation_gateway",
+                        "missing_arguments": [
+                          "worker_result"
+                        ],
+                        "operation": "progressive.fulfill_host_work"
+                      },
+                      "leaf_worker": {
+                        "agent_type": "coc-source-pack-worker",
+                        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                        "model_policy": "inherit_parent",
+                        "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                        "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                        "run_in_background": false
+                      },
+                      "max_leaves": 2,
+                      "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                      "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                      "schema_version": 1,
+                      "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                      "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                    },
+                    "pi_task": {
+                      "contract_id": "coc.pi-source-coordinator-task.v1",
+                      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-coordinator.md",
+                      "model_policy": "inherit_parent",
+                      "packet": {
+                        "adapter_mode": "manager_exact_forward",
+                        "asset_root_id": "king-of-shreds-and-patches-r2",
+                        "campaign_id": "shreds-e2e-0806",
+                        "claim_operation": {
+                          "authority": "advisory",
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [],
+                          "operation": "progressive.claim_host_work",
+                          "prefilled_arguments": {
+                            "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                            "limit": 2,
+                            "max_dispatch_attempts": 2,
+                            "result_delivery": "task_return_to_parent"
+                          }
+                        },
+                        "contract_id": "coc.source-coordinator.v1",
+                        "failure_policy": {
+                          "authority": "prompt_first_advisory",
+                          "automatic_retry": {
+                            "max_attempts": 2,
+                            "require_positive_claimed": true,
+                            "require_status": "failed",
+                            "require_zero_fulfilled": true,
+                            "retryable_failure_classes": [
+                              "fulfill_rejected"
+                            ]
+                          },
+                          "narrative_gate": false,
+                          "output_gate": false,
+                          "player_action_gate": false,
+                          "same_failure_escalation_threshold": 3,
+                          "same_task_retry": true,
+                          "single_failure": "transient_allowed",
+                          "threshold_outcome": "design_issue"
+                        },
+                        "fulfill_operation": {
+                          "authority": "source_fulfillment",
+                          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                          "fixed_arguments": {},
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [
+                            "worker_result"
+                          ],
+                          "operation": "progressive.fulfill_host_work"
+                        },
+                        "leaf_worker": {
+                          "agent_type": "coc-source-pack-worker",
+                          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                          "model_policy": "inherit_parent",
+                          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                          "run_in_background": false
+                        },
+                        "max_leaves": 2,
+                        "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                        "schema_version": 1,
+                        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                      },
+                      "schema_version": 1
+                    },
+                    "run_in_background": true,
+                    "task_prompt": "one exact host dispatch object without campaign transcript"
+                  },
+                  "dispatch_mode": "coordinator_fanout",
+                  "hard_gate": false,
+                  "host_adapter": "pi",
+                  "host_dispatch": {
+                    "background": true,
+                    "direct_submit_parent_calls_fulfill_host_work": false,
+                    "direct_submit_parent_output_retrieval": false,
+                    "direct_submit_parent_result_polls": 0,
+                    "direct_submit_parent_waits": false,
+                    "fallback_without_direct_submit": "forward exact completed results[i] once through progressive.fulfill_host_work",
+                    "packet_binding": "one exact returned dispatch_tasks[] value per child when result_delivery=named_submit",
+                    "worker_profile": "coc-source-pack-worker"
+                  },
+                  "kind": "ready_background_source_work",
+                  "next_host_action": {
+                    "action": "invoke_coc_dispatch_source_work",
+                    "parent_output_retrieval": false,
+                    "parent_result_polls": 0,
+                    "parent_waits": false,
+                    "schema_version": 1,
+                    "task": {
+                      "contract_id": "coc.pi-source-coordinator-task.v1",
+                      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-coordinator.md",
+                      "model_policy": "inherit_parent",
+                      "packet": {
+                        "adapter_mode": "manager_exact_forward",
+                        "asset_root_id": "king-of-shreds-and-patches-r2",
+                        "campaign_id": "shreds-e2e-0806",
+                        "claim_operation": {
+                          "authority": "advisory",
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [],
+                          "operation": "progressive.claim_host_work",
+                          "prefilled_arguments": {
+                            "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                            "limit": 2,
+                            "max_dispatch_attempts": 2,
+                            "result_delivery": "task_return_to_parent"
+                          }
+                        },
+                        "contract_id": "coc.source-coordinator.v1",
+                        "failure_policy": {
+                          "authority": "prompt_first_advisory",
+                          "automatic_retry": {
+                            "max_attempts": 2,
+                            "require_positive_claimed": true,
+                            "require_status": "failed",
+                            "require_zero_fulfilled": true,
+                            "retryable_failure_classes": [
+                              "fulfill_rejected"
+                            ]
+                          },
+                          "narrative_gate": false,
+                          "output_gate": false,
+                          "player_action_gate": false,
+                          "same_failure_escalation_threshold": 3,
+                          "same_task_retry": true,
+                          "single_failure": "transient_allowed",
+                          "threshold_outcome": "design_issue"
+                        },
+                        "fulfill_operation": {
+                          "authority": "source_fulfillment",
+                          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                          "fixed_arguments": {},
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [
+                            "worker_result"
+                          ],
+                          "operation": "progressive.fulfill_host_work"
+                        },
+                        "leaf_worker": {
+                          "agent_type": "coc-source-pack-worker",
+                          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                          "model_policy": "inherit_parent",
+                          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                          "run_in_background": false
+                        },
+                        "max_leaves": 2,
+                        "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                        "schema_version": 1,
+                        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                      },
+                      "schema_version": 1
+                    }
+                  },
+                  "play_boundary": {
+                    "blocking_micro_applies_only_to_current_dependent_settlement": true,
+                    "narrative_gate": false,
+                    "nondependent_play_may_continue": true,
+                    "output_gate": false,
+                    "player_action_gate": false
+                  },
+                  "schema_version": 1
+                },
+                "dedupe_state": "awaiting_host_pack",
+                "host_request_id": "job-55ab54b16460",
+                "host_work": {
+                  "asset_root_id": "king-of-shreds-and-patches-r2",
+                  "awaiting_cache_count": 0,
+                  "awaiting_scope_count": 0,
+                  "blocking_micro_ready_count": 1,
+                  "campaign_id": "shreds-e2e-0806",
+                  "current_dependency_snapshot_complete": true,
+                  "current_dependency_waits": [],
+                  "leased_count": 0,
+                  "open_host_work": [
+                    {
+                      "cached_scope_complete": true,
+                      "deadline_class": "blocking_micro",
+                      "dependency_ref": {
+                        "operation": "progressive.project_opening",
+                        "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                        "subject": {
+                          "id": "stone-street-croft-lodging",
+                          "kind": "location"
+                        }
+                      },
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-55ab54b16460",
+                      "kind": "partial_opening",
+                      "priority": 100,
+                      "requested_pdf_indices": [
+                        4,
+                        5
+                      ],
+                      "source_aspect": "body",
+                      "target_id": "stone-street-croft-lodging",
+                      "work_group_id": "source-work-238398b90a366eec",
+                      "work_level": "current_dependency"
+                    },
+                    {
+                      "cached_scope_complete": false,
+                      "deadline_class": "next_turn_hot",
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-7b0502529204",
+                      "kind": "classify_sections",
+                      "priority": 60,
+                      "requested_pdf_indices": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                        41
+                      ],
+                      "source_aspect": "structure",
+                      "target_id": "section-index",
+                      "work_group_id": "source-work-1becdf816b58ed20",
+                      "work_level": "near_term"
+                    }
+                  ],
+                  "open_host_work_count": 2,
+                  "ready_background_requests": [
+                    {
+                      "cached_scope_complete": true,
+                      "deadline_class": "blocking_micro",
+                      "dependency_ref": {
+                        "operation": "progressive.project_opening",
+                        "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                        "subject": {
+                          "id": "stone-street-croft-lodging",
+                          "kind": "location"
+                        }
+                      },
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-55ab54b16460",
+                      "kind": "partial_opening",
+                      "priority": 100,
+                      "requested_pdf_indices": [
+                        4,
+                        5
+                      ],
+                      "source_aspect": "body",
+                      "target_id": "stone-street-croft-lodging",
+                      "work_group_id": "source-work-238398b90a366eec",
+                      "work_level": "current_dependency"
+                    },
+                    {
+                      "cached_scope_complete": false,
+                      "deadline_class": "next_turn_hot",
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-7b0502529204",
+                      "kind": "classify_sections",
+                      "priority": 60,
+                      "requested_pdf_indices": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                        41
+                      ],
+                      "source_aspect": "structure",
+                      "target_id": "section-index",
+                      "work_group_id": "source-work-1becdf816b58ed20",
+                      "work_level": "near_term"
+                    }
+                  ],
+                  "ready_for_background_count": 2,
+                  "runnable_count": 2,
+                  "stale_count": 0,
+                  "stranded_ready_count": 0
+                },
+                "idempotent": true,
+                "job_id": "job-55ab54b16460",
+                "request_purpose": "foreground_opening_slice",
+                "requested_source_scope": {
+                  "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                  "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "page_refs": [
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 4,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                    },
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 5,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "095753322cd05d790a8a56fcc43e0adfb97cb7d9d08b1c04e89dec92ad0bfad6"
+                    }
+                  ],
+                  "pdf_indices": [
+                    4,
+                    5
+                  ],
+                  "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                },
+                "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                "start_location_id": "stone-street-croft-lodging",
+                "status": "coalesced",
+                "stub_created": false,
+                "worker_kick": {
+                  "reason": "host_request_already_open",
+                  "started": false
+                }
+              },
+              "sparse_projection": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "campaign_id": "shreds-e2e-0806",
+                "parse_tier": 1,
+                "paths": [
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/module-meta.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/story-graph.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/clue-graph.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/npc-agendas.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/threat-fronts.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/pacing-map.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/improvisation-boundaries.json"
+                ],
+                "reapplied_deep_entities": [],
+                "scene_count": 1
+              },
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              },
+              "status": "coalesced"
+            },
+            "hints": [
+              "host-work materialization is deterministic bookkeeping; a host source worker must still return the exact partial pack"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.opening_bootstrap",
+            "ts": "2026-08-07T12:07:59.628982+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "opening_pdf_indices": [
+                4,
+                5
+              ],
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              }
+            },
+            "attempt": 1,
+            "data": {
+              "asset_root_id": "king-of-shreds-and-patches-r2",
+              "idempotent": true,
+              "opening_pdf_indices": [
+                4,
+                5
+              ],
+              "projection_watch": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                "campaign_id": "shreds-e2e-0806",
+                "created_at": "2026-08-07T12:07:36.149849+00:00",
+                "schema_version": 1,
+                "source_file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                "source_scope": {
+                  "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                  "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "page_refs": [
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 4,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                    },
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 5,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "095753322cd05d790a8a56fcc43e0adfb97cb7d9d08b1c04e89dec92ad0bfad6"
+                    }
+                  ],
+                  "pdf_indices": [
+                    4,
+                    5
+                  ],
+                  "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                },
+                "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                "start_location_id": "stone-street-croft-lodging",
+                "status": "pending"
+              },
+              "skeleton_store": null,
+              "source_file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+              "source_work": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "background_takeover": {
+                  "authority": "advisory",
+                  "capability_status": "unavailable_pending_real_lifecycle_probe",
+                  "coordinator_dispatch": {
+                    "agent_type": "coc-source-coordinator",
+                    "packet": {
+                      "adapter_mode": "manager_exact_forward",
+                      "asset_root_id": "king-of-shreds-and-patches-r2",
+                      "campaign_id": "shreds-e2e-0806",
+                      "claim_operation": {
+                        "authority": "advisory",
+                        "hard_gate": false,
+                        "invoke_via": "canonical_typed_operation_gateway",
+                        "missing_arguments": [],
+                        "operation": "progressive.claim_host_work",
+                        "prefilled_arguments": {
+                          "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                          "limit": 2,
+                          "max_dispatch_attempts": 2,
+                          "result_delivery": "task_return_to_parent"
+                        }
+                      },
+                      "contract_id": "coc.source-coordinator.v1",
+                      "failure_policy": {
+                        "authority": "prompt_first_advisory",
+                        "automatic_retry": {
+                          "max_attempts": 2,
+                          "require_positive_claimed": true,
+                          "require_status": "failed",
+                          "require_zero_fulfilled": true,
+                          "retryable_failure_classes": [
+                            "fulfill_rejected"
+                          ]
+                        },
+                        "narrative_gate": false,
+                        "output_gate": false,
+                        "player_action_gate": false,
+                        "same_failure_escalation_threshold": 3,
+                        "same_task_retry": true,
+                        "single_failure": "transient_allowed",
+                        "threshold_outcome": "design_issue"
+                      },
+                      "fulfill_operation": {
+                        "authority": "source_fulfillment",
+                        "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                        "fixed_arguments": {},
+                        "hard_gate": false,
+                        "invoke_via": "canonical_typed_operation_gateway",
+                        "missing_arguments": [
+                          "worker_result"
+                        ],
+                        "operation": "progressive.fulfill_host_work"
+                      },
+                      "leaf_worker": {
+                        "agent_type": "coc-source-pack-worker",
+                        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                        "model_policy": "inherit_parent",
+                        "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                        "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                        "run_in_background": false
+                      },
+                      "max_leaves": 2,
+                      "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                      "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                      "schema_version": 1,
+                      "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                      "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                    },
+                    "pi_task": {
+                      "contract_id": "coc.pi-source-coordinator-task.v1",
+                      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-coordinator.md",
+                      "model_policy": "inherit_parent",
+                      "packet": {
+                        "adapter_mode": "manager_exact_forward",
+                        "asset_root_id": "king-of-shreds-and-patches-r2",
+                        "campaign_id": "shreds-e2e-0806",
+                        "claim_operation": {
+                          "authority": "advisory",
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [],
+                          "operation": "progressive.claim_host_work",
+                          "prefilled_arguments": {
+                            "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                            "limit": 2,
+                            "max_dispatch_attempts": 2,
+                            "result_delivery": "task_return_to_parent"
+                          }
+                        },
+                        "contract_id": "coc.source-coordinator.v1",
+                        "failure_policy": {
+                          "authority": "prompt_first_advisory",
+                          "automatic_retry": {
+                            "max_attempts": 2,
+                            "require_positive_claimed": true,
+                            "require_status": "failed",
+                            "require_zero_fulfilled": true,
+                            "retryable_failure_classes": [
+                              "fulfill_rejected"
+                            ]
+                          },
+                          "narrative_gate": false,
+                          "output_gate": false,
+                          "player_action_gate": false,
+                          "same_failure_escalation_threshold": 3,
+                          "same_task_retry": true,
+                          "single_failure": "transient_allowed",
+                          "threshold_outcome": "design_issue"
+                        },
+                        "fulfill_operation": {
+                          "authority": "source_fulfillment",
+                          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                          "fixed_arguments": {},
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [
+                            "worker_result"
+                          ],
+                          "operation": "progressive.fulfill_host_work"
+                        },
+                        "leaf_worker": {
+                          "agent_type": "coc-source-pack-worker",
+                          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                          "model_policy": "inherit_parent",
+                          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                          "run_in_background": false
+                        },
+                        "max_leaves": 2,
+                        "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                        "schema_version": 1,
+                        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                      },
+                      "schema_version": 1
+                    },
+                    "run_in_background": true,
+                    "task_prompt": "one exact host dispatch object without campaign transcript"
+                  },
+                  "dispatch_mode": "coordinator_fanout",
+                  "hard_gate": false,
+                  "host_adapter": "pi",
+                  "host_dispatch": {
+                    "background": true,
+                    "direct_submit_parent_calls_fulfill_host_work": false,
+                    "direct_submit_parent_output_retrieval": false,
+                    "direct_submit_parent_result_polls": 0,
+                    "direct_submit_parent_waits": false,
+                    "fallback_without_direct_submit": "forward exact completed results[i] once through progressive.fulfill_host_work",
+                    "packet_binding": "one exact returned dispatch_tasks[] value per child when result_delivery=named_submit",
+                    "worker_profile": "coc-source-pack-worker"
+                  },
+                  "kind": "ready_background_source_work",
+                  "next_host_action": {
+                    "action": "invoke_coc_dispatch_source_work",
+                    "parent_output_retrieval": false,
+                    "parent_result_polls": 0,
+                    "parent_waits": false,
+                    "schema_version": 1,
+                    "task": {
+                      "contract_id": "coc.pi-source-coordinator-task.v1",
+                      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-coordinator.md",
+                      "model_policy": "inherit_parent",
+                      "packet": {
+                        "adapter_mode": "manager_exact_forward",
+                        "asset_root_id": "king-of-shreds-and-patches-r2",
+                        "campaign_id": "shreds-e2e-0806",
+                        "claim_operation": {
+                          "authority": "advisory",
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [],
+                          "operation": "progressive.claim_host_work",
+                          "prefilled_arguments": {
+                            "executor_id": "source-coordinator:8e9d26aa1d9eb6462e29",
+                            "limit": 2,
+                            "max_dispatch_attempts": 2,
+                            "result_delivery": "task_return_to_parent"
+                          }
+                        },
+                        "contract_id": "coc.source-coordinator.v1",
+                        "failure_policy": {
+                          "authority": "prompt_first_advisory",
+                          "automatic_retry": {
+                            "max_attempts": 2,
+                            "require_positive_claimed": true,
+                            "require_status": "failed",
+                            "require_zero_fulfilled": true,
+                            "retryable_failure_classes": [
+                              "fulfill_rejected"
+                            ]
+                          },
+                          "narrative_gate": false,
+                          "output_gate": false,
+                          "player_action_gate": false,
+                          "same_failure_escalation_threshold": 3,
+                          "same_task_retry": true,
+                          "single_failure": "transient_allowed",
+                          "threshold_outcome": "design_issue"
+                        },
+                        "fulfill_operation": {
+                          "authority": "source_fulfillment",
+                          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+                          "fixed_arguments": {},
+                          "hard_gate": false,
+                          "invoke_via": "canonical_typed_operation_gateway",
+                          "missing_arguments": [
+                            "worker_result"
+                          ],
+                          "operation": "progressive.fulfill_host_work"
+                        },
+                        "leaf_worker": {
+                          "agent_type": "coc-source-pack-worker",
+                          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+                          "model_policy": "inherit_parent",
+                          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+                          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work",
+                          "run_in_background": false
+                        },
+                        "max_leaves": 2,
+                        "packet_id": "source-coordinator-63d20a2158cb3a7bb317",
+                        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+                        "schema_version": 1,
+                        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/plugins/coc-keeper/scripts/coc_toolbox.py",
+                        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740"
+                      },
+                      "schema_version": 1
+                    }
+                  },
+                  "play_boundary": {
+                    "blocking_micro_applies_only_to_current_dependent_settlement": true,
+                    "narrative_gate": false,
+                    "nondependent_play_may_continue": true,
+                    "output_gate": false,
+                    "player_action_gate": false
+                  },
+                  "schema_version": 1
+                },
+                "dedupe_state": "awaiting_host_pack",
+                "host_request_id": "job-55ab54b16460",
+                "host_work": {
+                  "asset_root_id": "king-of-shreds-and-patches-r2",
+                  "awaiting_cache_count": 0,
+                  "awaiting_scope_count": 0,
+                  "blocking_micro_ready_count": 1,
+                  "campaign_id": "shreds-e2e-0806",
+                  "current_dependency_snapshot_complete": true,
+                  "current_dependency_waits": [],
+                  "leased_count": 0,
+                  "open_host_work": [
+                    {
+                      "cached_scope_complete": true,
+                      "deadline_class": "blocking_micro",
+                      "dependency_ref": {
+                        "operation": "progressive.project_opening",
+                        "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                        "subject": {
+                          "id": "stone-street-croft-lodging",
+                          "kind": "location"
+                        }
+                      },
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-55ab54b16460",
+                      "kind": "partial_opening",
+                      "priority": 100,
+                      "requested_pdf_indices": [
+                        4,
+                        5
+                      ],
+                      "source_aspect": "body",
+                      "target_id": "stone-street-croft-lodging",
+                      "work_group_id": "source-work-238398b90a366eec",
+                      "work_level": "current_dependency"
+                    },
+                    {
+                      "cached_scope_complete": false,
+                      "deadline_class": "next_turn_hot",
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-7b0502529204",
+                      "kind": "classify_sections",
+                      "priority": 60,
+                      "requested_pdf_indices": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                        41
+                      ],
+                      "source_aspect": "structure",
+                      "target_id": "section-index",
+                      "work_group_id": "source-work-1becdf816b58ed20",
+                      "work_level": "near_term"
+                    }
+                  ],
+                  "open_host_work_count": 2,
+                  "ready_background_requests": [
+                    {
+                      "cached_scope_complete": true,
+                      "deadline_class": "blocking_micro",
+                      "dependency_ref": {
+                        "operation": "progressive.project_opening",
+                        "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                        "subject": {
+                          "id": "stone-street-croft-lodging",
+                          "kind": "location"
+                        }
+                      },
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-55ab54b16460",
+                      "kind": "partial_opening",
+                      "priority": 100,
+                      "requested_pdf_indices": [
+                        4,
+                        5
+                      ],
+                      "source_aspect": "body",
+                      "target_id": "stone-street-croft-lodging",
+                      "work_group_id": "source-work-238398b90a366eec",
+                      "work_level": "current_dependency"
+                    },
+                    {
+                      "cached_scope_complete": false,
+                      "deadline_class": "next_turn_hot",
+                      "dispatch_attempts": 0,
+                      "dispatch_state": "ready",
+                      "job_id": "job-7b0502529204",
+                      "kind": "classify_sections",
+                      "priority": 60,
+                      "requested_pdf_indices": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                        41
+                      ],
+                      "source_aspect": "structure",
+                      "target_id": "section-index",
+                      "work_group_id": "source-work-1becdf816b58ed20",
+                      "work_level": "near_term"
+                    }
+                  ],
+                  "ready_for_background_count": 2,
+                  "runnable_count": 2,
+                  "stale_count": 0,
+                  "stranded_ready_count": 0
+                },
+                "idempotent": true,
+                "job_id": "job-55ab54b16460",
+                "request_purpose": "foreground_opening_slice",
+                "requested_source_scope": {
+                  "bundle_sha256": "5749843ec53f9d72ad59b236a14aaf9bc25f06a3fb14137b650f8c14263097c9",
+                  "file_sha256": "dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                  "page_refs": [
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 4,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "8c0127629afcc8a358b589f2fa9b3bb102ded0ecb5b7200f3eefc5a648ec74cb"
+                    },
+                    {
+                      "parse_confidence": 0.95,
+                      "pdf_index": 5,
+                      "review_state": "manual_accepted",
+                      "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602",
+                      "text_sha256": "095753322cd05d790a8a56fcc43e0adfb97cb7d9d08b1c04e89dec92ad0bfad6"
+                    }
+                  ],
+                  "pdf_indices": [
+                    4,
+                    5
+                  ],
+                  "source_id": "pdf:dbecb79eab1e3aba7e40b5bcd7ddaf1adefc2534784b82f4aea2254e8217a602"
+                },
+                "source_scope_signature": "80c25b66fb980453043299abbeb9ebecaf83e73f8d3d2847bc83eca6b8d40bb4",
+                "start_location_id": "stone-street-croft-lodging",
+                "status": "coalesced",
+                "stub_created": false,
+                "worker_kick": {
+                  "reason": "host_request_already_open",
+                  "started": false
+                }
+              },
+              "sparse_projection": {
+                "asset_root_id": "king-of-shreds-and-patches-r2",
+                "campaign_id": "shreds-e2e-0806",
+                "parse_tier": 1,
+                "paths": [
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/module-meta.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/story-graph.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/clue-graph.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/npc-agendas.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/threat-fronts.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/pacing-map.json",
+                  "/Users/haoli/leehow/code/chatrpgv4/.tmp/pi-coc-shreds-e2e-202608070740/.coc/campaigns/shreds-e2e-0806/scenario/improvisation-boundaries.json"
+                ],
+                "reapplied_deep_entities": [],
+                "scene_count": 1
+              },
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              },
+              "status": "coalesced"
+            },
+            "hints": [
+              "host-work materialization is deterministic bookkeeping; a host source worker must still return the exact partial pack"
+            ],
+            "max_attempts": 3,
+            "ok": true,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.opening_bootstrap",
+            "ts": "2026-08-07T12:09:30.703289+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "opening_pdf_indices": [
+                5
+              ],
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "萨瑟克石街·约翰·考夫特住所"
+              }
+            },
+            "attempt": 1,
+            "data": null,
+            "error": "opening_projection_watch_conflict",
+            "error_message": "campaign already owns a different opening projection watch",
+            "hints": [
+              "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.opening_bootstrap",
+            "ts": "2026-08-07T12:09:34.213181+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:09:34.216704+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:09:36.525254+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {
+              "opening_pdf_indices": [
+                4,
+                5
+              ],
+              "start_location": {
+                "location_id": "stone-street-croft-lodging",
+                "title": "石街"
+              }
+            },
+            "attempt": 1,
+            "data": null,
+            "error": "opening_bootstrap_conflict",
+            "error_message": "existing skeleton has a different start location id/title",
+            "hints": [
+              "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "progressive.opening_bootstrap",
+            "ts": "2026-08-07T12:09:43.419273+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "session.resume is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "session.resume",
+            "ts": "2026-08-07T12:11:09.596476+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          },
+          {
+            "args": {},
+            "attempt": 1,
+            "data": null,
+            "error": "opening_setup_incomplete",
+            "error_message": "scene.context is unavailable until the source-bound opening projection is current",
+            "hints": [
+              "follow error.details.next_operation exactly when present; this is a hard setup gate, so do not rediscover, resume, rebind, inspect live-play state, or narrate an opening first"
+            ],
+            "max_attempts": 3,
+            "ok": false,
+            "retryable": false,
+            "schema_version": 2,
+            "tool": "scene.context",
+            "ts": "2026-08-07T12:11:11.664856+00:00",
+            "turn_number": 0,
+            "visibility": "keeper_internal",
+            "warnings": [],
+            "will_retry": false
+          }
+        ],
+        "turn_number": 0,
+        "visibility": "keeper_internal"
+      }
+    ]
+  },
+  "markdown_audience": "player_safe",
+  "npc_interactions": [],
+  "play_conduct_signals": {
+    "nature": "observational_structured_facts_only",
+    "npc_engagements": {
+      "available": false,
+      "improvised_count": 0,
+      "total_count": 0
+    },
+    "public_roll_count": 0,
+    "quality_judgment": "none: these signals never affect the completeness classification",
+    "schema_version": 1,
+    "skill_check_clue_delivery": {
+      "available": true,
+      "discovered_clue_count": 0,
+      "skill_check_delivery_count": 0,
+      "without_roll_evidence_clue_ids": [],
+      "without_roll_evidence_count": 0
+    },
+    "tool_call_counts_per_turn": {
+      "available": true,
+      "counts": {
+        "0": 32
+      },
+      "total_tool_calls": 32
+    },
+    "turn_count": 18
+  },
+  "progression": {
+    "discovered_clues": [],
+    "major_decisions": [],
+    "scene_history": [],
+    "visited_scene_ids": []
+  },
+  "public_rolls": {
+    "duplicate_roll_ids": [],
+    "finalization_binding": {
+      "bound_roll_id_count": 0,
+      "commit_snapshot_id": null,
+      "contract": "render iff player-facing and bound to a turn-finalization receipt",
+      "dispositioned_orphan_count": 0,
+      "undispositioned_orphans": [
+        {
+          "roll_id": "toolbox-shreds-e2e-0806-000001",
+          "source_line": 1
+        }
+      ],
+      "zero_roll_receipt_ids": []
+    },
+    "malformed_source_lines": [],
+    "records": [],
+    "rendered_count": 0,
+    "required_count": 0,
+    "source_path": "sandbox/.coc/campaigns/shreds-e2e-0806/logs/rolls.jsonl",
+    "source_present": true,
+    "status": "FAIL"
+  },
+  "relationship_rewards": [],
+  "report_id": "coc-battle-report-c9424da15779d1cf4af47631",
+  "report_type": "coc_actual_play_battle_report_evidence",
+  "run_metadata": {
+    "campaign_id": "shreds-e2e-0806",
+    "host_model": {
+      "background_model_policy": "inherit_parent",
+      "provider": "xai",
+      "reasoning_effort": "low"
+    },
+    "run_id": "shreds-e2e-0806-blocked-opening",
+    "status": "blocked_opening_source_materialization"
+  },
+  "schema_version": 5,
+  "social_rolls": [],
+  "source_identity": {
+    "campaign_id": "shreds-e2e-0806",
+    "campaign_source_directory": "sandbox/.coc/campaigns/shreds-e2e-0806",
+    "metadata_source": "run.json",
+    "run_id": "shreds-e2e-0806-blocked-opening",
+    "transcript_sha256": "84e88a14d56fe9f54cf3819e5509a1eaad821c2ab9fc0b0d4fd8064986b5dee9",
+    "transcript_source": "partial-transcript.jsonl"
+  },
+  "source_manifest": [
+    {
+      "byte_count": 7533,
+      "kind": "jsonl",
+      "path": "partial-transcript.jsonl",
+      "present": true,
+      "record_count": 18,
+      "required": true,
+      "sha256": "84e88a14d56fe9f54cf3819e5509a1eaad821c2ab9fc0b0d4fd8064986b5dee9",
+      "status": "READ"
+    },
+    {
+      "byte_count": 773,
+      "kind": "json",
+      "path": "run.json",
+      "present": true,
+      "record_count": 1,
+      "required": true,
+      "sha256": "9228a9450821ac511bb75e0c8306e1b8e3791f696befb30513c3e23f10afcf74",
+      "status": "READ"
+    },
+    {
+      "kind": "jsonl",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/logs/advisory-adoptions.jsonl",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "byte_count": 0,
+      "kind": "jsonl",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/logs/events.jsonl",
+      "present": true,
+      "record_count": 0,
+      "required": false,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "READ"
+    },
+    {
+      "kind": "jsonl",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/logs/narration-reviews.jsonl",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "byte_count": 862,
+      "included_record_count": 0,
+      "kind": "jsonl",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/logs/rolls.jsonl",
+      "present": true,
+      "projection": "player_facing_and_bound_to_finalization_receipt",
+      "record_count": 1,
+      "required": false,
+      "sha256": "1b7e3580c922bbb586e3f128b6864cb41ec4d58cda618e7941a82c339cb9faf3",
+      "status": "READ"
+    },
+    {
+      "byte_count": 102321,
+      "kind": "jsonl",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/logs/toolbox-calls.jsonl",
+      "present": true,
+      "record_count": 32,
+      "required": false,
+      "sha256": "3357dd7075294704d20c5160bfff8376e02dba414fc36267fc0f165178869067",
+      "status": "READ"
+    },
+    {
+      "kind": "jsonl",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/logs/turn-finalizations.jsonl",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "byte_count": 161,
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/party.json",
+      "present": true,
+      "record_count": 1,
+      "required": false,
+      "sha256": "26a5913b3b0efd5f053d9f48d8793fd3b8e655796353d38d375208915423df03",
+      "status": "READ"
+    },
+    {
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/development-settlements/boundaries/simon-page.json",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/exceptional-effects.json",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "byte_count": 299,
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/flags.json",
+      "present": true,
+      "record_count": 1,
+      "required": false,
+      "sha256": "32038074c8577ba81db9d84869cfcd772596fc187fcaadd996a964d1270f3f21",
+      "status": "READ"
+    },
+    {
+      "byte_count": 228,
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/investigator-state/simon-page.json",
+      "present": true,
+      "record_count": 1,
+      "required": false,
+      "sha256": "42e8bf419d4ab342f1bc4babd75f8920733d550372fc73eacb41fe17fc586b88",
+      "status": "READ"
+    },
+    {
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/npc-engagement-receipts.json",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/npc-first-impressions.json",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/roll-dispositions.json",
+      "present": false,
+      "required": false,
+      "status": "MISSING"
+    },
+    {
+      "byte_count": 708,
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/save/world-state.json",
+      "present": true,
+      "record_count": 1,
+      "required": false,
+      "sha256": "e7b978eb92d3032e2642ae3d4e57c905e06a15a21593516dfc94d6d7ba6e86e2",
+      "status": "READ"
+    },
+    {
+      "byte_count": 24,
+      "kind": "json",
+      "path": "sandbox/.coc/campaigns/shreds-e2e-0806/scenario/clue-graph.json",
+      "present": true,
+      "projection": "structured_delivery_kind_counts_only_no_clue_content",
+      "record_count": 1,
+      "required": false,
+      "sha256": "4d044e07aaa912eea742256d2e8c0ac869dec7c62fede345fa3abc30316ce303",
+      "status": "READ"
+    },
+    {
+      "byte_count": 5339,
+      "kind": "json",
+      "path": "sandbox/.coc/investigators/simon-page/character.json",
+      "present": true,
+      "record_count": 1,
+      "required": false,
+      "sha256": "097a0d6e27d27bf2584d1b93dae82a88fd1fc32be2387e1374ce806aa7ed08f3",
+      "status": "READ"
+    },
+    {
+      "byte_count": 1506,
+      "kind": "json",
+      "path": "sandbox/.coc/investigators/simon-page/creation.json",
+      "present": true,
+      "record_count": 1,
+      "required": false,
+      "sha256": "72dddcff32263e512f3edcb0db3b039d63dab7b26fc8ae31da34a8d252a6b3c0",
+      "status": "READ"
+    }
+  ],
+  "transcript": {
+    "dialogue_record_count": 18,
+    "records": [
+      {
+        "role": "player",
+        "source_line": 1,
+        "speaker": "player",
+        "text": "你好，我想开一局新的《克苏鲁的呼唤》。请用全新战役，战役 ID 就叫 shreds-e2e-0806。",
+        "turn": 1
+      },
+      {
+        "role": "keeper",
+        "source_line": 2,
+        "speaker": "keeper",
+        "text": "全新战役已创建。\n\n**战役 ID**：`shreds-e2e-0806`  \n**规则集**：CoC 7e  \n**对白语言**：简体中文\n\n目前还没有绑定剧本、也没有调查员。你可以从下面选一条路继续：\n\n1. **内置开箱即玩**\n   - **The Haunting**（1920s 波士顿 Corbitt 宅）  \n     预生成角色：埃莉诺·里德（记者）/ 托马斯·海斯（私家侦探）\n   - **The White War**（1916 阿尔卑斯前线）— 暂无预生成角色\n\n2. **自建调查员**  \n   先建角色再进桌；可选用 Quick Fire 数组、掷骰分配、点买等。\n\n3. **绑定自备 PDF 剧本**  \n   提供剧本源包路径，走 PDF 导入开场。\n\n你想走哪条？若选内置，直接说场景 + 预生成角色即可。",
+        "turn": 2
+      },
+      {
+        "role": "player",
+        "source_line": 3,
+        "speaker": "player",
+        "text": "我有剧本 PDF，走导入。路径是：/Users/haoli/Documents/TRPG/克苏鲁的呼唤/[COC模组翻译]褴褛之王-The King of Shreds and Patches.pdf",
+        "turn": 3
+      },
+      {
+        "role": "keeper",
+        "source_line": 4,
+        "speaker": "keeper",
+        "text": "绑定 PDF 需要的是 **源包目录**（含 `manifest.json` 的文件夹），不能直接传单个 PDF 文件。\n\n你给的路径是：\n`/Users/haoli/Documents/TRPG/克苏鲁的呼唤/[COC模组翻译]褴褛之王-The King of Shreds and Patches.pdf`\n\n这是文件本身，绑定会失败。\n\n请提供 **Codex pdf-skill 源包目录** 路径，例如类似：\n\n```text\n/path/to/some-bundle/          ← 目录\n  ├── manifest.json\n  ├── pages/ 或 normalized.json 等\n  └── ...\n```\n\n若你还没有把该 PDF 编成源包，可以：\n\n1. **给我已有源包目录的绝对路径**（推荐，能直接 `scenario.bind_pdf`）  \n2. 或说明你希望我怎么处理——例如你是否已有同名/附近的 bundle 目录、是否要走 Progressive OCR 建 corpus  \n\n把正确的 **bundle 目录** 路径发来后，我继续导入《褴褛之王》。",
+        "turn": 4
+      },
+      {
+        "role": "player",
+        "source_line": 5,
+        "speaker": "player",
+        "text": "我只有这个 PDF 文件，没有现成的源包目录。能不能直接用这份 PDF 导入开局？",
+        "turn": 5
+      },
+      {
+        "role": "keeper",
+        "source_line": 6,
+        "speaker": "keeper",
+        "text": "**不能。** 在本桌面里，`scenario.bind_pdf` 只接受 **Codex pdf-skill 源包目录**（目录内要有 `manifest.json`），**不能直接绑单个 PDF 文件**。\n\n我这边也试了 Progressive OCR 把 PDF 编成源包，环境里 **python 不可用**（`spawn python ENOENT`），所以这台桌面当前也做不了「现场从 PDF 建包」。\n\n### 你现在可以选的路\n\n1. **另开能写文件/有 python 的环境**，先把这份 PDF 编成源包目录，再把 **bundle 目录绝对路径** 发我，我继续绑《褴褛之王》并走开场事实采纳。  \n2. **改用内置 starter 先开一局**（如 *The Haunting* + 预生成角色），不依赖 PDF。  \n3. **继续这个空战役 `shreds-e2e-0806`**，不绑 PDF，自建调查员后做无源本的自由桌（没有源本事实/开场锚点）。\n\n战役 `shreds-e2e-0806` 还在，只是还没绑上剧本。  \n你手头如果已经有编好的源包目录，直接把路径贴过来；否则告诉我选 2 还是 3。",
+        "turn": 6
+      },
+      {
+        "role": "player",
+        "source_line": 7,
+        "speaker": "player",
+        "text": "还是想用刚才那份《褴褛之王》的 PDF 开这局。战役还是 shreds-e2e-0806，请继续帮我导入并开场；如果已经在处理了就接着做。",
+        "turn": 7
+      },
+      {
+        "role": "keeper",
+        "source_line": 8,
+        "speaker": "keeper",
+        "text": "[host_error] Grok Build stream translation failed",
+        "turn": 8
+      },
+      {
+        "role": "player",
+        "source_line": 9,
+        "speaker": "player",
+        "text": "你还在吗？我想继续《褴褛之王》这局，请接着导入和开场。",
+        "turn": 9
+      },
+      {
+        "role": "keeper",
+        "source_line": 10,
+        "speaker": "keeper",
+        "text": "开场资料解析失败，游戏尚未开始。系统保留了当前进度；你可以重试原来的开场步骤，在资料就绪前不会自行编写剧情。",
+        "turn": 10
+      },
+      {
+        "role": "player",
+        "source_line": 11,
+        "speaker": "player",
+        "text": "好的，我准备好了。请继续把开场弄好，我是西蒙·佩奇的话就按这个角色开吧。",
+        "turn": 11
+      },
+      {
+        "role": "keeper",
+        "source_line": 12,
+        "speaker": "keeper",
+        "text": "开场资料解析失败，游戏尚未开始。系统保留了当前进度；你可以重试原来的开场步骤，在资料就绪前不会自行编写剧情。",
+        "turn": 12
+      },
+      {
+        "role": "player",
+        "source_line": 13,
+        "speaker": "player",
+        "text": "我还在，战役 shreds-e2e-0806，角色西蒙·佩奇。请继续推进开场，我想开始玩。",
+        "turn": 13
+      },
+      {
+        "role": "keeper",
+        "source_line": 14,
+        "speaker": "keeper",
+        "text": "（本回合无玩家可见正文：空回复或仅工具调用/硬门等待）",
+        "turn": 14
+      },
+      {
+        "role": "player",
+        "source_line": 15,
+        "speaker": "player",
+        "text": "如果开场还在准备，就请再试一次把它跑完；我在等开场叙述。",
+        "turn": 15
+      },
+      {
+        "role": "keeper",
+        "source_line": 16,
+        "speaker": "keeper",
+        "text": "（本回合无玩家可见正文：空回复或仅工具调用/硬门等待）",
+        "turn": 16
+      },
+      {
+        "role": "player",
+        "source_line": 17,
+        "speaker": "player",
+        "text": "还是没有开场吗？请告诉我现在卡在哪一步，或者直接开场。",
+        "turn": 17
+      },
+      {
+        "role": "keeper",
+        "source_line": 18,
+        "speaker": "keeper",
+        "text": "（本回合无玩家可见正文：空回复或仅工具调用/硬门等待）",
+        "turn": 18
+      }
+    ],
+    "source_record_count": 18
+  },
+  "visible_consequences": []
+}

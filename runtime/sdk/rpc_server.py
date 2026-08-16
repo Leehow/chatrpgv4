@@ -31,6 +31,7 @@ import json
 import os
 import sys
 import threading
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -39,6 +40,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from runtime.sdk import api as sdk  # noqa: E402
+from runtime.sdk import campaign_admin  # noqa: E402
 from runtime.sdk import web_views  # noqa: E402
 
 _WORKSPACE: Path = _REPO_ROOT
@@ -99,6 +101,16 @@ def _m_get_state(params: dict[str, Any]) -> Any:
     return sdk.get_state(session_id)
 
 
+def _m_project_campaign_state(params: dict[str, Any]) -> Any:
+    campaign_id = str(params.get("campaign_id") or "").strip()
+    if not campaign_id:
+        raise ValueError("campaign_id is required")
+    investigator_id = str(params.get("investigator_id") or "").strip() or None
+    return web_views.project_campaign_state(
+        _WORKSPACE, campaign_id, investigator_id
+    )
+
+
 def _m_close_session(params: dict[str, Any]) -> dict[str, Any]:
     session_id = str(params.get("session_id") or "").strip()
     if not session_id:
@@ -117,13 +129,42 @@ def _m_campaign_compat(params: dict[str, Any]) -> dict[str, Any]:
 def _m_display_character(params: dict[str, Any]) -> dict[str, Any]:
     investigator_id = str(params.get("investigator_id") or "").strip()
     play_language = str(params.get("play_language") or "zh-Hans")
+    campaign_id = str(params.get("campaign_id") or "").strip() or None
     if not investigator_id:
         raise ValueError("investigator_id is required")
     return {
         "character": web_views.display_character(
-            _WORKSPACE, investigator_id, play_language
+            _WORKSPACE, investigator_id, play_language, campaign_id=campaign_id
         )
     }
+
+
+def _m_item_use(params: dict[str, Any]) -> dict[str, Any]:
+    """Consume a consumable via the canonical state.item_use tool.
+
+    The sidebar is the caller; all semantics, idempotency, and persistence
+    stay in the plugin toolbox — this method is transport only.
+    """
+    campaign_id = str(params.get("campaign_id") or "").strip()
+    investigator_id = str(params.get("investigator_id") or "").strip()
+    item_id = str(params.get("item_id") or "").strip()
+    if not campaign_id or not investigator_id or not item_id:
+        raise ValueError("campaign_id, investigator_id and item_id are required")
+    count = params.get("count")
+    args: dict[str, Any] = {
+        "investigator": investigator_id,
+        "item_id": item_id,
+        "decision_id": f"ui-item-use-{uuid.uuid4().hex}",
+        "note": "used from the sidebar",
+    }
+    if isinstance(count, int) and not isinstance(count, bool) and count > 1:
+        args["count"] = count
+    toolbox = web_views._load_plugin_module(_WORKSPACE, "coc_toolbox")
+    envelope = toolbox.run_tool("state.item_use", _WORKSPACE, campaign_id, args)
+    if not envelope.get("ok"):
+        error = envelope.get("error") or {}
+        raise ValueError(str(error.get("message") or "state.item_use failed"))
+    return envelope
 
 
 def _m_list_library_modules(_params: dict[str, Any]) -> dict[str, Any]:
@@ -136,6 +177,39 @@ def _m_install_module(params: dict[str, Any]) -> Any:
     if not module_id or not campaign_id:
         raise ValueError("module_id and campaign_id are required")
     return web_views.install_module(_WORKSPACE, module_id, campaign_id)
+
+
+def _m_campaign_rename(params: dict[str, Any]) -> dict[str, Any]:
+    campaign_id = str(params.get("campaign_id") or "").strip()
+    if not campaign_id:
+        raise ValueError("campaign_id is required")
+    if params.get("title") is None:
+        raise ValueError("title is required")
+    return campaign_admin.rename_campaign(
+        _WORKSPACE, campaign_id, params.get("title")
+    )
+
+
+def _m_campaign_trash(params: dict[str, Any]) -> dict[str, Any]:
+    campaign_id = str(params.get("campaign_id") or "").strip()
+    if not campaign_id:
+        raise ValueError("campaign_id is required")
+    return campaign_admin.trash_campaign(_WORKSPACE, campaign_id)
+
+
+def _m_campaign_trash_list(_params: dict[str, Any]) -> dict[str, Any]:
+    return {"entries": campaign_admin.list_trash(_WORKSPACE)}
+
+
+def _m_campaign_trash_restore(params: dict[str, Any]) -> dict[str, Any]:
+    trash_key = str(params.get("trash_key") or "").strip()
+    if not trash_key:
+        raise ValueError("trash_key is required")
+    return campaign_admin.restore_campaign(_WORKSPACE, trash_key)
+
+
+def _m_campaign_trash_purge(_params: dict[str, Any]) -> dict[str, Any]:
+    return campaign_admin.purge_expired(_WORKSPACE)
 
 
 def _m_public_transcript_base(params: dict[str, Any]) -> dict[str, Any]:
@@ -162,6 +236,8 @@ def _m_send(params: dict[str, Any], request_id: Any) -> Any:
         raise ValueError("input is required")
     provider = str(params.get("provider") or "").strip()
     model = str(params.get("model") or "").strip()
+    thinking = str(params.get("thinking") or "").strip()
+    player_intent = params.get("player_intent")
 
     def _on_stream(event: dict[str, Any]) -> None:
         try:
@@ -182,7 +258,25 @@ def _m_send(params: dict[str, Any], request_id: Any) -> Any:
         if model:
             saved["COC_KEEPER_MODEL_ID"] = os.environ.get("COC_KEEPER_MODEL_ID")
             os.environ["COC_KEEPER_MODEL_ID"] = model
-        events = sdk.send(session_id, player_input, on_keeper_stream=_on_stream)
+        if provider and model:
+            # Both PDF child lanes run inside this Keeper turn. Opening text
+            # and any visual fallback use the same top-bar selection as the
+            # Keeper, never a separate desktop/static model setting.
+            selected_model = f"{provider}/{model}"
+            for key in ("COC_PI_OPENING_MODEL", "COC_PI_PDF_MODEL"):
+                saved[key] = os.environ.get(key)
+                os.environ[key] = selected_model
+        if thinking:
+            saved["COC_KEEPER_MODEL_THINKING"] = os.environ.get(
+                "COC_KEEPER_MODEL_THINKING"
+            )
+            os.environ["COC_KEEPER_MODEL_THINKING"] = thinking
+        events = sdk.send(
+            session_id,
+            player_input,
+            player_intent=player_intent,
+            on_keeper_stream=_on_stream,
+        )
         return {"events": events}
     finally:
         for key, value in saved.items():
@@ -197,9 +291,16 @@ _METHODS: dict[str, Callable[..., Any]] = {
     "setup_workspace": _m_setup_workspace,
     "create_session": _m_create_session,
     "get_state": _m_get_state,
+    "project_campaign_state": _m_project_campaign_state,
     "close_session": _m_close_session,
     "campaign_compat": _m_campaign_compat,
+    "campaign_rename": _m_campaign_rename,
+    "campaign_trash": _m_campaign_trash,
+    "campaign_trash_list": _m_campaign_trash_list,
+    "campaign_trash_restore": _m_campaign_trash_restore,
+    "campaign_trash_purge": _m_campaign_trash_purge,
     "display_character": _m_display_character,
+    "item_use": _m_item_use,
     "list_library_modules": _m_list_library_modules,
     "install_module": _m_install_module,
     "public_transcript_base": _m_public_transcript_base,

@@ -272,6 +272,11 @@ contract above still applies. This is the natural rhythm:
    taken by a successful disarm maneuver commits automatically when the
    combat ends. Looting a downed or surrendered opponent is explicit:
    `state.item_grant` to the looter plus `state.item_remove` from the NPC.
+   Use-it-up gear (bandages, laudanum doses, torches, a handful of shells
+   carried loose) is granted with `consumable: true` and `quantity: N`; when
+   the fiction spends it, call `state.item_use` — the charge count drops and
+   at zero the item leaves the inventory. `state.item_use` rejects
+   non-consumables: losing or spending those is `state.item_remove`.
 
 If a tool reports a transient transaction or lock failure, retry the same
 call with the same `decision_id` within the toolbox's bounded retry policy.

@@ -10,6 +10,12 @@ const mod = await import(pathToFileURL(resolve(root, "plugins/coc-keeper/pi/lib/
 const full = mod.fullWelcomeGuide();
 const loadingFresh = mod.startupLoadingMessage(null);
 const loadingResume = mod.startupLoadingMessage("startup-campaign");
+const loadingSetup = mod.startupLoadingMessage("startup-campaign", "character-setup");
+const setupOpen = mod.tableOpenInstruction(
+  "startup-campaign",
+  "/workspace",
+  "character-setup",
+);
 const resume = mod.resumeWelcomeGuide();
 const forResume = mod.welcomeBodyForReason("resume");
 const forNew = mod.welcomeBodyForReason("new");
@@ -48,6 +54,9 @@ let resumedHiddenResumeInstruction = false;
 let loadingFirst = false;
 let welcomeAfterLoading = false;
 let resumeLoadingFirst = false;
+let rpcBareNoAutoOpen = false;
+let rpcAttachedAutoOpen = false;
+const rpcSent = [];
 try {
   const startWelcome = mod.registerCocWelcome(
     lifecyclePi,
@@ -117,6 +126,42 @@ try {
       '"operation":"session.resume"',
     )
   );
+  const rpcPi = {
+    registerCommand: () => {},
+    sendMessage: (message, options) => {
+      rpcSent.push({ message, options });
+    },
+  };
+  const rpcCtx = {
+    cwd: "/workspace",
+    mode: "rpc",
+    hasUI: false,
+    sessionManager: { getEntries: () => [] },
+  };
+  const startRpcWelcome = mod.registerCocWelcome(
+    rpcPi,
+    () => lifecycleClient,
+    lifecycleAgentDir,
+  );
+  await startRpcWelcome({ reason: "startup" }, rpcCtx, "startup-campaign");
+  rpcBareNoAutoOpen = !rpcSent.some((entry) => (
+    entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
+    && entry.options?.triggerTurn === true
+  ));
+
+  rpcSent.length = 0;
+  const previousAttached = process.env.COC_PI_ATTACHED_UI;
+  process.env.COC_PI_ATTACHED_UI = "1";
+  try {
+    await startRpcWelcome({ reason: "startup" }, rpcCtx, "startup-campaign");
+  } finally {
+    if (previousAttached === undefined) delete process.env.COC_PI_ATTACHED_UI;
+    else process.env.COC_PI_ATTACHED_UI = previousAttached;
+  }
+  rpcAttachedAutoOpen = rpcSent.some((entry) => (
+    entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
+    && entry.options?.triggerTurn === true
+  ));
 } finally {
   rmSync(lifecycleAgentDir, { recursive: true, force: true });
 }
@@ -137,6 +182,24 @@ process.stdout.write(JSON.stringify({
   fullHasNew: full.includes("pi-coc --new"),
   loadingFreshText: loadingFresh.includes("正在加载"),
   loadingResumeText: loadingResume.includes("正在恢复战役 startup-campaign"),
+  loadingSetupText: loadingSetup.includes("正在打开建卡引导"),
+  setupOpenUsesContract: (
+    setupOpen.includes('"operation":"setup.investigator_contract"')
+    && setupOpen.includes('"campaign":"startup-campaign"')
+    && setupOpen.includes('"campaign_id":"startup-campaign"')
+    && setupOpen.includes("coc-character")
+    // Startup gate compatibility: resume first, contract immediately after.
+    && setupOpen.indexOf('"operation":"session.resume"') !== -1
+    && setupOpen.indexOf('"operation":"session.resume"')
+      < setupOpen.indexOf('"operation":"setup.investigator_contract"')
+    && setupOpen.includes("Do NOT call setup.inspect")
+    && setupOpen.includes("exactly one concrete character-creation question")
+    && setupOpen.includes("Never narrate your workflow")
+  ),
+  setupIntentFromEnv: mod.tableOpenIntentFromEnv({
+    COC_PI_TABLE_INTENT: "character-setup",
+  }) === "character-setup",
+  continueIntentDefault: mod.tableOpenIntentFromEnv({}) === "continue",
   loadingFirst,
   welcomeAfterLoading,
   resumeLoadingFirst,
@@ -169,5 +232,9 @@ process.stdout.write(JSON.stringify({
   resumedHiddenResumeInstruction,
   autoOpenFreshStartup: mod.shouldAutoOpenTable("startup", true) === true,
   noAutoOpenResumeHistory: mod.shouldAutoOpenTable("startup", false) === false,
+  attachedUiHelper: mod.attachedUiEnabled({ COC_PI_ATTACHED_UI: "1" }) === true,
+  attachedUiOff: mod.attachedUiEnabled({}) === false,
+  rpcBareNoAutoOpen,
+  rpcAttachedAutoOpen,
 }, null, 2));
 process.stdout.write("\n");

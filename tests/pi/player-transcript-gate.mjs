@@ -2,19 +2,16 @@ import "./_lib/preload-embedded-pi.mjs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
+import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
-const { runAgentLoop } = await import(path.join(
-  root,
-  "runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/"
-    + "node_modules/@earendil-works/pi-agent-core/dist/index.js",
-));
-const { createAssistantMessageEventStream } = await import(path.join(
-  root,
-  "runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/"
-    + "node_modules/@earendil-works/pi-ai/dist/index.js",
-));
+const { runAgentLoop } = await import(
+  embeddedPiFile(root, "pi-agent-core", "dist/index.js")
+);
+const { createAssistantMessageEventStream } = await import(
+  embeddedPiFile(root, "pi-ai", "dist/index.js")
+);
 const handlers = new Map();
 const openingContinuationGate = new main.OpeningTerminalContinuationGate();
 const digest = (text) => (

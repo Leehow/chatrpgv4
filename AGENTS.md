@@ -31,16 +31,17 @@ They share one canonical plugin and rules kernel, but they are separate
 development scopes. Never treat work requested for one track as permission to
 modify, repair, synchronize, or redesign the other track.
 
-Before resuming or starting any implementation, repair, refactor, test-writing,
-or integration work that could affect either track, ask the user exactly:
-`继续开发 Codex 版还是 pi-coc 版？`
-Do not make code-affecting changes until the user answers. Prior conversation,
-an existing dirty tree, a previous worker handoff, an apparently obvious
-target, or a request to “继续” does not substitute for this explicit choice.
+The standing default is `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`. Declare that
+lock and proceed. Do not ask which track to use for ordinary work.
 
-After the user chooses, declare `ACTIVE_IMPLEMENTATION_TRACK=codex` or
-`ACTIVE_IMPLEMENTATION_TRACK=pi-coc` and keep that track locked for the entire
-task:
+Ask the user exactly `继续开发 Codex 版还是 pi-coc 版？` only when the user
+explicitly names the Codex track, or the requested work is confined to
+Codex-host implementation, adapters, prompts, launchers, tests, or
+documentation. Do not treat prior conversation, a dirty tree, a worker
+handoff, an apparently obvious target, or a request to “继续” as a Codex
+switch. After an explicit Codex switch, declare
+`ACTIVE_IMPLEMENTATION_TRACK=codex`; otherwise keep `pi-coc`. Keep the
+declared track locked for the entire task:
 
 - With `ACTIVE_IMPLEMENTATION_TRACK=codex`, Pi-Coc implementation, adapters,
   prompts, launchers, tests, and documentation are off-limits.
@@ -61,8 +62,10 @@ task:
   opposite or cross-track scope, do not absorb, clean, revert, complete, or
   commit them. Report the conflict and wait for direction.
 
-Any result produced without the required explicit track choice is
-`invalid-for-integration` for both tracks, even if component tests pass.
+Any result that edits the opposite track, or that edits shared files without
+explicit authorization, is `invalid-for-integration` for both tracks, even if
+component tests pass. Ordinary pi-coc work does not require a spoken
+per-task track choice.
 
 ## Standing Memory: Never Destroy Playtest Evidence Without Authorization
 
@@ -469,11 +472,20 @@ play logs and exits 2 rather than granting a vacuous pass on zero records.
 It consumes canonical skills and rules from `plugins/coc-keeper/`; project brain
 selection lives at `.coc/runtime.json`.
 
-`web/` is a thin browser surface over that same SDK (React UI plus a stdlib
-HTTP/SSE bridge; no rules or narration semantics of its own). Build with
-`cd web/frontend && npm install && npm run build`, then serve via
-`uv run --frozen python web/server/app.py --workspace . --port 8765`.
-See `web/README.md`.
+`web/` and the Electron shell in `desktop/` are the **UI of the pi-coc
+interactive host**. The product turn channel is a `pi-coc` RPC session
+(`pi --mode rpc` with the canonical COC package loaded): the browser/Electron
+surface renders that host's event stream and sends player input, so character
+creation, onboarding, steward dispatch, live turns, and output boundaries all
+come from the same pi-coc host a terminal player gets — never from a second
+keeper shell with its own prompt or turn contract. The legacy web turn path
+over `runtime/sdk` + `runtime/adapters/keeper` (per-message finalization
+transport gate, `web-char-setup-draft` shell, chargen kickoff prompt) is
+**deprecated for the UI**: do not extend it, and retire it from web/desktop as
+the pi-coc RPC bridge lands. `runtime/` remains the open headless interface
+for unattended acceptance only, not the web/desktop turn channel. Campaign
+management and read-only state projections may keep their file-level
+implementations. See `web/README.md`.
 
 This is clean-slate. Reject/delete campaign/runtime/cache state without an exact
 current schema/version, then start fresh. Never add migrations, dual readers,

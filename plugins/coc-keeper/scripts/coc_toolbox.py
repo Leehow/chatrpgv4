@@ -13,9 +13,10 @@ reference. Tools live in four namespaces:
   never block.
 - ``director.*`` deterministic advisory scoring (pacing, storylets, secrets).
   Suggestions only; the keeper may ignore them.
-- ``state.*``   transactional writes to the campaign save. Hard guarantees:
-  atomic writes, ``decision_id`` idempotency, journal receipts. Narrative
-  legality checks degrade to warnings.
+- ``state.*``   transactional writes to the campaign save, plus a few
+  read-only queries (``state.inventory_list``) marked ``access=query``.
+  Writes keep atomicity, ``decision_id`` idempotency, and journal receipts.
+  Narrative legality checks degrade to warnings.
 
 Envelope: every tool returns ``{ok, tool, data, warnings, hints}``.
 
@@ -1041,11 +1042,13 @@ def _log_tool_call(
     """Append a tool-call receipt for runtime event projection (best effort)."""
     if ctx is None or ctx.campaign_dir is None:
         return None
+    spec = TOOLS.get(name) or {}
     record = {
         "schema_version": 2,
         "ts": _now_iso(),
         "tool": name,
         "ok": bool(envelope.get("ok")),
+        "access": spec.get("access", "mutation"),
         "args": {k: v for k, v in args.items() if k != "seed"},
         # This is Keeper-internal audit evidence.  It deliberately preserves
         # structured tool results so a later JSON battle report can prove what
@@ -1067,7 +1070,6 @@ def _log_tool_call(
         # settlement.  Preserve that distinction so the bounded manifest can
         # ignore this row without weakening its post-journal mutation gate.
         record["idempotent_replay"] = True
-    spec = TOOLS.get(name) or {}
     if (
         envelope.get("ok") is True
         and spec.get("audit_mode") == "reference"
@@ -1166,10 +1168,10 @@ def _error_recovery_hints(code: str) -> list[str]:
             "omit the mechanics_placements parameter entirely to use safe auto-placement; only supply explicit placements when you need deliberate interleaving and can guarantee every source exactly once with valid after_paragraph indices"
         ],
         "settlement_after_journal": [
-            "state.journal already committed for this turn — call turn.finalize NOW with your current draft; do NOT call any more state.*/rules.* tools after journal; all mechanical writes must happen BEFORE state.journal"
+            "state.journal already committed for this turn — call turn.finalize NOW with your current draft; do NOT call any more mutating state.* or rules.* tools after journal; read-only queries such as state.inventory_list remain legal; all mechanical writes must happen BEFORE state.journal"
         ],
         "turn_pending_finalization": [
-            "state.journal already committed for this turn — call turn.finalize NOW; no further state mutations are allowed until this turn is finalized"
+            "state.journal already committed for this turn — call turn.finalize NOW; no further state mutations are allowed until this turn is finalized; read-only queries such as state.inventory_list remain legal"
         ],
         "opening_setup_incomplete": [
             "follow error.details.next_operation exactly when present; this is "
@@ -1351,6 +1353,104 @@ def _pi_opening_character_setup_complete(
         and all(isinstance(value, str) and value for value in active_ids)
         and set(active_ids).issubset(set(investigator_ids))
     )
+
+
+_PLACEHOLDER_CREATION_METHODS = frozenset({"complete_sheet_placeholder"})
+
+
+def _campaign_has_confirmed_investigator(
+    campaign_dir: Path,
+    campaign_id: str,
+) -> bool:
+    """True when the party has a finished investigator, not a setup placeholder.
+
+    Electron/web links ``complete_sheet_placeholder`` so the UI has a sheet
+    during guided creation. That party row is not character-creation completion.
+    """
+    if not _pi_opening_character_setup_complete(campaign_dir, campaign_id):
+        return False
+    party_path = campaign_dir / "party.json"
+    try:
+        party = json.loads(party_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    investigator_ids = party.get("investigator_ids")
+    if not isinstance(investigator_ids, list):
+        return False
+    investigators_root = campaign_dir.parent.parent / "investigators"
+    for investigator_id in investigator_ids:
+        if not isinstance(investigator_id, str) or not investigator_id:
+            continue
+        creation_path = investigators_root / investigator_id / "creation.json"
+        try:
+            creation = json.loads(creation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return True
+        if not isinstance(creation, dict):
+            return True
+        method = str(creation.get("method") or "")
+        if method not in _PLACEHOLDER_CREATION_METHODS:
+            return True
+    return False
+
+
+def _character_creation_resume_projection(
+    campaign_dir: Path,
+    campaign_id: str,
+) -> dict[str, Any] | None:
+    """Player-safe creation pointer for an unlinked campaign resume.
+
+    ``session.resume`` is the first allowed campaign read after host restart.
+    Without this projection the KP is told not to rescan ``.coc`` and therefore
+    cannot discover ``campaign.character_creation.briefing_path``.
+    """
+    if _campaign_has_confirmed_investigator(campaign_dir, campaign_id):
+        return None
+    try:
+        campaign = coc_state.load_campaign_state(campaign_dir)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(campaign, dict):
+        return None
+    recorded = campaign.get("character_creation")
+    recorded = recorded if isinstance(recorded, dict) else {}
+    projection: dict[str, Any] = {
+        "status": "incomplete",
+        "campaign_id": str(campaign_id),
+    }
+    era = campaign.get("era")
+    if isinstance(era, str) and era.strip():
+        projection["era"] = era.strip()
+    play_language = campaign.get("play_language")
+    if isinstance(play_language, str) and play_language.strip():
+        projection["play_language"] = play_language.strip()
+    title = campaign.get("title")
+    if isinstance(title, str) and title.strip():
+        projection["title"] = title.strip()
+    facts = campaign.get("source_fast_facts")
+    if isinstance(facts, dict):
+        place = facts.get("place")
+        if isinstance(place, dict) and place.get("status") == "source":
+            value = place.get("value")
+            if isinstance(value, str) and value.strip():
+                projection["place"] = value.strip()
+    briefing_path = recorded.get("briefing_path")
+    if isinstance(briefing_path, str) and briefing_path.strip():
+        projection["briefing_path"] = briefing_path.strip()
+        language = recorded.get("language")
+        if isinstance(language, str) and language.strip():
+            projection["language"] = language.strip()
+        return projection
+    projection["render_operation"] = {
+        "operation": "setup.invoke",
+        "invoke_via": "coc_invoke",
+        "campaign": str(campaign_id),
+        "arguments": {
+            "kind": "campaign.render_briefing",
+            "payload": {"campaign_id": str(campaign_id)},
+        },
+    }
+    return projection
 
 
 def _pi_opening_setup_gate(
@@ -1872,6 +1972,25 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             message += (
                 "; this is a top-level gateway tool, not a coc_invoke "
                 "operation — call it directly as its own tool"
+            )
+        elif name in _CUSTOM_SETUP_OPERATION_KINDS:
+            payload: dict[str, Any] = {}
+            if campaign_id:
+                payload["campaign_id"] = campaign_id
+            corrected: dict[str, Any] = {
+                "operation": "setup.invoke",
+                "invoke_via": "coc_invoke",
+                "arguments": {
+                    "kind": name,
+                    "payload": payload,
+                },
+            }
+            if campaign_id:
+                corrected["campaign"] = campaign_id
+            message += (
+                "; this is a setup.invoke kind, not a top-level operation — "
+                "retry only this corrected call: "
+                + json.dumps(corrected, ensure_ascii=False)
             )
         else:
             close = _close_matches(name, list(TOOLS), n=3, cutoff=0.6)
@@ -3397,16 +3516,45 @@ _LUCK_SPEND_OPERATION_FIELDS = frozenset({
 })
 
 
-def _roll_dice_semantic_operation(args: dict[str, Any]) -> dict[str, Any]:
-    """Bind player/keeper meaning while treating the test RNG seed as transport."""
-    expression = str(args["expression"]).strip().upper()
-    if coc_roll.ROLL_PATTERN.fullmatch(expression) is None:
-        raise ValueError(
-            f"unsupported dice expression: {args['expression']!r}; pass one "
+_DICE_MULTIPLIER_PATTERN = re.compile(
+    r"^(?P<base>\d+D\d+(?:[+-]\d+)?)[*Xx×](?P<factor>\d+)$"
+)
+
+
+def _unsupported_dice_expression_message(raw: str) -> str:
+    """Steer one legal NdM(+/-k) call; never evaluate * / x / batch syntax."""
+    compact = str(raw).strip().replace(" ", "").upper().replace("×", "X")
+    if ";" in compact:
+        return (
+            f"unsupported dice expression: {raw!r}; pass one "
             "NdM(+/-k) expression per call (e.g. '3D6', '2D6+6'); there is no "
             "batch or multiplier syntax — roll each part of an array as its "
             "own rules.roll_dice call"
         )
+    match = _DICE_MULTIPLIER_PATTERN.fullmatch(compact)
+    if match is not None:
+        base = match.group("base").upper()
+        factor = match.group("factor")
+        return (
+            f"unsupported dice expression: {raw!r}; {base}x{factor} is a "
+            "post-roll characteristic conversion, not a dice expression. "
+            f"Call rules.roll_dice once with expression={base!r}; multiply "
+            f"the returned total by {factor} when writing the sheet. There "
+            "is no multiplier or batch syntax"
+        )
+    return (
+        f"unsupported dice expression: {raw!r}; pass one "
+        "NdM(+/-k) expression per call (e.g. '3D6', '2D6+6'); there is no "
+        "batch or multiplier syntax — roll each part of an array as its "
+        "own rules.roll_dice call"
+    )
+
+
+def _roll_dice_semantic_operation(args: dict[str, Any]) -> dict[str, Any]:
+    """Bind player/keeper meaning while treating the test RNG seed as transport."""
+    expression = str(args["expression"]).strip().upper()
+    if coc_roll.ROLL_PATTERN.fullmatch(expression) is None:
+        raise ValueError(_unsupported_dice_expression_message(args["expression"]))
     operation = {
         "expression": expression,
         "reason": str(args["reason"]) if args.get("reason") is not None else None,
@@ -8085,7 +8233,10 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
                     "invalid_param",
                     "Quick Fire investigator.create payload campaign_id and "
                     "luck_roll_receipt.campaign_id must equal the current "
-                    "top-level campaign",
+                    "top-level campaign "
+                    f"(top-level={ctx.campaign_id!r}, "
+                    f"payload.campaign_id={declared_campaign!r}, "
+                    f"luck_roll_receipt.campaign_id={referenced_campaign!r})",
                 )
     opening_setup_gate = _pi_opening_setup_gate(
         ctx.root, payload_campaign_id or None,
@@ -11310,11 +11461,24 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
     scene = _scene_by_id(ctx.story_graph, world.get("active_scene_id"))
     affordance_id = str(args.get("affordance_id") or "").strip()
     target_npc_id = str(args.get("target_npc_id") or "").strip()
-    if bool(affordance_id) == bool(target_npc_id):
+    combat = _combat_state(ctx)
+    pending = combat.get("pending_attack")
+    if isinstance(pending, dict) and target_npc_id:
+        raise ToolError(
+            "invalid_param",
+            "target_npc_id cannot replace the actor bound to a pending attack",
+        )
+    if not isinstance(pending, dict) and bool(affordance_id) == bool(target_npc_id):
         raise ToolError(
             "invalid_param", "provide exactly one of affordance_id or target_npc_id",
         )
-    if target_npc_id:
+    if isinstance(pending, dict):
+        # A pending attack already freezes both actors, weapon and command
+        # identity.  Resolving the player's exact defense must not require the
+        # UI/Keeper to rediscover the authored route that created it.
+        affordance = None
+        operation = {}
+    elif target_npc_id:
         presence_document = _load_npc_presence_document(ctx)
         live_presence = presence_document["presence"]
         active_scene_id = str(world.get("active_scene_id") or "")
@@ -11493,7 +11657,6 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             + ", ".join(missing)
         )
 
-    combat = _combat_state(ctx)
     loaded_ammunition_before = _loaded_ammunition_snapshot(
         combat, investigator_id, investigator_profile
     )
@@ -11502,7 +11665,6 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             "the prior combat is concluded; this chosen attack starts a new "
             "authored encounter with a fresh combat/command/roll identity"
         )
-    pending = combat.get("pending_attack")
     if isinstance(pending, dict):
         target_id = str(pending.get("target_actor_id") or "")
         defense_kind = args.get("defense_kind")
@@ -11520,7 +11682,9 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             "actor_id": target_id,
             "attack_command_id": str(pending["attack_command_id"]),
             "defense_kind": str(defense_kind),
-            "route_resolution": {"matched_route_ids": [affordance_id]},
+            "route_resolution": {
+                "matched_route_ids": [affordance_id] if affordance_id else [],
+            },
         }]
     else:
         rich: dict[str, Any] = {
@@ -13895,6 +14059,28 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
             ],
         },
     }
+    if ctx.campaign_dir is not None:
+        character_creation = _character_creation_resume_projection(
+            ctx.campaign_dir,
+            str(ctx.campaign_id),
+        )
+        if character_creation is not None:
+            data["character_creation"] = character_creation
+            if character_creation.get("briefing_path"):
+                hints.append(
+                    "character creation is incomplete: read the exact "
+                    "character_creation.briefing_path once, rooted at the "
+                    "current workspace, before the first creation question; "
+                    "do not invent era, place, mood, or characteristic "
+                    "generation methods"
+                )
+            else:
+                hints.append(
+                    "character creation is incomplete: invoke "
+                    "character_creation.render_operation exactly, then read "
+                    "the returned briefing_path; do not invent era, place, "
+                    "mood, or characteristic generation methods"
+                )
     acknowledged = coc_host_context.acknowledge_resume(
         ctx.root,
         campaign_id=str(ctx.campaign_id),
@@ -22233,6 +22419,12 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "desc": "NPC actor id (query instead of an investigator)"},
     },
+    access="query",
+    read_domains=("party", "npc"),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
 )
 def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
     npc_id = str(args.get("npc_id") or "").strip()
@@ -22276,6 +22468,8 @@ def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
         "weapon_id": {"type": "string", "desc": "catalog/module weapon id (kind=weapon)"},
         "weapon": {"type": "object", "desc": "full custom weapon spec with weapon_id (kind=weapon)"},
         "mechanics_ref": {"type": "string", "desc": "campaign-item:<id> or module-item:<id> returned by mechanics.ensure"},
+        "consumable": {"type": "boolean", "desc": "kind=gear only: using this item spends charges (state.item_use)"},
+        "quantity": {"type": "integer", "desc": "kind=gear only: initial charges for a consumable stack (default 1)"},
         "note": {"type": "string", "desc": "where/how the item was obtained"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
@@ -22297,6 +22491,20 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
     if not label:
         raise ToolError("invalid_param", "label must be non-empty")
     note = str(args.get("note") or "").strip() or None
+    consumable = args.get("consumable")
+    if consumable is not None and not isinstance(consumable, bool):
+        raise ToolError("invalid_param", "consumable must be a boolean")
+    quantity = args.get("quantity")
+    if quantity is not None and (
+        not isinstance(quantity, int)
+        or isinstance(quantity, bool)
+        or quantity < 1
+    ):
+        raise ToolError("invalid_param", "quantity must be an integer >= 1")
+    if kind == "weapon" and (consumable is not None or quantity is not None):
+        raise ToolError(
+            "invalid_param", "kind=weapon must not carry consumable/quantity"
+        )
     weapon_spec: dict[str, Any] | None = None
     if kind == "weapon":
         raw_weapon = args.get("weapon")
@@ -22356,6 +22564,11 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
 
     npc_id = str(args.get("npc_id") or "").strip()
     if npc_id:
+        if consumable is not None or quantity is not None:
+            raise ToolError(
+                "invalid_param",
+                "NPC gear is label-only: consumable/quantity apply to investigators",
+            )
         document = coc_npc_state.load_npc_state(ctx.campaign_dir)
         if kind == "weapon":
             authored = coc_inventory.authored_weapons_for_npc(
@@ -22398,6 +22611,10 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
     entry: dict[str, Any] = {"item_id": item_id, "kind": kind, "label": label}
     if weapon_spec is not None:
         entry["weapon"] = weapon_spec
+    if consumable is not None:
+        entry["consumable"] = consumable
+    if quantity is not None:
+        entry["quantity"] = quantity
     if note:
         entry["note"] = note
     entry["acquired"] = {
@@ -22431,6 +22648,10 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
             sheet.get("equipment"), inventory
         ),
     }
+    if consumable is not None:
+        data["consumable"] = consumable
+    if quantity is not None:
+        data["quantity"] = quantity
     if kind == "weapon":
         data["weapon"] = deepcopy(weapon_spec)
     ctx.ledger_record(decision_id, tool_name, data)
@@ -22585,6 +22806,110 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             f"'{item_id}' was character-sheet equipment: the loss is recorded in "
             "campaign state and reaches the investigator library at development settlement"
+        )
+    return data, warnings, hints
+
+
+@tool(
+    "state.item_use",
+    "Use charges of an investigator's consumable item (bandage, laudanum, torch). Decrements quantity; at zero the item leaves the inventory for good. Non-consumables are rejected: use state.item_remove when one is lost or spent.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "item_id": {
+            "type": "string",
+            "required": True,
+            "desc": "consumable item id to use",
+        },
+        "count": {"type": "integer", "desc": "charges to consume (default 1)"},
+        "note": {"type": "string", "desc": "how/why the item was used"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_item_use(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.item_use"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    item_id = str(args["item_id"]).strip()
+    if not item_id:
+        raise ToolError("invalid_param", "item_id must be non-empty")
+    count = args.get("count", 1)
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        raise ToolError("invalid_param", "count must be an integer >= 1")
+    note = str(args.get("note") or "").strip() or None
+
+    investigator_id = _resolve_investigator(ctx, args)
+    state = ctx.inv_state(investigator_id)
+    sheet = ctx.sheet(investigator_id)
+    inventory = coc_inventory.normalize_inventory(state)
+    used_label = item_id
+    for entry in inventory["entries"]:
+        if entry["item_id"] == item_id:
+            used_label = str(entry.get("label") or item_id)
+            break
+    inventory, outcome, remaining = coc_inventory.use_entry(
+        inventory, item_id, count
+    )
+    if outcome == "not_consumable":
+        raise ToolError(
+            "invalid_param",
+            f"'{item_id}' is not consumable; use state.item_remove if it is "
+            "lost, spent, or given away",
+        )
+    changed = outcome in {"decremented", "consumed"}
+    if changed:
+        state["inventory"] = inventory
+        ctx.save_inv_state(investigator_id, state)
+        ctx.log_event({
+            "event_type": "item_used",
+            "owner_kind": "investigator",
+            "investigator_id": investigator_id,
+            "item_id": item_id,
+            "count": count,
+            "outcome": outcome,
+            "remaining": remaining,
+            "note": note,
+        })
+    else:
+        sheet_equipment_ids = {
+            str(entry["item_id"])
+            for entry in coc_inventory.sheet_equipment_entries(
+                sheet.get("equipment")
+            )
+        }
+        if item_id in sheet_equipment_ids:
+            raise ToolError(
+                "invalid_param",
+                f"'{item_id}' is character-sheet equipment without consumable "
+                "tracking; if it is spent, record it with state.item_remove",
+            )
+    data = {
+        "investigator_id": investigator_id,
+        "item_id": item_id,
+        "label": used_label,
+        "count": count,
+        "outcome": outcome,
+        "changed": changed,
+        "remaining": remaining,
+        "present_after": outcome == "decremented",
+        "items": coc_inventory.effective_items(
+            sheet.get("equipment"), inventory
+        ),
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    warnings = []
+    if not changed:
+        warnings.append(
+            f"item '{item_id}' not found for investigator '{investigator_id}'"
+        )
+    hints = []
+    if outcome == "consumed":
+        hints.append(
+            f"'{used_label}' is used up and has left the inventory; the loss "
+            "reaches the investigator library at development settlement"
         )
     return data, warnings, hints
 

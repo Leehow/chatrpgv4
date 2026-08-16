@@ -201,7 +201,11 @@ regression: the live KP cannot repair a stuck turn from them.
 ## Workspace and session
 
 Use `pi-coc` so the process cwd is this repository root (the campaign
-workspace). The adapter passes that exact `ctx.cwd` as `COC_PROJECT_ROOT`, sets
+workspace) unless `COC_WORKSPACE` is set. The web/Electron UI is an attached
+player surface of this same host: it launches `pi-coc --mode rpc --campaign
+<id>` with `COC_WORKSPACE` pointing at the player workspace and
+`COC_PI_ATTACHED_UI=1` so a fresh desktop auto-opens the table. The adapter
+passes that exact `ctx.cwd` as `COC_PROJECT_ROOT`, sets
 `COC_HOST=pi`, and binds the MCP child to the current Pi session id. No child
 starts merely by loading the package. COC sessions live under
 `~/.pi/coc-agent/sessions`, separate from coding sessions.

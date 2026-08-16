@@ -199,6 +199,92 @@ export function tensionDisplayLabel(level, playLanguage) {
 }
 
 // ---------------------------------------------------------------------------
+// Combat initiative (closed player-safe projection)
+
+function combatActorLabels(workspace, campaignId, investigatorId, investigatorName) {
+  const labels = new Map();
+  if (typeof investigatorId === "string" && investigatorId) {
+    const sheet = readJsonFile(
+      path.join(campaignDir(workspace, campaignId), "investigators", investigatorId, "character.json"),
+    );
+    const sheetName = typeof sheet?.name === "string" ? sheet.name.trim() : "";
+    labels.set(investigatorId, investigatorName || sheetName || "调查员");
+  }
+  const impressions = readJsonFile(
+    path.join(campaignDir(workspace, campaignId), "save", "npc-first-impressions.json"),
+  );
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    const id = typeof node.npc_id === "string" ? node.npc_id : null;
+    const label = typeof node.npc_display_name === "string" ? node.npc_display_name.trim() : "";
+    if (id && label) {
+      labels.set(id, label);
+      labels.set(id.replace(/^npc-/, ""), label);
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(impressions);
+  return labels;
+}
+
+/** Project the canonical DEX initiative ledger without exposing combat intent,
+ * hidden statistics, or private NPC state. CoC 7e initiative is an order, not
+ * an extra roll; a ready firearm contributes the rules-owned DEX + 50 value. */
+export function combatInitiativeDisplay(
+  workspace,
+  campaignId,
+  { investigatorId = null, investigatorName = null } = {},
+) {
+  const combat = readJsonFile(
+    path.join(campaignDir(workspace, campaignId), "save", "combat.json"),
+  );
+  if (!combat || !Number.isInteger(combat.current_round) || combat.current_round < 1) {
+    return null;
+  }
+  const progress = Array.isArray(combat.initiative_progress)
+    ? combat.initiative_progress
+    : [];
+  if (!progress.length) return null;
+  const order = Array.isArray(combat.current_initiative) ? combat.current_initiative : [];
+  const orderIndex = new Map(order.map((row, index) => [row?.actor_id, index]));
+  const current = order[Number.isInteger(combat.initiative_cursor) ? combat.initiative_cursor : -1];
+  const labels = combatActorLabels(workspace, campaignId, investigatorId, investigatorName);
+  const rows = progress.map((row, sourceIndex) => {
+    const initiative = row?.initiative && typeof row.initiative === "object"
+      ? row.initiative
+      : null;
+    const actorId = typeof row?.actor_id === "string" ? row.actor_id : "";
+    const dex = Number.isInteger(initiative?.dex)
+      ? initiative.dex
+      : Number.isInteger(row?.round_start_eligibility?.dex)
+        ? row.round_start_eligibility.dex
+        : null;
+    const readyFirearm = initiative?.dex_reason === "ready_firearm";
+    return {
+      actor_id: actorId,
+      display_name: labels.get(actorId) || (actorId === investigatorId ? "调查员" : "敌方角色"),
+      side: actorId === investigatorId ? "investigator" : "opponent",
+      dex,
+      initiative_value: Number.isInteger(dex) ? dex + (readyFirearm ? 50 : 0) : null,
+      ready_firearm: readyFirearm,
+      status: typeof row?.status === "string" ? row.status : "pending",
+      current: actorId !== "" && actorId === current?.actor_id,
+      _order: orderIndex.has(actorId) ? orderIndex.get(actorId) : order.length + sourceIndex,
+    };
+  });
+  rows.sort((a, b) => a._order - b._order);
+  return {
+    round: combat.current_round,
+    rule: "dex_order",
+    rows: rows.map(({ _order, ...row }) => row),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Discovered clues
 
 function* iterClueNodes(node) {
@@ -293,6 +379,265 @@ function turnTotalMsList(workspace, campaignId) {
   return totals;
 }
 
+const PLAYER_ROLL_VISIBILITIES = new Set(["public", "consequence_public", "player"]);
+
+function firstRollValue(record, field) {
+  const payload = record?.payload;
+  if (payload && typeof payload === "object" && field in payload) return payload[field];
+  return record?.[field];
+}
+
+/** Closed, player-safe roll projection for the renderer. */
+function publicRollDisplay(record, combatMeta = null) {
+  if (!record || typeof record !== "object") return null;
+  const visibility = firstRollValue(record, "visibility");
+  if (typeof visibility === "string" && !PLAYER_ROLL_VISIBILITIES.has(visibility)) {
+    return null;
+  }
+  const rollCandidates = ["roll", "rolled_total", "final_total", "total"];
+  const roll = rollCandidates
+    .map((field) => firstRollValue(record, field))
+    .find(Number.isInteger);
+  if (!Number.isInteger(roll)) return null;
+  const rollId = firstRollValue(record, "roll_id");
+  const value = {
+    roll_id: typeof rollId === "string" ? rollId : "",
+    roll,
+  };
+  const stringFields = [
+    "display_skill", "skill", "characteristic", "npc_display_name", "kind",
+    "difficulty", "required_level", "achieved_level", "outcome", "die",
+    "expression", "die_expression", "governing_attribute", "reason",
+    "san_loss_expression", "san_loss_resolution", "source",
+  ];
+  const integerFields = [
+    "target", "base_target", "effective_target", "required_target", "bonus",
+    "penalty", "bonus_penalty_dice", "app", "credit_rating", "governing_value",
+    "san_before", "san_after", "san_delta", "san_loss", "final_total", "total",
+    "units", "unmodified_roll",
+  ];
+  const booleanFields = ["passed", "success", "pushed"];
+  for (const field of stringFields) {
+    const candidate = firstRollValue(record, field);
+    if (typeof candidate === "string" && candidate) value[field] = candidate;
+  }
+  for (const field of integerFields) {
+    const candidate = firstRollValue(record, field);
+    if (Number.isInteger(candidate)) value[field] = candidate;
+  }
+  for (const field of booleanFields) {
+    const candidate = firstRollValue(record, field);
+    if (typeof candidate === "boolean") value[field] = candidate;
+  }
+  for (const field of ["die_rolls", "rolls", "individual_faces"]) {
+    const candidate = firstRollValue(record, field);
+    if (Array.isArray(candidate) && candidate.every(Number.isInteger)) {
+      value.die_rolls = [...candidate];
+      break;
+    }
+  }
+  const tensValues = firstRollValue(record, "tens_values");
+  if (Array.isArray(tensValues) && tensValues.every(Number.isInteger)) {
+    value.tens_values = [...tensValues];
+  }
+  const dice = firstRollValue(record, "dice");
+  if (dice && typeof dice === "object") {
+    if (!value.die && typeof dice.expression === "string" && dice.expression) {
+      value.die = dice.expression;
+    }
+    if (!value.die_rolls && Array.isArray(dice.raw) && dice.raw.every(Number.isInteger)) {
+      value.die_rolls = [...dice.raw];
+    }
+  }
+  if (combatMeta && typeof combatMeta === "object") Object.assign(value, combatMeta);
+  return value;
+}
+
+/**
+ * Bind public roll ids to the canonical combat record without copying combat
+ * mechanics into the web layer.  The renderer receives a closed projection of
+ * structured labels and numeric effects only; private intent and actor ids stay
+ * out of the player transcript.
+ */
+function combatRollMetadataIndex(workspace, campaignId) {
+  const combat = readJsonFile(path.join(campaignDir(workspace, campaignId), "save", "combat.json"));
+  const index = new Map();
+  if (!combat || typeof combat !== "object") return index;
+
+  const modifierFields = [
+    "point_blank", "cover", "outnumbered_penalty", "aimed", "multi_shot",
+    "load_and_fire", "vs_prone_melee", "vs_prone_ranged", "bonus", "penalty",
+  ];
+  for (const round of Array.isArray(combat.rounds) ? combat.rounds : []) {
+    for (const turn of Array.isArray(round?.turns) ? round.turns : []) {
+      if (!turn || typeof turn !== "object") continue;
+      const attackModifiers = {};
+      const rawModifiers = turn.attack_modifiers;
+      if (rawModifiers && typeof rawModifiers === "object") {
+        for (const field of modifierFields) {
+          const candidate = rawModifiers[field];
+          if (typeof candidate === "boolean" || Number.isInteger(candidate)) {
+            attackModifiers[field] = candidate;
+          }
+        }
+      }
+      const base = {
+        action: typeof turn.action === "string" ? turn.action : null,
+        defense_kind: typeof turn.defense_kind === "string" ? turn.defense_kind : null,
+        opposed_outcome: typeof turn.opposed_outcome === "string" ? turn.opposed_outcome : null,
+        combat_outcome: typeof turn.outcome === "string" ? turn.outcome : null,
+        attack_modifiers: attackModifiers,
+      };
+      const add = (rollId, combatRole, extra = {}) => {
+        if (typeof rollId !== "string" || !rollId) return;
+        index.set(rollId, { ...base, combat_role: combatRole, ...extra });
+      };
+      add(turn.roll_id, "attack");
+      add(turn.opposed_roll_id, "defense");
+      add(turn.cover_reroll_roll_id, "attack_reroll");
+      add(turn.damage_roll_id, "damage");
+      add(turn.fight_back_damage_roll_id, "damage", { damage_source: "fight_back" });
+      for (const shot of Array.isArray(turn.shots) ? turn.shots : []) {
+        add(shot?.roll_id, "attack");
+        add(shot?.damage_roll_id, "damage");
+      }
+      for (const volley of Array.isArray(turn.volleys) ? turn.volleys : []) {
+        add(volley?.roll_id, "attack");
+        for (const rollId of Array.isArray(volley?.damage_roll_ids) ? volley.damage_roll_ids : []) {
+          add(rollId, "damage");
+        }
+      }
+    }
+  }
+  for (const damage of Array.isArray(combat.damage_chain) ? combat.damage_chain : []) {
+    const rollId = damage?.damage_roll_id;
+    if (typeof rollId !== "string" || !rollId) continue;
+    const previous = index.get(rollId) || { combat_role: "damage" };
+    const safe = {};
+    for (const field of [
+      "raw_damage", "armor_absorbed", "hp_before", "hp_delta", "hp_after",
+      "armor_before", "armor_after",
+    ]) {
+      if (Number.isInteger(damage[field])) safe[field] = damage[field];
+    }
+    if (typeof damage.die === "string" && damage.die) safe.damage_expression = damage.die;
+    index.set(rollId, { ...previous, ...safe });
+  }
+  return index;
+}
+
+function turnFinalizationIndex(workspace, campaignId) {
+  const rows = readJsonlDicts(
+    path.join(campaignDir(workspace, campaignId), "logs", "turn-finalizations.jsonl"),
+  );
+  const index = new Map();
+  for (const row of rows) {
+    const id = row?.finalization_id;
+    if (typeof id === "string" && id) index.set(id, row);
+  }
+  return index;
+}
+
+function publicRollIndex(workspace, campaignId) {
+  const rows = readJsonlDicts(
+    path.join(campaignDir(workspace, campaignId), "logs", "rolls.jsonl"),
+  );
+  const index = new Map();
+  for (const row of rows) {
+    const roll = publicRollDisplay(row);
+    if (roll?.roll_id) index.set(roll.roll_id, roll);
+  }
+  return index;
+}
+
+/**
+ * Preserve the canonical finalization order while exposing public checks as
+ * typed blocks.  This deliberately consumes the finalizer's structured
+ * `segments`; it never guesses at dice by searching Keeper prose.
+ */
+function keeperContentBlocks(transcriptRow, finalization, combatMetaByRollId) {
+  if (!finalization || typeof finalization !== "object") return null;
+  if (finalization.rendered_text !== transcriptRow.text) return null;
+  const segments = finalization.segments;
+  if (!Array.isArray(segments) || !segments.length) return null;
+  if (
+    !segments.every((segment) => segment && typeof segment.text === "string") ||
+    segments.map((segment) => segment.text).join("\n\n") !== finalization.rendered_text
+  ) {
+    return null;
+  }
+
+  const checks = Array.isArray(finalization.bundle?.public_check)
+    ? finalization.bundle.public_check
+    : [];
+  const checksById = new Map();
+  for (const check of checks) {
+    const id = check?.roll_id;
+    if (typeof id === "string" && id) checksById.set(id, check);
+  }
+
+  const blocks = [];
+  for (const segment of segments) {
+    if (segment.segment_type === "public_check") {
+      const sourceIds = Array.isArray(segment.source_ids)
+        ? segment.source_ids.filter((id) => typeof id === "string" && id)
+        : [];
+      const rolls = sourceIds
+        .map((id) => publicRollDisplay(checksById.get(id), combatMetaByRollId.get(id)))
+        .filter(Boolean);
+      blocks.push({ type: "roll_group", text: segment.text, source_ids: sourceIds, rolls });
+      continue;
+    }
+    const previous = blocks[blocks.length - 1];
+    if (previous?.type === "prose") {
+      previous.text += `\n\n${segment.text}`;
+    } else {
+      blocks.push({ type: "prose", text: segment.text });
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Table openings predate turn finalization but carry an explicit `[roll]`
+ * envelope plus ordered `presented_roll_ids`.  Treat those protocol markers
+ * structurally and bind each visible receipt to its canonical public roll.
+ */
+function openingContentBlocks(transcriptRow, rollsById) {
+  const ids = Array.isArray(transcriptRow?.presented_roll_ids)
+    ? transcriptRow.presented_roll_ids.filter((id) => typeof id === "string" && id)
+    : [];
+  if (!ids.length || typeof transcriptRow?.text !== "string") return null;
+  const open = "\n\n[roll]\n";
+  const close = "\n[/roll]";
+  const openAt = transcriptRow.text.indexOf(open);
+  const closeAt = transcriptRow.text.indexOf(close, openAt + open.length);
+  if (openAt < 0 || closeAt < 0) return null;
+  const receiptLines = transcriptRow.text
+    .slice(openAt + open.length, closeAt)
+    .split("\n")
+    .filter(Boolean);
+  if (receiptLines.length !== ids.length) return null;
+
+  const blocks = [];
+  const proseBefore = transcriptRow.text.slice(0, openAt).trim();
+  if (proseBefore) blocks.push({ type: "prose", text: proseBefore });
+  for (let index = 0; index < ids.length; index += 1) {
+    blocks.push({
+      type: "roll",
+      text: receiptLines[index],
+      source_ids: [ids[index]],
+      roll: rollsById.get(ids[index]) ?? null,
+    });
+  }
+  const proseAfter = transcriptRow.text
+    .slice(closeAt + close.length)
+    .replace(/^\s*\[\/in_game\]\s*$/, "")
+    .trim();
+  if (proseAfter) blocks.push({ type: "prose", text: proseAfter });
+  return blocks;
+}
+
 export function tableTranscriptMessages(workspace, campaignId) {
   const rows = readJsonlDicts(
     path.join(campaignDir(workspace, campaignId), "logs", "table-transcript.jsonl"),
@@ -313,6 +658,9 @@ export function tableTranscriptMessages(workspace, campaignId) {
   }
 
   const totals = turnTotalMsList(workspace, campaignId);
+  const finalizations = turnFinalizationIndex(workspace, campaignId);
+  const rollsById = publicRollIndex(workspace, campaignId);
+  const combatMetaByRollId = combatRollMetadataIndex(workspace, campaignId);
   const out = [];
   let turnIndex = 0;
   for (const group of byTurn.values()) {
@@ -338,6 +686,18 @@ export function tableTranscriptMessages(workspace, campaignId) {
     }
     if (keeper) {
       const entry = { role: "keeper", text: String(keeper.text || "").trim() };
+      const finalizationId = keeper.finalization_id;
+      if (typeof finalizationId === "string" && finalizationId) {
+        const contentBlocks = keeperContentBlocks(
+          keeper,
+          finalizations.get(finalizationId),
+          combatMetaByRollId,
+        );
+        if (contentBlocks) entry.content_blocks = contentBlocks;
+      } else {
+        const contentBlocks = openingContentBlocks(keeper, rollsById);
+        if (contentBlocks) entry.content_blocks = contentBlocks;
+      }
       if (endMs != null) entry.at = endMs;
       if (startMs != null) entry.started_at = startMs;
       if (durationMs != null) entry.duration_ms = durationMs;
@@ -456,6 +816,60 @@ export function findBundleByPdfSha256(workspace, fileSha256) {
 // ---------------------------------------------------------------------------
 // Models payload (pi model registry + auth, read-only)
 
+const THINKING_LEVEL_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+// Mirrors pi-ai getSupportedThinkingLevels (models.js): non-reasoning models
+// only have "off"; a thinkingLevelMap entry of null disables that level;
+// xhigh/max must be explicitly mapped.
+export function supportedThinkingLevels({ reasoning, thinkingLevelMap }) {
+  if (!reasoning) return ["off"];
+  return THINKING_LEVEL_ORDER.filter((level) => {
+    const mapped = thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    if (level === "xhigh" || level === "max") return mapped !== undefined;
+    return true;
+  });
+}
+
+// pi-ai's bundled per-provider catalog data — the exact files pi composes
+// models.json over — used as the metadata fallback for models whose
+// models.json entry omits reasoning/thinkingLevelMap (e.g. OAuth providers
+// materialized with id/name/input only). Custom provider ids simply miss.
+let piCatalogCache = null;
+function piCatalogEntry(providerId, modelId) {
+  if (!piCatalogCache) piCatalogCache = new Map();
+  if (piCatalogCache.has(providerId)) return piCatalogCache.get(providerId)?.get(modelId) ?? null;
+  // web/server-node sits beside runtime/ in both the repo and the desktop
+  // payload, so the keeper's bundled pi-ai data is a stable relative path.
+  const dataDir = path.resolve(
+    import.meta.dirname,
+    "..", "..", "runtime", "adapters", "keeper", "node_modules",
+    "@earendil-works", "pi-ai", "dist", "providers", "data",
+  );
+  const byModel = new Map();
+  // readJsonFile returns null when the provider has no catalog file — a
+  // custom provider id — and models.json stands alone for it.
+  const doc = readJsonFile(path.join(dataDir, `${providerId}.json`));
+  for (const modelsOfApi of Object.values(doc || {})) {
+    if (!modelsOfApi || typeof modelsOfApi !== "object") continue;
+    for (const [id, meta] of Object.entries(modelsOfApi)) {
+      if (meta && typeof meta === "object" && !byModel.has(id)) byModel.set(id, meta);
+    }
+  }
+  piCatalogCache.set(providerId, byModel);
+  return byModel.get(modelId) ?? null;
+}
+
+/** Effective thinking metadata for one models.json model entry: entry fields
+ *  win (pi's applyModelOverride order), built-in catalog fills the gaps. */
+export function resolveThinkingMeta(providerId, entry) {
+  const catalog = piCatalogEntry(providerId, entry.id);
+  return {
+    reasoning: entry.reasoning ?? catalog?.reasoning ?? false,
+    thinkingLevelMap: entry.thinkingLevelMap ?? catalog?.thinkingLevelMap,
+  };
+}
+
 export function modelsPayload() {
   const agentDir = process.env.PI_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
   const rawModels = readJsonFile(path.join(agentDir, "models.json"));
@@ -472,7 +886,11 @@ export function modelsPayload() {
     if (!cfg || typeof cfg !== "object") continue;
     const models = (Array.isArray(cfg.models) ? cfg.models : [])
       .filter((m) => m && typeof m === "object" && typeof m.id === "string" && m.id)
-      .map((m) => ({ id: m.id, label: String(m.name || m.id) }));
+      .map((m) => ({
+        id: m.id,
+        label: String(m.name || m.id),
+        thinkingLevels: supportedThinkingLevels(resolveThinkingMeta(name, m)),
+      }));
     if (models.length) {
       providers[name] = {
         label: String(cfg.name || name),

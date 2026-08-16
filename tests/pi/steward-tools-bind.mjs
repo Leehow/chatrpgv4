@@ -17,7 +17,7 @@ const root = path.resolve(process.argv[2] || process.cwd());
 const extension = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 
 const expectedKpActiveTools = [
-  "coc_capabilities", "coc_discover", "coc_invoke", "coc_progressive_ocr",
+  "read", "coc_capabilities", "coc_discover", "coc_invoke", "coc_progressive_ocr",
   "coc_map_supply", "subagent", "subagent_wait",
 ];
 const handlers = new Map();

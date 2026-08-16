@@ -9,12 +9,12 @@ import {
   SessionManager,
   SettingsManager,
 } from "../../runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/dist/index.js";
-import {
-  fauxAssistantMessage,
-  fauxProvider,
-} from "../../runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/faux.js";
+import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
 
 const root = path.resolve(process.argv[2]);
+const { fauxAssistantMessage, fauxProvider } = await import(
+  embeddedPiFile(root, "pi-ai", "dist/providers/faux.js")
+);
 const mode = process.argv[3] || "happy";
 const sentinel = process.argv[4] || "PI_LEAF_PROVIDER_ONLY_SENTINEL";
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "pi-leaf-context-"));

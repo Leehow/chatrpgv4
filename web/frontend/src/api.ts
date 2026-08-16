@@ -4,7 +4,9 @@ import type {
   ModelsResponse,
   RuntimeEvent,
   SessionInfo,
+  TrashEntry,
   TranscriptMessage,
+  PlayerIntent,
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -39,7 +41,8 @@ export function createCampaign(
     | {
         mode?: "starter";
         scenario_id: string;
-        pregen_id: string;
+        /** Omit when player chose「自己创建」— campaign starts investigator-less. */
+        pregen_id?: string;
         title?: string;
       }
     | {
@@ -131,6 +134,45 @@ export function ingestPdf(payload: {
   });
 }
 
+/** Rename a campaign (title only; identity stays campaign_id-keyed). */
+export function renameCampaign(
+  campaignId: string,
+  title: string,
+): Promise<{ ok: boolean; result: { campaign_id: string; title: string } }> {
+  return request("/api/campaigns/rename", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ campaign_id: campaignId, title }),
+  });
+}
+
+/** Move a campaign into the workspace trash (24h retention, restorable). */
+export function trashCampaign(
+  campaignId: string,
+): Promise<{ ok: boolean; result: { trash_key: string; campaign_id: string } }> {
+  return request("/api/campaigns/trash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ campaign_id: campaignId }),
+  });
+}
+
+/** List recoverable campaigns in the trash (expired ones are already purged). */
+export function fetchTrash(): Promise<{ ok: boolean; entries: TrashEntry[] }> {
+  return request("/api/trash");
+}
+
+/** Restore one trashed campaign back into the campaign list. */
+export function restoreCampaign(
+  trashKey: string,
+): Promise<{ ok: boolean; result: { campaign_id: string; title?: string | null } }> {
+  return request("/api/trash/restore", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trash_key: trashKey }),
+  });
+}
+
 export function createInvestigator(payload: {
   name: string;
   occupation?: string;
@@ -157,6 +199,15 @@ export function fetchState(sessionId: string): Promise<GameState> {
   return request<GameState>(`/api/sessions/${sessionId}/state`);
 }
 
+/** Use one charge of a consumable; returns the fresh state (item may be gone). */
+export function useItem(sessionId: string, itemId: string): Promise<GameState> {
+  return request<GameState>(`/api/sessions/${sessionId}/items/use`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_id: itemId }),
+  });
+}
+
 export function fetchTranscript(
   sessionId: string,
 ): Promise<{ messages: TranscriptMessage[] }> {
@@ -167,29 +218,53 @@ export interface TurnHandlers {
   onTool?: (phase: string, tool: string) => void;
   onDelta?: (text: string) => void;
   onDeltaReset?: () => void;
-  onTurn?: (payload: { events: RuntimeEvent[]; state: GameState }) => void;
+  /** Live keeper-side thinking deltas — observer feed, never table narration. */
+  onThinking?: (text: string) => void;
+  /** Live cumulative keeper token usage while the turn is still running. */
+  onUsage?: (usage: { input: number | null; output: number | null }) => void;
+  onTurn?: (payload: {
+    events: RuntimeEvent[];
+    state: GameState;
+    /** Keeper worker usage for the settled turn, from runtime telemetry. */
+    usage?: { input_tokens?: number | null; output_tokens?: number | null } | null;
+  }) => void;
   onError?: (message: string) => void;
 }
 
 /**
  * Consume one turn over SSE. EventSource cannot POST, so parse the
  * text/event-stream frames manually off the fetch ReadableStream.
+ * Aborting `signal` stops consuming the stream locally; the keeper turn
+ * itself still settles canonically server-side.
  */
 export async function streamTurn(
   sessionId: string,
   input: string,
   provider: string,
   model: string,
+  thinking: string,
+  playerIntent: PlayerIntent | undefined,
   handlers: TurnHandlers,
+  signal?: AbortSignal,
+  options?: { attach?: boolean },
 ): Promise<void> {
   let resp: Response;
   try {
     resp = await fetch(`/api/sessions/${sessionId}/turns`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, provider, model }),
+      body: JSON.stringify({
+        input,
+        provider,
+        model,
+        thinking,
+        ...(options?.attach ? { attach: true } : {}),
+        ...(playerIntent ? { player_intent: playerIntent } : {}),
+      }),
+      signal,
     });
   } catch {
+    if (signal?.aborted) return;
     handlers.onError?.("无法连接到服务器。");
     return;
   }
@@ -208,7 +283,15 @@ export async function streamTurn(
   const decoder = new TextDecoder();
   let buffer = "";
   for (;;) {
-    const { done, value } = await reader.read();
+    let read: ReadableStreamReadResult<Uint8Array>;
+    try {
+      read = await reader.read();
+    } catch {
+      if (signal?.aborted) return;
+      handlers.onError?.("回合数据流中断。");
+      return;
+    }
+    const { done, value } = read;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let boundary: number;
@@ -235,9 +318,20 @@ export async function streamTurn(
         handlers.onDeltaReset?.();
       } else if (event === "tool") {
         handlers.onTool?.(String(data.phase ?? ""), String(data.tool ?? ""));
+      } else if (event === "thinking") {
+        handlers.onThinking?.(String(data.text ?? ""));
+      } else if (event === "usage") {
+        handlers.onUsage?.({
+          input: typeof data.input === "number" ? data.input : null,
+          output: typeof data.output === "number" ? data.output : null,
+        });
       } else if (event === "turn") {
         handlers.onTurn?.(
-          data as unknown as { events: RuntimeEvent[]; state: GameState },
+          data as unknown as {
+            events: RuntimeEvent[];
+            state: GameState;
+            usage?: { input_tokens?: number | null; output_tokens?: number | null } | null;
+          },
         );
       } else if (event === "error") {
         handlers.onError?.(String(data.message ?? "未知错误"));

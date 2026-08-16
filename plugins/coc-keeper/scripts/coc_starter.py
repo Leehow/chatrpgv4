@@ -619,23 +619,25 @@ def _seed_investigator_state(
 
 def _finalize_quick_start_campaign(
     campaign_dir: Path,
-    investigator_id: str,
-    pregen_id: str,
+    investigator_id: str | None,
+    pregen_id: str | None,
 ) -> None:
     campaign_path = Path(campaign_dir) / "campaign.json"
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
     campaign["status"] = "active"
     campaign["active_subsystem"] = "play"
-    campaign["character_creation"] = {
+    character_creation = {
         **(
             campaign.get("character_creation")
             if isinstance(campaign.get("character_creation"), dict)
             else {}
         ),
-        "active_investigator_id": investigator_id,
-        "pregen_id": pregen_id,
         "quick_start": True,
     }
+    if investigator_id is not None:
+        character_creation["active_investigator_id"] = investigator_id
+        character_creation["pregen_id"] = pregen_id
+    campaign["character_creation"] = character_creation
     campaign["updated_at"] = _now_iso()
     coc_fileio.write_json_atomic(
         campaign_path,
@@ -791,8 +793,8 @@ def _validate_quick_start_generation(
     *,
     campaign_id: str,
     scenario_id: str,
-    investigator_id: str,
-    accepted_snapshot: dict[str, Any],
+    investigator_id: str | None,
+    accepted_snapshot: dict[str, Any] | None,
 ) -> None:
     """Validate structural persistence invariants before publication."""
     campaign_dir = Path(campaign_dir)
@@ -802,6 +804,22 @@ def _validate_quick_start_generation(
             raise RuntimeError(f"quick-start scenario file is incomplete: {filename}")
     campaign = _read_json_object(campaign_dir / "campaign.json")
     world = _read_json_object(campaign_dir / "save" / "world-state.json")
+    structural_ok = (
+        campaign.get("campaign_id") == campaign_id
+        and campaign.get("active_scenario_id") == scenario_id
+        and campaign.get("status") == "active"
+        and campaign.get("active_subsystem") == "play"
+        and world.get("campaign_id") == campaign_id
+        and world.get("scenario_id") == scenario_id
+        and world.get("status") == "active"
+        and world.get("active_scene_id")
+    )
+    if investigator_id is None:
+        if not structural_ok:
+            raise RuntimeError(
+                "quick-start staged generation failed structural validation"
+            )
+        return
     party = _read_json_object(campaign_dir / "party.json")
     local_character = _read_json_object(
         campaign_dir / "investigators" / investigator_id / "character.json"
@@ -812,21 +830,14 @@ def _validate_quick_start_generation(
         / "investigator-state"
         / f"{investigator_id}.json"
     )
-    if (
-        campaign.get("campaign_id") != campaign_id
-        or campaign.get("active_scenario_id") != scenario_id
-        or campaign.get("status") != "active"
-        or campaign.get("active_subsystem") != "play"
-        or world.get("campaign_id") != campaign_id
-        or world.get("scenario_id") != scenario_id
-        or world.get("status") != "active"
-        or not world.get("active_scene_id")
-        or party.get("campaign_id") != campaign_id
-        or party.get("investigator_ids") != [investigator_id]
-        or party.get("active_investigator_ids") != [investigator_id]
-        or local_character != accepted_snapshot
-        or investigator_state.get("campaign_id") != campaign_id
-        or investigator_state.get("investigator_id") != investigator_id
+    if not (
+        structural_ok
+        and party.get("campaign_id") == campaign_id
+        and party.get("investigator_ids") == [investigator_id]
+        and party.get("active_investigator_ids") == [investigator_id]
+        and local_character == accepted_snapshot
+        and investigator_state.get("campaign_id") == campaign_id
+        and investigator_state.get("investigator_id") == investigator_id
     ):
         raise RuntimeError("quick-start staged generation failed structural validation")
 
@@ -854,18 +865,24 @@ def _validate_staged_investigator(
 def _best_effort_quick_start_indexes(
     root: Path,
     campaign_id: str,
-    investigator_id: str,
-    sheet: dict[str, Any],
+    investigator_id: str | None,
+    sheet: dict[str, Any] | None,
 ) -> list[str]:
     """Repair derivative indexes without changing publication success."""
     warnings: list[str] = []
-    for label, repair in (
+    repairs: list[tuple[str, Any]] = [
         ("campaign", lambda: coc_state._upsert_campaign_index(root, campaign_id)),
-        (
-            "investigator",
-            lambda: coc_state._upsert_investigator_index(root, investigator_id, sheet),
-        ),
-    ):
+    ]
+    if investigator_id is not None:
+        repairs.append(
+            (
+                "investigator",
+                lambda: coc_state._upsert_investigator_index(
+                    root, investigator_id, sheet
+                ),
+            )
+        )
+    for label, repair in repairs:
         try:
             repair()
         except Exception as exc:
@@ -878,27 +895,33 @@ def _best_effort_quick_start_indexes(
 def quick_start(
     root: Path,
     scenario_id: str,
-    pregen_id: str,
+    pregen_id: str | None = None,
     *,
     campaign_id: str | None = None,
     title: str | None = None,
 ) -> dict[str, Any]:
-    """Create a campaign, install a starter, and bind a shipped pregen investigator.
+    """Create a campaign, install a starter, and optionally bind a pregen.
 
-    Returns campaign_id / investigator_id / scenario_id / character_path /
-    campaign_dir for an immediately playable table (``run_live_turn``-ready).
+    With ``pregen_id`` the table is immediately playable: campaign + starter +
+    shipped pregen investigator. Without it the campaign ships scenario-ready
+    but investigator-less (``needs_investigator``), mirroring the pdf/library
+    start paths where character creation happens through play (coc-character).
     """
     src_dir = STARTER_DIR / scenario_id
     if not src_dir.is_dir():
         raise FileNotFoundError(f"unknown starter scenario: {scenario_id}")
-    pregen_path = _pregen_character_path(scenario_id, pregen_id)
-    sheet = json.loads(pregen_path.read_text(encoding="utf-8"))
-    if not isinstance(sheet, dict):
-        raise ValueError(f"pregen character.json must be an object: {pregen_path}")
-    sheet = ensure_pregen_backstory_provenance(sheet)
-    sheet = ensure_pregen_player_facing_sheet(sheet)
-    sheet = coc_state._with_initial_skills_snapshot(sheet)
-    investigator_id = str(sheet.get("id") or pregen_id)
+    if pregen_id is None:
+        investigator_id: str | None = None
+        sheet: dict[str, Any] | None = None
+    else:
+        pregen_path = _pregen_character_path(scenario_id, pregen_id)
+        sheet = json.loads(pregen_path.read_text(encoding="utf-8"))
+        if not isinstance(sheet, dict):
+            raise ValueError(f"pregen character.json must be an object: {pregen_path}")
+        sheet = ensure_pregen_backstory_provenance(sheet)
+        sheet = ensure_pregen_player_facing_sheet(sheet)
+        sheet = coc_state._with_initial_skills_snapshot(sheet)
+        investigator_id = str(sheet.get("id") or pregen_id)
 
     meta_path = src_dir / "module-meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
@@ -920,7 +943,11 @@ def quick_start(
         / ".publication.lock"
     )
     campaign_prefix = _quick_start_stage_prefix("campaign", camp_id)
-    investigator_prefix = _quick_start_stage_prefix("investigator", investigator_id)
+    investigator_prefix = (
+        _quick_start_stage_prefix("investigator", investigator_id)
+        if investigator_id is not None
+        else None
+    )
 
     # Publication stays outside the final campaign tree, preserving the sole
     # global order: campaign publication, then reusable investigator.  Nothing
@@ -938,27 +965,30 @@ def quick_start(
                 f"campaign {camp_id} already exists; pass a fresh campaign_id or remove it first"
             )
         with coc_investigator_guard.guard_reusable_investigators(
-            coc_root, [investigator_id]
+            coc_root, [investigator_id] if investigator_id is not None else []
         ):
-            existing_path = (
-                coc_root / "investigators" / investigator_id / "character.json"
-            )
-            reuse_existing = existing_path.is_file()
+            reuse_existing = False
+            if investigator_id is not None:
+                existing_path = (
+                    coc_root / "investigators" / investigator_id / "character.json"
+                )
+                reuse_existing = existing_path.is_file()
+                if reuse_existing:
+                    existing = json.loads(existing_path.read_text(encoding="utf-8"))
+                    if existing != sheet:
+                        raise FileExistsError(
+                            "quick-start will not replace an existing reusable "
+                            f"investigator: {investigator_id}"
+                        )
+                    sheet = existing
             accepted_snapshot = sheet
-            if reuse_existing:
-                existing = json.loads(existing_path.read_text(encoding="utf-8"))
-                if existing != sheet:
-                    raise FileExistsError(
-                        "quick-start will not replace an existing reusable "
-                        f"investigator: {investigator_id}"
-                    )
-                accepted_snapshot = existing
-            _cleanup_stale_generations(
-                investigators_dir,
-                investigator_prefix,
-                kind="investigator",
-                identity=investigator_id,
-            )
+            if investigator_prefix is not None:
+                _cleanup_stale_generations(
+                    investigators_dir,
+                    investigator_prefix,
+                    kind="investigator",
+                    identity=investigator_id,
+                )
             campaign_stage = _create_private_stage(
                 campaigns_dir,
                 campaign_prefix,
@@ -971,6 +1001,8 @@ def quick_start(
             post_commit_warnings: list[str] = []
             character_path = (
                 coc_root / "investigators" / investigator_id / "character.json"
+                if investigator_id is not None
+                else None
             )
             try:
                 coc_state._create_campaign_at(
@@ -993,7 +1025,7 @@ def quick_start(
                     published_campaign_dir=campaign_dir,
                 )
 
-                if not reuse_existing:
+                if investigator_id is not None and not reuse_existing:
                     investigator_stage = _create_private_stage(
                         investigators_dir,
                         investigator_prefix,
@@ -1011,23 +1043,24 @@ def quick_start(
                         accepted_snapshot,
                     )
 
-                _write_campaign_local_character(
-                    campaign_stage,
-                    investigator_id,
-                    accepted_snapshot,
-                )
-                coc_state._seed_investigator_state_at(
-                    campaign_stage,
-                    camp_id,
-                    investigator_id,
-                    accepted_snapshot,
-                )
-                coc_state._link_party_at(
-                    campaign_stage,
-                    camp_id,
-                    [investigator_id],
-                    sheets={investigator_id: accepted_snapshot},
-                )
+                if investigator_id is not None:
+                    _write_campaign_local_character(
+                        campaign_stage,
+                        investigator_id,
+                        accepted_snapshot,
+                    )
+                    coc_state._seed_investigator_state_at(
+                        campaign_stage,
+                        camp_id,
+                        investigator_id,
+                        accepted_snapshot,
+                    )
+                    coc_state._link_party_at(
+                        campaign_stage,
+                        camp_id,
+                        [investigator_id],
+                        sheets={investigator_id: accepted_snapshot},
+                    )
                 _finalize_quick_start_campaign(
                     campaign_stage,
                     investigator_id,
@@ -1113,9 +1146,10 @@ def quick_start(
     result = {
         "campaign_id": camp_id,
         "investigator_id": investigator_id,
+        "needs_investigator": investigator_id is None,
         "scenario_id": scenario_id,
         "pregen_id": pregen_id,
-        "character_path": str(character_path),
+        "character_path": str(character_path) if character_path else None,
         "campaign_dir": str(campaign_dir),
     }
     if index_warnings:

@@ -75,7 +75,7 @@
         },
         {
           "type": "object",
-          "required": ["choice_id", "kind", "command_id", "responder", "revision", "prompt", "options", "attack_id", "audience"],
+          "required": ["choice_id", "kind", "command_id", "responder", "revision", "prompt", "options", "attack_id", "audience", "combat_context"],
           "additionalProperties": false,
           "properties": {
             "choice_id": {"type": "string"},
@@ -86,7 +86,8 @@
             "prompt": {"type": "string"},
             "options": {"$ref": "#/$defs/playerOptions"},
             "attack_id": {"type": "string"},
-            "audience": {"enum": ["player"]}
+            "audience": {"enum": ["player"]},
+            "combat_context": {"$ref": "#/$defs/combatChoiceContext"}
           }
         }
       ]
@@ -145,6 +146,23 @@
         "^current_[a-z][a-z0-9_]*$": {"type": ["integer", "null"]}
       },
       "additionalProperties": false
+    },
+    "combatChoiceContext": {
+      "type": "object",
+      "required": [
+        "attack_kind", "dodge_skill", "fighting_skill", "counter_damage",
+        "already_defended_this_round", "incoming_bonus_dice", "incoming_penalty_dice"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "attack_kind": {"enum": ["melee", "firearm"]},
+        "dodge_skill": {"type": "integer", "minimum": 0, "maximum": 100},
+        "fighting_skill": {"type": "integer", "minimum": 0, "maximum": 100},
+        "counter_damage": {"type": "string", "minLength": 1},
+        "already_defended_this_round": {"type": "boolean"},
+        "incoming_bonus_dice": {"type": "integer", "minimum": 0, "maximum": 2},
+        "incoming_penalty_dice": {"type": "integer", "minimum": 0, "maximum": 2}
+      }
     },
     "playerOptions": {
       "type": "array",

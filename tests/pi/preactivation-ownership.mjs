@@ -6,9 +6,10 @@ import process from "node:process";
 const root = path.resolve(process.argv[2] || process.cwd());
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
 const coordinator = await import(path.join(root, "plugins/coc-keeper/pi/extensions/coordinator.ts"));
-if (Number(process.versions.node.split(".")[0]) !== 22) {
-  throw new Error(`real pre-activation ownership regression requires Node 22, got ${process.version}`);
-}
+// Failures are driven by fake COC_PI_COMMAND shell scripts (exit 7 / hang +
+// abort), so the asserted ownership semantics are Node-version independent;
+// this originally ran pinned to Node 22 only because that was the machine
+// where the behavior was first verified.
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "pi-preactivation-ownership-"));
 const coordinatorInstruction = path.join(root, "plugins/coc-keeper/agents/coc-source-coordinator.md");
 const leafInstruction = path.join(root, "plugins/coc-keeper/agents/coc-source-pack-worker.md");

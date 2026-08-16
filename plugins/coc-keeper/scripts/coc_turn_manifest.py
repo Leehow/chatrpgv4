@@ -75,6 +75,35 @@ POST_JOURNAL_SOURCE_LEASE_TOOLS = frozenset({
 })
 POST_JOURNAL_REPAIR_TOOLS = frozenset({"state.exceptional_effect"})
 
+
+def _toolbox_query_tools() -> frozenset[str]:
+    """Every access=query tool is a post-journal read, not a settlement.
+
+    Imported lazily so toolbox registration can finish before the first
+    pending-turn scan. The explicit POST_JOURNAL_READ_TOOLS set remains a
+    floor for advisory helpers that are still default-mutation.
+    """
+    try:
+        import coc_toolbox
+    except ImportError:
+        return frozenset()
+    tools = getattr(coc_toolbox, "TOOLS", None)
+    if not isinstance(tools, dict):
+        return frozenset()
+    return frozenset(
+        name
+        for name, spec in tools.items()
+        if isinstance(spec, dict) and spec.get("access") == "query"
+    )
+
+
+def is_post_journal_read_tool(tool: str) -> bool:
+    return (
+        tool in POST_JOURNAL_READ_TOOLS
+        or tool in POST_JOURNAL_SOURCE_LEASE_TOOLS
+        or tool in _toolbox_query_tools()
+    )
+
 _RESUME_MAX_ROWS = 96
 _RESUME_MAX_DATA_BYTES = 8 * 1024
 _RESUME_MAX_TOTAL_BYTES = 96 * 1024
@@ -848,10 +877,7 @@ def refresh_pending_window(
             continue
         tool = str(row.get("tool") or "")
         args = row.get("args") if isinstance(row.get("args"), dict) else {}
-        if (
-            tool in POST_JOURNAL_READ_TOOLS
-            or tool in POST_JOURNAL_SOURCE_LEASE_TOOLS
-        ):
+        if row.get("access") == "query" or is_post_journal_read_tool(tool):
             continue
         if tool == "turn.finalize" and args.get("validate_only") is True:
             # A validate_only preflight is read-only by contract: it runs the

@@ -10,6 +10,11 @@ runtime/adapters/pi/node_modules
 runtime/adapters/narrator/node_modules
 checks/ocr-cached/
 checks/py4llm-cached/
+node_modules.noindex/
+.pi-subagents/
+
+# Large local evidence archives — keep on disk, not in git
+archives/**/*.tar.gz
 
 # Local scratch / playtest workspaces — do not commit
 tmp/

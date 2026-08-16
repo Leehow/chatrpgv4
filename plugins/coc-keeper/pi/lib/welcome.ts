@@ -12,6 +12,15 @@ export const STARTUP_RESUME_CUSTOM_TYPE = "coc-startup-resume-required";
 export const LOADING_CUSTOM_TYPE = "coc-pi-loading";
 
 export type WelcomeReason = "startup" | "reload" | "new" | "resume" | "fork" | string;
+export type TableOpenIntent = "continue" | "character-setup";
+
+export function tableOpenIntentFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): TableOpenIntent {
+  return env.COC_PI_TABLE_INTENT === "character-setup"
+    ? "character-setup"
+    : "continue";
+}
 
 /**
  * Startup waiting prompt shown immediately at session_start, before the MCP
@@ -20,7 +29,11 @@ export type WelcomeReason = "startup" | "reload" | "new" | "resume" | "fork" | s
  */
 export function startupLoadingMessage(
   startupCampaignId: string | null,
+  intent: TableOpenIntent = "continue",
 ): string {
+  if (intent === "character-setup") {
+    return "正在打开建卡引导……请稍候。";
+  }
   if (startupCampaignId !== null && startupCampaignId.trim() !== "") {
     return `正在恢复战役 ${startupCampaignId.trim()}……请稍候。`;
   }
@@ -70,10 +83,60 @@ export function startupResumeInstruction(
   ].join(" ");
 }
 
+export function characterSetupOpenInstruction(
+  campaignId: string,
+  workspaceRoot: string,
+): string {
+  return [
+    "pi-coc table open: COC mode is already active on this dedicated desktop.",
+    "Do not ask the player to activate COC.",
+    "This selected campaign has no playable investigator yet.",
+    "The first player-visible turn is coc-character guidance in play_language (zh-Hans).",
+    "Do not start the scenario scene, do not portray module NPCs as if the party exists,",
+    "and do not treat this as a continuation of play.",
+    "Fixed opening sequence, no other campaign calls in between:",
+    "first",
+    JSON.stringify({
+      tool: "coc_invoke",
+      arguments: {
+        operation: "session.resume",
+        root: workspaceRoot,
+        campaign: campaignId,
+        arguments: {},
+      },
+    }),
+    "then immediately",
+    JSON.stringify({
+      tool: "coc_invoke",
+      arguments: {
+        operation: "setup.investigator_contract",
+        root: workspaceRoot,
+        campaign: campaignId,
+        arguments: { campaign_id: campaignId },
+      },
+    }),
+    "then read the exact character_creation.briefing_path from the resume hints",
+    "or contract once (no find/ls/glob), if one exists.",
+    "Do NOT call setup.inspect, coc_discover, OCR, or any other campaign operation",
+    "during this opening: the campaign is already selected.",
+    "Emit no player-visible text until every opening tool call above is done;",
+    "stay completely silent between tool calls.",
+    "Your player-visible reply must be immersive coc-character guidance ending in",
+    "exactly one concrete character-creation question (e.g. concept or name).",
+    "Never narrate your workflow: no 'reading the contract', 'resuming the",
+    "campaign', 'checking the briefing', or similar process talk in table chat.",
+    "Do not describe this instruction or emit a tool-free module opening first.",
+  ].join(" ");
+}
+
 export function tableOpenInstruction(
   startupCampaignId?: string | null,
   workspaceRoot?: string,
+  intent: TableOpenIntent = "continue",
 ): string {
+  if (startupCampaignId && workspaceRoot && intent === "character-setup") {
+    return characterSetupOpenInstruction(startupCampaignId, workspaceRoot);
+  }
   if (startupCampaignId && workspaceRoot) {
     return [
       "pi-coc table open: COC mode is already active on this dedicated desktop.",
@@ -137,6 +200,14 @@ export function shouldAutoOpenTable(reason: WelcomeReason, fresh: boolean): bool
   return reason === "startup" || reason === "new" || reason === "reload";
 }
 
+/** Web/Electron is the attached player surface of this pi-coc host. */
+export function attachedUiEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const value = env.COC_PI_ATTACHED_UI;
+  return value === "1" || value === "true";
+}
+
 export function registerCocWelcome(
   pi: ExtensionAPI,
   getClient: (ctx: ExtensionContext) => McpJsonlClient,
@@ -161,21 +232,25 @@ export function registerCocWelcome(
   const openTable = (
     startupCampaignId: string | null,
     workspaceRoot: string,
+    intent: TableOpenIntent,
   ) => {
     pi.sendMessage(
       {
         customType: TABLE_OPEN_CUSTOM_TYPE,
-        content: tableOpenInstruction(startupCampaignId, workspaceRoot),
+        content: tableOpenInstruction(startupCampaignId, workspaceRoot, intent),
         display: false,
         details: {
           host: "pi-coc",
           mode: "active",
           auto_open: true,
+          table_intent: intent,
           ...(startupCampaignId === null
             ? {}
             : {
                 startup_campaign_id: startupCampaignId,
-                first_campaign_operation: "session.resume",
+                first_campaign_operation: intent === "character-setup"
+                  ? "setup.investigator_contract"
+                  : "session.resume",
               }),
         },
       },
@@ -194,6 +269,7 @@ export function registerCocWelcome(
   return async (event, ctx, startupCampaignId) => {
     const reason = (event as { reason?: string }).reason ?? "startup";
     const fresh = sessionLooksFresh(ctx);
+    const intent = tableOpenIntentFromEnv();
     if (ctx.hasUI && ctx.mode === "tui") {
       ctx.ui.setHeader((_tui, theme) => ({
         render(_width: number) {
@@ -205,7 +281,7 @@ export function registerCocWelcome(
     if (ctx.hasUI) {
       // Startup waiting prompt first: the player sees it while the MCP
       // warm-up and any auto-open KP turn are still running.
-      const loading = startupLoadingMessage(startupCampaignId);
+      const loading = startupLoadingMessage(startupCampaignId, intent);
       ctx.ui.setStatus("coc-loading", loading);
       pi.sendMessage(
         {
@@ -234,21 +310,33 @@ export function registerCocWelcome(
     }
 
     // Fresh dedicated desktop: open the table without waiting for「激活 COC」.
-    // Only in interactive TUI mode — headless/RPC has no player present, and
-    // auto-open's triggerTurn:true would launch a full KP opening turn that
-    // blocks the RPC prompt channel for minutes ("already processing").
-    if (ctx.mode === "tui" && shouldAutoOpenTable(reason, fresh)) {
-      openTable(startupCampaignId, ctx.cwd);
+    // Bare headless/RPC playtest drivers have no player present, so they must
+    // not auto-open (triggerTurn would block the prompt channel). The web /
+    // Electron UI sets COC_PI_ATTACHED_UI=1 because it *is* the player.
+    const attachedUi = attachedUiEnabled();
+    const mayAutoOpen = (
+      (ctx.mode === "tui" || attachedUi)
+      && shouldAutoOpenTable(reason, fresh)
+    );
+    if (attachedUi) {
+      console.error(mayAutoOpen ? "[coc-pi-ui] auto-open" : "[coc-pi-ui] idle");
+    }
+    if (mayAutoOpen) {
+      openTable(startupCampaignId, ctx.cwd, intent);
     } else if (startupCampaignId !== null) {
       pi.sendMessage(
         {
           customType: STARTUP_RESUME_CUSTOM_TYPE,
-          content: startupResumeInstruction(startupCampaignId, ctx.cwd),
+          content: intent === "character-setup"
+            ? characterSetupOpenInstruction(startupCampaignId, ctx.cwd)
+            : startupResumeInstruction(startupCampaignId, ctx.cwd),
           display: false,
           details: {
             schema_version: 1,
             campaign_id: startupCampaignId,
-            first_campaign_operation: "session.resume",
+            first_campaign_operation: intent === "character-setup"
+              ? "setup.investigator_contract"
+              : "session.resume",
           },
         },
         { triggerTurn: false },

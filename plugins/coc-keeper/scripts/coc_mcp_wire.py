@@ -1964,6 +1964,38 @@ def _project_actions(data: Any) -> Any:
     return projected
 
 
+def _project_combat_context(data: Any) -> Any:
+    """Keep the exact pending defense while bounding the secret combat ledger."""
+    if not isinstance(data, dict):
+        return deepcopy(data)
+    projected: dict[str, Any] = {
+        "active": bool(data.get("active")),
+        "pending_defense": deepcopy(data.get("pending_defense")),
+    }
+    wrapped = data.get("combat")
+    state = wrapped.get("value") if isinstance(wrapped, dict) else None
+    if isinstance(state, dict):
+        projected["combat"] = {
+            "secret": True,
+            "value": _pick(
+                state,
+                (
+                    "schema_version",
+                    "combat_id",
+                    "scene_ref",
+                    "status",
+                    "revision",
+                    "current_round",
+                    "initiative_cursor",
+                    "current_initiative",
+                ),
+            ),
+        }
+    else:
+        projected["combat"] = None
+    return projected
+
+
 def _project_npc_reaction(data: Any) -> Any:
     """Inline the exact conditional engagement contract for lazy hosts."""
     projected = deepcopy(data)
@@ -2523,6 +2555,8 @@ def project_envelope(
         projector = _project_opening_bootstrap
     elif operation == "actions.advise":
         projector = _project_actions
+    elif operation == "combat.context":
+        projector = _project_combat_context
     elif operation == "npc.reaction":
         projector = _project_npc_reaction
     elif operation == "turn.output_context":

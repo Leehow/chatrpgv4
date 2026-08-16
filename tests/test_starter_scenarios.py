@@ -16,6 +16,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import coc_starter  # noqa: E402
+import coc_runtime_ops  # noqa: E402
 
 
 def test_starter_investigation_affordances_bind_exact_clues_structurally():
@@ -628,6 +629,84 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     assert coc_starter.player_safe_opening(campaign_dir) == (
         "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
     )
+
+
+def test_quick_start_without_pregen_ships_investigator_less_campaign(tmp_path):
+    root = tmp_path / ".coc"
+    result = coc_starter.quick_start(
+        root, "the-haunting", None, campaign_id="haunting-self-char"
+    )
+
+    assert result["scenario_id"] == "the-haunting"
+    assert result["investigator_id"] is None
+    assert result["needs_investigator"] is True
+    assert result["character_path"] is None
+    assert result["pregen_id"] is None
+
+    campaign_dir = root / "campaigns" / "haunting-self-char"
+    for fname in coc_starter.STARTER_SCENARIO_FILES:
+        assert (campaign_dir / "scenario" / fname).exists()
+
+    # Scenario-ready, active, but no investigator anywhere: same shape the
+    # pdf/library start paths produce so play-driven character creation
+    # (coc-character + campaign.link_investigator) owns the first character.
+    campaign = json.loads((campaign_dir / "campaign.json").read_text("utf-8"))
+    assert campaign["status"] == "active"
+    assert campaign["active_subsystem"] == "play"
+    assert campaign["active_scenario_id"] == "the-haunting"
+    assert campaign["character_creation"]["quick_start"] is True
+    assert "active_investigator_id" not in campaign["character_creation"]
+    world = json.loads((campaign_dir / "save" / "world-state.json").read_text("utf-8"))
+    assert world["status"] == "active"
+    assert world["active_scene_id"]
+    assert not (campaign_dir / "party.json").exists()
+    assert not any((root / "investigators").glob("*/character.json"))
+    assert not any((campaign_dir / "save" / "investigator-state").glob("*.json"))
+
+
+def test_quick_start_without_pregen_via_operation(tmp_path):
+    receipt = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "campaign.quick_start",
+            "payload": {"scenario_id": "the-haunting"},
+        },
+    )
+    result = receipt["result"]
+    assert result["campaign_id"] == "the-haunting-qs"
+    assert result["needs_investigator"] is True
+    assert receipt["state_refs"] == [".coc/campaigns/the-haunting-qs"]
+
+
+def test_starter_campaign_passes_character_creation_fact_gate(tmp_path):
+    import coc_state
+
+    root = tmp_path / ".coc"
+    started = coc_starter.quick_start(
+        root, "the-haunting", None, campaign_id="haunting-fact-gate"
+    )
+    campaign_dir = root / "campaigns" / started["campaign_id"]
+    campaign = json.loads((campaign_dir / "campaign.json").read_text("utf-8"))
+
+    # A starter never had a PDF source parse to ask; its scenario files are
+    # the source, so the era/place gate must not block character creation
+    # (kernel regression: the place question used to fire anyway).
+    assert coc_runtime_ops._require_established_source_facts(
+        tmp_path, campaign, started["campaign_id"]
+    ) is None
+
+    # The gate still fires for PDF source-bound campaigns: authored era plus
+    # a scenario source with bundle_sha256 demands the fast-facts adoption.
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    scenario_path.write_text(
+        json.dumps({"source": {"source_id": "some-pdf", "bundle_sha256": "0" * 64}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(coc_runtime_ops.RuntimeOperationError, match="place"):
+        coc_runtime_ops._require_established_source_facts(
+            tmp_path, campaign, started["campaign_id"]
+        )
 
 
 def _index_has(root: Path, filename: str, collection: str, item_id: str) -> bool:

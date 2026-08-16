@@ -11,6 +11,7 @@
     "uv.lock",
     "runtime/**",
     "!runtime/**/node_modules/**",
+    "!runtime/**/node_modules.noindex/**",
     "!runtime/**/__pycache__/**",
     "!runtime/**/*.pyc",
     "plugins/coc-keeper/**",
@@ -18,7 +19,7 @@
     "!plugins/coc-keeper/**/*.pyc"
   ],
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.81.1"
+    "@earendil-works/pi-coding-agent": "0.84.2"
   },
   "pi": {
     "extensions": ["./plugins/coc-keeper/pi/extensions/index.ts"],

@@ -1,0 +1,524 @@
+/**
+ * Product turn channel for the web/Electron UI: one `pi-coc --mode rpc`
+ * child per campaign. The browser is the attached player surface of that
+ * host — not a second Keeper shell.
+ *
+ * Framing follows Pi RPC JSONL (LF only). Do not use Node readline.
+ */
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+
+export const UI_AUTO_OPEN_MARKER = "[coc-pi-ui] auto-open";
+export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
+
+const DEFAULT_REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+
+export function webSessionId(campaignId) {
+  const safe = String(campaignId || "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return `web-${safe || "campaign"}`;
+}
+
+export function resolvePiCocLauncher(repoRoot = DEFAULT_REPO_ROOT) {
+  return path.join(repoRoot, "plugins", "coc-keeper", "pi", "bin", "pi-coc");
+}
+
+export function resolvePiBinDir(repoRoot = DEFAULT_REPO_ROOT) {
+  const candidates = [
+    path.join(
+      repoRoot,
+      "runtime",
+      "adapters",
+      "keeper",
+      "node_modules",
+      ".bin",
+    ),
+    path.join(
+      repoRoot,
+      "runtime",
+      "adapters",
+      "keeper",
+      "node_modules",
+      "@earendil-works",
+      "pi-coding-agent",
+    ),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "pi"))) return dir;
+    if (fs.existsSync(path.join(dir, "dist", "cli.js"))) return dir;
+  }
+  return null;
+}
+
+export function resolvePiCliJs(repoRoot = DEFAULT_REPO_ROOT) {
+  const candidate = path.join(
+    repoRoot,
+    "runtime",
+    "adapters",
+    "keeper",
+    "node_modules",
+    "@earendil-works",
+    "pi-coding-agent",
+    "dist",
+    "cli.js",
+  );
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+export function buildPiCocArgs({ campaignId, sessionId }) {
+  const args = ["--mode", "rpc", "--session-id", sessionId];
+  if (campaignId) args.push("--campaign", String(campaignId));
+  return args;
+}
+
+export function buildChildEnv({
+  workspace,
+  repoRoot = DEFAULT_REPO_ROOT,
+  campaignId,
+  tableIntent,
+  parentEnv = process.env,
+}) {
+  const env = { ...parentEnv };
+  env.COC_WORKSPACE = path.resolve(workspace);
+  env.COC_PI_ATTACHED_UI = "1";
+  env.COC_PI_SCENE_SUPPLY = env.COC_PI_SCENE_SUPPLY || "1";
+  env.COC_HOST = "pi";
+  if (campaignId) env.PI_COC_CAMPAIGN_ID = String(campaignId);
+  if (tableIntent === "character-setup" || tableIntent === "continue") {
+    env.COC_PI_TABLE_INTENT = tableIntent;
+  }
+  const piBin = resolvePiBinDir(repoRoot);
+  if (piBin) {
+    env.PATH = piBin + path.delimiter + (env.PATH || "");
+  }
+  const cliJs = resolvePiCliJs(repoRoot);
+  if (cliJs && !(env.COC_PI_CLI || "").trim()) {
+    env.COC_PI_CLI = cliJs;
+  }
+  return env;
+}
+
+export function createJsonlParser(onObject) {
+  let buffer = "";
+  return {
+    push(chunk) {
+      buffer += String(chunk);
+      let idx;
+      while ((idx = buffer.indexOf("\n")) !== -1) {
+        let line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (!line) continue;
+        let parsed;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (parsed && typeof parsed === "object") onObject(parsed);
+      }
+    },
+  };
+}
+
+function toolLabel(event) {
+  const name = typeof event.toolName === "string" ? event.toolName : "";
+  const args = event.args && typeof event.args === "object" ? event.args : {};
+  if (name === "coc_invoke" && typeof args.operation === "string" && args.operation) {
+    return args.operation;
+  }
+  if (name === "bash") {
+    const command = typeof args.command === "string" ? args.command : "";
+    const match = command.match(/coc_toolbox\.py\s+([A-Za-z0-9_.-]+)/);
+    return match ? match[1] : "shell";
+  }
+  if (typeof args.operation === "string" && args.operation) {
+    return `${name}:${args.operation}`;
+  }
+  return name || "tool";
+}
+
+export function mapRpcEventToSse(event) {
+  if (!event || typeof event !== "object") return [];
+  const type = event.type;
+  if (type === "message_update") {
+    const out = [];
+    const usage = event.usage;
+    if (usage && typeof usage === "object") {
+      out.push({
+        event: "usage",
+        data: {
+          input: Number.isInteger(usage.input) ? usage.input : null,
+          output: Number.isInteger(usage.output) ? usage.output : null,
+        },
+      });
+    }
+    const ame = event.assistantMessageEvent;
+    if (ame && typeof ame === "object") {
+      if (ame.type === "text_delta" && typeof ame.delta === "string" && ame.delta) {
+        out.push({ event: "delta", data: { text: ame.delta } });
+      } else if (
+        ame.type === "thinking_delta"
+        && typeof ame.delta === "string"
+        && ame.delta
+      ) {
+        out.push({ event: "thinking", data: { text: ame.delta } });
+      }
+    }
+    return out;
+  }
+  if (type === "tool_execution_start") {
+    return [{ event: "tool", data: { phase: "start", tool: toolLabel(event) } }];
+  }
+  if (type === "tool_execution_end") {
+    return [{ event: "tool", data: { phase: "end", tool: toolLabel(event) } }];
+  }
+  return [];
+}
+
+export class PiCocRpcError extends Error {
+  constructor(message, { kind = "pi_coc_rpc_failed" } = {}) {
+    super(message);
+    this.name = "PiCocRpcError";
+    this.kind = kind;
+  }
+}
+
+export class PiCocRpcHost {
+  constructor({
+    repoRoot = DEFAULT_REPO_ROOT,
+    workspace,
+    campaignId,
+    sessionId,
+    launcherPath,
+    tableIntent,
+    spawnFn = spawn,
+  }) {
+    this.repoRoot = repoRoot;
+    this.workspace = path.resolve(workspace);
+    this.campaignId = campaignId;
+    this.sessionId = sessionId || webSessionId(campaignId);
+    this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
+    this.tableIntent = tableIntent || null;
+    this.spawnFn = spawnFn;
+    this.child = null;
+    this.ready = false;
+    this.closed = false;
+    this.streaming = false;
+    this.settleGeneration = 0;
+    this.uiIntent = null; // "auto-open" | "idle" | null
+    this.lastUsage = null;
+    this.#pending = new Map();
+    this.#listeners = new Set();
+    this.#stderr = "";
+    this.#eventLog = [];
+  }
+
+  #pending;
+  #listeners;
+  #stderr;
+  #eventLog;
+
+  get openingIntent() {
+    return this.uiIntent;
+  }
+
+  onEvent(listener) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #replaySse(onSse) {
+    let opened = false;
+    for (const event of this.#eventLog) {
+      for (const frame of mapRpcEventToSse(event)) {
+        onSse?.(frame);
+        opened = true;
+      }
+      if (event?.type === "agent_settled") opened = true;
+    }
+    return opened;
+  }
+
+  #emit(event) {
+    this.#eventLog.push(event);
+    if (this.#eventLog.length > 4000) {
+      this.#eventLog.splice(0, this.#eventLog.length - 2000);
+    }
+    if (event?.type === "agent_start") this.streaming = true;
+    if (event?.type === "agent_settled") {
+      this.streaming = false;
+      this.settleGeneration += 1;
+    }
+    if (event?.type === "message_update" && event.usage) {
+      this.lastUsage = event.usage;
+    }
+    for (const listener of this.#listeners) {
+      try {
+        listener(event);
+      } catch {
+        /* listener faults never fail the host */
+      }
+    }
+    if (event?.type === "response" && event.id && this.#pending.has(event.id)) {
+      const pending = this.#pending.get(event.id);
+      this.#pending.delete(event.id);
+      if (event.success === false) {
+        pending.reject(
+          new PiCocRpcError(event.error || `RPC ${event.command} failed`, {
+            kind: "pi_coc_rpc_rejected",
+          }),
+        );
+      } else {
+        pending.resolve(event);
+      }
+    }
+  }
+
+  #noteStderr(chunk) {
+    const text = String(chunk);
+    this.#stderr += text;
+    if (this.#stderr.length > 64 * 1024) {
+      this.#stderr = this.#stderr.slice(-32 * 1024);
+    }
+    if (text.includes(UI_AUTO_OPEN_MARKER)) this.uiIntent = "auto-open";
+    if (text.includes(UI_IDLE_MARKER)) this.uiIntent = "idle";
+  }
+
+  start() {
+    if (this.child) return;
+    if (!fs.existsSync(this.launcherPath)) {
+      throw new PiCocRpcError(`pi-coc launcher not found: ${this.launcherPath}`);
+    }
+    const args = buildPiCocArgs({
+      campaignId: this.campaignId,
+      sessionId: this.sessionId,
+    });
+    const env = buildChildEnv({
+      workspace: this.workspace,
+      repoRoot: this.repoRoot,
+      campaignId: this.campaignId,
+      tableIntent: this.tableIntent,
+    });
+    const child = this.spawnFn(this.launcherPath, args, {
+      cwd: this.workspace,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    this.child = child;
+    const parser = createJsonlParser((obj) => this.#emit(obj));
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => parser.push(chunk));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => this.#noteStderr(chunk));
+    child.on("exit", (code, signal) => {
+      this.closed = true;
+      this.streaming = false;
+      const err = new PiCocRpcError(
+        `pi-coc RPC exited (code=${code} signal=${signal})`,
+        { kind: "pi_coc_rpc_exited" },
+      );
+      for (const pending of this.#pending.values()) pending.reject(err);
+      this.#pending.clear();
+    });
+  }
+
+  #write(payload) {
+    if (!this.child || this.closed) {
+      throw new PiCocRpcError("pi-coc RPC host is not running");
+    }
+    const line = JSON.stringify(payload) + "\n";
+    return new Promise((resolve, reject) => {
+      this.child.stdin.write(line, (err) => {
+        if (err) reject(new PiCocRpcError(String(err)));
+        else resolve();
+      });
+    });
+  }
+
+  #request(payload, timeoutMs = 30_000) {
+    const id = payload.id || `r-${randomUUID()}`;
+    const body = { ...payload, id };
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new PiCocRpcError(`RPC ${body.type} timed out`, { kind: "pi_coc_rpc_timeout" }));
+      }, timeoutMs);
+      this.#pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
+      this.#write(body).catch((err) => {
+        clearTimeout(timer);
+        this.#pending.delete(id);
+        reject(err);
+      });
+    });
+  }
+
+  async waitUntilReady(timeoutMs = 45_000) {
+    this.start();
+    const deadline = Date.now() + timeoutMs;
+    let lastErr;
+    while (Date.now() < deadline) {
+      if (this.closed) {
+        throw new PiCocRpcError(
+          `pi-coc RPC died before ready: ${this.#stderr.trim().slice(0, 800)}`,
+          { kind: "pi_coc_rpc_exited" },
+        );
+      }
+      try {
+        await this.#request({ type: "get_state" }, 5_000);
+        this.ready = true;
+        return;
+      } catch (err) {
+        lastErr = err;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+    throw lastErr || new PiCocRpcError("pi-coc RPC did not become ready");
+  }
+
+  async waitForUiIntent(timeoutMs = 45_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.uiIntent) return this.uiIntent;
+      if (this.closed) {
+        throw new PiCocRpcError("pi-coc RPC exited before UI intent");
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return this.uiIntent;
+  }
+
+  async setModel(provider, modelId) {
+    if (!provider || !modelId) return;
+    await this.#request({
+      type: "set_model",
+      provider,
+      modelId,
+    });
+  }
+
+  async setThinking(level) {
+    if (!level) return;
+    await this.#request({
+      type: "set_thinking_level",
+      level,
+    }).catch(() => {
+      // Older Pi builds or models that reject a level must not block play.
+    });
+  }
+
+  #waitSettleAfter(startGen, onSse, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    return new Promise((resolve, reject) => {
+      const finish = (err) => {
+        off();
+        clearInterval(timer);
+        if (err) reject(err);
+        else resolve();
+      };
+      const off = this.onEvent((event) => {
+        for (const frame of mapRpcEventToSse(event)) onSse?.(frame);
+        if (this.settleGeneration > startGen) finish();
+      });
+      if (this.settleGeneration > startGen) {
+        finish();
+        return;
+      }
+      const timer = setInterval(() => {
+        if (this.settleGeneration > startGen) {
+          finish();
+        } else if (this.closed) {
+          finish(new PiCocRpcError("pi-coc RPC exited during turn"));
+        } else if (Date.now() > deadline) {
+          finish(new PiCocRpcError("pi-coc turn timed out", { kind: "pi_coc_rpc_timeout" }));
+        }
+      }, 200);
+    });
+  }
+
+  async attachOpening({ onSse, timeoutMs = 900_000 } = {}) {
+    const replayed = this.#replaySse(onSse);
+    if (this.settleGeneration > 0 && !this.streaming) {
+      return { opened: true };
+    }
+    if (this.streaming) {
+      await this.#waitSettleAfter(this.settleGeneration, onSse, timeoutMs);
+      return { opened: true };
+    }
+    const intent = await this.waitForUiIntent(45_000);
+    if (intent === "auto-open" || this.streaming) {
+      const startGen = this.settleGeneration;
+      const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs);
+      const startDeadline = Date.now() + 60_000;
+      while (!this.streaming && this.settleGeneration === startGen
+        && Date.now() < startDeadline && !this.closed) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (this.streaming || this.settleGeneration > startGen) {
+        await settled;
+        return { opened: true };
+      }
+    }
+    return { opened: replayed };
+  }
+
+  async prompt(message, { onSse, timeoutMs = 900_000 } = {}) {
+    const startGen = this.settleGeneration;
+    const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs);
+    const payload = {
+      type: "prompt",
+      message: String(message ?? ""),
+    };
+    if (this.streaming) payload.streamingBehavior = "followUp";
+    await this.#request(payload, 15_000);
+    await settled;
+  }
+
+  async close() {
+    if (!this.child || this.closed) return;
+    try {
+      await this.#write({ type: "abort" });
+    } catch {
+      /* best effort */
+    }
+    this.child.kill("SIGTERM");
+    const child = this.child;
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+        resolve();
+      }, 2_000);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    this.child = null;
+    this.closed = true;
+  }
+}
+
+export function defaultRepoRoot() {
+  return DEFAULT_REPO_ROOT;
+}

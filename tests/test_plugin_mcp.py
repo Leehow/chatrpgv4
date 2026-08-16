@@ -3186,6 +3186,64 @@ def test_mcp_wire_projection_keeps_resume_control_before_bounded_working_set():
     assert exit_card["discovery_required"] is False
 
 
+def test_mcp_wire_combat_context_preserves_pending_defense_under_budget():
+    server = _load_server()
+    pending = {
+        "attack_command_id": "attack-1",
+        "actor_id": "cultist",
+        "target_actor_id": "inv-alice",
+        "weapon_id": "knife",
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    combat = {
+        "schema_version": 1,
+        "combat_id": "fight-1",
+        "scene_ref": "basement",
+        "status": "active",
+        "revision": 4,
+        "current_round": 2,
+        "initiative_cursor": 1,
+        "current_initiative": "cultist",
+        "pending_attack": pending,
+        "rounds": [{"padding": "x" * 1000} for _ in range(80)],
+    }
+    projected = server.wire_projection.project_envelope(
+        "combat.context",
+        {
+            "ok": True,
+            "tool": "combat.context",
+            "data": {
+                "active": True,
+                "combat": {"secret": True, "value": combat},
+                "pending_defense": pending,
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert projected["wire"]["full_result_bytes"] > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"]["payload_projected"] is True
+    assert projected["wire"].get("identity_only") is not True
+    assert projected["data"]["pending_defense"] == pending
+    assert projected["data"]["combat"] == {
+        "secret": True,
+        "value": {
+            "schema_version": 1,
+            "combat_id": "fight-1",
+            "scene_ref": "basement",
+            "status": "active",
+            "revision": 4,
+            "current_round": 2,
+            "initiative_cursor": 1,
+            "current_initiative": "cultist",
+        },
+    }
+
+
 def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only():
     server = _load_server()
     progressive = {

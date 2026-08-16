@@ -13,7 +13,7 @@ const EXACT: Record<string, string> = {
   "state.journal": "KP 正在把这一幕记入卷宗…",
   "state.item_grant": "KP 正在清点你的行囊…",
   "state.item_remove": "KP 正在调整你的行囊…",
-  "turn.finalize": "KP 正在落定这一回合…",
+  "turn.finalize": "KP 正在收束这一回合的叙述…",
   "director.advise": "KP 正在斟酌节奏…",
   "storylets.suggest": "KP 正在感受故事的走向…",
   "narration.brief": "KP 正在组织措辞…",
@@ -22,7 +22,7 @@ const EXACT: Record<string, string> = {
   "npc.query": "KP 正在回想此人的来历…",
   "npc.reaction": "KP 正在捕捉第一印象…",
   "clues.query": "KP 正在对照已得线索…",
-  "actions.advise": "KP 正在估量可行的举动…",
+  "actions.advise": "KP 正在掂量你这一步的后果…",
   "actions.list": "KP 正在打量此间的可能性…",
   "combat.context": "KP 正在审视交战态势…",
   "combat.resolve": "KP 正在裁定这一击…",
@@ -35,6 +35,13 @@ const EXACT: Record<string, string> = {
   "personal_horror.query": "KP 正在触碰旧伤…",
   "mechanics.ensure": "KP 正在核对规则细节…",
   "development.settle": "KP 正在结算成长…",
+  "scene.context": "KP 正在环顾这个场景…",
+  "scene.map": "KP 正在摊开地图…",
+  "secrets.briefing": "KP 正在翻看守秘人笔记…",
+  "setup.investigator_contract": "KP 正在核对建卡要求…",
+  "setup.adopt_source_facts": "KP 正在从模组原文核对背景…",
+  "setup.inspect": "KP 正在翻看这场战役的卷宗…",
+  "setup.invoke": "KP 正在办理开局手续…",
 };
 
 const PREFIX: Array<[string, string]> = [
@@ -88,8 +95,9 @@ export function toolToStatus(raw: string): string {
   if (!trimmed) return GENERIC[0];
 
   if (trimmed === "coc_discover" || trimmed.startsWith("coc_discover:")) {
-    // Discover is a catalog probe — keep one calm line, don't echo the inner id.
-    return "KP 正在探查可行路径…";
+    // Discover is a catalog probe between real operations — honest meaning:
+    // the keeper is deliberating what to do next.
+    return "KP 正在思考下一步…";
   }
 
   const id = normalizeToolId(trimmed);

@@ -1327,6 +1327,47 @@ def test_roll_dice_batch_expression_error_names_one_per_call_syntax(tmp_path):
     assert "roll each part of an array as its own rules.roll_dice call" in message
 
 
+@pytest.mark.parametrize("expression", ["3D6*2", "3D6x2", "3D6×5", "3D6 * 5", "3d6*2"])
+def test_roll_dice_multiplier_expression_steers_to_base_roll(tmp_path, expression):
+    coc_toolbox.run_tool(
+        "setup.invoke", tmp_path, None,
+        {"kind": "campaign.create", "payload": {"campaign_id": "dice-mult", "title": "M"}},
+    )
+    envelope = coc_toolbox.run_tool(
+        "rules.roll_dice", tmp_path, "dice-mult",
+        {"expression": expression, "decision_id": f"dice-mult-{expression}"},
+    )
+    assert envelope["ok"] is False
+    message = envelope["error"]["message"]
+    assert "post-roll characteristic conversion" in message
+    assert "expression='3D6'" in message
+    assert "multiply the returned total" in message
+
+
+def test_quick_fire_create_echoes_mismatched_campaign_ids(campaign_ws):
+    envelope = _run(campaign_ws, "setup.invoke", {
+        "kind": "investigator.create",
+        "payload": {
+            "campaign_id": "other-campaign",
+            "creation": {
+                "characteristic_assignment_order": ["STR"],
+                "luck_roll_total": 10,
+                "luck_roll_receipt": {
+                    "campaign_id": "third-campaign",
+                    "decision_id": "luck-other",
+                    "roll_id": "roll-other",
+                },
+            },
+        },
+    })
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "invalid_param"
+    message = envelope["error"]["message"]
+    assert f"top-level={campaign_ws['campaign_id']!r}" in message
+    assert "payload.campaign_id='other-campaign'" in message
+    assert "luck_roll_receipt.campaign_id='third-campaign'" in message
+
+
 def test_unknown_tool_errors_suggest_gateway_tools_and_close_names():
     gateway = coc_toolbox.run_tool("coc_capabilities", Path("."), None, {})
     assert gateway["error"]["code"] == "unknown_tool"
@@ -1337,6 +1378,26 @@ def test_unknown_tool_errors_suggest_gateway_tools_and_close_names():
     close = coc_toolbox.run_tool("rules.rolldice", Path("."), None, {})
     assert close["error"]["code"] == "unknown_tool"
     assert "did you mean: rules.roll_dice" in close["error"]["message"]
+
+
+@pytest.mark.parametrize("kind", coc_toolbox._CUSTOM_SETUP_OPERATION_KINDS)
+def test_flattened_setup_kind_unknown_tool_returns_corrected_setup_invoke(kind):
+    envelope = coc_toolbox.run_tool(kind, Path("."), "haunting-setup", {})
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "unknown_tool"
+    message = envelope["error"]["message"]
+    assert "setup.invoke kind, not a top-level operation" in message
+    assert "retry only this corrected call:" in message
+    corrected = json.loads(message.rsplit("retry only this corrected call:", 1)[1])
+    assert corrected == {
+        "operation": "setup.invoke",
+        "invoke_via": "coc_invoke",
+        "campaign": "haunting-setup",
+        "arguments": {
+            "kind": kind,
+            "payload": {"campaign_id": "haunting-setup"},
+        },
+    }
 
 
 def test_campaign_create_warns_when_a_recent_campaign_already_exists(
@@ -3799,6 +3860,70 @@ def test_pending_journal_allows_scene_context_before_finalization(campaign_ws):
     finalized = _finalize_pending_turn_for_test(
         campaign_ws,
         decision_id="finalize-after-scene-context",
+    )
+    assert finalized["data"]["rendered_text"]
+
+
+def test_inventory_list_is_classified_as_query():
+    spec = coc_toolbox.TOOLS["state.inventory_list"]
+    assert spec["access"] == "query"
+    assert spec["write_domains"] == ()
+    assert spec["recovery_domains"] == ()
+    assert "state.inventory_list" not in coc_toolbox._MUTATING_TOOLS
+    assert coc_toolbox.coc_turn_manifest.is_post_journal_read_tool(
+        "state.inventory_list"
+    )
+    query_tools = {
+        name
+        for name, row in coc_toolbox.TOOLS.items()
+        if row.get("access") == "query"
+    }
+    assert query_tools
+    assert all(
+        coc_toolbox.coc_turn_manifest.is_post_journal_read_tool(name)
+        for name in query_tools
+    )
+
+
+def test_pending_journal_allows_inventory_list_before_finalization(campaign_ws):
+    journaled = _run(campaign_ws, "state.journal", {
+        "summary": "本轮状态已经结算，KP 随后读取持有物用于组织输出。",
+        "player_action": "结束本轮",
+        "player_text": "我结束这一轮行动。",
+        "intent_class": "investigate",
+        "decision_id": "journal-before-inventory-list",
+    })
+    assert journaled["ok"] is True
+
+    listed = _run(
+        campaign_ws,
+        "state.inventory_list",
+        {"investigator": campaign_ws["investigator_id"]},
+    )
+    assert listed["ok"] is True, listed
+    assert listed["data"]["investigator_id"] == campaign_ws["investigator_id"]
+    assert isinstance(listed["data"]["items"], list)
+    assert isinstance(listed["data"]["weapons"], list)
+    logged = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+        )
+        if row.get("tool") == "state.inventory_list"
+    ]
+    assert logged
+    assert logged[-1]["access"] == "query"
+
+    mutation = _run(campaign_ws, "state.move_scene", {
+        "scene_id": "post-journal-place",
+        "decision_id": "illegal-post-journal-move-after-inventory",
+    })
+    assert mutation["ok"] is False
+    assert mutation["error"]["code"] == "turn_pending_finalization"
+
+    finalized = _finalize_pending_turn_for_test(
+        campaign_ws,
+        decision_id="finalize-after-inventory-list",
     )
     assert finalized["data"]["rendered_text"]
 
@@ -9815,13 +9940,14 @@ def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
         campaign_ws,
         "combat.resolve",
         {
-            **common,
+            "investigator": campaign_ws["investigator_id"],
             "defense_kind": "dodge",
             "decision_id": "pow-knife-defend",
             "seed": 33,
         },
     )
     assert resolved["ok"] is True, resolved
+    assert resolved["data"]["pending_defense"] is None
     turn_event = next(
         row
         for row in resolved["data"]["events"]
@@ -13526,6 +13652,115 @@ def test_pi_current_empty_party_resume_emits_guided_character_discriminator(
         key in json.dumps(details)
         for key in ("current_turn", "location", "opening_time", "task")
     )
+
+
+def test_session_resume_projects_briefing_path_when_investigator_is_unlinked(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    started = coc_starter.quick_start(
+        workspace / ".coc",
+        "the-haunting",
+        None,
+        campaign_id="briefing-resume",
+    )
+    ws = {
+        "workspace": workspace,
+        "campaign_id": started["campaign_id"],
+        "campaign_dir": Path(started["campaign_dir"]),
+    }
+    campaign = json.loads(
+        (ws["campaign_dir"] / "campaign.json").read_text(encoding="utf-8")
+    )
+    briefing_path = campaign["character_creation"]["briefing_path"]
+    briefing = (workspace / briefing_path).read_text(encoding="utf-8")
+    assert "波士顿" in briefing
+
+    resumed = _run(ws, "session.resume")
+
+    assert resumed["ok"] is True, resumed
+    projection = resumed["data"]["character_creation"]
+    assert projection["status"] == "incomplete"
+    assert projection["briefing_path"] == briefing_path
+    assert projection["era"] == "1920s"
+    assert projection["play_language"] == "zh-Hans"
+    assert any(
+        "character_creation.briefing_path" in hint
+        for hint in resumed["hints"]
+    )
+
+
+def test_session_resume_projects_briefing_path_when_party_is_setup_placeholder(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    started = coc_starter.quick_start(
+        workspace / ".coc",
+        "the-haunting",
+        None,
+        campaign_id="briefing-placeholder",
+    )
+    ws = {
+        "workspace": workspace,
+        "campaign_id": started["campaign_id"],
+        "campaign_dir": Path(started["campaign_dir"]),
+    }
+    created = _run(ws, "setup.invoke", {
+        "kind": "investigator.create",
+        "payload": {
+            "investigator_id": "web-char-setup-draft",
+            "sheet": {
+                "id": "web-char-setup-draft",
+                "name": "（建卡引导中）",
+                "occupation": "调查员",
+                "era": "1920s",
+                "age": 28,
+                "characteristics": {
+                    "INT": 80, "POW": 70, "DEX": 60, "EDU": 60,
+                    "CON": 50, "APP": 50, "SIZ": 50, "STR": 40,
+                },
+                "derived": {
+                    "HP": 10, "MP": 14, "SAN": 70, "Luck": 60,
+                    "DB": "none", "Build": 0, "MOV": 8,
+                },
+                "skills": {
+                    "Credit Rating": 20, "Spot Hidden": 25,
+                    "Listen": 20, "Library Use": 20,
+                },
+            },
+            "creation": {
+                "input_mode": "import_complete_sheet",
+                "method": "complete_sheet_placeholder",
+            },
+        },
+    })
+    assert created["ok"] is True, created
+    linked = _run(ws, "setup.invoke", {
+        "kind": "campaign.link_investigator",
+        "payload": {
+            "campaign_id": ws["campaign_id"],
+            "investigator_ids": ["web-char-setup-draft"],
+        },
+    })
+    assert linked["ok"] is True, linked
+    campaign = json.loads(
+        (ws["campaign_dir"] / "campaign.json").read_text(encoding="utf-8")
+    )
+
+    resumed = _run(ws, "session.resume")
+
+    assert resumed["ok"] is True, resumed
+    projection = resumed["data"]["character_creation"]
+    assert projection["briefing_path"] == (
+        campaign["character_creation"]["briefing_path"]
+    )
+    assert projection["era"] == "1920s"
+
+
+def test_session_resume_omits_character_creation_after_party_link(campaign_ws):
+    resumed = _run(campaign_ws, "session.resume")
+    assert resumed["ok"] is True, resumed
+    assert "character_creation" not in resumed["data"]
 
 
 @pytest.mark.parametrize("party_path_kind", ["directory", "fifo"])

@@ -5699,8 +5699,15 @@ for (const terminalCase of [
   const oldTableOpen = [
     "pi-coc table open: COC mode is already active on this dedicated desktop.",
     "Do not ask the player to activate COC.",
-    "Follow coc-main now: call setup.inspect (and session.resume if a campaign is already in play),",
-    "greet in zh-Hans, and offer continue / built-in starter quick_start / create investigator.",
+    "Follow coc-main now: call setup.inspect and read its result.campaigns",
+    "(campaign_id + title) so you can list existing campaigns; never guess or",
+    "invent a campaign_id, and never call session.resume until the player",
+    "picked a listed campaign or stated an exact id.",
+    "Do NOT call coc_discover to explore the tool surface: the gateway tools",
+    "(coc_capabilities / coc_discover / coc_invoke) are already known; call",
+    "setup.inspect exactly once, present its result, then wait for the player.",
+    "greet in zh-Hans, and offer continue (from the listed campaigns) /",
+    "built-in starter quick_start / create investigator.",
     "Begin the onboarding or continuation immediately.",
   ].join(" ");
   const harness = mainExtensionHarness((name, params) => {
@@ -7972,10 +7979,16 @@ for (const terminalCase of [
       undefined,
       harness.ctx,
     )).content[0].text);
-    check("source-review overlap admits dedicated facts without completing character",
+    // Since the module-init gate landed, fact admission and character-creation
+    // unblocking are decoupled: era+place are admitted (no blocking facts)
+    // even when module_init L0 is not yet ready, and unblocked then stays
+    // false until it is.
+    check("source-review overlap admits dedicated facts; unblock waits for module init",
       adopted.ok === true
       && adopted.data.kind === "campaign.adopt_source_facts"
-      && adopted.data.result.character_creation_unblocked === true);
+      && adopted.data.result.unresolved_blocking_facts.length === 0
+      && adopted.data.result.module_init_ready === false
+      && adopted.data.result.character_creation_unblocked === false);
 
     const callsBeforeBlockedPrepare = harness.calls.length;
     let blockedPrepareRejected = false;

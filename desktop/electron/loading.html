@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>COC Keeper</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #f5f1e8;
+        color: #4a4034;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+      main {
+        box-sizing: border-box;
+        padding: 56px 24px 24px 80px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 20px;
+        font-weight: 600;
+      }
+      p { margin: 0; font-size: 13px; opacity: 0.75; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>COC Keeper</h1>
+      <p id="status">正在启动后台服务…</p>
+    </main>
+    <script>
+      const el = document.getElementById("status");
+      const phrases = [
+        "正在启动后台服务…",
+        "首次运行需要准备 Python 环境，请稍候…",
+        "守秘人正在整理桌面…",
+      ];
+      let i = 0;
+      setInterval(() => {
+        i = Math.min(i + 1, phrases.length - 1);
+        el.textContent = phrases[i];
+      }, 6000);
+    </script>
+  </body>
+</html>

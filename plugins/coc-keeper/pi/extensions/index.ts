@@ -7028,6 +7028,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   const sceneSupplyWaits = new Map<string, number>();
   const kpActiveTools = [
+    // Builtin read is required so Pi injects <available_skills> and the KP
+    // can load SKILL.md plus the character-creation briefing. bash/edit/write
+    // stay off; campaign writes remain on the canonical toolbox.
+    "read",
     "coc_capabilities",
     "coc_discover",
     "coc_invoke",

@@ -72,7 +72,10 @@ def campaign_compat(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
 
 
 def _display_character(
-    workspace: Path, character: dict[str, Any], play_language: str
+    workspace: Path,
+    character: dict[str, Any],
+    play_language: str,
+    inventory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project one character sheet into player-facing display labels.
 
@@ -81,6 +84,11 @@ def _display_character(
     pregens), otherwise the plugin's ``coc_language`` table vocabulary. When
     neither covers a term, the canonical English key is kept, exactly like the
     keeper's own renderers.
+
+    When ``inventory`` (normalized campaign-local runtime inventory) is
+    given, weapons and items reflect live play: granted gear/weapons appear,
+    recorded losses drop out, and ``inventory_items`` carries the structured
+    parameters (quantity/consumable/note) the sidebar renders and acts on.
     """
     coc_language = _load_plugin_module(workspace, "coc_language")
     suffix = {"zh-Hans": "zh", "zh": "zh"}.get(play_language)
@@ -137,17 +145,30 @@ def _display_character(
     ]
 
     pf_weapons = sheet.get("weapons") if sheet else None
+    sheet_weapon_rows = [
+        row for row in (character.get("weapons") or []) if isinstance(row, dict)
+    ]
+    if inventory is not None:
+        coc_inventory = _load_plugin_module(workspace, "coc_inventory")
+        weapon_rows = coc_inventory.effective_weapons(sheet_weapon_rows, inventory)
+    else:
+        coc_inventory = None
+        weapon_rows = sheet_weapon_rows
+    # Player-facing weapon labels index into the sheet's own weapon list; map
+    # them by weapon_id so runtime merges (grants/losses) keep their labels.
+    pf_weapon_by_id: dict[str, dict[str, Any]] = {}
+    if isinstance(pf_weapons, list):
+        for index, row in enumerate(sheet_weapon_rows):
+            if index >= len(pf_weapons) or not isinstance(pf_weapons[index], dict):
+                continue
+            wid = row.get("weapon_id")
+            if isinstance(wid, str) and wid:
+                pf_weapon_by_id[wid] = pf_weapons[index]
     weapons: list[dict[str, Any]] = []
-    for index, weapon in enumerate(character.get("weapons") or []):
+    for weapon in weapon_rows:
         if not isinstance(weapon, dict):
             continue
-        pf_weapon = (
-            pf_weapons[index]
-            if isinstance(pf_weapons, list)
-            and index < len(pf_weapons)
-            and isinstance(pf_weapons[index], dict)
-            else {}
-        )
+        pf_weapon = pf_weapon_by_id.get(str(weapon.get("weapon_id") or ""), {})
         skill = pf_weapon.get("skill_label")
         if not skill and weapon.get("skill"):
             skill = coc_language.player_facing_skill_label(
@@ -156,6 +177,7 @@ def _display_character(
         weapons.append(
             {
                 "label": pf_weapon.get("label")
+                or weapon.get("label")
                 or weapon.get("name")
                 or weapon.get("weapon_id"),
                 "skill_label": skill,
@@ -186,6 +208,49 @@ def _display_character(
     if not equipment:
         equipment = _equipment_labels(character.get("equipment"))
 
+    inventory_items: list[dict[str, Any]] | None = None
+    if inventory is not None and coc_inventory is not None:
+        sheet_rows = character.get("equipment") or []
+        pf_equipment = (sheet or {}).get("equipment")
+        # Localized labels for sheet-derived gear, keyed by the deterministic
+        # sheet item id so runtime merges keep the player-facing wording.
+        pf_item_labels: dict[str, str] = {}
+        for index, row in enumerate(sheet_rows):
+            row_id = coc_inventory.sheet_equipment_item_id(row)
+            if row_id is None:
+                continue
+            if isinstance(pf_equipment, list) and index < len(pf_equipment):
+                labels = _equipment_labels([pf_equipment[index]])
+                if labels:
+                    pf_item_labels[row_id] = labels[0]
+        sheet_item_ids = {
+            row_id
+            for row in sheet_rows
+            if (row_id := coc_inventory.sheet_equipment_item_id(row)) is not None
+        }
+        inventory_items = []
+        for entry in coc_inventory.effective_items(sheet_rows, inventory):
+            item_id = str(entry.get("item_id") or "")
+            if not item_id:
+                continue
+            item: dict[str, Any] = {
+                "item_id": item_id,
+                "label": pf_item_labels.get(item_id)
+                or str(entry.get("label") or item_id),
+                "kind": entry.get("kind") if entry.get("kind") in ("gear", "weapon") else "gear",
+                "source": "sheet" if item_id in sheet_item_ids else "campaign",
+            }
+            if entry.get("consumable") is not None:
+                item["consumable"] = entry["consumable"]
+            if entry.get("quantity") is not None:
+                item["quantity"] = entry["quantity"]
+            if entry.get("note"):
+                item["note"] = entry["note"]
+            inventory_items.append(item)
+        # The legacy flat label list follows the live merge too (gear only,
+        # exactly what the old sheet-only projection showed).
+        equipment = [item["label"] for item in inventory_items if item["kind"] == "gear"]
+
     return {
         "name": (sheet or {}).get("display_name") or character.get("name"),
         "occupation": (sheet or {}).get("occupation") or character.get("occupation"),
@@ -199,14 +264,24 @@ def _display_character(
         "skills": skills,
         "weapons": weapons,
         "equipment": equipment,
+        "inventory_items": inventory_items,
         "localized": sheet is not None,
     }
 
 
 def display_character(
-    workspace: Path | str, investigator_id: str, play_language: str
+    workspace: Path | str,
+    investigator_id: str,
+    play_language: str,
+    campaign_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """Read-only player-facing character for the side panel (None if absent)."""
+    """Read-only player-facing character for the side panel (None if absent).
+
+    With ``campaign_id``, the projection merges the campaign-local runtime
+    inventory (``save/investigator-state/<id>.json``), so items granted or
+    spent during play show up immediately instead of only after development
+    settlement rewrites the library sheet.
+    """
     workspace = Path(workspace)
     sheet_path = (
         _coc_root(workspace) / "investigators" / investigator_id / "character.json"
@@ -218,28 +293,22 @@ def display_character(
     if not isinstance(raw, dict):
         return None
     character = dict(raw)
-    # Inventory deltas appended during play override the sheet's base list when
-    # they carry an explicit equipment/items snapshot.
-    history_path = (
-        _coc_root(workspace)
-        / "investigators"
-        / investigator_id
-        / "inventory-history.jsonl"
-    )
-    try:
-        for line in history_path.read_text("utf-8").splitlines():
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, dict):
-                continue
-            snapshot = row.get("equipment") or row.get("items")
-            if isinstance(snapshot, list) and all(isinstance(x, str) for x in snapshot):
-                character["equipment"] = list(snapshot)
-    except (OSError, UnicodeDecodeError):
-        pass
-    return _display_character(workspace, character, play_language)
+    inventory: dict[str, Any] | None = None
+    if campaign_id:
+        state_path = (
+            _campaign_dir(workspace, campaign_id)
+            / "save"
+            / "investigator-state"
+            / f"{investigator_id}.json"
+        )
+        try:
+            inv_state = json.loads(state_path.read_text("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            inv_state = None
+        if isinstance(inv_state, dict):
+            coc_inventory = _load_plugin_module(workspace, "coc_inventory")
+            inventory = coc_inventory.normalize_inventory(inv_state)
+    return _display_character(workspace, character, play_language, inventory=inventory)
 
 
 def list_library_modules(workspace: Path | str) -> list[dict[str, Any]]:
@@ -319,6 +388,20 @@ def install_module(
     workspace = Path(workspace)
     reg = _load_plugin_module(workspace, "coc_module_registry")
     return reg.install_to_campaign(workspace, module_id, campaign_id)
+
+
+def project_campaign_state(
+    workspace: Path | str,
+    campaign_id: str,
+    investigator_id: str | None = None,
+) -> dict[str, Any]:
+    """Player-safe public state from disk. No keeper session required."""
+    workspace = Path(workspace)
+    public_state = _load_engine_module("public_state", workspace)
+    actor_id = investigator_id.strip() if isinstance(investigator_id, str) else None
+    if actor_id == "":
+        actor_id = None
+    return public_state.build_public_state(workspace, campaign_id, actor_id)
 
 
 def public_transcript_base(

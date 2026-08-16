@@ -1,9 +1,12 @@
 import { appendFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  fauxAssistantMessage,
-  fauxProvider,
-} from "../../runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/faux.js";
+import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
+
+const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+const { fauxAssistantMessage, fauxProvider } = await import(
+  embeddedPiFile(repoRoot, "pi-ai", "dist/providers/faux.js")
+);
 
 export default function cliFauxProvider(pi: ExtensionAPI) {
   const faux = fauxProvider({ provider: "pi-leaf-cli-faux", models: [{ id: "leaf" }] });

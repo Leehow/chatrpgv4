@@ -1,0 +1,26 @@
+appId: org.chatrpg.cockeyper
+productName: COC Keeper
+directories:
+  output: dist
+  buildResources: buildResources
+files:
+  - electron/**
+  - wizard/dist/**
+  - package.json
+extraResources:
+  - from: build/payload
+    to: payload
+  - from: build/bin
+    to: bin
+  - from: build/python
+    to: python
+  - from: build/coc-tools
+    to: coc-tools
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.role-playing-games
+  # v1 ships unsigned local builds; signing/notarization is the polish phase.
+  identity: null

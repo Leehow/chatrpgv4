@@ -1,12 +1,9 @@
 /**
- * Node HTTP + SSE bridge between the React web UI and the canonical runtime.
+ * Node HTTP + SSE bridge: the web/Electron UI of the pi-coc host.
  *
- * Successor to web/server/app.py (stdlib Python bridge). This server is a
- * thin transport: all game semantics live in the canonical runtime SDK and
- * keeper runner, reached through the stdio JSON-RPC sidecar
- * (runtime/sdk/rpc_server.py). It adds no rules, state, or narration
- * behavior of its own. SSE wraps one sidecar ``send`` per player turn; live
- * ``delta`` events are the keeper runner's own post-finalize token stream.
+ * Product turns go through one `pi-coc --mode rpc` child per campaign
+ * (web/server-node/pi-coc-rpc.mjs). The sidecar remains for campaign admin
+ * and read-only disk projections only — it is not the turn channel.
  *
  * Run from the repository root:
  *
@@ -20,8 +17,10 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { Sidecar, SidecarError } from "./sidecar.mjs";
+import { PiCocRpcError, PiCocRpcHost, webSessionId } from "./pi-coc-rpc.mjs";
 import {
   campaignDir,
+  combatInitiativeDisplay,
   cocRoot,
   discoveredCluesDisplay,
   enrichTranscriptFromEvents,
@@ -39,13 +38,9 @@ import {
 } from "./projections.mjs";
 
 /**
- * Arm the canonical Pi source-lifecycle lanes for the keeper agent this
- * bridge spawns. The pi-coc CLI launcher exports the same defaults; the
- * web keeper session is launched directly (run_keeper_turn.mjs) and would
- * otherwise silently skip the opening-source-review auto-dispatch
- * (COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND unset => retryable "command
- * unavailable") and progressive OCR. Values already exported by the
- * operator always win.
+ * Arm the canonical Pi source-lifecycle lanes for the pi-coc RPC child this
+ * bridge spawns. The pi-coc CLI launcher exports the same defaults; values
+ * already exported by the operator always win.
  */
 {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -53,13 +48,6 @@ import {
   const defaults = {
     COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND: path.join(piBin, "coc-pdf-skill-adapter"),
     COC_PROGRESSIVE_OCR_COMMAND: path.join(piBin, "coc-ocr-adapter.py"),
-    // Text model for the opening facts + module-init L0 extraction child.
-    // The adapter's deepseek default needs an API key the extension's child
-    // env allowlist never carries; the web keeper's relay catalog does.
-    // Must be a strong model: the strict coc.opening-fast-facts.v1 contract
-    // (exact key set incl. schema_version/contract_id) is systematically
-    // dropped by gpt-5.4-mini (campaign 163241: 3/3 producer failures).
-    COC_PI_OPENING_MODEL: "coding-relay/gpt-5.6-luna",
   };
   const routerDefault = path.join(
     os.homedir(),
@@ -86,13 +74,15 @@ let sidecar = null;
 
 /** sid -> {session_id, campaign_id, investigator_id} */
 const SESSIONS = new Map();
+/** campaign_id -> PiCocRpcHost */
+const HOSTS = new Map();
 
 // One turn at a time: concurrent keeper turns against shared campaign state
-// are never safe, and model env vars are process-global in the sidecar.
+// are never safe.
 let turnInFlight = false;
 
-// Reusable workspace-level shell so a campaign can open a Keeper session and
-// run the canonical coc-character skill before a real investigator exists.
+// Historical web-only placeholder. Never create or link it again; ignore it
+// when resolving a real investigator left over from the deprecated path.
 const SETUP_DRAFT_INVESTIGATOR_ID = "web-char-setup-draft";
 
 // ---------------------------------------------------------------------------
@@ -159,71 +149,6 @@ function httpError(status, message) {
   return err;
 }
 
-// ---------------------------------------------------------------------------
-// Setup-draft investigator (character-creation-in-chat flow)
-
-async function ensureSetupDraftInvestigator() {
-  const invPath = path.join(
-    cocRoot(WORKSPACE),
-    "investigators",
-    SETUP_DRAFT_INVESTIGATOR_ID,
-    "character.json",
-  );
-  if (fs.existsSync(invPath)) return SETUP_DRAFT_INVESTIGATOR_ID;
-  await sidecar.request("setup_workspace", {
-    operation: {
-      schema_version: 1,
-      kind: "investigator.create",
-      payload: {
-        investigator_id: SETUP_DRAFT_INVESTIGATOR_ID,
-        // Import a complete shell sheet: the deterministic validator rejects
-        // Quick Fire inputs unless creation.input_mode=guided_quick_fire, and
-        // that guided branch requires a campaign context plus an authoritative
-        // dice receipt — unavailable for this workspace-level placeholder.
-        // Numbers are the package's Quick Fire array (characteristic-dice.json)
-        // with Luck 12*5 and age 28, exactly as derive_values computes them.
-        sheet: {
-          id: SETUP_DRAFT_INVESTIGATOR_ID,
-          name: "（建卡引导中）",
-          occupation: "调查员",
-          era: "1920s",
-          age: 28,
-          characteristics: {
-            INT: 80,
-            POW: 70,
-            DEX: 60,
-            EDU: 60,
-            CON: 50,
-            APP: 50,
-            SIZ: 50,
-            STR: 40,
-          },
-          derived: {
-            HP: 10,
-            MP: 14,
-            SAN: 70,
-            Luck: 60,
-            DB: "none",
-            Build: 0,
-            MOV: 8,
-          },
-          skills: {
-            "Credit Rating": 20,
-            "Spot Hidden": 25,
-            Listen: 20,
-            "Library Use": 20,
-          },
-        },
-        creation: {
-          input_mode: "import_complete_sheet",
-          method: "complete_sheet_placeholder",
-        },
-      },
-    },
-  });
-  return SETUP_DRAFT_INVESTIGATOR_ID;
-}
-
 function resolveInvestigator(campaignId) {
   const stateDir = path.join(campaignDir(WORKSPACE, campaignId), "save", "investigator-state");
   let names;
@@ -234,99 +159,39 @@ function resolveInvestigator(campaignId) {
   }
   for (const name of names) {
     const stem = name.slice(0, -".json".length);
-    // Prefer a real investigator over the setup draft slot.
     if (stem !== SETUP_DRAFT_INVESTIGATOR_ID) return stem;
   }
-  if (names.includes(`${SETUP_DRAFT_INVESTIGATOR_ID}.json`)) {
-    return SETUP_DRAFT_INVESTIGATOR_ID;
-  }
   return null;
-}
-
-async function linkSetupDraft(campaignId) {
-  const draftId = await ensureSetupDraftInvestigator();
-  try {
-    await sidecar.request("setup_workspace", {
-      operation: {
-        schema_version: 1,
-        kind: "campaign.link_investigator",
-        payload: { campaign_id: campaignId, investigator_ids: [draftId] },
-      },
-    });
-  } catch (err) {
-    // Era-gate deadlock: a source-bound campaign whose era is not yet
-    // established fail-closes party linking (character creation) until
-    // setup.adopt_source_facts answers the fast-facts era question — but
-    // that adoption can only be driven from inside a live session. Open the
-    // session with the unlinked draft anyway; the kernel still blocks every
-    // creation operation until adoption, and the link is re-attempted by the
-    // normal character-creation flow once the era is established.
-    if (
-      err instanceof SidecarError &&
-      /era is not source-established/.test(err.message)
-    ) {
-      // The kernel seeds draft runtime state inside link_party; while the
-      // gate defers the link, seed the identical placeholder state so the
-      // session's state snapshot can load. The file is never touched again
-      // once the real link runs (link_party keeps existing state).
-      seedDraftInvestigatorState(campaignId, draftId);
-      return draftId;
-    }
-    throw err;
-  }
-  return draftId;
-}
-
-function seedDraftInvestigatorState(campaignId, draftId) {
-  const statePath = path.join(
-    campaignDir(WORKSPACE, campaignId),
-    "save",
-    "investigator-state",
-    `${draftId}.json`,
-  );
-  if (fs.existsSync(statePath)) return;
-  let sheet = {};
-  try {
-    sheet = readJsonFile(
-      path.join(cocRoot(WORKSPACE), "investigators", draftId, "character.json"),
-    );
-  } catch {
-    sheet = {};
-  }
-  const derived = sheet?.derived && typeof sheet.derived === "object" ? sheet.derived : {};
-  const chars =
-    sheet?.characteristics && typeof sheet.characteristics === "object"
-      ? sheet.characteristics
-      : {};
-  const state = {
-    schema_version: 1,
-    campaign_id: campaignId,
-    investigator_id: draftId,
-    current_hp: Number(derived.HP || 10),
-    current_san: Number(derived.SAN || chars.POW || 50),
-    current_mp: Number(derived.MP || Math.max(1, Math.floor(Number(chars.POW || 50) / 5))),
-    current_luck: Number(derived.Luck || chars.LUCK || 50),
-    conditions: [],
-    skill_checks_earned: [],
-  };
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n", "utf-8");
 }
 
 // ---------------------------------------------------------------------------
 // State / transcript payloads
 
 async function statePayload(info) {
-  const state = await sidecar.request("get_state", { session_id: info.session_id });
+  const liveInvestigator = resolveInvestigator(info.campaign_id);
+  const state = await sidecar.request("project_campaign_state", {
+    campaign_id: info.campaign_id,
+    ...(liveInvestigator ? { investigator_id: liveInvestigator } : {}),
+  });
   const lang =
     typeof state.play_language === "string" && state.play_language
       ? state.play_language
       : "zh-Hans";
-  const extras = await sidecar.request("display_character", {
-    investigator_id: info.investigator_id,
-    play_language: lang,
-  });
-  state.character = extras?.character ?? null;
+  if (liveInvestigator) {
+    try {
+      const extras = await sidecar.request("display_character", {
+        investigator_id: liveInvestigator,
+        play_language: lang,
+        campaign_id: info.campaign_id,
+      });
+      state.character = extras?.character ?? null;
+    } catch {
+      state.character = null;
+    }
+  } else {
+    state.character = null;
+  }
+  state.character_setup_pending = !liveInvestigator;
   state.time = timeExtras(WORKSPACE, info.campaign_id, lang);
   const sceneId = state.active_scene_id;
   if (typeof sceneId === "string" && sceneId) {
@@ -346,7 +211,36 @@ async function statePayload(info) {
     state.discovered_clue_ids,
     lang,
   );
+  state.combat = combatInitiativeDisplay(WORKSPACE, info.campaign_id, {
+    investigatorId: liveInvestigator,
+    investigatorName: state.character?.name ?? null,
+  });
   return state;
+}
+
+/** Last settled turn's keeper token usage from runtime telemetry (or null). */
+function lastTelemetryUsage(campaignId) {
+  const telemetryPath = path.join(
+    campaignDir(WORKSPACE, campaignId),
+    "logs",
+    "runtime-telemetry.jsonl",
+  );
+  let last = null;
+  try {
+    const lines = fs.readFileSync(telemetryPath, "utf8").split("\n").filter(Boolean);
+    if (lines.length) last = JSON.parse(lines[lines.length - 1]);
+  } catch {
+    return null;
+  }
+  const usage = last?.telemetry;
+  if (!usage || typeof usage !== "object") return null;
+  const input = usage.input_tokens;
+  const output = usage.output_tokens;
+  if (!Number.isInteger(input) && !Number.isInteger(output)) return null;
+  return {
+    input_tokens: Number.isInteger(input) ? input : null,
+    output_tokens: Number.isInteger(output) ? output : null,
+  };
 }
 
 async function transcriptPayload(info) {
@@ -361,25 +255,21 @@ async function transcriptPayload(info) {
 }
 
 function playerVisibleTurnError(err) {
-  const kind = err instanceof SidecarError ? err.kind : null;
+  const kind = err instanceof PiCocRpcError
+    ? err.kind
+    : err instanceof SidecarError
+      ? err.kind
+      : null;
   const name = err instanceof SidecarError ? err.errorClass : err?.constructor?.name || "";
   const text = err?.message || "";
-  if (kind === "keeper_finalization_blocked" || name === "KeeperFinalizationBlockedError") {
-    return (
-      "本回合未能完成结算（KP 没有成功写出可对玩家发布的最终叙述）。" +
-      "世界状态可能已有部分写入，也可能完全未写；" +
-      "请重发同一行动，或换一种表述再试。" +
-      "若连续失败，用顶栏「⟳ 刷新」核对状态后再继续。"
-    );
+  if (kind === "pi_coc_rpc_exited" || kind === "pi_coc_rpc_failed") {
+    return `pi-coc 宿主异常：${text || name}`;
   }
-  if (kind === "telemetry_persistence_failed" || name === "TelemetryPersistenceError") {
-    return (
-      "本回合叙述可能已生成，但遥测回执写入失败。" +
-      "请刷新后确认对话是否已落盘；若缺失可重试该行动。"
-    );
+  if (kind === "pi_coc_rpc_timeout") {
+    return "pi-coc 本回合超时。请刷新后确认对话是否已落盘，再重试同一行动。";
   }
-  if (kind === "keeper_adapter_failed" || name.includes("KeeperAdapter")) {
-    return `Keeper 进程/连接异常：${text || name}`;
+  if (kind === "pi_coc_rpc_rejected") {
+    return `pi-coc 未接受该输入：${text || name}`;
   }
   if (text && text !== name) return `${name}: ${text}`;
   return text || name || "未知错误";
@@ -452,8 +342,10 @@ async function handleHealth(_req, res) {
     ok: true,
     workspace: WORKSPACE,
     sessions: SESSIONS.size,
+    hosts: HOSTS.size,
     dist_built: fs.existsSync(DIST_DIR),
     bridge: "node",
+    turn_channel: "pi-coc-rpc",
   });
 }
 
@@ -501,14 +393,26 @@ async function handleCreateCampaign(req, res) {
 
   const payload = {
     scenario_id: String(body.scenario_id || "").trim(),
-    pregen_id: String(body.pregen_id || "").trim(),
+    // pregen_id optional: without it the campaign ships scenario-ready but
+    // investigator-less (needs_investigator), like the pdf/library paths, so
+    // character creation can run through play (coc-character).
+    pregen_id: String(body.pregen_id || "").trim() || null,
   };
-  if (!payload.scenario_id || !payload.pregen_id) {
-    throw httpError(400, "scenario_id and pregen_id are required");
+  if (!payload.scenario_id) {
+    throw httpError(400, "scenario_id is required");
   }
   for (const key of ["campaign_id", "title"]) {
     const value = String(body[key] || "").trim();
     if (value) payload[key] = value;
+  }
+  // quick_start's default id is fixed ("{scenario}-qs"), so a second run of
+  // the same starter would collide. Degrade to the library-flow convention
+  // (timestamp suffix) instead of erroring — players never think in ids.
+  if (!payload.campaign_id) {
+    const defaultId = `${payload.scenario_id}-qs`;
+    if (fs.existsSync(path.join(cocRoot(WORKSPACE), "campaigns", defaultId))) {
+      payload.campaign_id = `${defaultId}-${timestampIso()}`;
+    }
   }
   const result = await sidecar.request("setup_workspace", {
     operation: { schema_version: 1, kind: "campaign.quick_start", payload },
@@ -712,6 +616,66 @@ async function handleAttachInvestigator(req, res) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Campaign admin (rename / trash / restore — semantics live in the sidecar's
+// campaign_admin module; this layer only closes live sessions around a trash)
+
+async function handleRenameCampaign(req, res) {
+  const body = await readJsonBody(req);
+  const campaignId = String(body.campaign_id || "").trim();
+  if (!campaignId) throw httpError(400, "campaign_id is required");
+  if (body.title == null) throw httpError(400, "title is required");
+  const result = await sidecar.request("campaign_rename", {
+    campaign_id: campaignId,
+    title: body.title,
+  });
+  sendJson(res, 200, { ok: true, result });
+}
+
+async function handleTrashCampaign(req, res) {
+  const body = await readJsonBody(req);
+  const campaignId = String(body.campaign_id || "").trim();
+  if (!campaignId) throw httpError(400, "campaign_id is required");
+  if (turnInFlight) {
+    throw httpError(409, "一个回合仍在进行，请等它结束后再删除战役。");
+  }
+  // Close this bridge's live sessions for the campaign before the directory
+  // moves; a failed trash just means the player reopens the campaign.
+  for (const [sid, info] of [...SESSIONS]) {
+    if (info.campaign_id !== campaignId) continue;
+    SESSIONS.delete(sid);
+  }
+  const host = HOSTS.get(campaignId);
+  if (host) {
+    HOSTS.delete(campaignId);
+    try {
+      await host.close();
+    } catch {
+      /* the campaign moves anyway */
+    }
+  }
+  const result = await sidecar.request("campaign_trash", {
+    campaign_id: campaignId,
+  });
+  sendJson(res, 200, { ok: true, result });
+}
+
+async function handleListTrash(_req, res) {
+  // The sidecar purges expired entries lazily while listing.
+  const result = await sidecar.request("campaign_trash_list", {});
+  sendJson(res, 200, { ok: true, entries: Array.isArray(result?.entries) ? result.entries : [] });
+}
+
+async function handleRestoreTrash(req, res) {
+  const body = await readJsonBody(req);
+  const trashKey = String(body.trash_key || "").trim();
+  if (!trashKey) throw httpError(400, "trash_key is required");
+  const result = await sidecar.request("campaign_trash_restore", {
+    trash_key: trashKey,
+  });
+  sendJson(res, 200, { ok: true, result });
+}
+
 async function handleCreateSession(req, res) {
   const body = await readJsonBody(req);
   const campaignId = String(body.campaign_id || "").trim();
@@ -726,25 +690,34 @@ async function handleCreateSession(req, res) {
         "请从左侧「＋ 新战役」开局。",
     );
   }
-  let investigatorId = String(body.investigator_id || "").trim();
-  let characterSetup = false;
-  if (!investigatorId) {
-    const resolved = resolveInvestigator(campaignId);
-    if (!resolved) {
-      // No party yet (「新建调查员」开局): open with setup shell so the live
-      // Keeper can run the canonical coc-character skill in chat.
-      investigatorId = await linkSetupDraft(campaignId);
-      characterSetup = true;
-    } else {
-      investigatorId = resolved;
-      characterSetup = investigatorId === SETUP_DRAFT_INVESTIGATOR_ID;
-    }
+  const investigatorId = String(body.investigator_id || "").trim()
+    || resolveInvestigator(campaignId)
+    || "";
+  const sessionId = webSessionId(campaignId);
+  let host = HOSTS.get(campaignId);
+  let spawned = false;
+  if (!host || host.closed) {
+    host = new PiCocRpcHost({
+      repoRoot: REPO_ROOT,
+      workspace: WORKSPACE,
+      campaignId,
+      sessionId,
+      tableIntent: resolveInvestigator(campaignId) ? "continue" : "character-setup",
+    });
+    HOSTS.set(campaignId, host);
+    spawned = true;
   }
-  const created = await sidecar.request("create_session", {
-    campaign_id: campaignId,
-    investigator_id: investigatorId,
-  });
-  const sessionId = created.session_id;
+  try {
+    await host.waitUntilReady();
+  } catch (err) {
+    HOSTS.delete(campaignId);
+    try {
+      await host.close();
+    } catch {
+      /* spawn failed */
+    }
+    throw err;
+  }
   const info = {
     session_id: sessionId,
     campaign_id: campaignId,
@@ -753,7 +726,9 @@ async function handleCreateSession(req, res) {
   SESSIONS.set(sessionId, info);
   sendJson(res, 200, {
     session_id: sessionId,
-    character_setup: characterSetup,
+    character_setup: false,
+    host: "pi-coc",
+    host_opening: spawned,
     campaign_id: campaignId,
     investigator_id: investigatorId,
     state: await statePayload(info),
@@ -763,6 +738,27 @@ async function handleCreateSession(req, res) {
 async function handleState(req, res, sid) {
   const info = SESSIONS.get(sid);
   if (!info) throw httpError(404, "unknown session");
+  sendJson(res, 200, await statePayload(info));
+}
+
+async function handleUseItem(req, res, sid) {
+  const info = SESSIONS.get(sid);
+  if (!info) throw httpError(404, "unknown session");
+  if (turnInFlight) throw httpError(409, "回合进行中，请等待 KP 结算后再使用物品。");
+  const body = await readJsonBody(req);
+  const itemId = String(body.item_id || "").trim();
+  if (!itemId) throw httpError(400, "item_id is required");
+  const investigatorId = resolveInvestigator(info.campaign_id);
+  if (!investigatorId) throw httpError(400, "调查员尚未创建。");
+  try {
+    await sidecar.request("item_use", {
+      campaign_id: info.campaign_id,
+      investigator_id: investigatorId,
+      item_id: itemId,
+    });
+  } catch (err) {
+    throw httpError(400, err?.message || "使用物品失败。");
+  }
   sendJson(res, 200, await statePayload(info));
 }
 
@@ -786,10 +782,12 @@ async function handleTurn(req, res, sid) {
     return;
   }
   const body = await readJsonBody(req);
+  const attach = body.attach === true;
   const playerInput = String(body.input || "").trim();
-  if (!playerInput) throw httpError(400, "input is required");
+  if (!attach && !playerInput) throw httpError(400, "input is required");
   const provider = String(body.provider || "").trim();
   const model = String(body.model || "").trim();
+  const thinking = String(body.thinking || "").trim();
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -808,7 +806,7 @@ async function handleTurn(req, res, sid) {
 
   let clientGone = false;
   res.on("close", () => {
-    clientGone = true; // the turn still settles canonically server-side
+    clientGone = true;
   });
   const heartbeat = setInterval(() => {
     if (!clientGone) res.write(": ping\n\n");
@@ -821,34 +819,43 @@ async function handleTurn(req, res, sid) {
   };
 
   try {
+    const host = HOSTS.get(info.campaign_id);
+    if (!host || host.closed) {
+      throw new PiCocRpcError("pi-coc 宿主未启动；请刷新后重开战役。");
+    }
     safeWrite("status", { phase: "accepted" });
-    const result = await sidecar.request(
-      "send",
-      { session_id: info.session_id, input: playerInput, provider, model },
-      {
-        onNotify: (name, data) => {
-          if (name !== "keeper_stream" || !data || typeof data !== "object") return;
-          const streamType = data.$stream;
-          if (streamType === "delta") {
-            safeWrite("delta", { text: String(data.text || "") });
-          } else if (streamType === "delta_reset") {
-            safeWrite("delta_reset", {});
-          } else if (streamType === "tool") {
-            safeWrite("tool", {
-              phase: String(data.phase || ""),
-              tool: String(data.tool || ""),
-            });
-          }
-        },
-      },
-    );
+    const onSse = (frame) => safeWrite(frame.event, frame.data);
+    if (provider && model) {
+      try {
+        await host.setModel(provider, model);
+      } catch (err) {
+        safeWrite("error", { message: `无法切换模型：${err?.message || err}` });
+        return;
+      }
+    }
+    if (thinking) await host.setThinking(thinking);
+    if (attach) {
+      await host.attachOpening({ onSse });
+    } else {
+      await host.prompt(playerInput, { onSse });
+    }
     let state;
     try {
       state = await statePayload(info);
     } catch (err) {
       state = { error: `${err?.constructor?.name || "Error"}: ${err?.message || err}` };
     }
-    safeWrite("turn", { events: result?.events ?? [], state });
+    const usage = host.lastUsage;
+    safeWrite("turn", {
+      events: [],
+      state,
+      usage: usage
+        ? {
+            input_tokens: Number.isInteger(usage.input) ? usage.input : null,
+            output_tokens: Number.isInteger(usage.output) ? usage.output : null,
+          }
+        : lastTelemetryUsage(info.campaign_id),
+    });
     safeWrite("end", {});
   } catch (err) {
     safeWrite("error", { message: playerVisibleTurnError(err) });
@@ -1487,6 +1494,7 @@ async function route(req, res) {
     ) {
       return handleTranscript(req, res, parts[2]);
     }
+    if (urlPath === "/api/trash") return handleListTrash(req, res);
     if (urlPath.startsWith("/api/")) throw httpError(404, "not found");
     return serveStatic(req, res, urlPath);
   }
@@ -1495,6 +1503,9 @@ async function route(req, res) {
     if (urlPath === "/api/uploads/pdf/ingest") return handleIngestPdf(req, res);
     if (urlPath === "/api/uploads/pdf") return handleUploadPdf(req, res);
     if (urlPath === "/api/campaigns") return handleCreateCampaign(req, res);
+    if (urlPath === "/api/campaigns/rename") return handleRenameCampaign(req, res);
+    if (urlPath === "/api/campaigns/trash") return handleTrashCampaign(req, res);
+    if (urlPath === "/api/trash/restore") return handleRestoreTrash(req, res);
     if (urlPath === "/api/campaigns/attach-investigator") return handleAttachInvestigator(req, res);
     if (urlPath === "/api/sessions") return handleCreateSession(req, res);
     if (urlPath === "/api/investigators") return handleCreateInvestigator(req, res);
@@ -1505,6 +1516,15 @@ async function route(req, res) {
       parts[3] === "turns"
     ) {
       return handleTurn(req, res, parts[2]);
+    }
+    if (
+      parts.length === 5 &&
+      parts[0] === "api" &&
+      parts[1] === "sessions" &&
+      parts[3] === "items" &&
+      parts[4] === "use"
+    ) {
+      return handleUseItem(req, res, parts[2]);
     }
     throw httpError(404, "not found");
   }
@@ -1523,6 +1543,16 @@ function main() {
   }
   sidecar = new Sidecar(WORKSPACE);
   sidecar.start();
+
+  // Trash retention sweep: expired entries (24h) are removed at startup and
+  // on this interval while the server runs, in addition to the lazy purge on
+  // every trash listing.
+  const sweepTrash = () => {
+    sidecar.request("campaign_trash_purge", {}).catch(() => undefined);
+  };
+  sweepTrash();
+  const trashTimer = setInterval(sweepTrash, 15 * 60 * 1000);
+  trashTimer.unref?.();
 
   const server = http.createServer((req, res) => {
     route(req, res).catch((err) => {
@@ -1552,6 +1582,14 @@ function main() {
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, async () => {
       server.close();
+      for (const host of HOSTS.values()) {
+        try {
+          await host.close();
+        } catch {
+          /* shutting down */
+        }
+      }
+      HOSTS.clear();
       await sidecar.stop();
       process.exit(0);
     });

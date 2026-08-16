@@ -3465,6 +3465,17 @@ def project_player_combat_defense(
         "dodge": "Dodge", "fight_back": "Fight Back",
         "dive_for_cover": "Dive for Cover", "none": "Take No Defense",
     }
+    defender = session.participants[investigator_id]
+    counter_weapon = session._weapon(investigator_id, None)
+    counter_damage = str(counter_weapon.get("damage") or "1D3")
+    counter_db = session._weapon_db_expr(defender, counter_weapon)
+    if counter_db:
+        counter_damage += (
+            str(counter_db)
+            if str(counter_db).startswith(("+", "-"))
+            else f"+{counter_db}"
+        )
+    already_defended = session.has_defended_this_round(investigator_id)
     attack_id = pending["attack_command_id"]
     return {
         "choice_id": f"combat-defense:{attack_id}",
@@ -3476,6 +3487,19 @@ def project_player_combat_defense(
             for action in pending["allowed_defenses"]
         ],
         "attack_id": attack_id, "audience": "player",
+        "combat_context": {
+            "attack_kind": (
+                "firearm"
+                if pending.get("resolution_hint") == "firearm_attack"
+                else "melee"
+            ),
+            "dodge_skill": int(defender["dodge_skill"]),
+            "fighting_skill": int(defender["combat_skill"]),
+            "counter_damage": counter_damage,
+            "already_defended_this_round": already_defended,
+            "incoming_bonus_dice": 1 if already_defended else 0,
+            "incoming_penalty_dice": 0,
+        },
     }
 
 
