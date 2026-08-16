@@ -136,3 +136,5 @@ const result = {
   turns,
 };
 console.log(JSON.stringify(result, null, 2));
+// MCP child handles can outlive dispose; hard-exit once the result is out.
+setTimeout(() => process.exit(0), 200);
