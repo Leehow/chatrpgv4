@@ -39,6 +39,7 @@ import stat
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from difflib import get_close_matches as _close_matches
 from pathlib import Path
 from typing import Any, Callable
 
@@ -1866,7 +1867,17 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
     """Programmatic entry point. Returns the envelope dict."""
     spec = TOOLS.get(name)
     if spec is None:
-        return {"ok": False, "tool": name, "error": {"code": "unknown_tool", "message": f"unknown tool: {name}"}}
+        message = f"unknown tool: {name}"
+        if name in ("coc_capabilities", "coc_discover", "coc_invoke"):
+            message += (
+                "; this is a top-level gateway tool, not a coc_invoke "
+                "operation — call it directly as its own tool"
+            )
+        else:
+            close = _close_matches(name, list(TOOLS), n=3, cutoff=0.6)
+            if close:
+                message += "; did you mean: " + ", ".join(close)
+        return {"ok": False, "tool": name, "error": {"code": "unknown_tool", "message": message}}
     def failure(
         code: str, message: str, *, details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:

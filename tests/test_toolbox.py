@@ -1327,6 +1327,18 @@ def test_roll_dice_batch_expression_error_names_one_per_call_syntax(tmp_path):
     assert "roll each part of an array as its own rules.roll_dice call" in message
 
 
+def test_unknown_tool_errors_suggest_gateway_tools_and_close_names():
+    gateway = coc_toolbox.run_tool("coc_capabilities", Path("."), None, {})
+    assert gateway["error"]["code"] == "unknown_tool"
+    assert "top-level gateway tool, not a coc_invoke operation" in (
+        gateway["error"]["message"]
+    )
+
+    close = coc_toolbox.run_tool("rules.rolldice", Path("."), None, {})
+    assert close["error"]["code"] == "unknown_tool"
+    assert "did you mean: rules.roll_dice" in close["error"]["message"]
+
+
 def test_campaign_create_warns_when_a_recent_campaign_already_exists(
     tmp_path,
 ):

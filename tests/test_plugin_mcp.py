@@ -5087,3 +5087,30 @@ def test_mcp_wire_carries_the_assembled_story_thread():
     assert destination["transition"].startswith("提图斯可以拜访")
     assert len(destination["clues"]) == wire.THREAD_CLUE_LIMIT
     assert all("transition" not in clue for clue in destination["clues"])
+
+
+def test_mcp_main_loop_survives_unhandled_handler_exceptions(capsys):
+    server = _load_server()
+    original_handle = server._handle
+
+    def boom(message):
+        raise RuntimeError("simulated handler crash")
+
+    server._handle = boom
+    import io as _io
+    original_stdin = sys.stdin
+    try:
+        sys.stdin = _io.StringIO(
+            json.dumps({"id": 7, "method": "tools/call", "params": {}}) + "\n",
+        )
+        exit_code = server.main()
+    finally:
+        sys.stdin = original_stdin
+        server._handle = original_handle
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    response = json.loads(captured.out.strip().splitlines()[-1])
+    assert response["id"] == 7
+    assert response["error"]["code"] == -32603
+    assert "RuntimeError" in response["error"]["message"]
+    assert "simulated handler crash" in response["error"]["message"]

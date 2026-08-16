@@ -22,6 +22,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import traceback
 from typing import Any
 
 
@@ -1112,13 +1113,25 @@ def main() -> int:
     for line in sys.stdin:
         if not line.strip():
             continue
+        request_id = None
         try:
             message = json.loads(line)
             if not isinstance(message, dict):
                 raise ValueError("message must be an object")
+            if isinstance(message.get("id"), (str, int)):
+                request_id = message["id"]
             response = _handle(message)
         except (ValueError, json.JSONDecodeError) as exc:
             response = _error(None, -32700, str(exc))
+        except Exception as exc:
+            # One bad request must never kill the whole JSONL child: every
+            # sibling in-flight request would fail with "MCP child exited".
+            traceback.print_exc()
+            response = _error(
+                request_id,
+                -32603,
+                f"internal error: {type(exc).__name__}: {exc}",
+            )
         if response is not None:
             sys.stdout.write(json.dumps(
                 response,

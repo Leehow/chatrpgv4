@@ -2064,7 +2064,13 @@ export class McpJsonlClient {
         // next request may already have respawned this.child.
         if (this.child !== child) return;
         this.child = null;
-        if (this.pending.size) this.failAll(new Error("MCP child exited"));
+        if (this.pending.size) {
+          const tail = this.stderr.slice(-400).trim();
+          this.failAll(new Error(
+            "MCP child exited"
+            + (tail ? `; child stderr tail: ${tail}` : ""),
+          ));
+        }
       });
       await this.direct("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "coc-keeper-pi", version: "0.4.0-alpha.0" } });
     } finally {
