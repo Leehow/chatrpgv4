@@ -18375,3 +18375,22 @@ def test_story_thread_orders_by_what_the_main_line_needs(campaign_ws):
     assert len(row["one_move_away"]) == 1
     assert row["one_move_away"][0]["transition"] == "沿河向北半日。"
     assert len(row["one_move_away"][0]["clues"]) == 2
+
+
+def test_quick_start_on_existing_campaign_returns_steered_tool_error(tmp_path):
+    coc_toolbox.run_tool(
+        "setup.invoke", tmp_path, None,
+        {"kind": "campaign.create", "payload": {"campaign_id": "qs-dup", "title": "QS"}},
+    )
+    envelope = coc_toolbox.run_tool(
+        "setup.quick_start", tmp_path, None,
+        {
+            "scenario_id": "the-haunting",
+            "pregen_id": "thomas-hayes",
+            "campaign_id": "qs-dup",
+        },
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "setup_failed"
+    assert "already exists" in envelope["error"]["message"]
+    assert "fresh campaign_id" in envelope["error"]["message"]

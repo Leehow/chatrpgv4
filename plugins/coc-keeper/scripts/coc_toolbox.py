@@ -7723,7 +7723,11 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
                 "payload": payload,
             },
         )
-    except coc_runtime_ops.RuntimeOperationError as exc:
+    except (
+        coc_runtime_ops.RuntimeOperationError,
+        FileExistsError,
+        FileNotFoundError,
+    ) as exc:
         raise ToolError("setup_failed", str(exc)) from exc
     campaign_id = str((receipt.get("result") or {}).get("campaign_id") or "")
     warnings: list[str] = []
