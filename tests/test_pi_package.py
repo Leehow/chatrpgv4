@@ -85,7 +85,7 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     assert result["extensionCount"] == 1
     assert result["toolNames"] == [
         "coc_capabilities", "coc_discover", "coc_dispatch_source_work",
-        "coc_invoke", "coc_progressive_ocr",
+        "coc_invoke", "coc_map_supply", "coc_progressive_ocr",
     ]
     assert not {"subagent", "edit", "write", "coc_run_source_coordinator", "coc_read_source_packet"} & set(result["toolNames"])
     assert {"coc-main", "coc-keeper-play", "coc-story-director", "coc-rules-engine", "coc-character"} <= set(result["skillNames"])
@@ -102,7 +102,7 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
         "ok": True,
         "activeTools": [
             "coc_capabilities", "coc_discover", "coc_invoke",
-            "coc_progressive_ocr", "subagent", "subagent_wait",
+            "coc_progressive_ocr", "coc_map_supply", "subagent", "subagent_wait",
         ],
     }
 
@@ -317,9 +317,10 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
     assert "coc_capabilities" in text
     assert "never call or construct `coc_dispatch_source_work`" in text
     assert "the Pi extension's private source locator" in text
-    assert "never guess a bundle path or reuse an old bundle" in text
-    assert "do not use any legacy `coc_progressive_ocr` fast/enhance/export route" in " ".join(text.split()).lower()
     prompt_compact = " ".join(text.split())
+    # Whitespace-normalized: the prompt markdown rewraps mid-sentence.
+    assert "never guess a bundle path or reuse an old bundle" in prompt_compact
+    assert "do not use any legacy `coc_progressive_ocr` fast/enhance/export route" in prompt_compact.lower()
     assert "Skill 1: L0 package and source-facts adoption" in prompt_compact
     assert "then start the bounded steward group, and let Skill 3 supply future scenes" in prompt_compact
     for phrase in (
@@ -751,6 +752,66 @@ def test_pi_coc_preserves_supported_thinking_off_exactly(tmp_path: Path):
     assert completed.returncode == 0
     forwarded = args_path.read_text(encoding="utf-8").splitlines()
     assert forwarded[-3:] == ["--thinking", "off", "hello"]
+
+
+def test_pi_coc_refuses_silently_clamped_non_off_thinking_level(tmp_path: Path):
+    settings = {
+        "defaultProvider": "test",
+        "defaultModel": "reasoning-optional",
+        "defaultThinkingLevel": "medium",
+    }
+    models = {
+        "test": {
+            "models": [{
+                "id": "reasoning-optional",
+                "reasoning": True,
+                "thinkingLevelMap": {
+                    "off": "off", "low": "low", "medium": None, "high": "high",
+                },
+            }],
+        },
+    }
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=[],
+    )
+    assert completed.returncode == 2
+    assert 'does not support thinking "medium"' in completed.stderr
+    assert 'clamp it to "high"' in completed.stderr
+    assert "low" in completed.stderr
+    assert not args_path.exists()
+
+
+def test_pi_coc_accepts_explicit_supported_level_over_clamping_default(
+    tmp_path: Path,
+):
+    settings = {
+        "defaultProvider": "test",
+        "defaultModel": "reasoning-optional",
+        "defaultThinkingLevel": "medium",
+    }
+    models = {
+        "test": {
+            "models": [{
+                "id": "reasoning-optional",
+                "reasoning": True,
+                "thinkingLevelMap": {
+                    "off": "off", "low": "low", "medium": None, "high": "high",
+                },
+            }],
+        },
+    }
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["--thinking", "low"],
+    )
+    assert completed.returncode == 0, completed.stderr
+    forwarded = args_path.read_text(encoding="utf-8").splitlines()
+    assert forwarded[-2:] == ["--thinking", "low"]
 
 
 def test_pi_coc_requires_deliberate_valid_level_instead_of_none(tmp_path: Path):
@@ -1882,9 +1943,12 @@ def test_pi_cold_harvest_classify_sections_empty_entity_fixture_contract():
     }
 
 
-def test_real_node22_preactivation_failures_are_owned_and_cleaned():
+def test_real_preactivation_failures_are_owned_and_cleaned():
+    # Failures are driven by fake COC_PI_COMMAND scripts (exit 7 / hang +
+    # abort), so the asserted ownership semantics hold on any Node version;
+    # the smoke originally ran pinned to the Node 22 machine where the
+    # behavior was first verified.
     result = _node(ROOT / "tests/pi/preactivation-ownership.mjs", str(ROOT))
-    assert result["node"].startswith("v22.")
     assert "exited before activation (7)" in result["managerNonzero"]["error"]
     assert result["managerNonzero"]["completionError"] == result["managerNonzero"]["error"]
     assert result["managerNonzero"]["active"] == 0
@@ -5223,7 +5287,15 @@ def test_clean_packed_package_loads_runtime_mcp_and_compiler_resolution(tmp_path
         ["npm", "pack", "--json", "--pack-destination", str(pack_dir)],
         cwd=ROOT, check=True, capture_output=True, text=True,
     )
-    filename = json.loads(packed.stdout)[0]["filename"]
+    packed_json = json.loads(packed.stdout)
+    # npm emits a list per package pre-v11 and an object keyed by package
+    # name from v11 on; accept both shapes.
+    entry = (
+        packed_json[0]
+        if isinstance(packed_json, list)
+        else next(iter(packed_json.values()))
+    )
+    filename = entry["filename"]
     archive = pack_dir / filename
     unpack = tmp_path / "unpack"
     unpack.mkdir()

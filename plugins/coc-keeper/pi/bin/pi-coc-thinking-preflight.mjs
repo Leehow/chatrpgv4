@@ -13,6 +13,17 @@ const VALID_THINKING_LEVELS = new Set([
   "max",
 ]);
 
+// Mirrors pi's EXTENDED_THINKING_LEVELS order used by clampThinkingLevel.
+const THINKING_LADDER = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
 function fail(message) {
   process.stderr.write(`pi-coc: ${message}\n`);
   process.exit(2);
@@ -20,7 +31,7 @@ function fail(message) {
 
 function readJson(path, label, required = true) {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    return JSON.parse(readFileSync(path, "utf-8"));
   } catch (error) {
     if (!required && error?.code === "ENOENT") {
       return undefined;
@@ -82,18 +93,32 @@ function findConfiguredModel(config, provider, modelId) {
     : undefined;
 }
 
-function firstSupportedThinkingLevel(model) {
-  for (const level of VALID_THINKING_LEVELS) {
+// Mirrors pi's getSupportedThinkingLevels: a mapped `null` means the level is
+// unsupported; a missing ("off"/"minimal"/...) entry means supported; xhigh/max
+// must be explicitly mapped.
+function supportedThinkingLevels(model) {
+  if (!model.reasoning) return ["off"];
+  return THINKING_LADDER.filter((level) => {
     const mapped = model.thinkingLevelMap?.[level];
-    if (mapped === null) {
-      continue;
-    }
-    if ((level === "xhigh" || level === "max") && mapped === undefined) {
-      continue;
-    }
-    return level;
+    if (mapped === null) return false;
+    if (level === "xhigh" || level === "max") return mapped !== undefined;
+    return true;
+  });
+}
+
+// Mirrors pi's clampThinkingLevel: walk up the ladder first, then down.
+function clampThinkingTarget(model, level) {
+  const available = supportedThinkingLevels(model);
+  if (available.includes(level)) return level;
+  const requestedIndex = THINKING_LADDER.indexOf(level);
+  if (requestedIndex === -1) return available[0] ?? "off";
+  for (let i = requestedIndex; i < THINKING_LADDER.length; i += 1) {
+    if (available.includes(THINKING_LADDER[i])) return THINKING_LADDER[i];
   }
-  return "off";
+  for (let i = requestedIndex - 1; i >= 0; i -= 1) {
+    if (available.includes(THINKING_LADDER[i])) return THINKING_LADDER[i];
+  }
+  return available[0] ?? "off";
 }
 
 const [agentDir, ...userArgs] = process.argv.slice(2);
@@ -118,21 +143,29 @@ if (requestedThinking === "none") {
       `or deliberately use "low" with hideThinkingBlock=true (UI hiding is not true thinking-off)`,
   );
 }
-if (requestedThinking !== "off") {
+if (!requestedThinking || !VALID_THINKING_LEVELS.has(requestedThinking)) {
+  // An unset or non-standard level cannot be checked here; pi owns it.
   process.exit(0);
 }
 
 const provider =
   parsed.provider ?? modelPattern.provider ?? settings.defaultProvider;
 const modelId = modelPattern.model ?? settings.defaultModel;
+
+function failIfOff(message) {
+  if (requestedThinking === "off") fail(message);
+  // For other levels an unresolved model cannot be verified; keep launching.
+  process.exit(0);
+}
+
 if (!provider || !modelId) {
-  fail(
+  failIfOff(
     'thinking "off" was requested, but the exact provider/model could not be resolved; ' +
       "pass --provider <provider> --model <model>",
   );
 }
 if (/[*?[\]]/.test(modelId)) {
-  fail(
+  failIfOff(
     `thinking "off" was requested for non-exact model pattern ${provider}/${modelId}; ` +
       "pass an exact model so support can be verified before launch",
   );
@@ -152,17 +185,25 @@ const model =
   findConfiguredModel(customModels, provider, modelId) ??
   findModel(modelStore, provider, modelId);
 if (!model) {
-  fail(
+  failIfOff(
     `thinking "off" was requested for ${provider}/${modelId}, but its model metadata is unavailable; ` +
       "refusing to risk Pi silently selecting a thinking level",
   );
 }
 
-if (model.reasoning && model.thinkingLevelMap?.off === null) {
-  const clampedLevel = firstSupportedThinkingLevel(model);
+const available = supportedThinkingLevels(model);
+if (!available.includes(requestedThinking)) {
+  const clampedLevel = clampThinkingTarget(model, requestedThinking);
+  if (requestedThinking === "off") {
+    fail(
+      `${provider}/${modelId} declares thinking off unsupported; Pi would silently clamp --thinking off ` +
+        `to "${clampedLevel}". Choose a model whose catalog supports off, or deliberately use ` +
+        "--thinking low with hideThinkingBlock=true; hiding the block is not true thinking-off",
+    );
+  }
   fail(
-    `${provider}/${modelId} declares thinking off unsupported; Pi would silently clamp --thinking off ` +
-      `to "${clampedLevel}". Choose a model whose catalog supports off, or deliberately use ` +
-      "--thinking low with hideThinkingBlock=true; hiding the block is not true thinking-off",
+    `${provider}/${modelId} does not support thinking "${requestedThinking}"; Pi would silently clamp ` +
+      `it to "${clampedLevel}". Pass an exact supported level (${available.join(", ")}) via ` +
+      "--thinking, or fix defaultThinkingLevel in settings.json",
   );
 }
