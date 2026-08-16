@@ -4857,7 +4857,13 @@ def execute_setup_operation(
             "ruleset_id",
         }
         if set(payload) - allowed or not {"campaign_id", "title"} <= set(payload):
-            raise RuntimeOperationError("campaign.create has unsupported or missing fields")
+            raise RuntimeOperationError(
+                "campaign.create has unsupported or missing fields "
+                f"(received: {sorted(payload) or ['none']}; "
+                f"missing required: {sorted({'campaign_id', 'title'} - set(payload)) or ['none']}; "
+                f"unsupported: {sorted(set(payload) - allowed) or ['none']}; "
+                f"allowed: {sorted(allowed)})"
+            )
         campaign_id = _id(payload.get("campaign_id"), "campaign_id")
         title = payload.get("title")
         if not isinstance(title, str) or not title.strip():

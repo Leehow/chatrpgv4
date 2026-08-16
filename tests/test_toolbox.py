@@ -1290,6 +1290,34 @@ def test_tool_requiring_campaign_without_id_errors():
     envelope = coc_toolbox.run_tool("scene.context", Path("."), None, {})
     assert envelope["ok"] is False
     assert envelope["error"]["code"] == "missing_campaign"
+    assert 'top-level "campaign" field' in envelope["error"]["message"]
+    assert '"campaign": "<campaign_id>"' in envelope["error"]["message"]
+
+
+def test_campaign_create_warns_when_a_recent_campaign_already_exists(
+    tmp_path,
+):
+    def create(campaign_id: str) -> dict:
+        return coc_toolbox.run_tool(
+            "setup.invoke",
+            tmp_path,
+            None,
+            {
+                "kind": "campaign.create",
+                "payload": {"campaign_id": campaign_id, "title": campaign_id},
+            },
+        )
+
+    first = create("drift-first")
+    assert first["ok"] is True, first
+    assert first["warnings"] == []
+
+    second = create("drift-second")
+    assert second["ok"] is True, second
+    assert any(
+        "drift-first" in warning and "Mid-setup duplicate campaigns" in warning
+        for warning in second["warnings"]
+    ), second["warnings"]
 
 
 # --------------------------------------------------------------------------- #

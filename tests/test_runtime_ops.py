@@ -4040,6 +4040,23 @@ def test_campaign_create_records_omitted_era_as_unestablished(tmp_path):
     assert state.campaign_era_is_established(campaign) is False
 
 
+def test_campaign_create_field_errors_echo_received_and_allowed(tmp_path):
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=(
+            r"campaign\.create has unsupported or missing fields "
+            r"\(received: \['bad_field', 'campaign_id'\]; "
+            r"missing required: \['title'\]; "
+            r"unsupported: \['bad_field'\]"
+        ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "campaign.create",
+            "payload": {"campaign_id": "echo-test", "bad_field": 1},
+        })
+
+
 def test_campaign_create_records_declared_era_as_established(tmp_path):
     campaign = _created_campaign(tmp_path, "declared", era="1890s")
     assert campaign["era"] == "1890s"

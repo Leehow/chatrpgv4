@@ -2175,7 +2175,13 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
 
     try:
         if spec["needs_campaign"] and not campaign_id:
-            raise ToolError("missing_campaign", "this tool requires --campaign <id>")
+            raise ToolError(
+                "missing_campaign",
+                "pass the campaign id as the top-level \"campaign\" field of "
+                "this coc_invoke call, e.g. "
+                "{\"operation\": \"<operation>\", \"campaign\": \"<campaign_id>\", "
+                "\"arguments\": {...}}",
+            )
         for wrong, right in _PARAM_ALIASES.get(name, {}).items():
             if args.get(right) in (None, "") and args.get(wrong) not in (None, ""):
                 args[right] = args.pop(wrong)
@@ -8132,7 +8138,46 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
                 "bootstrap receipt and wait for the host terminal lifecycle "
                 "without polling, rebinding, resuming, or entering play",
             )
-    return receipt, [], hints
+    warnings: list[str] = []
+    if kind == "campaign.create":
+        created_id = str(
+            (payload.get("campaign_id") or "")).strip()
+        recent = _recently_created_campaigns(ctx.root, exclude=created_id)
+        if recent:
+            warnings.append(
+                "campaign.create succeeded, but these campaigns were also "
+                "created minutes ago: "
+                + ", ".join(recent)
+                + ". Mid-setup duplicate campaigns split durable state; "
+                "continue the intended campaign instead of creating another."
+            )
+    return receipt, warnings, hints
+
+
+def _recently_created_campaigns(
+    root: Path, *, exclude: str, within_minutes: int = 10,
+) -> list[str]:
+    """Deterministic bookkeeping: campaign dirs whose state file is fresh."""
+    campaigns_dir = root / ".coc" / "campaigns"
+    if not campaigns_dir.is_dir():
+        return []
+    now = time.time()
+    recent: list[tuple[float, str]] = []
+    try:
+        entries = list(campaigns_dir.iterdir())
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.is_dir() or entry.name == exclude:
+            continue
+        state_file = entry / "campaign.json"
+        try:
+            age_minutes = (now - state_file.stat().st_mtime) / 60
+        except OSError:
+            continue
+        if age_minutes <= within_minutes:
+            recent.append((age_minutes, entry.name))
+    return [name for _, name in sorted(recent, reverse=True)]
 
 
 # --------------------------------------------------------------------------- #
