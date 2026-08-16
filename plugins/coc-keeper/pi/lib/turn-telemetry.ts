@@ -108,6 +108,8 @@ export type TurnTelemetryRecord = {
   model_calls: number;
   tool_calls: number;
   context_usage: { tokens: number; context_window: number; percent: number | null } | null;
+  /** Last known effective thinking level; null when the host never reported one. */
+  thinking_level: string | null;
   tokens: TelemetryUsage | null;
   steps: Array<ModelCallStep | ToolCallStep>;
 };
@@ -118,6 +120,8 @@ export type SessionTelemetryRecord = {
   host: "pi-coc";
   session: string | null;
   mode: string | null;
+  /** Last known effective thinking level; null until the host reports one. */
+  thinking_level: string | null;
   started_at: string;
   agent_dir: string;
 };
@@ -278,6 +282,9 @@ export function formatTimingPanel(
   if (record.prompt_excerpt) {
     lines.push(`玩家输入：${record.prompt_excerpt}`);
   }
+  if (record.thinking_level !== null) {
+    lines.push(`思考档位：${record.thinking_level}`);
+  }
   for (const step of record.steps) {
     if (step.kind === "model") {
       const thinking = step.thinking_ms === null
@@ -380,6 +387,7 @@ export function registerTurnTelemetry(
   let pendingProvider: PendingProvider | null = null;
   let sessionLabel: string | null = null;
   let sessionMode: string | null = null;
+  let thinkingLevel: string | null = null;
   let summaryEnabled = true;
 
   const mark = (startMono: number): TelemetryMark => ({
@@ -466,6 +474,7 @@ export function registerTurnTelemetry(
       model_calls: turn.steps.filter((step) => step.kind === "model").length,
       tool_calls: turn.steps.filter((step) => step.kind === "tool").length,
       context_usage: readContextUsage(ctx),
+      thinking_level: thinkingLevel,
       tokens: sumUsage(
         turn.steps
           .filter((step): step is ModelCallStep => step.kind === "model" && step.usage !== null)
@@ -485,6 +494,11 @@ export function registerTurnTelemetry(
     return record;
   };
 
+  pi.on("thinking_level_select", (event: unknown) => {
+    const level = (event as { level?: unknown } | undefined)?.level;
+    if (typeof level === "string" && level) thinkingLevel = level;
+  });
+
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext | undefined) => {
     rememberSession(ctx);
     void appendLine({
@@ -493,6 +507,7 @@ export function registerTurnTelemetry(
       host: "pi-coc",
       session: sessionLabel,
       mode: sessionMode,
+      thinking_level: thinkingLevel,
       started_at: new Date().toISOString(),
       agent_dir: options.agentDir,
     } satisfies SessionTelemetryRecord);

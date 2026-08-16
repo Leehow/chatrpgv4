@@ -67,6 +67,7 @@ const panelCtx = {
 const telemetry = mod.registerTurnTelemetry(fakePi, { agentDir, now: () => clockMs });
 const logPath = mod.telemetryLogPath(agentDir);
 
+emit("thinking_level_select", { level: "off", previousLevel: "low" });
 emit("session_start", {}, uiCtx(true));
 
 // --- Turn 1: provider phases + thinking + tool + second call ---
@@ -177,10 +178,11 @@ try {
     ok: true,
     hasTimingCommand: commands.has("timing"),
     sessionLineFirst: sessionLine?.record === "session"
-      && sessionLine.schema_version === 2 && sessionLine.mode === "tui",
+      && sessionLine.schema_version === 2 && sessionLine.mode === "tui"
+      && sessionLine.thinking_level === "off",
     recordShape: record !== null && record.record === "turn"
       && record.schema_version === 2 && record.host === "pi-coc"
-      && record.mode === "tui",
+      && record.mode === "tui" && record.thinking_level === "off",
     sessionLabeled: record?.session === "telemetry-smoke",
     promptExcerpt: record?.prompt_excerpt === "我推门进去看看门后有什么",
     wallMs: record?.wall_ms === 201160,
