@@ -825,7 +825,7 @@ def test_kp_guided_rolled_characteristics_bind_existing_roll_receipts(
     ("mutation", "match"),
     [
         ("missing_characteristic_receipt", "characteristic_roll_receipts"),
-        ("wrong_characteristic_recipe", "KP-guided SIZ source receipt does not match"),
+        ("wrong_characteristic_recipe", r"KP-guided SIZ recorded roll operation .* does not match the required .*2D6\+6"),
         ("divergent_luck_receipt", "KP-guided Luck characteristic_roll_receipts entry must equal luck_roll_receipt"),
         ("luck_total_mismatch", "Quick Fire Luck source receipt does not match"),
         ("duplicate_characteristic_roll", "must use distinct authoritative roll_id values"),

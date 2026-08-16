@@ -3390,6 +3390,141 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     assert stored["player_facing_sheet_zh"]["skills"][0]["label"] == "会计"
 
 
+def test_quick_fire_luck_receipt_failure_names_cause_and_corrected_call(
+    tmp_path,
+):
+    complete_skills, skill_budget = _complete_quick_fire_skills()
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "steer-test",
+            "title": "Steer Test",
+            "era": "1920s",
+        },
+    })
+    # The observed thinking-off incident: the KP rolls 3D6 without the closed
+    # purpose, the roll is accepted as a generic roll, and every later
+    # investigator.create then fails on a blanket mismatch it cannot repair.
+    generic_luck = toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "steer-test",
+        {
+            "expression": "3D6",
+            "decision_id": "steer-test-luck",
+            "reason": "Quick Fire 调查员初始运气（缺少 purpose 的错误掷法）",
+            "seed": 7,
+        },
+    )
+    assert generic_luck["ok"] is True
+
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=(
+            r"Quick Fire Luck source receipt does not match the exact campaign"
+            r".*recorded roll operation .*purpose.*investigator_creation_luck"
+            r".*the recorded roll carries no purpose"
+            r".*\"operation\": \"rules.roll_dice\""
+            r".*\"campaign\": \"steer-test\""
+            r".*\"purpose\": \"investigator_creation_luck\""
+        ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": {
+                "campaign_id": "steer-test",
+                "investigator_id": "steer-inv",
+                "sheet": {
+                    "id": "steer-inv",
+                    "name": "Steer Investigator",
+                    "age": 29,
+                    "skills": complete_skills,
+                    "player_facing_sheet_zh": {
+                        "display_name": "引导测试调查员",
+                        "skills": [],
+                    },
+                },
+                "creation": {
+                    "input_mode": "guided_quick_fire",
+                    "method": "quick_fire_array",
+                    "characteristic_assignment_order": list(_QUICK_FIRE_ORDER),
+                    "luck_roll_total": generic_luck["data"]["total"],
+                    "luck_roll_receipt": {
+                        "campaign_id": "steer-test",
+                        "decision_id": "steer-test-luck",
+                        "roll_id": generic_luck["data"]["roll_id"],
+                    },
+                    "skill_budget": skill_budget,
+                },
+            },
+        })
+
+
+def test_quick_fire_luck_total_mismatch_echoes_authoritative_total(tmp_path):
+    complete_skills, skill_budget = _complete_quick_fire_skills()
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "steer-total",
+            "title": "Steer Total",
+            "era": "1920s",
+        },
+    })
+    luck = toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "steer-total",
+        {
+            "expression": "3D6",
+            "decision_id": "steer-total-luck",
+            "purpose": "investigator_creation_luck",
+            "seed": 11,
+        },
+    )
+    assert luck["ok"] is True
+    wrong_total = luck["data"]["total"] + 1
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=(
+            rf"authoritative 3D6 total is {luck['data']['total']}, "
+            rf"but the payload luck_roll_total is {wrong_total}"
+        ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": {
+                "campaign_id": "steer-total",
+                "investigator_id": "steer-total-inv",
+                "sheet": {
+                    "id": "steer-total-inv",
+                    "name": "Steer Total Investigator",
+                    "age": 29,
+                    "skills": complete_skills,
+                    "player_facing_sheet_zh": {
+                        "display_name": "总数回显调查员",
+                        "skills": [],
+                    },
+                },
+                "creation": {
+                    "input_mode": "guided_quick_fire",
+                    "method": "quick_fire_array",
+                    "characteristic_assignment_order": list(_QUICK_FIRE_ORDER),
+                    "luck_roll_total": wrong_total,
+                    "luck_roll_receipt": {
+                        "campaign_id": "steer-total",
+                        "decision_id": "steer-total-luck",
+                        "roll_id": luck["data"]["roll_id"],
+                    },
+                    "skill_budget": skill_budget,
+                },
+            },
+        })
+
+
 def test_guided_quick_fire_selected_specialization_is_added(tmp_path):
     payload = _guided_quick_fire_payload(
         tmp_path,
