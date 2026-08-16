@@ -76,8 +76,8 @@ const unsub = session.subscribe((event) => {
       else if (Array.isArray(content)) {
         for (const part of content) {
           if (part.type === "text" && part.text) curText.push(part.text);
-          if (part.type === "tool_use") {
-            const inp = part.input || {};
+          if (part.type === "toolCall") {
+            const inp = part.arguments || {};
             curTools.push({ name: part.name, operation: inp.operation || inp.name || "", campaign: inp.campaign || "" });
           }
         }

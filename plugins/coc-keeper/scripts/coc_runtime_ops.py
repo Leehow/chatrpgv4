@@ -205,6 +205,78 @@ def _canonical_sha256(value: Any) -> str:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
+def _reissue_roll_guidance(campaign_id: str, expression: str, purpose: str | None) -> str:
+    """Exact corrected rules.roll_dice call for a receipt that failed verification."""
+    arguments: dict[str, Any] = {
+        "expression": expression,
+        "decision_id": "<new-unique-decision-id>",
+    }
+    if purpose is not None:
+        arguments["purpose"] = purpose
+    return json.dumps(
+        {"operation": "rules.roll_dice", "campaign": campaign_id, "arguments": arguments},
+        ensure_ascii=False,
+    )
+
+
+def _describe_receipt_verification_failure(
+    *,
+    label: str,
+    campaign_id: str,
+    decision_id: str,
+    roll_id: str,
+    receipt: Any,
+    operation: Any,
+    expected_operation: dict[str, Any],
+    expression: str,
+    purpose: str | None,
+) -> str:
+    """Name the dominant receipt mismatch instead of a blanket failure.
+
+    The blanket form hid the actual cause (most often a roll recorded without
+    the required closed purpose), which forced blind retries.
+    """
+    suffix = f" Re-issue the authoritative roll on campaign '{campaign_id}' first: " + _reissue_roll_guidance(
+        campaign_id, expression, purpose,
+    )
+    if not isinstance(receipt, dict):
+        return (
+            f"{label} roll receipt is unavailable: no rules.roll_dice receipt is "
+            f"recorded for decision_id '{decision_id}' on campaign '{campaign_id}'."
+            + suffix
+        )
+    if operation != expected_operation:
+        recorded = operation if isinstance(operation, dict) else None
+        if isinstance(recorded, dict):
+            missing_purpose = (
+                purpose is not None and "purpose" not in recorded
+            )
+            detail = (
+                f" (the recorded roll carries no purpose; it must be "
+                f"purpose='{purpose}')"
+                if missing_purpose
+                else ""
+            )
+        else:
+            detail = ""
+        return (
+            f"{label} recorded roll operation {operation!r} does not match the "
+            f"required {expected_operation!r} for decision_id '{decision_id}'."
+            + detail + suffix
+        )
+    if receipt.get("roll_id") != roll_id:
+        return (
+            f"{label} receipt roll_id {receipt.get('roll_id')!r} does not match "
+            f"the referenced roll_id {roll_id!r}."
+        )
+    return (
+        f"{label} source receipt does not match the exact campaign, "
+        f"{expression} recipe, and roll_id: recorded receipt failed integrity "
+        f"or cross-record consistency against the required operation "
+        f"{expected_operation!r}."
+    )
+
+
 def _authoritative_dice_roll_total(
     root: Path,
     reference: Any,
@@ -340,8 +412,17 @@ def _authoritative_dice_roll_total(
     )
     if not valid:
         raise RuntimeOperationError(
-            f"{label} source receipt does not match the exact campaign, "
-            f"{normalized_expression} recipe, and roll_id"
+            _describe_receipt_verification_failure(
+                label=label,
+                campaign_id=campaign_id,
+                decision_id=decision_id,
+                roll_id=roll_id,
+                receipt=receipt,
+                operation=operation,
+                expected_operation=expected_operation,
+                expression=normalized_expression,
+                purpose=purpose,
+            )
         )
     try:
         roll_rows = [
@@ -393,12 +474,13 @@ def _validate_quick_fire_luck_receipt(
     except RuntimeOperationError as exc:
         raise RuntimeOperationError(
             "Quick Fire Luck source receipt does not match the exact campaign, "
-            "3D6 recipe, roll_id, and luck_roll_total"
+            f"3D6 recipe, roll_id, and luck_roll_total: {exc}"
         ) from exc
     if total != luck_total:
         raise RuntimeOperationError(
             "Quick Fire Luck source receipt does not match the exact campaign, "
-            "3D6 recipe, roll_id, and luck_roll_total"
+            f"3D6 recipe, roll_id, and luck_roll_total: the authoritative 3D6 "
+            f"total is {total}, but the payload luck_roll_total is {luck_total!r}"
         )
 
 

@@ -162,6 +162,36 @@ In interactive TUI sessions the package **replaces** Pi’s default footer
 
 Undiscovered clues and keeper-only fields never appear on this strip.
 
+### Turn timing telemetry (`/timing`)
+
+`~/.pi/coc-agent/telemetry/turns.jsonl` is a machine-first, fine-grained log
+for offline latency analysis (schema v2, one JSON line per record). A
+`record:"session"` header opens each session (label, mode, agent dir). Every
+`record:"turn"` line reconstructs the full timeline of one KP turn:
+
+- every step carries dual clocks — `at` (epoch ms) plus `offset_ms`
+  (monotonic, turn-relative) — so gaps between steps are derivable;
+- model calls record the whole phase chain
+  `before_provider_request -> after_provider_response -> message_start ->
+  first delta -> (thinking stream) -> first non-thinking -> (generation) ->
+  last delta -> message_end`, yielding `network_ms`/`ttft_ms`/`thinking_ms`/
+  `gen_ms`/`stream_ms`/`call_ms`, delta counts, thinking/text char volumes,
+  provider `usage` (input/output/cache read+write/cost), and stop reason.
+  Provider request/response events depend on the host stream path; when a
+  host does not emit them the request phases are `null` and `call_ms` falls
+  back to the stream span;
+- tool calls record `toolCallId`, `tool_name`, `coc_invoke.<operation>`
+  label, duration (extension execute -> result; MCP child + toolbox runtime
+  inside), and args/result sizes. MCP/python internals are not visible at
+  this layer;
+- turn totals: wall/model/tool/other buckets, summed tokens and cost,
+  provider context usage (`getContextUsage`), prompt excerpt, and Pi
+  `turnIndex` stamping per model round-trip.
+
+Human surfaces over the same log: a one-line summary after each settled turn
+(`/timing off|on` toggles only the line; the log is always written) and the
+`/timing` detail panel. Headless/RPC sessions log without the line.
+
 When a gateway call fails, the host-visible error must include the toolbox
 `error.code` and `error.message` (for example
 `turn_pending_finalization` / finalize-before-next-mutation). Opaque

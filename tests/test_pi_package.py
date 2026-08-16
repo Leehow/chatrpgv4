@@ -236,6 +236,51 @@ def test_player_safe_hud_model_hides_secrets_and_coding_chrome():
     assert any("物品 2" in line for line in result["footer"])
 
 
+def test_pi_turn_telemetry_logs_fine_grained_step_timing_for_offline_analysis():
+    result = _node(ROOT / "tests/pi/turn-telemetry-smoke.mjs", str(ROOT))
+    assert result["ok"] is True
+    assert result["hasTimingCommand"] is True
+    # Session header line + schema v2 turn records (machine-first log).
+    assert result["sessionLineFirst"] is True
+    assert result["recordShape"] is True
+    assert result["sessionLabeled"] is True
+    assert result["promptExcerpt"] is True
+    # Step buckets: model streaming vs tool execution vs unattributed gap.
+    assert result["wallMs"] is True
+    assert result["modelMs"] is True
+    assert result["toolMs"] is True
+    assert result["otherMs"] is True
+    assert result["stepsOrder"] is True
+    # Full phase chain with dual-clock marks (epoch + turn-relative offsets).
+    assert result["phaseOffsets"] is True
+    assert result["phaseDurations"] is True
+    assert result["absoluteMarks"] is True
+    assert result["updatesCounted"] is True
+    assert result["turnIndexStamped"] is True
+    # Thinking split inside a model call; absent-thinking stays null.
+    assert result["thinkingChars"] is True
+    assert result["secondCallNoThinking"] is True
+    # Tool steps carry id, label, and payload sizes for correlation.
+    assert result["toolStepDetail"] is True
+    # Context usage, provider tokens/cost, and graceful no-provider fallback.
+    assert result["contextUsage"] is True
+    assert result["tokensSum"] is True
+    assert result["costUsd"] is True
+    assert result["leanTurnFallsBackWithoutProviderEvents"] is True
+    # Parallel tool calls: per-step durations kept, turn bucket uses the union.
+    assert result["parallelToolUnion"] is True
+    # JSONL evidence + TUI summary line + /timing panel + off/on toggle.
+    assert result["jsonlWritten"] is True
+    assert result["summaryHasBuckets"] is True
+    assert result["summaryHasTokens"] is True
+    assert result["panelShowsTurn"] is True
+    assert result["panelShowsPhases"] is True
+    assert result["panelShowsContext"] is True
+    assert result["offStopsNotify"] is True
+    assert result["jsonlStillWrittenWhenOff"] is True
+    assert result["totalsAfterTwoTurns"] is True
+
+
 def test_pi_hud_injects_exact_hidden_active_table_identity():
     result = _node(ROOT / "tests/pi/hud-identity-context.mjs", str(ROOT))
     assert result == {

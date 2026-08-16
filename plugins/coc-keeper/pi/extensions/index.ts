@@ -58,6 +58,7 @@ import {
   type KeeperBriefing,
 } from "../lib/keeper-briefing.ts";
 import { registerCocHud } from "../lib/hud.ts";
+import { registerTurnTelemetry } from "../lib/turn-telemetry.ts";
 import {
   registerCocWelcome,
   STARTUP_RESUME_CUSTOM_TYPE,
@@ -8728,6 +8729,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   // Game table HUD replaces the coding-agent token/path footer in TUI sessions.
   registerCocHud(pi, (ctx) => client(ctx));
+  // Per-turn step timing + token telemetry: JSONL evidence under the COC
+  // agent home, a summary line after each settled turn, and /timing.
+  // The real pi-coc wrapper always exports PI_CODING_AGENT_DIR; without it
+  // (bare test harnesses embedding this extension) telemetry stays off so
+  // probe turns never pollute the player's real evidence log.
+  const telemetryAgentDir = (
+    overrides.welcomeAgentDir
+    ?? process.env.PI_CODING_AGENT_DIR
+    ?? null
+  );
+  if (telemetryAgentDir !== null) {
+    registerTurnTelemetry(pi, { agentDir: telemetryAgentDir });
+  }
   const agentDir = (
     overrides.welcomeAgentDir
     ?? process.env.PI_CODING_AGENT_DIR
