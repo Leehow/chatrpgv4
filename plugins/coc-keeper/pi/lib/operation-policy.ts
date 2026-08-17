@@ -366,6 +366,7 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   "rules.cash_assets": {
     "audience": "keeper",
     "phases": [
+      "cold_start",
       "opening",
       "live_turn"
     ],
@@ -475,6 +476,7 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   "rules.roll_dice": {
     "audience": "keeper",
     "phases": [
+      "cold_start",
       "opening",
       "live_turn"
     ],
@@ -712,6 +714,8 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   "state.cash_semantic": {
     "audience": "keeper",
     "phases": [
+      "cold_start",
+      "opening",
       "live_turn"
     ],
     "contract": "state",

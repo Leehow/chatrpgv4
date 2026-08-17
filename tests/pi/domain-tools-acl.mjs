@@ -115,5 +115,73 @@ const liveActive = mod.activeToolsForPhase("live_turn");
 assert.ok(!liveActive.includes("coc_invoke"));
 assert.ok(!liveActive.includes("coc_discover"));
 assert.ok(liveActive.includes("coc_rules"));
+assert.ok(!liveActive.includes("coc_setup"));
+
+const openingRequired = [
+  "setup.adopt_source_facts",
+  "setup.investigator_contract",
+  "setup.invoke",
+  "rules.roll_dice",
+  "rules.cash_assets",
+  "state.cash_semantic",
+];
+for (const phase of ["opening", "cold_start"]) {
+  const active = mod.activeToolsForPhase(phase);
+  assert.ok(active.includes("coc_rules"), phase);
+  assert.ok(active.includes("coc_state"), phase);
+  for (const operation of openingRequired) {
+    const wrapper = mod.domainToolForOperation(operation);
+    assert.ok(wrapper, operation);
+    assert.ok(active.includes(wrapper), `${operation} visible via ${wrapper} @ ${phase}`);
+    const allowed = mod.evaluateExecuteAcl({
+      toolName: wrapper,
+      operation,
+      phase,
+    });
+    assert.equal(allowed.ok, true, `${operation} @ ${phase}`);
+  }
+  assert.equal(mod.evaluateExecuteAcl({
+    toolName: "coc_rules",
+    operation: "rules.roll",
+    phase,
+  }).ok, false);
+  assert.equal(mod.evaluateExecuteAcl({
+    toolName: "coc_state",
+    operation: "state.move_scene",
+    phase,
+  }).ok, false);
+  for (const banned of [
+    "steward.domain_put",
+    "progressive.claim_host_work",
+    "development.settle",
+  ]) {
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_invoke",
+      operation: banned,
+      phase,
+    }).ok, false, `${banned} @ ${phase}`);
+  }
+}
+
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_turn",
+  operation: "turn.finalize",
+  phase: "pending_finalization",
+}).ok, true);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_state",
+  operation: "state.exceptional_effect",
+  phase: "pending_finalization",
+}).ok, true);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_setup",
+  operation: "session.resume",
+  phase: "recovery",
+}).ok, true);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_state",
+  operation: "state.end_session",
+  phase: "ending",
+}).ok, true);
 
 process.stdout.write(JSON.stringify({ ok: true }));

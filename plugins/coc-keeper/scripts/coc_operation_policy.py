@@ -360,10 +360,13 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "kp_surface": "context",
     },
     "rules.roll_dice": {
-        "phases": ("opening", "live_turn"),
+        "phases": ("cold_start", "opening", "live_turn"),
     },
     "rules.cash_assets": {
-        "phases": ("opening", "live_turn"),
+        "phases": ("cold_start", "opening", "live_turn"),
+    },
+    "state.cash_semantic": {
+        "phases": ("cold_start", "opening", "live_turn"),
     },
     "session.resume": {
         "audience": "keeper",
