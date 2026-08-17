@@ -133,6 +133,9 @@ coc_module_project = _load_sibling(
 coc_compiled_archive = _load_sibling(
     "coc_compiled_archive_toolbox", "coc_compiled_archive.py"
 )
+coc_operation_policy = _load_sibling(
+    "coc_operation_policy_toolbox", "coc_operation_policy.py"
+)
 
 SCENARIO_FILES = (
     "story-graph.json",
@@ -27803,6 +27806,46 @@ for _mutating_tool_name in _MUTATING_TOOLS:
         )
     _decision_spec["required"] = True
 
+
+def _attach_operation_policies() -> None:
+    policies = coc_operation_policy.policies_for_operations(TOOLS)
+    for name, policy in policies.items():
+        TOOLS[name]["policy"] = policy
+
+
+_attach_operation_policies()
+
+
+def operation_policy(name: str) -> dict[str, Any]:
+    spec = TOOLS.get(name)
+    if spec is None:
+        raise KeyError(name)
+    policy = spec.get("policy")
+    if not isinstance(policy, dict):
+        policy = coc_operation_policy.policy_for_operation(name)
+    return coc_operation_policy.public_policy(policy)
+
+
+def query_operations(
+    *,
+    audience: str | None = None,
+    phase: str | None = None,
+    kp_surface: str | None = None,
+    contract: str | None = None,
+) -> list[str]:
+    policies = {
+        name: spec.get("policy") or coc_operation_policy.policy_for_operation(name)
+        for name, spec in TOOLS.items()
+    }
+    return coc_operation_policy.query_operations(
+        policies,
+        audience=audience,
+        phase=phase,
+        kp_surface=kp_surface,
+        contract=contract,
+    )
+
+
 def _describe(name: str) -> dict[str, Any]:
     spec = TOOLS[name]
     return {
@@ -27819,12 +27862,21 @@ def _describe(name: str) -> dict[str, Any]:
         ),
         "response_mode": spec.get("response_mode", "full"),
         "audit_mode": spec.get("audit_mode", "full"),
+        "policy": operation_policy(name),
         "params": spec["params"],
     }
 
 
 def list_tools() -> list[dict[str, Any]]:
-    return [{"name": n, "summary": TOOLS[n]["summary"]} for n in sorted(TOOLS)]
+    return [
+        {
+            "name": n,
+            "summary": TOOLS[n]["summary"],
+            "access": TOOLS[n].get("access", "mutation"),
+            "policy": operation_policy(n),
+        }
+        for n in sorted(TOOLS)
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:

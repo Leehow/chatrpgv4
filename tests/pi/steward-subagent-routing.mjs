@@ -38,8 +38,9 @@ for (const handler of handlers.get("session_start") || []) {
   await handler({ reason: "probe" }, ctx);
 }
 assert.deepEqual(activeTools.at(-1), [
-  "read", "coc_capabilities", "coc_discover", "coc_invoke", "coc_progressive_ocr",
-  "coc_map_supply", "subagent", "subagent_wait",
+  "read", "subagent", "subagent_wait",
+  "coc_context", "coc_rules", "coc_state", "coc_npc", "coc_turn",
+  "coc_subsystem", "coc_advice",
 ]);
 assert.match(
   await (await import("node:fs/promises")).readFile(

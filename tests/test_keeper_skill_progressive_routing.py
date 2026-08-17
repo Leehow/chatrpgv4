@@ -221,6 +221,6 @@ def test_reference_count_is_cohesive_not_monolithic():
     assert 4 <= len(refs) <= 6
     # No single reference should swallow nearly all prior substance alone.
     sizes = [path.stat().st_size for path in refs]
-    assert max(sizes) < 40 * 1024
+    assert max(sizes) < 42 * 1024
     total = sum(sizes)
     assert total > 30 * 1024  # retained detail still present

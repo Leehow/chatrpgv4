@@ -24,8 +24,9 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { classifyToolCall } from "./domain-tools.ts";
 
-export const TURN_TELEMETRY_SCHEMA_VERSION = 2;
+export const TURN_TELEMETRY_SCHEMA_VERSION = 3;
 
 export type TelemetryUsage = {
   input: number;
@@ -82,6 +83,9 @@ export type ToolCallStep = {
   turn_index: number | null;
   tool_call_id: string | null;
   tool_name: string;
+  wrapper_tool: string;
+  transport_tool: string | null;
+  canonical_operation: string | null;
   label: string;
   duration_ms: number;
   args_bytes: number | null;
@@ -130,20 +134,9 @@ export function telemetryLogPath(agentDir: string): string {
   return join(agentDir, "telemetry", "turns.jsonl");
 }
 
-/** "coc_invoke" + args.operation -> "coc_invoke.rules.roll" style label. */
+/** Display label. Canonical identity is `classifyToolCall().canonical_operation`. */
 export function toolCallLabel(toolName: string, args: unknown): string {
-  if (args && typeof args === "object" && !Array.isArray(args)) {
-    const record = args as Record<string, unknown>;
-    if (typeof record.operation === "string" && record.operation) {
-      return `${toolName}.${record.operation}`;
-    }
-    const task = record.task;
-    if (task && typeof task === "object" && !Array.isArray(task)) {
-      const kind = (task as Record<string, unknown>).kind;
-      if (typeof kind === "string" && kind) return `${toolName}.${kind}`;
-    }
-  }
-  return toolName;
+  return classifyToolCall(toolName, args).label;
 }
 
 function readUsage(message: unknown): TelemetryUsage | null {
@@ -360,6 +353,9 @@ type ActiveTurn = {
     start: TelemetryMark;
     label: string;
     toolName: string;
+    wrapperTool: string;
+    transportTool: string | null;
+    canonicalOperation: string | null;
     argsBytes: number | null;
   }>;
   modelCalls: number;
@@ -683,10 +679,14 @@ export function registerTurnTelemetry(
     const id = typeof typed?.toolCallId === "string" ? typed.toolCallId : null;
     if (!id) return;
     const toolName = typeof typed?.toolName === "string" ? typed.toolName : "tool";
+    const classified = classifyToolCall(toolName, typed?.args);
     turn.openTools.set(id, {
       start: mark(turn.startMono),
-      label: toolCallLabel(toolName, typed?.args),
+      label: classified.label,
       toolName,
+      wrapperTool: classified.wrapper_tool,
+      transportTool: classified.transport_tool,
+      canonicalOperation: classified.canonical_operation,
       argsBytes: byteLength(typed?.args),
     });
   });
@@ -712,6 +712,9 @@ export function registerTurnTelemetry(
       turn_index: turn.turnIndex,
       tool_call_id: id,
       tool_name: toolName,
+      wrapper_tool: entry?.wrapperTool ?? toolName,
+      transport_tool: entry?.transportTool ?? null,
+      canonical_operation: entry?.canonicalOperation ?? null,
       label: entry?.label ?? toolName,
       duration_ms: Math.max(0, end.offset_ms - (entry?.start.offset_ms ?? end.offset_ms)),
       args_bytes: entry?.argsBytes ?? null,

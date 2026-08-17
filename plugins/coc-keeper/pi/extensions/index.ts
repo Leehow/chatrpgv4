@@ -65,6 +65,18 @@ import {
   startupResumeInstruction,
 } from "../lib/welcome.ts";
 import { isCanonicalCampaignId } from "../lib/campaign-id.mjs";
+import {
+  activeToolsForPhase,
+  DOMAIN_TOOL_DESCRIPTIONS,
+  DOMAIN_TOOL_LABELS,
+  DOMAIN_TOOL_NAMES,
+  domainToolSchema,
+  evaluateExecuteAcl,
+  inferPhaseFromEnvelope,
+  inferPhaseFromError,
+  isCanonicalInvokeSurface,
+  type PlayPhase,
+} from "../lib/domain-tools.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -784,6 +796,16 @@ export class OpeningTerminalContinuationGate {
   >();
   private deliveredOpeningSetupTerminalBlocker: JsonObject | null = null;
   private openingSetupAudits: JsonObject[] = [];
+
+  hasActiveOpeningSetup(): boolean {
+    return this.openingSetupStates.size > 0 || this.pendingBindExists();
+  }
+
+  hasActiveOpeningSetupFor(campaignId: string): boolean {
+    const id = campaignId.trim();
+    if (!id) return this.hasActiveOpeningSetup();
+    return this.openingSetupStates.has(id) || this.pendingBindExistsForCampaign(id);
+  }
 
   private openingSetupStateForTranscript(): OpeningSetupState | null {
     if (this.openingSetupTurnCampaignAmbiguous) return null;
@@ -2556,7 +2578,7 @@ export class OpeningTerminalContinuationGate {
         + `follow this exact retained route: ${JSON.stringify(route)}`
       );
     }
-    if (name !== "coc_invoke") return null;
+    if (!isCanonicalInvokeSurface(name)) return null;
     const setupOwnershipError = this.existingCampaignSetupError(params);
     if (setupOwnershipError !== null) return setupOwnershipError;
     const operation = String(params.operation ?? "");
@@ -6354,7 +6376,7 @@ export async function autoDispatchPiRawPdfBindBundle(
   value: unknown,
   params: JsonObject,
 ): Promise<JsonObject | null> {
-  if (toolName !== "coc_invoke") return null;
+  if (!isCanonicalInvokeSurface(toolName)) return null;
   const failedBind = rawPdfBindFailure(value, params);
   if (failedBind === null) return null;
   const suppliedPath = isAbsolute(failedBind.source_bundle_path)
@@ -6563,7 +6585,7 @@ export async function autoDispatchPiOpeningSourceReview(
   toolName: string,
   value: unknown,
 ): Promise<JsonObject | null> {
-  if (toolName !== "coc_invoke") return null;
+  if (!isCanonicalInvokeSurface(toolName)) return null;
   const trigger = findPiOpeningSourceReviewTrigger(value);
   if (trigger === null) return null;
   const task = {
@@ -7027,21 +7049,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   const sceneSupplyWaits = new Map<string, number>();
-  const kpActiveTools = [
-    // Builtin read is required so Pi injects <available_skills> and the KP
-    // can load SKILL.md plus the character-creation briefing. bash/edit/write
-    // stay off; campaign writes remain on the canonical toolbox.
-    "read",
-    "coc_capabilities",
-    "coc_discover",
-    "coc_invoke",
-    "coc_progressive_ocr",
-    "coc_map_supply",
-    // pi-subagents is a package extension, so --no-builtin-tools does not
-    // remove these. Keep them visible to the KP for steward fanout only.
-    "subagent",
-    "subagent_wait",
-  ];
+  let kpPlayPhase: PlayPhase = "live_turn";
+  const resolveAclPhase = (campaignId?: string): PlayPhase => {
+    if (startupResumeGate !== null && startupResumeGate.phase === "pending") {
+      return "recovery";
+    }
+    const campaign = typeof campaignId === "string" ? campaignId : "";
+    if (campaign && openingContinuationGate.hasActiveOpeningSetupFor(campaign)) {
+      return "opening";
+    }
+    if (!campaign && openingContinuationGate.hasActiveOpeningSetup()) {
+      return "opening";
+    }
+    return kpPlayPhase;
+  };
+  const applyKpActiveTools = () => {
+    if (process.env.PI_SUBAGENT_CHILD === "1") return;
+    pi.setActiveTools(activeToolsForPhase(resolveAclPhase()));
+  };
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
     status: "session_closed",
@@ -7293,6 +7318,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           blockerDeliveryAttempts: 0,
           hiddenRepromptDelivery: "pending",
         };
+    kpPlayPhase = startupCampaignId === null ? "live_turn" : "recovery";
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
     // but never expose it to the KP model. A pi-subagents child process owns
@@ -7300,9 +7326,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // carry bash/read/grep/find on the host filesystem). Forcing the KP set
     // here would wipe that allowlist; the KP root session is unaffected
     // because it never carries PI_SUBAGENT_CHILD=1.
-    if (process.env.PI_SUBAGENT_CHILD !== "1") {
-      pi.setActiveTools(kpActiveTools);
-    }
+    applyKpActiveTools();
     return startupCampaignId;
   };
   const exactStartupResumeInvocation = (
@@ -7314,7 +7338,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     return (
       gate !== null
       && gate.phase === "pending"
-      && name === "coc_invoke"
+      && isCanonicalInvokeSurface(name)
       && params.operation === "session.resume"
       && params.root === gate.workspaceRoot
       && params.campaign === gate.campaignId
@@ -7928,7 +7952,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     };
   };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
-    if (name === "coc_invoke") {
+    if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
     }
     const epoch = sessionEpoch;
@@ -7946,7 +7970,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error(startupResumeError);
     }
     const startupResumeAttempt = exactStartupResumeInvocation(name, params);
-    if (name === "coc_invoke" && PRIVATE_LEASE_OPERATIONS.has(String(params.operation))) {
+    if (isCanonicalInvokeSurface(name) && PRIVATE_LEASE_OPERATIONS.has(String(params.operation))) {
       try {
         pi.appendEntry("coc-source-coordinator-private-boundary", {
           status: "rejected",
@@ -7971,7 +7995,41 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch { /* opening setup audit is best effort */ }
       throw new Error(openingSetupError);
     }
-    if (name === "coc_invoke") {
+    if (isCanonicalInvokeSurface(name)) {
+      const aclPhase = resolveAclPhase(
+        typeof params.campaign === "string" ? params.campaign : "",
+      );
+      const acl = evaluateExecuteAcl({
+        toolName: name,
+        operation: String(params.operation || ""),
+        phase: aclPhase,
+      });
+      if (!acl.ok) {
+        try {
+          pi.appendEntry("coc-execute-acl", {
+            schema_version: 1,
+            status: "rejected",
+            code: acl.code,
+            tool: name,
+            operation: params.operation,
+            phase: aclPhase,
+          });
+        } catch { /* acl audit is best effort */ }
+        throw new Error(acl.message);
+      }
+      try {
+        pi.appendEntry("coc-tool-telemetry", {
+          schema_version: 1,
+          wrapper_tool: acl.wrapper,
+          transport_tool: acl.transport_tool,
+          canonical_operation: acl.canonical_operation,
+          host_tool: name,
+          translated_from_invoke: name === "coc_invoke",
+          phase: aclPhase,
+        });
+      } catch { /* telemetry is best effort */ }
+    }
+    if (isCanonicalInvokeSurface(name)) {
       const dependencyError = (
         openingContinuationGate.currentDependencyToolError(params)
       );
@@ -7988,7 +8046,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     let preparedSceneSupply: JsonObject | null = null;
-    if (name === "coc_invoke" && params.operation === "state.move_scene") {
+    if (isCanonicalInvokeSurface(name) && params.operation === "state.move_scene") {
       const preflight = await sceneSupplyPreflight(params, signal, ctx);
       if (preflight.blocked !== null) return result(preflight.blocked);
       preparedSceneSupply = preflight.supply;
@@ -7996,7 +8054,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     let value: unknown;
     let scenePriorityHandled = false;
     try {
-      value = await client(ctx).callTool(name, params, signal);
+      value = await client(ctx).callTool(
+        isCanonicalInvokeSurface(name) ? "coc_invoke" : name,
+        params,
+        signal,
+      );
       if (
         preparedSceneSupply !== null
         && params.operation === "state.move_scene"
@@ -8037,6 +8099,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         } catch { /* hidden prefetch guidance/audit is best effort */ }
       }
     } catch (error) {
+      const blockedPhase = error instanceof CanonicalToolError
+        ? inferPhaseFromError(error)
+        : null;
+      if (blockedPhase !== null && blockedPhase !== kpPlayPhase) {
+        kpPlayPhase = blockedPhase;
+        applyKpActiveTools();
+      }
       const rawPdfBindRun = autoDispatchPiRawPdfBindBundle(
         rawPdfBindBundleDispatchDeps(ctx, epoch), name, error, params,
       );
@@ -8066,14 +8135,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // rebuilt from campaign persistent state after a daemon restart or
       // crash (EPIPE/peer death), exactly like the env-armed startup resume.
       const directResumeRecovery = (
-        name === "coc_invoke"
+        isCanonicalInvokeSurface(name)
         && params.operation === "session.resume"
         && error instanceof CanonicalToolError
         && error.code === "opening_setup_incomplete"
         && error.details !== null
       );
       const canonicalOpeningRefresh = (
-        name === "coc_invoke"
+        isCanonicalInvokeSurface(name)
         && error instanceof CanonicalToolError
         && openingContinuationGate.reconcileCanonicalOpeningRefresh(
           params,
@@ -8100,7 +8169,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               : "startup_resume_transport_failed",
           );
         }
-        if (name === "coc_invoke" && !directResumeRecovery) {
+        if (isCanonicalInvokeSurface(name) && !directResumeRecovery) {
           openingContinuationGate.markOpeningSetupRouteAttemptFailure(
             _id,
             params,
@@ -8126,7 +8195,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         throw error;
       }
     }
-    if (name === "coc_invoke") {
+    if (isCanonicalInvokeSurface(name)) {
       const briefingOperation = String(params.operation);
       const briefingEnvelope = objectOrNull(value);
       const briefingReason = briefingOperation === "session.resume"
@@ -8505,6 +8574,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const data = objectOrNull(envelope?.data);
       const operation = String(params.operation);
       openingContinuationGate.observeCanonicalReceipt(operation, envelope);
+      const nextPhase = inferPhaseFromEnvelope(operation, value, kpPlayPhase);
+      if (nextPhase !== kpPlayPhase) {
+        kpPlayPhase = nextPhase;
+        applyKpActiveTools();
+      }
       if (
         operation === "turn.finalize"
         && envelope?.ok === true
@@ -8649,11 +8723,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     ...compactToolRenderers("coc_discover"),
   });
   pi.registerTool({
-    name: "coc_invoke", label: "COC invoke",
-    description: "Invoke one exact canonical COC operation.", parameters: invokeSchema,
+    name: "coc_invoke", label: "COC invoke (hidden compat)",
+    description: "Hidden compatibility gateway. Live KP should use the closed domain tools.", parameters: invokeSchema,
     execute: gateway("coc_invoke"),
     ...compactToolRenderers("coc_invoke"),
   });
+  for (const domainName of DOMAIN_TOOL_NAMES) {
+    pi.registerTool({
+      name: domainName,
+      label: DOMAIN_TOOL_LABELS[domainName],
+      description: DOMAIN_TOOL_DESCRIPTIONS[domainName],
+      parameters: domainToolSchema(domainName),
+      execute: gateway(domainName),
+      ...compactToolRenderers(domainName),
+    });
+  }
   pi.registerTool({
     name: "coc_dispatch_source_work", label: "COC source dispatch",
     description: "Submit one exact repository-produced Pi source coordinator task.", parameters: dispatchSchema,

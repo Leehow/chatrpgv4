@@ -25,7 +25,7 @@ export const MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE = "coc-mechanical-output-gate";
 export const MECHANICAL_OUTPUT_GATE_INSTRUCTION = (
   "你的上一条输出包含正式机械标记（【明骰】／掷骰：N／SAN·HP 数值转移），"
   + "但本回合没有对应的权威收据，已被门禁拦截、未送达玩家。"
-  + "机械数字只能来自规则/状态收据：先经 coc_invoke 执行——骰点走 "
+  + "机械数字只能来自规则/状态收据：先经 coc_rules / coc_state 执行——骰点走 "
   + "rules.roll / rules.opposed / sanity.execute / rules.damage 等并取得返回的 "
   + "roll_id，结算与 SAN/HP 落账走 state.* 并取得 decision_id——"
   + "再按收据数字渲染正式标记；禁止凭叙述编造或推算骰点与数值变动。"

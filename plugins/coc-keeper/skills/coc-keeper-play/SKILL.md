@@ -31,20 +31,14 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 
 ## Host Tool Discovery
 
-**MCP-first when the plugin MCP is available (host parity path):**
+Authority/judgment/delivery is a **dependency boundary**, not pipeline.
+Pi-Coc: domain tools (`coc_setup`/`coc_context`/`coc_rules`/`coc_state`/`coc_npc`/`coc_turn`/`coc_subsystem`; `coc_advice` optional). No per-turn `coc_invoke`/`coc_discover`.
+**MCP-first when plugin MCP is available (host parity):**
 
-1. A native static-tool host may use the **15-tool hotset** first: the three
-   `coc_*` gateways plus resume, scene, secrets, action advice, common rules,
-   `npc.reaction`, `state.record_npc_engagement`, other writes, output, and finalize.
-   A lazy-search host discovers the trio once, invokes every card through retained `coc_invoke`, and never searches each hot operation.
-2. Long-tail operations use **exact-operation or exact-domain** `coc_discover`, then `coc_invoke`.
-   Do **not** repeat no-arg full catalog discovery: discover only when a concrete long-tail operation is needed,
-   never discover a domain merely for awareness, reassurance, or confirmation.
-   Retain the gateway trio from one cold search. Invoke returned
-   `discovery_required=false` cards directly; exact discovery's `invoke_card` is already
-   nested for `coc_invoke.arguments`, so merge it without translating, adding fields, or rediscovering.
+1. A native static-tool host may use the **15-tool hotset** first: resume, scene, secrets, action advice, common rules, `npc.reaction`, `state.record_npc_engagement`, other writes, output, and finalize.
+2. Long-tail operations use **exact-operation or exact-domain** `coc_discover` only when a concrete long-tail operation is needed. Do **not** repeat no-arg full catalog discovery; never discover a domain merely for awareness, reassurance, or confirmation.
 3. **Do not mix MCP and shell** toolbox transport for the same mutation or retry path.
-4. Every `coc_invoke.root` is the absolute host workspace, never plugin storage.
+4. Every tool `root` is the host workspace, never plugin storage.
 
 **Pi/headless or no-plugin-MCP parity path** (on-demand, not list-everything each turn):
 

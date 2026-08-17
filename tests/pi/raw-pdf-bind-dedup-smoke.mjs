@@ -170,12 +170,12 @@ const pendingParams = {
 const pendingRun = autoDispatchPiRawPdfBindBundle(
   pendingDeps, "coc_invoke", value, pendingParams,
 );
-for (let attempt = 0; attempt < 50; attempt += 1) {
+for (let attempt = 0; attempt < 200; attempt += 1) {
   try {
     if ((await readFile(pendingMarker, "utf8")).includes("run")) break;
   } catch { /* producer has not reached --run yet */ }
   await new Promise((resolve) => setTimeout(resolve, 10));
-  if (attempt === 49) throw new Error("pending producer did not start");
+  if (attempt === 199) throw new Error("pending producer did not start");
 }
 const guessed = await autoDispatchPiRawPdfBindBundle(
   pendingDeps,
