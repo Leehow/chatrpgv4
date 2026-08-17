@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:2be4499dfad2dccf20c517608b0a5087ca76d194a21815a929be65a47925e897",
+  "content_sha256": "sha256:31038b9055035b8e41dd69fac9685b8948b3b7fca616bb1255a959d4f602174d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -2138,6 +2138,7 @@
         "contract": "rules",
         "kp_surface": "rules",
         "phases": [
+          "cold_start",
           "opening",
           "live_turn"
         ]
@@ -2920,6 +2921,7 @@
         "contract": "rules",
         "kp_surface": "rules",
         "phases": [
+          "cold_start",
           "opening",
           "live_turn"
         ]
@@ -4606,6 +4608,8 @@
         "contract": "state",
         "kp_surface": "state",
         "phases": [
+          "cold_start",
+          "opening",
           "live_turn"
         ]
       },

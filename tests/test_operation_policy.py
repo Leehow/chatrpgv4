@@ -94,6 +94,39 @@ def test_steward_writes_are_not_live_kp():
         assert coc_toolbox.operation_policy(name)["audience"] == "host"
 
 
+OPENING_CHARACTER_SETUP_REQUIRED = (
+    "setup.adopt_source_facts",
+    "setup.investigator_contract",
+    "setup.invoke",
+    "rules.roll_dice",
+    "rules.cash_assets",
+    "state.cash_semantic",
+)
+
+
+def test_opening_character_setup_ops_are_phase_allowed_without_opening_all_writes():
+    for name in OPENING_CHARACTER_SETUP_REQUIRED:
+        policy = coc_toolbox.operation_policy(name)
+        assert "opening" in policy["phases"], name
+        assert "cold_start" in policy["phases"], name
+    assert "opening" not in coc_toolbox.operation_policy("rules.roll")["phases"]
+    assert "opening" not in coc_toolbox.operation_policy("state.move_scene")["phases"]
+    assert "cold_start" not in coc_toolbox.operation_policy("state.record_clue")["phases"]
+    live = set(coc_toolbox.query_operations(audience="keeper"))
+    for name in (
+        "steward.domain_put",
+        "steward.scene_bundle_put",
+        "steward.deliver",
+        "steward.mark_consumed",
+        "steward.notebook_put",
+        "steward.notebook_pay",
+        "progressive.claim_host_work",
+        "progressive.fulfill_host_work",
+        "development.settle",
+    ):
+        assert name not in live
+
+
 def test_pending_finalization_is_encoded_on_repair_ops():
     pending = set(coc_toolbox.query_operations(phase="pending_finalization"))
     assert {

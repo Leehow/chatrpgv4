@@ -177,7 +177,7 @@ export function activeToolsForPhase(phase: PlayPhase): string[] {
     return [...core, "coc_setup", "coc_context", "coc_turn", "coc_state"];
   }
   if (phase === "opening" || phase === "cold_start") {
-    return [...core, "coc_setup", "coc_context", "coc_turn"];
+    return [...core, "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state"];
   }
   return [
     ...core,
