@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:f26431d802b3481a170c57893c9c6726147d2fe6456361729d56aeebcdff02b1",
+  "content_sha256": "sha256:2be4499dfad2dccf20c517608b0a5087ca76d194a21815a929be65a47925e897",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -18,6 +18,7 @@
   "operation_count": 110,
   "operations": {
     "actions.advise": {
+      "access": "mutation",
       "canonical_operation": "actions.advise",
       "description": "Contextual authored-route and roll advice for one KP-interpreted player action. Read-only; direct delivery, Push, retry, and narrative suggestions are all soft and never force or block play. Canonical operation `actions.advise`; the result envelope is authoritative.",
       "inputSchema": {
@@ -123,9 +124,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "kp_surface": "advice",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Contextual authored-route and roll advice for one KP-interpreted player action. Read-only; direct delivery, Push, retry, and narrative suggestions are all soft and never force or block play."
     },
     "actions.list": {
+      "access": "mutation",
       "canonical_operation": "actions.list",
       "description": "Authored affordances of the current scene with roll gates and precondition status (informational, not blocking). Canonical operation `actions.list`; the result envelope is authoritative.",
       "inputSchema": {
@@ -146,9 +157,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Authored affordances of the current scene with roll gates and precondition status (informational, not blocking)."
     },
     "chase.context": {
+      "access": "mutation",
       "canonical_operation": "chase.context",
       "description": "Read the current canonical ChaseSession snapshot and unresolved subsystem choices. Canonical operation `chase.context`; the result envelope is authoritative.",
       "inputSchema": {
@@ -169,9 +192,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read the current canonical ChaseSession snapshot and unresolved subsystem choices."
     },
     "chase.execute": {
+      "access": "mutation",
       "canonical_operation": "chase.execute",
       "description": "Execute one exact command through the existing full ChaseSession subsystem. No fixed chase workflow is imposed by the toolbox. Canonical operation `chase.execute`; the result envelope is authoritative.",
       "inputSchema": {
@@ -211,9 +245,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Execute one exact command through the existing full ChaseSession subsystem. No fixed chase workflow is imposed by the toolbox."
     },
     "clues.query": {
+      "access": "query",
       "canonical_operation": "clues.query",
       "description": "Clue graph with discovery state. Filter by scene_id or clue_id. Undiscovered clues are keeper secrets. Canonical operation `clues.query`; the result envelope is authoritative.",
       "inputSchema": {
@@ -250,9 +294,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Clue graph with discovery state. Filter by scene_id or clue_id. Undiscovered clues are keeper secrets."
     },
     "combat.context": {
+      "access": "mutation",
       "canonical_operation": "combat.context",
       "description": "Read the canonical combat snapshot, initiative cursor, and pending defense choice. Canonical operation `combat.context`; the result envelope is authoritative.",
       "inputSchema": {
@@ -273,9 +329,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read the canonical combat snapshot, initiative cursor, and pending defense choice."
     },
     "combat.end": {
+      "access": "mutation",
       "canonical_operation": "combat.end",
       "description": "Finalize the current CombatSession and emit the canonical combat_ended receipt. Canonical operation `combat.end`; the result envelope is authoritative.",
       "inputSchema": {
@@ -310,9 +377,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Finalize the current CombatSession and emit the canonical combat_ended receipt."
     },
     "combat.resolve": {
+      "access": "mutation",
       "canonical_operation": "combat.resolve",
       "description": "Execute one authored or KP-selected emergent combat beat through CombatSession, including reaction-specific ties, combat.json, and canonical roll evidence. Canonical operation `combat.resolve`; the result envelope is authoritative.",
       "inputSchema": {
@@ -370,9 +447,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Execute one authored or KP-selected emergent combat beat through CombatSession, including reaction-specific ties, combat.json, and canonical roll evidence."
     },
     "development.settle": {
+      "access": "mutation",
       "canonical_operation": "development.settle",
       "description": "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine. Canonical operation `development.settle`; the result envelope is authoritative.",
       "inputSchema": {
@@ -410,9 +497,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "audit",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "ending"
+        ]
+      },
       "summary": "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine."
     },
     "director.advise": {
+      "access": "mutation",
       "canonical_operation": "director.advise",
       "description": "Build the existing rich Director context and candidate plan from structured KP intent evidence. Advice only; never applies state or forces narration. Canonical operation `director.advise`; the result envelope is authoritative.",
       "inputSchema": {
@@ -456,9 +553,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "kp_surface": "advice",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Build the existing rich Director context and candidate plan from structured KP intent evidence. Advice only; never applies state or forces narration."
     },
     "epistemic.query": {
+      "access": "mutation",
       "canonical_operation": "epistemic.query",
       "description": "Read compiled open questions, belief state, and structured lifecycle suggestions from current evidence. Canonical operation `epistemic.query`; the result envelope is authoritative.",
       "inputSchema": {
@@ -479,9 +586,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read compiled open questions, belief state, and structured lifecycle suggestions from current evidence."
     },
     "evidence.record_adoption": {
+      "access": "mutation",
       "canonical_operation": "evidence.record_adoption",
       "description": "Record which advisory candidates the KP adopted, modified, or ignored. Keeper-internal audit evidence only. Canonical operation `evidence.record_adoption`; the result envelope is authoritative.",
       "inputSchema": {
@@ -547,9 +666,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Record which advisory candidates the KP adopted, modified, or ignored. Keeper-internal audit evidence only."
     },
     "evidence.table_opening": {
+      "access": "mutation",
       "canonical_operation": "evidence.table_opening",
       "description": "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix. Canonical operation `evidence.table_opening`; the result envelope is authoritative.",
       "inputSchema": {
@@ -598,9 +727,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening"
+        ]
+      },
       "summary": "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix."
     },
     "mechanics.ensure": {
+      "access": "mutation",
       "canonical_operation": "mechanics.ensure",
       "description": "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused. Canonical operation `mechanics.ensure`; the result envelope is authoritative.",
       "inputSchema": {
@@ -653,9 +792,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused."
     },
     "narration.brief": {
+      "access": "mutation",
       "canonical_operation": "narration.brief",
       "description": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract. Canonical operation `narration.brief`; the result envelope is authoritative.",
       "inputSchema": {
@@ -690,9 +839,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "kp_surface": "advice",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract."
     },
     "narration.review": {
+      "access": "mutation",
       "canonical_operation": "narration.review",
       "description": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
       "inputSchema": {
@@ -731,9 +891,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "kp_surface": "advice",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate."
     },
     "npc.advise": {
+      "access": "mutation",
       "canonical_operation": "npc.advise",
       "description": "Build existing persona cards and optional NPC agency moves for NPCs in the active scene. Advice only. Canonical operation `npc.advise`; the result envelope is authoritative.",
       "inputSchema": {
@@ -764,9 +935,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "kp_surface": "advice",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Build existing persona cards and optional NPC agency moves for NPCs in the active scene. Advice only."
     },
     "npc.query": {
+      "access": "query",
       "canonical_operation": "npc.query",
       "description": "NPC agendas, live psych state, and compact first-contact readiness for one requested NPC. 'secret'-marked fields are keeper-only reference — never reveal verbatim. Canonical operation `npc.query`; the result envelope is authoritative.",
       "inputSchema": {
@@ -799,9 +980,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "npc",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "NPC agendas, live psych state, and compact first-contact readiness for one requested NPC. 'secret'-marked fields are keeper-only reference — never reveal verbatim."
     },
     "npc.reaction": {
+      "access": "mutation",
       "canonical_operation": "npc.reaction",
       "description": "Settle exactly one public first-impression D100 for an investigator/NPC pair against max(APP, Credit Rating). Returns the frozen achieved level and reaction tier; the KP supplies the context-sensitive causal realization when recording the first engagement. Canonical operation `npc.reaction`; the result envelope is authoritative.",
       "inputSchema": {
@@ -853,9 +1046,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "npc",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Settle exactly one public first-impression D100 for an investigator/NPC pair against max(APP, Credit Rating). Returns the frozen achieved level and reaction tier; the KP supplies the context-sensitive causal realization when recording the first engagement."
     },
     "personal_horror.query": {
+      "access": "mutation",
       "canonical_operation": "personal_horror.query",
       "description": "Read structured personal-horror hooks and accepted backstory corruptions without scanning character prose. Canonical operation `personal_horror.query`; the result envelope is authoritative.",
       "inputSchema": {
@@ -880,9 +1083,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read structured personal-horror hooks and accepted backstory corruptions without scanning character prose."
     },
     "progressive.claim_host_work": {
+      "access": "mutation",
       "canonical_operation": "progressive.claim_host_work",
       "description": "Atomically lease up to four contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context. Canonical operation `progressive.claim_host_work`; the result envelope is authoritative.",
       "inputSchema": {
@@ -955,9 +1170,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "source_worker",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Atomically lease up to four contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context."
     },
     "progressive.follow_mentions": {
+      "access": "mutation",
       "canonical_operation": "progressive.follow_mentions",
       "description": "Enqueue deepen jobs from a structured mentions list [{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, or dig yields explicit entity refs. Never pass free prose to scan. Canonical operation `progressive.follow_mentions`; the result envelope is authoritative.",
       "inputSchema": {
@@ -987,9 +1213,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Enqueue deepen jobs from a structured mentions list [{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, or dig yields explicit entity refs. Never pass free prose to scan."
     },
     "progressive.fulfill_host_work": {
+      "access": "mutation",
       "canonical_operation": "progressive.fulfill_host_work",
       "description": "Submit one exact source-worker result for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work. Canonical operation `progressive.fulfill_host_work`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1080,9 +1316,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "source_worker",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Submit one exact source-worker result for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work."
     },
     "progressive.on_enter_scene": {
+      "access": "mutation",
       "canonical_operation": "progressive.on_enter_scene",
       "description": "Materialize only the canonical active progressive scene: merge a ready location pack and enqueue exact source-bound location/opening section extraction through the existing queue. Returns status and host-work projection, never section prose. Canonical operation `progressive.on_enter_scene`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1112,9 +1359,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Materialize only the canonical active progressive scene: merge a ready location pack and enqueue exact source-bound location/opening section extraction through the existing queue. Returns status and host-work projection, never section prose."
     },
     "progressive.opening_bootstrap": {
+      "access": "mutation",
       "canonical_operation": "progressive.opening_bootstrap",
       "description": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, and records a campaign-owned auto-projection watch. With a source-reviewed module-init L0 present it direct-writes the opening scene from the L0 hooks (player hooks -> read_aloud, keeper hooks -> keeper_only) with zero host-work/coordinator dependency; without L0 it enqueues the exact foreground partial_opening request. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap. Canonical operation `progressive.opening_bootstrap`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1168,9 +1425,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "opening"
+        ]
+      },
       "summary": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, and records a campaign-owned auto-projection watch. With a source-reviewed module-init L0 present it direct-writes the opening scene from the L0 hooks (player hooks -> read_aloud, keeper hooks -> keeper_only) with zero host-work/coordinator dependency; without L0 it enqueues the exact foreground partial_opening request. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap."
     },
     "progressive.prepare_opening": {
+      "access": "query",
       "canonical_operation": "progressive.prepare_opening",
       "description": "Experimental strict read-only planner for one source-authored opening. With no real opening selector, its first call returns the existing bounded complete opening_page_candidates catalog when source selection is needed; semantically select from that catalog and never guess page indices. It validates an accepted contiguous 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query. Canonical operation `progressive.prepare_opening`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1244,9 +1511,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "opening"
+        ]
+      },
       "summary": "Experimental strict read-only planner for one source-authored opening. With no real opening selector, its first call returns the existing bounded complete opening_page_candidates catalog when source selection is needed; semantically select from that catalog and never guess page indices. It validates an accepted contiguous 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query."
     },
     "progressive.project_opening": {
+      "access": "mutation",
       "canonical_operation": "progressive.project_opening",
       "description": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun. While an exact opening source lease has an active owner, even an incomplete or repeated call is a read-only deferred no-op; released/runnable work exposes its normal recovery action. Canonical operation `progressive.project_opening`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1296,9 +1573,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "opening"
+        ]
+      },
       "summary": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun. While an exact opening source lease has an active owner, even an incomplete or repeated call is a read-only deferred no-op; released/runnable work exposes its normal recovery action."
     },
     "progressive.publish_skeleton": {
+      "access": "mutation",
       "canonical_operation": "progressive.publish_skeleton",
       "description": "Experimental canonical publication of one structured source-bound skeleton. Stores validated shared module truth, then projects sparse campaign IR as a separate non-atomic phase; it never parses free prose or source pages. Canonical operation `progressive.publish_skeleton`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1335,9 +1622,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "source_worker",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Experimental canonical publication of one structured source-bound skeleton. Stores validated shared module truth, then projects sparse campaign IR as a separate non-atomic phase; it never parses free prose or source pages."
     },
     "progressive.register_source_bundle": {
+      "access": "mutation",
       "canonical_operation": "progressive.register_source_bundle",
       "description": "Validate and register one later host-PDF page window for the campaign's existing progressive asset root. This caches reviewed pages only; it does not parse PDF bytes or compile semantic entity packs. Canonical operation `progressive.register_source_bundle`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1363,9 +1661,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "cold_start",
+          "opening"
+        ]
+      },
       "summary": "Validate and register one later host-PDF page window for the campaign's existing progressive asset root. This caches reviewed pages only; it does not parse PDF bytes or compile semantic entity packs."
     },
     "progressive.release_host_work_leases": {
+      "access": "mutation",
       "canonical_operation": "progressive.release_host_work_leases",
       "description": "Host-lifecycle operation that gracefully releases only exact leases owned by one executor. Abrupt crashes still recover through bounded TTL. Canonical operation `progressive.release_host_work_leases`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1407,9 +1716,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "source_worker",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Host-lifecycle operation that gracefully releases only exact leases owned by one executor. Abrupt crashes still recover through bounded TTL."
     },
     "progressive.renew_host_work_leases": {
+      "access": "mutation",
       "canonical_operation": "progressive.renew_host_work_leases",
       "description": "Host-lifecycle operation that renews only exact leases owned by one executor. It is not a Keeper source-reading operation. Canonical operation `progressive.renew_host_work_leases`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1452,9 +1772,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "source_worker",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Host-lifecycle operation that renews only exact leases owned by one executor. It is not a Keeper source-reading operation."
     },
     "progressive.request_locator_pass": {
+      "access": "mutation",
       "canonical_operation": "progressive.request_locator_pass",
       "description": "Enqueue one nonblocking mechanics-locator pass over an exact host-selected contiguous 1..3-page accepted window. It never selects pages, scans the bundle, blocks opening readiness, or extracts mechanics profiles. Canonical operation `progressive.request_locator_pass`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1504,9 +1835,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Enqueue one nonblocking mechanics-locator pass over an exact host-selected contiguous 1..3-page accepted window. It never selects pages, scans the bundle, blocks opening readiness, or extracts mechanics profiles."
     },
     "progressive.request_mechanics": {
+      "access": "mutation",
       "canonical_operation": "progressive.request_mechanics",
       "description": "Request one source-first NPC/item mechanics lookup without reparsing its narrative body. Exact appendix/chapter pages are cached and same-page subjects are batched. Canonical operation `progressive.request_mechanics`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1545,9 +1887,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Request one source-first NPC/item mechanics lookup without reparsing its narrative body. Exact appendix/chapter pages are cached and same-page subjects are batched."
     },
     "progressive.request_opening_pack": {
+      "access": "mutation",
       "canonical_operation": "progressive.request_opening_pack",
       "description": "Experimental mutation that enqueues exactly one selected-start partial opening slice over a validated 1..3-page accepted window. The queue kick only materializes host work; it does not perform semantic extraction. Canonical operation `progressive.request_opening_pack`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1611,9 +1963,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening"
+        ]
+      },
       "summary": "Experimental mutation that enqueues exactly one selected-start partial opening slice over a validated 1..3-page accepted window. The queue kick only materializes host work; it does not perform semantic extraction."
     },
     "progressive.retry_full_parse": {
+      "access": "mutation",
       "canonical_operation": "progressive.retry_full_parse",
       "description": "Retry a terminally failed whole-book parse by enqueuing one fresh full_parse job for the campaign asset root (baiduocr lane). Only meaningful when progressive.status reports full_parse.status=failed with next_operation progressive.retry_full_parse; a queued/in-flight parse dedupes instead. The background worker re-runs the OCR bridge (reusing the sha-keyed corpus when complete) and registers corpus pages into module-assets. Keeper-only source lane operation; never blocks the opening projection or play. Canonical operation `progressive.retry_full_parse`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1642,9 +2004,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "source_lifecycle",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "recovery"
+        ]
+      },
       "summary": "Retry a terminally failed whole-book parse by enqueuing one fresh full_parse job for the campaign asset root (baiduocr lane). Only meaningful when progressive.status reports full_parse.status=failed with next_operation progressive.retry_full_parse; a queued/in-flight parse dedupes instead. The background worker re-runs the OCR bridge (reusing the sha-keyed corpus when complete) and registers corpus pages into module-assets. Keeper-only source lane operation; never blocks the opening projection or play."
     },
     "progressive.status": {
+      "access": "query",
       "canonical_operation": "progressive.status",
       "description": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only diagnostic for a concrete later dig/entity decision. It is not a Pi private-coordinator completion signal: while that lifecycle is open, await its terminal notice without polling, reassurance queries, repeat preparation/bootstrap, or manual claim/fulfillment. Canonical operation `progressive.status`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1673,9 +2046,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "opening",
+          "live_turn",
+          "recovery"
+        ]
+      },
       "summary": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only diagnostic for a concrete later dig/entity decision. It is not a Pi private-coordinator completion signal: while that lifecycle is open, await its terminal notice without polling, reassurance queries, repeat preparation/bootstrap, or manual claim/fulfillment."
     },
     "rules.build_scale": {
+      "access": "mutation",
       "canonical_operation": "rules.build_scale",
       "description": "Comparative build scale and lift/throw capability (Table XV, p.279). Read-only lookup; use when size shapes the fiction — who can lift, carry, or throw whom, and how big something reads. Canonical operation `rules.build_scale`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1706,9 +2091,19 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Comparative build scale and lift/throw capability (Table XV, p.279). Read-only lookup; use when size shapes the fiction — who can lift, carry, or throw whom, and how big something reads."
     },
     "rules.cash_assets": {
+      "access": "mutation",
       "canonical_operation": "rules.cash_assets",
       "description": "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter. Canonical operation `rules.cash_assets`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1737,9 +2132,20 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter."
     },
     "rules.check": {
+      "access": "mutation",
       "canonical_operation": "rules.check",
       "description": "Low-level ruleset-package integration primitive, not an investigator skill or characteristic check. Live Keepers use rules.roll for ordinary investigator checks and rules.psychology_observe for concealed Psychology observation; rules.skill_check does not exist. This primitive persists canonical public roll evidence from an exact package-native request signature. Canonical operation `rules.check`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1780,9 +2186,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Low-level ruleset-package integration primitive, not an investigator skill or characteristic check. Live Keepers use rules.roll for ordinary investigator checks and rules.psychology_observe for concealed Psychology observation; rules.skill_check does not exist. This primitive persists canonical public roll evidence from an exact package-native request signature."
     },
     "rules.damage": {
+      "access": "mutation",
       "canonical_operation": "rules.damage",
       "description": "Apply damage or healing to an investigator's HP. Amount may be an integer or a dice expression. Canonical operation `rules.damage`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1829,9 +2245,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Apply damage or healing to an investigator's HP. Amount may be an integer or a dice expression."
     },
     "rules.dying_check": {
+      "access": "mutation",
       "canonical_operation": "rules.dying_check",
       "description": "Resolve the canonical CON death clock for a dying or temporarily stabilized investigator. Canonical operation `rules.dying_check`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1870,9 +2296,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Resolve the canonical CON death clock for a dying or temporarily stabilized investigator."
     },
     "rules.first_aid": {
+      "access": "mutation",
       "canonical_operation": "rules.first_aid",
       "description": "Resolve canonical First Aid, including stabilization at 0 HP, through the transactional healing engine. Canonical operation `rules.first_aid`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1927,9 +2363,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Resolve canonical First Aid, including stabilization at 0 HP, through the transactional healing engine."
     },
     "rules.luck_spend": {
+      "access": "mutation",
       "canonical_operation": "rules.luck_spend",
       "description": "Bind Luck spending to one existing canonical public rules.roll receipt; adjusts its settlement without creating another dice row. Canonical operation `rules.luck_spend`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1969,9 +2415,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Bind Luck spending to one existing canonical public rules.roll receipt; adjusts its settlement without creating another dice row."
     },
     "rules.medicine": {
+      "access": "mutation",
       "canonical_operation": "rules.medicine",
       "description": "Resolve canonical Medicine treatment, including clearing a stabilized dying state and its 1D3 healing. Canonical operation `rules.medicine`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2014,9 +2470,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Resolve canonical Medicine treatment, including clearing a stabilized dying state and its 1D3 healing."
     },
     "rules.opposed": {
+      "access": "mutation",
       "canonical_operation": "rules.opposed",
       "description": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve. Canonical operation `rules.opposed`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2080,9 +2546,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve."
     },
     "rules.psychology_observe": {
+      "access": "mutation",
       "canonical_operation": "rules.psychology_observe",
       "description": "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed. Canonical operation `rules.psychology_observe`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2131,9 +2607,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed."
     },
     "rules.push": {
+      "access": "mutation",
       "canonical_operation": "rules.push",
       "description": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them. Canonical operation `rules.push`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2182,9 +2668,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them."
     },
     "rules.resource_delta": {
+      "access": "mutation",
       "canonical_operation": "rules.resource_delta",
       "description": "Apply the active ruleset's generic resource arithmetic to canonical actor state. Current state is kernel-owned; callers provide only the requested change. Canonical operation `rules.resource_delta`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2225,9 +2721,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Apply the active ruleset's generic resource arithmetic to canonical actor state. Current state is kernel-owned; callers provide only the requested change."
     },
     "rules.roll": {
+      "access": "mutation",
       "canonical_operation": "rules.roll",
       "description": "Contextual percentile skill/characteristic check. Requires an explicit goal, stakes, difficulty, and structured difficulty basis; returns distinct required and achieved levels. Canonical operation `rules.roll`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2350,9 +2856,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Contextual percentile skill/characteristic check. Requires an explicit goal, stakes, difficulty, and structured difficulty basis; returns distinct required and achieved levels."
     },
     "rules.roll_dice": {
+      "access": "mutation",
       "canonical_operation": "rules.roll_dice",
       "description": "Roll an arbitrary dice expression (e.g. '1D6+1') for damage, SAN loss amounts, or randomization. Canonical operation `rules.roll_dice`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2398,9 +2914,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Roll an arbitrary dice expression (e.g. '1D6+1') for damage, SAN loss amounts, or randomization."
     },
     "rules.sanity_check": {
+      "access": "mutation",
       "canonical_operation": "rules.sanity_check",
       "description": "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory. Canonical operation `rules.sanity_check`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2452,9 +2979,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory."
     },
     "rules.skill_describe": {
+      "access": "mutation",
       "canonical_operation": "rules.skill_describe",
       "description": "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll. Canonical operation `rules.skill_describe`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2485,9 +3022,19 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll."
     },
     "rules.social_adjudicate": {
+      "access": "mutation",
       "canonical_operation": "rules.social_adjudicate",
       "description": "Derive the authoritative difficulty for one social attempt (7e social resolution): feasibility first, base from NPC defense, motive and leverage adjustments, bonus/penalty dice last. The KP then rolls the approach skill with the returned difficulty; the same goal without new leverage or motive replays the original adjudication. Canonical operation `rules.social_adjudicate`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2560,9 +3107,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Derive the authoritative difficulty for one social attempt (7e social resolution): feasibility first, base from NPC defense, motive and leverage adjustments, bonus/penalty dice last. The KP then rolls the approach skill with the returned difficulty; the same goal without new leverage or motive replays the original adjudication."
     },
     "rules.weekly_recovery": {
+      "access": "mutation",
       "canonical_operation": "rules.weekly_recovery",
       "description": "Resolve one due major-wound recovery week from authoritative game time, with optional weekly medical care and complete dice evidence. Canonical operation `rules.weekly_recovery`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2614,9 +3171,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Resolve one due major-wound recovery week from authoritative game time, with optional weekly medical care and complete dice evidence."
     },
     "sanity.context": {
+      "access": "mutation",
       "canonical_operation": "sanity.context",
       "description": "Read the full persisted SanitySession snapshot and unresolved subsystem choices. Canonical operation `sanity.context`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2641,9 +3208,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read the full persisted SanitySession snapshot and unresolved subsystem choices."
     },
     "sanity.execute": {
+      "access": "mutation",
       "canonical_operation": "sanity.execute",
       "description": "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem. Canonical operation `sanity.execute`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2683,9 +3261,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem."
     },
     "scene.context": {
+      "access": "query",
       "canonical_operation": "scene.context",
       "description": "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time. Canonical operation `scene.context`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2714,9 +3302,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time."
     },
     "scene.map": {
+      "access": "mutation",
       "canonical_operation": "scene.map",
       "description": "The whole scene graph with unlock/visit status — where the story can go and what gates each edge. Canonical operation `scene.map`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2737,9 +3337,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "The whole scene graph with unlock/visit status — where the story can go and what gates each edge."
     },
     "secrets.briefing": {
+      "access": "query",
       "canonical_operation": "secrets.briefing",
       "description": "Keeper-only briefing scoped to the active scene by default. Pass scope=whole_module_audit for explicit cold-path full-module dump. Canonical operation `secrets.briefing`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2776,9 +3388,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "module_secret",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Keeper-only briefing scoped to the active scene by default. Pass scope=whole_module_audit for explicit cold-path full-module dump."
     },
     "session.begin": {
+      "access": "mutation",
       "canonical_operation": "session.begin",
       "description": "Open a new table session: advances the durable session cursor that scopes development settlement (skill development / Luck recovery) idempotency. Call when a fresh sitting begins; never on crash resume. Canonical operation `session.begin`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2804,9 +3428,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "cold_start",
+          "recovery",
+          "live_turn"
+        ]
+      },
       "summary": "Open a new table session: advances the durable session cursor that scopes development settlement (skill development / Luck recovery) idempotency. Call when a fresh sitting begins; never on crash resume."
     },
     "session.continuation_detail": {
+      "access": "query",
       "canonical_operation": "session.continuation_detail",
       "description": "Read one exact paged section omitted from the compact session.resume working set. Use only a returned detail_operation card; never scan save files or logs. Canonical operation `session.continuation_detail`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2860,9 +3496,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "cold_start",
+          "recovery",
+          "live_turn"
+        ]
+      },
       "summary": "Read one exact paged section omitted from the compact session.resume working set. Use only a returned detail_operation card; never scan save files or logs."
     },
     "session.delivery_ack": {
+      "access": "mutation",
       "canonical_operation": "session.delivery_ack",
       "description": "Confirm that the latest immutable Keeper rendered_text was displayed or replayed. This never changes campaign fiction or mechanics. Canonical operation `session.delivery_ack`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2912,9 +3560,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "cold_start",
+          "recovery",
+          "live_turn"
+        ]
+      },
       "summary": "Confirm that the latest immutable Keeper rendered_text was displayed or replayed. This never changes campaign fiction or mechanics."
     },
     "session.delivery_text": {
+      "access": "query",
       "canonical_operation": "session.delivery_text",
       "description": "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget. Canonical operation `session.delivery_text`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2945,9 +3605,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "cold_start",
+          "recovery",
+          "live_turn"
+        ]
+      },
       "summary": "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget."
     },
     "session.resume": {
+      "access": "query",
       "canonical_operation": "session.resume",
       "description": "Load one bounded, hash-bound Keeper recovery bundle when continuing a campaign generation that predates this host startup, process restart, switch, or context compaction. It is the first campaign call only for that continuation case; do not call it after creating, quick-starting, binding, or setting up the campaign in the current initial request. Canonical operation `session.resume`; the result envelope is authoritative.",
       "inputSchema": {
@@ -2981,9 +3653,23 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "recovery",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Load one bounded, hash-bound Keeper recovery bundle when continuing a campaign generation that predates this host startup, process restart, switch, or context compaction. It is the first campaign call only for that continuation case; do not call it after creating, quick-starting, binding, or setting up the campaign in the current initial request."
     },
     "setup.adopt_source_facts": {
+      "access": "mutation",
       "canonical_operation": "setup.adopt_source_facts",
       "description": "Adopt the six source-grounded opening facts after scenario.bind_pdf and before investigator construction. Every source or unresolved answer must cite accepted pages inspected in the campaign's current bound bundle. Canonical operation `setup.adopt_source_facts`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3432,9 +4118,21 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Adopt the six source-grounded opening facts after scenario.bind_pdf and before investigator construction. Every source or unresolved answer must cite accepted pages inspected in the campaign's current bound bundle."
     },
     "setup.inspect": {
+      "access": "query",
       "canonical_operation": "setup.inspect",
       "description": "Inspect canonical pre-session onboarding state: campaigns, investigators, built-in starters/pregens, and setup operation ids. Use in an empty or unknown workspace instead of searching files. Canonical operation `setup.inspect`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3453,9 +4151,21 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Inspect canonical pre-session onboarding state: campaigns, investigators, built-in starters/pregens, and setup operation ids. Use in an empty or unknown workspace instead of searching files."
     },
     "setup.investigator_contract": {
+      "access": "query",
       "canonical_operation": "setup.investigator_contract",
       "description": "Return the active campaign ruleset's package-owned, versioned construction contract for the complete investigator.create payload. Query this once after campaign creation instead of guessing ruleset-specific sheet fields. Canonical operation `setup.investigator_contract`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3481,9 +4191,21 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Return the active campaign ruleset's package-owned, versioned construction contract for the complete investigator.create payload. Query this once after campaign creation instead of guessing ruleset-specific sheet fields."
     },
     "setup.invoke": {
+      "access": "mutation",
       "canonical_operation": "setup.invoke",
       "description": "Invoke one existing canonical custom-campaign setup operation. This thin MCP-facing gateway delegates schema, source-bundle, path, and state validation to the shared pre-session setup runtime. Canonical operation `setup.invoke`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3588,9 +4310,21 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Invoke one existing canonical custom-campaign setup operation. This thin MCP-facing gateway delegates schema, source-bundle, path, and state validation to the shared pre-session setup runtime."
     },
     "setup.quick_start": {
+      "access": "mutation",
       "canonical_operation": "setup.quick_start",
       "description": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3628,9 +4362,21 @@
         "type": "object"
       },
       "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
       "summary": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans."
     },
     "state.advance_time": {
+      "access": "mutation",
       "canonical_operation": "state.advance_time",
       "description": "Advance the in-fiction clock (monotonic). Fires due triggers; an imprecise civil clock may also record a source- or fiction-established broad phase reached after the elapsed interval. Canonical operation `state.advance_time`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3680,9 +4426,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Advance the in-fiction clock (monotonic). Fires due triggers; an imprecise civil clock may also record a source- or fiction-established broad phase reached after the elapsed interval."
     },
     "state.backstory_corruption_add": {
+      "access": "mutation",
       "canonical_operation": "state.backstory_corruption_add",
       "description": "Persist an accepted SanitySession backstory amendment using structured fields only. Canonical operation `state.backstory_corruption_add`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3727,9 +4483,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Persist an accepted SanitySession backstory amendment using structured fields only."
     },
     "state.belief_apply": {
+      "access": "mutation",
       "canonical_operation": "state.belief_apply",
       "description": "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger. Canonical operation `state.belief_apply`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3769,9 +4535,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger."
     },
     "state.cash_semantic": {
+      "access": "mutation",
       "canonical_operation": "state.cash_semantic",
       "description": "Record one KP-guided, campaign-local starting-cash/assets disposition when the campaign era has no authoritative cash-assets table. This never calculates, replaces, or changes rules-table values. Canonical operation `state.cash_semantic`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3824,9 +4600,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Record one KP-guided, campaign-local starting-cash/assets disposition when the campaign era has no authoritative cash-assets table. This never calculates, replaces, or changes rules-table values."
     },
     "state.clear_transient_condition": {
+      "access": "mutation",
       "canonical_operation": "state.clear_transient_condition",
       "description": "Clear one combat-only positional condition after the fiction ends it; injury, dying, and death conditions are intentionally unsupported. Canonical operation `state.clear_transient_condition`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3866,9 +4652,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Clear one combat-only positional condition after the fiction ends it; injury, dying, and death conditions are intentionally unsupported."
     },
     "state.clock_discontinuity": {
+      "access": "mutation",
       "canonical_operation": "state.clock_discontinuity",
       "description": "Replace the in-fiction civil-calendar anchor for an explicit time shift, loop reset, dream transition, or correction while preserving monotonic elapsed time and relative deadlines. Canonical operation `state.clock_discontinuity`; the result envelope is authoritative.",
       "inputSchema": {
@@ -3973,9 +4769,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Replace the in-fiction civil-calendar anchor for an explicit time shift, loop reset, dream transition, or correction while preserving monotonic elapsed time and relative deadlines."
     },
     "state.end_session": {
+      "access": "mutation",
       "canonical_operation": "state.end_session",
       "description": "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration. Canonical operation `state.end_session`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4013,9 +4819,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "ending"
+        ]
+      },
       "summary": "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration."
     },
     "state.exceptional_effect": {
+      "access": "mutation",
       "canonical_operation": "state.exceptional_effect",
       "description": "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice. Canonical operation `state.exceptional_effect`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4148,9 +4964,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice."
     },
     "state.inventory_list": {
+      "access": "query",
       "canonical_operation": "state.inventory_list",
       "description": "Show an investigator's effective items and weapons (character sheet minus recorded losses plus runtime gains), or an NPC's runtime items. Canonical operation `state.inventory_list`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4179,9 +5006,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn",
+          "pending_finalization",
+          "opening"
+        ]
+      },
       "summary": "Show an investigator's effective items and weapons (character sheet minus recorded losses plus runtime gains), or an NPC's runtime items."
     },
     "state.item_grant": {
+      "access": "mutation",
       "canonical_operation": "state.item_grant",
       "description": "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement. Canonical operation `state.item_grant`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4254,9 +5093,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement."
     },
     "state.item_remove": {
+      "access": "mutation",
       "canonical_operation": "state.item_remove",
       "description": "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing character-sheet equipment or a weapon records a campaign-local loss; removing an NPC weapon updates its runtime override. Canonical operation `state.item_remove`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4299,9 +5148,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing character-sheet equipment or a weapon records a campaign-local loss; removing an NPC weapon updates its runtime override."
     },
     "state.item_use": {
+      "access": "mutation",
       "canonical_operation": "state.item_use",
       "description": "Use charges of an investigator's consumable item (bandage, laudanum, torch). Decrements quantity; at zero the item leaves the inventory for good. Non-consumables are rejected: use state.item_remove when one is lost or spent. Canonical operation `state.item_use`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4343,9 +5202,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Use charges of an investigator's consumable item (bandage, laudanum, torch). Decrements quantity; at zero the item leaves the inventory for good. Non-consumables are rejected: use state.item_remove when one is lost or spent."
     },
     "state.journal": {
+      "access": "mutation",
       "canonical_operation": "state.journal",
       "description": "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts. Canonical operation `state.journal`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4499,9 +5368,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "turn",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts."
     },
     "state.mark_safe_rest": {
+      "access": "mutation",
       "canonical_operation": "state.mark_safe_rest",
       "description": "Record that one investigator completed a full sleep in a safe place after its elapsed time was advanced. Resets the canonical rest anchor read by Director continuity; never inferred from prose. Canonical operation `state.mark_safe_rest`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4539,9 +5419,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Record that one investigator completed a full sleep in a safe place after its elapsed time was advanced. Resets the canonical rest anchor read by Director continuity; never inferred from prose."
     },
     "state.move_scene": {
+      "access": "mutation",
       "canonical_operation": "state.move_scene",
       "description": "Move the party to a scene. Off-graph or locked moves warn but succeed — you own the fiction. Canonical operation `state.move_scene`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4589,9 +5479,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Move the party to a scene. Off-graph or locked moves warn but succeed — you own the fiction."
     },
     "state.npc_presence": {
+      "access": "mutation",
       "canonical_operation": "state.npc_presence",
       "description": "Explicitly place or remove one stable authored/improvised NPC in a scene. This is live scene state; engagement history never implies continued presence. Canonical operation `state.npc_presence`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4641,9 +5541,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Explicitly place or remove one stable authored/improvised NPC in a scene. This is live scene state; engagement history never implies continued presence."
     },
     "state.npc_update": {
+      "access": "mutation",
       "canonical_operation": "state.npc_update",
       "description": "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises made or resolved, availability, and a bounded investigator-specific textual impression authored by the KP. Canonical operation `state.npc_update`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4724,9 +5634,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises made or resolved, availability, and a bounded investigator-specific textual impression authored by the KP."
     },
     "state.personal_horror_add": {
+      "access": "mutation",
       "canonical_operation": "state.personal_horror_add",
       "description": "Persist one structured personal-horror hook after the KP has accepted it. Canonical operation `state.personal_horror_add`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4771,9 +5691,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Persist one structured personal-horror hook after the KP has accepted it."
     },
     "state.personal_horror_mark_woven": {
+      "access": "mutation",
       "canonical_operation": "state.personal_horror_mark_woven",
       "description": "Mark a structured personal-horror hook as actually woven after it appears in delivered play. Canonical operation `state.personal_horror_mark_woven`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4808,9 +5738,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Mark a structured personal-horror hook as actually woven after it appears in delivered play."
     },
     "state.promote_scene": {
+      "access": "mutation",
       "canonical_operation": "state.promote_scene",
       "description": "Record a formal scene-role promotion (e.g. transit → side_investigation) with module_divergence evidence. Advisory bookkeeping: it changes how later scene.context reads the scene, never forces a transition. Canonical operation `state.promote_scene`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4856,9 +5796,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Record a formal scene-role promotion (e.g. transit → side_investigation) with module_divergence evidence. Advisory bookkeeping: it changes how later scene.context reads the scene, never forces a transition."
     },
     "state.record_clue": {
+      "access": "mutation",
       "canonical_operation": "state.record_clue",
       "description": "Record a clue as discovered. Idempotent; unlocks any scenes gated on it. Off-design discoveries warn, not block. Canonical operation `state.record_clue`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4898,9 +5848,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Record a clue as discovered. Idempotent; unlocks any scenes gated on it. Off-design discoveries warn, not block."
     },
     "state.record_npc_engagement": {
+      "access": "mutation",
       "canonical_operation": "state.record_npc_engagement",
       "description": "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements. Canonical operation `state.record_npc_engagement`; the result envelope is authoritative.",
       "inputSchema": {
@@ -4962,9 +5922,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements."
     },
     "state.record_route_completion": {
+      "access": "mutation",
       "canonical_operation": "state.record_route_completion",
       "description": "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth. Canonical operation `state.record_route_completion`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5010,9 +5980,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth."
     },
     "state.set_flag": {
+      "access": "mutation",
       "canonical_operation": "state.set_flag",
       "description": "Set or clear a structured world flag (feeds flag_set unlock conditions). Canonical operation `state.set_flag`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5051,9 +6031,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Set or clear a structured world flag (feeds flag_set unlock conditions)."
     },
     "state.supersede_settlement": {
+      "access": "mutation",
       "canonical_operation": "state.supersede_settlement",
       "description": "Correct a prior public settlement and hide the voided dice/HP from player-facing final output while keeping the audit trail. Canonical operation `state.supersede_settlement`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5097,9 +6087,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "recovery",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Correct a prior public settlement and hide the voided dice/HP from player-facing final output while keeping the audit trail."
     },
     "state.threat_tick": {
+      "access": "mutation",
       "canonical_operation": "state.threat_tick",
       "description": "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated. Canonical operation `state.threat_tick`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5130,9 +6132,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated."
     },
     "state.time_appearance": {
+      "access": "mutation",
       "canonical_operation": "state.time_appearance",
       "description": "Set the broad player-perceived light/time appearance without changing the authoritative elapsed or civil clock. Use for polar day/night, inverted cycles, or source-/fiction-established supernatural distortion. Canonical operation `state.time_appearance`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5182,9 +6194,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Set the broad player-perceived light/time appearance without changing the authoritative elapsed or civil clock. Use for polar day/night, inverted cycles, or source-/fiction-established supernatural distortion."
     },
     "state.time_marker": {
+      "access": "mutation",
       "canonical_operation": "state.time_marker",
       "description": "Set, reset, or clear a persistent in-fiction deadline marker. Bookkeeping only; it never auto-fires narrative effects. Canonical operation `state.time_marker`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5232,9 +6254,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Set, reset, or clear a persistent in-fiction deadline marker. Bookkeeping only; it never auto-fires narrative effects."
     },
     "steward.deliver": {
+      "access": "mutation",
       "canonical_operation": "steward.deliver",
       "description": "Write one steward delivery: module text segments the KP needs now, with why_now, expected scene annotation, and a keeper_only/player_safe secrecy label. Optionally pays linked notebook entries (即付). The KP reads it through steward.deliveries; this record is canon-candidate feed, never rules/state authority. Canonical operation `steward.deliver`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5324,9 +6356,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Write one steward delivery: module text segments the KP needs now, with why_now, expected scene annotation, and a keeper_only/player_safe secrecy label. Optionally pays linked notebook entries (即付). The KP reads it through steward.deliveries; this record is canon-candidate feed, never rules/state authority."
     },
     "steward.deliveries": {
+      "access": "query",
       "canonical_operation": "steward.deliveries",
       "description": "Read steward deliveries: module text the steward judged the KP needs now, with why_now, expected scene annotation, secrecy labels, page and source refs. projection=keeper returns full records; projection=player returns only player_safe segments (never keeper_only text or KP reasoning) and is the only surface from which module text may reach players verbatim. Canonical operation `steward.deliveries`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5363,9 +6405,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read steward deliveries: module text the steward judged the KP needs now, with why_now, expected scene annotation, secrecy labels, page and source refs. projection=keeper returns full records; projection=player returns only player_safe segments (never keeper_only text or KP reasoning) and is the only surface from which module text may reach players verbatim."
     },
     "steward.domain_put": {
+      "access": "mutation",
       "canonical_operation": "steward.domain_put",
       "description": "Atomically replace one asynchronous steward parser domain snapshot and append any chunk failures. Domains are init, npc, scene, clue, and rule; content is a thin, extensible JSON object, while status is explicit. This writes only save/steward-state.json and never campaign core state. Canonical operation `steward.domain_put`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5450,9 +6504,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Atomically replace one asynchronous steward parser domain snapshot and append any chunk failures. Domains are init, npc, scene, clue, and rule; content is a thin, extensible JSON object, while status is explicit. This writes only save/steward-state.json and never campaign core state."
     },
     "steward.mark_consumed": {
+      "access": "mutation",
       "canonical_operation": "steward.mark_consumed",
       "description": "Mark one delivery as consumed once the scene it served has passed, so steward.deliveries can separate current deliveries from history. Canonical operation `steward.mark_consumed`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5483,9 +6547,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Mark one delivery as consumed once the scene it served has passed, so steward.deliveries can separate current deliveries from history."
     },
     "steward.notebook": {
+      "access": "query",
       "canonical_operation": "steward.notebook",
       "description": "Read the steward notebook: pre-cut module segments per expected scene with paid status and steward notes. KP-only surface; notebook content is never player-projected. Canonical operation `steward.notebook`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5518,9 +6592,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read the steward notebook: pre-cut module segments per expected scene with paid status and steward notes. KP-only surface; notebook content is never player-projected."
     },
     "steward.notebook_pay": {
+      "access": "mutation",
       "canonical_operation": "steward.notebook_pay",
       "description": "Mark notebook entries for an expected scene as paid when the scene truly arrives (flag only; deliver the text through steward.deliver). Already-paid entries are left unchanged. Canonical operation `steward.notebook_pay`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5554,9 +6640,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Mark notebook entries for an expected scene as paid when the scene truly arrives (flag only; deliver the text through steward.deliver). Already-paid entries are left unchanged."
     },
     "steward.notebook_put": {
+      "access": "mutation",
       "canonical_operation": "steward.notebook_put",
       "description": "Add or refine one notebook entry: pre-cut module segments for an expected scene, paid when the scene truly arrives. Unpaid entries may be replaced to refine pre-cuts; paid entries are immutable. Canonical operation `steward.notebook_put`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5626,9 +6722,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Add or refine one notebook entry: pre-cut module segments for an expected scene, paid when the scene truly arrives. Unpaid entries may be replaced to refine pre-cuts; paid entries are immutable."
     },
     "steward.scene_bundle_put": {
+      "access": "mutation",
       "canonical_operation": "steward.scene_bundle_put",
       "description": "Merge source-bound SceneBundle records into the steward scene cache. Each bundle has current plus source-traceable neighboring SceneEdge records, so a later arrival can consume a prefetched current bundle without re-parsing. Canonical operation `steward.scene_bundle_put`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5663,9 +6769,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "none",
+        "kp_surface": "none",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Merge source-bound SceneBundle records into the steward scene cache. Each bundle has current plus source-traceable neighboring SceneEdge records, so a later arrival can consume a prefetched current bundle without re-parsing."
     },
     "steward.scene_supply": {
+      "access": "query",
       "canonical_operation": "steward.scene_supply",
       "description": "Read one Pi scene-supply readiness snapshot. A ready bundle is the only full scene material surface; an optional minimal fallback is limited to source-bound indexed name/clue references after the Pi retry policy is exhausted. Canonical operation `steward.scene_supply`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5695,9 +6811,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read one Pi scene-supply readiness snapshot. A ready bundle is the only full scene material surface; an optional minimal fallback is limited to source-bound indexed name/clue references after the Pi retry policy is exhausted."
     },
     "storylets.suggest": {
+      "access": "mutation",
       "canonical_operation": "storylets.suggest",
       "description": "Run the existing rich storylet scheduler against a Director candidate plan. Advisory only; selection never applies itself. Canonical operation `storylets.suggest`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5747,9 +6875,19 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "kp_surface": "advice",
+        "phases": [
+          "live_turn"
+        ]
+      },
       "summary": "Run the existing rich storylet scheduler against a Director candidate plan. Advisory only; selection never applies itself."
     },
     "threat.query": {
+      "access": "mutation",
       "canonical_operation": "threat.query",
       "description": "Read authored threat fronts with verified live current_segments projected onto them. Canonical operation `threat.query`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5770,9 +6908,21 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read authored threat fronts with verified live current_segments projected onto them."
     },
     "turn.finalize": {
+      "access": "mutation",
       "canonical_operation": "turn.finalize",
       "description": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5973,9 +7123,20 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "finalize",
+        "kp_surface": "turn",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
     },
     "turn.output_context": {
+      "access": "query",
       "canonical_operation": "turn.output_context",
       "description": "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal. Canonical operation `turn.output_context`; the result envelope is authoritative.",
       "inputSchema": {
@@ -5996,6 +7157,16 @@
         "type": "object"
       },
       "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "turn",
+        "phases": [
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
       "summary": "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal."
     }
   },

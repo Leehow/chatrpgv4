@@ -178,10 +178,10 @@ try {
     ok: true,
     hasTimingCommand: commands.has("timing"),
     sessionLineFirst: sessionLine?.record === "session"
-      && sessionLine.schema_version === 2 && sessionLine.mode === "tui"
+      && sessionLine.schema_version === 3 && sessionLine.mode === "tui"
       && sessionLine.thinking_level === "off",
     recordShape: record !== null && record.record === "turn"
-      && record.schema_version === 2 && record.host === "pi-coc"
+      && record.schema_version === 3 && record.host === "pi-coc"
       && record.mode === "tui" && record.thinking_level === "off",
     sessionLabeled: record?.session === "telemetry-smoke",
     promptExcerpt: record?.prompt_excerpt === "我推门进去看看门后有什么",
@@ -216,6 +216,9 @@ try {
     turnIndexStamped: first?.turn_index === 0 && second?.turn_index === 1
       && tool?.turn_index === 0,
     toolStepDetail: tool?.label === "coc_invoke.rules.roll"
+      && tool?.canonical_operation === "rules.roll"
+      && tool?.wrapper_tool === "coc_rules"
+      && tool?.transport_tool === "coc_invoke"
       && tool?.tool_call_id === "t1"
       && tool?.tool_name === "coc_invoke"
       && tool?.args_bytes === JSON.stringify(toolArgs).length

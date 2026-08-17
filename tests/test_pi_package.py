@@ -86,16 +86,22 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     result = _node(ROOT / "tests/pi/package-smoke.mjs", str(ROOT))
     assert result["extensionCount"] == 1
     assert result["toolNames"] == [
-        "coc_capabilities", "coc_discover", "coc_dispatch_source_work",
-        "coc_invoke", "coc_map_supply", "coc_progressive_ocr",
+        "coc_advice", "coc_capabilities", "coc_context", "coc_discover",
+        "coc_dispatch_source_work", "coc_invoke", "coc_map_supply",
+        "coc_npc", "coc_progressive_ocr", "coc_rules", "coc_setup",
+        "coc_state", "coc_subsystem", "coc_turn",
     ]
     assert not {"subagent", "edit", "write", "coc_run_source_coordinator", "coc_read_source_packet"} & set(result["toolNames"])
     assert {"coc-main", "coc-keeper-play", "coc-story-director", "coc-rules-engine", "coc-character"} <= set(result["skillNames"])
     assert result["skillDiagnostics"] == []
     assert result["childStartedOnLoad"] is False
-    # The loader registers the private fail-closed host bridge. The actual
-    # session_start active-surface assertion lives in auto-dispatch-smoke.
-    assert result["activeToolNames"] == result["toolNames"]
+    assert {"coc_context", "coc_rules", "coc_state", "coc_npc", "coc_turn",
+            "coc_setup", "coc_advice", "coc_subsystem"} <= set(result["toolNames"])
+
+
+def test_pi_domain_tools_acl_and_closed_enums():
+    result = _node(ROOT / "tests/pi/domain-tools-acl.mjs", str(ROOT))
+    assert result == {"ok": True}
 
 
 def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
@@ -103,8 +109,9 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
     assert result == {
         "ok": True,
         "activeTools": [
-            "read", "coc_capabilities", "coc_discover", "coc_invoke",
-            "coc_progressive_ocr", "coc_map_supply", "subagent", "subagent_wait",
+            "read", "subagent", "subagent_wait",
+            "coc_context", "coc_rules", "coc_state", "coc_npc", "coc_turn",
+            "coc_subsystem", "coc_advice",
         ],
     }
 
@@ -219,6 +226,7 @@ def test_coc_tools_register_compact_tui_renderers():
     assert "ok" in result["resultSummary"]
     for name in (
         "coc_capabilities", "coc_discover", "coc_invoke",
+        "coc_rules", "coc_turn",
         "coc_dispatch_source_work", "coc_progressive_ocr",
     ):
         assert result["rendererStatus"][name] == {
@@ -1884,7 +1892,7 @@ def test_pi_mechanical_output_gate_intercepts_unbound_markers():
                 "instruction": (
                     "你的上一条输出包含正式机械标记（【明骰】／掷骰：N／SAN·HP 数值转移），"
                     "但本回合没有对应的权威收据，已被门禁拦截、未送达玩家。"
-                    "机械数字只能来自规则/状态收据：先经 coc_invoke 执行——骰点走 "
+                    "机械数字只能来自规则/状态收据：先经 coc_rules / coc_state 执行——骰点走 "
                     "rules.roll / rules.opposed / sanity.execute / rules.damage 等并取得返回的 "
                     "roll_id，结算与 SAN/HP 落账走 state.* 并取得 decision_id——"
                     "再按收据数字渲染正式标记；禁止凭叙述编造或推算骰点与数值变动。"

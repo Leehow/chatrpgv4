@@ -1665,9 +1665,13 @@ def test_coc_discover_operation_and_domain(monkeypatch):
     op_ids = [row["operation"] for row in catalog["domains"][0]["operations"]]
     assert op_ids
     assert all(op.startswith("progressive.") for op in op_ids)
-    # Compact rows must not embed full input schemas.
+    # Compact rows carry policy facts but must not embed full input schemas.
     for row in catalog["domains"][0]["operations"]:
-        assert set(row) == {"operation", "summary"}
+        assert set(row) == {"operation", "summary", "access", "policy"}
+        assert "inputSchema" not in row
+        assert set(row["policy"]) == {
+            "audience", "phases", "contract", "advisory", "kp_surface",
+        }
 
     empty = server._call_tool("coc_discover", {})
     assert empty["data"]["ok"] is True

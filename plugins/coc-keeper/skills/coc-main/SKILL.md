@@ -6,9 +6,12 @@ description: Activate and orchestrate COC mode. This is the only main-session sk
 # COC Main
 
 For Pi hosts, the repository-root package manifest loads this canonical plugin
-skill and the active ruleset skills directly. Its extension forwards
-`coc_capabilities`, `coc_discover`, and `coc_invoke` to the canonical persistent
-MCP gateway. If a normal projection returns an exact Pi source task, pass it
+skill and the active ruleset skills directly. On Pi-Coc the live KP uses the
+closed domain tools (`coc_setup`, `coc_context`, `coc_rules`, `coc_state`,
+`coc_npc`, `coc_turn`, `coc_subsystem`, optional `coc_advice`); those wrappers
+forward to the same persistent MCP gateway. Do not teach a per-turn
+`coc_discover` or a universal `coc_invoke` on the ordinary path. If a normal
+projection returns an exact Pi source task, pass it
 unchanged to `coc_dispatch_source_work`; never synthesize a prompt, model,
 workspace, or tool list. `coc_progressive_ocr` is an external host bridge and
 does not make repository code a PDF parser.
@@ -80,6 +83,7 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    complete sheet, confirm with the player first (recommended: 哪里想改直接说；确定再开始);
    before `investigator.create` and `campaign.link_investigator`, settle that
    confirmation—a correction is not confirmation; revise, then ask again.
+   only after confirmation use `investigator.create`.
    Prefer immersive in-fiction guided creation for players who do not know the rules. Custom PDFs must
    first be extracted by an
    external host PDF skill into the `trpg-pdf-ingest` source-bundle contract (prefer

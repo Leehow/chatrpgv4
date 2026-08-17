@@ -145,6 +145,28 @@ def input_schema_for_spec(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _policy_from_spec(operation: str, spec: dict[str, Any]) -> dict[str, Any]:
+    toolbox = _load_toolbox()
+    policy_mod = getattr(toolbox, "coc_operation_policy", None)
+    policy = spec.get("policy")
+    if not isinstance(policy, dict) and policy_mod is not None:
+        policy = policy_mod.policy_for_operation(operation)
+    if not isinstance(policy, dict):
+        raise ContractArchiveError(
+            "operation_policy_missing",
+            f"operation {operation!r} has no structured policy",
+        )
+    if policy_mod is not None:
+        return policy_mod.public_policy(policy)
+    return {
+        "audience": policy["audience"],
+        "phases": list(policy["phases"]),
+        "contract": policy["contract"],
+        "advisory": bool(policy["advisory"]),
+        "kp_surface": policy["kp_surface"],
+    }
+
+
 def contract_for_operation(operation: str, spec: dict[str, Any]) -> dict[str, Any]:
     summary = str(spec.get("summary") or operation)
     return {
@@ -155,6 +177,8 @@ def contract_for_operation(operation: str, spec: dict[str, Any]) -> dict[str, An
             f"{summary} Canonical operation `{operation}`; "
             "the result envelope is authoritative."
         ),
+        "access": spec.get("access", "mutation"),
+        "policy": _policy_from_spec(operation, spec),
         "inputSchema": input_schema_for_spec(spec),
     }
 
@@ -409,12 +433,15 @@ def compact_catalog(
     domains: dict[str, list[dict[str, str]]] = {}
     for name in selected:
         entry = operations[name]
-        domains.setdefault(domain_of(name), []).append(
-            {
-                "operation": name,
-                "summary": str(entry["summary"]),
-            }
-        )
+        row = {
+            "operation": name,
+            "summary": str(entry["summary"]),
+        }
+        if isinstance(entry.get("access"), str):
+            row["access"] = entry["access"]
+        if isinstance(entry.get("policy"), dict):
+            row["policy"] = entry["policy"]
+        domains.setdefault(domain_of(name), []).append(row)
 
     domain_rows = [
         {
@@ -436,11 +463,16 @@ def mcp_tool_from_contract(
     *,
     mcp_name: str,
 ) -> dict[str, Any]:
-    return {
+    tool = {
         "name": mcp_name,
         "description": contract["description"],
         "inputSchema": contract["inputSchema"],
     }
+    if isinstance(contract.get("access"), str):
+        tool["access"] = contract["access"]
+    if isinstance(contract.get("policy"), dict):
+        tool["policy"] = contract["policy"]
+    return tool
 
 
 def main(argv: list[str] | None = None) -> int:

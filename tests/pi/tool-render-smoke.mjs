@@ -53,7 +53,7 @@ await loader.reload();
 const extensions = loader.getExtensions();
 if (extensions.errors.length) throw new Error(JSON.stringify(extensions.errors));
 const tools = extensions.extensions[0].tools;
-const required = ["coc_capabilities", "coc_discover", "coc_invoke", "coc_dispatch_source_work", "coc_progressive_ocr"];
+const required = ["coc_capabilities", "coc_discover", "coc_invoke", "coc_rules", "coc_turn", "coc_dispatch_source_work", "coc_progressive_ocr"];
 const toolDef = (name) => {
   const entry = tools.get(name);
   if (!entry) throw new Error(`missing tool ${name}`);
