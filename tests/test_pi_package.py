@@ -110,8 +110,7 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
         "ok": True,
         "activeTools": [
             "read", "subagent", "subagent_wait",
-            "coc_context", "coc_rules", "coc_state", "coc_npc", "coc_turn",
-            "coc_subsystem", "coc_advice",
+            "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
         ],
     }
 
