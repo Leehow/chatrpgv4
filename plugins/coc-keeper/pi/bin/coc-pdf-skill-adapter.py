@@ -447,12 +447,31 @@ def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
     ):
         _fail("opening review transport identity invalid")
     resolved = workspace.resolve()
+    # Split-layout proof: hosts may keep campaign state outside the code
+    # surface (the web bridge / desktop shell use a bare workspace while the
+    # plugin lives in the repo/payload root), so the TUI-era assumption
+    # "workspace == cwd == code root" no longer holds. State identity is
+    # proven by the campaign anchor inside the workspace; code identity is
+    # self-derived from this adapter's own installation (PLUGIN_ROOT)
+    # instead of trusting the inherited cwd.
+    code_root = PLUGIN_ROOT.parents[1]
     if (
-        resolved != Path.cwd().resolve()
-        or not (resolved / "uv.lock").is_file()
-        or not (resolved / "plugins" / "coc-keeper").samefile(PLUGIN_ROOT)
+        not resolved.is_dir()
+        or not (
+            resolved
+            / ".coc"
+            / "campaigns"
+            / campaign_id
+            / "scenario"
+            / "scenario.json"
+        ).is_file()
     ):
         _fail("opening review transport workspace drift")
+    if (
+        not (code_root / "uv.lock").is_file()
+        or not (code_root / "plugins" / "coc-keeper").samefile(PLUGIN_ROOT)
+    ):
+        _fail("opening review transport code-root drift")
     return task
 
 
@@ -1763,7 +1782,10 @@ def _opening_text_prompt(
         "tools or write outside source_bundle_path. Return only one strict "
         "JSON object with exact fields schema_version, contract_id, status, "
         "campaign_id, scenario_id, source_bundle_path, failure_class, facts, "
-        "module_init_l0. contract_id is "
+        "module_init_l0. Output must be strictly valid JSON: never place a "
+        "bare ASCII double quote (\") inside a string value -- render quoted "
+        "terms with full-width quotes 「」 or “ ” instead, and escape any "
+        "unavoidable backslash or control character. contract_id is "
         "coc.pi-opening-text-extractor-result.v1; status is reviewed or "
         "failed. For reviewed, failure_class is null, facts is a valid "
         "coc.opening-fast-facts.v1 object and module_init_l0 satisfies "
@@ -2331,14 +2353,45 @@ def _strip_markdown_json_fence(text: str) -> str | None:
     return "\n".join(lines[1:-1])
 
 
+def _extract_single_fenced_block(text: str) -> str | None:
+    """Body of the output's single fenced block, tolerating surrounding prose.
+
+    Real extractor children often prepend a one-line status preamble before
+    the fenced JSON despite the strict-output instruction; the fence markers
+    still delimit the payload unambiguously. Returns None when there is not
+    exactly one complete fenced block (or a fence is left unterminated) —
+    ambiguous output stays a retry/fail case, never a guess.
+    """
+    blocks: list[str] = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        if re.fullmatch(r"```[A-Za-z0-9_+-]*", lines[index].strip()) is None:
+            index += 1
+            continue
+        body: list[str] = []
+        cursor = index + 1
+        while cursor < len(lines) and lines[cursor].strip() != "```":
+            body.append(lines[cursor])
+            cursor += 1
+        if cursor >= len(lines):
+            return None
+        blocks.append("\n".join(body))
+        index = cursor + 1
+    if len(blocks) != 1:
+        return None
+    return blocks[0]
+
+
 def _parse_opening_extractor_stdout(
     stdout_text: str,
 ) -> dict[str, Any] | None:
     """Tolerantly parse the extractor child's stdout into one JSON object.
 
-    Order: bare JSON object, then a ```json (or ```) fenced JSON object.
-    Returns None (caller retries once, then emits a structured
-    invalid-output receipt) for empty stdout, prose, a fenced non-JSON body,
+    Order: bare JSON object, then a ```json (or ```) fenced JSON object, then
+    exactly one fenced block embedded in surrounding prose. Returns None
+    (caller retries once, then emits a structured invalid-output receipt) for
+    empty stdout, prose, multiple/ambiguous fences, a fenced non-JSON body,
     or any JSON that is not exactly an object. Never infers a value from
     prose and never fabricates a result.
     """
@@ -2352,6 +2405,8 @@ def _parse_opening_extractor_stdout(
     if isinstance(parsed, dict):
         return parsed
     fenced = _strip_markdown_json_fence(text)
+    if fenced is None:
+        fenced = _extract_single_fenced_block(text)
     if fenced is None:
         return None
     try:
@@ -2595,13 +2650,19 @@ def _run_opening_review() -> dict[str, Any]:
             bundle_indices = sorted(set(selected) | set(fact_evidence))
             _splice_retained_bound_pages(task, selected, fact_evidence)
             bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
+            # Identity is carried by the strong fields only: source_id,
+            # file_sha256, path, the exact page set (and bundle_sha256 at the
+            # rebind check below). The source/display title is deliberately
+            # excluded: campaign titles are user-facing and renamable (the web
+            # flow offers a custom title at creation), so title equality would
+            # fail closed on legitimate campaigns without adding any real
+            # tamper evidence beyond what bundle_sha256 already covers.
             if (
                 [row["pdf_index"] for row in bundle["pages"]] != bundle_indices
                 or bundle["source"]["source_id"] != private["source_id"]
                 or bundle["source"]["path"] != task["source"]["path"]
                 or bundle["source"]["file_sha256"]
                 != private["source_file_sha256"]
-                or bundle["source"]["title"] != task["title"]
             ):
                 _fail("opening source bundle identity drift")
             _validate_reused_bound_pages(bundle, task)

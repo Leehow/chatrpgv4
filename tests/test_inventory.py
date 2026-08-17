@@ -135,6 +135,59 @@ def test_validate_entry_rejects_bad_shapes():
     )
 
 
+def test_validate_entry_consumable_and_quantity():
+    assert coc_inventory.validate_entry(
+        {"item_id": "x", "kind": "gear", "label": "X", "consumable": True, "quantity": 2}
+    ) == []
+    assert coc_inventory.validate_entry(
+        {"item_id": "x", "kind": "gear", "label": "X", "quantity": 0}
+    )
+    assert coc_inventory.validate_entry(
+        {"item_id": "x", "kind": "gear", "label": "X", "quantity": True}
+    )
+    assert coc_inventory.validate_entry(
+        {"item_id": "x", "kind": "gear", "label": "X", "consumable": "yes"}
+    )
+    assert coc_inventory.validate_entry(
+        {
+            "item_id": "x", "kind": "weapon", "label": "X",
+            "weapon": {"weapon_id": "w"}, "quantity": 2,
+        }
+    )
+
+
+def test_use_entry_decrements_consumes_and_rejects():
+    inventory = coc_inventory.empty_inventory()
+    coc_inventory.grant_entry(
+        inventory,
+        {"item_id": "bandage", "kind": "gear", "label": "Bandage",
+         "consumable": True, "quantity": 3},
+    )
+    inventory, outcome, remaining = coc_inventory.use_entry(inventory, "bandage", 1)
+    assert (outcome, remaining) == ("decremented", 2)
+    assert inventory["entries"][0]["quantity"] == 2
+    # Over-using consumes whatever is left and the entry is gone.
+    inventory, outcome, remaining = coc_inventory.use_entry(inventory, "bandage", 5)
+    assert (outcome, remaining) == ("consumed", 0)
+    assert inventory["entries"] == []
+    _, outcome, remaining = coc_inventory.use_entry(inventory, "bandage")
+    assert (outcome, remaining) == ("not_found", None)
+    # A plain gear entry is not consumable; default quantity is 1.
+    coc_inventory.grant_entry(
+        inventory, {"item_id": "rope", "kind": "gear", "label": "Rope"}
+    )
+    _, outcome, _ = coc_inventory.use_entry(inventory, "rope")
+    assert outcome == "not_consumable"
+    coc_inventory.grant_entry(
+        inventory,
+        {"item_id": "torch", "kind": "gear", "label": "Torch", "consumable": True},
+    )
+    inventory, outcome, remaining = coc_inventory.use_entry(inventory, "torch")
+    assert (outcome, remaining) == ("consumed", 0)
+    with pytest.raises(ValueError):
+        coc_inventory.use_entry(inventory, "rope", 0)
+
+
 def test_normalize_inventory_drops_malformed_rows():
     state = {
         "inventory": {
@@ -745,3 +798,105 @@ def test_item_grant_validates_arguments(campaign_ws):
         "weapon_id": "revolver_45", "decision_id": "gear-with-weapon",
     })
     assert gear_with_weapon["ok"] is False
+
+
+def test_item_grant_consumable_validation(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    weapon_consumable = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv, "kind": "weapon", "weapon_id": "revolver_45",
+        "label": ".45", "consumable": True, "decision_id": "bad-weapon-consumable",
+    })
+    assert weapon_consumable["ok"] is False
+
+    bad_quantity = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv, "kind": "gear", "label": "X", "quantity": 0,
+        "decision_id": "bad-quantity",
+    })
+    assert bad_quantity["ok"] is False
+
+    npc_consumable = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "walter-corbitt", "kind": "gear", "label": "X",
+        "consumable": True, "decision_id": "bad-npc-consumable",
+    })
+    assert npc_consumable["ok"] is False
+
+
+def test_item_use_tool_roundtrip(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv, "kind": "gear", "item_id": "bandages",
+        "label": "Bandages", "consumable": True, "quantity": 3,
+        "note": "from the first-aid kit",
+        "decision_id": "grant-bandages",
+    })
+    assert granted["ok"] is True, granted
+    assert granted["data"]["consumable"] is True
+    assert granted["data"]["quantity"] == 3
+
+    used = _run(campaign_ws, "state.item_use", {
+        "investigator": inv, "item_id": "bandages", "decision_id": "use-1",
+    })
+    assert used["ok"] is True, used
+    assert used["data"]["outcome"] == "decremented"
+    assert used["data"]["remaining"] == 2
+    assert used["data"]["present_after"] is True
+
+    replayed = _run(campaign_ws, "state.item_use", {
+        "investigator": inv, "item_id": "bandages", "decision_id": "use-1",
+    })
+    assert replayed["ok"] is True
+    assert replayed["data"] == used["data"]
+    assert "duplicate decision_id" in replayed["warnings"][0]
+
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    bandages = [r for r in listed["data"]["items"] if r["item_id"] == "bandages"]
+    assert bandages[0]["quantity"] == 2
+    assert bandages[0]["consumable"] is True
+
+    finished = _run(campaign_ws, "state.item_use", {
+        "investigator": inv, "item_id": "bandages", "count": 2,
+        "decision_id": "use-2",
+    })
+    assert finished["ok"] is True
+    assert finished["data"]["outcome"] == "consumed"
+    assert finished["data"]["present_after"] is False
+    assert finished["hints"]
+
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert all(r["item_id"] != "bandages" for r in listed["data"]["items"])
+
+    missing = _run(campaign_ws, "state.item_use", {
+        "investigator": inv, "item_id": "bandages", "decision_id": "use-3",
+    })
+    assert missing["ok"] is True
+    assert missing["data"]["changed"] is False
+    assert missing["warnings"]
+
+
+def test_item_use_rejects_non_consumables(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    _run(campaign_ws, "state.item_grant", {
+        "investigator": inv, "kind": "gear", "item_id": "lantern",
+        "label": "Storm lantern", "decision_id": "grant-lantern-nc",
+    })
+    not_consumable = _run(campaign_ws, "state.item_use", {
+        "investigator": inv, "item_id": "lantern", "decision_id": "use-lantern",
+    })
+    assert not_consumable["ok"] is False
+    assert not_consumable["error"]["code"] == "invalid_param"
+
+    # Character-sheet equipment has no consumable tracking either.
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    sheet_gear = next(r for r in listed["data"]["items"] if r["label"] == "flashlight")
+    sheet_use = _run(campaign_ws, "state.item_use", {
+        "investigator": inv, "item_id": sheet_gear["item_id"],
+        "decision_id": "use-sheet-gear",
+    })
+    assert sheet_use["ok"] is False
+    assert sheet_use["error"]["code"] == "invalid_param"
+
+    bad_count = _run(campaign_ws, "state.item_use", {
+        "investigator": inv, "item_id": "lantern", "count": 0,
+        "decision_id": "use-zero",
+    })
+    assert bad_count["ok"] is False

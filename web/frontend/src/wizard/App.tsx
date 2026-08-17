@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  duplicatedFeaturedIds,
+  isFeaturedRowShown,
+  toggleFeaturedRow,
+} from "../lib/provider-visibility";
 import OAuthLogin, { type OAuthProvider } from "./OAuthLogin";
 
 type PresetModel = { id: string; name?: string; input?: string[] };
@@ -18,6 +23,7 @@ type ProviderInfo = {
   models: { id: string; name: string }[];
 };
 type CustomProvider = { id: string; label: string; baseUrl: string; note?: string };
+type CatalogProvider = OAuthProvider & { baseUrl?: string };
 type State = {
   unavailable?: boolean;
   mode: "onboard" | "settings";
@@ -26,9 +32,11 @@ type State = {
   configured: boolean;
   presets: Preset[];
   oauthProviders?: OAuthProvider[];
+  catalogProviders?: CatalogProvider[];
   capabilities: { pdf: boolean; ocr: { enabled: boolean; reason: string } };
   logsDir: string;
   hiddenProviderIds?: string[];
+  extraProviderIds?: string[];
   customProviders?: CustomProvider[];
 };
 
@@ -44,9 +52,19 @@ declare global {
       saveProviderList: (payload: {
         hidden: string[];
         custom: CustomProvider[];
+        extra: string[];
       }) => Promise<{ ok: boolean; errors?: string[] }>;
       openItem: (target: string) => Promise<{ ok: boolean }>;
       openUrl: (url: string) => Promise<{ ok: boolean }>;
+      pickPdfImport: () => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        path?: string;
+        filename?: string;
+        staged?: boolean;
+        delivered?: boolean;
+        error?: string;
+      }>;
       loginProvider: (providerId: string, method: string) => Promise<unknown>;
       respondPrompt: (promptId: number, value: string, cancel?: boolean) => () => void;
       cancelLogin: () => Promise<{ ok: boolean }>;
@@ -293,12 +311,24 @@ function ProviderForm({
  * show which entries already carry credentials. Every change applies
  * immediately (saved + pushed to the main window on the spot); Esc/backdrop
  * merely closes, so nothing can be silently lost. */
+function catalogRowShown(
+  id: string,
+  hidden: Set<string>,
+  extra: Set<string>,
+  installed: Set<string>,
+) {
+  if (hidden.has(id)) return false;
+  return extra.has(id) || installed.has(id);
+}
+
 function ProviderListEditor({
   oauthProviders,
   presets,
   custom,
   installed,
+  catalogProviders,
   hiddenIds,
+  extraIds,
   authById,
   onClose,
   onChanged,
@@ -307,12 +337,16 @@ function ProviderListEditor({
   presets: Preset[];
   custom: CustomProvider[];
   installed: ProviderInfo[];
+  catalogProviders: CatalogProvider[];
   hiddenIds: string[];
+  extraIds: string[];
   authById: Map<string, boolean>;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [hidden, setHidden] = useState(() => new Set(hiddenIds));
+  const [extra, setExtra] = useState(() => new Set(extraIds));
+  const [showMore, setShowMore] = useState(false);
   const [customList, setCustomList] = useState<CustomProvider[]>(custom);
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -327,19 +361,29 @@ function ProviderListEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const builtinIds = new Set([
+  const featuredIds = new Set([
     ...oauthProviders.map((p) => p.id),
     ...presets.map((p) => p.id).filter(Boolean),
   ]);
+  const duplicated = duplicatedFeaturedIds(
+    oauthProviders.map((p) => p.id),
+    presets.map((p) => p.id).filter(Boolean),
+  );
+  const builtinIds = new Set([
+    ...featuredIds,
+    ...catalogProviders.map((p) => p.id),
+  ]);
+  const installedIds = new Set(installed.map((p) => p.id));
   const slug = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
   const apply = useCallback(
-    async (nextHidden: Set<string>, nextCustom: CustomProvider[]) => {
+    async (nextHidden: Set<string>, nextCustom: CustomProvider[], nextExtra: Set<string>) => {
       setApplying(true);
       const result = await window.cocWizard.saveProviderList({
         hidden: [...nextHidden],
         custom: nextCustom,
+        extra: [...nextExtra],
       });
       setApplying(false);
       if (result.ok) onChanged();
@@ -348,12 +392,32 @@ function ProviderListEditor({
     [onChanged],
   );
 
-  const toggle = (id: string) => {
-    const next = new Set(hidden);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+  const toggle = (id: string, kind?: string) => {
+    let next: Set<string>;
+    if (kind === "oauth" || kind === "api_key") {
+      next = toggleFeaturedRow(kind, id, hidden, duplicated);
+    } else {
+      next = new Set(hidden);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+    }
     setHidden(next);
-    void apply(next, customList);
+    void apply(next, customList, extra);
+  };
+
+  const toggleCatalog = (id: string) => {
+    const nextHidden = new Set(hidden);
+    const nextExtra = new Set(extra);
+    if (catalogRowShown(id, nextHidden, nextExtra, installedIds)) {
+      nextExtra.delete(id);
+      nextHidden.add(id);
+    } else {
+      nextHidden.delete(id);
+      nextExtra.add(id);
+    }
+    setHidden(nextHidden);
+    setExtra(nextExtra);
+    void apply(nextHidden, customList, nextExtra);
   };
 
   const addCustom = () => {
@@ -381,13 +445,13 @@ function ProviderListEditor({
     setCustomList(next);
     setLabel("");
     setBaseUrl("");
-    void apply(hidden, next);
+    void apply(hidden, next, extra);
   };
 
   const removeCustom = (id: string) => {
     const next = customList.filter((c) => c.id !== id);
     setCustomList(next);
-    void apply(hidden, next);
+    void apply(hidden, next, extra);
   };
 
   const row = (
@@ -395,16 +459,26 @@ function ProviderListEditor({
       id: string;
       label: string;
       note: string;
-      kind: "oauth" | "api_key" | "custom" | "installed";
+      kind: "oauth" | "api_key" | "custom" | "installed" | "ambient";
+      fromCatalog?: boolean;
     },
     canDelete: boolean,
+    onToggle?: (id: string) => void,
   ) => {
-    const shown = !hidden.has(entry.id);
+    const shown = entry.fromCatalog
+      ? catalogRowShown(entry.id, hidden, extra, installedIds)
+      : entry.kind === "oauth" || entry.kind === "api_key"
+        ? isFeaturedRowShown(entry.kind, entry.id, hidden, duplicated)
+        : !hidden.has(entry.id);
     const authed = authById.get(entry.id) === true;
     return (
       <li key={`${entry.kind}-${entry.id}`} className={`provider-row${shown ? "" : " off"}`}>
         <label className="provider-check">
-          <input type="checkbox" checked={shown} onChange={() => toggle(entry.id)} />
+          <input
+            type="checkbox"
+            checked={shown}
+            onChange={() => (onToggle ? onToggle(entry.id) : toggle(entry.id, entry.kind))}
+          />
           <span>{entry.label}</span>
         </label>
         <span className="provider-note" title={entry.note}>
@@ -417,7 +491,13 @@ function ProviderListEditor({
           </button>
         ) : (
           <span className="pill">
-            {entry.kind === "oauth" ? "订阅登录" : entry.kind === "installed" ? "已安装" : "API Key"}
+            {entry.kind === "oauth"
+              ? "订阅登录"
+              : entry.kind === "installed"
+                ? "已安装"
+                : entry.kind === "ambient"
+                  ? "环境凭据"
+                  : "API Key"}
           </span>
         )}
       </li>
@@ -432,7 +512,14 @@ function ProviderListEditor({
       }}
     >
       <div className="modal-card" role="dialog" aria-modal="true" aria-label="编辑模型">
-        <h2>编辑模型</h2>
+        <div className="modal-head">
+          <h2>编辑模型</h2>
+          {catalogProviders.length > 0 && (
+            <button type="button" className="ghost more-toggle" onClick={() => setShowMore((v) => !v)}>
+              {showMore ? "收起" : `更多（${catalogProviders.length} 个 Pi 提供方）`}
+            </button>
+          )}
+        </div>
         <p className="hint">
           勾选的提供方显示在下方两个列表与顶栏模型菜单中，更改即时生效；「已配置」表示本机已有可用凭据。
         </p>
@@ -461,6 +548,30 @@ function ProviderListEditor({
             ),
           )}
         </ul>
+        {showMore && (
+          <>
+            <p className="hint">勾选后出现在下方登录 / API Key 列表，登录仍走 Pi 的 ModelRuntime。</p>
+            <ul className="provider-rows">
+              {catalogProviders.map((p) =>
+                row(
+                  {
+                    id: p.id,
+                    label: p.label,
+                    note: p.note,
+                    fromCatalog: true,
+                    kind: p.methods.includes("oauth")
+                      ? "oauth"
+                      : p.methods.includes("api_key")
+                        ? "api_key"
+                        : "ambient",
+                  },
+                  false,
+                  toggleCatalog,
+                ),
+              )}
+            </ul>
+          </>
+        )}
         <div className="custom-add">
           <input
             value={label}
@@ -499,17 +610,77 @@ export default function App() {
   const [preset, setPreset] = useState<Preset | null>(null);
   const [oauth, setOauth] = useState<OAuthProvider | null>(null);
   const [editing, setEditing] = useState(OPEN_EDITOR_ON_LOAD);
+  /** Filename of the PDF picked via the native「导入 PDF 模组」entry. */
+  const [pdfPick, setPdfPick] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const next = await window.cocWizard.getState();
     setState(next);
   }, []);
 
+  // The shell stages/delivers the picked path to the main window, whose
+  // standard ingest chain (router -> coc_pdf_bundle.py) does the real parse
+  // once the bridge is up; the wizard only records the choice.
+  const pickPdf = useCallback(async () => {
+    const result = await window.cocWizard.pickPdfImport();
+    if (!result?.ok || result.canceled || !result.filename) return;
+    setPdfPick(result.filename);
+    if (state?.mode === "settings") {
+      // The main window sits right behind this sheet and has already
+      // received the import event; close so the player lands on the flow.
+      window.close();
+    }
+  }, [state?.mode]);
+
+  const pdfImportBlock = (
+    <div className="stack">
+      <h3>PDF 模组（可选）</h3>
+      <p className="hint">
+        有自己的跑团模组 PDF？选择后进入主界面会自动开始解析并引导开局；也可以稍后再在主界面上传。
+      </p>
+      {pdfPick && <p className="hint">已选择《{pdfPick}》，主界面会自动开始解析。</p>}
+      <div className="actions">
+        <button type="button" className="ghost" onClick={() => void pickPdf()}>
+          {pdfPick ? "重新选择 PDF…" : "选择 PDF…"}
+        </button>
+      </div>
+    </div>
+  );
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   const hiddenSet = useMemo(() => new Set(state?.hiddenProviderIds || []), [state]);
+  const duplicated = useMemo(
+    () =>
+      duplicatedFeaturedIds(
+        (state?.oauthProviders || []).map((p) => p.id),
+        (state?.presets || []).map((p) => p.id).filter(Boolean),
+      ),
+    [state],
+  );
+  const extraSet = useMemo(() => new Set(state?.extraProviderIds || []), [state]);
+  const installedIdSet = useMemo(
+    () => new Set((state?.providers || []).map((p) => p.id)),
+    [state],
+  );
+  const shownCatalog = useMemo(
+    () =>
+      (state?.catalogProviders || []).filter((p) =>
+        catalogRowShown(p.id, hiddenSet, extraSet, installedIdSet),
+      ),
+    [state, hiddenSet, extraSet, installedIdSet],
+  );
+  const extraOauth = useMemo(
+    () => shownCatalog.filter((p) => p.methods.includes("oauth")),
+    [shownCatalog],
+  );
+  const extraApiKey = useMemo(
+    () =>
+      shownCatalog.filter((p) => p.methods.includes("api_key") && !p.methods.includes("oauth")),
+    [shownCatalog],
+  );
 
   const authById = useMemo(() => {
     const map = new Map<string, boolean>();
@@ -518,12 +689,13 @@ export default function App() {
   }, [state]);
 
   // Editor rows for providers already installed into models.json (e.g. the
-  // user's relays) that are neither catalog entries nor editor-added customs.
+  // user's relays) that are neither featured, Pi-catalog, nor editor-added.
   const installedProviders = useMemo(() => {
     const catalog = new Set<string>([
       ...(state?.oauthProviders || []).map((p) => p.id),
       ...(state?.presets || []).map((p) => p.id).filter(Boolean),
       ...(state?.customProviders || []).map((c) => c.id),
+      ...(state?.catalogProviders || []).map((p) => p.id),
     ]);
     return (state?.providers || []).filter((p) => !catalog.has(p.id));
   }, [state]);
@@ -637,7 +809,7 @@ export default function App() {
     return (
       <div className={SHEET_CLASS}>
         <header className="sheet-header">
-          <h1>欢迎使用 COC Keeper</h1>
+          <h1>欢迎使用 Pi Keeper</h1>
           <p className="lede">
             开始之前需要一个守秘人（KP）模型。用订阅账户登录，或选择提供方填入 API Key。凭据只保存在本机（
             {state.agentDir}）。
@@ -679,6 +851,7 @@ export default function App() {
               ))}
             </div>
           </div>
+          {pdfImportBlock}
           <div className="actions">
             <button
               className="ghost"
@@ -695,26 +868,28 @@ export default function App() {
   return (
     <div className={SHEET_CLASS}>
       <header className="sheet-header">
-        <h1>设置</h1>
-        <p className="lede">模型与登录。凭据只保存在本机。</p>
+        <div className="sheet-header-row">
+          <div>
+            <h1>设置</h1>
+            <p className="lede">模型与登录。凭据只保存在本机。</p>
+          </div>
+          <button
+            type="button"
+            className="icon-btn"
+            title="编辑模型"
+            aria-label="编辑模型"
+            onClick={() => setEditing(true)}
+          >
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M11.3 1.7a1.1 1.1 0 0 1 1.6 0l1.4 1.4a1.1 1.1 0 0 1 0 1.6l-8.2 8.2-3.8 0.8 0.8-3.8 8.2-8.2z" />
+            </svg>
+            编辑模型
+          </button>
+        </div>
       </header>
       <div className="sheet-body">
         <section>
-          <div className="section-head">
-            <h2>模型提供方</h2>
-            <button
-              type="button"
-              className="icon-btn"
-              title="编辑模型"
-              aria-label="编辑模型"
-              onClick={() => setEditing(true)}
-            >
-              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-                <path d="M11.3 1.7a1.1 1.1 0 0 1 1.6 0l1.4 1.4a1.1 1.1 0 0 1 0 1.6l-8.2 8.2-3.8 0.8 0.8-3.8 8.2-8.2z" />
-              </svg>
-              编辑模型
-            </button>
-          </div>
+          <h2>模型提供方</h2>
           {currentProvider ? (
             <div className="status-card">
               <div className="status-card-top">
@@ -737,18 +912,24 @@ export default function App() {
           ) : (
             <p className="hint">尚未配置任何模型提供方。</p>
           )}
-          {oauthProviders.filter((p) => !hiddenSet.has(p.id)).length > 0 && (
+          {(oauthProviders.filter((p) => isFeaturedRowShown("oauth", p.id, hiddenSet, duplicated)).length > 0 || extraOauth.length > 0) && (
             <div className="stack">
               <h3>订阅账户登录</h3>
               <div className="card-stack">
                 {oauthProviders
-                  .filter((p) => !hiddenSet.has(p.id))
+                  .filter((p) => isFeaturedRowShown("oauth", p.id, hiddenSet, duplicated))
                   .map((p) => (
                     <button key={p.id} className="preset" onClick={() => setOauth(p)}>
                       <strong>{p.label}</strong>
                       <span>{p.note}</span>
                     </button>
                   ))}
+                {extraOauth.map((p) => (
+                  <button key={p.id} className="preset" onClick={() => setOauth(p)}>
+                    <strong>{p.label}</strong>
+                    <span>{p.note}</span>
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -756,14 +937,20 @@ export default function App() {
             <h3>API Key</h3>
             <div className="card-stack">
               {apiKeyPresets
-                .filter((p) => !hiddenSet.has(p.id))
+                .filter((p) => isFeaturedRowShown("api_key", p.id, hiddenSet, duplicated))
                 .map((p) => (
                   <button key={p.id} className="preset" onClick={() => setPreset(p)}>
                     <strong>{p.label}</strong>
                     <span>{p.note}</span>
                   </button>
                 ))}
-              {apiKeyPresets.every((p) => hiddenSet.has(p.id)) && (
+              {extraApiKey.map((p) => (
+                <button key={p.id} className="preset" onClick={() => setOauth(p)}>
+                  <strong>{p.label}</strong>
+                  <span>{p.note}</span>
+                </button>
+              ))}
+              {apiKeyPresets.every((p) => !isFeaturedRowShown("api_key", p.id, hiddenSet, duplicated)) && extraApiKey.length === 0 && (
                 <p className="hint">没有显示中的条目，点右上「编辑模型」调整。</p>
               )}
             </div>
@@ -795,6 +982,11 @@ export default function App() {
             </button>
           </p>
         </section>
+
+        <section>
+          <h2>PDF 模组</h2>
+          {pdfImportBlock}
+        </section>
       </div>
       {editing && (
         <ProviderListEditor
@@ -802,7 +994,9 @@ export default function App() {
           presets={state.presets}
           custom={state.customProviders || []}
           installed={installedProviders}
+          catalogProviders={state.catalogProviders || []}
           hiddenIds={state.hiddenProviderIds || []}
+          extraIds={state.extraProviderIds || []}
           authById={authById}
           onClose={() => setEditing(false)}
           onChanged={() => void refresh()}

@@ -45,25 +45,51 @@ export const PROVIDER_PRESETS = [
     label: "xAI Grok",
     api: "openai-completions",
     baseUrl: "https://api.x.ai/v1",
-    // Grok 4.5 deliberately absent: pi's catalog routes it through
-    // openai-responses, and this preset can only bless one api per provider,
-    // so blessing it under openai-completions would diverge from pi's tested
-    // path. Users can still add it manually.
+    // contextWindow/maxTokens must be explicit: pi's provider-composer
+    // defaults a missing contextWindow to 128000 (and maxTokens to 16384),
+    // which silently shrinks these models and forces early auto-compaction.
+    // This preset is API-key only (api.x.ai): API Grok models get the 1M
+    // window (500k applies to subscription access, which this preset is not).
     models: [
       {
         id: "grok-4.6",
         name: "Grok 4.6",
         input: ["text", "image"],
         reasoning: true,
+        contextWindow: 1000000,
+        maxTokens: 500000,
       },
       {
         id: "grok-4.3",
         name: "Grok 4.3",
         input: ["text", "image"],
         reasoning: true,
+        contextWindow: 1000000,
+        maxTokens: 30000,
+      },
+      {
+        // Model-level api override: pi's built-in xai catalog ships grok-4.5
+        // on the openai-responses channel of the SAME "xai" provider, so it
+        // inherits the provider credential (OAuth token plan or API key) —
+        // no second login. Fields mirror pi's providers/data/xai.json
+        // verbatim because modelFromJson builds models.json entries
+        // wholesale (only api/baseUrl fall back to catalog defaults).
+        // This is also the only xAI path whose thinkingLevelMap is honored:
+        // on openai-completions xAI accepts no reasoning_effort for grok-4.x
+        // (compat.supportsReasoningEffort: false), so the thinking selector
+        // is inert for grok-4.3/4.6.
+        id: "grok-4.5",
+        name: "Grok 4.5（思考可调）",
+        api: "openai-responses",
+        input: ["text", "image"],
+        reasoning: true,
+        contextWindow: 500000,
+        maxTokens: 500000,
+        thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null },
+        compat: { supportsLongCacheRetention: false },
       },
     ],
-    note: "需要 xAI API Key（console.x.ai）。Grok 4.6 支持图像输入。",
+    note: "需要 xAI API Key（console.x.ai）或订阅登录。Grok 4.6 支持图像输入；Grok 4.5 的思考档位（low/medium/high）真实可调。",
   },
   {
     id: "zhipu",
@@ -142,78 +168,117 @@ const REMOTE_MODELS_LIMIT = 200;
  * imports — directly testable via fetchImpl injection. The API key is only
  * used for the request and never echoed back in errors.
  */
+const NON_CHAT_MODEL_RE = /embedding|image|audio|video|translation|moderation/i;
+
+function isChatModelId(id) {
+  return Boolean(id) && !NON_CHAT_MODEL_RE.test(id);
+}
+
+function modelListUrls(baseUrl) {
+  const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const urls = [`${base}/models`];
+  if (!/\/v1$/i.test(base)) urls.push(`${base}/v1/models`);
+  return urls;
+}
+
 export async function fetchRemoteModels({
   baseUrl,
   apiKey,
-  timeoutMs = 15000,
+  timeoutMs = 10000,
   fetchImpl,
 } = {}) {
   const doFetch = fetchImpl || globalThis.fetch?.bind(globalThis);
-  const base = String(baseUrl || "").trim().replace(/\/+$/, "");
   const key = String(apiKey || "").trim();
-  if (!/^https?:\/\//.test(base)) return { ok: false, error: "Base URL 必须以 http(s):// 开头" };
+  const urls = modelListUrls(baseUrl);
+  if (!urls.length || !/^https?:\/\//.test(String(baseUrl || "").trim())) {
+    return { ok: false, error: "Base URL 必须以 http(s):// 开头" };
+  }
   if (!key) return { ok: false, error: "API Key 不能为空" };
   if (typeof doFetch !== "function") return { ok: false, error: "当前环境不支持网络请求" };
 
-  let res;
-  try {
-    res = await doFetch(`${base}/models`, {
-      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    const reason = err?.name === "TimeoutError" ? "请求超时" : "无法连接到服务";
-    return { ok: false, error: `${reason}：${base}/models` };
-  }
-
-  if (!res.ok) {
-    const hint =
-      res.status === 401 || res.status === 403
-        ? "，请检查 API Key 是否正确"
-        : res.status === 404
-          ? "，该端点可能不提供模型列表"
-          : "";
-    return { ok: false, error: `获取模型列表失败：HTTP ${res.status}${hint}` };
-  }
-
-  let body;
-  try {
-    body = await res.json();
-  } catch {
-    return { ok: false, error: "服务返回了无法解析的响应（非 JSON）" };
-  }
-  const raw = Array.isArray(body?.data) ? body.data : Array.isArray(body?.models) ? body.models : [];
-  const seen = new Set();
-  const models = [];
-  for (const entry of raw) {
-    const id = (typeof entry === "string" ? entry : String(entry?.id || "")).trim();
-    if (id && !seen.has(id)) {
+  let lastError = "获取模型列表失败";
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i];
+    let res;
+    try {
+      res = await doFetch(url, {
+        headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      const reason = err?.name === "TimeoutError" ? "请求超时" : "无法连接到服务";
+      lastError = `${reason}：${url}`;
+      if (i + 1 < urls.length) continue;
+      return { ok: false, error: lastError };
+    }
+    if (!res.ok) {
+      const hint =
+        res.status === 401 || res.status === 403
+          ? "，请检查 API Key 是否正确"
+          : res.status === 404
+            ? "，该端点可能不提供模型列表"
+            : "";
+      lastError = `获取模型列表失败：HTTP ${res.status}${hint}`;
+      if (res.status === 404 && i + 1 < urls.length) continue;
+      return { ok: false, error: lastError };
+    }
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      lastError = "服务返回了无法解析的响应（非 JSON）";
+      if (i + 1 < urls.length) continue;
+      return { ok: false, error: lastError };
+    }
+    const raw = Array.isArray(body?.data) ? body.data : Array.isArray(body?.models) ? body.models : [];
+    const seen = new Set();
+    const models = [];
+    for (const entry of raw) {
+      const id = (typeof entry === "string" ? entry : String(entry?.id || "")).trim();
+      if (!id || seen.has(id) || !isChatModelId(id)) continue;
       seen.add(id);
       models.push(id);
+      if (models.length >= REMOTE_MODELS_LIMIT) break;
     }
-    if (models.length >= REMOTE_MODELS_LIMIT) break;
+    if (!models.length) {
+      lastError = "服务未返回任何模型";
+      if (i + 1 < urls.length) continue;
+      return { ok: false, error: lastError };
+    }
+    return { ok: true, models };
   }
-  if (!models.length) return { ok: false, error: "服务未返回任何模型" };
-  return { ok: true, models };
+  return { ok: false, error: lastError };
 }
 
 /**
  * Merge one provider into <agentDir>/models.json + auth.json.
  * Existing providers and keys are preserved (upsert, not replace).
  */
-export function upsertProvider(agentDir, input) {
+export async function upsertProvider(agentDir, input, { fetchImpl } = {}) {
   const errors = [];
   const id = String(input.id || "").trim();
   const apiKey = String(input.apiKey || "");
   const baseUrl = String(input.baseUrl || "").trim().replace(/\/+$/, "");
   const api = String(input.api || "openai-completions").trim();
   const label = String(input.label || input.name || id).trim();
-  const models = parseModelList(input.models);
+  let models = parseModelList(input.models);
 
   if (!PROVIDER_ID_RE.test(id)) errors.push("提供方 ID 只能是小写字母、数字与连字符");
   if (!apiKey) errors.push("API Key 不能为空");
   if (!/^https?:\/\//.test(baseUrl)) errors.push("Base URL 必须以 http(s):// 开头");
-  if (!models.length) errors.push("至少需要一个模型 ID");
+  if (!models.length && !errors.length) {
+    const fetched = await fetchRemoteModels({
+      baseUrl,
+      apiKey,
+      timeoutMs: 10000,
+      fetchImpl,
+    });
+    if (fetched.ok && fetched.models?.length) {
+      models = parseModelList(fetched.models.slice(0, 24));
+    } else {
+      errors.push("至少需要一个模型 ID");
+    }
+  }
   if (models.length > 24) errors.push("模型列表过长（最多 24 个）");
   if (errors.length) return { ok: false, errors };
 
@@ -229,6 +294,10 @@ export function upsertProvider(agentDir, input) {
     baseUrl,
     models: models.map((m) => {
       const out = { id: m.id, name: String(m.name || m.id) };
+      // Model-level api override (e.g. grok-4.5 rides the xai provider on
+      // openai-responses while the provider default stays openai-completions);
+      // modelFromJson honors definition.api over the provider default.
+      if (typeof m.api === "string" && m.api.trim()) out.api = m.api.trim();
       if (Array.isArray(m.input) && m.input.length) out.input = m.input;
       // Thinking metadata must survive the write: pi composes models.json
       // entries over its built-in catalog per model id, so dropping these
@@ -237,6 +306,15 @@ export function upsertProvider(agentDir, input) {
       if (m.compat && typeof m.compat === "object") out.compat = m.compat;
       if (m.thinkingLevelMap && typeof m.thinkingLevelMap === "object") {
         out.thinkingLevelMap = m.thinkingLevelMap;
+      }
+      // Window metadata must survive too: pi's provider-composer defaults a
+      // missing contextWindow to 128000 (and maxTokens to 16384), which
+      // silently shrinks large-window models and forces early compaction.
+      if (Number.isFinite(m.contextWindow) && m.contextWindow > 0) {
+        out.contextWindow = m.contextWindow;
+      }
+      if (Number.isFinite(m.maxTokens) && m.maxTokens > 0) {
+        out.maxTokens = m.maxTokens;
       }
       return out;
     }),

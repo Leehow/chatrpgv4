@@ -98,3 +98,24 @@ def test_fluent_language_skill_can_show_full_translation():
     assert rendered["skill_value"] == 55
     assert "Nicht dort. Der Schrecken ist unten." in rendered["visible_text"]
     assert "不要去那里。恐怖在下面。" in rendered["visible_text"]
+
+
+def test_player_facing_names_prefer_long_forms_and_ascii_boundaries():
+    terms = coc_language.resolved_localized_terms("zh-Hans")
+    assert terms["Steven Knott"] == "史蒂文·诺特"
+    assert terms["Knott"] == "诺特"
+    assert terms["Macario"] == "马卡里奥"
+    assert coc_language.player_facing_display_name(
+        "Steven Knott", "zh-Hans"
+    ) == "史蒂文·诺特"
+    prose = "Knott nodded. Macario waited. Knotting stayed English. roll-id-Knott-1."
+    localized = coc_language.localize_terms(prose, terms)
+    assert "诺特 nodded" in localized
+    assert "马卡里奥 waited" in localized
+    assert "Knotting stayed English" in localized
+    assert "roll-id-Knott-1" in localized
+    overridden = coc_language.resolved_localized_terms(
+        "zh-Hans",
+        {"localized_terms": {"zh-Hans": {"Steven Knott": "测试史蒂文"}}},
+    )
+    assert overridden["Steven Knott"] == "测试史蒂文"

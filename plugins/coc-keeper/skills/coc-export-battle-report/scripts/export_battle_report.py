@@ -849,17 +849,23 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
 
     party = _read_source(run_dir, f"{campaign_relative}/party.json", "json", manifest) if campaign_relative else None
     investigator_ids = _party_ids(party)
-    roots = [run_dir / "sandbox" / ".coc" / "investigators", run_dir / ".coc" / "investigators"]
-    if campaign_relative:
-        roots.insert(0, run_dir / campaign_relative / "save" / "investigator-state")
-        roots.insert(1, run_dir / campaign_relative / "investigators")
-    for root in roots:
-        if not root.is_dir() or root.is_symlink():
-            continue
-        for path in sorted(root.iterdir()):
-            candidate = path.stem if path.is_file() and path.suffix == ".json" else path.name
-            if (path.is_file() or path.is_dir()) and not path.is_symlink() and candidate not in investigator_ids:
-                investigator_ids.append(candidate)
+    # When the campaign's party roster exists it is the complete membership:
+    # never widen it by scanning shared investigator pools (repo-root runs keep
+    # every campaign's investigators under .coc/investigators/, and pulling
+    # them in fabricates "missing final state" failures for strangers).
+    # Root scanning remains the fallback for legacy runs without party.json.
+    if not investigator_ids:
+        roots = [run_dir / "sandbox" / ".coc" / "investigators", run_dir / ".coc" / "investigators"]
+        if campaign_relative:
+            roots.insert(0, run_dir / campaign_relative / "save" / "investigator-state")
+            roots.insert(1, run_dir / campaign_relative / "investigators")
+        for root in roots:
+            if not root.is_dir() or root.is_symlink():
+                continue
+            for path in sorted(root.iterdir()):
+                candidate = path.stem if path.is_file() and path.suffix == ".json" else path.name
+                if (path.is_file() or path.is_dir()) and not path.is_symlink() and candidate not in investigator_ids:
+                    investigator_ids.append(candidate)
 
     investigators: list[dict[str, Any]] = []
     creation_receipt_records: list[Any] = []

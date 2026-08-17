@@ -56,6 +56,8 @@ let welcomeAfterLoading = false;
 let resumeLoadingFirst = false;
 let rpcBareNoAutoOpen = false;
 let rpcAttachedAutoOpen = false;
+let rpcAttachedSetupReopenAutoOpen = false;
+let rpcAttachedSetupKeepsExistingQuestion = false;
 const rpcSent = [];
 try {
   const startWelcome = mod.registerCocWelcome(
@@ -162,6 +164,58 @@ try {
     entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
     && entry.options?.triggerTurn === true
   ));
+
+  rpcSent.length = 0;
+  const previousIntent = process.env.COC_PI_TABLE_INTENT;
+  process.env.COC_PI_ATTACHED_UI = "1";
+  process.env.COC_PI_TABLE_INTENT = "character-setup";
+  try {
+    await startRpcWelcome(
+      { reason: "startup" },
+      {
+        ...rpcCtx,
+        sessionManager: {
+          getEntries: () => [{
+            type: "message",
+            message: { role: "user", content: "hidden table-open tools" },
+          }],
+        },
+      },
+      "startup-campaign",
+    );
+    rpcAttachedSetupReopenAutoOpen = rpcSent.some((entry) => (
+      entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
+      && entry.options?.triggerTurn === true
+      && String(entry.message.content).includes("setup.investigator_contract")
+    ));
+
+    rpcSent.length = 0;
+    await startRpcWelcome(
+      { reason: "startup" },
+      {
+        ...rpcCtx,
+        sessionManager: {
+          getEntries: () => [{
+            type: "message",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "先告诉我调查员的名字？" }],
+            },
+          }],
+        },
+      },
+      "startup-campaign",
+    );
+    rpcAttachedSetupKeepsExistingQuestion = !rpcSent.some((entry) => (
+      entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
+      && entry.options?.triggerTurn === true
+    ));
+  } finally {
+    if (previousAttached === undefined) delete process.env.COC_PI_ATTACHED_UI;
+    else process.env.COC_PI_ATTACHED_UI = previousAttached;
+    if (previousIntent === undefined) delete process.env.COC_PI_TABLE_INTENT;
+    else process.env.COC_PI_TABLE_INTENT = previousIntent;
+  }
 } finally {
   rmSync(lifecycleAgentDir, { recursive: true, force: true });
 }
@@ -232,9 +286,34 @@ process.stdout.write(JSON.stringify({
   resumedHiddenResumeInstruction,
   autoOpenFreshStartup: mod.shouldAutoOpenTable("startup", true) === true,
   noAutoOpenResumeHistory: mod.shouldAutoOpenTable("startup", false) === false,
+  autoOpenSetupAfterToolHistory: mod.shouldAutoOpenTable("startup", false, {
+    intent: "character-setup",
+    hasVisibleAssistant: false,
+  }) === true,
+  noAutoOpenSetupAfterQuestion: mod.shouldAutoOpenTable("startup", false, {
+    intent: "character-setup",
+    hasVisibleAssistant: true,
+  }) === false,
+  noAutoOpenContinueAfterToolHistory: mod.shouldAutoOpenTable("startup", false, {
+    intent: "continue",
+    hasVisibleAssistant: false,
+  }) === false,
+  visibleAssistantFromText: mod.sessionHasVisibleAssistant({
+    sessionManager: {
+      getEntries: () => [{
+        type: "message",
+        message: { role: "assistant", content: [{ type: "text", text: "叫什么名字？" }] },
+      }],
+    },
+  }) === true,
+  noVisibleAssistantFromUserOnly: mod.sessionHasVisibleAssistant({
+    sessionManager: { getEntries: () => [{ type: "message", message: { role: "user", content: "x" } }] },
+  }) === false,
   attachedUiHelper: mod.attachedUiEnabled({ COC_PI_ATTACHED_UI: "1" }) === true,
   attachedUiOff: mod.attachedUiEnabled({}) === false,
   rpcBareNoAutoOpen,
   rpcAttachedAutoOpen,
+  rpcAttachedSetupReopenAutoOpen,
+  rpcAttachedSetupKeepsExistingQuestion,
 }, null, 2));
 process.stdout.write("\n");

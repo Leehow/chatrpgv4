@@ -355,7 +355,13 @@ every turn. Observation, positioning, parley, and other play that does not
 depend on the missing numbers may continue. A source/special item still calls
 `mechanics.ensure` when it first needs rules parameters.
 
-Authored appendix or chapter-end data always wins. If `mechanics.ensure`
+Authored appendix or chapter-end data always wins. Bundled (non-progressive)
+scenarios resolve the same authored truth from their compiled combat-engagement
+affordances plus the reviewed ruleset monster row: `mechanics.ensure` then
+returns `ready` with `authority: "compiled_module"` and combat proceeds on it;
+a fail-closed `mechanics_source_unavailable` means no such data and no
+progressive project exist — surface the gap, never invent stats. If
+`mechanics.ensure`
 returns `source_work_required`, or `combat.resolve` returns
 `mechanics_not_ready`, consume its exact returned `background_takeover`. On Pi
 the package auto-dispatches the private coordinator; the main KP must not

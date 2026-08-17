@@ -75,8 +75,12 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    operation. For a custom table, use `campaign.create`, bind the accepted
    source bundle with `scenario.bind_pdf`, adopt its six opening facts through
    `setup.adopt_source_facts`, then request `setup.investigator_contract` and
-   run the investigator confirmation flow; only after confirmation use
-   `investigator.create` and `campaign.link_investigator`. Custom PDFs must
+   run the investigator confirmation flow in
+   [coc-character](../../rulesets/coc7/skills/coc-character/SKILL.md): after the
+   complete sheet, confirm with the player first (recommended: 哪里想改直接说；确定再开始);
+   before `investigator.create` and `campaign.link_investigator`, settle that
+   confirmation—a correction is not confirmation; revise, then ask again.
+   Prefer immersive in-fiction guided creation for players who do not know the rules. Custom PDFs must
    first be extracted by an
    external host PDF skill into the `trpg-pdf-ingest` source-bundle contract (prefer
    the host's existing PDF tool; if none, recommend the open-source

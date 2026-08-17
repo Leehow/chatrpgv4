@@ -10,9 +10,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { lastVisibleAssistantText } from "./pi-session-text.mjs";
 
 export const UI_AUTO_OPEN_MARKER = "[coc-pi-ui] auto-open";
 export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
+
+/** Prefer the fatal Error line so a leading warning is not the headline. */
+export function summarizeRpcDeath(stderr) {
+  const text = String(stderr || "").trim();
+  if (!text) return "pi-coc RPC died before ready";
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const errorLine = [...lines].reverse().find((line) => /^Error:/.test(line));
+  const snippet = (errorLine || text).slice(0, 800);
+  return `pi-coc RPC died before ready: ${snippet}`;
+}
 
 const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -73,6 +84,14 @@ export function resolvePiCliJs(repoRoot = DEFAULT_REPO_ROOT) {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
+export function sessionOpeningFlags({ spawned, hasInvestigator }) {
+  const characterSetup = !hasInvestigator;
+  return {
+    character_setup: characterSetup,
+    host_opening: Boolean(spawned || characterSetup),
+  };
+}
+
 export function buildPiCocArgs({ campaignId, sessionId }) {
   const args = ["--mode", "rpc", "--session-id", sessionId];
   if (campaignId) args.push("--campaign", String(campaignId));
@@ -99,8 +118,10 @@ export function buildChildEnv({
   if (piBin) {
     env.PATH = piBin + path.delimiter + (env.PATH || "");
   }
+  // Pin the keeper-bundled CLI. pi-coc still prefers PATH `pi` first, so we
+  // also prepend keeper .bin above; COC_PI_CLI wins only when PATH has no pi.
   const cliJs = resolvePiCliJs(repoRoot);
-  if (cliJs && !(env.COC_PI_CLI || "").trim()) {
+  if (cliJs) {
     env.COC_PI_CLI = cliJs;
   }
   return env;
@@ -181,6 +202,28 @@ export function mapRpcEventToSse(event) {
   if (type === "tool_execution_end") {
     return [{ event: "tool", data: { phase: "end", tool: toolLabel(event) } }];
   }
+  if (type === "agent_end") {
+    // pi settles a turn even when the model call failed (stopReason "error");
+    // without this mapping the player sees a silent no-op (E2E finding F3).
+    if (event.willRetry) return [];
+    const messages = Array.isArray(event.messages) ? event.messages : [];
+    const lastAssistant = [...messages]
+      .reverse()
+      .find((message) => message?.role === "assistant");
+    if (!lastAssistant) return [];
+    if (lastAssistant.stopReason === "error" || lastAssistant.stopReason === "aborted") {
+      const detail = String(lastAssistant.errorMessage || "").trim();
+      return [{
+        event: "error",
+        data: {
+          message: detail
+            ? `pi 模型调用失败：${detail.slice(0, 300)}`
+            : `pi 模型调用中止（stopReason=${lastAssistant.stopReason}）`,
+        },
+      }];
+    }
+    return [];
+  }
   return [];
 }
 
@@ -198,6 +241,7 @@ export class PiCocRpcHost {
     workspace,
     campaignId,
     sessionId,
+    agentDir,
     launcherPath,
     tableIntent,
     spawnFn = spawn,
@@ -206,6 +250,7 @@ export class PiCocRpcHost {
     this.workspace = path.resolve(workspace);
     this.campaignId = campaignId;
     this.sessionId = sessionId || webSessionId(campaignId);
+    this.agentDir = agentDir || process.env.PI_AGENT_DIR || "";
     this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
     this.tableIntent = tableIntent || null;
     this.spawnFn = spawnFn;
@@ -214,6 +259,7 @@ export class PiCocRpcHost {
     this.closed = false;
     this.streaming = false;
     this.settleGeneration = 0;
+    this.abortGeneration = 0;
     this.uiIntent = null; // "auto-open" | "idle" | null
     this.lastUsage = null;
     this.#pending = new Map();
@@ -246,6 +292,16 @@ export class PiCocRpcHost {
       if (event?.type === "agent_settled") opened = true;
     }
     return opened;
+  }
+
+  #replaySessionAssistant(onSse) {
+    const text = lastVisibleAssistantText({
+      agentDir: this.agentDir,
+      sessionId: this.sessionId,
+    });
+    if (!text) return false;
+    onSse?.({ event: "delta", data: { text } });
+    return true;
   }
 
   #emit(event) {
@@ -376,10 +432,9 @@ export class PiCocRpcHost {
     let lastErr;
     while (Date.now() < deadline) {
       if (this.closed) {
-        throw new PiCocRpcError(
-          `pi-coc RPC died before ready: ${this.#stderr.trim().slice(0, 800)}`,
-          { kind: "pi_coc_rpc_exited" },
-        );
+        throw new PiCocRpcError(summarizeRpcDeath(this.#stderr), {
+          kind: "pi_coc_rpc_exited",
+        });
       }
       try {
         await this.#request({ type: "get_state" }, 5_000);
@@ -395,8 +450,12 @@ export class PiCocRpcHost {
 
   async waitForUiIntent(timeoutMs = 45_000) {
     const deadline = Date.now() + timeoutMs;
+    const abortAt = this.abortGeneration;
     while (Date.now() < deadline) {
       if (this.uiIntent) return this.uiIntent;
+      if (this.abortGeneration > abortAt) {
+        throw this.#abortedError();
+      }
       if (this.closed) {
         throw new PiCocRpcError("pi-coc RPC exited before UI intent");
       }
@@ -424,26 +483,60 @@ export class PiCocRpcHost {
     });
   }
 
+  #abortedError() {
+    return new PiCocRpcError("pi-coc turn aborted", { kind: "pi_coc_rpc_aborted" });
+  }
+
   #waitSettleAfter(startGen, onSse, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
+    const abortAt = this.abortGeneration;
     return new Promise((resolve, reject) => {
+      // Transparency only (never blocks): a settled turn that produced neither
+      // player-visible text nor an error frame is a silent no-op for the
+      // player (E2E findings F6/F14 — e.g. narration trapped in the model's
+      // thinking channel). Surface a notice so the UI can say so honestly.
+      let sawPlayerText = false;
+      let sawError = false;
+      const notifyIfSilent = () => {
+        if (sawPlayerText || sawError) return;
+        onSse?.({
+          event: "notice",
+          data: {
+            message:
+              "本回合未产出玩家可见文本（模型可能把叙事写进了思考频道或回合未结算）；请重试同一行动。",
+          },
+        });
+      };
       const finish = (err) => {
         off();
         clearInterval(timer);
         if (err) reject(err);
         else resolve();
       };
+      const settle = () => {
+        notifyIfSilent();
+        finish();
+      };
       const off = this.onEvent((event) => {
-        for (const frame of mapRpcEventToSse(event)) onSse?.(frame);
-        if (this.settleGeneration > startGen) finish();
+        for (const frame of mapRpcEventToSse(event)) {
+          if (frame.event === "delta" && String(frame.data?.text || "").trim()) {
+            sawPlayerText = true;
+          } else if (frame.event === "error") {
+            sawError = true;
+          }
+          onSse?.(frame);
+        }
+        if (this.settleGeneration > startGen) settle();
       });
       if (this.settleGeneration > startGen) {
-        finish();
+        settle();
         return;
       }
       const timer = setInterval(() => {
         if (this.settleGeneration > startGen) {
-          finish();
+          settle();
+        } else if (this.abortGeneration > abortAt) {
+          finish(this.#abortedError());
         } else if (this.closed) {
           finish(new PiCocRpcError("pi-coc RPC exited during turn"));
         } else if (Date.now() > deadline) {
@@ -465,16 +558,21 @@ export class PiCocRpcHost {
     const intent = await this.waitForUiIntent(45_000);
     if (intent === "auto-open" || this.streaming) {
       const startGen = this.settleGeneration;
+      const abortAt = this.abortGeneration;
       const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs);
       const startDeadline = Date.now() + 60_000;
       while (!this.streaming && this.settleGeneration === startGen
+        && this.abortGeneration === abortAt
         && Date.now() < startDeadline && !this.closed) {
         await new Promise((r) => setTimeout(r, 100));
       }
-      if (this.streaming || this.settleGeneration > startGen) {
+      if (this.abortGeneration > abortAt || this.streaming || this.settleGeneration > startGen) {
         await settled;
         return { opened: true };
       }
+    }
+    if (this.#replaySessionAssistant(onSse)) {
+      return { opened: true };
     }
     return { opened: replayed };
   }
@@ -491,8 +589,19 @@ export class PiCocRpcHost {
     await settled;
   }
 
+  async abort() {
+    this.abortGeneration += 1;
+    if (!this.child || this.closed) return;
+    try {
+      await this.#write({ type: "abort" });
+    } catch {
+      /* best effort: waiters already unblocked */
+    }
+  }
+
   async close() {
     if (!this.child || this.closed) return;
+    this.abortGeneration += 1;
     try {
       await this.#write({ type: "abort" });
     } catch {

@@ -7,8 +7,9 @@
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+
+import { resolveProductAgentDir } from "./agent-dir.mjs";
 
 // ---------------------------------------------------------------------------
 // Workspace file helpers
@@ -233,7 +234,10 @@ function combatActorLabels(workspace, campaignId, investigatorId, investigatorNa
 
 /** Project the canonical DEX initiative ledger without exposing combat intent,
  * hidden statistics, or private NPC state. CoC 7e initiative is an order, not
- * an extra roll; a ready firearm contributes the rules-owned DEX + 50 value. */
+ * an extra roll; a ready firearm contributes the rules-owned DEX + 50 value.
+ * The combat session file persists after conclusion, so ``status``/``outcome``
+ * are surfaced alongside the round ledger and the UI owns "已脱战" dismissal
+ * (keyed by ``combat_id``); a fresh encounter restarts with a new combat_id. */
 export function combatInitiativeDisplay(
   workspace,
   campaignId,
@@ -278,6 +282,9 @@ export function combatInitiativeDisplay(
   });
   rows.sort((a, b) => a._order - b._order);
   return {
+    combat_id: typeof combat.combat_id === "string" ? combat.combat_id : null,
+    status: combat.status === "concluded" ? "concluded" : "active",
+    outcome: typeof combat.outcome === "string" ? combat.outcome : null,
     round: combat.current_round,
     rule: "dex_order",
     rows: rows.map(({ _order, ...row }) => row),
@@ -381,6 +388,64 @@ function turnTotalMsList(workspace, campaignId) {
 
 const PLAYER_ROLL_VISIBILITIES = new Set(["public", "consequence_public", "player"]);
 
+const DEFAULT_LOCALIZED_TERMS_PATH = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "../../plugins/coc-keeper/scripts/default_localized_terms.json",
+);
+
+let cachedDefaultLocalizedTerms = null;
+
+function defaultLocalizedTerms(playLanguage) {
+  if (!cachedDefaultLocalizedTerms) {
+    try {
+      cachedDefaultLocalizedTerms = JSON.parse(
+        fs.readFileSync(DEFAULT_LOCALIZED_TERMS_PATH, "utf-8"),
+      );
+    } catch {
+      cachedDefaultLocalizedTerms = {};
+    }
+  }
+  const terms = cachedDefaultLocalizedTerms?.[playLanguage];
+  return terms && typeof terms === "object" ? terms : {};
+}
+
+export function resolvedLocalizedTerms(workspace, campaignId, playLanguage = "zh-Hans") {
+  const terms = { ...defaultLocalizedTerms(playLanguage) };
+  const campaign = readJsonFile(path.join(campaignDir(workspace, campaignId), "campaign.json"));
+  const extra = campaign?.localized_terms?.[playLanguage];
+  if (extra && typeof extra === "object") {
+    for (const [key, label] of Object.entries(extra)) {
+      if (typeof key === "string" && key && typeof label === "string" && label.trim()) {
+        terms[key] = label;
+      }
+    }
+  }
+  return terms;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function localizeTerms(value, terms) {
+  let localized = String(value ?? "");
+  const entries = Object.entries(terms || {}).sort((a, b) => b[0].length - a[0].length);
+  for (const [canonical, replacement] of entries) {
+    if (!canonical || typeof replacement !== "string") continue;
+    const ascii = /^[\x00-\x7F]+$/.test(canonical);
+    if (ascii) {
+      const pattern = new RegExp(
+        `(?<![A-Za-z0-9_-])${escapeRegExp(canonical)}(?![A-Za-z0-9_-])`,
+        "g",
+      );
+      localized = localized.replace(pattern, replacement);
+    } else {
+      localized = localized.split(canonical).join(replacement);
+    }
+  }
+  return localized;
+}
+
 function firstRollValue(record, field) {
   const payload = record?.payload;
   if (payload && typeof payload === "object" && field in payload) return payload[field];
@@ -388,7 +453,7 @@ function firstRollValue(record, field) {
 }
 
 /** Closed, player-safe roll projection for the renderer. */
-function publicRollDisplay(record, combatMeta = null) {
+function publicRollDisplay(record, combatMeta = null, terms = null) {
   if (!record || typeof record !== "object") return null;
   const visibility = firstRollValue(record, "visibility");
   if (typeof visibility === "string" && !PLAYER_ROLL_VISIBILITIES.has(visibility)) {
@@ -450,6 +515,9 @@ function publicRollDisplay(record, combatMeta = null) {
     }
   }
   if (combatMeta && typeof combatMeta === "object") Object.assign(value, combatMeta);
+  if (terms && typeof value.npc_display_name === "string") {
+    value.npc_display_name = localizeTerms(value.npc_display_name, terms);
+  }
   return value;
 }
 
@@ -538,13 +606,13 @@ function turnFinalizationIndex(workspace, campaignId) {
   return index;
 }
 
-function publicRollIndex(workspace, campaignId) {
+function publicRollIndex(workspace, campaignId, terms = null) {
   const rows = readJsonlDicts(
     path.join(campaignDir(workspace, campaignId), "logs", "rolls.jsonl"),
   );
   const index = new Map();
   for (const row of rows) {
-    const roll = publicRollDisplay(row);
+    const roll = publicRollDisplay(row, null, terms);
     if (roll?.roll_id) index.set(roll.roll_id, roll);
   }
   return index;
@@ -555,7 +623,7 @@ function publicRollIndex(workspace, campaignId) {
  * typed blocks.  This deliberately consumes the finalizer's structured
  * `segments`; it never guesses at dice by searching Keeper prose.
  */
-function keeperContentBlocks(transcriptRow, finalization, combatMetaByRollId) {
+function keeperContentBlocks(transcriptRow, finalization, combatMetaByRollId, terms = null) {
   if (!finalization || typeof finalization !== "object") return null;
   if (finalization.rendered_text !== transcriptRow.text) return null;
   const segments = finalization.segments;
@@ -583,7 +651,7 @@ function keeperContentBlocks(transcriptRow, finalization, combatMetaByRollId) {
         ? segment.source_ids.filter((id) => typeof id === "string" && id)
         : [];
       const rolls = sourceIds
-        .map((id) => publicRollDisplay(checksById.get(id), combatMetaByRollId.get(id)))
+        .map((id) => publicRollDisplay(checksById.get(id), combatMetaByRollId.get(id), terms))
         .filter(Boolean);
       blocks.push({ type: "roll_group", text: segment.text, source_ids: sourceIds, rolls });
       continue;
@@ -658,8 +726,13 @@ export function tableTranscriptMessages(workspace, campaignId) {
   }
 
   const totals = turnTotalMsList(workspace, campaignId);
+  const campaign = readJsonFile(path.join(campaignDir(workspace, campaignId), "campaign.json")) || {};
+  const playLanguage = typeof campaign.play_language === "string" && campaign.play_language.trim()
+    ? campaign.play_language.trim()
+    : "zh-Hans";
+  const terms = resolvedLocalizedTerms(workspace, campaignId, playLanguage);
   const finalizations = turnFinalizationIndex(workspace, campaignId);
-  const rollsById = publicRollIndex(workspace, campaignId);
+  const rollsById = publicRollIndex(workspace, campaignId, terms);
   const combatMetaByRollId = combatRollMetadataIndex(workspace, campaignId);
   const out = [];
   let turnIndex = 0;
@@ -692,6 +765,7 @@ export function tableTranscriptMessages(workspace, campaignId) {
           keeper,
           finalizations.get(finalizationId),
           combatMetaByRollId,
+          terms,
         );
         if (contentBlocks) entry.content_blocks = contentBlocks;
       } else {
@@ -871,7 +945,7 @@ export function resolveThinkingMeta(providerId, entry) {
 }
 
 export function modelsPayload() {
-  const agentDir = process.env.PI_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
+  const agentDir = resolveProductAgentDir();
   const rawModels = readJsonFile(path.join(agentDir, "models.json"));
   const authRaw = readJsonFile(path.join(agentDir, "auth.json"));
   const authProviders = new Set();

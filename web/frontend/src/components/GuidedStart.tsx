@@ -167,7 +167,7 @@ export function GuidedStart({
           <Sparkles className="size-7" />
         </div>
         <h1 className="font-display mt-6 text-3xl font-semibold text-foreground">
-          欢迎来到 COC Keeper
+          欢迎来到 Pi Keeper
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           一位守秘人（KP）模型将为你主持克苏鲁的呼唤跑团。开始第一场战役之前，先确认

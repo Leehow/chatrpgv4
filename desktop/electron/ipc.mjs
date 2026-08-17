@@ -4,6 +4,21 @@ import { app, ipcMain, shell } from "electron";
 import { upsertProvider, providerSummary, agentDirConfigured, capabilityStatus, PROVIDER_PRESETS, fetchRemoteModels, PROVIDER_ID_RE } from "./agentconfig.mjs";
 import { loadSettings, saveSettings } from "./settings.mjs";
 import { OAUTH_PROVIDERS, loginProvider } from "./auth.mjs";
+import { listPiCatalogProviders, loginProviderMeta, morePiProviders } from "./pi-catalog.mjs";
+import { resolvePayloadModule } from "./payload-module.mjs";
+
+const {
+  duplicatedFeaturedIds,
+  menuHiddenProviderIds,
+  normalizeHiddenProviderIds,
+} = await import(resolvePayloadModule("web/server-node/provider-visibility.mjs"));
+
+function featuredDuplicated() {
+  return duplicatedFeaturedIds(
+    OAUTH_PROVIDERS.map((p) => p.id),
+    PROVIDER_PRESETS.map((p) => p.id).filter(Boolean),
+  );
+}
 
 /**
  * Typed IPC surface for the wizard/settings window. getPaths() is called per
@@ -28,10 +43,17 @@ ipcMain.handle("auth:login", async (event, payload) => {
   if (authSession) return { ok: false, error: "已有一次登录正在进行" };
   const providerId = String(payload?.providerId || "");
   const method = String(payload?.method || "");
-  if (!OAUTH_PROVIDERS.some((p) => p.id === providerId)) {
-    return { ok: false, error: `未知 OAuth 供应商：${providerId}` };
+  let catalog = [];
+  try {
+    catalog = await listPiCatalogProviders({ payloadRoot: paths.payloadRoot });
+  } catch {
+    catalog = [];
   }
-  if (!["oauth", "api_key"].includes(method)) {
+  const meta = loginProviderMeta(providerId, { featuredOauth: OAUTH_PROVIDERS, catalog });
+  if (!meta) {
+    return { ok: false, error: `未知供应商：${providerId}` };
+  }
+  if (!meta.methods.includes(method) || !["oauth", "api_key"].includes(method)) {
     return { ok: false, error: `未知登录方式：${method}` };
   }
 
@@ -115,6 +137,8 @@ ipcMain.handle("auth:cancel", () => {
 let getPathsRef = () => null;
 let openSettingsRef = () => {};
 let restartBridgeRef = null;
+let pickPdfImportRef = null;
+let consumePdfImportRef = null;
 let notifyProviderListRef = null;
 let notifyModelsChangedRef = null;
 
@@ -123,10 +147,23 @@ ipcMain.handle("app:openSettings", (_event, payload) => {
   return { ok: true };
 });
 
+// Native「导入 PDF 模组…」(menu + wizard button): the main process owns the
+// file dialog; delivery to the main window is push (app:importPdf) when the
+// bridge is live, staged + pull (app:consumePdfImport) during first-run.
+ipcMain.handle("app:pickPdfImport", () => {
+  if (!pickPdfImportRef) return { ok: false, error: "应用尚未完成启动" };
+  return pickPdfImportRef();
+});
+
+ipcMain.handle("app:consumePdfImport", () => {
+  if (!consumePdfImportRef) return { path: null };
+  return consumePdfImportRef();
+});
+
 // Hidden-provider list for the main window's model dropdown curation; pushed
 // whenever the 编辑模型 modal saves, so unchecking takes effect immediately.
 ipcMain.handle("app:getHiddenProviders", () => {
-  return { hidden: loadSettings().hiddenProviderIds || [] };
+  return { hidden: menuHiddenProviderIds(loadSettings().hiddenProviderIds || [], featuredDuplicated()) };
 });
 
 // Fatal-modal actions for the main window.
@@ -140,16 +177,31 @@ ipcMain.handle("app:restartBridge", async () => {
   return restartBridgeRef();
 });
 
-export function register({ getPaths, restartBridge, openSettings, notifyProviderList, notifyModelsChanged }) {
+export function register({ getPaths, restartBridge, openSettings, pickPdfImport, consumePdfImport, notifyProviderList, notifyModelsChanged }) {
   getPathsRef = getPaths;
   openSettingsRef = openSettings || openSettingsRef;
   restartBridgeRef = restartBridge || restartBridgeRef;
+  pickPdfImportRef = pickPdfImport || pickPdfImportRef;
+  consumePdfImportRef = consumePdfImport || consumePdfImportRef;
   notifyProviderListRef = notifyProviderList || notifyProviderListRef;
   notifyModelsChangedRef = notifyModelsChanged || notifyModelsChangedRef;
-  ipcMain.handle("wizard:getState", () => {
+  ipcMain.handle("wizard:getState", async () => {
     const paths = getPaths();
     if (!paths) return { unavailable: true };
     const settings = loadSettings();
+    const featuredIds = new Set([
+      ...OAUTH_PROVIDERS.map((p) => p.id),
+      ...PROVIDER_PRESETS.map((p) => p.id).filter(Boolean),
+    ]);
+    let catalogProviders = [];
+    try {
+      catalogProviders = morePiProviders(
+        await listPiCatalogProviders({ payloadRoot: paths.payloadRoot }),
+        featuredIds,
+      );
+    } catch {
+      catalogProviders = [];
+    }
     return {
       mode: settings.onboarded ? "settings" : "onboard",
       agentDir: paths.agentDir,
@@ -157,7 +209,9 @@ export function register({ getPaths, restartBridge, openSettings, notifyProvider
       configured: agentDirConfigured(paths.agentDir),
       presets: PROVIDER_PRESETS,
       oauthProviders: OAUTH_PROVIDERS,
+      catalogProviders,
       hiddenProviderIds: settings.hiddenProviderIds || [],
+      extraProviderIds: settings.extraProviderIds || [],
       customProviders: settings.customProviders || [],
       capabilities: capabilityStatus({
         pdfInspectorCommand:
@@ -172,10 +226,10 @@ export function register({ getPaths, restartBridge, openSettings, notifyProvider
     };
   });
 
-  ipcMain.handle("wizard:saveProvider", (_event, payload) => {
+  ipcMain.handle("wizard:saveProvider", async (_event, payload) => {
     const paths = getPaths();
     if (!paths) return { ok: false, errors: ["应用尚未完成启动"] };
-    const result = upsertProvider(paths.agentDir, payload || {});
+    const result = await upsertProvider(paths.agentDir, payload || {});
     if (result?.ok) notifyModelsChangedRef?.();
     return result;
   });
@@ -197,12 +251,22 @@ export function register({ getPaths, restartBridge, openSettings, notifyProvider
 
   // Curated provider list for the settings page, saved atomically by the
   // 编辑模型 modal: which catalog entries appear in the two lists
-  // (hiddenProviderIds) plus user-added custom API-key provider cards.
+  // (hiddenProviderIds / extraProviderIds) plus user-added custom cards.
   // Credentials are untouched here — hiding a card never deletes auth.
-  ipcMain.handle("wizard:saveProviderList", (_event, payload) => {
+  ipcMain.handle("wizard:saveProviderList", async (_event, payload) => {
+    const paths = getPaths();
+    let catalogIds = [];
+    try {
+      catalogIds = paths
+        ? (await listPiCatalogProviders({ payloadRoot: paths.payloadRoot })).map((p) => p.id)
+        : [];
+    } catch {
+      catalogIds = [];
+    }
     const builtinIds = new Set([
       ...OAUTH_PROVIDERS.map((p) => p.id),
       ...PROVIDER_PRESETS.map((p) => p.id).filter(Boolean),
+      ...catalogIds,
     ]);
     const rawHidden = Array.isArray(payload?.hidden) ? payload.hidden : [];
     const hidden = [];
@@ -213,6 +277,16 @@ export function register({ getPaths, restartBridge, openSettings, notifyProvider
       if (!id || seenHidden.has(id) || !PROVIDER_ID_RE.test(id)) continue;
       seenHidden.add(id);
       hidden.push(id);
+    }
+    const rawExtra = Array.isArray(payload?.extra) ? payload.extra : [];
+    const extra = [];
+    const seenExtra = new Set();
+    for (const item of rawExtra) {
+      if (typeof item !== "string") continue;
+      const id = item.trim();
+      if (!id || seenExtra.has(id) || !PROVIDER_ID_RE.test(id)) continue;
+      seenExtra.add(id);
+      extra.push(id);
     }
     const rawCustom = Array.isArray(payload?.custom) ? payload.custom : [];
     const custom = [];
@@ -242,8 +316,13 @@ export function register({ getPaths, restartBridge, openSettings, notifyProvider
       custom.push(entry);
     }
     if (errors.length) return { ok: false, errors };
-    saveSettings({ hiddenProviderIds: hidden, customProviders: custom });
-    notifyProviderListRef?.(hidden);
+    const normalized = normalizeHiddenProviderIds(
+      hidden,
+      OAUTH_PROVIDERS.map((p) => p.id),
+      PROVIDER_PRESETS.map((p) => p.id).filter(Boolean),
+    );
+    saveSettings({ hiddenProviderIds: normalized, customProviders: custom, extraProviderIds: extra });
+    notifyProviderListRef?.(menuHiddenProviderIds(normalized, featuredDuplicated()));
     return { ok: true };
   });
 

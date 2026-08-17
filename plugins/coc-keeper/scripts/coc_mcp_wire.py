@@ -1996,6 +1996,38 @@ def _project_combat_context(data: Any) -> Any:
     return projected
 
 
+def _project_combat_resolve(data: Any) -> Any:
+    """Keep the settled beat and exact next combat decision under budget."""
+    if not isinstance(data, dict):
+        return deepcopy(data)
+    combat = data.get("combat")
+    projected_combat = None
+    if isinstance(combat, dict):
+        projected_combat = _pick(
+            combat,
+            (
+                "schema_version",
+                "combat_id",
+                "scene_ref",
+                "status",
+                "outcome",
+                "revision",
+                "current_round",
+                "initiative_cursor",
+                "current_initiative",
+            ),
+        )
+    return {
+        "events": deepcopy(data.get("events") or []),
+        "combat": projected_combat,
+        "pending_defense": deepcopy(data.get("pending_defense")),
+        "improvement_ticks_recorded": deepcopy(
+            data.get("improvement_ticks_recorded") or []
+        ),
+        "player_state_receipt": deepcopy(data.get("player_state_receipt")),
+    }
+
+
 def _project_npc_reaction(data: Any) -> Any:
     """Inline the exact conditional engagement contract for lazy hosts."""
     projected = deepcopy(data)
@@ -2557,6 +2589,8 @@ def project_envelope(
         projector = _project_actions
     elif operation == "combat.context":
         projector = _project_combat_context
+    elif operation == "combat.resolve":
+        projector = _project_combat_resolve
     elif operation == "npc.reaction":
         projector = _project_npc_reaction
     elif operation == "turn.output_context":

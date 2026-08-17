@@ -782,6 +782,21 @@ def resume_window(
     }
 
 
+def uncommitted_source_rows(campaign_dir: Path) -> list[dict[str, Any]]:
+    """Return the exact post-commit toolbox rows without bounded projection.
+
+    This recovery-only source boundary must not omit rows: when session.resume
+    abandons a turn tail, every rolled-back mutation decision needs the same
+    invalidation disposition.
+    """
+    campaign_dir = Path(campaign_dir)
+    cursor = load_or_create_cursor(campaign_dir)
+    rows, _observed_end = _slice_rows(
+        _toolbox_path(campaign_dir), cursor["next_source_offset"]
+    )
+    return [deepcopy(row) for row, _row_end in rows]
+
+
 def start_pending_turn(
     campaign_dir: Path,
     *,

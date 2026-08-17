@@ -86,4 +86,21 @@ describe("fetchRemoteModels", () => {
     assert.equal(result.ok, false);
     assert.match(result.error, /未返回任何模型/);
   });
+
+  it("retries /v1/models after 404 when baseUrl has no /v1 suffix", async () => {
+    const calls = [];
+    const result = await fetchRemoteModels({
+      baseUrl: "https://api.example.com",
+      apiKey: "k",
+      fetchImpl: async (url) => {
+        calls.push(url);
+        if (url.endsWith("/v1/models")) {
+          return jsonResponse({ data: [{ id: "chat-1" }, { id: "text-embedding-ada" }] });
+        }
+        return jsonResponse({ error: "missing" }, 404);
+      },
+    });
+    assert.deepEqual(result, { ok: true, models: ["chat-1"] });
+    assert.deepEqual(calls, ["https://api.example.com/models", "https://api.example.com/v1/models"]);
+  });
 });

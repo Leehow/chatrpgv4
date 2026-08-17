@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld("cocWizard", {
   onAuthEvent: (callback) => subscribe("auth:event", callback),
   onAuthPrompt: (callback) => subscribe("auth:prompt", callback),
   onAuthPromptDismissed: (callback) => subscribe("auth:promptDismissed", callback),
+  // Native PDF picker for the「导入 PDF 模组」entry; the shell stages/delivers
+  // the path to the main window's standard ingest flow.
+  pickPdfImport: () => ipcRenderer.invoke("app:pickPdfImport"),
 });
 
 function subscribe(channel, callback) {

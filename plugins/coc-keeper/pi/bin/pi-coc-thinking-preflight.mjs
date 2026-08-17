@@ -181,9 +181,25 @@ const modelStore = readJson(
   "Pi model catalog",
   false,
 );
-const model =
-  findConfiguredModel(customModels, provider, modelId) ??
-  findModel(modelStore, provider, modelId);
+// A user-written models.json entry shadows the catalog wholesale, but writers
+// (e.g. the desktop login materialization) may persist only {id, name} when
+// the upstream catalog lacked capability flags. Inherit missing capability
+// fields from models-store.json so a stripped entry cannot silently downgrade
+// a model to thinking "off"-only and block launch.
+function withCatalogCapabilities(configured, catalogEntry) {
+  if (!configured || !catalogEntry) return configured ?? catalogEntry;
+  const merged = { ...configured };
+  for (const key of ["reasoning", "thinkingLevelMap", "compat"]) {
+    if (merged[key] === undefined && catalogEntry[key] !== undefined) {
+      merged[key] = catalogEntry[key];
+    }
+  }
+  return merged;
+}
+
+const configuredModel = findConfiguredModel(customModels, provider, modelId);
+const catalogModel = findModel(modelStore, provider, modelId);
+const model = withCatalogCapabilities(configuredModel, catalogModel);
 if (!model) {
   failIfOff(
     `thinking "off" was requested for ${provider}/${modelId}, but its model metadata is unavailable; ` +

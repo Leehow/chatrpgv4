@@ -32,6 +32,107 @@ export function fetchModels(): Promise<ModelsResponse> {
   return request<ModelsResponse>("/api/models");
 }
 
+export type ModelEditorState = {
+  oauthProviders: { id: string; label: string; note: string; methods: string[] }[];
+  presets: {
+    id: string;
+    label: string;
+    note: string;
+    api?: string;
+    baseUrl?: string;
+    models?: { id: string; name?: string }[];
+  }[];
+  catalogProviders: { id: string; label: string; note: string; methods: string[]; baseUrl?: string }[];
+  providers: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    hasAuth: boolean;
+    models: { id: string; name: string }[];
+  }[];
+  hiddenProviderIds: string[];
+  extraProviderIds: string[];
+  customProviders: { id: string; label: string; baseUrl: string; note?: string }[];
+  writable: boolean;
+};
+
+export function fetchModelEditor(): Promise<ModelEditorState> {
+  return request<ModelEditorState>("/api/model-editor");
+}
+
+export function saveModelEditor(payload: {
+  hidden: string[];
+  custom: { id: string; label: string; baseUrl: string; note?: string }[];
+  extra: string[];
+}): Promise<{ ok: boolean; errors?: string[] }> {
+  return request("/api/model-editor", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function saveModelEditorProvider(payload: {
+  id: string;
+  apiKey: string;
+  label?: string;
+  api?: string;
+  baseUrl?: string;
+  models?: { id: string; name?: string }[];
+}): Promise<{ ok: boolean; errors?: string[]; provider?: string }> {
+  return request("/api/model-editor/provider", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export type ModelLoginSnapshot = {
+  active: boolean;
+  events: { type?: string; message?: string; url?: string; userCode?: string; verificationUri?: string }[];
+  prompt: {
+    promptId: number;
+    prompt: { type: string; message: string; placeholder?: string; options?: { id: string; label: string }[] };
+  } | null;
+  done: boolean;
+  result: { ok: boolean; error?: string; provider?: string } | null;
+};
+
+export function startModelLogin(payload: {
+  providerId: string;
+  method: string;
+}): Promise<{ ok: boolean; error?: string; started?: boolean; label?: string }> {
+  return request("/api/model-editor/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchModelLogin(): Promise<ModelLoginSnapshot> {
+  return request("/api/model-editor/login");
+}
+
+export function respondModelLogin(payload: {
+  promptId: number;
+  value?: string;
+  cancel?: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  return request("/api/model-editor/login/respond", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelModelLogin(): Promise<{ ok: boolean; error?: string }> {
+  return request("/api/model-editor/login/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
 export function fetchBootstrap(): Promise<BootstrapResponse> {
   return request<BootstrapResponse>("/api/bootstrap");
 }
@@ -97,6 +198,23 @@ export async function uploadPdf(file: File): Promise<{
     throw new Error(message);
   }
   return data as { ok: boolean; result: import("./types").PdfUploadResult };
+}
+
+/**
+ * Desktop-shell import transport: register a PDF by local filesystem path
+ * (the Electron menu / onboarding wizard hand over a path, never a browser
+ * File). Same registration result as uploadPdf; parsing continues through
+ * the identical ingestPdf chain.
+ */
+export function uploadPdfFromPath(path: string): Promise<{
+  ok: boolean;
+  result: import("./types").PdfUploadResult;
+}> {
+  return request("/api/uploads/pdf/from-path", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
 }
 
 export interface IngestPdfBackgroundWindow {
@@ -214,6 +332,11 @@ export function fetchTranscript(
   return request(`/api/sessions/${sessionId}/transcript`);
 }
 
+/** Abort the in-flight pi-coc turn for this session (host-side, not just the SSE). */
+export function abortTurn(sessionId: string): Promise<{ ok: boolean; aborted: boolean }> {
+  return request(`/api/sessions/${sessionId}/abort`, { method: "POST" });
+}
+
 export interface TurnHandlers {
   onTool?: (phase: string, tool: string) => void;
   onDelta?: (text: string) => void;
@@ -229,13 +352,15 @@ export interface TurnHandlers {
     usage?: { input_tokens?: number | null; output_tokens?: number | null } | null;
   }) => void;
   onError?: (message: string) => void;
+  /** Advisory transparency notice (e.g. a turn settled with no visible text). */
+  onNotice?: (message: string) => void;
 }
 
 /**
  * Consume one turn over SSE. EventSource cannot POST, so parse the
  * text/event-stream frames manually off the fetch ReadableStream.
- * Aborting `signal` stops consuming the stream locally; the keeper turn
- * itself still settles canonically server-side.
+ * Aborting `signal` stops consuming the stream locally. Call `abortTurn`
+ * to stop the pi-coc host turn as well.
  */
 export async function streamTurn(
   sessionId: string,
@@ -335,6 +460,8 @@ export async function streamTurn(
         );
       } else if (event === "error") {
         handlers.onError?.(String(data.message ?? "未知错误"));
+      } else if (event === "notice") {
+        handlers.onNotice?.(String(data.message ?? ""));
       } else if (event === "end") {
         return;
       }

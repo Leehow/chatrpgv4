@@ -13,6 +13,7 @@ from copy import deepcopy
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -981,6 +982,155 @@ def generate_actor_profile(
     }
     validate_actor_profile(profile)
     return profile, log
+
+
+def _int_field(row: dict[str, Any], key: str) -> int | None:
+    value = row.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _module_weapon_reference(
+    weapon_id: str,
+    module_weapons: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Enrich a bare opponent weapon id with its authored module extension."""
+    for entry in module_weapons:
+        if isinstance(entry, dict) and entry.get("weapon_id") == weapon_id:
+            reference = {"weapon_id": weapon_id}
+            if _nonempty(entry.get("extends")):
+                reference["extends"] = str(entry["extends"])
+            for key in ("name", "special", "note"):
+                if _nonempty(entry.get(key)):
+                    reference[key] = str(entry[key])
+            return reference
+    return None
+
+
+def _monster_attack_weapon(
+    attack: dict[str, Any],
+    damage_bonus: str,
+) -> dict[str, Any] | None:
+    """Compile one monsters.json attack row into a full weapon profile.
+
+    Source damage strings append the damage bonus and riders to the base dice
+    ("1D3+1D4+infection"); the engine adds DB itself, so the stored expression
+    keeps only the base dice and riders stay as a note.
+    """
+    name = _nonempty(attack.get("weapon"))
+    damage = _nonempty(attack.get("damage"))
+    if name is None or damage is None:
+        return None
+    parts = [part.strip() for part in damage.split("+") if part.strip()]
+    base = parts[0] if parts else None
+    if base is None or not re.fullmatch(r"\d+D\d+|\d+", base, re.IGNORECASE):
+        return None
+    db_token = damage_bonus.lstrip("+")
+    riders = [part for part in parts[1:] if part != db_token]
+    weapon = {
+        "weapon_id": name,
+        "skill": "Fighting (Brawl)",
+        "damage": base,
+        "adds_damage_bonus": any(part == db_token for part in parts[1:]),
+        "impales": False,
+    }
+    if riders:
+        weapon["note"] = "source riders: " + " + ".join(riders)
+    return weapon
+
+
+def module_monster_actor_profile(
+    monster_ref: str,
+    opponent: dict[str, Any],
+    *,
+    module_weapons: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Build a source-authored actor profile from compiled module combat data.
+
+    Authored combat-engagement affordances carry a compact opponent spec
+    (combat_skill/dodge_skill/magic_points/weapons/monster_ref) instead of a
+    full mechanics profile; the reviewed ruleset monsters.json row carries the
+    stat block.  Together they are the same authored truth the affordance
+    combat path already settles with, so an emergent ``target_npc_id`` combat
+    or ``mechanics.ensure`` can reuse them instead of inventing stats or
+    dead-ending on progressive source work for a bundled (non-progressive)
+    scenario.  Returns None when either half is missing or malformed.
+    """
+    if not isinstance(opponent, dict):
+        return None
+    monster_ref = str(monster_ref or "").strip()
+    if not monster_ref:
+        return None
+    try:
+        row = coc_rules.monster_by_name(monster_ref)
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(row, dict):
+        return None
+    characteristics: dict[str, int] = {}
+    for source_key, key in (
+        ("str", "STR"), ("con", "CON"), ("siz", "SIZ"),
+        ("dex", "DEX"), ("pow", "POW"), ("int", "INT"),
+    ):
+        value = _int_field(row, source_key)
+        if value is not None:
+            characteristics[key] = value
+    if any(key not in characteristics for key in ("STR", "CON", "SIZ", "DEX", "POW")):
+        return None
+    damage = coc_rules.damage_bonus_build(characteristics["STR"], characteristics["SIZ"])
+    hp = _int_field(row, "hp") or max(1, (characteristics["CON"] + characteristics["SIZ"]) // 10)
+    derived = {
+        "HP": hp,
+        "MP": max(0, characteristics["POW"] // 5),
+        "MOV": _int_field(row, "mov") or 8,
+        "Build": int(damage["build"]),
+        "DB": str(damage["damage_bonus"]),
+    }
+    skills: dict[str, int] = {}
+    combat_skill = _int_field(opponent, "combat_skill")
+    if combat_skill is not None:
+        skills["Fighting (Brawl)"] = combat_skill
+    dodge_skill = _int_field(opponent, "dodge_skill")
+    if dodge_skill is not None:
+        skills["Dodge"] = dodge_skill
+    module_weapon_rows = [
+        entry for entry in (module_weapons or []) if isinstance(entry, dict)
+    ]
+    weapons: list[dict[str, Any]] = []
+    for reference in opponent.get("weapons") or []:
+        weapon_id = (
+            str(reference.get("weapon_id") or "").strip()
+            if isinstance(reference, dict) else str(reference).strip()
+        )
+        if not weapon_id:
+            continue
+        enriched = _module_weapon_reference(weapon_id, module_weapon_rows)
+        weapons.append(enriched if enriched is not None else {"weapon_id": weapon_id, "extends": weapon_id})
+    if not weapons:
+        for attack in row.get("attacks") or []:
+            if isinstance(attack, dict):
+                weapon = _monster_attack_weapon(attack, str(damage["damage_bonus"]))
+                if weapon is not None:
+                    weapons.append(weapon)
+    if not weapons:
+        weapons = [{"weapon_id": "unarmed", "extends": "unarmed"}]
+    profile: dict[str, Any] = {
+        "profile_kind": "actor",
+        "characteristic_scale": "percentile",
+        "characteristics": characteristics,
+        "derived": derived,
+        "skills": skills,
+        "weapons": weapons,
+        "authority": "source_authored",
+    }
+    if isinstance(row.get("spells"), list) and row["spells"]:
+        profile["spells"] = deepcopy(row["spells"])
+    armor = _int_field(row, "armor")
+    if armor:
+        profile["armor"] = armor
+    validate_actor_profile(profile)
+    return profile
 
 
 def actor_combat_participant(

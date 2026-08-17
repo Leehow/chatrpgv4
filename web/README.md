@@ -14,6 +14,9 @@ pi-coc 宿主。侧栏战役管理和右侧只读投影仍读磁盘。
 3. **PDF 源包**：
    - 源包位置：`.coc/source-bundles/<id>/`（须含 `manifest.json`）。
    - 拖拽/上传 PDF → `POST /api/uploads/pdf`：只做 SHA-256 登记与去重，**不解析**。
+   - 桌面壳原生入口（应用菜单 / 首跑向导「选择 PDF…」）→
+     `POST /api/uploads/pdf/from-path`：同一登记逻辑的本地路径传输
+     （Electron 壳给不出浏览器 File 对象），随后走完全相同的 ingest 链。
    - 开局：`campaign.create` → `scenario.bind_pdf` → `campaign.link_investigator`。
    - era 未建立（未过 `setup.adopt_source_facts`）时，内核 era gate 拒建卡/入队；
      两桥此时以**未入队的 setup draft** 开会话并 seed 占位状态（刻意容错，非 bug），
@@ -62,7 +65,9 @@ node web/server-node/server.mjs --workspace . --port 8765
   public state）。
 - `web/server/app.py` — 旧版 Python 桥，**不是**产品回合通道。
 - `POST /api/sessions/<sid>/turns` — SSE：`status` → `tool`* / `delta`* →
-  `turn` / `error`；`{ attach: true }` 接开桌流。回合由全局锁串行。
+  `turn` / `error` / `notice`；`{ attach: true }` 接开桌流。回合由全局锁串行。
+  pi 侧 `stopReason=error` 的结算会映射为 `error` 帧；回合结束但没有任何
+  玩家可见文本时发 `notice` 帧（透明提示，不拦截回合）。
 
 ## 剧透边界
 
@@ -73,8 +78,9 @@ pi-coc 宿主按 `coc-keeper-play` 自己决定。
 
 ## 模型选择
 
-顶栏下拉来自 `$PI_AGENT_DIR/models.json`（缺省 `~/.pi/agent/models.json`，
-桌面壳则是应用自管的 `pi-agent`）。每个回合通过 Pi RPC `set_model` /
+顶栏下拉来自 `$PI_AGENT_DIR/models.json`。未设置时与桌面壳同一目录：
+`<userData>/pi-agent`（macOS 为 `~/Library/Application Support/coc-keeper-desktop/pi-agent`），
+不读取终端 `~/.pi/agent`。每个回合通过 Pi RPC `set_model` /
 `set_thinking_level` 切到当前选择。
 
 ## 战役管理（重命名 / 删除 / 回收站）
@@ -115,6 +121,18 @@ pi-coc 宿主按 `coc-keeper-play` 自己决定。
 含预生成角色的中文装备列表），再回退到 `coc_language` 的术语表；均与
 keeper 自己的角色卡渲染一致。物品优先用 `player_facing_sheet_zh.equipment`；
 仅当该层缺失时才回退到 machine sheet 的源语言字符串。
+
+物品面板显示的是**战役进行中的实时背包**：`display_character` 带
+`campaign_id` 时合并战役本地 runtime inventory
+（`save/investigator-state/<id>.json`，经 `coc_inventory.effective_items` /
+`effective_weapons`），剧情中 `state.item_grant` 授予 / `state.item_remove`
+移除的物品在回合结算后立即反映，不再等 development 结算写回角色库。
+条目以结构化 `inventory_items` 下发（`item_id` / `label` / `kind` /
+`quantity` / `consumable` / `note` / `source`），旧版纯标签 `equipment`
+列表跟随同一合并结果。消耗品（`consumable: true`）在面板上有「使用」按钮：
+`POST /api/sessions/<sid>/items/use` → sidecar `item_use` → canonical
+`state.item_use` 工具（幂等 `decision_id`、事务写），数量减一，归零即从
+背包消失；回合进行中该端点返回 409。语义全部在插件 toolbox，桥只做传输。
 
 时间 / 场景 / 张力同属展示层：
 - 时间：有 `local_datetime` 时渲染为沉静的中文两行（`一九二〇年十月十二日` +

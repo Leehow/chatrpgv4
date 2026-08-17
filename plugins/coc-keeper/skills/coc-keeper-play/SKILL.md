@@ -142,7 +142,13 @@ output evidence boundary, not a replacement prose engine:
 
 1. **Dice are real.** Never invent, adjust, or re-narrate roll numbers,
    HP/SAN arithmetic, or success levels. `rules.*` results are authoritative
-   — quote them faithfully in the fiction.
+   — quote them faithfully in the fiction. Every number in a formal marker
+   (die face, base value, resulting SAN/HP/MP/Luck) must be copied
+   digit-for-digit from a same-turn receipt: the base value of a SAN check is
+   the investigator's current SAN from state, never a skill value; a "current
+   SAN" figure that appears in no receipt does not exist and must not be
+   rendered. If the roll was never executed, execute it first — do not
+   narrate a result.
 2. **State writes go through tools.** Clue discoveries, scene moves, HP/SAN
    changes, time, and turn receipts are recorded with `state.*` / `rules.*`
    tools (atomic, idempotent via `decision_id`) — never by hand-editing save
@@ -168,7 +174,10 @@ may only be rendered from authoritative receipts earned in the same turn:
 (`decision_id`). Fabricated dice or resource numbers are intercepted before
 reaching the player and you are instructed to execute first, then render.
 Numbers you cannot trace to a same-turn receipt must stay out of formal
-markers.
+markers. The gate checks receipt *presence*, not per-number correspondence —
+so the digit-exact discipline above is yours: a fabricated roll can slip past
+when an unrelated receipt exists in the same turn, and it corrupts the
+evidence chain every time it does.
 
 Before play, batch opening `npc.reaction` and engagement writes, then call
 `evidence.table_opening` and deliver its returned time-anchored `text`

@@ -124,4 +124,60 @@ describe("pid record and reap", () => {
       fs.rmSync(userData, { recursive: true, force: true });
     }
   });
+
+  it("never kills a foreign same-workspace server on another port", () => {
+    const userData = fs.mkdtempSync(path.join(os.tmpdir(), "coc-bridge-"));
+    try {
+      writePidRecord(userData, { workspace: WORKSPACE, pid: 61884, port: 60904 });
+      const killed = [];
+      const result = reapStaleBridges({
+        userData,
+        workspace: WORKSPACE,
+        listProcesses: () => [
+          {
+            pid: 61884,
+            command:
+              "node /repo/web/server-node/server.mjs --workspace " + WORKSPACE + " --port 60904",
+          },
+          {
+            // Hand-started dev server: same workspace, different port.
+            pid: 70001,
+            command:
+              "node /repo/web/server-node/server.mjs --workspace " + WORKSPACE + " --port 8765",
+          },
+        ],
+        kill: (pid) => killed.push(pid),
+      });
+      assert.deepEqual(result.killed, [61884]);
+      assert.deepEqual(killed, [61884]);
+    } finally {
+      clearPidRecord(userData);
+      fs.rmSync(userData, { recursive: true, force: true });
+    }
+  });
+
+  it("reaps nothing when no pid record exists", () => {
+    const userData = fs.mkdtempSync(path.join(os.tmpdir(), "coc-bridge-"));
+    try {
+      const result = reapStaleBridges({
+        userData,
+        workspace: WORKSPACE,
+        listProcesses: () => [
+          {
+            pid: 70002,
+            command:
+              "node /repo/web/server-node/server.mjs --workspace " + WORKSPACE + " --port 8765",
+          },
+          {
+            pid: 70003,
+            command: "python /repo/runtime/sdk/rpc_server.py --workspace " + WORKSPACE,
+          },
+        ],
+        kill: () => {},
+      });
+      assert.deepEqual(result.killed, []);
+    } finally {
+      fs.rmSync(userData, { recursive: true, force: true });
+    }
+  });
 });

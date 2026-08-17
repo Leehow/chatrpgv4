@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils";
 import { CampaignSidebar } from "./components/CampaignSidebar";
 import { AppearanceMenu, type Appearance } from "./components/AppearanceMenu";
 import { Chat, type QuickStartAction } from "./components/Chat";
+import { EditModelsDialog } from "./components/EditModelsDialog";
+import { CombatOverlay } from "./components/CombatOverlay";
 import { GuidedStart } from "./components/GuidedStart";
-import { ModelMenu } from "./components/ModelMenu";
-import { ThinkingMenu } from "./components/ThinkingMenu";
 import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
 import { Panel, PanelContent } from "./components/Panel";
 import type {
@@ -67,10 +67,18 @@ function transcriptMessages(messages: TranscriptMessage[]): ChatMessage[] {
   );
 }
 
+function sameTranscriptMessage(left: ChatMessage, right: ChatMessage): boolean {
+  return (
+    left.kind === right.kind &&
+    (left.kind === "player" || left.kind === "keeper") &&
+    left.text === right.text
+  );
+}
+
 /** pi-coc conversation lives on the host session; campaign table-transcript
- *  is often empty or a lagging jsonl prefix. Empty/shorter same-campaign
- *  projections must not wipe a fuller in-memory thread. Switching campaigns
- *  always shows that campaign's own history (empty means empty). */
+ *  omits setup chat and can be an empty/lagging jsonl prefix. Reconcile its
+ *  authoritative play messages as an ordered subsequence so setup history is
+ *  retained, while a settled finalization can replace a stopped live tail. */
 function replaceMessagesFromTranscript(
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   messages: TranscriptMessage[] | undefined,
@@ -84,9 +92,44 @@ function replaceMessagesFromTranscript(
   if (next.length === 0) return false;
   let applied = false;
   setMessages((prev) => {
-    if (next.length < prev.length) return prev;
+    const merged = [...prev];
+    const matchedPositions: number[] = [];
+    let cursor = 0;
+    let matched = 0;
+    for (; matched < next.length; matched += 1) {
+      const position = merged.findIndex(
+        (message, index) => index >= cursor && sameTranscriptMessage(message, next[matched]),
+      );
+      if (position < 0) break;
+      matchedPositions.push(position);
+      merged[position] = next[matched];
+      cursor = position + 1;
+    }
+
+    if (matched === 0) {
+      const onlyChrome = prev.every(
+        (message) =>
+          message.kind === "note"
+          || (message.kind === "keeper" && (!message.text || message.streaming)),
+      );
+      if (onlyChrome) return next;
+      return prev;
+    }
+    const lastMatched = matchedPositions[matchedPositions.length - 1];
     applied = true;
-    return next;
+    if (matched < next.length) {
+      return [...merged.slice(0, lastMatched + 1), ...next.slice(matched)];
+    }
+    const staleTail = merged.slice(lastMatched + 1);
+    if (
+      staleTail.length > 0 &&
+      staleTail.every(
+        (message) => message.kind === "note" || (message.kind === "keeper" && message.streaming),
+      )
+    ) {
+      return merged.slice(0, lastMatched + 1);
+    }
+    return merged;
   });
   return applied;
 }
@@ -156,19 +199,19 @@ export default function App() {
   /** First-run guided start; auto-entered for a workspace without campaigns. */
   const [guided, setGuided] = useState(false);
   const guidedChecked = useRef(false);
+  /** Desktop「导入 PDF 模组…」handoff: a shell-provided local path awaiting
+   *  registration inside NewCampaignFlow's pdf mode. */
+  const [pdfImportPath, setPdfImportPath] = useState<string | null>(null);
+  const pdfImportHandledRef = useRef<string | null>(null);
   /** Desktop fatal notice (bridge died): styled in-app modal, not a native box. */
   const [fatal, setFatal] = useState<{ title: string; message: string; detail?: string } | null>(null);
   const [fatalBusy, setFatalBusy] = useState(false);
   const isDesktop = Boolean((window as { cocDesktop?: unknown }).cocDesktop);
-  const desktopShell = (
-    window as {
-      cocDesktop?: { openSettings?: (opts?: { edit?: boolean }) => void };
-    }
-  ).cocDesktop;
 
-  // 编辑模型 curation: providers unchecked in the settings editor disappear
-  // from the model dropdown too. Desktop-only; plain browsers show all.
+  // 编辑模型 curation: providers unchecked in the editor disappear from
+  // the model dropdown. Desktop IPC is preferred; HTTP covers the in-app overlay.
   const [hiddenProviders, setHiddenProviders] = useState<string[]>([]);
+  const [editModelsOpen, setEditModelsOpen] = useState(false);
   useEffect(() => {
     const desktop = (
       window as {
@@ -178,9 +221,15 @@ export default function App() {
         };
       }
     ).cocDesktop;
-    if (!desktop?.getHiddenProviders) return;
-    void desktop.getHiddenProviders().then((r) => setHiddenProviders(r.hidden || []));
-    return desktop.onHiddenProviders?.((p) => setHiddenProviders(p.hidden || []));
+    if (desktop?.getHiddenProviders) {
+      void desktop.getHiddenProviders().then((r) => setHiddenProviders(r.hidden || []));
+      return desktop.onHiddenProviders?.((p) => setHiddenProviders(p.hidden || []));
+    }
+    void api
+      .fetchModelEditor()
+      .then((s) => setHiddenProviders(s.hiddenProviderIds || []))
+      .catch(() => undefined);
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -196,6 +245,46 @@ export default function App() {
     if (!desktop?.onFatal) return;
     return desktop.onFatal((info) => setFatal(info));
   }, []);
+
+  // Desktop-native PDF import (menu / wizard「导入 PDF 模组…」). The shell
+  // stages every picked path and also pushes it when the bridge is live;
+  // both channels land here and the ref dedupes a push racing the pull.
+  const importDesktopPdf = useCallback((pickedPath: string | null | undefined) => {
+    if (!pickedPath || pdfImportHandledRef.current === pickedPath) return;
+    pdfImportHandledRef.current = pickedPath;
+    setGuided(false);
+    setPdfImportPath(pickedPath);
+    setCreating(true);
+  }, []);
+
+  useEffect(() => {
+    const desktop = (
+      window as {
+        cocDesktop?: {
+          onImportPdf?: (cb: (p: { path?: string }) => void) => () => void;
+          consumePdfImport?: () => Promise<{ path: string | null }>;
+        };
+      }
+    ).cocDesktop;
+    if (!desktop?.onImportPdf) return;
+    return desktop.onImportPdf((payload) => {
+      // Clear the staged copy so the mount-time pull cannot re-fire it.
+      void desktop.consumePdfImport?.();
+      importDesktopPdf(payload?.path);
+    });
+  }, [importDesktopPdf]);
+
+  // Pull channel: a PDF picked during first-run onboarding (bridge not yet
+  // up) is staged in the shell and consumed once the main window mounts.
+  useEffect(() => {
+    const desktop = (
+      window as {
+        cocDesktop?: { consumePdfImport?: () => Promise<{ path: string | null }> };
+      }
+    ).cocDesktop;
+    if (!desktop?.consumePdfImport) return;
+    void desktop.consumePdfImport().then((r) => importDesktopPdf(r?.path));
+  }, [importDesktopPdf]);
 
   useEffect(() => {
     api.fetchModels().then(setModels).catch((e) => setError(friendlyError(String(e.message ?? e))));
@@ -219,17 +308,6 @@ export default function App() {
       api.fetchModels().then(setModels).catch(() => {});
     });
   }, []);
-
-  // A fresh workspace (no campaigns) opens the guided start once; any real
-  // campaign present means the player already knows the way in.
-  useEffect(() => {
-    if (!bootstrap || guidedChecked.current) return;
-    guidedChecked.current = true;
-    const hasCampaigns = bootstrap.campaigns.some((c) => c.compatible !== false);
-    if (!hasCampaigns && !localStorage.getItem(LS.guidedDismissed)) {
-      setGuided(true);
-    }
-  }, [bootstrap]);
 
   // Reconcile persisted / default model selection once the model list lands.
   useEffect(() => {
@@ -286,13 +364,24 @@ export default function App() {
         setState(info.state);
         localStorage.setItem(LS.campaign, campaignId);
         const sameCampaign = session?.campaign_id === campaignId;
+        let hydrated = false;
         try {
           const t = await api.fetchTranscript(info.session_id);
-          replaceMessagesFromTranscript(setMessages, t.messages, sameCampaign);
+          const applied = replaceMessagesFromTranscript(setMessages, t.messages, sameCampaign);
+          hydrated = Boolean(
+            applied
+            && (t.messages || []).some((row) => row.role === "keeper" && String(row.text || "").trim()),
+          );
         } catch {
           replaceMessagesFromTranscript(setMessages, [], sameCampaign);
         }
-        if (!info.host_opening) {
+        const shouldAttach = Boolean(
+          (info.host_opening
+            || info.character_setup
+            || info.state?.character_setup_pending)
+          && !hydrated,
+        );
+        if (!shouldAttach) {
           setBusy(false);
           return info;
         }
@@ -301,7 +390,9 @@ export default function App() {
           ...prev,
           {
             kind: "note",
-            text: "正在打开 pi-coc 桌面……",
+            text: info.character_setup || info.state?.character_setup_pending
+              ? "正在打开建卡引导……"
+              : "正在打开 pi-coc 桌面……",
             tone: "info",
             at: inputAt,
           },
@@ -387,10 +478,18 @@ export default function App() {
               });
               setError(friendlyError(message));
             },
+            onNotice: (message) => {
+              if (!message) return;
+              setMessages((prev) => [
+                ...prev,
+                { kind: "note", text: message, tone: "info", at: Date.now() },
+              ]);
+            },
           },
           controller.signal,
           { attach: true },
         );
+        const stopped = controller.signal.aborted;
         turnAbortRef.current = null;
         const finishedAt = Date.now();
         setMessages((prev) => {
@@ -414,6 +513,19 @@ export default function App() {
           }
           return next;
         });
+        if (stopped) {
+          setMessages((prev) => [
+            ...prev.filter((row) => row.text !== "正在打开 pi-coc 桌面……"),
+            {
+              kind: "note",
+              text: "已停止本回合。",
+              tone: "info",
+              at: Date.now(),
+            },
+          ]);
+          setBusy(false);
+          return info;
+        }
         // An attached host-opening stream carries plain text while it is live.
         // Once settled, replace it with the canonical typed transcript so SAN,
         // combat, and other public receipts render as structured UI cards.
@@ -423,6 +535,10 @@ export default function App() {
         } catch {
           // Keep the settled stream visible; top-bar refresh retries projection.
         }
+        setMessages((prev) => prev.filter((row) =>
+          row.text !== "正在打开建卡引导……"
+          && row.text !== "正在打开 pi-coc 桌面……"
+        ));
         setBusy(false);
         return info;
       } catch (e) {
@@ -436,9 +552,15 @@ export default function App() {
     [model, provider, session, thinking],
   );
 
+  // Leave the new-campaign form as soon as a session exists so the
+  // character-setup attach can stream in the main chat.
+  useEffect(() => {
+    if (session) setCreating(false);
+  }, [session]);
+
   // Reopen the last campaign once the campaign list is available.
   useEffect(() => {
-    if (!bootstrap || session) return;
+    if (!bootstrap || session || openingRef.current) return;
     const last = localStorage.getItem(LS.campaign);
     if (last && bootstrap.campaigns.some((c) => c.campaign_id === last)) {
       void openCampaign(last);
@@ -506,10 +628,11 @@ export default function App() {
         const fresh = await api.fetchBootstrap();
         setBootstrap(fresh.result);
         setGuided(false);
-        await openCampaign(resp.result.campaign_id);
+        return await openCampaign(resp.result.campaign_id);
       } catch (e) {
         setError(friendlyError(e instanceof Error ? e.message : String(e)));
         setBusy(false);
+        return null;
       }
     },
     [openCampaign],
@@ -735,6 +858,13 @@ export default function App() {
           setLiveUsage(null);
           liveUsageRef.current = null;
         },
+        onNotice: (message) => {
+          if (!message) return;
+          setMessages((prev) => [
+            ...prev,
+            { kind: "note", text: message, tone: "info", at: Date.now() },
+          ]);
+        },
       },
       controller.signal);
       const stopped = controller.signal.aborted;
@@ -764,14 +894,11 @@ export default function App() {
         return next;
       });
       if (stopped) {
-        // Stopped mid-turn: keep the partial text on screen. The background
-        // turn has NOT settled yet, so a transcript re-read now would wipe
-        // the partial reply with the pre-turn transcript — skip it.
         setMessages((prev) => [
           ...prev,
           {
             kind: "note",
-            text: "已停止接收本回合输出。后台仍在结算这一回合，稍后点顶部刷新即可同步结果。",
+            text: "已停止本回合。",
             tone: "info",
             at: Date.now(),
           },
@@ -793,10 +920,12 @@ export default function App() {
     [session, busy, provider, model, thinking],
   );
 
-  /** Stop the in-flight keeper turn's live stream. */
+  /** Stop the in-flight keeper turn on the host, then drop the live stream. */
   const stop = useCallback(() => {
+    const sid = session?.session_id;
     turnAbortRef.current?.abort();
-  }, []);
+    if (sid) void api.abortTurn(sid).catch(() => undefined);
+  }, [session]);
 
   // --- Campaign admin (rename / trash / restore) — semantics live in the
   // bridge + runtime; these wrappers refresh projections and reset the local
@@ -897,6 +1026,8 @@ export default function App() {
       }}
       onNew={() => {
         close();
+        // Manual「＋ 新战役」must not inherit a previously imported PDF path.
+        setPdfImportPath(null);
         setCreating(true);
       }}
       onRename={renameCampaign}
@@ -979,18 +1110,14 @@ export default function App() {
         >
           <Menu className="size-4" />
         </Button>
-        {/* Phones: the header is a control bar — brand drops out below sm so
-            model / thinking / appearance / panel all stay reachable. */}
-        <div className="flex items-center gap-2.5">
-          <span className="brand-seal hidden sm:inline-block" aria-hidden="true" />
-          <span className="hidden font-display text-[1.35rem] font-bold tracking-[0.08em] text-foreground sm:inline">
-            <span className="text-primary">AI</span> KEEPER
-          </span>
-          <span className="hidden text-[10px] tracking-[0.25em] text-muted-foreground uppercase sm:inline">
-            pi-coc
+        {/* Phones: brand text stays off so toolbar icons fit. */}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="brand-seal hidden md:inline-block" aria-hidden="true" />
+          <span className="hidden font-display text-[1.35rem] font-bold tracking-[0.08em] text-foreground md:inline">
+            <span className="text-primary">Pi</span> Keeper
           </span>
         </div>
-        <div className={cn("ml-auto flex items-center gap-1.5", isDesktop && "app-no-drag")}>
+        <div className={cn("ml-auto flex shrink-0 items-center gap-1.5", isDesktop && "app-no-drag")}>
           {session && (
             <Button
               variant="ghost"
@@ -1002,35 +1129,15 @@ export default function App() {
               <RefreshCw className={cn("size-4", busy && "animate-spin")} />
             </Button>
           )}
-          {desktopShell?.openSettings && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => desktopShell.openSettings?.({ edit: true })}
-              title="编辑模型（提供方与显示列表）"
-            >
-              <Pencil className="size-4" />
-            </Button>
-          )}
-          <ModelMenu
-            models={models}
-            provider={provider}
-            model={model}
-            disabled={busy}
-            hidden={hiddenProviders}
-            onChange={(p, m) => {
-              setProvider(p);
-              setModel(m);
-            }}
-          />
-          <ThinkingMenu
-            thinking={thinking}
-            levels={
-              models?.providers[provider]?.models.find((m) => m.id === model)?.thinkingLevels
-            }
-            disabled={busy}
-            onChange={setThinking}
-          />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setEditModelsOpen(true)}
+            title="编辑模型"
+            aria-label="编辑模型"
+          >
+            <Pencil className="size-4" />
+          </Button>
           <AppearanceMenu value={appearance} onChange={setAppearance} />
           <Button
             variant="ghost"
@@ -1044,6 +1151,14 @@ export default function App() {
         </div>
       </header>
 
+      <EditModelsDialog
+        open={editModelsOpen}
+        onClose={() => setEditModelsOpen(false)}
+        onChanged={(hidden) => {
+          setHiddenProviders(hidden);
+          void api.fetchModels().then(setModels).catch(() => undefined);
+        }}
+      />
       {error && (
         <div
           className="cursor-pointer border-b border-warning/40 bg-warning-soft px-4 py-2 text-center text-xs text-warning select-none transition-colors"
@@ -1087,11 +1202,17 @@ export default function App() {
             <NewCampaignFlow
               bootstrap={bootstrap}
               busy={busy}
+              initialMode={pdfImportPath ? "pdf" : undefined}
+              initialPdfPath={pdfImportPath}
               onCreate={(args) => {
-                setCreating(false);
-                void createCampaign(args);
+                void createCampaign(args).then((info) => {
+                  if (!info) setCreating(false);
+                });
               }}
-              onBack={() => setCreating(false)}
+              onBack={() => {
+                setPdfImportPath(null);
+                setCreating(false);
+              }}
               onBootstrapRefresh={async () => {
                 const fresh = await api.fetchBootstrap();
                 setBootstrap(fresh.result);
@@ -1108,16 +1229,25 @@ export default function App() {
               error={error}
               pendingChoice={state?.pending_choice}
               sceneLabel={state?.active_scene_label || state?.active_scene_id || null}
-              combat={state?.combat ?? null}
               quickStart={quickStart}
+              setupPending={setupPending}
               modelsReady={aiReady}
-              onConfigureModels={
-                desktopShell?.openSettings
-                  ? () => desktopShell.openSettings?.({ edit: true })
-                  : undefined
-              }
+              onConfigureModels={() => setEditModelsOpen(true)}
               onSend={send}
               onStop={stop}
+              models={models}
+              provider={provider}
+              model={model}
+              hiddenProviders={hiddenProviders}
+              thinking={thinking}
+              thinkingLevels={
+                models?.providers[provider]?.models.find((m) => m.id === model)?.thinkingLevels
+              }
+              onModelChange={(p, m) => {
+                setProvider(p);
+                setModel(m);
+              }}
+              onThinkingChange={setThinking}
             />
           )}
 
@@ -1148,6 +1278,16 @@ export default function App() {
             </div>
           </SheetContent>
         </Sheet>
+
+        {/* 战斗轮浮窗（桌面）/ 右侧边缘折叠 tab（窄屏）；战斗中常驻，脱战后可关闭 */}
+        {session && state?.combat && (
+          <CombatOverlay
+            combat={state.combat}
+            state={state}
+            investigatorId={session.investigator_id ?? null}
+            campaignId={session.campaign_id ?? null}
+          />
+        )}
       </div>
     </div>
   );

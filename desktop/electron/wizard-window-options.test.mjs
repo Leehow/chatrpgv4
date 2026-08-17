@@ -25,6 +25,7 @@ describe("buildWizardWindowOptions", () => {
     const opts = buildWizardWindowOptions({ asSheet: false, parent: fakeParent });
     assert.equal(opts.parent, undefined);
     assert.equal(opts.loadQuery.mode, "onboard");
+    assert.equal(opts.title, "Pi Keeper · 配置");
   });
 
   it("darwin standalone may hide the title bar; sheet mode keeps it (close button)", () => {

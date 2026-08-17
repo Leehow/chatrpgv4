@@ -134,17 +134,25 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _campaign_play_language(campaign_dir: Path) -> str:
+def _campaign_document(campaign_dir: Path) -> dict[str, Any]:
     campaign_path = Path(campaign_dir) / "campaign.json"
     try:
         campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
-        campaign = {}
-    if isinstance(campaign, dict):
-        language = str(campaign.get("play_language") or "").strip()
-        if language:
-            return language
-    return coc_language.DEFAULT_PLAY_LANGUAGE
+        return {}
+    return campaign if isinstance(campaign, dict) else {}
+
+
+def _campaign_play_language(campaign_dir: Path) -> str:
+    language = str(_campaign_document(campaign_dir).get("play_language") or "").strip()
+    return language or coc_language.DEFAULT_PLAY_LANGUAGE
+
+
+def _campaign_player_terms(campaign_dir: Path, play_language: str | None = None) -> dict[str, str]:
+    language = play_language or _campaign_play_language(campaign_dir)
+    return coc_language.resolved_localized_terms(
+        language, _campaign_document(campaign_dir)
+    )
 
 
 def _infer_play_language_from_rendered(rendered_text: str) -> str:
@@ -213,9 +221,14 @@ def _attach_structured_skill_labels(
 ) -> None:
     play_language = _campaign_play_language(campaign_dir)
     labels_by_investigator: dict[str, dict[str, str]] = {}
-    terms = coc_language.default_localized_terms(play_language)
+    terms = _campaign_player_terms(campaign_dir, play_language)
     chrome = coc_language.table_mechanics_labels(play_language)
     for raw in rolls:
+        display_name = raw.get("npc_display_name")
+        if isinstance(display_name, str) and display_name.strip():
+            raw["npc_display_name"] = coc_language.player_facing_display_name(
+                display_name, play_language, terms=terms
+            )
         # Re-localize First Impression chrome so a frozen Chinese label is not
         # forced onto a non-zh campaign (or vice versa).
         if raw.get("kind") == "npc_first_impression" or raw.get("skill") in {
@@ -649,6 +662,13 @@ def _superseded_roll_ids(campaign_dir: Path) -> set[str]:
             roll_id = str(flat.get("roll_id") or "").strip()
             if roll_id:
                 hidden.add(roll_id)
+    for roll_id, disposition in load_roll_dispositions(campaign_dir).items():
+        if isinstance(disposition, dict) and str(
+            disposition.get("visibility") or ""
+        ).casefold() in {
+            value.casefold() for value in SUPERSEDED_ROLL_VISIBILITIES
+        }:
+            hidden.add(str(roll_id))
     return hidden
 
 
@@ -1329,11 +1349,35 @@ def record_roll_dispositions(
     return merged
 
 
+def _exclude_dispositioned_rolls(
+    campaign_dir: Path, rolls: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Overlay append-only roll dispositions on every finalization read."""
+    dispositions = load_roll_dispositions(campaign_dir)
+    hidden_visibilities = {
+        value.casefold() for value in SUPERSEDED_ROLL_VISIBILITIES
+    }
+    active: list[dict[str, Any]] = []
+    for raw in rolls:
+        roll_id = str(raw.get("roll_id") or "").strip()
+        disposition = dispositions.get(roll_id)
+        if isinstance(disposition, dict) and str(
+            disposition.get("visibility") or ""
+        ).casefold() in hidden_visibilities:
+            continue
+        active.append(raw)
+    return active
+
+
 def _render_public_roll(
-    raw: dict[str, Any], *, play_language: str | None = None
+    raw: dict[str, Any],
+    *,
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
     chrome = coc_language.table_mechanics_labels(language)
+    vocabulary = terms if terms is not None else coc_language.resolved_localized_terms(language)
     tag = chrome.get("public_check_tag", "Public roll")
     explicit_skill = (
         raw.get("display_skill")
@@ -1394,7 +1438,11 @@ def _render_public_roll(
                 else chrome.get("app", "APP")
             )
             fi = chrome.get("first_impression_tag", "First impression")
-            person = raw.get("npc_display_name") or chrome.get("this_person", "this person")
+            person = coc_language.player_facing_display_name(
+                raw.get("npc_display_name") or chrome.get("this_person", "this person"),
+                language,
+                terms=vocabulary,
+            )
             app_l = chrome.get("app", "APP")
             cr_l = chrome.get("credit_rating", "Credit Rating")
             using = chrome.get("using", "using")
@@ -1670,12 +1718,14 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     finalizations = load_finalizations(campaign_dir)
     start = int(manifest["source_start_index"])
     end = int(manifest["journal_call_index"])
+    hidden_roll_ids = _superseded_roll_ids(campaign_dir)
     rolls = _source_rolls(campaign_dir, window, finalizations)
+    rolls = _exclude_dispositioned_rolls(campaign_dir, rolls)
     _attach_structured_skill_labels(campaign_dir, rolls)
     public_rolls = [raw for raw in rolls if is_player_facing_roll(raw)]
     state_deltas = _project_state_deltas(
         window,
-        superseded_roll_ids=_superseded_roll_ids(campaign_dir),
+        superseded_roll_ids=hidden_roll_ids,
         ruleset_id=ruleset_id,
     )
     context_effects = _project_context_effects(window)
@@ -1692,7 +1742,11 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
             c for c in window
             if c.get("ok") is True and c.get("tool") in ("rules.roll", "rules.push")
         ]
-        if window_roll_calls:
+        referenced_roll_ids = _referenced_roll_ids(window)
+        if window_roll_calls and (
+            not referenced_roll_ids
+            or bool(referenced_roll_ids - hidden_roll_ids)
+        ):
             raise TurnContractError(
                 "state_corrupt",
                 "source window contains successful roll calls but no obligations "
@@ -1780,7 +1834,12 @@ def validate_coverage(
         if not obligation_id or obligation_id in seen:
             raise TurnContractError("duplicate_obligation", f"duplicate coverage: {obligation_id}")
         if obligation_id not in required:
-            raise TurnContractError("unknown_obligation", f"unknown coverage: {obligation_id}")
+            raise TurnContractError(
+                "unknown_obligation",
+                f"unknown coverage: {obligation_id}; "
+                "call turn.output_context to list this turn's valid obligation_ids "
+                "and construct coverage from those exact ids",
+            )
         realization = row.get("realization")
         if realization not in REALIZATION_VALUES:
             raise TurnContractError("invalid_coverage", f"invalid realization for {obligation_id}")
@@ -1870,7 +1929,10 @@ def _draft_paragraphs(draft: str) -> list[str]:
 
 
 def _mechanic_source_lines(
-    bundle: dict[str, Any], *, play_language: str | None = None
+    bundle: dict[str, Any],
+    *,
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
 ) -> dict[str, dict[str, str]]:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
     sources: dict[str, dict[str, str]] = {
@@ -1878,7 +1940,7 @@ def _mechanic_source_lines(
     }
     for raw in bundle.get("public_check") or []:
         sources["public_check"][str(raw["roll_id"])] = _render_public_roll(
-            raw, play_language=language
+            raw, play_language=language, terms=terms
         )
     for effect in bundle.get("state_delta") or []:
         sources["state_delta"][str(effect["effect_id"])] = _render_state_delta(
@@ -2147,7 +2209,12 @@ def _collect_coverage_violations(
             add("duplicate_obligation", f"duplicate coverage: {obligation_id}")
             continue
         if obligation_id not in required:
-            add("unknown_obligation", f"unknown coverage: {obligation_id}")
+            add(
+                "unknown_obligation",
+                f"unknown coverage: {obligation_id}; "
+                "call turn.output_context to list this turn's valid obligation_ids "
+                "and construct coverage from those exact ids",
+            )
             continue
         realization = row.get("realization")
         if realization not in REALIZATION_VALUES:
@@ -2531,9 +2598,18 @@ def compose_segments(
     *,
     coverage: list[dict[str, Any]] | None = None,
     play_language: str | None = None,
+    campaign_dir: Path | None = None,
 ) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
     paragraphs = _draft_paragraphs(draft)
-    sources = _mechanic_source_lines(bundle, play_language=play_language)
+    language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
+    terms = (
+        _campaign_player_terms(campaign_dir, language)
+        if campaign_dir is not None
+        else coc_language.resolved_localized_terms(language)
+    )
+    sources = _mechanic_source_lines(
+        bundle, play_language=language, terms=terms
+    )
     _reject_mechanics_in_draft(draft, sources)
     requested_placements = mechanics_placements
     if requested_placements is None:
@@ -2567,7 +2643,7 @@ def compose_segments(
     for index, paragraph in enumerate(paragraphs):
         segments.append({
             "segment_type": "fiction",
-            "text": paragraph,
+            "text": coc_language.localize_terms(paragraph, terms),
             "source_ids": [],
         })
         for placement in by_paragraph.get(index, []):
@@ -2641,6 +2717,7 @@ def build_undelivered_repair_receipt(
         mechanics_placements,
         coverage=normalized_coverage,
         play_language=play_language,
+        campaign_dir=campaign_dir,
     )
     _validate_roll_result_placement(
         paragraphs=_draft_paragraphs(draft),
@@ -2731,6 +2808,7 @@ def build_finalization_receipt(
         mechanics_placements,
         coverage=normalized_coverage,
         play_language=play_language,
+        campaign_dir=campaign_dir,
     )
     _validate_roll_result_placement(
         paragraphs=_draft_paragraphs(draft),

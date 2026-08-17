@@ -1,0 +1,44 @@
+diff --git a/node_modules/@earendil-works/pi-ai/dist/api/transform-messages.js b/node_modules/@earendil-works/pi-ai/dist/api/transform-messages.js
+index 6aa6aa2..3213934 100644
+--- a/node_modules/@earendil-works/pi-ai/dist/api/transform-messages.js
++++ b/node_modules/@earendil-works/pi-ai/dist/api/transform-messages.js
+@@ -127,6 +127,7 @@ export function transformMessages(messages, model, normalizeToolCallId) {
+     const result = [];
+     let pendingToolCalls = [];
+     let existingToolResultIds = new Set();
++    let skippedToolCallIds = new Set();
+     const insertSyntheticToolResults = () => {
+         if (pendingToolCalls.length > 0) {
+             for (const tc of pendingToolCalls) {
+@@ -157,6 +158,10 @@ export function transformMessages(messages, model, normalizeToolCallId) {
+             // - The model should retry from the last valid state
+             const assistantMsg = msg;
+             if (assistantMsg.stopReason === "error" || assistantMsg.stopReason === "aborted") {
++                const skippedCalls = assistantMsg.content.filter((b) => b.type === "toolCall");
++                for (const tc of skippedCalls) {
++                    skippedToolCallIds.add(tc.id);
++                }
+                 continue;
+             }
+             // Track tool calls from this assistant message
+@@ -165,15 +170,20 @@ export function transformMessages(messages, model, normalizeToolCallId) {
+                 pendingToolCalls = toolCalls;
+                 existingToolResultIds = new Set();
+             }
++            skippedToolCallIds.clear();
+             result.push(msg);
+         }
+         else if (msg.role === "toolResult") {
++            if (skippedToolCallIds.has(msg.toolCallId)) {
++                continue;
++            }
+             existingToolResultIds.add(msg.toolCallId);
+             result.push(msg);
+         }
+         else if (msg.role === "user") {
+             // User message interrupts tool flow - insert synthetic results for orphaned calls
+             insertSyntheticToolResults();
++            skippedToolCallIds.clear();
+             result.push(msg);
+         }
+         else {

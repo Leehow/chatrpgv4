@@ -8169,6 +8169,26 @@ def test_first_impression_receipt_accepts_authored_table_name(campaign_ws):
     assert after_ready["localized_name"] == accepted_name
 
 
+def test_first_impression_localizes_english_source_display_name(campaign_ws):
+    npc_id = "npc-steven-knott-en"
+    reaction = _run(campaign_ws, "npc.reaction", {
+        "npc_id": npc_id,
+        "npc_display_name": "Steven Knott",
+        "investigator": campaign_ws["investigator_id"],
+        "context": {
+            "player_conduct": "the investigator introduces themself",
+            "scene_constraints": "the authored commission remains in force",
+            "authored_or_relationship_boundary": "identity and agenda do not change",
+            "semantic_reason": "this is the actual first substantive contact",
+        },
+        "decision_id": "english-name-localized",
+        "seed": 1,
+    })
+    assert reaction["ok"] is True, reaction
+    assert reaction["data"]["npc_display_name"] == "史蒂文·诺特"
+    assert reaction["data"]["roll_record"]["npc_display_name"] == "史蒂文·诺特"
+
+
 def test_explicit_campaign_local_npc_presence_reaches_scene_context_and_replays(
     campaign_ws,
 ):
@@ -9704,6 +9724,88 @@ def test_attack_present_improvised_npc_uses_frozen_mechanics(campaign_ws):
         if row["actor_id"] == npc_id
     )
     assert pinned["mechanics_revision_ref"] == revision_ref
+
+
+def test_compiled_module_npc_mechanics_ready_via_ensure(campaign_ws):
+    ensured = _run(campaign_ws, "mechanics.ensure", {
+        "subject_kind": "npc",
+        "subject_id": "npc-walter-corbitt",
+        "purpose": "combat",
+        "decision_id": "ensure-compiled-corbitt",
+    })
+
+    assert ensured["ok"] is True, ensured
+    data = ensured["data"]
+    assert data["status"] == "ready"
+    assert data["authority"] == "compiled_module"
+    assert data["monster_ref"] == "Walter Corbitt"
+    assert data["affordance_id"] == "strike-with-his-dagger"
+    profile = data["profile"]
+    assert profile["authority"] == "source_authored"
+    assert profile["characteristics"] == {
+        "STR": 90, "CON": 115, "SIZ": 55, "DEX": 35, "POW": 90, "INT": 80,
+    }
+    assert profile["derived"] == {
+        "HP": 16, "MP": 18, "MOV": 8, "Build": 1, "DB": "+1D4",
+    }
+    assert profile["skills"] == {"Fighting (Brawl)": 90, "Dodge": 17}
+    assert profile["spells"] == ["Dominate", "Flesh Ward"]
+    assert profile["weapons"][0]["weapon_id"] == "floating-knife"
+    assert profile["weapons"][0]["extends"] == "knife_medium"
+    revision_ref = data["mechanics_revision_ref"]
+    assert revision_ref["authority"] == "source_authored"
+    assert revision_ref["stable_id"] == "npc:npc-walter-corbitt:mechanics"
+    assert revision_ref["revision"] == 1
+    participant = data["combat_participant"]
+    assert participant["actor_id"] == "npc-walter-corbitt"
+    assert participant["combat_skill"] == 90
+    assert participant["dodge_skill"] == 17
+    assert {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 448} in (
+        data["source_refs"]
+    )
+    assert {"path": "module:the-haunting"} in data["source_refs"]
+
+
+def test_combat_resolve_uses_compiled_module_npc_mechanics(campaign_ws):
+    moved = _run(campaign_ws, "state.move_scene", {
+        "scene_id": "corbitt-confrontation",
+        "decision_id": "move-compiled-npc-combat",
+    })
+    assert moved["ok"] is True, moved
+
+    result = _run(campaign_ws, "combat.resolve", {
+        "target_npc_id": "npc-walter-corbitt",
+        "investigator": campaign_ws["investigator_id"],
+        "weapon_id": "unarmed",
+        "decision_id": "attack-compiled-corbitt",
+        "seed": 41,
+    })
+
+    assert result["ok"] is True, result
+    pinned = next(
+        row for row in result["data"]["combat"]["participants"]
+        if row["actor_id"] == "npc-walter-corbitt"
+    )
+    assert pinned["combat_skill"] == 90
+    assert pinned["dodge_skill"] == 17
+    assert pinned["mechanics_revision_ref"]["authority"] == "source_authored"
+    assert pinned["mechanics_revision_ref"]["stable_id"] == (
+        "npc:npc-walter-corbitt:mechanics"
+    )
+
+
+def test_mechanics_ensure_source_npc_without_any_mechanics_fails_closed(
+    campaign_ws,
+):
+    ensured = _run(campaign_ws, "mechanics.ensure", {
+        "subject_kind": "npc",
+        "subject_id": "npc-steven-knott",
+        "purpose": "combat",
+        "decision_id": "ensure-unsourceable-knott",
+    })
+
+    assert ensured["ok"] is False, ensured
+    assert ensured["error"]["code"] == "mechanics_source_unavailable"
 
 
 def test_authored_weapon_effect_reaches_deterministic_combat_damage(campaign_ws):

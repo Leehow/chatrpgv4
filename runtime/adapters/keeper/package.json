@@ -4,5 +4,11 @@
   "type": "module",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2"
+  },
+  "scripts": {
+    "postinstall": "patch-package"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }

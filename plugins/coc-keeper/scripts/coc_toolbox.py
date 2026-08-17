@@ -154,6 +154,14 @@ _LEDGER_ENTRY_V3_FIELDS = frozenset({
     "source_receipt_required",
     "source_receipt_manifest",
 })
+_LEDGER_ENTRY_V4_FIELDS = frozenset({
+    *_LEDGER_ENTRY_V2_FIELDS,
+    "invalidation",
+})
+_LEDGER_ENTRY_V5_FIELDS = frozenset({
+    *_LEDGER_ENTRY_V3_FIELDS,
+    "invalidation",
+})
 _TOOL_TRANSACTION_WAIT_SECONDS = 10.0
 _TOOL_TRANSIENT_RETRY_ATTEMPTS = 3
 _TOOL_TRANSIENT_RETRY_DELAY_SECONDS = 0.05
@@ -481,6 +489,10 @@ class Ctx:
                 if entry_schema == 2
                 else _LEDGER_ENTRY_V3_FIELDS
                 if entry_schema == 3
+                else _LEDGER_ENTRY_V4_FIELDS
+                if entry_schema == 4
+                else _LEDGER_ENTRY_V5_FIELDS
+                if entry_schema == 5
                 else None
             )
             tool_name = entry.get("tool")
@@ -496,7 +508,7 @@ class Ctx:
                 or not entry["ts"]
                 or str(key) != self._ledger_key(tool_name, decision_id)
                 or (
-                    entry_schema == 3
+                    entry_schema in {3, 5}
                     and entry.get("source_receipt_required") is not True
                 )
             ):
@@ -504,7 +516,7 @@ class Ctx:
                     "state_corrupt",
                     "toolbox ledger entry does not match its current composite key schema",
                 )
-            if entry_schema == 3:
+            if entry_schema in {3, 5}:
                 _ledger_requires_source_receipt(entry)
         return ledger
 
@@ -518,8 +530,53 @@ class Ctx:
         entries = ledger["entries"]
         entry = entries.get(self._ledger_key(tool, str(decision_id)))
         if entry is not None:
+            invalidation = entry.get("invalidation")
+            if isinstance(invalidation, dict):
+                raise ToolError(
+                    "decision_invalidated",
+                    f"{tool} decision_id '{decision_id}' belongs to a turn tail "
+                    "invalidated by session.resume; use a fresh decision_id",
+                    details=deepcopy(invalidation),
+                )
             return entry
         return None
+
+    def ledger_invalidate(
+        self,
+        decisions: set[tuple[str, str]],
+        *,
+        reason: str,
+        source: str,
+    ) -> list[str]:
+        """Tombstone durable idempotency results whose state was rolled back."""
+        if not decisions:
+            return []
+        ledger = self._load_ledger()
+        entries = ledger["entries"]
+        invalidated: list[str] = []
+        now = _now_iso()
+        for tool, decision_id in sorted(decisions):
+            key = self._ledger_key(tool, decision_id)
+            entry = entries.get(key)
+            if not isinstance(entry, dict):
+                continue
+            if isinstance(entry.get("invalidation"), dict):
+                invalidated.append(key)
+                continue
+            entry = deepcopy(entry)
+            entry["entry_schema_version"] = (
+                5 if entry.get("entry_schema_version") == 3 else 4
+            )
+            entry["invalidation"] = {
+                "reason": reason,
+                "source": source,
+                "invalidated_at": now,
+            }
+            entries[key] = entry
+            invalidated.append(key)
+        if invalidated:
+            coc_state.write_json_atomic(self._ledger_path(), ledger)
+        return invalidated
 
     def ledger_record(
         self,
@@ -534,6 +591,16 @@ class Ctx:
         path = self._ledger_path()
         ledger = self._load_ledger()
         entries = ledger["entries"]
+        existing = entries.get(self._ledger_key(tool, str(decision_id)))
+        if isinstance(existing, dict) and isinstance(
+            existing.get("invalidation"), dict
+        ):
+            raise ToolError(
+                "decision_invalidated",
+                f"{tool} decision_id '{decision_id}' was invalidated by a "
+                "turn-tail restore and cannot be reused; use a fresh decision_id",
+                details=deepcopy(existing["invalidation"]),
+            )
         entry = {
             "entry_schema_version": 3 if source_receipt_manifest is not None else 2,
             "tool": tool,
@@ -1173,8 +1240,10 @@ def _error_recovery_hints(code: str) -> list[str]:
         "turn_pending_finalization": [
             "state.journal already committed for this turn — call turn.finalize NOW; no further state mutations are allowed until this turn is finalized; read-only queries such as state.inventory_list remain legal"
         ],
-        "opening_setup_incomplete": [
-            "follow error.details.next_operation exactly when present; this is "
+        "mechanics_source_unavailable": [
+            "this source NPC has no generated, authored, or compiled-module mechanics and the campaign has no progressive module project; do not invent or reuse generic stats — surface the gap instead of settling combat unmechanically"
+        ],
+        "opening_setup_incomplete": [            "follow error.details.next_operation exactly when present; this is "
             "a hard setup gate, so do not rediscover, resume, rebind, inspect "
             "live-play state, or narrate an opening first",
         ],
@@ -2073,6 +2142,15 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 pending_turn_manifest = coc_turn_manifest.pending_manifest(
                     ctx.campaign_dir
                 )
+                if (
+                    spec.get("access", "mutation") != "query"
+                    and isinstance(args.get("decision_id"), str)
+                    and str(args["decision_id"]).strip()
+                ):
+                    # Check the durable decision disposition before any
+                    # handler-specific receipt replay can resurrect a branch
+                    # whose state was removed by session.resume.
+                    ctx.ledger_lookup(name, str(args["decision_id"]))
             if (
                 pending_turn_manifest is not None
                 and spec.get("access", "mutation") != "query"
@@ -4929,7 +5007,7 @@ def _ledger_requires_source_receipt(entry: dict[str, Any] | None) -> bool:
         or (
             isinstance(entry_schema, int)
             and not isinstance(entry_schema, bool)
-            and entry_schema >= 3
+            and entry_schema in {3, 5}
         )
     )
     if "source_receipt_manifest" not in entry:
@@ -10964,6 +11042,85 @@ def _runtime_generated_npc_mechanics(ctx: Ctx, npc_id: str) -> dict[str, Any] | 
     return None
 
 
+def _compiled_module_npc_mechanics(
+    ctx: Ctx, subject: dict[str, Any], subject_id: str,
+) -> dict[str, Any] | None:
+    """Resolve a module NPC's mechanics from compiled combat affordances.
+
+    Bundled (non-progressive) scenarios carry NPC combat truth in authored
+    combat_engagement affordances — a compact opponent spec plus a
+    ``monster_ref`` into the reviewed ruleset monsters table — rather than in
+    npc-agendas mechanics.  Reuse that same authored truth for
+    mechanics.ensure / emergent combat.resolve instead of dead-ending on
+    progressive source work that a bundled scenario can never fulfill.
+    Scenes and affordances are scanned in authored order, so the result is
+    deterministic.
+    """
+    subject_name = str(subject.get("name") or "").strip()
+    bare_id = subject_id[len("npc-"):] if subject_id.startswith("npc-") else subject_id
+    for scene in (ctx.story_graph or {}).get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for affordance in scene.get("affordances") or []:
+            operation = (
+                affordance.get("rules_operation")
+                if isinstance(affordance, dict) else None
+            )
+            if not isinstance(operation, dict) or operation.get("kind") != "combat_engagement":
+                continue
+            opponent = operation.get("opponent")
+            if not isinstance(opponent, dict):
+                continue
+            opponent_id = str(opponent.get("actor_id") or "").strip()
+            monster_ref = str(opponent.get("monster_ref") or "").strip()
+            if opponent_id not in {subject_id, bare_id} and (
+                not monster_ref or not subject_name or monster_ref != subject_name
+            ):
+                continue
+            if not monster_ref:
+                continue
+            module_weapons: list[dict[str, Any]] = []
+            module_rules_id = str(operation.get("module_rules_id") or "").strip()
+            if module_rules_id:
+                try:
+                    table = coc_rules.load_rule_table(module_rules_id)
+                except (OSError, ValueError):
+                    table = None
+                if isinstance(table, dict):
+                    module_weapons = [
+                        entry for entry in table.get("weapons") or []
+                        if isinstance(entry, dict)
+                    ]
+            profile = coc_mechanics.module_monster_actor_profile(
+                monster_ref, opponent, module_weapons=module_weapons,
+            )
+            if profile is None:
+                continue
+            revision_ref = coc_mechanics.mechanics_revision_ref(
+                subject_id, 1, profile, authority="source_authored",
+            )
+            source_refs: list[dict[str, Any]] = []
+            try:
+                monster_row = coc_rules.monster_by_name(monster_ref)
+            except (KeyError, TypeError):
+                monster_row = None
+            if isinstance(monster_row, dict) and isinstance(monster_row.get("source_page"), int):
+                source_refs.append({
+                    "path": "Call of Cthulhu 7e Keeper Rulebook",
+                    "page": monster_row["source_page"],
+                })
+            if module_rules_id:
+                source_refs.append({"path": f"module:{module_rules_id}"})
+            return {
+                "profile": profile,
+                "mechanics_revision_ref": revision_ref,
+                "monster_ref": monster_ref,
+                "affordance_id": affordance.get("id"),
+                "source_refs": source_refs,
+            }
+    return None
+
+
 def _authored_npc_mechanics_revision_ref(
     subject: dict[str, Any], npc_id: str,
 ) -> dict[str, Any]:
@@ -11243,6 +11400,38 @@ def _tool_mechanics_ensure(ctx: Ctx, args: dict[str, Any]):
         except coc_mechanics.MechanicsError as exc:
             raise ToolError("invalid_scenario", str(exc)) from exc
 
+    # Compiled-module fallback: bundled scenarios carry NPC combat truth in
+    # authored combat_engagement affordances (opponent spec + monster_ref into
+    # the reviewed ruleset monsters table), not in npc-agendas mechanics.
+    # Resolve it before progressive source work, which a non-progressive
+    # campaign can never fulfill.
+    if subject_kind == "npc":
+        compiled = _compiled_module_npc_mechanics(ctx, subject, subject_id)
+        if compiled is not None:
+            profile = deepcopy(compiled["profile"])
+            revision_ref = deepcopy(compiled["mechanics_revision_ref"])
+            data = {
+                "status": "ready",
+                "authority": "compiled_module",
+                "subject_kind": subject_kind,
+                "subject_id": subject_id,
+                "profile": profile,
+                "source_refs": deepcopy(compiled["source_refs"]),
+                "monster_ref": compiled["monster_ref"],
+                "affordance_id": compiled["affordance_id"],
+                "mechanics_revision_ref": revision_ref,
+                "combat_participant": coc_mechanics.actor_combat_participant(
+                    subject_id, profile, side="npc",
+                    mechanics_revision_ref=revision_ref,
+                ),
+                "reused": False,
+            }
+            ctx.ledger_record(decision_id, tool_name, data)
+            return data, [], [
+                "compiled module combat data (affordance opponent spec + "
+                "ruleset monster row) was selected over progressive source work"
+            ]
+
     if not coc_mechanics.fallback_allowed(subject):
         try:
             source_work = coc_module_project.request_mechanics(
@@ -11255,6 +11444,18 @@ def _tool_mechanics_ensure(ctx: Ctx, args: dict[str, Any]):
             )
         except coc_module_project.ModuleProjectError as exc:
             raise ToolError("progressive_error", str(exc)) from exc
+        if isinstance(source_work, dict) and source_work.get("skipped") is True:
+            # A skipped request is a dead end, not work in progress: the
+            # campaign has no progressive module project, so nothing will ever
+            # fulfill it.  Failing closed beats returning ok=true and letting
+            # the Keeper drift on without mechanics.
+            raise ToolError(
+                "mechanics_source_unavailable",
+                f"{subject_kind} {subject_id!r} has no generated, authored, or "
+                f"compiled-module mechanics and no progressive module project "
+                f"to source them ({source_work.get('reason')}); the Keeper must "
+                "not invent stats for a source NPC",
+            )
         source_work, locator_discovery = _with_mechanics_locator_discovery(
             ctx,
             source_work,
@@ -11525,10 +11726,14 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
                 agenda, target_npc_id,
             )
         else:
-            raise ToolError(
-                "mechanics_not_ready",
-                f"NPC {target_npc_id!r} has no ready mechanics profile; call mechanics.ensure first",
-            )
+            compiled = _compiled_module_npc_mechanics(ctx, agenda, target_npc_id)
+            if compiled is None:
+                raise ToolError(
+                    "mechanics_not_ready",
+                    f"NPC {target_npc_id!r} has no ready mechanics profile; call mechanics.ensure first",
+                )
+            profile = compiled["profile"]
+            opponent_revision_ref = deepcopy(compiled["mechanics_revision_ref"])
         if not isinstance(profile, dict):
             raise ToolError("invalid_scenario", "ready NPC mechanics profile is malformed")
         module_weapons: list[dict[str, Any]] = []
@@ -13668,6 +13873,12 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
 
 _TURN_RECOVERY_MEANINGFUL_QUERIES = frozenset({"actions.advise"})
 _TURN_RECOVERY_NON_TURN_MUTATIONS = frozenset({"session.delivery_ack"})
+_TURN_TAIL_DURABLE_DECISION_TOOLS = frozenset({
+    "session.begin",
+    "session.delivery_ack",
+    "development.settle",
+    "state.end_session",
+})
 
 
 def _turn_recovery_meaningful_tools() -> frozenset[str]:
@@ -13712,9 +13923,26 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
         return {
             "quarantined_orphan_rolls": [],
             "restored_commit_snapshot": None,
+            "invalidated_decisions": [],
             "discarded_development_ticks": {"queue": 0, "claims": 0, "archive": 0},
         }
     orphan_set = set(orphan_ids)
+
+    invalidation_candidates: set[tuple[str, str]] = set()
+    if not has_pending_turn:
+        for row in coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir):
+            tool_name = str(row.get("tool") or "")
+            tool_spec = TOOLS.get(tool_name)
+            row_args = row.get("args") if isinstance(row.get("args"), dict) else {}
+            decision_id = str(row_args.get("decision_id") or "").strip()
+            if (
+                row.get("ok") is True
+                and isinstance(tool_spec, dict)
+                and tool_spec.get("access", "mutation") != "query"
+                and tool_name not in _TURN_TAIL_DURABLE_DECISION_TOOLS
+                and decision_id
+            ):
+                invalidation_candidates.add((tool_name, decision_id))
 
     orphan_sources: set[str] = set()
     document: dict[str, Any] | None = None
@@ -13753,6 +13981,11 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
             for roll_id in orphan_ids
         },
     )
+    invalidated_decisions = ctx.ledger_invalidate(
+        invalidation_candidates,
+        reason="unfinalized_turn_tail",
+        source="session.resume",
+    )
 
     if document is not None:
         pending = document.get("pending_side_effects") or {}
@@ -13777,11 +14010,13 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
         "roll_ids": sorted(orphan_set),
         "restored_commit_snapshot": restored,
         "reason": "unfinalized_turn_tail",
+        "invalidated_decisions": invalidated_decisions,
         "discarded_development_ticks": discarded_ticks,
     })
     return {
         "quarantined_orphan_rolls": sorted(orphan_set),
         "restored_commit_snapshot": restored,
+        "invalidated_decisions": invalidated_decisions,
         "discarded_development_ticks": discarded_ticks,
     }
 
@@ -19103,20 +19338,21 @@ def _ensure_first_impression_roll(
         raise ToolError("campaign_busy", str(exc)) from exc
 
 
-def _campaign_play_language(ctx: Ctx) -> str:
-    """Active campaign play_language for player-facing chrome (default zh-Hans)."""
+def _campaign_document(ctx: Ctx) -> dict[str, Any]:
     if ctx.campaign_dir is None:
-        return "zh-Hans"
+        return {}
     path = ctx.campaign_dir / "campaign.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
-        return "zh-Hans"
-    if isinstance(data, dict):
-        language = str(data.get("play_language") or "").strip()
-        if language:
-            return language
-    return "zh-Hans"
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _campaign_play_language(ctx: Ctx) -> str:
+    """Active campaign play_language for player-facing chrome (default zh-Hans)."""
+    language = str(_campaign_document(ctx).get("play_language") or "").strip()
+    return language or "zh-Hans"
 
 
 def _first_impression_display_skill(ctx: Ctx) -> str:
@@ -19185,6 +19421,12 @@ def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
     agenda = _npc_by_id(ctx.npc_agendas, requested_npc_id)
     npc_id = str(agenda.get("npc_id")) if agenda is not None else requested_npc_id
     npc_display_name = str(args.get("npc_display_name") or "").strip()
+    if npc_display_name:
+        npc_display_name = coc_language.player_facing_display_name(
+            npc_display_name,
+            _campaign_play_language(ctx),
+            _campaign_document(ctx),
+        )
     campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
     run_id = coc_npc_event_chain.resolve_run_id(
         ctx.campaign_dir, structured_source=args

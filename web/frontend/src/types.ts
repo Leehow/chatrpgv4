@@ -228,6 +228,14 @@ export interface CombatInitiativeRow {
 }
 
 export interface CombatInitiative {
+  /** Session id from save/combat.json; a fresh encounter restarts with a new
+   *  id, so the UI keys "战斗结束" dismissal on it. */
+  combat_id?: string | null;
+  /** Engine-owned session state: combat.json persists after conclusion. */
+  status?: "active" | "concluded";
+  /** Engine-owned outcome when concluded (investigators_win | monsters_win |
+   *  fled | stalemate). */
+  outcome?: string | null;
   round: number;
   rule: "dex_order";
   rows: CombatInitiativeRow[];
@@ -270,11 +278,11 @@ export interface SessionInfo {
   session_id: string;
   campaign_id: string;
   investigator_id: string;
-  /** Deprecated: web no longer opens a setup-draft keeper session. */
+  /** Investigator-less table: attach the host's coc-character opening. */
   character_setup?: boolean;
   /** Product turn channel is the pi-coc RPC host. */
   host?: "pi-coc";
-  /** Fresh host: frontend should attach to the auto-open turn. */
+  /** Fresh host, or investigator-less setup: frontend should attach. */
   host_opening?: boolean;
   state: GameState;
 }

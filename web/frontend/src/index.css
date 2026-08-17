@@ -33,11 +33,11 @@
 /* ── Dossier · 卷宗纸面浅色主题 ─────────────────────────────── */
 :root {
   --background: oklch(0.975 0.008 82);
-  --foreground: oklch(0.29 0.02 60);
+  --foreground: oklch(0.22 0.024 55);
   --card: oklch(0.992 0.005 85);
-  --card-foreground: oklch(0.29 0.02 60);
+  --card-foreground: oklch(0.22 0.024 55);
   --popover: oklch(0.995 0.004 85);
-  --popover-foreground: oklch(0.29 0.02 60);
+  --popover-foreground: oklch(0.22 0.024 55);
   --primary: oklch(0.46 0.13 30);
   --primary-foreground: oklch(0.97 0.015 85);
   --secondary: oklch(0.94 0.014 82);
@@ -77,11 +77,11 @@
 /* 深色密仪：同一信息层级，只换成适合夜间长时间跑团的墨蓝纸面。 */
 :root[data-theme="dark"] {
   --background: oklch(0.18 0.022 215);
-  --foreground: oklch(0.91 0.018 82);
+  --foreground: oklch(0.94 0.016 82);
   --card: oklch(0.205 0.023 215);
-  --card-foreground: oklch(0.91 0.018 82);
+  --card-foreground: oklch(0.94 0.016 82);
   --popover: oklch(0.225 0.025 215);
-  --popover-foreground: oklch(0.92 0.015 82);
+  --popover-foreground: oklch(0.94 0.015 82);
   --primary: oklch(0.62 0.16 31);
   --primary-foreground: oklch(0.96 0.015 82);
   --secondary: oklch(0.25 0.024 215);
@@ -160,8 +160,8 @@
     -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Segoe UI", sans-serif;
   --font-display:
-    "Cormorant Garamond", "Songti SC", "STSong", "Noto Serif CJK SC",
-    "Source Han Serif SC", "SimSun", serif;
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong",
+    "Noto Serif CJK SC", "SimSun", "Cormorant Garamond", serif;
 }
 
 @layer base {
@@ -240,11 +240,13 @@
 /* Keeper prose stays editorial. Structured quotes and tables supplied by the
  * authoritative transcript read as mechanical receipts without parsing prose. */
 .keeper-message .prose {
-  font-family: var(--font-display);
-  font-size: 0.98rem;
-  line-height: 1.92;
-  letter-spacing: 0.012em;
+  font-family: var(--font-sans);
+  font-size: 1.05rem;
+  line-height: 1.9;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--foreground);
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .keeper-message .prose :where(p, li, td, blockquote) {
@@ -272,6 +274,69 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+}
+
+/* KP 选项列表：纸面便签式条目，编号醒目，不做成现代 IM 气泡 */
+.keeper-message .prose :where(ol, ul) {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.95rem 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.keeper-message .prose :where(ol, ul) > li {
+  position: relative;
+  margin: 0;
+  padding: 0.62rem 0.85rem 0.62rem 2.35rem;
+  border-radius: 0.42rem;
+  border: 1px solid color-mix(in oklab, var(--brass) 28%, var(--border));
+  border-left: 3px solid color-mix(in oklab, var(--brass) 68%, var(--primary) 20%);
+  background: color-mix(in oklab, var(--card) 86%, var(--brass) 4%);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.keeper-message .prose :where(ol, ul) > li:hover {
+  background: color-mix(in oklab, var(--card) 78%, var(--brass) 8%);
+  border-color: color-mix(in oklab, var(--brass) 42%, var(--border));
+}
+
+.keeper-message .prose ol {
+  counter-reset: keeper-option;
+}
+
+.keeper-message .prose ol > li {
+  counter-increment: keeper-option;
+}
+
+.keeper-message .prose ol > li::before {
+  content: counter(keeper-option);
+  position: absolute;
+  left: 0.62rem;
+  top: 0.58rem;
+  display: grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--background) 70%, var(--brass) 16%);
+  color: var(--primary);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: lining-nums tabular-nums;
+  line-height: 1;
+}
+
+.keeper-message .prose ul > li::before {
+  content: "·";
+  position: absolute;
+  left: 0.85rem;
+  top: 0.48rem;
+  color: var(--brass);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .dice-receipt {
@@ -756,6 +821,159 @@
 .initiative-status { color: var(--muted-foreground); }
 .initiative-row.is-current .initiative-status { background: color-mix(in oklab, var(--background) 82%, var(--primary) 10%); color: var(--primary); }
 .initiative-note { margin: 0; border-top: 1px solid color-mix(in oklab, var(--border) 76%, transparent); padding: 0.5rem 0.95rem; color: var(--muted-foreground); font-size: 0.62rem; }
+
+/* ---- 战斗轮浮窗（CombatOverlay）---- */
+.combat-overlay {
+  position: fixed;
+  top: 4.5rem;
+  right: 1rem;
+  z-index: 40;
+  width: 19rem;
+  max-width: calc(100vw - 2rem);
+}
+
+/* xl 起常驻角色面板占右侧 20rem，浮窗左移避让 */
+@media (min-width: 1280px) {
+  .combat-overlay { right: 21.5rem; }
+}
+
+.combat-overlay .initiative-header { padding: 0.6rem 0.8rem; }
+.combat-overlay .initiative-header h2 { font-size: 0.95rem; }
+.combat-overlay .initiative-rule { display: none; }
+.combat-overlay .initiative-track { max-height: 40vh; overflow-y: auto; }
+.combat-overlay .initiative-row {
+  grid-template-columns: 1.6rem minmax(0, 1fr) 2.6rem 4.6rem;
+  gap: 0.45rem;
+  padding: 0.5rem 0.25rem;
+}
+.combat-overlay .initiative-firearm { display: none; }
+
+.combat-phase {
+  margin-left: 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--background) 82%, var(--primary) 10%);
+  padding: 0.1rem 0.5rem;
+  color: var(--primary);
+  font-family: var(--font-sans);
+  font-size: 0.6rem;
+  font-weight: 700;
+  vertical-align: 0.12em;
+}
+.combat-phase.is-concluded { background: var(--secondary); color: var(--muted-foreground); }
+
+.combat-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  padding: 0.3rem;
+  color: var(--muted-foreground);
+  transition: color 120ms, background 120ms;
+}
+.combat-icon-btn:hover { background: var(--secondary); color: var(--foreground); }
+
+/* 收起/展开只在桌面浮窗里有意义（窄屏抽屉整窗开关） */
+.combat-collapse-btn { display: none; }
+@media (min-width: 40rem) {
+  .combat-overlay .combat-collapse-btn { display: inline-flex; }
+}
+
+.combat-self {
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+  padding: 0.55rem 0.95rem;
+}
+.combat-self-hp { display: flex; align-items: center; gap: 0.5rem; }
+.combat-self-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted-foreground);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+.combat-self-hpbar {
+  overflow: hidden;
+  flex: 1;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+.combat-self-hpbar > span { display: block; height: 100%; border-radius: 999px; transition: width 240ms; }
+.combat-self-hp b { color: var(--foreground); font-size: 0.82rem; }
+.combat-self-hp b small { color: var(--muted-foreground); font-size: 0.62rem; font-weight: 500; }
+.combat-self-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+}
+.combat-self-stat b { color: var(--foreground); }
+.combat-self-weapons { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.combat-self-weapon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+  border-radius: 999px;
+  background: var(--background);
+  padding: 0.14rem 0.5rem;
+  color: var(--foreground);
+  font-size: 0.62rem;
+}
+.combat-self-weapon small { color: var(--muted-foreground); }
+
+/* 窄屏：右侧边缘折叠 tab（默认隐藏，仅 < sm 显示；不用 Tailwind 的 hidden，
+   避免非 layer 的手写 display 压过工具类） */
+.combat-edge-tab { display: none; }
+@media (width < 40rem) {
+  .combat-edge-tab {
+    display: inline-flex;
+    position: fixed;
+    top: 38%;
+    right: 0;
+    z-index: 40;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid color-mix(in oklab, var(--brass) 56%, var(--border));
+    border-right: 0;
+    border-radius: 0.6rem 0 0 0.6rem;
+    background: color-mix(in oklab, var(--card) 94%, var(--brass) 4%);
+    padding: 0.7rem 0.4rem;
+    color: var(--brass);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    box-shadow: -6px 0 18px rgb(var(--paper-ink) / 0.06);
+    writing-mode: vertical-rl;
+  }
+  .combat-edge-tab:active { background: color-mix(in oklab, var(--card) 88%, var(--brass) 10%); }
+}
+
+/* 聊天区「回到底部」跳转按钮 */
+.jump-bottom {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.9rem;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid color-mix(in oklab, var(--brass) 50%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--card) 94%, var(--brass) 3%);
+  padding: 0.36rem 0.7rem;
+  color: var(--brass);
+  font-size: 0.68rem;
+  font-weight: 700;
+  box-shadow: 0 8px 22px rgb(var(--paper-ink) / 0.1);
+  transition: transform 140ms, color 140ms, border-color 140ms;
+}
+.jump-bottom:hover { color: var(--primary); border-color: color-mix(in oklab, var(--primary) 45%, var(--border)); transform: translateY(1px); }
+
 
 .san-resolution-stack { display: grid; gap: 0.65rem; }
 .san-receipt {

@@ -78,7 +78,7 @@ function resourceBar(actor: Actor | null, key: string, max: number | null) {
   const current = actor?.resources?.[key];
   if (typeof current !== "number") return null;
   const cap = typeof max === "number" && max > 0 ? max : current;
-  const pct = Math.max(0, Math.min(100, (current / cap) * 100));
+  const pct = cap > 0 ? Math.max(0, Math.min(100, (current / cap) * 100)) : 0;
   return { current, cap, pct };
 }
 
@@ -87,6 +87,7 @@ function SectionTitle({ icon, text }: { icon: React.ReactNode; text: string }) {
     <h3 className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
       {icon}
       {text}
+      <span aria-hidden className="ml-1 h-px flex-1 bg-border/70" />
     </h3>
   );
 }
@@ -223,13 +224,13 @@ export function PanelContent({
               </p>
             ) : (
               <>
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   {RESOURCE_META.map((meta) => {
                     const bar = resourceBar(actor, meta.key, derivedNum(meta.derived));
                     if (!bar) return null;
                     return (
-                      <div key={meta.key} className="flex items-center gap-2">
-                        <span className="w-16 shrink-0 text-[11px] text-muted-foreground">
+                      <div key={meta.key} className="flex items-center gap-3">
+                        <span className="w-14 shrink-0 text-xs text-muted-foreground">
                           {meta.label}
                         </span>
                         <Progress
@@ -240,9 +241,13 @@ export function PanelContent({
                             "transition-[width] duration-300 ease-out",
                           )}
                         />
-                        <span className={cn("w-12 shrink-0 text-right text-[11px] tabular-nums", meta.textCls)}>
-                          {bar.current}
-                          {bar.cap ? `/${bar.cap}` : ""}
+                        <span className={cn("min-w-16 shrink-0 text-right tabular-nums", meta.textCls)}>
+                          <span className="font-display text-base leading-none font-semibold">
+                            {bar.current}
+                          </span>
+                          {bar.cap ? (
+                            <span className="text-[11px] text-muted-foreground">/{bar.cap}</span>
+                          ) : null}
                         </span>
                       </div>
                     );
@@ -268,15 +273,15 @@ export function PanelContent({
                 )}
 
                 {chars.length > 0 && (
-                  <div className="mt-3.5 grid grid-cols-4 gap-1.5">
+                  <div className="mt-4 grid grid-cols-4 gap-1.5">
                     {chars.map((c) => (
                       <div
                         key={c.key}
                         title={c.key}
-                        className="flex flex-col items-center rounded-lg border border-border/40 bg-secondary/70 px-1 py-1.5"
+                        className="flex flex-col items-center gap-1 rounded-lg border border-border/40 bg-secondary/70 px-1 py-2"
                       >
-                        <span className="text-[10px] text-muted-foreground">{c.label}</span>
-                        <span className="text-sm font-semibold tabular-nums">{c.value}</span>
+                        <span className="text-[10px] tracking-wide text-muted-foreground">{c.label}</span>
+                        <span className="font-display text-lg leading-none font-semibold tabular-nums">{c.value}</span>
                       </div>
                     ))}
                   </div>
@@ -291,15 +296,16 @@ export function PanelContent({
       {(view === "all" || view === "character") && !setupPending && skills.length > 0 && (
         <section className="panel-section">
           <SectionTitle icon={<Fingerprint className="size-3.5" />} text="技能" />
-          <div className="mt-2.5 space-y-1">
+          <div className="mt-2.5 space-y-1.5">
             {skills.map((s) => (
               <div
                 key={s.key}
                 title={s.key}
-                className="flex items-baseline justify-between gap-2 text-sm"
+                className="flex items-baseline gap-2 text-sm leading-6"
               >
                 <span className="truncate text-foreground/90">{s.label}</span>
-                <span className="shrink-0 text-xs font-semibold text-primary tabular-nums">
+                <span aria-hidden className="mx-1 flex-1 border-b border-dotted border-border" />
+                <span className="shrink-0 font-display text-[15px] font-semibold text-primary tabular-nums">
                   {s.value}
                 </span>
               </div>
@@ -312,11 +318,14 @@ export function PanelContent({
       {(view === "all" || view === "items") && !setupPending && weapons.length > 0 && (
         <section className="panel-section">
           <SectionTitle icon={<Swords className="size-3.5" />} text="武器" />
-          <div className="mt-2.5 space-y-2">
+          <div className="mt-2.5 space-y-1.5">
             {weapons.map((w, i) => (
-              <div key={i} className="text-sm">
-                <div className="font-medium text-foreground">{w.label ?? "武器"}</div>
-                <div className="text-xs text-muted-foreground">
+              <div
+                key={i}
+                className="rounded-lg border border-border/40 bg-secondary/70 px-2.5 py-1.5"
+              >
+                <div className="text-sm font-medium text-foreground">{w.label ?? "武器"}</div>
+                <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
                   {w.damage ?? ""}
                   {w.skill_label ? ` · ${w.skill_label}` : ""}
                   {w.ammo !== undefined && w.ammo !== null ? ` · 弹药 ${w.ammo}` : ""}

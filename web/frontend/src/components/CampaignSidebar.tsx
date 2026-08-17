@@ -39,7 +39,7 @@ function purgeCountdown(purgeAt?: string | null): string {
   return `${Math.ceil(minutes / 60)} 小时后自动清除`;
 }
 
-type CardMode = { id: string; kind: "rename" | "delete" };
+type CardMode = { id: string; kind: "rename" };
 
 function CampaignCard({
   campaign,
@@ -49,10 +49,9 @@ function CampaignCard({
   draftTitle,
   setDraftTitle,
   onStartRename,
-  onStartDelete,
+  onDelete,
   onCancelMode,
   onCommitRename,
-  onCommitDelete,
   onOpen,
 }: {
   campaign: CampaignSummary;
@@ -62,10 +61,9 @@ function CampaignCard({
   draftTitle: string;
   setDraftTitle: (value: string) => void;
   onStartRename: () => void;
-  onStartDelete: () => void;
+  onDelete: () => void;
   onCancelMode: () => void;
   onCommitRename: () => void;
-  onCommitDelete: () => void;
   onOpen: () => void;
 }) {
   const title = campaign.title || campaign.campaign_id;
@@ -117,25 +115,6 @@ function CampaignCard({
             </Button>
           </div>
         </div>
-      ) : mode?.kind === "delete" ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            将「{title}」移入回收站？24 小时后自动清除，期间可恢复。
-          </p>
-          <div className="flex items-center justify-end gap-1.5">
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={onCancelMode}
-              disabled={busy}
-            >
-              取消
-            </Button>
-            <Button size="xs" variant="destructive" onClick={onCommitDelete} disabled={busy}>
-              删除
-            </Button>
-          </div>
-        </div>
       ) : (
         <>
           {/* Whole-card click target; sibling action bar sits above it. */}
@@ -170,7 +149,7 @@ function CampaignCard({
                 size="icon-xs"
                 variant="ghost"
                 className="text-muted-foreground/60 hover:text-destructive"
-                onClick={onStartDelete}
+                onClick={onDelete}
                 disabled={busy}
                 title="删除（移入回收站）"
               >
@@ -326,10 +305,7 @@ export function CampaignSidebar({
 
   const commitDelete = async (campaign: CampaignSummary) => {
     const ok = await onTrash(campaign.campaign_id);
-    if (ok) {
-      setMode(null);
-      setTrashTick((value) => value + 1);
-    }
+    if (ok) setTrashTick((value) => value + 1);
   };
 
   return (
@@ -371,10 +347,9 @@ export function CampaignSidebar({
               draftTitle={draftTitle}
               setDraftTitle={setDraftTitle}
               onStartRename={() => startRename(c)}
-              onStartDelete={() => setMode({ id: c.campaign_id, kind: "delete" })}
+              onDelete={() => void commitDelete(c)}
               onCancelMode={() => setMode(null)}
               onCommitRename={() => void commitRename(c)}
-              onCommitDelete={() => void commitDelete(c)}
               onOpen={() => onOpen(c.campaign_id)}
             />
           ))}

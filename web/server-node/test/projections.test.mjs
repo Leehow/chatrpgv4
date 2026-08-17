@@ -14,6 +14,8 @@ import {
   formatPlayerTime,
   sceneDisplayLabel,
   tableTranscriptMessages,
+  localizeTerms,
+  resolvedLocalizedTerms,
   tensionDisplayLabel,
   zhDigits,
   zhHourPhrase,
@@ -130,6 +132,9 @@ test("discoveredCluesDisplay projects player-safe summaries only", () => {
 test("combatInitiativeDisplay projects canonical DEX order and ready-firearm bonus", () => {
   const ws = makeWorkspace();
   writeJson(path.join(ws, ".coc/campaigns/c1/save/combat.json"), {
+    combat_id: "cbt-1",
+    status: "active",
+    outcome: null,
     current_round: 3,
     initiative_cursor: 0,
     current_initiative: [
@@ -153,6 +158,9 @@ test("combatInitiativeDisplay projects canonical DEX order and ready-firearm bon
     investigatorName: "林若海",
   });
   assert.equal(out.round, 3);
+  assert.equal(out.combat_id, "cbt-1");
+  assert.equal(out.status, "active");
+  assert.equal(out.outcome, null);
   assert.deepEqual(out.rows.map((row) => [row.display_name, row.initiative_value, row.current]), [
     ["持枪教徒", 90, true],
     ["林若海", 65, false],
@@ -160,6 +168,26 @@ test("combatInitiativeDisplay projects canonical DEX order and ready-firearm bon
   ]);
   assert.equal(out.rows[0].ready_firearm, true);
   assert.equal(out.rows[2].status, "excluded_at_round_start");
+});
+
+test("combatInitiativeDisplay surfaces concluded status and outcome (session file persists)", () => {
+  const ws = makeWorkspace();
+  writeJson(path.join(ws, ".coc/campaigns/c1/save/combat.json"), {
+    combat_id: "cbt-2",
+    status: "concluded",
+    outcome: "investigators_win",
+    current_round: 4,
+    initiative_cursor: 1,
+    current_initiative: [{ actor_id: "hero", dex: 65, dex_reason: null }],
+    initiative_progress: [
+      { actor_id: "hero", initiative: { actor_id: "hero", dex: 65, dex_reason: null }, status: "acted" },
+    ],
+  });
+  const out = combatInitiativeDisplay(ws, "c1", { investigatorId: "hero", investigatorName: "林若海" });
+  assert.equal(out.combat_id, "cbt-2");
+  assert.equal(out.status, "concluded");
+  assert.equal(out.outcome, "investigators_win");
+  assert.equal(out.round, 4);
 });
 
 test("tableTranscriptMessages pairs turns with telemetry durations", () => {
@@ -548,4 +576,42 @@ test("supportedThinkingLevels matches pi-ai's own resolver on catalog models", a
     });
     assert.deepEqual(ours, theirs, `${providerId}/${modelId}`);
   }
+});
+
+test("public roll display remaps frozen English NPC names", () => {
+  const ws = makeWorkspace();
+  writeJson(path.join(ws, ".coc/campaigns/c1/campaign.json"), {
+    play_language: "zh-Hans",
+    localized_terms: { "zh-Hans": {} },
+  });
+  const terms = resolvedLocalizedTerms(ws, "c1", "zh-Hans");
+  assert.equal(localizeTerms("Steven Knott", terms), "史蒂文·诺特");
+  assert.equal(localizeTerms("Knott nodded. Knotting stayed." , terms), "诺特 nodded. Knotting stayed.");
+  const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const receipt = "【明骰】初印象·Steven Knott｜掷骰：41；基础值：65；达到：成功；通过";
+  fs.writeFileSync(
+    path.join(logsDir, "table-transcript.jsonl"),
+    JSON.stringify({
+      role: "keeper",
+      text: `门开了。\n\n[roll]\n${receipt}\n[/roll]`,
+      turn: 0,
+      finalization_id: null,
+      presented_roll_ids: ["opening-en-1"],
+    }) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(logsDir, "rolls.jsonl"),
+    JSON.stringify({
+      roll_id: "opening-en-1",
+      visibility: "public",
+      display_skill: "初印象",
+      npc_display_name: "Steven Knott",
+      kind: "npc_first_impression",
+      roll: 41,
+      target: 65,
+    }) + "\n",
+  );
+  const keeper = tableTranscriptMessages(ws, "c1")[0];
+  assert.equal(keeper.content_blocks[1].roll.npc_display_name, "史蒂文·诺特");
 });

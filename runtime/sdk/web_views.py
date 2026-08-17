@@ -164,11 +164,23 @@ def _display_character(
             wid = row.get("weapon_id")
             if isinstance(wid, str) and wid:
                 pf_weapon_by_id[wid] = pf_weapons[index]
+    # Runtime-granted weapon specs carry no display label of their own; the
+    # granting entry's label (play-language, chosen by the KP) is the label.
+    entry_weapon_labels: dict[str, str] = {}
+    if inventory is not None and coc_inventory is not None:
+        for entry in inventory.get("entries") or []:
+            if not isinstance(entry, dict) or entry.get("kind") != "weapon":
+                continue
+            wid = coc_inventory.weapon_ref_id(entry.get("weapon"))
+            label = entry.get("label")
+            if wid and isinstance(label, str) and label.strip():
+                entry_weapon_labels[wid] = label.strip()
     weapons: list[dict[str, Any]] = []
     for weapon in weapon_rows:
         if not isinstance(weapon, dict):
             continue
-        pf_weapon = pf_weapon_by_id.get(str(weapon.get("weapon_id") or ""), {})
+        weapon_id = str(weapon.get("weapon_id") or "")
+        pf_weapon = pf_weapon_by_id.get(weapon_id, {})
         skill = pf_weapon.get("skill_label")
         if not skill and weapon.get("skill"):
             skill = coc_language.player_facing_skill_label(
@@ -177,6 +189,7 @@ def _display_character(
         weapons.append(
             {
                 "label": pf_weapon.get("label")
+                or entry_weapon_labels.get(weapon_id)
                 or weapon.get("label")
                 or weapon.get("name")
                 or weapon.get("weapon_id"),

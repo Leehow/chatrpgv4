@@ -1282,3 +1282,37 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
         },
     )
     assert finalized["data"]["rendered_text"]
+
+
+def test_first_impression_line_and_fiction_localize_english_names() -> None:
+    line = coc_turn_finalization._render_public_roll(
+        {
+            "kind": "npc_first_impression",
+            "npc_display_name": "Steven Knott",
+            "app": 60,
+            "credit_rating": 40,
+            "governing_attribute": "app",
+            "governing_value": 60,
+            "roll": 20,
+            "base_target": 60,
+            "required_level": "regular",
+            "required_target": 60,
+            "achieved_level": "hard",
+            "passed": True,
+            "surplus_levels": 1,
+            "outcome": "hard",
+        },
+        play_language="zh-Hans",
+    )
+    assert "史蒂文·诺特" in line
+    assert "Steven Knott" not in line
+    segments, rendered, _placements = coc_turn_finalization.compose_segments(
+        "Knott stood still.\n\nMacario waited by the door.",
+        {"public_check": [], "state_delta": [], "exceptional_effect": []},
+        [],
+        coverage=[],
+        play_language="zh-Hans",
+    )
+    assert segments[0]["text"] == "诺特 stood still."
+    assert "马卡里奥" in rendered
+    assert "Knotting" not in rendered

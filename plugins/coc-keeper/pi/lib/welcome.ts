@@ -183,6 +183,20 @@ export async function writeWarmMarker(agentDir: string, extra: Record<string, un
   await writeFile(warmMarkerPath(agentDir), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+function assistantTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const row = part as { type?: unknown; text?: unknown };
+    if (row.type === "text" && typeof row.text === "string" && row.text.trim()) {
+      parts.push(row.text.trim());
+    }
+  }
+  return parts.join("\n");
+}
+
 /** True when the session has no prior user/assistant turns (fresh desktop). */
 export function sessionLooksFresh(ctx: Pick<ExtensionContext, "sessionManager">): boolean {
   const entries = ctx.sessionManager.getEntries() as Array<Record<string, unknown>>;
@@ -195,9 +209,37 @@ export function sessionLooksFresh(ctx: Pick<ExtensionContext, "sessionManager">)
   return true;
 }
 
-export function shouldAutoOpenTable(reason: WelcomeReason, fresh: boolean): boolean {
-  if (!fresh) return false;
-  return reason === "startup" || reason === "new" || reason === "reload";
+/** True when the player already has a visible assistant reply in this session. */
+export function sessionHasVisibleAssistant(
+  ctx: Pick<ExtensionContext, "sessionManager">,
+): boolean {
+  const entries = ctx.sessionManager.getEntries() as Array<Record<string, unknown>>;
+  for (const entry of entries) {
+    if (entry.type !== "message") continue;
+    const message = entry.message as Record<string, unknown> | undefined;
+    if (message?.role !== "assistant") continue;
+    if (assistantTextFromContent(message.content)) return true;
+  }
+  return false;
+}
+
+export function shouldAutoOpenTable(
+  reason: WelcomeReason,
+  fresh: boolean,
+  options: {
+    intent?: TableOpenIntent;
+    hasVisibleAssistant?: boolean;
+  } = {},
+): boolean {
+  if (reason !== "startup" && reason !== "new" && reason !== "reload") return false;
+  if (fresh) return true;
+  // Investigator-less reopen often already has hidden tool history (resume /
+  // HUD), so the session is not "fresh", but the player never saw the first
+  // coc-character question. Open the table once until that question exists.
+  return (
+    options.intent === "character-setup"
+    && options.hasVisibleAssistant === false
+  );
 }
 
 /** Web/Electron is the attached player surface of this pi-coc host. */
@@ -270,6 +312,7 @@ export function registerCocWelcome(
     const reason = (event as { reason?: string }).reason ?? "startup";
     const fresh = sessionLooksFresh(ctx);
     const intent = tableOpenIntentFromEnv();
+    const hasVisibleAssistant = sessionHasVisibleAssistant(ctx);
     if (ctx.hasUI && ctx.mode === "tui") {
       ctx.ui.setHeader((_tui, theme) => ({
         render(_width: number) {
@@ -316,7 +359,7 @@ export function registerCocWelcome(
     const attachedUi = attachedUiEnabled();
     const mayAutoOpen = (
       (ctx.mode === "tui" || attachedUi)
-      && shouldAutoOpenTable(reason, fresh)
+      && shouldAutoOpenTable(reason, fresh, { intent, hasVisibleAssistant })
     );
     if (attachedUi) {
       console.error(mayAutoOpen ? "[coc-pi-ui] auto-open" : "[coc-pi-ui] idle");

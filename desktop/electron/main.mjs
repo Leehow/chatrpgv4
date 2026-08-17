@@ -11,6 +11,7 @@ import { register as registerIpc } from "./ipc.mjs";
 import { buildWizardWindowOptions, existingWizardNeedsRebuild } from "./wizard-window-options.mjs";
 import { buildMainWindowOptions } from "./main-window-options.mjs";
 import { clearPidRecord, reapStaleBridges, writePidRecord } from "./bridge-lifecycle.mjs";
+import { APP_DISPLAY_NAME, resolveAppIconPath } from "./app-icon.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The onboarding/settings wizard ships inside the single web frontend build
@@ -21,6 +22,21 @@ function wizardIndex() {
   return path.join(root, "web", "frontend", "dist", "wizard.html");
 }
 const PRELOAD = path.join(__dirname, "preload.cjs");
+const DESKTOP_ROOT = path.resolve(__dirname, "..");
+
+function currentAppIcon() {
+  return resolveAppIconPath({
+    packaged: app.isPackaged,
+    appDir: DESKTOP_ROOT,
+  });
+}
+
+function applyDockIcon() {
+  const icon = currentAppIcon();
+  if (icon && process.platform === "darwin" && app.dock) {
+    app.dock.setIcon(icon);
+  }
+}
 // Click-away dismiss delay: long enough that refocusing the settings window
 // (设置 button click) cancels it, short enough to feel immediate.
 const PARENT_FOCUS_DISMISS_MS = 80;
@@ -32,6 +48,9 @@ let serverPort = 0;
 let quitting = false;
 let logStream = null;
 let currentPaths = null;
+/** PDF path picked from a native entry (menu / wizard) before the bridge is
+ * up; the main window pulls it via app:consumePdfImport once mounted. */
+let pendingPdfImportPath = null;
 
 function log(line) {
   const stamped = `${new Date().toISOString()} ${line}`;
@@ -56,7 +75,7 @@ function settingsParent() {
 function openWizardWindow({ asSheet = false, edit = false } = {}) {
   const indexFile = wizardIndex();
   if (!fs.existsSync(indexFile)) {
-    dialog.showErrorBox("COC Keeper", `配置界面未构建：${indexFile}\n请在 web/frontend/ 下运行 npm run build`);
+    dialog.showErrorBox(APP_DISPLAY_NAME, `配置界面未构建：${indexFile}\n请在 web/frontend/ 下运行 npm run build`);
     return null;
   }
   const parent = asSheet ? settingsParent() : null;
@@ -68,7 +87,7 @@ function openWizardWindow({ asSheet = false, edit = false } = {}) {
     wizardWindow.close();
     wizardWindow = null;
   }
-  const opts = buildWizardWindowOptions({ asSheet, parent, edit });
+  const opts = buildWizardWindowOptions({ asSheet, parent, edit, icon: currentAppIcon() });
   const { loadQuery, ...windowOpts } = opts;
   wizardWindow = new BrowserWindow({
     ...windowOpts,
@@ -123,7 +142,7 @@ function openSettingsWindow(opts) {
 
 function createWindow(url) {
   mainWindow = new BrowserWindow({
-    ...buildMainWindowOptions(),
+    ...buildMainWindowOptions({ icon: currentAppIcon() }),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -191,20 +210,20 @@ function spawnServer(paths, env) {
 function notifyFatal({ message, detail }) {
   if (mainWindow && !mainWindow.isDestroyed() && startupComplete) {
     log("[fatal] showing in-app modal");
-    mainWindow.webContents.send("app:fatal", { title: "COC Keeper", message, detail });
+    mainWindow.webContents.send("app:fatal", { title: APP_DISPLAY_NAME, message, detail });
     return;
   }
   log("[fatal] falling back to native box");
   if (mainWindow && !mainWindow.isDestroyed()) {
     dialog.showMessageBoxSync(mainWindow, {
       type: "error",
-      title: "COC Keeper",
+      title: APP_DISPLAY_NAME,
       message,
       detail,
       buttons: ["退出"],
     });
   } else {
-    dialog.showErrorBox("COC Keeper", `${message}\n${detail || ""}`);
+    dialog.showErrorBox(APP_DISPLAY_NAME, `${message}\n${detail || ""}`);
   }
   app.quit();
 }
@@ -277,6 +296,43 @@ function runWizardGate() {
   });
 }
 
+/**
+ * Native「导入 PDF 模组…」entry shared by the app menu and the wizard button.
+ * The shell can only produce a filesystem path, never a browser File object —
+ * the main window hands the path to the bridge's /api/uploads/pdf/from-path
+ * endpoint and the standard ingest chain takes over from there. The path is
+ * always staged; when the main window is live it is also pushed, and the
+ * renderer clears the staged copy after consuming it (pull covers pushes that
+ * arrive before React mounts).
+ */
+async function importPdfViaDialog() {
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : wizardWindow;
+  const opts = {
+    title: "导入 PDF 模组",
+    properties: ["openFile"],
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  };
+  const picked = parent
+    ? await dialog.showOpenDialog(parent, opts)
+    : await dialog.showOpenDialog(opts);
+  const pickedPath = picked.canceled ? "" : picked.filePaths[0] || "";
+  if (!pickedPath) return { ok: true, canceled: true };
+  pendingPdfImportPath = pickedPath;
+  const filename = path.basename(pickedPath);
+  if (mainWindow && !mainWindow.isDestroyed() && startupComplete) {
+    mainWindow.webContents.send("app:importPdf", { path: pickedPath });
+    mainWindow.focus();
+    return { ok: true, path: pickedPath, filename, delivered: true };
+  }
+  return { ok: true, path: pickedPath, filename, staged: true };
+}
+
+function consumePdfImport() {
+  const pickedPath = pendingPdfImportPath;
+  pendingPdfImportPath = null;
+  return { path: pickedPath };
+}
+
 function buildMenu() {
   const template = [
     {
@@ -297,6 +353,16 @@ function buildMenu() {
         { role: "quit" },
       ],
     },
+    {
+      label: "文件",
+      submenu: [
+        {
+          label: "导入 PDF 模组…",
+          accelerator: "CmdOrCtrl+O",
+          click: () => void importPdfViaDialog(),
+        },
+      ],
+    },
     { role: "editMenu" },
     { role: "windowMenu" },
   ];
@@ -304,6 +370,7 @@ function buildMenu() {
 }
 
 async function start() {
+  applyDockIcon();
   buildMenu();
   const settings = loadSettings();
   const paths = resolvePaths();
@@ -351,7 +418,7 @@ async function start() {
     if (!quitting && mainWindow) {
       dialog.showMessageBoxSync(mainWindow, {
         type: "error",
-        title: "COC Keeper",
+        title: APP_DISPLAY_NAME,
         message: "后台服务启动超时。",
         detail: `http://127.0.0.1:${serverPort}/api/health 未就绪。日志见 ${paths.logsDir}。`,
         buttons: ["退出"],
@@ -365,6 +432,8 @@ async function start() {
   await win.loadURL(`http://127.0.0.1:${serverPort}/`);
   startupComplete = true;
 }
+
+app.setName(APP_DISPLAY_NAME);
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -381,6 +450,8 @@ if (!gotLock) {
     getPaths: () => currentPaths,
     restartBridge,
     openSettings: openSettingsWindow,
+    pickPdfImport: importPdfViaDialog,
+    consumePdfImport,
     notifyProviderList: (hidden) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("app:hiddenProviders", { hidden });
@@ -395,7 +466,7 @@ if (!gotLock) {
 
   app.whenReady().then(start).catch((err) => {
     console.error(err);
-    dialog.showErrorBox("COC Keeper 启动失败", String(err?.stack || err));
+    dialog.showErrorBox(`${APP_DISPLAY_NAME} 启动失败`, String(err?.stack || err));
     app.quit();
   });
 

@@ -80,6 +80,17 @@ label {
   background: color-mix(in srgb, var(--paper) 88%, #fff);
 }
 
+.sheet-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sheet-header-row .icon-btn {
+  margin-top: 4px;
+}
+
 /* Traffic-light inset only for the standalone first-run window. Native sheets keep a normal title bar. */
 .sheet.is-mac:not(.is-sheet) .sheet-header {
   padding-top: 48px;
@@ -603,9 +614,21 @@ button.icon-btn:hover {
   gap: 12px;
 }
 
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .modal-card h2 {
   margin: 0;
   font-size: 17px;
+}
+
+.more-toggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .provider-rows {

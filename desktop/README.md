@@ -21,7 +21,8 @@ UI：`web/server-node/server.mjs` 为每个战役拉起 `pi-coc --mode rpc`，
 浏览器只渲染那条宿主事件流。canonical 插件仍是唯一规则/技能内核。
 
 - `electron/main.mjs` — 单实例、空闲端口、spawn web 桥（独立进程组，退出时
-  整树 SIGTERM）、首跑向导闸门、应用菜单（⌘, 设置）。
+  整树 SIGTERM）、首跑向导闸门、应用菜单（⌘, 设置；文件 → 导入 PDF 模组…，
+  原生对话框拿到路径后经桥的 `from-path` 端点走标准解析链）。
 - `electron/env.mjs` — 子进程 env 组装：`PI_AGENT_DIR`=`PI_CODING_AGENT_DIR`
   指向应用自管 agent 目录；`PATH` 前置捆绑 bin（node/uv）；`PI_OFFLINE`、
   `COC_PI_SCENE_SUPPLY=1`（TUI parity）；`COC_PI_PDF_INSPECTOR_COMMAND` 指向
@@ -35,6 +36,11 @@ UI：`web/server-node/server.mjs` 为每个战役拉起 `pi-coc --mode rpc`，
   contextIsolation + 类型化 IPC）。预置 DeepSeek / xAI / 智谱 GLM / 自定义
   OpenAI 兼容端点；开场文本抽取与必要的 PDF 视觉回退都跟随主界面
   当前模型，设置页只展示能力状态（OCR 显式 gate）。
+- `scripts/app-icon.swift` — 由 web 前端品牌章鱼
+  （`web/frontend/src/assets/brand/ai-keeper-mark-light.png`，浅色主题那只
+  黑墨章鱼）生成 `buildResources/icon.png`（奶油底 `#F5F1E8` 圆角方 + 居中
+  章鱼，1024×1024）；electron-builder 打包时自动转 icns。改图后重跑：
+  `swift desktop/scripts/app-icon.swift <mark.png> desktop/buildResources/icon.png`。
 - `scripts/payload.mjs` — 组装 `build/`：payload（runtime、plugins、
   web/server-node、web/frontend/dist、根 manifest、keeper node_modules）、
   bin（node v24.19.0、uv 0.11.16）、python（python-build-standalone

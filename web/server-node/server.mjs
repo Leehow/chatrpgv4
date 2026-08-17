@@ -17,7 +17,8 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { Sidecar, SidecarError } from "./sidecar.mjs";
-import { PiCocRpcError, PiCocRpcHost, webSessionId } from "./pi-coc-rpc.mjs";
+import { PiCocRpcError, PiCocRpcHost, sessionOpeningFlags, webSessionId } from "./pi-coc-rpc.mjs";
+import { hostedSessionMessages } from "./pi-session-text.mjs";
 import {
   campaignDir,
   combatInitiativeDisplay,
@@ -36,6 +37,9 @@ import {
   tensionDisplayLabel,
   timeExtras,
 } from "./projections.mjs";
+import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./model-editor.mjs";
+import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
+import { cancelLogin, loginSnapshot, respondLoginPrompt, startProviderLogin } from "./provider-login.mjs";
 
 /**
  * Arm the canonical Pi source-lifecycle lanes for the pi-coc RPC child this
@@ -64,6 +68,7 @@ import {
       process.env[key] = value;
     }
   }
+  armProductAgentEnv();
 }
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -104,6 +109,24 @@ function timestampIso() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+function campaignIdConflicts(campaignId) {
+  const root = cocRoot(WORKSPACE);
+  if (fs.existsSync(path.join(root, "campaigns", campaignId))) return true;
+  if (fs.existsSync(path.join(root, "trash", "campaigns", campaignId))) return true;
+  const metaDir = path.join(root, "trash", "meta");
+  if (!fs.existsSync(metaDir)) return false;
+  try {
+    for (const name of fs.readdirSync(metaDir)) {
+      if (!name.endsWith(".json")) continue;
+      const doc = JSON.parse(fs.readFileSync(path.join(metaDir, name), "utf8"));
+      if (doc && doc.campaign_id === campaignId) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 function sendJson(res, status, payload) {
@@ -246,6 +269,11 @@ function lastTelemetryUsage(campaignId) {
 async function transcriptPayload(info) {
   const timed = tableTranscriptMessages(WORKSPACE, info.campaign_id);
   if (timed !== null) return timed;
+  const hosted = hostedSessionMessages({
+    agentDir: process.env.PI_AGENT_DIR,
+    sessionId: info.session_id || webSessionId(info.campaign_id),
+  });
+  if (hosted.length) return hosted;
   const base = await sidecar.request("public_transcript_base", {
     campaign_id: info.campaign_id,
     limit: 10000,
@@ -270,6 +298,9 @@ function playerVisibleTurnError(err) {
   }
   if (kind === "pi_coc_rpc_rejected") {
     return `pi-coc 未接受该输入：${text || name}`;
+  }
+  if (kind === "pi_coc_rpc_aborted") {
+    return "已停止本回合。";
   }
   if (text && text !== name) return `${name}: ${text}`;
   return text || name || "未知错误";
@@ -353,6 +384,47 @@ async function handleModels(_req, res) {
   sendJson(res, 200, modelsPayload());
 }
 
+async function handleModelEditor(_req, res) {
+  sendJson(res, 200, await getModelEditorState({ payloadRoot: REPO_ROOT }));
+}
+
+async function handleSaveModelEditor(req, res) {
+  const body = await readJsonBody(req);
+  sendJson(res, 200, await saveModelEditorList(body, { payloadRoot: REPO_ROOT }));
+}
+
+async function handleSaveModelEditorProvider(req, res) {
+  const body = await readJsonBody(req);
+  sendJson(res, 200, await saveApiKeyProvider(resolveProductAgentDir(), body));
+}
+
+async function handleStartModelLogin(req, res) {
+  const body = await readJsonBody(req);
+  sendJson(
+    res,
+    200,
+    await startProviderLogin({
+      payloadRoot: REPO_ROOT,
+      agentDir: resolveProductAgentDir(),
+      providerId: body.providerId,
+      method: body.method,
+    }),
+  );
+}
+
+function handleModelLoginSnapshot(_req, res) {
+  sendJson(res, 200, loginSnapshot());
+}
+
+async function handleModelLoginRespond(req, res) {
+  const body = await readJsonBody(req);
+  sendJson(res, 200, respondLoginPrompt(body));
+}
+
+function handleModelLoginCancel(_req, res) {
+  sendJson(res, 200, cancelLogin());
+}
+
 async function handleBootstrap(_req, res) {
   const result = await sidecar.request("setup_workspace", {
     operation: { schema_version: 1, kind: "onboarding.inspect", payload: {} },
@@ -405,14 +477,16 @@ async function handleCreateCampaign(req, res) {
     const value = String(body[key] || "").trim();
     if (value) payload[key] = value;
   }
-  // quick_start's default id is fixed ("{scenario}-qs"), so a second run of
-  // the same starter would collide. Degrade to the library-flow convention
-  // (timestamp suffix) instead of erroring — players never think in ids.
+  // Always suffix a unique token. The starter default ("{scenario}-qs") is
+  // reused after trash because live-dir checks miss .coc/trash/campaigns/,
+  // and pi sessions are keyed by campaign id.
   if (!payload.campaign_id) {
-    const defaultId = `${payload.scenario_id}-qs`;
-    if (fs.existsSync(path.join(cocRoot(WORKSPACE), "campaigns", defaultId))) {
-      payload.campaign_id = `${defaultId}-${timestampIso()}`;
-    }
+    payload.campaign_id = `${payload.scenario_id}-qs-${Date.now().toString(36)}`;
+  } else if (campaignIdConflicts(payload.campaign_id)) {
+    throw httpError(
+      409,
+      `campaign ${payload.campaign_id} already exists (live or trash)`,
+    );
   }
   const result = await sidecar.request("setup_workspace", {
     operation: { schema_version: 1, kind: "campaign.quick_start", payload },
@@ -636,11 +710,8 @@ async function handleTrashCampaign(req, res) {
   const body = await readJsonBody(req);
   const campaignId = String(body.campaign_id || "").trim();
   if (!campaignId) throw httpError(400, "campaign_id is required");
-  if (turnInFlight) {
-    throw httpError(409, "一个回合仍在进行，请等它结束后再删除战役。");
-  }
-  // Close this bridge's live sessions for the campaign before the directory
-  // moves; a failed trash just means the player reopens the campaign.
+  // Close this campaign's host first so a hung or user-stopped turn cannot
+  // block trash. A failed trash just means the player reopens the campaign.
   for (const [sid, info] of [...SESSIONS]) {
     if (info.campaign_id !== campaignId) continue;
     SESSIONS.delete(sid);
@@ -724,11 +795,15 @@ async function handleCreateSession(req, res) {
     investigator_id: investigatorId,
   };
   SESSIONS.set(sessionId, info);
+  const opening = sessionOpeningFlags({
+    spawned,
+    hasInvestigator: Boolean(resolveInvestigator(campaignId)),
+  });
   sendJson(res, 200, {
     session_id: sessionId,
-    character_setup: false,
+    character_setup: opening.character_setup,
     host: "pi-coc",
-    host_opening: spawned,
+    host_opening: opening.host_opening,
     campaign_id: campaignId,
     investigator_id: investigatorId,
     state: await statePayload(info),
@@ -805,8 +880,14 @@ async function handleTurn(req, res, sid) {
   turnInFlight = true;
 
   let clientGone = false;
+  let finished = false;
   res.on("close", () => {
     clientGone = true;
+    if (finished) return;
+    const host = HOSTS.get(info.campaign_id);
+    if (host && !host.closed) {
+      host.abort().catch(() => {});
+    }
   });
   const heartbeat = setInterval(() => {
     if (!clientGone) res.write(": ping\n\n");
@@ -858,12 +939,31 @@ async function handleTurn(req, res, sid) {
     });
     safeWrite("end", {});
   } catch (err) {
-    safeWrite("error", { message: playerVisibleTurnError(err) });
+    if (err?.kind === "pi_coc_rpc_aborted") {
+      safeWrite("end", { aborted: true });
+    } else {
+      safeWrite("error", { message: playerVisibleTurnError(err) });
+    }
   } finally {
+    finished = true;
     clearInterval(heartbeat);
     turnInFlight = false;
     res.end();
   }
+}
+
+async function handleAbortTurn(_req, res, sid) {
+  const info = SESSIONS.get(sid);
+  if (!info) throw httpError(404, "unknown session");
+  const host = HOSTS.get(info.campaign_id);
+  if (host && !host.closed) {
+    try {
+      await host.abort();
+    } catch {
+      /* best effort */
+    }
+  }
+  sendJson(res, 200, { ok: true, aborted: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -914,13 +1014,13 @@ function parseMultipartFile(body, contentType) {
   throw httpError(400, "缺少 file 字段或文件为空");
 }
 
-async function handleUploadPdf(req, res) {
-  const contentType = req.headers["content-type"] || "";
-  if (!contentType.includes("multipart/form-data")) {
-    throw httpError(400, "PDF 上传需要 multipart/form-data");
-  }
-  const rawBody = await readBody(req, { limit: PDF_MAX_BYTES + 64 * 1024 });
-  const { filename, data } = parseMultipartFile(rawBody, contentType);
+/**
+ * Shared registration tail for both PDF import transports (browser multipart
+ * upload and the desktop shell's local-path import): hash, dedupe into
+ * .coc/uploads/pdfs/, and match against existing source bundles. The
+ * repository never parses the PDF — existence/suffix/hash only.
+ */
+function registerPdfUpload({ filename, data }) {
   if (!filename.toLowerCase().endsWith(".pdf")) {
     throw httpError(400, "仅支持 .pdf 文件");
   }
@@ -963,7 +1063,46 @@ async function handleUploadPdf(req, res) {
       ".coc/source-bundles/<id>/ 后再开局。";
     payload.source_bundles_dir = path.resolve(path.join(cocRoot(WORKSPACE), "source-bundles"));
   }
-  sendJson(res, 200, { ok: true, result: payload });
+  return payload;
+}
+
+async function handleUploadPdf(req, res) {
+  const contentType = req.headers["content-type"] || "";
+  if (!contentType.includes("multipart/form-data")) {
+    throw httpError(400, "PDF 上传需要 multipart/form-data");
+  }
+  const rawBody = await readBody(req, { limit: PDF_MAX_BYTES + 64 * 1024 });
+  const { filename, data } = parseMultipartFile(rawBody, contentType);
+  sendJson(res, 200, { ok: true, result: registerPdfUpload({ filename, data }) });
+}
+
+/**
+ * Desktop-shell import transport: the Electron menu / onboarding wizard can
+ * only hand over a local filesystem path (no browser File object), so the
+ * bridge copies the file into the same .coc/uploads/pdfs/ registration the
+ * multipart endpoint produces. From here the chain is identical:
+ * /api/uploads/pdf/ingest -> external router -> coc_pdf_bundle.py validation.
+ */
+async function handleUploadPdfFromPath(req, res) {
+  const body = await readJsonBody(req);
+  const raw = typeof body?.path === "string" ? body.path.trim() : "";
+  if (!raw) throw httpError(400, "缺少 path 字段（本地 PDF 文件路径）");
+  const resolved = path.resolve(raw);
+  let stat = null;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    stat = null;
+  }
+  if (!stat || !stat.isFile()) {
+    throw httpError(404, `找不到文件：${resolved}`);
+  }
+  if (stat.size > PDF_MAX_BYTES) throw httpError(400, "PDF 超过 200MB 上限");
+  const data = fs.readFileSync(resolved);
+  sendJson(res, 200, {
+    ok: true,
+    result: registerPdfUpload({ filename: path.basename(resolved), data }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,6 +1616,8 @@ async function route(req, res) {
   if (method === "GET") {
     if (urlPath === "/api/health") return handleHealth(req, res);
     if (urlPath === "/api/models") return handleModels(req, res);
+    if (urlPath === "/api/model-editor") return handleModelEditor(req, res);
+    if (urlPath === "/api/model-editor/login") return handleModelLoginSnapshot(req, res);
     if (urlPath === "/api/bootstrap") return handleBootstrap(req, res);
     if (
       parts.length === 4 &&
@@ -1501,6 +1642,7 @@ async function route(req, res) {
 
   if (method === "POST") {
     if (urlPath === "/api/uploads/pdf/ingest") return handleIngestPdf(req, res);
+    if (urlPath === "/api/uploads/pdf/from-path") return handleUploadPdfFromPath(req, res);
     if (urlPath === "/api/uploads/pdf") return handleUploadPdf(req, res);
     if (urlPath === "/api/campaigns") return handleCreateCampaign(req, res);
     if (urlPath === "/api/campaigns/rename") return handleRenameCampaign(req, res);
@@ -1509,6 +1651,10 @@ async function route(req, res) {
     if (urlPath === "/api/campaigns/attach-investigator") return handleAttachInvestigator(req, res);
     if (urlPath === "/api/sessions") return handleCreateSession(req, res);
     if (urlPath === "/api/investigators") return handleCreateInvestigator(req, res);
+    if (urlPath === "/api/model-editor/provider") return handleSaveModelEditorProvider(req, res);
+    if (urlPath === "/api/model-editor/login") return handleStartModelLogin(req, res);
+    if (urlPath === "/api/model-editor/login/respond") return handleModelLoginRespond(req, res);
+    if (urlPath === "/api/model-editor/login/cancel") return handleModelLoginCancel(req, res);
     if (
       parts.length === 4 &&
       parts[0] === "api" &&
@@ -1516,6 +1662,14 @@ async function route(req, res) {
       parts[3] === "turns"
     ) {
       return handleTurn(req, res, parts[2]);
+    }
+    if (
+      parts.length === 4 &&
+      parts[0] === "api" &&
+      parts[1] === "sessions" &&
+      parts[3] === "abort"
+    ) {
+      return handleAbortTurn(req, res, parts[2]);
     }
     if (
       parts.length === 5 &&
@@ -1526,6 +1680,11 @@ async function route(req, res) {
     ) {
       return handleUseItem(req, res, parts[2]);
     }
+    throw httpError(404, "not found");
+  }
+
+  if (method === "PUT") {
+    if (urlPath === "/api/model-editor") return handleSaveModelEditor(req, res);
     throw httpError(404, "not found");
   }
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -1141,75 +1142,26 @@ TABLE_MECHANICS_LABELS: dict[str, dict[str, str]] = {
 }
 
 
-DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
-    "zh-Hans": {
-        "Accounting": "会计",
-        "Appraise": "估价",
-        "Charm": "魅惑",
-        "Climb": "攀爬",
-        "Credit Rating": "信用评级",
-        "Dodge": "闪避",
-        "Drive Auto": "汽车驾驶",
-        "Electrical Repair": "电气维修",
-        "Fast Talk": "话术",
-        "Fighting": "格斗",
-        "Fighting (Brawl)": "斗殴",
-        "Firearms (Handgun)": "射击（手枪）",
-        "Firearms (Rifle/Shotgun)": "射击（步枪/霰弹枪）",
-        "First Aid": "急救",
-        "First Impression": "初印象",
-        "History": "历史",
-        "HP Damage": "生命值伤害",
-        "HP Healing": "生命值恢复",
-        "Intimidate": "恐吓",
-        "Jump": "跳跃",
-        "Law": "法律",
-        "Library Use": "图书馆使用",
-        "Listen": "聆听",
-        "Locksmith": "锁匠",
-        "Mechanical Repair": "机械维修",
-        "Medicine": "医学",
-        "Occult": "神秘学",
-        "Persuade": "说服",
-        "Psychology": "心理学",
-        "Spot Hidden": "侦查",
-        "Stealth": "潜行",
-        "Track": "追踪",
-        "Swim": "游泳",
-        "Throw": "投掷",
-        "flesh_ward": "血肉防护术",
-        "Flesh Ward": "血肉防护术",
-        "STR": "力量",
-        "CON": "体质",
-        "SIZ": "体型",
-        "DEX": "敏捷",
-        "APP": "外貌",
-        "INT": "智力",
-        "POW": "意志",
-        "EDU": "教育",
-        "SAN": "理智",
-        "LUCK": "幸运",
-        "Thomas Hayes": "托马斯·海斯",
-        "Eleanor Reed": "埃莉诺·里德",
-        "Steven Knott": "史蒂文·诺特",
-        "Arty Wilmot": "阿蒂·威尔莫特",
-        "Ruth Blake": "露丝·布莱克",
-        "Mr. Dooley": "杜利先生",
-        "Gabriela Macario": "加布里埃拉·马卡里奥",
-        "Vittorio Macario": "维托里奥·马卡里奥",
-        "Kim Debrun": "金·德布伦",
-        "Walter Corbitt": "沃尔特·科比特",
-        "the Hall of Records clerk": "档案馆职员",
-        "Boston ambulance attendant": "波士顿救护员",
-        "Boston hospital surgeon": "波士顿医院外科医生",
-        "Boston hospital day physician": "波士顿医院日班医生",
-        "hospital doctor": "医院医生",
-        "same hospital doctor": "同一位医院医生",
-        "hospital doctor same": "同一位医院医生",
-        "Eleanor attending physician": "埃莉诺的主治医生",
-        "ambulance medic 1920 10 24": "1920年10月24日救护员",
-    },
-}
+DEFAULT_LOCALIZED_TERMS_PATH = SCRIPT_DIR / "default_localized_terms.json"
+
+
+def _load_default_localized_terms() -> dict[str, dict[str, str]]:
+    raw = json.loads(DEFAULT_LOCALIZED_TERMS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        return {}
+    loaded: dict[str, dict[str, str]] = {}
+    for language, terms in raw.items():
+        if not isinstance(language, str) or not isinstance(terms, dict):
+            continue
+        cleaned: dict[str, str] = {}
+        for key, label in terms.items():
+            if isinstance(key, str) and key and isinstance(label, str) and label.strip():
+                cleaned[key] = label
+        loaded[language] = cleaned
+    return loaded
+
+
+DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = _load_default_localized_terms()
 
 
 def default_localized_terms(play_language: str | None = None) -> dict[str, str]:
@@ -1221,6 +1173,39 @@ def default_localized_terms(play_language: str | None = None) -> dict[str, str]:
     canonical English key rather than inventing Chinese.
     """
     return deepcopy(DEFAULT_LOCALIZED_TERMS.get(play_language or DEFAULT_PLAY_LANGUAGE, {}))
+
+
+def resolved_localized_terms(
+    play_language: str | None = None,
+    campaign: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Default table vocabulary plus campaign overrides for play_language."""
+    language = play_language or DEFAULT_PLAY_LANGUAGE
+    terms = default_localized_terms(language)
+    extra = None
+    if isinstance(campaign, dict):
+        localized = campaign.get("localized_terms")
+        if isinstance(localized, dict):
+            extra = localized.get(language)
+    if isinstance(extra, dict):
+        for key, label in extra.items():
+            if isinstance(key, str) and key and isinstance(label, str) and label.strip():
+                terms[key] = label
+    return terms
+
+
+def player_facing_display_name(
+    value: Any,
+    play_language: str | None = None,
+    campaign: dict[str, Any] | None = None,
+    *,
+    terms: dict[str, str] | None = None,
+) -> str:
+    """Localize a player-facing person/place name with the merged term map."""
+    vocabulary = terms if terms is not None else resolved_localized_terms(
+        play_language, campaign
+    )
+    return localize_terms(value, vocabulary)
 
 
 def table_mechanics_labels(play_language: str | None = None) -> dict[str, str]:
@@ -1287,8 +1272,12 @@ def player_facing_skill_label(
     return skill
 
 
+def _ascii_term_key(canonical_text: str) -> bool:
+    return bool(canonical_text) and all(ord(char) < 128 for char in canonical_text)
+
+
 def localize_terms(value: Any, terms: dict[str, str]) -> str:
-    """Apply table vocabulary with ASCII boundaries for mechanical abbreviations."""
+    """Apply table vocabulary with ASCII word/id boundaries for Latin proper names."""
     localized = str(value)
     for canonical, replacement in sorted(
         terms.items(),
@@ -1297,9 +1286,13 @@ def localize_terms(value: Any, terms: dict[str, str]) -> str:
     ):
         canonical_text = str(canonical)
         replacement_text = str(replacement)
-        if canonical_text in BOUNDARY_SAFE_ASCII_TERMS:
+        if (
+            canonical_text in BOUNDARY_SAFE_ASCII_TERMS
+            or _ascii_term_key(canonical_text)
+        ):
+            # Hyphen/underscore keep roll_id and machine tokens intact.
             pattern = re.compile(
-                rf"(?<![A-Za-z0-9_]){re.escape(canonical_text)}(?![A-Za-z0-9_])"
+                rf"(?<![A-Za-z0-9_-]){re.escape(canonical_text)}(?![A-Za-z0-9_-])"
             )
             localized = pattern.sub(lambda _match: replacement_text, localized)
         else:

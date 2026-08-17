@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import type { ModelsResponse } from "../types";
 
 /** Desktop-shell affordance injected via preload; absent in plain browsers. */
-type DesktopBridge = { openSettings?: () => void };
+type DesktopBridge = { openSettings?: (opts?: { edit?: boolean }) => void };
 
 interface Props {
   models: ModelsResponse | null;
@@ -22,15 +22,26 @@ interface Props {
   disabled?: boolean;
   /** Provider ids unchecked in the settings 编辑模型 editor (desktop only). */
   hidden?: string[];
+  /** composer = the compact pill embedded in the chat composer toolbar. */
+  variant?: "topbar" | "composer";
   onChange: (provider: string, model: string) => void;
 }
 
 /** Single-dropdown model picker (provider + model merged); keeps persistence
  *  and onChange semantics of the former dual-select ModelPicker. */
-export function ModelMenu({ models, provider, model, disabled, hidden, onChange }: Props) {
+export function ModelMenu({ models, provider, model, disabled, hidden, variant = "topbar", onChange }: Props) {
+  const composer = variant === "composer";
   if (!models) {
     return (
-      <Button variant="ghost" size="sm" disabled className="h-9 gap-1.5 text-muted-foreground">
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled
+        className={cn(
+          "gap-1.5 text-muted-foreground",
+          composer ? "h-7 rounded-full px-2 text-[11px]" : "h-9",
+        )}
+      >
         <Loader2 className="size-3.5 animate-spin" />
         模型…
       </Button>
@@ -47,25 +58,33 @@ export function ModelMenu({ models, provider, model, disabled, hidden, onChange 
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="outline"
+          variant={composer ? "ghost" : "outline"}
           size="sm"
           disabled={disabled}
-          className="h-9 max-w-24 gap-1.5 rounded-lg border-border/80 bg-card/70 px-2.5 shadow-none sm:max-w-56"
+          className={
+            composer
+              ? "h-7 max-w-36 gap-1 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground"
+              : "h-9 max-w-24 gap-1.5 rounded-lg border-border/80 bg-card/70 px-2.5 shadow-none sm:max-w-56"
+          }
           title="Keeper 模型（pi runner）"
         >
-          <Cpu className="size-3.5 shrink-0 text-primary" />
+          <Cpu className={cn("shrink-0 text-primary", composer ? "size-3" : "size-3.5")} />
           {/* Phones show the model only; the provider label is the wide part. */}
-          <span className="truncate text-xs sm:hidden">
+          <span className={cn("truncate sm:hidden", composer ? "text-[11px]" : "text-xs")}>
             {activeModel ? activeModel.label : activeProvider ? activeProvider.label : "模型"}
           </span>
-          <span className="hidden truncate text-xs sm:inline">
+          <span className={cn("hidden truncate sm:inline", composer ? "text-[11px]" : "text-xs")}>
             {activeProvider ? activeProvider.label : "模型"}
             {activeModel ? ` · ${activeModel.label}` : ""}
           </span>
-          <ChevronDown className="hidden size-3.5 shrink-0 text-muted-foreground sm:block" />
+          <ChevronDown className={cn("hidden shrink-0 text-muted-foreground sm:block", composer ? "size-3" : "size-3.5")} />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-96 w-72 overflow-y-auto">
+      <DropdownMenuContent
+        side={composer ? "top" : "bottom"}
+        align={composer ? "start" : "end"}
+        className="max-h-96 w-72 overflow-y-auto"
+      >
         {providers.map(([pid, info], i) => (
           <DropdownMenuGroup key={pid}>
             {i > 0 && <DropdownMenuSeparator />}
@@ -97,7 +116,7 @@ export function ModelMenu({ models, provider, model, disabled, hidden, onChange 
           <>
             {providers.length > 0 && <DropdownMenuSeparator />}
             <DropdownMenuItem
-              onSelect={() => desktop.openSettings?.()}
+              onSelect={() => desktop.openSettings?.({ edit: true })}
               className="gap-2 text-muted-foreground"
             >
               <Plus className="size-3.5 shrink-0" />

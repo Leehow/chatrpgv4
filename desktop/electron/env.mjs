@@ -22,7 +22,10 @@ export function resolvePaths() {
     ? path.join(process.resourcesPath, "payload")
     : path.resolve(app.getAppPath(), "..");
   // QA override for clean-first-run tests of the packaged app.
-  const userData = process.env.COC_DESKTOP_USER_DATA || app.getPath("userData");
+  // Pin the data dir to the stable app id. `productName` / app.setName()
+  // only change the dock label — they must not relocate the workspace.
+  const userData = process.env.COC_DESKTOP_USER_DATA
+    || path.join(app.getPath("appData"), "coc-keeper-desktop");
   return {
     packaged,
     payloadRoot,
@@ -86,6 +89,7 @@ export function buildChildEnv(paths) {
   // both names.
   env.PI_AGENT_DIR = paths.agentDir;
   env.PI_CODING_AGENT_DIR = paths.agentDir;
+  env.COC_DESKTOP_USER_DATA = paths.userData;
 
   // Quiet, offline children: no version/update checks in nested pi spawns.
   env.PI_OFFLINE = "1";

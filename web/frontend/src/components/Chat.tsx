@@ -1,12 +1,14 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, ArrowUp, Brain, Crosshair, Dices, HeartPulse, KeyRound, ListOrdered, Loader2, Shield, Square, Swords } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Brain, Crosshair, Dices, HeartPulse, KeyRound, Loader2, Pencil, Shield, Square, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./Markdown";
+import { ModelMenu } from "./ModelMenu";
+import { ThinkingMenu } from "./ThinkingMenu";
 import { toolToStatus, trailToCurrentStatus } from "../toolStatus";
-import type { ChatMessage, CombatInitiative, KeeperContentBlock, PendingChoice, PlayerIntent, RollDisplay, ToolStep } from "../types";
+import type { ChatMessage, KeeperContentBlock, ModelsResponse, PendingChoice, PlayerIntent, RollDisplay, ToolStep } from "../types";
 
 /** One-click default game offered on the waiting screen: preset starter +
  *  KP-guided investigator creation, straight into play. */
@@ -30,18 +32,27 @@ interface Props {
   pendingChoice?: PendingChoice | null;
   /** Player-facing current location / scene label from canonical state. */
   sceneLabel?: string | null;
-  /** Canonical CoC DEX action order for an active combat round. */
-  combat?: CombatInitiative | null;
   /** Shown mid-screen while waiting (not connected); null hides the button. */
   quickStart?: QuickStartAction | null;
+  /** Investigator-less table: empty copy is character-setup, not first action. */
+  setupPending?: boolean;
   /** Model readiness once the provider list has loaded (null = loading);
    * false swaps the quick-start button for a configure-models guide. */
   modelsReady?: boolean | null;
-  /** Desktop-only: opens the 模型 settings editor; absent in plain browsers. */
+  /** Opens the in-app 编辑模型 overlay. */
   onConfigureModels?: () => void;
   onSend: (text: string, playerIntent?: PlayerIntent) => void;
   /** Abort the in-flight turn stream (the turn still settles server-side). */
   onStop: () => void;
+  /** Composer toolbar pickers (live in App so the topbar and composer agree). */
+  models: ModelsResponse | null;
+  provider: string;
+  model: string;
+  hiddenProviders?: string[];
+  thinking: string;
+  thinkingLevels?: string[];
+  onModelChange: (provider: string, model: string) => void;
+  onThinkingChange: (level: string) => void;
 }
 
 /** Type out `text` character-by-character; restarts when `text` changes. */
@@ -193,7 +204,7 @@ function MessageMeta({ msg }: { msg: ChatMessage }) {
   if (at == null && durationMs == null) return null;
   return (
     <div
-      className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+      className="flex items-center gap-1.5 text-[10px] tracking-[0.08em] text-muted-foreground/55"
       title={
         msg.kind === "keeper"
           ? "完成时刻 · 从你发送输入到本回合全部内容出完的总墙钟时间"
@@ -307,56 +318,6 @@ const DEFENSE_LABELS: Record<string, string> = {
   maneuver: "战技反制",
   none: "无防御",
 };
-
-const INITIATIVE_STATUS_LABELS: Record<string, string> = {
-  pending: "待行动",
-  acted: "已行动",
-  skipped: "已跳过",
-  excluded_at_round_start: "无法行动",
-};
-
-function CombatInitiativeBoard({ combat }: { combat: CombatInitiative }) {
-  return (
-    <section className="initiative-board" aria-label={`战斗行动顺序，第 ${combat.round} 轮`}>
-      <header className="initiative-header">
-        <div>
-          <span className="initiative-kicker"><ListOrdered className="size-4" /> 战斗行动顺序</span>
-          <h2>第 {combat.round} 轮</h2>
-        </div>
-        <span className="initiative-rule">按 DEX 排序 · 备妥枪械 DEX + 50</span>
-      </header>
-      <div className="initiative-track">
-        {combat.rows.map((row, index) => (
-          <article
-            className={cn(
-              "initiative-row",
-              row.current && "is-current",
-              row.status === "acted" && "is-acted",
-              row.status === "excluded_at_round_start" && "is-excluded",
-            )}
-            key={row.actor_id || index}
-          >
-            <span className="initiative-rank">{String(index + 1).padStart(2, "0")}</span>
-            <span className="initiative-actor">
-              <b>{row.display_name}</b>
-              <small>{row.side === "investigator" ? "调查员" : "对手"}</small>
-            </span>
-            <span className="initiative-score">
-              <small>{row.ready_firearm ? "行动值" : "DEX"}</small>
-              <b>{row.initiative_value ?? "—"}</b>
-            </span>
-            {row.ready_firearm && <span className="initiative-firearm"><Crosshair className="size-3" /> 备妥枪械</span>}
-            <span className="initiative-status">
-              {row.current && <Activity className="size-3.5" />}
-              {row.current ? "当前行动" : INITIATIVE_STATUS_LABELS[row.status] || row.status}
-            </span>
-          </article>
-        ))}
-      </div>
-      <p className="initiative-note">CoC 7版不另投先攻骰；行动顺序直接由规则系统按 DEX 计算。</p>
-    </section>
-  );
-}
 
 function combatDefenseIntent(
   choice: PendingChoice,
@@ -1034,24 +995,42 @@ export function Chat({
   error,
   pendingChoice,
   sceneLabel,
-  combat,
   quickStart = null,
+  setupPending = false,
   modelsReady = null,
   onConfigureModels,
   onSend,
   onStop,
+  models,
+  provider,
+  model,
+  hiddenProviders,
+  thinking,
+  thinkingLevels,
+  onModelChange,
+  onThinkingChange,
 }: Props) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Auto-scroll only while the reader is near the bottom. */
   const nearBottomRef = useRef(true);
+  /** Drives the 「回到底部」 jump button; mirrors nearBottomRef as state. */
+  const [atBottom, setAtBottom] = useState(true);
   const toolTrail = useMemo(() => toolSteps.map((s) => s.label), [toolSteps]);
   const statusLine = trailToCurrentStatus(toolTrail);
   const handleScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    nearBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+    nearBottomRef.current = near;
+    setAtBottom(near);
+  };
+  const jumpToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = true;
+    setAtBottom(true);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
   useEffect(() => {
@@ -1076,11 +1055,12 @@ export function Chat({
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col bg-background">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto"
-      >
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto"
+        >
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 md:px-10">
           {connected && sceneLabel && (
             <div className="scene-heading text-center">
@@ -1092,7 +1072,6 @@ export function Chat({
               </div>
             </div>
           )}
-          {connected && combat && <CombatInitiativeBoard combat={combat} />}
           {!connected && (
             <div className="flex flex-col items-center gap-3 px-4 pt-20 text-center">
               {error ? (
@@ -1136,8 +1115,7 @@ export function Chat({
                         </Button>
                       ) : (
                         <p className="text-xs leading-relaxed text-warning/80">
-                          桌面端请在「设置 → 编辑模型」中登录提供方；浏览器模式请为
-                          pi 配置模型凭据（~/.pi/agent/auth.json）后刷新。
+                          请先点顶栏铅笔图标，登录或填入模型提供方。
                         </p>
                       )}
                     </div>
@@ -1176,12 +1154,25 @@ export function Chat({
           )}
           {connected && messages.length === 0 && !busy && (
             <div className="flex flex-col items-center gap-2 px-4 pt-20 text-center">
-              <p className="text-sm text-muted-foreground">
-                这场战役还没有公开的对话记录。
-              </p>
-              <p className="text-xs text-muted-foreground/70">
-                在下方输入你的第一个行动，例如「我走向那栋房子，打量周围」。
-              </p>
+              {setupPending ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    守秘人正在打开建卡引导。
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    开局后由 KP 按 coc-character 逐步创建调查员，无需先填表。
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    这场战役还没有公开的对话记录。
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    在下方输入你的第一个行动，例如「我走向那栋房子，打量周围」。
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -1255,51 +1246,97 @@ export function Chat({
             )
           )}
         </div>
+        </div>
+        {!atBottom && (
+          <button
+            type="button"
+            className="jump-bottom"
+            onClick={jumpToBottom}
+            aria-label="回到底部"
+          >
+            <ArrowDown className="size-3.5" /> 回到底部
+          </button>
+        )}
       </div>
 
       <div className="border-t border-border bg-background/88 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-4xl items-end gap-2 px-4 py-3 md:px-10">
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                submit();
+        <div className="mx-auto w-full max-w-4xl px-4 py-3 md:px-10">
+          <div className="rounded-2xl border border-border/90 bg-card shadow-[0_2px_10px_rgb(var(--paper-ink)/0.05),0_12px_32px_rgb(var(--paper-ink)/0.04)] transition-[border-color,box-shadow] focus-within:border-primary/45 focus-within:shadow-[0_2px_10px_rgb(var(--paper-ink)/0.06),0_0_0_3px_color-mix(in_oklab,var(--primary)_12%,transparent)]">
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder={
+                !connected
+                  ? "先选择一场战役"
+                  : setupPending
+                    ? "回答守秘人的建卡问题…"
+                    : "描述你的行动…"
               }
-            }}
-            placeholder={
-              connected
-                ? "描述你的行动…（Enter 发送，Shift+Enter 换行）"
-                : "先选择一场战役"
-            }
-            disabled={!connected || busy}
-            rows={2}
-            className="min-h-14 resize-none rounded-xl border-border/90 bg-card shadow-none transition-colors"
-          />
-          {busy ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-11 shrink-0 rounded-xl text-muted-foreground transition-colors hover:bg-destructive-soft hover:text-destructive"
-              onClick={onStop}
-              disabled={!connected}
-              title="停止接收本回合输出（后台仍会完成结算）"
-            >
-              <Square className="size-4 fill-current" />
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-11 shrink-0 rounded-xl text-primary transition-colors hover:bg-primary/10 hover:text-primary"
-              onClick={submit}
-              disabled={!connected || !draft.trim()}
-              title="发送（Enter）"
-            >
-              <ArrowUp className="size-5" />
-            </Button>
-          )}
+              disabled={!connected || busy}
+              rows={2}
+              className="min-h-12 resize-none rounded-none border-0 bg-transparent px-3.5 pt-3 pb-1 shadow-none transition-colors focus-visible:ring-0"
+            />
+            <div className="flex items-center gap-1 px-2 pt-1 pb-2">
+              <ModelMenu
+                variant="composer"
+                models={models}
+                provider={provider}
+                model={model}
+                disabled={busy}
+                hidden={hiddenProviders}
+                onChange={onModelChange}
+              />
+              {onConfigureModels && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={onConfigureModels}
+                  title="编辑模型"
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              )}
+              <ThinkingMenu
+                variant="composer"
+                thinking={thinking}
+                levels={thinkingLevels}
+                disabled={busy}
+                onChange={onThinkingChange}
+              />
+              <span className="ml-1 hidden text-[10px] tracking-wide text-muted-foreground/70 select-none md:inline">
+                Enter 发送 · Shift+Enter 换行
+              </span>
+              {busy ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto size-8 shrink-0 rounded-full border border-border/80 text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive-soft hover:text-destructive"
+                  onClick={onStop}
+                  disabled={!connected}
+                  title="停止本回合"
+                >
+                  <Square className="size-3.5 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  size="icon"
+                  className="ml-auto size-8 shrink-0 rounded-full bg-primary text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:border disabled:border-border/70 disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none"
+                  onClick={submit}
+                  disabled={!connected || !draft.trim()}
+                  title="发送（Enter）"
+                >
+                  <ArrowUp className="size-4" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </section>

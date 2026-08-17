@@ -1,3 +1,5 @@
+import { APP_DISPLAY_NAME } from "./app-icon.mjs";
+
 /**
  * Pure BrowserWindow options for the wizard / settings UI.
  * Sheet path (settings after main exists): parented dialog dismissed by the
@@ -10,6 +12,7 @@ export function buildWizardWindowOptions({
   parent = null,
   edit = false,
   platform = process.platform,
+  icon,
 } = {}) {
   const useSheet = Boolean(asSheet && parent);
   const darwinStandalone = platform === "darwin" && !useSheet;
@@ -18,7 +21,7 @@ export function buildWizardWindowOptions({
     height: useSheet ? 560 : 720,
     minWidth: useSheet ? 440 : 560,
     minHeight: useSheet ? 400 : 520,
-    title: "COC Keeper · 配置",
+    title: `${APP_DISPLAY_NAME} · 配置`,
     backgroundColor: "#f7f3ea",
     show: false,
     parent: useSheet ? parent : undefined,
@@ -27,6 +30,7 @@ export function buildWizardWindowOptions({
     fullscreenable: false,
     titleBarStyle: darwinStandalone ? "hiddenInset" : undefined,
     trafficLightPosition: darwinStandalone ? { x: 16, y: 16 } : undefined,
+    ...(icon ? { icon } : {}),
     loadQuery: {
       mode: useSheet ? "sheet" : "onboard",
       // Top-bar pencil button: open settings with the editor already shown.

@@ -60,6 +60,9 @@ interface Props {
   onBootstrapRefresh?: () => Promise<void>;
   /** Skip the mode-select step (first-run guide hands off pre-chosen). */
   initialMode?: SourceMode;
+  /** Desktop「导入 PDF 模组…」handoff: a local path from the native shell,
+   * registered through the same chain as the browser drop-zone. */
+  initialPdfPath?: string | null;
 }
 
 type SourceMode = "starter" | "pdf" | "library";
@@ -113,6 +116,7 @@ export function NewCampaignFlow({
   onBack,
   onBootstrapRefresh,
   initialMode,
+  initialPdfPath,
 }: Props) {
   const [mode, setMode] = useState<SourceMode | null>(initialMode ?? null);
   const [scenarioId, setScenarioId] = useState("");
@@ -165,55 +169,95 @@ export function NewCampaignFlow({
 
   const canStart = Boolean(mode) && sourceReady && invReady && !busy && !uploadBusy;
 
-  const handlePdfFile = async (file: File | null) => {
-    if (!file) return;
+  const beginUpload = () => {
     setUploadBusy(true);
     setUploadStartedAt(Date.now());
     setUploadElapsed(0);
     setUploadMsg(null);
     setUploadInfo(null);
+  };
+
+  /** Shared continuation once either upload transport (browser file pick or
+   * desktop path import) returns a registration result: surface a matched
+   * bundle, or drive external-router parsing when none exists yet. */
+  const applyUploadResult = async (result: PdfUploadResult) => {
+    setUploadInfo(result);
+    setUploadMsg(result.message ?? "上传完成");
+    if (result.matched_bundle?.path) {
+      setBundlePath(result.matched_bundle.path);
+      if (!title) {
+        setTitle(
+          result.matched_bundle.title ||
+            result.matched_bundle.bundle_id,
+        );
+      }
+    }
+    if (onBootstrapRefresh) await onBootstrapRefresh();
+    if (result.status === "stored_pending_ingest") {
+      // No matching bundle yet: trigger external-router parsing now.
+      setUploadMsg("正在快速解析…");
+      try {
+        const ingest = await api.ingestPdf({
+          file_sha256: result.file_sha256,
+        });
+        const ingestResult = ingest.result;
+        setUploadMsg(
+          ingestResult.message ?? (ingestResult.status === "matched_bundle" ? "解析完成，可以开局" : "解析中"),
+        );
+        if (ingestResult.matched_bundle?.path) {
+          setBundlePath(ingestResult.matched_bundle.path);
+          if (!title) {
+            setTitle(
+              ingestResult.matched_bundle.title || ingestResult.matched_bundle.bundle_id,
+            );
+          }
+        }
+        if (onBootstrapRefresh) await onBootstrapRefresh();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const ocrHint = /ocr/i.test(message)
+          ? "扫描版 PDF（无文本层）需要外部 OCR 能力，暂不支持。"
+          : "";
+        setUploadMsg(`解析失败：${message}${ocrHint ? `；${ocrHint}` : ""}`);
+      }
+    }
+  };
+
+  // Desktop「导入 PDF 模组…」handoff: register the shell-provided local path
+  // through the same chain the browser drop-zone uses (from-path endpoint,
+  // then the identical auto-ingest).
+  const initialPdfHandled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialPdfPath) return;
+    if (mode !== "pdf") {
+      // A deliberate menu/wizard import while another source mode is open
+      // switches the flow to pdf mode; the import runs on the next render.
+      setMode("pdf");
+      return;
+    }
+    if (initialPdfHandled.current === initialPdfPath) return;
+    initialPdfHandled.current = initialPdfPath;
+    beginUpload();
+    void (async () => {
+      try {
+        const resp = await api.uploadPdfFromPath(initialPdfPath);
+        await applyUploadResult(resp.result);
+      } catch (e) {
+        setUploadMsg(e instanceof Error ? e.message : String(e));
+      } finally {
+        setUploadBusy(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyUploadResult
+    // is a render-scoped closure; the ref above already guards re-entry.
+  }, [mode, initialPdfPath]);
+
+  const handlePdfFile = async (file: File | null) => {
+    if (!file) return;
+    beginUpload();
     try {
       const resp = await api.uploadPdf(file);
-      setUploadInfo(resp.result);
-      setUploadMsg(resp.result.message ?? "上传完成");
-      if (resp.result.matched_bundle?.path) {
-        setBundlePath(resp.result.matched_bundle.path);
-        if (!title) {
-          setTitle(
-            resp.result.matched_bundle.title ||
-              resp.result.matched_bundle.bundle_id,
-          );
-        }
-      }
-      if (onBootstrapRefresh) await onBootstrapRefresh();
-      if (resp.result.status === "stored_pending_ingest") {
-        // No matching bundle yet: trigger external-router parsing now.
-        setUploadMsg("正在快速解析…");
-        try {
-          const ingest = await api.ingestPdf({
-            file_sha256: resp.result.file_sha256,
-          });
-          const result = ingest.result;
-          setUploadMsg(
-            result.message ?? (result.status === "matched_bundle" ? "解析完成，可以开局" : "解析中"),
-          );
-          if (result.matched_bundle?.path) {
-            setBundlePath(result.matched_bundle.path);
-            if (!title) {
-              setTitle(
-                result.matched_bundle.title || result.matched_bundle.bundle_id,
-              );
-            }
-          }
-          if (onBootstrapRefresh) await onBootstrapRefresh();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          const ocrHint = /ocr/i.test(message)
-            ? "扫描版 PDF（无文本层）需要外部 OCR 能力，暂不支持。"
-            : "";
-          setUploadMsg(`解析失败：${message}${ocrHint ? `；${ocrHint}` : ""}`);
-        }
-      }
+      await applyUploadResult(resp.result);
     } catch (e) {
       setUploadMsg(e instanceof Error ? e.message : String(e));
     } finally {

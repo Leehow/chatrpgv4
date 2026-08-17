@@ -27,13 +27,16 @@ interface Props {
    *  generic list (metadata unknown). */
   levels?: string[];
   disabled?: boolean;
+  /** composer = the compact pill embedded in the chat composer toolbar. */
+  variant?: "topbar" | "composer";
   onChange: (level: string) => void;
 }
 
 /** Keeper thinking-intensity picker; the level rides the turn request and is
  *  applied when the runner session is created (a level switch starts a fresh
  *  warm worker, same as a model switch). */
-export function ThinkingMenu({ thinking, levels, disabled, onChange }: Props) {
+export function ThinkingMenu({ thinking, levels, disabled, variant = "topbar", onChange }: Props) {
+  const composer = variant === "composer";
   const options = LEVELS.filter((l) => !levels?.length || levels.includes(l.id));
   // Same clamp pi applies per request (up first, then down): a saved level
   // the active model doesn't support displays (and runs) as the nearest one.
@@ -47,18 +50,28 @@ export function ThinkingMenu({ thinking, levels, disabled, onChange }: Props) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="outline"
+          variant={composer ? "ghost" : "outline"}
           size="sm"
           disabled={disabled}
-          className="h-9 gap-1.5 rounded-lg border-border/80 bg-card/70 px-2.5 shadow-none"
+          className={
+            composer
+              ? "h-7 gap-1 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground"
+              : "h-9 gap-1.5 rounded-lg border-border/80 bg-card/70 px-2.5 shadow-none"
+          }
           title="思考强度（thinking level）"
         >
-          <Brain className="size-3.5 shrink-0 text-primary" />
-          <span className="hidden truncate text-xs sm:inline">思考 · {current.label}</span>
-          <ChevronDown className="hidden size-3.5 shrink-0 text-muted-foreground sm:block" />
+          <Brain className={cn("shrink-0 text-primary", composer ? "size-3" : "size-3.5")} />
+          <span className={cn("hidden truncate sm:inline", composer ? "text-[11px]" : "text-xs")}>
+            思考 · {current.label}
+          </span>
+          <ChevronDown className={cn("hidden shrink-0 text-muted-foreground sm:block", composer ? "size-3" : "size-3.5")} />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent
+        side={composer ? "top" : "bottom"}
+        align={composer ? "start" : "end"}
+        className="w-44"
+      >
         <DropdownMenuLabel className="text-xs text-muted-foreground">思考强度</DropdownMenuLabel>
         {options.map((l) => (
           <DropdownMenuItem

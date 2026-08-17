@@ -375,8 +375,40 @@ def test_resume_quarantines_unfinalized_turn_tail(campaign_ws):
     assert resumed_again["data"]["turn_tail_quarantine"] == {
         "quarantined_orphan_rolls": [],
         "restored_commit_snapshot": None,
+        "invalidated_decisions": [],
         "discarded_development_ticks": {"queue": 0, "claims": 0, "archive": 0},
     }
+
+    # Idempotency evidence survives the restore for audit, but the abandoned
+    # branch is no longer a valid replay source.  Reusing either decision must
+    # fail closed instead of returning state that the commit restore removed.
+    replayed_san = _run(
+        campaign_ws,
+        "rules.sanity_check",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "source": "horror orphan-san",
+            "loss_success": "0",
+            "loss_failure": "5",
+            "decision_id": "orphan-san",
+            "seed": 10,
+        },
+    )
+    assert replayed_san["ok"] is False
+    assert replayed_san["error"]["code"] == "decision_invalidated"
+    replayed_roll = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Spot Hidden",
+            "target": 99,
+            "seed": 2,
+            "decision_id": "orphan-skill-roll",
+        },
+    )
+    assert replayed_roll["ok"] is False
+    assert replayed_roll["error"]["code"] == "decision_invalidated"
 
     # The investigator is still usable: a fresh SAN check applies cleanly.
     after = _san_check(
@@ -388,3 +420,50 @@ def test_resume_quarantines_unfinalized_turn_tail(campaign_ws):
     )
     assert after["data"]["san_before"] == 52
     assert after["data"]["san_after"] == 49
+
+
+def test_voided_turn_tail_rolls_never_reenter_later_output_context(campaign_ws):
+    _san_check(
+        campaign_ws,
+        decision_id="committed-san-before-void-projection",
+        seed=1,
+        loss_success="1D3",
+        loss_failure="1D3",
+    )
+    _finalize_current_turn(campaign_ws, "committed-before-void-projection")
+
+    orphan = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Spot Hidden",
+            "target": 99,
+            "seed": 2,
+            "decision_id": "voided-roll-must-stay-audit-only",
+        },
+    )
+    assert orphan["ok"] is True, orphan
+    orphan_roll_id = orphan["data"]["roll_id"]
+
+    resumed = _run(campaign_ws, "session.resume", {})
+    assert resumed["ok"] is True, resumed
+    assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == [
+        orphan_roll_id
+    ]
+
+    journaled = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "a later unrelated turn",
+            "player_text": "我进行一个与作废检定无关的新行动。",
+            "decision_id": "journal-after-voided-tail",
+        },
+    )
+    assert journaled["ok"] is True, journaled
+    output = _run(campaign_ws, "turn.output_context", {})
+    assert output["ok"] is True, output
+    assert orphan_roll_id not in output["data"]["source_roll_ids"]
+    assert output["data"]["obligations"] == []
+    assert output["data"]["mechanics_bundle"]["public_check"] == []

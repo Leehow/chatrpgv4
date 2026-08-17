@@ -3,6 +3,7 @@ import path from "node:path";
 import { shell } from "electron";
 import { authEventBrowserUrl, isHttpsUrl } from "./auth-event-url.mjs";
 import { PROVIDER_PRESETS } from "./agentconfig.mjs";
+import { keeperNodeModules, listPiCatalogProviders, loginProviderMeta } from "./pi-catalog.mjs";
 
 // pi-style provider login for the desktop shell. Instead of reimplementing
 // any OAuth dance, this drives the bundled pi library's own login API
@@ -14,9 +15,10 @@ import { PROVIDER_PRESETS } from "./agentconfig.mjs";
 //     the web bridge's model dropdown (projections.mjs modelsPayload) reads
 //     models.json only and cannot see built-in provider catalogs.
 
-// OAuth-capable providers shipped inside pi-ai 0.81.1. `methods` mirrors what
-// the provider actually supports (envApiKeyAuth.login exists for all but
-// openai-codex). Keys/tokens never appear in these descriptors.
+// Featured OAuth cards on the settings page. `methods` mirrors what the
+// provider actually supports (envApiKeyAuth.login exists for all but
+// openai-codex). The rest of pi-ai 0.84.2's catalog is listed behind 更多
+// via pi-catalog.mjs. Keys/tokens never appear in these descriptors.
 export const OAUTH_PROVIDERS = [
   {
     id: "anthropic",
@@ -46,14 +48,6 @@ export const OAUTH_PROVIDERS = [
 
 export function oauthProvider(id) {
   return OAUTH_PROVIDERS.find((p) => p.id === id) || null;
-}
-
-function keeperNodeModules(payloadRoot) {
-  const dir = path.join(payloadRoot, "runtime", "adapters", "keeper", "node_modules");
-  if (!fs.existsSync(path.join(dir, "@earendil-works", "pi-coding-agent"))) {
-    throw new Error(`pi 库未找到：${dir}`);
-  }
-  return dir;
 }
 
 const runtimeCache = new Map();
@@ -95,7 +89,24 @@ export function materializeProviderModels(agentDir, providerId, models, { name }
   const previous = doc.providers[providerId];
   const entries = models.map((m) => {
     const out = { id: m.id, name: String(m.name || m.id) };
+    // Carry the composed catalog fields through: pi's modelFromJson rebuilds
+    // models.json entries wholesale (only api/baseUrl fall back to catalog
+    // defaults), so a bare {id,name} entry would silently strip reasoning,
+    // thinkingLevelMap, compat, and the real context window — e.g. grok-4.5's
+    // openai-responses channel and its adjustable thinking levels.
+    if (typeof m.api === "string" && m.api.trim()) out.api = m.api.trim();
     if (Array.isArray(m.input) && m.input.length) out.input = [...m.input];
+    if (m.reasoning === true) out.reasoning = true;
+    if (m.compat && typeof m.compat === "object") out.compat = m.compat;
+    if (m.thinkingLevelMap && typeof m.thinkingLevelMap === "object") {
+      out.thinkingLevelMap = m.thinkingLevelMap;
+    }
+    if (Number.isFinite(m.contextWindow) && m.contextWindow > 0) {
+      out.contextWindow = m.contextWindow;
+    }
+    if (Number.isFinite(m.maxTokens) && m.maxTokens > 0) {
+      out.maxTokens = m.maxTokens;
+    }
     return out;
   });
   if (previous && Array.isArray(previous.models)) {
@@ -124,7 +135,13 @@ async function materializeFromRuntime(agentDir, runtime, providerId, label) {
     models = (runtime.getModels(providerId) || []).map((m) => ({
       id: m.id,
       name: m.name,
+      api: m.api,
       input: m.input,
+      reasoning: m.reasoning,
+      compat: m.compat,
+      thinkingLevelMap: m.thinkingLevelMap,
+      contextWindow: m.contextWindow,
+      maxTokens: m.maxTokens,
     }));
   } catch {
     models = [];
@@ -132,11 +149,7 @@ async function materializeFromRuntime(agentDir, runtime, providerId, label) {
   if (!models.length) {
     const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
     if (preset?.models?.length) {
-      models = preset.models.map((m) => ({
-        id: m.id,
-        name: m.name || m.id,
-        input: m.input,
-      }));
+      models = preset.models.map((m) => ({ ...m, name: m.name || m.id }));
     }
   }
   return models.length
@@ -176,8 +189,14 @@ function raceAbort(promise, signal) {
 const FIRST_AUTH_EVENT_TIMEOUT_MS = 20_000;
 
 export async function loginProvider({ payloadRoot, agentDir, providerId, method, emit, onPrompt, signal }) {
-  const meta = oauthProvider(providerId);
-  if (!meta) throw new Error(`未知 OAuth 供应商：${providerId}`);
+  let catalog = [];
+  try {
+    catalog = await listPiCatalogProviders({ payloadRoot });
+  } catch {
+    catalog = [];
+  }
+  const meta = loginProviderMeta(providerId, { featuredOauth: OAUTH_PROVIDERS, catalog });
+  if (!meta) throw new Error(`未知供应商：${providerId}`);
   if (!meta.methods.includes(method)) throw new Error(`${meta.label} 不支持该登录方式`);
   const runtime = await raceAbort(loadModelRuntime({ payloadRoot, agentDir }), signal);
   if (signal?.aborted) throw abortError();

@@ -55,7 +55,7 @@ case "$UV_PATH" in
     exit 1
     ;;
 esac
-UV_VERSION=$($UV_PATH --version 2>&1) || {
+UV_VERSION=$("$UV_PATH" --version 2>&1) || {
   printf '%s\n' "pi-coc: cannot run required uv at $UV_PATH" >&2
   exit 1
 }
@@ -151,6 +151,23 @@ See plugins/coc-keeper/pi/README.md for the dual-entry workflow.
 EOF
     exit 1
   fi
+fi
+
+# Attached UI always loads the running package. A leftover source-checkout
+# path (or a dirty desktop package.json) must not stay in settings.packages:
+# Pi would treat that tree as the extension and die before ready.
+if attached_ui_enabled && [ -f "$PI_CODING_AGENT_DIR/settings.json" ]; then
+  node -e '
+    const fs = require("fs");
+    const settingsPath = process.argv[1];
+    const repoRoot = process.argv[2];
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    const packages = Array.isArray(settings.packages) ? settings.packages : [];
+    if (packages.length === 1 && packages[0] === repoRoot) process.exit(0);
+    settings.packages = [repoRoot];
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    process.stderr.write("pi-coc: pinned attached-UI packages to the running Pi package\n");
+  ' "$PI_CODING_AGENT_DIR/settings.json" "$REPO_ROOT"
 fi
 
 if [ ! -f "$HOST_SYSTEM_PROMPT" ]; then
@@ -364,11 +381,17 @@ if [ -z "${COC_PROGRESSIVE_OCR_PYTHON:-}" ]; then
   done
 fi
 
-if [ -x "$REPO_ROOT/.venv/bin/python3" ]; then
+# Packaged desktop relocates the project env to UV_PROJECT_ENVIRONMENT
+# (userData/coc-venv). Missing $REPO_ROOT/.venv is expected there and is
+# not a PDF-only failure — do not scare built-in-module launches.
+if [ -n "${UV_PROJECT_ENVIRONMENT:-}" ] && [ -x "$UV_PROJECT_ENVIRONMENT/bin/python3" ]; then
+  PATH=$UV_PROJECT_ENVIRONMENT/bin:$PATH
+  export PATH
+elif [ -x "$REPO_ROOT/.venv/bin/python3" ]; then
   PATH=$REPO_ROOT/.venv/bin:$PATH
   export PATH
 else
-  printf '%s\n' "pi-coc: no $REPO_ROOT/.venv/bin/python3; run 'uv sync --frozen' or PDF ingest will fail" >&2
+  printf '%s\n' "pi-coc: no project python at ${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}/bin/python3; run 'uv sync --frozen'" >&2
 fi
 
 PI_CLI=$(resolve_pi_cli) || {

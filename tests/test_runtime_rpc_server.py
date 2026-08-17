@@ -221,6 +221,174 @@ def test_display_character_absent_returns_null(client: RpcClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Inventory: campaign merge in display_character + item_use over RPC
+
+
+def _load_script(name: str, path: Path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPTS = REPO_ROOT / "plugins" / "coc-keeper" / "scripts"
+
+
+@pytest.fixture()
+def item_workspace(tmp_path: Path):
+    """Fresh the-haunting / thomas-hayes workspace for inventory RPC tests."""
+    coc_starter = _load_script("coc_starter_rpc_test", _SCRIPTS / "coc_starter.py")
+    workspace = tmp_path / "ws"
+    coc_root = workspace / ".coc"
+    (coc_root).mkdir(parents=True)
+    (coc_root / "runtime.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "planner": {"kind": "deterministic"},
+                "rules": {"kind": "deterministic"},
+                "narrator": {"kind": "template"},
+                "player": {"kind": "human"},
+            }
+        ),
+        "utf-8",
+    )
+    quick = coc_starter.quick_start(
+        coc_root, "the-haunting", "thomas-hayes",
+        campaign_id="rpc-items", title="RPC Items",
+    )
+    return workspace, "rpc-items", str(quick["investigator_id"])
+
+
+def test_item_use_and_display_character_campaign_merge(item_workspace) -> None:
+    workspace, campaign_id, inv = item_workspace
+    coc_toolbox = _load_script("coc_toolbox_rpc_test", _SCRIPTS / "coc_toolbox.py")
+    granted = coc_toolbox.run_tool(
+        "state.item_grant",
+        workspace,
+        campaign_id,
+        {
+            "investigator": inv,
+            "kind": "gear",
+            "item_id": "bandages",
+            "label": "绷带",
+            "consumable": True,
+            "quantity": 3,
+            "note": "从急救箱里拿的",
+            "decision_id": "rpc-grant-bandages",
+        },
+    )
+    assert granted["ok"] is True, granted
+    granted_weapon = coc_toolbox.run_tool(
+        "state.item_grant",
+        workspace,
+        campaign_id,
+        {
+            "investigator": inv,
+            "kind": "weapon",
+            "weapon_id": "revolver_45",
+            "label": ".45 左轮",
+            "decision_id": "rpc-grant-revolver",
+        },
+    )
+    assert granted_weapon["ok"] is True, granted_weapon
+
+    client = RpcClient(workspace)
+    try:
+        # The side panel projection merges the campaign runtime inventory.
+        resp = client.request(
+            "display_character",
+            {
+                "investigator_id": inv,
+                "play_language": "zh-Hans",
+                "campaign_id": campaign_id,
+            },
+        )
+        assert resp.get("error") is None
+        character = resp["result"]["character"]
+        items = {row["item_id"]: row for row in character["inventory_items"]}
+        assert items["bandages"]["label"] == "绷带"
+        assert items["bandages"]["quantity"] == 3
+        assert items["bandages"]["consumable"] is True
+        assert items["bandages"]["source"] == "campaign"
+        assert items["bandages"]["note"] == "从急救箱里拿的"
+        # Sheet equipment survives the merge, flagged by origin.
+        assert any(row["source"] == "sheet" for row in items.values())
+        # The granted weapon joins the displayed weapon set at once.
+        assert any(
+            ".45" in str(w.get("label")) for w in character["weapons"]
+        )
+        # Legacy flat label list follows the merge (gear only).
+        assert "绷带" in character["equipment"]
+
+        # Sidebar use: one charge leaves two.
+        resp = client.request(
+            "item_use",
+            {"campaign_id": campaign_id, "investigator_id": inv, "item_id": "bandages"},
+        )
+        assert resp.get("error") is None
+        assert resp["result"]["ok"] is True
+        assert resp["result"]["data"]["outcome"] == "decremented"
+        assert resp["result"]["data"]["remaining"] == 2
+
+        # Spending the rest consumes the item; it leaves the projection.
+        resp = client.request(
+            "item_use",
+            {
+                "campaign_id": campaign_id,
+                "investigator_id": inv,
+                "item_id": "bandages",
+                "count": 2,
+            },
+        )
+        assert resp["result"]["data"]["outcome"] == "consumed"
+        resp = client.request(
+            "display_character",
+            {
+                "investigator_id": inv,
+                "play_language": "zh-Hans",
+                "campaign_id": campaign_id,
+            },
+        )
+        character = resp["result"]["character"]
+        assert "bandages" not in {
+            row["item_id"] for row in character["inventory_items"]
+        }
+
+        # Unknown items are a benign no-op; missing params are an error.
+        resp = client.request(
+            "item_use",
+            {"campaign_id": campaign_id, "investigator_id": inv, "item_id": "ghost"},
+        )
+        assert resp["result"]["ok"] is True
+        assert resp["result"]["data"]["changed"] is False
+        resp = client.request("item_use", {"campaign_id": campaign_id})
+        assert resp["error"] is not None
+    finally:
+        client.close()
+
+
+def test_display_character_without_campaign_is_sheet_only(item_workspace) -> None:
+    workspace, _campaign_id, inv = item_workspace
+    client = RpcClient(workspace)
+    try:
+        resp = client.request(
+            "display_character",
+            {"investigator_id": inv, "play_language": "zh-Hans"},
+        )
+        assert resp.get("error") is None
+        character = resp["result"]["character"]
+        assert character is not None
+        assert character["inventory_items"] is None
+        assert character["equipment"]
+    finally:
+        client.close()
+
+
+# ---------------------------------------------------------------------------
 # Campaign admin (rename / trash / restore / 24h purge)
 
 

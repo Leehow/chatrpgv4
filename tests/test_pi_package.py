@@ -73,6 +73,8 @@ def _load_pdf_adapter(name: str):
 
 def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    assert manifest["name"] == "@chatrpg/coc-keeper-pi"
+    assert "main" not in manifest
     assert manifest["pi"] == {
         "extensions": ["./plugins/coc-keeper/pi/extensions/index.ts"],
         "skills": [
@@ -501,6 +503,35 @@ def test_pi_coc_exports_validated_fallback_uv_directory_to_pi_children(
     ]
 
 
+def test_pi_coc_runs_required_uv_when_path_contains_spaces(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path, settings=settings, models=models,
+    )
+    spaced_bin = tmp_path / "COC Keeper.app" / "Contents" / "Resources" / "bin"
+    spaced_bin.mkdir(parents=True)
+    shutil.copy2(fake_bin / "uv", spaced_bin / "uv")
+    shutil.copy2(fake_bin / "pi", spaced_bin / "pi")
+    args_path = tmp_path / "pi-args.txt"
+    completed = subprocess.run(
+        [str(PLUGIN / "pi" / "bin" / "pi-coc"), "--new"],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{spaced_bin}{os.pathsep}{os.environ['PATH']}",
+            "PI_COC_AGENT_DIR": str(agent_dir),
+            "PI_COC_TEST_ARGS": str(args_path),
+            "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
+            "PI_COC_TEST_PATH": str(tmp_path / "child-path.txt"),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert args_path.is_file()
+
+
 def test_pi_coc_exports_pdf_inspector_router_default_from_home(
     tmp_path: Path,
 ):
@@ -885,10 +916,17 @@ def test_pi_coc_welcome_guide_copy():
     assert result["resumedHiddenResumeInstruction"] is True
     assert result["autoOpenFreshStartup"] is True
     assert result["noAutoOpenResumeHistory"] is True
+    assert result["autoOpenSetupAfterToolHistory"] is True
+    assert result["noAutoOpenSetupAfterQuestion"] is True
+    assert result["noAutoOpenContinueAfterToolHistory"] is True
+    assert result["visibleAssistantFromText"] is True
+    assert result["noVisibleAssistantFromUserOnly"] is True
     assert result["attachedUiHelper"] is True
     assert result["attachedUiOff"] is True
     assert result["rpcBareNoAutoOpen"] is True
     assert result["rpcAttachedAutoOpen"] is True
+    assert result["rpcAttachedSetupReopenAutoOpen"] is True
+    assert result["rpcAttachedSetupKeepsExistingQuestion"] is True
 
 
 def test_pi_coc_setup_inspect_lists_campaigns(tmp_path: Path):
@@ -1013,6 +1051,66 @@ def test_pi_coc_attached_ui_bootstraps_agent_home(tmp_path: Path):
     assert written["defaultModel"] == "grok-4.6"
     assert (bare / "bin" / "fd").is_file()
     assert (bare / "bin" / "rg").is_file()
+
+
+def test_pi_coc_attached_ui_repins_stale_packages_to_running_repo(tmp_path: Path):
+    """A leftover source-checkout path must not stay the loaded Pi package.
+
+    The packaged desktop reuses the same agent dir; if packages still points
+    at a dirty checkout (or a desktop package.json), Pi dies before ready.
+    """
+    settings, models = _supported_pi_settings()
+    stale = tmp_path / "old-checkout"
+    stale.mkdir()
+    (stale / "package.json").write_text(
+        json.dumps({
+            "name": "coc-keeper-desktop",
+            "main": "electron/main.mjs",
+        }),
+        encoding="utf-8",
+    )
+    settings = {
+        **settings,
+        "packages": [str(stale)],
+        "quietStartup": True,
+    }
+    completed, _args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=[],
+        extra_env={"COC_PI_ATTACHED_UI": "1"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    written = json.loads(
+        (tmp_path / "agent" / "settings.json").read_text(encoding="utf-8"),
+    )
+    assert written["packages"] == [str(ROOT)]
+
+
+def test_pi_coc_prefers_uv_project_environment_python(tmp_path: Path):
+    """Packaged desktop relocates the venv via UV_PROJECT_ENVIRONMENT.
+
+    Looking only at $REPO_ROOT/.venv prints a PDF-ingest warning on every
+    built-in-module launch even when Python is already ready.
+    """
+    settings, models = _supported_pi_settings()
+    project_env = tmp_path / "coc-venv"
+    (project_env / "bin").mkdir(parents=True)
+    python = project_env / "bin" / "python3"
+    python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python.chmod(0o755)
+    completed, _args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=[],
+        extra_env={"UV_PROJECT_ENVIRONMENT": str(project_env)},
+    )
+    assert completed.returncode == 0, completed.stderr
+    child_path = (tmp_path / "child-path.txt").read_text(encoding="utf-8")
+    assert str(project_env / "bin") in child_path.split(os.pathsep)
+    assert "PDF ingest will fail" not in completed.stderr
 
 
 def test_pi_coc_tui_still_requires_settings_without_attached_ui(tmp_path: Path):

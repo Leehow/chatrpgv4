@@ -30,7 +30,12 @@ Combat in Call of Cthulhu is **not** a single roll that decides a fight. Per Kee
 
 If `combat.resolve` returns `mechanics_not_ready`, do not substitute
 `rules.roll`, `rules.opposed`, copied stub values, or a generic profile. Follow
-the canonical source-first path: call `mechanics.ensure`; on
+the canonical source-first path: call `mechanics.ensure`. In a bundled
+(non-progressive) scenario the authored combat-engagement affordance plus the
+ruleset monster row are that source: `mechanics.ensure` returns `ready` with
+`authority: "compiled_module"` and you settle on it; a fail-closed
+`mechanics_source_unavailable` means no authored or compiled mechanics exist —
+surface the gap instead of improvising numbers. In a progressive campaign, on
 `source_work_required`, immediately call `progressive.claim_host_work` and
 spawn the exact packet as the unqualified `coc-source-pack-worker` with
 `background=true`. Existing `blocking_micro` semantics may delay only this

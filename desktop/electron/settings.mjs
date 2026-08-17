@@ -10,6 +10,9 @@ import { app } from "electron";
 const DEFAULTS = {
   onboarded: false,
   hiddenProviderIds: [],
+  // Catalog extras the user checked in 编辑模型 → 更多. Featured cards
+  // still use hiddenProviderIds (shown unless hidden).
+  extraProviderIds: [],
   // User-added OpenAI-compatible provider cards for the settings list.
   // Credentials stay in the agent dir (auth.json); this only defines the card.
   customProviders: [],
@@ -51,7 +54,8 @@ function sanitizeCustomProviders(value) {
 function settingsPath() {
   // Same base-dir rule as env.mjs resolvePaths, so the QA override
   // relocates settings together with everything else.
-  const base = process.env.COC_DESKTOP_USER_DATA || app.getPath("userData");
+  const base = process.env.COC_DESKTOP_USER_DATA
+    || path.join(app.getPath("appData"), "coc-keeper-desktop");
   return path.join(base, "coc-desktop-settings.json");
 }
 
@@ -64,10 +68,11 @@ export function loadSettings() {
     delete next.pdfOpeningModel;
     delete next.pdfVisionModel;
     next.hiddenProviderIds = sanitizeHiddenProviderIds(next.hiddenProviderIds);
+    next.extraProviderIds = sanitizeHiddenProviderIds(next.extraProviderIds);
     next.customProviders = sanitizeCustomProviders(next.customProviders);
     return next;
   } catch {
-    return { ...DEFAULTS, hiddenProviderIds: [], customProviders: [] };
+    return { ...DEFAULTS, hiddenProviderIds: [], extraProviderIds: [], customProviders: [] };
   }
 }
 
@@ -82,6 +87,11 @@ export function saveSettings(patch) {
     Object.prototype.hasOwnProperty.call(patch || {}, "hiddenProviderIds")
       ? patch.hiddenProviderIds
       : current.hiddenProviderIds,
+  );
+  next.extraProviderIds = sanitizeHiddenProviderIds(
+    Object.prototype.hasOwnProperty.call(patch || {}, "extraProviderIds")
+      ? patch.extraProviderIds
+      : current.extraProviderIds,
   );
   next.customProviders = sanitizeCustomProviders(
     Object.prototype.hasOwnProperty.call(patch || {}, "customProviders")

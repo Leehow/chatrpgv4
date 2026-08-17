@@ -3,8 +3,10 @@
  *
  * Electron spawn()s the Node web bridge detached so a clean quit can SIGTERM
  * the whole process group. A force-quit / crash leaves that group alive on
- * the same workspace. Startup reaps only processes whose command line binds
- * this exact workspace to server-node/server.mjs or rpc_server.py.
+ * the same workspace. Startup reaps only processes proven to be ours: the
+ * recorded pid, or a command line binding this exact workspace AND the
+ * recorded port. A hand-started dev server on another port (or any process
+ * when no pid record exists) is foreign state and is never reaped.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -74,6 +76,14 @@ export function commandOwnsWorkspace(command, workspace) {
   );
 }
 
+export function commandBindsPort(command, port) {
+  if (!command || !Number.isInteger(port) || port <= 0) return false;
+  return (
+    command.includes(`--port ${port}`) ||
+    command.includes(`--port=${port}`)
+  );
+}
+
 export function isStaleBridgeCommand(command, workspace) {
   if (!commandOwnsWorkspace(command, workspace)) return false;
   return (
@@ -82,15 +92,32 @@ export function isStaleBridgeCommand(command, workspace) {
   );
 }
 
-export function selectStaleBridgeRows({ processes, workspace, keepPids = [] }) {
+export function selectStaleBridgeRows({
+  processes,
+  workspace,
+  keepPids = [],
+  port,
+  forcePids = [],
+}) {
   const keep = new Set(keepPids.map(Number));
+  const force = new Set(forcePids.map(Number));
+  const hasPort = Number.isInteger(port) && port > 0;
   const servers = [];
   const others = [];
   for (const row of processes) {
     if (keep.has(row.pid)) continue;
     if (!isStaleBridgeCommand(row.command, workspace)) continue;
-    if (/server-node[/\\]server\.mjs\b/.test(row.command)) servers.push(row);
-    else others.push(row);
+    if (/server-node[/\\]server\.mjs\b/.test(row.command)) {
+      // A web bridge from another launch (or a hand-started dev server) on a
+      // different port is foreign state, not our stale bridge: only the
+      // recorded port (or the recorded pid) proves ownership.
+      if (hasPort && !force.has(row.pid) && !commandBindsPort(row.command, port)) {
+        continue;
+      }
+      servers.push(row);
+    } else {
+      others.push(row);
+    }
   }
   return [...servers, ...others];
 }
@@ -125,9 +152,13 @@ export function reapStaleBridges({
 } = {}) {
   const processes = listProcesses();
   const record = readPidRecord(userData);
+  // No record means no bridge was ever spawned (or it was already reaped):
+  // anything still matching this workspace is foreign state — never scan-kill.
+  if (!record) {
+    return { killed: [] };
+  }
   const extra = [];
   if (
-    record &&
     record.workspace === workspace &&
     !keepPids.map(Number).includes(record.pid)
   ) {
@@ -140,6 +171,8 @@ export function reapStaleBridges({
     processes: [...extra, ...processes],
     workspace,
     keepPids,
+    port: record.port > 0 ? record.port : undefined,
+    forcePids: record.workspace === workspace ? [record.pid] : [],
   });
   const killed = [];
   const seen = new Set();

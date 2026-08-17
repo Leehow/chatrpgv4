@@ -2979,7 +2979,9 @@ def test_hidden_hotset_direct_call_still_succeeds(monkeypatch, tmp_path):
         "rules_roll",
         roll_arguments,
     )
-    assert rolled["ok"] is True, rolled
+    assert rolled["ok"] is False, rolled
+    assert rolled["error"]["code"] == "decision_invalidated"
+    assert rolled["error"]["details"]["reason"] == "unfinalized_turn_tail"
     assert rolled["tool"] == "rules.roll"
 
 
@@ -3241,6 +3243,95 @@ def test_mcp_wire_combat_context_preserves_pending_defense_under_budget():
             "initiative_cursor": 1,
             "current_initiative": "cultist",
         },
+    }
+
+
+def test_mcp_wire_combat_resolve_preserves_receipt_and_next_step_under_budget():
+    """A large settled combat call must not collapse into an identity loop."""
+    server = _load_server()
+    pending = {
+        "attack_command_id": "attack-2",
+        "actor_id": "walter-corbitt",
+        "target_actor_id": "lin-huaiyuan",
+        "weapon_id": "floating-knife",
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    event = {
+        "event_type": "combat_turn_resolved",
+        "turn": {
+            "actor_id": "lin-huaiyuan",
+            "target_actor_id": "walter-corbitt",
+            "weapon_id": "corbitt-ritual-dagger",
+            "outcome": "hit",
+            "attack_roll_id": "roll-attack-1",
+            "damage_roll_id": "roll-damage-1",
+        },
+        "roll_evidence": [{
+            "roll_id": "roll-attack-1",
+            "roll": 42,
+            "target": 50,
+            "achieved_level": "regular",
+        }],
+    }
+    player_state_receipt = {
+        "hp": {"before": 10, "after": 10},
+        "san": {"before": 60, "after": 60},
+        "luck": {"before": 60, "after": 60},
+    }
+    projected = server.wire_projection.project_envelope(
+        "combat.resolve",
+        {
+            "ok": True,
+            "tool": "combat.resolve",
+            "data": {
+                "results": [{"padding": "x" * 40_000}],
+                "events": [event],
+                "combat": {
+                    "schema_version": 1,
+                    "combat_id": "corbitt-final-combat",
+                    "scene_ref": "corbitt-confrontation",
+                    "status": "active",
+                    "outcome": None,
+                    "revision": 3,
+                    "current_round": 1,
+                    "initiative_cursor": 1,
+                    "current_initiative": "walter-corbitt",
+                    "pending_attack": pending,
+                    "rounds": [{"padding": "y" * 40_000}],
+                },
+                "pending_defense": pending,
+                "improvement_ticks_recorded": ["Fighting (Brawl)"],
+                "player_state_receipt": player_state_receipt,
+            },
+            "warnings": [],
+            "hints": ["an attack is pending: ask the player for a legal defense"],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"]["full_result_bytes"] > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"].get("identity_only") is not True
+    assert projected["data"] == {
+        "events": [event],
+        "combat": {
+            "schema_version": 1,
+            "combat_id": "corbitt-final-combat",
+            "scene_ref": "corbitt-confrontation",
+            "status": "active",
+            "outcome": None,
+            "revision": 3,
+            "current_round": 1,
+            "initiative_cursor": 1,
+            "current_initiative": "walter-corbitt",
+        },
+        "pending_defense": pending,
+        "improvement_ticks_recorded": ["Fighting (Brawl)"],
+        "player_state_receipt": player_state_receipt,
     }
 
 

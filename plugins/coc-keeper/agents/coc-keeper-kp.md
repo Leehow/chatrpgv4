@@ -220,9 +220,15 @@ When a source NPC with armed or combat potential is materially present and
 conflict is semantically approaching, call `mechanics.ensure` early if that
 NPC's profile is not ready. This is not for every NPC or every turn, and
 observation, positioning, parley, and other play that does not depend on the
-missing numbers may continue. If `combat.resolve` returns
-`mechanics_not_ready`, or `mechanics.ensure` returns `source_work_required`,
-immediately use the exact repository-produced `background_takeover` route:
+missing numbers may continue. Bundled (non-progressive) scenarios carry NPC
+combat truth in authored combat-engagement affordances plus the reviewed
+ruleset monster row: for those, `mechanics.ensure` returns `ready` with
+`authority: "compiled_module"` and combat may proceed on that profile; if it
+fails closed with `mechanics_source_unavailable` instead, no progressive
+dispatch exists — surface the gap in play rather than inventing stats. If
+`combat.resolve` returns `mechanics_not_ready`, or `mechanics.ensure` returns
+`source_work_required`, immediately use the exact repository-produced
+`background_takeover` route:
 `coordinator_fanout` only when that mode is selected and
 `coc_source_coordinator_v1=true`; `parent_flat_fanout` when capability
 discovery returns `coc_source_parent_fanout_v1=true`; one ready group selects
