@@ -63,6 +63,7 @@ import {
   registerCocWelcome,
   STARTUP_RESUME_CUSTOM_TYPE,
   startupResumeInstruction,
+  tableOpenIntentFromEnv,
 } from "../lib/welcome.ts";
 import { isCanonicalCampaignId } from "../lib/campaign-id.mjs";
 import {
@@ -7318,7 +7319,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           blockerDeliveryAttempts: 0,
           hiddenRepromptDelivery: "pending",
         };
-    kpPlayPhase = startupCampaignId === null ? "live_turn" : "recovery";
+    const tableIntent = tableOpenIntentFromEnv();
+    const openingGateActive = openingContinuationGate.hasActiveOpeningSetup();
+    if (
+      tableIntent === "character-setup"
+      || startupCampaignId !== null
+      || openingGateActive
+    ) {
+      kpPlayPhase = "opening";
+    } else {
+      kpPlayPhase = "cold_start";
+    }
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
     // but never expose it to the KP model. A pi-subagents child process owns

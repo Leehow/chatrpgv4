@@ -223,7 +223,34 @@ export function inferPhaseFromEnvelope(
   if (operation === "evidence.table_opening" && envelope?.ok === true) {
     return "live_turn";
   }
+  if (
+    previous !== "pending_finalization"
+    && previous !== "recovery"
+    && previous !== "ending"
+    && envelope?.ok === true
+    && campaignBoundOpeningReceipt(operation, data)
+  ) {
+    return "opening";
+  }
   return previous;
+}
+
+const OPENING_BIND_KINDS = new Set([
+  "campaign.create",
+  "campaign.quick_start",
+  "campaign.link_investigator",
+  "scenario.bind_pdf",
+]);
+
+function campaignBoundOpeningReceipt(
+  operation: string,
+  data: Record<string, unknown> | null,
+): boolean {
+  if (operation === "setup.quick_start") return true;
+  const kind = typeof data?.kind === "string" ? data.kind : "";
+  if (operation === "setup.invoke" && OPENING_BIND_KINDS.has(kind)) return true;
+  if (operation === "scenario.bind_pdf") return true;
+  return false;
 }
 
 export function inferPhaseFromError(error: { code?: string } | null): PlayPhase | null {

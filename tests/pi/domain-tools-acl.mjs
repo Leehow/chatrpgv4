@@ -184,4 +184,77 @@ assert.equal(mod.evaluateExecuteAcl({
   phase: "ending",
 }).ok, true);
 
+assert.ok(mod.activeToolsForPhase("cold_start").includes("coc_setup"));
+assert.ok(mod.activeToolsForPhase("opening").includes("coc_setup"));
+assert.ok(mod.activeToolsForPhase("recovery").includes("coc_setup"));
+assert.ok(!mod.activeToolsForPhase("live_turn").includes("coc_setup"));
+
+for (const phase of ["cold_start", "opening"]) {
+  for (const operation of [
+    "setup.inspect",
+    "session.resume",
+    "setup.investigator_contract",
+    "setup.quick_start",
+  ]) {
+    const allowed = mod.evaluateExecuteAcl({
+      toolName: "coc_setup",
+      operation,
+      phase,
+    });
+    assert.equal(allowed.ok, true, `${operation} via coc_setup @ ${phase}`);
+    const mismatch = mod.evaluateExecuteAcl({
+      toolName: "coc_context",
+      operation,
+      phase,
+    });
+    assert.equal(mismatch.ok, false, `${operation} via coc_context @ ${phase}`);
+    assert.equal(mismatch.code, "domain_mismatch", `${operation} mismatch @ ${phase}`);
+  }
+}
+
+assert.equal(
+  mod.inferPhaseFromEnvelope("setup.quick_start", { ok: true, data: {} }, "cold_start"),
+  "opening",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "setup.invoke",
+    { ok: true, data: { kind: "campaign.create" } },
+    "cold_start",
+  ),
+  "opening",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "setup.invoke",
+    { ok: true, data: { kind: "campaign.link_investigator" } },
+    "cold_start",
+  ),
+  "opening",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "setup.invoke",
+    { ok: true, data: { kind: "scenario.bind_pdf" } },
+    "cold_start",
+  ),
+  "opening",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "evidence.table_opening",
+    { ok: true, data: {} },
+    "opening",
+  ),
+  "live_turn",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "setup.quick_start",
+    { ok: true, data: {} },
+    "pending_finalization",
+  ),
+  "pending_finalization",
+);
+
 process.stdout.write(JSON.stringify({ ok: true }));

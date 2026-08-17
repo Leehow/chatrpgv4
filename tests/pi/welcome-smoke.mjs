@@ -269,6 +269,9 @@ process.stdout.write(JSON.stringify({
     open.includes("result.campaigns")
     && open.includes("never guess")
     && open.includes("session.resume")
+    && open.includes("coc_setup")
+    && !open.includes('"tool":"coc_invoke"')
+    && !open.includes("gateway tools")
     && !open.includes("offer continue / built-in starter")
   ),
   startupOpenExactResume: (
