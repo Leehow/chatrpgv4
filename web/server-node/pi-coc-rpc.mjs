@@ -114,6 +114,8 @@ export function buildChildEnv({
   env.COC_PI_SCENE_SUPPLY = env.COC_PI_SCENE_SUPPLY || "1";
   env.COC_HOST = "pi";
   if (campaignId) env.PI_COC_CAMPAIGN_ID = String(campaignId);
+  // server-node orchestrates setup→play; do not let the launcher re-exec.
+  env.COC_PI_NO_REEXEC = "1";
   if (tableIntent === "character-setup" || tableIntent === "continue") {
     env.COC_PI_TABLE_INTENT = tableIntent;
   }
@@ -170,8 +172,47 @@ function toolLabel(event) {
   return name || "tool";
 }
 
+export function parseSetupHandoffEvent(event) {
+  if (!event || typeof event !== "object") return null;
+  const blobs = [];
+  if (event.type === "coc_setup_handoff" || event.customType === "coc_setup_handoff") {
+    blobs.push(event);
+  }
+  if (event.details && typeof event.details === "object") blobs.push(event.details);
+  if (typeof event.content === "string" && event.content.trim().startsWith("{")) {
+    try {
+      blobs.push(JSON.parse(event.content));
+    } catch {
+      /* ignore */
+    }
+  }
+  const custom =
+    event.type === "custom_message"
+    && (event.customType === "coc_setup_handoff"
+      || event.details?.type === "coc_setup_handoff");
+  if (!custom && event.type !== "coc_setup_handoff") {
+    const fromBlob = blobs.find((b) => b && b.type === "coc_setup_handoff");
+    if (!fromBlob) return null;
+  }
+  const src = blobs.find((b) => b && (b.type === "coc_setup_handoff" || b.campaign_id))
+    || event;
+  if (src.type !== "coc_setup_handoff" && event.customType !== "coc_setup_handoff" && !custom) {
+    return null;
+  }
+  return {
+    type: "coc_setup_handoff",
+    campaign_id: src.campaign_id ?? event.campaign_id ?? null,
+    receipt: src.receipt ?? event.receipt ?? null,
+    at: src.at ?? event.at ?? null,
+  };
+}
+
 export function mapRpcEventToSse(event) {
   if (!event || typeof event !== "object") return [];
+  const handoff = parseSetupHandoffEvent(event);
+  if (handoff) {
+    return [{ event: "coc_setup_handoff", data: handoff }];
+  }
   const type = event.type;
   if (type === "message_update") {
     const out = [];
@@ -275,6 +316,7 @@ export class PiCocRpcHost {
     this.#listeners = new Set();
     this.#stderr = "";
     this.#eventLog = [];
+    this.lastExitCode = null;
   }
 
   #pending;
@@ -390,6 +432,8 @@ export class PiCocRpcHost {
     child.on("exit", (code, signal) => {
       this.closed = true;
       this.streaming = false;
+      this.lastExitCode = code;
+      this.#emit({ type: "process_exit", code, signal });
       const err = new PiCocRpcError(
         `pi-coc RPC exited (code=${code} signal=${signal})`,
         { kind: "pi_coc_rpc_exited" },

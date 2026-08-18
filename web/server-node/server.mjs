@@ -18,6 +18,10 @@ import { fileURLToPath } from "node:url";
 
 import { Sidecar, SidecarError } from "./sidecar.mjs";
 import { PiCocRpcError, PiCocRpcHost, sessionOpeningFlags, webSessionId } from "./pi-coc-rpc.mjs";
+import {
+  CampaignHostOrchestrator,
+  SESSION_TRANSITIONING_CODE,
+} from "./session-handoff.mjs";
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
 import {
@@ -80,8 +84,11 @@ let sidecar = null;
 
 /** sid -> {session_id, campaign_id, investigator_id} */
 const SESSIONS = new Map();
-/** campaign_id -> PiCocRpcHost */
-const HOSTS = new Map();
+/** campaign_id -> PiCocRpcHost (owned by the setup/play orchestrator) */
+const orchestrator = new CampaignHostOrchestrator({
+  createHost: (opts) => new PiCocRpcHost(opts),
+});
+const HOSTS = orchestrator.hosts;
 
 // One turn at a time: concurrent keeper turns against shared campaign state
 // are never safe.
@@ -239,6 +246,9 @@ async function statePayload(info) {
     investigatorId: liveInvestigator,
     investigatorName: state.character?.name ?? null,
   });
+  const handoff = orchestrator.statusOf(info.campaign_id);
+  state.session_role = handoff.session_role;
+  state.transitioning = handoff.transitioning;
   return state;
 }
 
@@ -767,30 +777,19 @@ async function handleCreateSession(req, res) {
     || "";
   const sessionId = webSessionId(campaignId);
   const selectedModel = resolveRequestedModelSettings(modelsPayload(), body);
+  const tableIntent = resolveInvestigator(campaignId) ? "continue" : "character-setup";
   let host = HOSTS.get(campaignId);
   let spawned = false;
   if (!host || host.closed) {
-    host = new PiCocRpcHost({
+    const acquired = await orchestrator.acquire(campaignId, {
       repoRoot: REPO_ROOT,
       workspace: WORKSPACE,
-      campaignId,
       sessionId,
-      tableIntent: resolveInvestigator(campaignId) ? "continue" : "character-setup",
+      tableIntent,
       ...selectedModel,
     });
-    HOSTS.set(campaignId, host);
-    spawned = true;
-  }
-  try {
-    await host.waitUntilReady();
-  } catch (err) {
-    HOSTS.delete(campaignId);
-    try {
-      await host.close();
-    } catch {
-      /* spawn failed */
-    }
-    throw err;
+    host = acquired.host;
+    spawned = acquired.spawned;
   }
   const info = {
     session_id: sessionId,
@@ -863,6 +862,13 @@ async function handleTurn(req, res, sid) {
   const attach = body.attach === true;
   const playerInput = String(body.input || "").trim();
   if (!attach && !playerInput) throw httpError(400, "input is required");
+  if (!attach && orchestrator.isTransitioning(info.campaign_id)) {
+    sendJson(res, 409, {
+      error: "战役正在从建卡会话切换到开桌会话，请稍候。",
+      code: SESSION_TRANSITIONING_CODE,
+    });
+    return;
+  }
   const selectedModel = resolveRequestedModelSettings(modelsPayload(), body);
   const { provider, model, thinking } = selectedModel;
 
