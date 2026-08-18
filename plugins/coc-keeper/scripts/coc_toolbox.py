@@ -1332,6 +1332,12 @@ def _pi_opening_character_setup_gate(
     only for ``session.resume`` after the caller has already proved the
     source-bound opening projection current.
     """
+    try:
+        campaign_state = coc_state.load_campaign_state(campaign_dir)
+        if campaign_state.get("status") == "ready_for_table":
+            return None
+    except (OSError, ValueError):
+        pass
     if not coc_module_project.campaign_is_pristine_for_opening(campaign_dir):
         return None
     party_path = campaign_dir / "party.json"
@@ -1483,6 +1489,8 @@ def _character_creation_resume_projection(
     except (OSError, ValueError):
         return None
     if not isinstance(campaign, dict):
+        return None
+    if campaign.get("status") == "ready_for_table":
         return None
     recorded = campaign.get("character_creation")
     recorded = recorded if isinstance(recorded, dict) else {}
@@ -7979,6 +7987,59 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "setup.complete",
+    "Handoff a finished setup campaign to play: confirm investigators and (when source-bound) a terminal opening projection, persist ready_for_table, and emit the setup-session exit receipt.",
+    {
+        "campaign_id": {
+            "type": "string",
+            "required": True,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "desc": "exact existing campaign id to hand off",
+        },
+        "decision_id": {
+            "type": "string",
+            "required": True,
+            "desc": "idempotency key for the handoff receipt",
+        },
+    },
+    needs_campaign=False,
+    access="mutation",
+    write_domains=("setup",),
+)
+def _tool_setup_complete(ctx: Ctx, args: dict[str, Any]):
+    allowed = {"campaign_id", "decision_id"}
+    unsupported = sorted(set(args) - allowed)
+    if unsupported or "campaign_id" not in args or "decision_id" not in args:
+        raise ToolError(
+            "invalid_param",
+            "setup.complete requires campaign_id and decision_id",
+        )
+    try:
+        receipt = coc_runtime_ops.execute_setup_operation(
+            ctx.root,
+            operation={
+                "schema_version": 1,
+                "kind": "campaign.complete",
+                "payload": {
+                    "campaign_id": args["campaign_id"],
+                    "decision_id": args["decision_id"],
+                },
+            },
+        )
+    except coc_runtime_ops.RuntimeOperationError as exc:
+        raise ToolError(
+            exc.code or "setup_failed",
+            str(exc),
+            details=exc.details if isinstance(exc.details, dict) else None,
+        ) from exc
+    except FileNotFoundError as exc:
+        raise ToolError("unknown_campaign", str(exc)) from exc
+    return receipt, [], [
+        "retain this handoff receipt; the setup session should exit so a play session can session.resume this ready_for_table campaign",
+    ]
+
+
+@tool(
     "setup.investigator_contract",
     "Return the active campaign ruleset's package-owned, versioned construction "
     "contract for the complete investigator.create payload. Query this once "
@@ -14298,6 +14359,24 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         },
     }
     if ctx.campaign_dir is not None:
+        try:
+            campaign_row = coc_state.load_campaign_state(ctx.campaign_dir)
+        except (OSError, ValueError):
+            campaign_row = {}
+        if (
+            isinstance(campaign_row, dict)
+            and campaign_row.get("status") == "ready_for_table"
+            and data.get("mode") not in {
+                "pending_finalization", "already_acknowledged",
+            }
+        ):
+            data["mode"] = "table_opening"
+            data["next_operations"] = ["evidence.table_opening"]
+            hints.insert(
+                0,
+                "campaign status is ready_for_table; open the table with "
+                "evidence.table_opening rather than character setup",
+            )
         character_creation = _character_creation_resume_projection(
             ctx.campaign_dir,
             str(ctx.campaign_id),
