@@ -1511,7 +1511,7 @@ def complete_setup_handoff(
     opening_projection_ref: dict[str, Any] | None,
     lane_interrupted_at_handoff: bool,
 ) -> dict[str, Any]:
-    """Advance ``status`` setup → ready_for_table and persist the handoff receipt.
+    """Advance ``status`` setup/active → ready_for_table and persist the handoff receipt.
 
     Canonical caller: setup-session KP after confirmed investigators (and, for
     source-bound campaigns, a terminal Tier-1 opening projection).
@@ -1530,7 +1530,7 @@ def complete_setup_handoff(
         if isinstance(existing, dict) and campaign.get("status") == "ready_for_table":
             return existing
         status = campaign.get("status")
-        if status not in {"setup", "ready_for_table"}:
+        if status not in {"setup", "ready_for_table", "active"}:
             raise ValueError(
                 f"campaign status {status!r} cannot accept setup.complete"
             )

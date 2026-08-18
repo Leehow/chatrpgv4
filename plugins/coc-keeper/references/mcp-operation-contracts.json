@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:412c219b824cd9964366a296bfa27dbbb1b926cc448ea15696a3ee5bca3d2ff2",
+  "content_sha256": "sha256:03dc334b89fb9cc17bd66816699f80c6cac0ee0b7602f16ce5fb3920b5bc710e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4260,7 +4260,8 @@
         "kp_surface": "setup",
         "phases": [
           "cold_start",
-          "opening"
+          "opening",
+          "live_turn"
         ]
       },
       "summary": "Handoff a finished setup campaign to play: confirm investigators and (when source-bound) a terminal opening projection, persist ready_for_table, and emit the setup-session exit receipt."
