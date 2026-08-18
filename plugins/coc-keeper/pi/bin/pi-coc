@@ -301,8 +301,14 @@ fi
 
 # Role-scoped skills/prompt when --campaign is set and the role CLI succeeds.
 # Failure or no campaign selector keeps the historical full-package + legacy prompt.
+# Re-entered after setup handoff (exit 42) so play skills/prompt replace setup.
+HOST_SYSTEM_PROMPT_DEFAULT=$HOST_SYSTEM_PROMPT
 SESSION_SKILL_ARGS=()
-if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
+
+assemble_campaign_role() {
+  HOST_SYSTEM_PROMPT=$HOST_SYSTEM_PROMPT_DEFAULT
+  SESSION_SKILL_ARGS=()
+  unset COC_PI_SESSION_ROLE
   ROLE_OUT=
   if ROLE_OUT=$(
     "$UV_PATH" run --frozen --project "$REPO_ROOT" python \
@@ -372,25 +378,27 @@ if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
   else
     printf '%s\n' "pi-coc: session role CLI failed; using full skill set" >&2
   fi
-fi
+}
 
-PI_ARGS=(
-  --no-builtin-tools
-  --approve
-  --no-context-files
-)
-if ((${#SESSION_SKILL_ARGS[@]} > 0)); then
-  PI_ARGS+=("${SESSION_SKILL_ARGS[@]}")
-fi
-PI_ARGS+=(--append-system-prompt "$HOST_SYSTEM_PROMPT")
-if [[ "$WANT_NEW" -eq 0 && "$USER_SESSION_OPT" -eq 0 ]]; then
-  PI_ARGS+=(--session-id "$DEFAULT_SESSION_ID")
-fi
-# Under `set -u`, expanding an empty array as "${USER_ARGS[@]}" is unbound on
-# some bash builds (e.g. macOS). Only append when the user passed args.
-if ((${#USER_ARGS[@]} > 0)); then
-  PI_ARGS+=("${USER_ARGS[@]}")
-fi
+build_pi_args() {
+  PI_ARGS=(
+    --no-builtin-tools
+    --approve
+    --no-context-files
+  )
+  if ((${#SESSION_SKILL_ARGS[@]} > 0)); then
+    PI_ARGS+=("${SESSION_SKILL_ARGS[@]}")
+  fi
+  PI_ARGS+=(--append-system-prompt "$HOST_SYSTEM_PROMPT")
+  if [[ "$WANT_NEW" -eq 0 && "$USER_SESSION_OPT" -eq 0 ]]; then
+    PI_ARGS+=(--session-id "$DEFAULT_SESSION_ID")
+  fi
+  # Under `set -u`, expanding an empty array as "${USER_ARGS[@]}" is unbound on
+  # some bash builds (e.g. macOS). Only append when the user passed args.
+  if ((${#USER_ARGS[@]} > 0)); then
+    PI_ARGS+=("${USER_ARGS[@]}")
+  fi
+}
 
 # Pi clamps unsupported thinking levels before extensions load. Guard the
 # original request here so `--thinking off` can never become a silent `low`.
@@ -471,6 +479,39 @@ PI_CLI=$(resolve_pi_cli) || {
   printf '%s\n' "pi-coc: 'pi' not found on PATH (install @earendil-works/pi-coding-agent)" >&2
   exit 1
 }
+
+run_pi() {
+  case "$PI_CLI" in
+    *.js|*.mjs)
+      node "$PI_CLI" "${PI_ARGS[@]}"
+      ;;
+    *)
+      "$PI_CLI" "${PI_ARGS[@]}"
+      ;;
+  esac
+}
+
+# --campaign: run as a child so setup handoff (exit 42) can re-resolve role
+# and start play once. --new / no campaign keep the historical exec path.
+COC_SETUP_HANDOFF_EXIT_CODE=42
+if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
+  HANDOFF_REMAINING=1
+  while true; do
+    assemble_campaign_role
+    build_pi_args
+    code=0
+    run_pi || code=$?
+    if [[ "$code" -eq "$COC_SETUP_HANDOFF_EXIT_CODE" \
+      && "${COC_PI_SESSION_ROLE:-}" == "setup" \
+      && "$HANDOFF_REMAINING" -eq 1 ]]; then
+      HANDOFF_REMAINING=0
+      continue
+    fi
+    exit "$code"
+  done
+fi
+
+build_pi_args
 case "$PI_CLI" in
   *.js|*.mjs)
     exec node "$PI_CLI" "${PI_ARGS[@]}"
