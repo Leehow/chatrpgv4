@@ -1971,11 +1971,11 @@ def _pi_opening_setup_operation_allowed(
         }
     if name == "rules.roll_dice":
         allowed = {"expression", "decision_id", "purpose", "reason"}
-        quick_fire_luck = (
+        quick_fire_chargen = (
             set(args) <= allowed
             and {"expression", "decision_id", "purpose"} <= set(args)
             and args.get("expression") == "3D6"
-            and args.get("purpose") == "investigator_creation_luck"
+            and args.get("purpose") in _CHARGEN_DICE_PURPOSES
             and (
                 "reason" not in args
                 or args.get("reason") is None
@@ -1983,7 +1983,7 @@ def _pi_opening_setup_operation_allowed(
             )
             and bool(str(args.get("decision_id") or "").strip())
         )
-        if quick_fire_luck:
+        if quick_fire_chargen:
             return True
         return (
             isinstance(gate, dict)
@@ -3588,6 +3588,10 @@ _PUSH_INHERITED_OPERATION_FIELDS = frozenset({
 _DICE_RESOLUTION_FIELDS = frozenset({
     "expression", "count", "sides", "modifier"
 })
+_CHARGEN_DICE_PURPOSES = frozenset({
+    "investigator_creation_luck",
+    "investigator_creation_characteristic",
+})
 _LUCK_SPEND_RECEIPT_SCHEMA_VERSION = 1
 _LUCK_SPEND_RECEIPT_FIELDS = frozenset({
     "schema_version",
@@ -4015,7 +4019,7 @@ def _dice_evidence_is_consistent(
         and (reason is None or isinstance(reason, str))
         and (
             purpose is None
-            or purpose == "investigator_creation_luck"
+            or purpose in _CHARGEN_DICE_PURPOSES
         )
         and set(resolution) == set(_DICE_RESOLUTION_FIELDS)
         and _is_exact_int(count)
@@ -9132,10 +9136,13 @@ def _tool_rules_push(ctx: Ctx, args: dict[str, Any]):
         "reason": {"type": "string", "desc": "what the roll is for (logged)"},
         "purpose": {
             "type": "string",
-            "enum": ["investigator_creation_luck"],
+            "enum": sorted(_CHARGEN_DICE_PURPOSES),
             "desc": (
                 "closed semantic purpose for typed rolls; use "
-                "investigator_creation_luck for the Quick-Fire Luck source"
+                "investigator_creation_luck for the Quick-Fire Luck source "
+                "and investigator_creation_characteristic for each 3D6 "
+                "characteristic roll. Receipts are keyed by decision_id, "
+                "never by purpose alone"
             ),
         },
         "seed": {"type": "integer", "desc": "deterministic RNG seed"},
