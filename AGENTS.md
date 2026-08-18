@@ -452,6 +452,16 @@ Pi-Coc 验收/体验测试的唯一方法：
 此方法替代已删除的 `coc-playtest` skill。任何声称"测完"或"体验等价"
 的工作必须匹配上述流程，否则标记 `invalid-for-acceptance`。
 
+## Pi-Coc 双专职会话（setup / play）
+
+`pi-coc --campaign` 会话分 setup 与 play 两 role；这是同一 Pi-Coc 轨内的专职装配，不改变 Codex / Pi-Coc 双轨排他。
+
+- Role 判定单一来源：`uv run --frozen python plugins/coc-keeper/scripts/coc_session_role.py <workspace> <campaign_id>`。`status=setup` 或战役不存在 → `setup`；`ready_for_table` / `active` / 其它已有 status → `play`。
+- 清单单一来源：`plugins/coc-keeper/pi/session-roles.json`（各 role 的技能包与主机提示词路径）。
+- 交接契约：`setup.complete`（幂等、`decision_id`）把战役写成 `ready_for_table` 并落 `handoff_receipt` → 扩展发 `customType="coc_setup_handoff"` 并以退出码 42 结束 setup → launcher 重判 role 并以 play 装配 re-exec 一次（或 UI 编排接管）→ play 对 `ready_for_table` 走 `session.resume`，`evidence.table_opening` 之后才开场。
+- 未设 `COC_PI_SESSION_ROLE` 为遗留全开；装配失败回退全量技能 + `pi/prompts/host-system.md`。
+- KP 行为与幕间话术见 `plugins/coc-keeper/references/mode-protocol.md` 与 `pi/prompts/host-system-setup.md` / `host-system-play.md`。
+
 ## Validation And Evidence
 
 Whole-product, UX, latency, Keeper-quality, integration, and acceptance claims

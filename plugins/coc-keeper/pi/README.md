@@ -36,6 +36,16 @@ pi --no-builtin-tools --approve --no-context-files \
   --session-id coc-keeper "$@"
 ```
 
+With `--campaign` / `PI_COC_CAMPAIGN_ID`, the wrapper first asks
+`plugins/coc-keeper/scripts/coc_session_role.py` for `setup` or `play`, exports
+`COC_PI_SESSION_ROLE`, and assembles `--no-skills` / `--skill` /
+`--append-system-prompt` from [`session-roles.json`](session-roles.json)
+(`host-system-setup.md` or `host-system-play.md`). Role CLI or manifest failure
+keeps the historical full package plus `host-system.md`. A setup child that
+exits `42` (handoff complete) is re-resolved once and re-exec'd as play; any
+other exit code is passed through. Without a campaign selector the launch line
+above is unchanged.
+
 Built-in coding tools (`read` / `bash` / `edit` / `write`) stay off; extension
 gateway tools from this package remain. At startup, the wrapper validates
 `uv 0.11.16` and prepends its directory to `PATH` for Pi and MCP children. It
