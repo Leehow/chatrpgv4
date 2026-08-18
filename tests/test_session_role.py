@@ -33,12 +33,44 @@ def _set_status(root: Path, campaign_id: str, status: str) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _link_confirmed_investigator(
+    root: Path, campaign_id: str, investigator_id: str
+) -> None:
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    (campaign_dir / "party.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "campaign_id": campaign_id,
+                "investigator_ids": [investigator_id],
+                "active_investigator_ids": [investigator_id],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    inv_dir = root / ".coc" / "investigators" / investigator_id
+    inv_dir.mkdir(parents=True, exist_ok=True)
+    (inv_dir / "creation.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "investigator_id": investigator_id,
+                "method": "quick_fire",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
         ("setup", "setup"),
         ("ready_for_table", "play"),
-        ("active", "play"),
     ],
 )
 def test_status_maps_to_role(tmp_path: Path, status: str, expected: str) -> None:
@@ -49,6 +81,72 @@ def test_status_maps_to_role(tmp_path: Path, status: str, expected: str) -> None
     result = _run_cli(str(tmp_path), campaign_id)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == expected
+
+
+def test_active_with_confirmed_investigator_is_play(tmp_path: Path) -> None:
+    campaign_id = "role-active-confirmed"
+    coc_state.create_campaign(tmp_path, campaign_id, "Role Fixture", era="1920s")
+    _set_status(tmp_path, campaign_id, "active")
+    _link_confirmed_investigator(tmp_path, campaign_id, "inv-ok")
+    assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "play"
+    result = _run_cli(str(tmp_path), campaign_id)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "play"
+
+
+def test_active_with_empty_party_is_setup(tmp_path: Path) -> None:
+    campaign_id = "role-active-empty"
+    coc_state.create_campaign(tmp_path, campaign_id, "Role Fixture", era="1920s")
+    _set_status(tmp_path, campaign_id, "active")
+    assert not coc_state.campaign_has_confirmed_investigator(
+        tmp_path / ".coc" / "campaigns" / campaign_id, campaign_id
+    )
+    assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "setup"
+    result = _run_cli(str(tmp_path), campaign_id)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "setup"
+
+
+def test_active_with_placeholder_investigator_is_setup(tmp_path: Path) -> None:
+    campaign_id = "role-active-placeholder"
+    investigator_id = "web-char-setup-draft"
+    coc_state.create_campaign(tmp_path, campaign_id, "Role Fixture", era="1920s")
+    _set_status(tmp_path, campaign_id, "active")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
+    (campaign_dir / "party.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "campaign_id": campaign_id,
+                "investigator_ids": [investigator_id],
+                "active_investigator_ids": [investigator_id],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    inv_dir = tmp_path / ".coc" / "investigators" / investigator_id
+    inv_dir.mkdir(parents=True, exist_ok=True)
+    (inv_dir / "creation.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "investigator_id": investigator_id,
+                "method": "complete_sheet_placeholder",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert not coc_state.campaign_has_confirmed_investigator(
+        campaign_dir, campaign_id
+    )
+    assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "setup"
+    result = _run_cli(str(tmp_path), campaign_id)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "setup"
 
 
 def test_missing_campaign_is_setup(tmp_path: Path) -> None:
