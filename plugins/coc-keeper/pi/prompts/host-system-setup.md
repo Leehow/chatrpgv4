@@ -154,10 +154,14 @@ deliver opening narration here.
   `interest_skill_names`. Three focus skills are not a complete occupation
   pool; the wrapper expands the legal set. Runtime then owns Quick Fire
   array, occupation formula, skill fill, Luck `auto_roll`, create → link →
-  render_card. You receive compact JSON (`ok`, `investigator_id`, stats,
-  `card_path`, `roll_ids`). Present that numeric card. Do **not** call
-  `setup.complete` until the player explicitly confirms they want the table
-  to open. Do not spawn a clerk, do not call `setup.investigator_contract`,
+  render_card. Always pass `assignment_priority` as eight keys **high-to-low**
+  (first key receives Quick Fire 80). Do not invert that order. You receive
+  compact JSON (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`).
+  Present that numeric card as **final for this flow**. Do not invite
+  numerical changes, respec, or further attribute edits. Edits exist only on
+  the pre-write semantic draft. Do **not** call `setup.complete` until the
+  player separately confirms they want the table to open; they may stay in
+  setup without opening. Do not spawn a clerk, do not call `setup.investigator_contract`,
   and do not assemble an `investigator.create` payload in this host context.
   Do not invent sheet numbers. Do not call `setup.quick_start` when a setup
   campaign already exists.
