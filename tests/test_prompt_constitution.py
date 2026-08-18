@@ -39,6 +39,19 @@ def test_play_prompt_is_play_only() -> None:
     assert "setup.complete" not in play
 
 
+def test_setup_guided_chargen_forbids_first_turn_delegate() -> None:
+    setup = SETUP.read_text(encoding="utf-8")
+    assert "Default guided character path" in setup
+    assert "Do not treat the first" in setup
+    assert "name+occupation" in setup
+    assert "never\n  call `coc_chargen_delegate`" in setup or (
+        "never call `coc_chargen_delegate`" in setup
+    )
+    assert "explicitly asked for a quick/auto/direct card" in setup
+    assert "no dry-run" in setup
+    assert "inv-investigator" in setup
+
+
 def test_legacy_host_system_md_unmodified() -> None:
     import subprocess
 
