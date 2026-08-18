@@ -16,6 +16,7 @@ import {
   createJsonlParser,
   mapRpcEventToSse,
   PiCocRpcHost,
+  PLAY_TABLE_OPENING_PROMPT,
   sessionOpeningFlags,
   summarizeRpcDeath,
   webSessionId,
@@ -287,6 +288,64 @@ test("PiCocRpcHost prompts until agent_settled and maps live SSE", async () => {
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   await promptP;
   assert.deepEqual(frames, [{ event: "delta", data: { text: "好。" } }]);
+});
+
+test("promptPlayOpening writes the host opening prompt and requires a visible delta", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "c-open",
+    sessionId: "web-c-open",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const openP = host.promptPlayOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  const first = JSON.parse(written[0].trim());
+  assert.equal(first.type, "prompt");
+  assert.equal(first.message, PLAY_TABLE_OPENING_PROMPT);
+  child.stdout.write(`${JSON.stringify({ id: first.id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "雨夜里的科比特宅邸。" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await openP;
+  assert.equal(result.opened, true);
+  assert.deepEqual(frames, [{ event: "delta", data: { text: "雨夜里的科比特宅邸。" } }]);
+});
+
+test("promptPlayOpening fails closed without visible player text", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "c-silent",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const openP = host.promptPlayOpening();
+  await new Promise((r) => setTimeout(r, 20));
+  const first = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({ id: first.id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await assert.rejects(
+    openP,
+    (err) => err.kind === "pi_coc_opening_not_visible"
+      && err.message === "开桌会话未产出玩家可见文本。",
+  );
 });
 
 test("attachOpening returns without replaying a turn that settled before the UI attached", async () => {

@@ -83,7 +83,12 @@ export class CampaignHostOrchestrator {
     this.#status = new Map();
     this.#handoffPromises = new Map();
     this.createHost = createHost;
-    this.attachFn = attachFn || ((host, opts) => host.attachOpening(opts));
+    this.attachFn = attachFn || ((host, opts) => {
+      if (typeof host.promptPlayOpening === "function") {
+        return host.promptPlayOpening(opts);
+      }
+      return host.attachOpening(opts);
+    });
     this.resolveRoleFn = resolveRoleFn || defaultResolveSessionRole;
     this.lastHandoff = new Map();
     this.#listeners = new Set();

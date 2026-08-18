@@ -17,6 +17,15 @@ export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
 /** Setup session exit that means re-exec as play (pi-coc launcher contract). */
 export const HANDOFF_EXIT_CODE = 42;
 
+/** Host-owned continuation for a respawned play RPC child. */
+export const PLAY_TABLE_OPENING_PROMPT = [
+  "Host continuation after setup.complete / ready_for_table handoff.",
+  "You are the play-role Keeper for this already-selected campaign.",
+  "First call session.resume on this campaign, then evidence.table_opening,",
+  "then deliver the player-visible formal opening from that receipt.",
+  "Do not invent opening text. Do not ask the player to choose a campaign.",
+].join(" ");
+
 export function isHandoffExit(code) {
   return Number(code) === HANDOFF_EXIT_CODE;
 }
@@ -712,6 +721,25 @@ export class PiCocRpcHost {
       return { ...result, handoff: true };
     }
     return await settled;
+  }
+
+  async promptPlayOpening({ onSse, timeoutMs = 900_000 } = {}) {
+    let sawVisibleText = false;
+    const result = await this.prompt(PLAY_TABLE_OPENING_PROMPT, {
+      timeoutMs,
+      onSse: (frame) => {
+        if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
+          sawVisibleText = true;
+        }
+        onSse?.(frame);
+      },
+    });
+    if (!sawVisibleText) {
+      throw new PiCocRpcError("开桌会话未产出玩家可见文本。", {
+        kind: "pi_coc_opening_not_visible",
+      });
+    }
+    return { ...result, opened: true };
   }
 
   async abort() {
