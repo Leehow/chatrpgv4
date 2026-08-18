@@ -495,7 +495,12 @@ run_pi() {
 # and start play once. --new / no campaign keep the historical exec path.
 COC_SETUP_HANDOFF_EXIT_CODE=42
 if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
+  # Terminal path re-execs once after setup exit 42. server-node owns that
+  # cycle over RPC (new handshake/attach), so COC_PI_NO_REEXEC=1 skips it.
   HANDOFF_REMAINING=1
+  if [[ "${COC_PI_NO_REEXEC:-}" == "1" ]]; then
+    HANDOFF_REMAINING=0
+  fi
   while true; do
     assemble_campaign_role
     build_pi_args
