@@ -8896,9 +8896,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         + "explicitly ask for a same-turn quick/auto card. Pass focus skills "
         + "in occupation_skill_names and supporting skills in "
         + "interest_skill_names; the wrapper expands a legal occupation pool. "
+        + "assignment_priority is eight keys high-to-low; first receives 80. "
         + "Call at most once per player turn; do not retry or guess formulas "
-        + "on failure. Do not call setup.complete from this tool. Do not "
-        + "assemble investigator.create. Setup role only.",
+        + "on failure. After a numeric card, do not invite respec and do not "
+        + "call setup.complete from this tool. Do not assemble "
+        + "investigator.create. Setup role only.",
       parameters: chargenDelegateSchema,
       ...compactToolRenderers("coc_chargen_delegate"),
       async execute(

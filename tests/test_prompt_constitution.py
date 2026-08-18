@@ -52,6 +52,9 @@ def test_setup_guided_chargen_forbids_first_turn_delegate() -> None:
     assert "inv-investigator" in setup
     assert "Call the delegate at most once per player turn" in setup
     assert "Do **not** call" in setup and "setup.complete" in setup
+    assert "high-to-low" in setup
+    assert "final for this flow" in setup
+    assert "respec" in setup
 
 
 def test_legacy_host_system_md_unmodified() -> None:

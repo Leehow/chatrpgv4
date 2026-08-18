@@ -114,26 +114,57 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
 const REQUIRED_CHARACTERISTICS = [
   "STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU",
 ] as const;
+const GUIDED_DEFAULT_ASSIGNMENT = [
+  "INT", "EDU", "POW", "DEX", "APP", "SIZ", "CON", "STR",
+] as const;
 const QUICK_FIRE_ARRAY = [80, 70, 60, 60, 50, 50, 50, 40] as const;
 const STARTING_SKILL_CAP = 75;
 const CONSERVATIVE_SKILL_BASE = 40;
 const CREDIT_RATING = "Credit Rating";
 const DEFAULT_OCCUPATION_FILLERS = [
-  "Stealth", "First Aid", "Occult", "Natural World", "Persuade",
+  "Stealth", "First Aid", "Natural World", "Persuade",
   "Charm", "Navigate", "Mechanical Repair", "Psychology", "Listen",
 ] as const;
+const SKILL_CANONICAL: Record<string, string> = {
+  photography: "Art and Craft (Photography)",
+  "art/craft (photography)": "Art and Craft (Photography)",
+  "art and craft (photography)": "Art and Craft (Photography)",
+  "own language": "Language (Own)",
+  "language (own)": "Language (Own)",
+};
 
-function assignmentList(raw: string | undefined): string[] | undefined {
-  if (!raw) return undefined;
-  const parts = raw.split(/[,\s]+/).map((part) => part.trim()).filter(Boolean);
-  return parts.length ? parts : undefined;
+export function canonicalizeSkillName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return trimmed;
+  return SKILL_CANONICAL[trimmed.toLowerCase()] ?? trimmed;
+}
+
+/** High-to-low: first listed characteristic receives Quick Fire 80. Do not reverse. */
+export function resolveAssignmentPriority(raw: string | undefined): string[] {
+  const tokens = (raw ?? "")
+    .split(/[,/;|>→\s]+/)
+    .map((part) => part.trim().toUpperCase())
+    .filter((part) => (
+      REQUIRED_CHARACTERISTICS as readonly string[]
+    ).includes(part));
+  const seen = new Set<string>();
+  const listed: string[] = [];
+  for (const token of tokens) {
+    if (seen.has(token)) continue;
+    seen.add(token);
+    listed.push(token);
+  }
+  if (listed.length === REQUIRED_CHARACTERISTICS.length) return listed;
+  if (listed.length === 0) return [...GUIDED_DEFAULT_ASSIGNMENT];
+  const rest = REQUIRED_CHARACTERISTICS.filter((key) => !seen.has(key));
+  return [...listed, ...rest];
 }
 
 function uniqueSkillNames(names: string[] | undefined): string[] {
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const raw of names ?? []) {
-    const name = raw.trim();
+    const name = canonicalizeSkillName(raw);
     if (!name) continue;
     const key = name.toLowerCase();
     if (seen.has(key) || key === CREDIT_RATING.toLowerCase()) continue;
@@ -190,7 +221,7 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
   interest_skill_names: string[];
   occupation_budget: number;
 } {
-  const assignment = assignmentList(brief.assignment_priority);
+  const assignment = resolveAssignmentPriority(brief.assignment_priority);
   const chars = quickFireCharacteristics(assignment);
   const edu = chars.EDU ?? 80;
   const dex = chars.DEX ?? 50;
@@ -199,21 +230,24 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
   const auxiliaries = uniqueSkillNames(brief.interest_skill_names)
     .filter((name) => !mains.some((main) => main.toLowerCase() === name.toLowerCase()));
   const occupation = [...mains];
-  const leftover = [...auxiliaries];
+  const capacityFillers = [...auxiliaries].reverse();
   const canPlace = (pool: string[]) => (
     simulateOccupationSpend(pool, occupationBudget, edu, dex) === occupationBudget
   );
-  while (!canPlace(occupation) && leftover.length > 0) {
-    occupation.push(leftover.shift() as string);
+  while (!canPlace(occupation) && capacityFillers.length > 0) {
+    const next = capacityFillers.shift() as string;
+    if (!occupation.some((name) => name.toLowerCase() === next.toLowerCase())) {
+      occupation.push(next);
+    }
   }
   for (const filler of DEFAULT_OCCUPATION_FILLERS) {
     if (canPlace(occupation)) break;
     if (occupation.some((name) => name.toLowerCase() === filler.toLowerCase())) continue;
     occupation.push(filler);
   }
-  const interest = leftover.length
-    ? leftover
-    : uniqueSkillNames([...auxiliaries, ...DEFAULT_OCCUPATION_FILLERS])
+  const interest = auxiliaries.length
+    ? auxiliaries
+    : uniqueSkillNames([...DEFAULT_OCCUPATION_FILLERS])
       .filter((name) => !occupation.some((item) => item.toLowerCase() === name.toLowerCase()))
       .slice(0, 4);
   return {
@@ -248,8 +282,9 @@ export async function runChargenInProcess(options: {
     occupation_name: options.brief.occupation_or_concept,
     luck: { mode: "auto_roll" },
   };
-  const assignment = assignmentList(options.brief.assignment_priority);
-  if (assignment) args.assignment_priority = assignment;
+  args.assignment_priority = resolveAssignmentPriority(
+    options.brief.assignment_priority,
+  );
   const planned = planChargenSkillLists(options.brief);
   if (planned.occupation_skill_names.length) {
     args.occupation_skill_names = planned.occupation_skill_names;

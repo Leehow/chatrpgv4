@@ -213,6 +213,70 @@ def test_chargen_run_three_occupation_skills_cannot_place(tmp_path: Path) -> Non
     assert "could not place occupation points" in str(details.get("error", details))
 
 
+def test_chargen_run_int_edu_priority_and_photography_interest(tmp_path: Path) -> None:
+    import subprocess
+
+    printed = subprocess.run(
+        [
+            "node",
+            "--experimental-strip-types",
+            str(REPO / "tests" / "pi" / "chargen-delegate-id.mjs"),
+            str(REPO),
+        ],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(printed.stdout)["ok"] is True
+    campaign_id = _create_campaign(tmp_path, "chargen-photo-int")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "gu-photo",
+            "name": "顾南舟",
+            "occupation_name": "旧书商",
+            "assignment_priority": PRIORITY,
+            "occupation_skill_names": FOCUS + [
+                "Accounting", "Fast Talk", "Dodge",
+            ],
+            "interest_skill_names": [
+                "Art and Craft (Photography)",
+                "Appraise",
+                "Psychology",
+                "Listen",
+            ],
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    result = envelope["data"]["result"]
+    chars = result["characteristics"]
+    assert chars["INT"] == 80
+    assert chars["EDU"] == 70
+    assert chars["STR"] == 40
+    assert chars["CON"] < chars["INT"]
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "gu-photo" / "character.json")
+        .read_text(encoding="utf-8")
+    )
+    skills = stored["skills"]
+    photo = skills.get("Art and Craft (Photography)")
+    assert isinstance(photo, int) and photo > 5
+    assert int(skills.get("Accounting", 0)) > 5
+    creation = json.loads(
+        (tmp_path / ".coc" / "investigators" / "gu-photo" / "creation.json")
+        .read_text(encoding="utf-8")
+    )
+    occ_alloc = creation["skill_budget"]["occupation_points"]["allocations"]
+    int_alloc = creation["skill_budget"]["personal_interest_points"]["allocations"]
+    assert int_alloc.get("Art and Craft (Photography)", 0) > 0
+    assert "Occult" not in occ_alloc
+    assert "Occult" not in int_alloc
+
+
 def test_chargen_run_focus_plus_support_union_places(tmp_path: Path) -> None:
     campaign_id = _create_campaign(tmp_path, "chargen-union-occ")
     envelope = coc_toolbox.run_tool(

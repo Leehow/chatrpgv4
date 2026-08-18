@@ -12,6 +12,7 @@ const {
   isGenericInvestigatorPlaceholder,
   parseChargenClerkBrief,
   planChargenSkillLists,
+  resolveAssignmentPriority,
   runChargenInProcess,
 } = await import(`${clerkUrl}?chargen-id=${Date.now()}`);
 
@@ -97,6 +98,14 @@ const planned = planChargenSkillLists(parseChargenClerkBrief({
 }));
 assert.deepEqual(planned.occupation_skill_names.slice(0, 3), focus);
 assert.ok(planned.occupation_skill_names.length > 3);
+assert.deepEqual(resolveAssignmentPriority("INT/EDU/POW/DEX/CON/APP/SIZ/STR"), [
+  "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
+]);
+assert.deepEqual(resolveAssignmentPriority(undefined)[0], "INT");
+assert.ok(planned.interest_skill_names.includes("Art and Craft (Photography)"));
+assert.ok(planned.occupation_skill_names.includes("Accounting"));
+assert.equal(planned.occupation_skill_names.includes("Occult"), false);
+assert.equal(planned.interest_skill_names.includes("Occult"), false);
 for (const skill of focus) {
   assert.ok(planned.occupation_skill_names.includes(skill));
 }
@@ -133,6 +142,8 @@ assert.deepEqual(
   focus,
 );
 assert.ok(nanZhouCalls[0].args.occupation_skill_names.length > 3);
+assert.deepEqual(nanZhouCalls[0].args.assignment_priority.slice(0, 2), ["INT", "EDU"]);
+assert.ok(nanZhouCalls[0].args.interest_skill_names.includes("Art and Craft (Photography)"));
 assert.equal(nanZhouCalls.some((row) => row.op === "setup.complete"), false);
 assert.equal(nanZhou.investigator_id, nanZhouCalls[0].args.investigator_id);
 
