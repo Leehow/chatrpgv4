@@ -3,13 +3,16 @@
  * Detects coc_setup_handoff (primary) or child exit 42 (fallback),
  * then respawns one exclusive pi-coc RPC child for the same campaign.
  */
+import { spawn } from "node:child_process";
+import path from "node:path";
 import {
+  HANDOFF_EXIT_CODE,
   parseSetupHandoffEvent,
   PiCocRpcHost,
   webSessionId,
 } from "./pi-coc-rpc.mjs";
 
-export const HANDOFF_EXIT_CODE = 42;
+export { HANDOFF_EXIT_CODE };
 export const SESSION_TRANSITIONING_CODE = "session_transitioning";
 export const SESSION_BUSY_CODE = "session_host_busy";
 
@@ -34,22 +37,60 @@ export function inferSessionRole({ tableIntent, afterHandoff } = {}) {
   return null;
 }
 
+export function parseSessionRoleStdout(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw);
+    const role = obj.role || obj.session_role;
+    if (role === "play" || role === "setup") return role;
+  } catch {
+    /* fall through to last token */
+  }
+  const last = raw.split(/\s+/).pop();
+  if (last === "play" || last === "setup") return last;
+  if (/\bplay\b/.test(raw)) return "play";
+  if (/\bsetup\b/.test(raw)) return "setup";
+  return null;
+}
+
+export function defaultResolveSessionRole({ workspace, campaignId, repoRoot }) {
+  return new Promise((resolve) => {
+    const root = repoRoot || workspace || ".";
+    const script = path.join(root, "plugins", "coc-keeper", "scripts", "coc_session_role.py");
+    const child = spawn(
+      "uv",
+      ["run", "--frozen", "python", script, workspace || root, campaignId],
+      { cwd: root, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let out = "";
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      out += chunk;
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", () => resolve(parseSessionRoleStdout(out)));
+  });
+}
+
 export class CampaignHostOrchestrator {
   constructor({
-    createHost = (opts) => new PiCocRpcHost(opts),
+    createHost = (hostOpts) => new PiCocRpcHost(hostOpts),
     attachFn,
+    resolveRoleFn,
   } = {}) {
     this.hosts = new Map();
     this.#status = new Map();
-    this.#handoffInFlight = new Set();
+    this.#handoffPromises = new Map();
     this.createHost = createHost;
     this.attachFn = attachFn || ((host) => host.attachOpening());
+    this.resolveRoleFn = resolveRoleFn || defaultResolveSessionRole;
     this.lastHandoff = new Map();
     this.#listeners = new Set();
   }
 
   #status;
-  #handoffInFlight;
+  #handoffPromises;
   #listeners;
 
   onTransition(listener) {
@@ -166,15 +207,36 @@ export class CampaignHostOrchestrator {
   }
 
   async beginHandoff(campaignId, { reason, handoff } = {}) {
-    if (this.#handoffInFlight.has(campaignId)) return this.lastHandoff.get(campaignId);
+    const inflight = this.#handoffPromises.get(campaignId);
+    if (inflight) return inflight;
     const existing = this.hosts.get(campaignId);
     if (!existing && !this.#status.has(campaignId)) return null;
-    this.#handoffInFlight.add(campaignId);
+    const run = this.#runHandoff(campaignId, { reason, handoff });
+    this.#handoffPromises.set(campaignId, run);
+    try {
+      return await run;
+    } finally {
+      this.#handoffPromises.delete(campaignId);
+    }
+  }
+
+  async #runHandoff(campaignId, { reason, handoff } = {}) {
     this.#setStatus(campaignId, { transitioning: true });
     if (handoff) this.lastHandoff.set(campaignId, handoff);
     this.#emitTransition(campaignId, { reason, handoff: handoff || null });
     try {
       const old = this.hosts.get(campaignId);
+      let judged = null;
+      try {
+        judged = await this.resolveRoleFn({
+          workspace: old?.workspace,
+          campaignId,
+          repoRoot: old?.repoRoot,
+        });
+      } catch {
+        judged = null;
+      }
+      const sessionRole = judged === "setup" ? "setup" : "play";
       const opts = old
         ? {
             repoRoot: old.repoRoot,
@@ -183,15 +245,16 @@ export class CampaignHostOrchestrator {
             sessionId: old.sessionId,
             agentDir: old.agentDir,
             launcherPath: old.launcherPath,
-            tableIntent: "continue",
+            tableIntent: sessionRole === "play" ? "continue" : "character-setup",
             provider: old.provider,
             model: old.model,
             thinking: old.thinking,
             spawnFn: old.spawnFn,
           }
-        : { campaignId, tableIntent: "continue" };
-      if (old && !old.closed) {
-        await old.close();
+        : { campaignId, tableIntent: sessionRole === "play" ? "continue" : "character-setup" };
+      if (old) {
+        old.expectedShutdown = true;
+        if (!old.closed) await old.close();
       }
       this.hosts.delete(campaignId);
       const { host } = await this.acquire(campaignId, opts, { exclusive: true, reuse: false });
@@ -200,15 +263,13 @@ export class CampaignHostOrchestrator {
       } catch {
         /* attach is best-effort; host is already ready */
       }
-      this.#setStatus(campaignId, { session_role: "play", transitioning: false });
+      this.#setStatus(campaignId, { session_role: sessionRole, transitioning: false });
       this.#emitTransition(campaignId, { reason: "attached" });
       return host;
     } catch (err) {
       this.#setStatus(campaignId, { transitioning: false });
       this.#emitTransition(campaignId, { reason: "failed", error: String(err) });
       throw err;
-    } finally {
-      this.#handoffInFlight.delete(campaignId);
     }
   }
 }

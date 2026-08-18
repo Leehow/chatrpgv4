@@ -32,6 +32,7 @@ import {
   enrichTranscriptFromEvents,
   findBundleByPdfSha256,
   formatPlayerTime,
+  campaignListExtras,
   listSourceBundles,
   modelsPayload,
   readJsonFile,
@@ -301,6 +302,9 @@ function playerVisibleTurnError(err) {
       : null;
   const name = err instanceof SidecarError ? err.errorClass : err?.constructor?.name || "";
   const text = err?.message || "";
+  if (kind === "pi_coc_rpc_handoff") {
+    return "战役正在从建卡会话切换到开桌会话，请稍候。";
+  }
   if (kind === "pi_coc_rpc_exited" || kind === "pi_coc_rpc_failed") {
     return `pi-coc 宿主异常：${text || name}`;
   }
@@ -448,7 +452,7 @@ async function handleBootstrap(_req, res) {
           const compat = await sidecar.request("campaign_compat", {
             campaign_id: summary.campaign_id,
           });
-          Object.assign(summary, compat);
+          Object.assign(summary, compat, campaignListExtras(WORKSPACE, summary.campaign_id));
         }
       }),
     );
@@ -908,7 +912,14 @@ async function handleTurn(req, res, sid) {
   };
 
   try {
-    const host = HOSTS.get(info.campaign_id);
+    let host = HOSTS.get(info.campaign_id);
+    if (
+      host?.isHandoffShutdown?.()
+      || orchestrator.isTransitioning(info.campaign_id)
+    ) {
+      await orchestrator.beginHandoff(info.campaign_id, { reason: "turn_wait" });
+      host = HOSTS.get(info.campaign_id);
+    }
     if (!host || host.closed) {
       throw new PiCocRpcError("pi-coc 宿主未启动；请刷新后重开战役。");
     }
@@ -927,6 +938,15 @@ async function handleTurn(req, res, sid) {
       await host.attachOpening({ onSse });
     } else {
       await host.prompt(playerInput, { onSse });
+    }
+    if (host.isHandoffShutdown?.()) {
+      safeWrite("coc_setup_handoff", {
+        type: "coc_setup_handoff",
+        campaign_id: info.campaign_id,
+        reason: "exit_42",
+      });
+      await orchestrator.beginHandoff(info.campaign_id, { reason: "exit_42" });
+      host = HOSTS.get(info.campaign_id) || host;
     }
     let state;
     try {
@@ -949,6 +969,25 @@ async function handleTurn(req, res, sid) {
   } catch (err) {
     if (err?.kind === "pi_coc_rpc_aborted") {
       safeWrite("end", { aborted: true });
+    } else if (err?.kind === "pi_coc_rpc_handoff") {
+      safeWrite("coc_setup_handoff", {
+        type: "coc_setup_handoff",
+        campaign_id: info.campaign_id,
+        reason: "exit_42",
+      });
+      try {
+        await orchestrator.beginHandoff(info.campaign_id, { reason: "exit_42" });
+      } catch {
+        /* respawn is best-effort; interlude already shown */
+      }
+      let state;
+      try {
+        state = await statePayload(info);
+      } catch (stateErr) {
+        state = { error: `${stateErr?.message || stateErr}` };
+      }
+      safeWrite("turn", { events: [], state });
+      safeWrite("end", {});
     } else {
       safeWrite("error", { message: playerVisibleTurnError(err) });
     }

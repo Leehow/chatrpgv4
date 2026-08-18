@@ -67,9 +67,20 @@ function CampaignCard({
   onOpen: () => void;
 }) {
   const title = campaign.title || campaign.campaign_id;
-  const subtitle = `${campaign.active_scenario_id ?? "—"}${
-    campaign.status ? ` · ${campaign.status}` : ""
-  }`;
+  const investigator = campaign.investigator_name?.trim() || "未建卡";
+  let activity = "";
+  if (campaign.last_active_at) {
+    const ms = Date.parse(campaign.last_active_at);
+    if (Number.isFinite(ms)) {
+      activity = new Date(ms).toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+  }
+  const subtitle = `${investigator}${activity ? ` · ${activity}` : ""}`;
 
   return (
     <div

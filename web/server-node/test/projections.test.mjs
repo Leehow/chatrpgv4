@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  campaignListExtras,
   combatInitiativeDisplay,
   modelsPayload,
   resolveThinkingMeta,
@@ -614,4 +615,15 @@ test("public roll display remaps frozen English NPC names", () => {
   );
   const keeper = tableTranscriptMessages(ws, "c1")[0];
   assert.equal(keeper.content_blocks[1].roll.npc_display_name, "史蒂文·诺特");
+});
+
+test("campaignListExtras reads first party investigator and mtime", () => {
+  const ws = makeWorkspace();
+  writeJson(path.join(ws, ".coc/campaigns/c1/campaign.json"), { title: "The Haunting" });
+  writeJson(path.join(ws, ".coc/campaigns/c1/party.json"), { investigator_ids: ["ada"] });
+  writeJson(path.join(ws, ".coc/investigators/ada/character.json"), { name: "艾达" });
+  const extras = campaignListExtras(ws, "c1");
+  assert.equal(extras.investigator_name, "艾达");
+  assert.equal(typeof extras.last_active_at, "string");
+  assert.match(extras.last_active_at, /T/);
 });
