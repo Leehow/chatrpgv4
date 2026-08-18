@@ -53,9 +53,13 @@ def test_setup_guided_chargen_forbids_first_turn_delegate() -> None:
     assert "Call the delegate at most once per player turn" in setup
     assert "Do **not** call" in setup and "setup.complete" in setup
     assert "high-to-low" in setup
-    assert "final for this flow" in setup
-    assert "respec" in setup
+    assert "current written sheet" in setup
+    assert "same `investigator_id`" in setup
+    assert "Revision is setup-only" in setup
     assert "Do not ask the player to add" in setup
+    play = PLAY.read_text(encoding="utf-8")
+    assert "coc_chargen_delegate" not in _constitution(setup)
+    assert "coc_chargen_delegate" not in _constitution(play)
 
 
 def test_legacy_host_system_md_unmodified() -> None:

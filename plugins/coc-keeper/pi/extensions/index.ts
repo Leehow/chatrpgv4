@@ -8900,8 +8900,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         + "skills to balance points. "
         + "assignment_priority is eight keys high-to-low; first receives 80. "
         + "Call at most once per player turn; do not retry or guess formulas "
-        + "on failure. After a numeric card, do not invite respec and do not "
-        + "call setup.complete from this tool. Do not assemble "
+        + "on failure. After a numeric card, same-id setup revision is allowed "
+        + "on a later player turn; do not call setup.complete from this tool "
+        + "or treat the card as table-opening confirmation. Do not assemble "
         + "investigator.create. Setup role only.",
       parameters: chargenDelegateSchema,
       ...compactToolRenderers("coc_chargen_delegate"),

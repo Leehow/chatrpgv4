@@ -315,6 +315,120 @@ def test_chargen_run_journalist_single_interest_expands_under_cap(tmp_path: Path
     assert int_alloc.get("Spot Hidden", 0) > 0
 
 
+def _chargen_args(campaign_id: str, investigator_id: str, **overrides: object) -> dict:
+    payload: dict = {
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "name": "Ada Lark",
+        "occupation_name": "Journalist",
+        "assignment_priority": [
+            "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
+        ],
+        "occupation_skill_names": ["Spot Hidden", "Listen"],
+        "interest_skill_names": ["Occult", "First Aid", "Stealth", "Listen"],
+        "luck": {"mode": "auto_roll"},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_chargen_run_setup_revision_replaces_same_id(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-revise")
+    first = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-lark"),
+    )
+    assert first["ok"] is True, first
+    first_luck = first["data"]["result"]["derived"]["luck"]
+    first_rolls = list(first["data"]["result"]["roll_ids"])
+    second = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-lark",
+            name="Ada Revised",
+            assignment_priority=[
+                "STR", "CON", "SIZ", "DEX", "POW", "APP", "EDU", "INT",
+            ],
+            occupation_skill_names=[
+                "Spot Hidden", "Listen", "Psychology", "Fast Talk",
+            ],
+            interest_skill_names=["First Aid", "Stealth", "Dodge", "Climb"],
+        ),
+    )
+    assert second["ok"] is True, second
+    result = second["data"]["result"]
+    assert result["investigator_id"] == "ada-lark"
+    assert result["characteristics"]["STR"] == 80
+    assert result["characteristics"]["INT"] == 40
+    assert result["derived"]["luck"] == first_luck
+    assert result["roll_ids"] == first_rolls
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "ada-lark" / "character.json")
+        .read_text(encoding="utf-8")
+    )
+    assert stored["name"] == "Ada Revised"
+    assert stored["characteristics"]["STR"] == 80
+    skills = stored["skills"]
+    assert int(skills.get("Psychology", 0)) > 5
+    assert int(skills.get("Climb", 0)) > 20 or int(skills.get("Dodge", 0)) > 0
+    party = json.loads(
+        (tmp_path / ".coc" / "campaigns" / campaign_id / "party.json")
+        .read_text(encoding="utf-8")
+    )
+    ids = party.get("investigator_ids") or []
+    assert ids.count("ada-lark") == 1
+    assert set(ids) == {"ada-lark"}
+    investigators = list((tmp_path / ".coc" / "investigators").iterdir())
+    assert [path.name for path in investigators if path.is_dir()] == ["ada-lark"]
+
+
+def test_chargen_run_revision_rejected_after_ready_for_table(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-locked")
+    first = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "locked-ada"),
+    )
+    assert first["ok"] is True, first
+    campaign_path = tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["status"] = "ready_for_table"
+    campaign["setup_handoff"] = {"decision_id": "test-lock"}
+    campaign_path.write_text(json.dumps(campaign), encoding="utf-8")
+    blocked = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "locked-ada", name="Should Fail"),
+    )
+    assert blocked["ok"] is False, blocked
+    details = (blocked.get("error") or {}).get("details") or {}
+    assert details.get("stage") == "revision"
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "locked-ada" / "character.json")
+        .read_text(encoding="utf-8")
+    )
+    assert stored["name"] == "Ada Lark"
+
+    campaign["status"] = "active"
+    campaign_path.write_text(json.dumps(campaign), encoding="utf-8")
+    blocked_active = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "locked-ada", name="Still Fail"),
+    )
+    assert blocked_active["ok"] is False, blocked_active
+    details_active = (blocked_active.get("error") or {}).get("details") or {}
+    assert details_active.get("stage") == "revision"
+
+
 def test_chargen_run_focus_plus_support_union_places(tmp_path: Path) -> None:
     campaign_id = _create_campaign(tmp_path, "chargen-union-occ")
     envelope = coc_toolbox.run_tool(

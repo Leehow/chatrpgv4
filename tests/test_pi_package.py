@@ -24,9 +24,11 @@ PLUGIN = ROOT / "plugins" / "coc-keeper"
 
 
 def _node(script: Path, *args: str, env: dict[str, str] | None = None) -> dict:
+    run_env = dict(os.environ if env is None else env)
+    run_env.pop("PI_SUBAGENT_CHILD", None)
     completed = subprocess.run(
         ["node", "--experimental-strip-types", str(script), *args],
-        cwd=ROOT, env=env, check=True, capture_output=True, text=True,
+        cwd=ROOT, env=run_env, check=True, capture_output=True, text=True,
     )
     return json.loads(completed.stdout)
 
@@ -86,8 +88,8 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     result = _node(ROOT / "tests/pi/package-smoke.mjs", str(ROOT))
     assert result["extensionCount"] == 1
     assert result["toolNames"] == [
-        "coc_advice", "coc_capabilities", "coc_context", "coc_discover",
-        "coc_dispatch_source_work", "coc_invoke", "coc_map_supply",
+        "coc_advice", "coc_capabilities", "coc_chargen_delegate", "coc_context",
+        "coc_discover", "coc_dispatch_source_work", "coc_invoke", "coc_map_supply",
         "coc_npc", "coc_progressive_ocr", "coc_rules", "coc_setup",
         "coc_state", "coc_subsystem", "coc_turn",
     ]
@@ -111,6 +113,7 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
         "activeTools": [
             "read", "subagent", "subagent_wait",
             "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
+            "coc_chargen_delegate",
         ],
     }
 

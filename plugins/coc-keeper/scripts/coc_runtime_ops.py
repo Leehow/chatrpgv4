@@ -5015,6 +5015,74 @@ def _execute_campaign_complete(
     }
 
 
+def _party_investigator_ids(party: dict[str, Any]) -> list[str]:
+    raw = party.get("investigator_ids")
+    if not isinstance(raw, list):
+        return []
+    return [value for value in raw if isinstance(value, str) and value.strip()]
+
+
+def _campaigns_linking_investigator(root: Path, investigator_id: str) -> list[str]:
+    campaigns_dir = root / ".coc" / "campaigns"
+    if not campaigns_dir.is_dir():
+        return []
+    linked: list[str] = []
+    for child in sorted(campaigns_dir.iterdir(), key=lambda path: path.name):
+        party_path = child / "party.json"
+        if not child.is_dir() or not party_path.is_file():
+            continue
+        try:
+            party = json.loads(party_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(party, dict):
+            continue
+        party_campaign = party.get("campaign_id")
+        if (
+            isinstance(party_campaign, str)
+            and party_campaign.strip()
+            and party_campaign != child.name
+        ):
+            continue
+        if investigator_id in _party_investigator_ids(party):
+            linked.append(child.name)
+    return linked
+
+
+def _chargen_revision_decision(
+    root: Path,
+    *,
+    campaign_id: str,
+    investigator_id: str,
+) -> tuple[bool, str | None]:
+    """Return (replace, error). replace is True only for same-campaign setup."""
+    character_path = (
+        root / ".coc" / "investigators" / investigator_id / "character.json"
+    )
+    if not character_path.is_file():
+        return False, None
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    campaign_path = campaign_dir / "campaign.json"
+    if not campaign_path.is_file():
+        return False, f"unknown campaign: {campaign_id}"
+    try:
+        campaign = _read_object(campaign_path)
+    except RuntimeOperationError as exc:
+        return False, str(exc)
+    status = campaign.get("status", "setup")
+    if status != "setup" or campaign.get("setup_handoff"):
+        return False, (
+            "investigator revision is only allowed during unfinished setup"
+        )
+    linked = _campaigns_linking_investigator(root, investigator_id)
+    if linked != [campaign_id]:
+        return False, (
+            "investigator already exists and is not exclusively this "
+            "campaign's setup party"
+        )
+    return True, None
+
+
 def _chargen_fail(
     stage: str,
     error: str,
@@ -5109,18 +5177,32 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     except coc_character.ChargenRunError as exc:
         expected = exc.expected if isinstance(exc.expected, dict) else None
         return _chargen_fail(exc.stage, str(exc), expected=expected)
+    replace, revision_error = _chargen_revision_decision(
+        root,
+        campaign_id=campaign_id,
+        investigator_id=investigator_id,
+    )
+    if revision_error:
+        return _chargen_fail(
+            "revision",
+            revision_error,
+            extra={"investigator_id": investigator_id},
+        )
+    create_payload: dict[str, Any] = {
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "sheet": sheet,
+        "creation": creation,
+    }
+    if replace:
+        create_payload["replace"] = True
     try:
         created = execute_setup_operation(
             root,
             operation={
                 "schema_version": 1,
                 "kind": "investigator.create",
-                "payload": {
-                    "campaign_id": campaign_id,
-                    "investigator_id": investigator_id,
-                    "sheet": sheet,
-                    "creation": creation,
-                },
+                "payload": create_payload,
             },
         )
     except (RuntimeOperationError, FileExistsError, FileNotFoundError, OSError) as exc:
@@ -5563,7 +5645,7 @@ def execute_setup_operation(
             "state_refs": [str(created.relative_to(root))],
         }
     if kind == "investigator.create":
-        allowed = {"campaign_id", "investigator_id", "sheet", "creation"}
+        allowed = {"campaign_id", "investigator_id", "sheet", "creation", "replace"}
         required = {"investigator_id", "sheet"}
         received = set(payload)
         if received - allowed or not required <= received:
@@ -5575,6 +5657,9 @@ def execute_setup_operation(
                 f"allowed: {sorted(allowed)})"
             )
         investigator_id = _id(payload.get("investigator_id"), "investigator_id")
+        replace_requested = payload.get("replace", False)
+        if replace_requested is not False and replace_requested is not True:
+            raise RuntimeOperationError("investigator.create replace must be a boolean")
         sheet = payload.get("sheet")
         creation = payload.get("creation")
         if not isinstance(sheet, dict) or not isinstance(creation, dict):
@@ -5707,9 +5792,28 @@ def execute_setup_operation(
                 )],
             ) from exc
         if path.exists():
-            raise FileExistsError(f"investigator already exists: {investigator_id}")
+            if not replace_requested:
+                raise FileExistsError(f"investigator already exists: {investigator_id}")
+            if current_campaign_id is None:
+                raise RuntimeOperationError(
+                    "investigator.create replace requires a setup campaign_id"
+                )
+            allowed_replace, revision_error = _chargen_revision_decision(
+                root,
+                campaign_id=current_campaign_id,
+                investigator_id=investigator_id,
+            )
+            if not allowed_replace:
+                raise RuntimeOperationError(
+                    revision_error
+                    or "investigator revision is not allowed"
+                )
         created = coc_state.create_investigator(
-            root, investigator_id, sheet, creation=creation
+            root,
+            investigator_id,
+            sheet,
+            creation=creation,
+            replace=bool(path.exists() and replace_requested),
         )
         return {
             "schema_version": 1,
