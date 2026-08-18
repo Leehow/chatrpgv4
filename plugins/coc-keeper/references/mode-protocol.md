@@ -62,6 +62,23 @@ or setup completed in the current initial request already establishes current
 context; keep those receipts and do not call `session.resume` later in the same
 request merely because a campaign id is now available.
 
+## Setup → Play Handoff
+
+On the Pi-Coc dual-session host, finishing setup is a receipt, not a prose
+judgment. Setup is complete only after a successful `setup.complete`
+(`decision_id` idempotent) has written campaign `status` to `ready_for_table`
+and persisted the handoff receipt.
+
+At the end of setup the Keeper stays in Keeper voice, gives one intermission
+beat (the curtain is about to rise), and **stops**. Do not deliver opening
+narration, first-impression receipts, or live play in the setup session. The
+host emits `customType="coc_setup_handoff"` and the setup process exits 42 so
+the play assembly can take over.
+
+Play may open the table only after `session.resume` on a `ready_for_table`
+campaign returns the table-opening channel, then `evidence.table_opening`.
+Do not narrate the opening before that card.
+
 ## Markers
 
 Use ASCII markers only:
