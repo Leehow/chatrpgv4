@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:86e1600aa84d21743cb65080d9efe4c448964efc01f7624f6cc2281a9981b539",
+  "content_sha256": "sha256:b78a8a5ff199d6a64c51f9fcf4e8a39bbd7a4ae1a212a945b553f431029b600e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -2888,8 +2888,9 @@
             "type": "string"
           },
           "purpose": {
-            "description": "closed semantic purpose for typed rolls; use investigator_creation_luck for the Quick-Fire Luck source",
+            "description": "closed semantic purpose for typed rolls; use investigator_creation_luck for the Quick-Fire Luck source and investigator_creation_characteristic for each 3D6 characteristic roll. Receipts are keyed by decision_id, never by purpose alone",
             "enum": [
+              "investigator_creation_characteristic",
               "investigator_creation_luck"
             ],
             "type": "string"
