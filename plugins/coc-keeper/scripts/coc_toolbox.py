@@ -7916,7 +7916,7 @@ def _tool_setup_inspect(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "setup.quick_start",
-    "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans.",
+    "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans.",
     {
         "scenario_id": {
             "type": "string",
@@ -7930,7 +7930,7 @@ def _tool_setup_inspect(ctx: Ctx, args: dict[str, Any]):
         },
         "campaign_id": {
             "type": "string",
-            "desc": "optional stable campaign id; omit to let the canonical starter choose one",
+            "desc": "optional stable campaign id; omit to create {scenario_id}-qs. Forbidden when a setup campaign already exists",
         },
         "title": {
             "type": "string",
@@ -8269,8 +8269,10 @@ def _tool_setup_adopt_source_facts(ctx: Ctx, args: dict[str, Any]):
                 "investigator.create requires investigator_id/sheet and optionally "
                 "creation; deterministic Quick Fire additionally requires the "
                 "current campaign_id and may omit sheet characteristics/derived when "
-                "creation supplies characteristic_assignment_order, luck_roll_total, "
-                "and that campaign's exact luck_roll_receipt; "
+                "creation supplies characteristic_assignment_order plus either luck auto_roll "
+                "or luck_roll_total plus that campaign's exact luck_roll_receipt; "
+                "semantic Quick Fire payload is name/occupation/assignment_order/interest allocations "
+                "and optional creation.luck={mode:auto_roll} — runtime owns INT*2 budget and Luck receipt; "
                 "campaign.link_investigator requires exactly "
                 "campaign_id/investigator_ids; scenario.bind_pdf requires "
                 "campaign_id/scenario_id/title/source_bundle_path and optionally "
@@ -8360,15 +8362,23 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
         if isinstance(creation, dict) and (
             creation.get("characteristic_assignment_order") is not None
             or creation.get("luck_roll_total") is not None
+            or (
+                isinstance(creation.get("luck"), dict)
+                and creation.get("luck", {}).get("mode") == "auto_roll"
+            )
         ):
             declared_campaign = str(
                 payload.get("campaign_id") or ""
             ).strip()
             luck_reference = creation.get("luck_roll_receipt")
+            auto_luck = (
+                isinstance(creation.get("luck"), dict)
+                and creation.get("luck", {}).get("mode") == "auto_roll"
+            )
             referenced_campaign = (
                 str(luck_reference.get("campaign_id") or "").strip()
                 if isinstance(luck_reference, dict)
-                else ""
+                else (declared_campaign if auto_luck else "")
             )
             if (
                 not ctx.campaign_id

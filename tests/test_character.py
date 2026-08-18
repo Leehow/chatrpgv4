@@ -486,6 +486,55 @@ def test_materialize_quick_fire_sheet_owns_fixed_numbers_and_derived_values():
     assert coc_character.validate_character_create_sheet(sheet, creation) == []
 
 
+def test_quick_fire_interest_budget_error_names_int_and_expected():
+    order = ("INT", "DEX", "POW", "EDU", "CON", "SIZ", "APP", "STR")
+    skills, skill_budget = _complete_quick_fire_skills()
+    skill_budget["personal_interest_points"]["budget"] = 140
+    skill_budget["personal_interest_points"]["spent"] = 140
+    creation = {
+        "method": "quick_fire_array",
+        "input_mode": "guided_quick_fire",
+        "characteristic_assignment_order": list(order),
+        "luck_roll_total": 12,
+        "skill_budget": skill_budget,
+    }
+    compact = {
+        "id": "ada",
+        "name": "Ada",
+        "age": 29,
+        "skills": dict(skills),
+        "player_facing_sheet_zh": {"display_name": "艾达"},
+    }
+    with pytest.raises(ValueError, match=r"INT=80, expected=160, got=140"):
+        coc_character.materialize_quick_fire_create_sheet(compact, creation)
+
+
+def test_quick_fire_interest_allocations_auto_align_budget_and_spent():
+    skills, skill_budget = _complete_quick_fire_skills()
+    skill_budget["personal_interest_points"]["budget"] = 1
+    skill_budget["personal_interest_points"]["spent"] = 1
+    creation = {
+        "method": "quick_fire_array",
+        "input_mode": "guided_quick_fire",
+        "characteristic_assignment_order": list(_QUICK_FIRE_ORDER),
+        "luck_roll_total": 12,
+        "skill_budget": skill_budget,
+    }
+    compact = {
+        "id": "ada",
+        "name": "Ada",
+        "age": 29,
+        "skills": dict(skills),
+        "player_facing_sheet_zh": {"display_name": "艾达"},
+    }
+    sheet = coc_character.materialize_quick_fire_create_sheet(compact, creation)
+    account = creation["skill_budget"]["personal_interest_points"]
+    assert account["budget"] == 140
+    assert account["spent"] == 140
+    assert sum(account["allocations"].values()) == 140
+    assert coc_character.validate_character_create_sheet(sheet, creation) == []
+
+
 @pytest.mark.parametrize(
     ("creation", "message"),
     [

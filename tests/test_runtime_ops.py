@@ -3390,6 +3390,92 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     assert stored["player_facing_sheet_zh"]["skills"][0]["label"] == "会计"
 
 
+def test_investigator_create_luck_auto_roll_is_idempotent(tmp_path):
+    complete_skills, skill_budget = _complete_quick_fire_skills()
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {
+            "campaign_id": "auto-luck",
+            "title": "Auto Luck",
+            "era": "1920s",
+        },
+    })
+    creation = {
+        "input_mode": "guided_quick_fire",
+        "method": "quick_fire_array",
+        "characteristic_assignment_order": list(_QUICK_FIRE_ORDER),
+        "luck": {"mode": "auto_roll"},
+        "skill_budget": skill_budget,
+    }
+    payload = {
+        "campaign_id": "auto-luck",
+        "investigator_id": "auto-luck-inv",
+        "sheet": {
+            "id": "auto-luck-inv",
+            "name": "Auto Luck Investigator",
+            "age": 29,
+            "skills": complete_skills,
+            "player_facing_sheet_zh": {
+                "display_name": "自动幸运调查员",
+                "skills": [],
+            },
+        },
+        "creation": creation,
+    }
+    receipt = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.create",
+        "payload": payload,
+    })
+    assert receipt["status"] == "PASS"
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "auto-luck-inv"
+         / "character.json").read_text(encoding="utf-8")
+    )
+    decision_id = "chargen-luck-auto-luck-auto-luck-inv"
+    first = toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "auto-luck",
+        {
+            "expression": "3D6",
+            "decision_id": decision_id,
+            "purpose": "investigator_creation_luck",
+            "reason": "Quick Fire Luck auto_roll",
+        },
+    )
+    assert first["ok"] is True
+    assert stored["derived"]["Luck"] == first["data"]["total"] * 5
+    replay = toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "auto-luck",
+        {
+            "expression": "3D6",
+            "decision_id": decision_id,
+            "purpose": "investigator_creation_luck",
+            "reason": "Quick Fire Luck auto_roll",
+        },
+    )
+    assert replay["data"]["roll_id"] == first["data"]["roll_id"]
+    assert replay["data"]["total"] == first["data"]["total"]
+    rolls = [
+        json.loads(line)
+        for line in (tmp_path / ".coc" / "campaigns" / "auto-luck"
+                     / "logs" / "rolls.jsonl").read_text(
+                         encoding="utf-8"
+                     ).splitlines()
+        if line.strip()
+    ]
+    luck_rows = [
+        row for row in rolls
+        if row.get("payload", {}).get("purpose") == "investigator_creation_luck"
+        or row.get("purpose") == "investigator_creation_luck"
+    ]
+    assert len(luck_rows) == 1
+
+
 def test_quick_fire_luck_receipt_failure_names_cause_and_corrected_call(
     tmp_path,
 ):

@@ -495,6 +495,66 @@ def _validate_quick_fire_luck_receipt(
         )
 
 
+def _quick_fire_luck_is_auto_roll(creation: dict[str, Any]) -> bool:
+    luck = creation.get("luck")
+    return isinstance(luck, dict) and luck.get("mode") == "auto_roll"
+
+
+def _apply_quick_fire_auto_luck_roll(
+    root: Path,
+    creation: dict[str, Any],
+    *,
+    campaign_id: str,
+    investigator_id: str,
+) -> None:
+    """Fill luck_roll_total/receipt from the canonical 3D6 Luck roll."""
+    if not _quick_fire_luck_is_auto_roll(creation):
+        return
+    if creation.get("luck_roll_total") is not None or creation.get(
+        "luck_roll_receipt"
+    ) is not None:
+        raise RuntimeOperationError(
+            "creation.luck auto_roll cannot be combined with "
+            "luck_roll_total or luck_roll_receipt"
+        )
+    import coc_toolbox
+    decision_id = f"chargen-luck-{campaign_id}-{investigator_id}"
+    result = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        root,
+        campaign_id,
+        {
+            "expression": "3D6",
+            "decision_id": decision_id,
+            "purpose": "investigator_creation_luck",
+            "reason": "Quick Fire Luck auto_roll",
+        },
+    )
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        raise RuntimeOperationError(
+            "Quick Fire Luck auto_roll failed: "
+            + str((result or {}).get("error") or result)
+        )
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    total = data.get("total")
+    roll_id = data.get("roll_id")
+    if (
+        isinstance(total, bool)
+        or not isinstance(total, int)
+        or not isinstance(roll_id, str)
+        or not roll_id.strip()
+    ):
+        raise RuntimeOperationError(
+            "Quick Fire Luck auto_roll did not return a usable 3D6 receipt"
+        )
+    creation["luck_roll_total"] = total
+    creation["luck_roll_receipt"] = {
+        "campaign_id": campaign_id,
+        "decision_id": decision_id,
+        "roll_id": roll_id,
+    }
+
+
 def _validate_kp_guided_characteristic_roll_receipts(
     root: Path,
     sheet: dict[str, Any],
@@ -5313,6 +5373,7 @@ def execute_setup_operation(
         quick_fire_inputs = (
             creation.get("characteristic_assignment_order") is not None
             or creation.get("luck_roll_total") is not None
+            or _quick_fire_luck_is_auto_roll(creation)
         )
         kp_guided_era_adaptive = (
             input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE
@@ -5358,6 +5419,12 @@ def execute_setup_operation(
                     f"{supported}. Use creation.input_mode="
                     f"{coc_character.ERA_ADAPTIVE_INPUT_MODE!r}."
                 )
+            _apply_quick_fire_auto_luck_roll(
+                root,
+                creation,
+                campaign_id=current_campaign_id,
+                investigator_id=investigator_id,
+            )
             _validate_quick_fire_luck_receipt(
                 root, creation, current_campaign_id=current_campaign_id,
             )

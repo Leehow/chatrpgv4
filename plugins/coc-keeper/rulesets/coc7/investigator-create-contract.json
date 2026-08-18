@@ -266,6 +266,15 @@
             },
             "description": "Each canonical characteristic exactly once, in descending Quick Fire array-slot priority order."
           },
+          "luck": {
+            "type": "object",
+            "required": ["mode"],
+            "properties": {
+              "mode": {"const": "auto_roll"}
+            },
+            "additionalProperties": false,
+            "description": "Optional. mode=auto_roll: runtime rolls 3D6 Luck."
+          },
           "luck_roll_total": {
             "type": "integer",
             "minimum": 3,
