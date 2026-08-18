@@ -84,10 +84,8 @@ import {
   handoffFromEnvelope,
 } from "../lib/handoff.ts";
 import {
-  chargenClerkActiveTools,
-  isChargenClerkProcess,
   parseChargenClerkBrief,
-  runChargenClerk,
+  runChargenInProcess,
   shouldRegisterChargenDelegate,
 } from "../lib/chargen-clerk.ts";
 import { extraToolsForSessionRole } from "../lib/session-role-tools.ts";
@@ -168,10 +166,13 @@ const chargenDelegateSchema = {
     occupation_or_concept: { type: "string", minLength: 1 },
     assignment_priority: { type: "string" },
     interest_allocation_intent: { type: "string" },
+    occupation_skill_names: { type: "array", items: { type: "string" } },
+    interest_skill_names: { type: "array", items: { type: "string" } },
+    investigator_id: { type: "string" },
     mode: { type: "string", enum: ["quick_fire", "pregen"] },
     pregen_id: { type: "string" },
   },
-  required: ["name", "occupation_or_concept", "mode"],
+  required: ["name", "occupation_or_concept"],
   additionalProperties: false,
 } as const;
 const ocrSchema = {
@@ -7092,10 +7093,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const applyKpActiveTools = () => {
     if (process.env.PI_SUBAGENT_CHILD === "1") return;
-    if (isChargenClerkProcess()) {
-      pi.setActiveTools(chargenClerkActiveTools());
-      return;
-    }
     const role = sessionRoleFromEnv();
     const tools = activeToolsForPhase(resolveAclPhase(), role);
     pi.setActiveTools(tools);
@@ -7141,7 +7138,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     try {
       pi.appendEntry("coc_setup_handoff", payload);
     } catch { /* session event-log is best effort */ }
-    if (sessionRoleFromEnv() === "setup" && !isChargenClerkProcess()) {
+    if (sessionRoleFromEnv() === "setup") {
       queueSetupHandoffExit();
     }
   };
@@ -7385,7 +7382,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const startupCampaignId = overrides.startupCampaignId === undefined
       ? explicitPiStartupCampaignId()
       : overrides.startupCampaignId();
-    startupResumeGate = startupCampaignId === null || isChargenClerkProcess()
+    startupResumeGate = startupCampaignId === null
       ? null
       : {
           campaignId: startupCampaignId,
@@ -8890,10 +8887,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   ) {
     pi.registerTool({
       name: "coc_chargen_delegate",
-      label: "COC chargen clerk",
+      label: "COC chargen",
       description:
-        "Delegate mechanical investigator creation to a closed pi -p clerk. "
-        + "Pass a semantic brief only; receive compact card JSON. Setup role only.",
+        "Run in-process setup.chargen_run from a semantic brief. "
+        + "Do not assemble investigator.create. Setup role only.",
       parameters: chargenDelegateSchema,
       ...compactToolRenderers("coc_chargen_delegate"),
       async execute(
@@ -8913,10 +8910,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (!campaignId) {
           throw new Error("coc_chargen_delegate requires PI_COC_CAMPAIGN_ID");
         }
-        return result(await runChargenClerk({
-          cwd: ctx.cwd,
+        return result(await runChargenInProcess({
           campaignId,
           brief,
+          callTool: (name, args, toolSignal) => client(ctx).callTool(name, args, toolSignal),
           signal,
         }));
       },
@@ -9110,10 +9107,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("session_start", async (event, ctx) => {
     sceneSupplyWaits.clear();
     const startupCampaignId = initializeSession(ctx);
-    if (isChargenClerkProcess()) {
-      applyKpActiveTools();
-      return;
-    }
     if (startupCampaignId !== null) {
       await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
     }

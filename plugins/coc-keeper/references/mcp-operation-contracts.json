@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b8637bc168d55e90c169d7f5bcb76a97463ec0169a04220a1d31dbcb59493100",
+  "content_sha256": "sha256:412c219b824cd9964366a296bfa27dbbb1b926cc448ea15696a3ee5bca3d2ff2",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 111,
+  "operation_count": 112,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -4133,6 +4133,93 @@
         ]
       },
       "summary": "Adopt the six source-grounded opening facts after scenario.bind_pdf and before investigator construction. Every source or unresolved answer must cite accepted pages inspected in the campaign's current bound bundle."
+    },
+    "setup.chargen_run": {
+      "access": "mutation",
+      "canonical_operation": "setup.chargen_run",
+      "description": "In-process deterministic Quick Fire investigator: occupation table + assignment_priority → create → link → render_card under the session lock. Do not hand-assemble investigator.create. Do not call setup.quick_start when a setup campaign already exists. Canonical operation `setup.chargen_run`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "age": {
+            "description": "optional age; default 27",
+            "type": "integer"
+          },
+          "assignment_priority": {
+            "description": "eight unique characteristic keys in Quick Fire descending priority",
+            "type": "array"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "campaign_id": {
+            "description": "existing campaign to link the investigator into",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "interest_allocations": {
+            "additionalProperties": true,
+            "description": "optional explicit interest point map; totals must match INT*2",
+            "type": "object"
+          },
+          "interest_skill_names": {
+            "description": "optional personal-interest skill names",
+            "type": "array"
+          },
+          "investigator_id": {
+            "description": "new reusable investigator id",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "luck": {
+            "additionalProperties": true,
+            "description": "optional {mode:auto_roll}; default auto_roll",
+            "type": "object"
+          },
+          "name": {
+            "description": "investigator display name",
+            "type": "string"
+          },
+          "occupation_allocations": {
+            "additionalProperties": true,
+            "description": "optional explicit occupation point map; totals must match the formula",
+            "type": "object"
+          },
+          "occupation_name": {
+            "description": "sample occupation name from occupations.json, or a concept if skill names are supplied",
+            "type": "string"
+          },
+          "occupation_skill_names": {
+            "description": "optional concrete occupation skill names",
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "investigator_id",
+          "name",
+          "occupation_name"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
+      "summary": "In-process deterministic Quick Fire investigator: occupation table + assignment_priority → create → link → render_card under the session lock. Do not hand-assemble investigator.create. Do not call setup.quick_start when a setup campaign already exists."
     },
     "setup.complete": {
       "access": "mutation",
