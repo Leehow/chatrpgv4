@@ -121,9 +121,16 @@ const QUICK_FIRE_ARRAY = [80, 70, 60, 60, 50, 50, 50, 40] as const;
 const STARTING_SKILL_CAP = 75;
 const CONSERVATIVE_SKILL_BASE = 40;
 const CREDIT_RATING = "Credit Rating";
+const MAX_QUICK_FIRE_INT = 80;
+const MAX_INTEREST_BUDGET = MAX_QUICK_FIRE_INT * 2;
 const DEFAULT_OCCUPATION_FILLERS = [
-  "Stealth", "First Aid", "Natural World", "Persuade",
-  "Charm", "Navigate", "Mechanical Repair", "Psychology", "Listen",
+  "First Aid", "Natural World", "Charm", "Navigate",
+  "Mechanical Repair", "Listen", "Appraise", "Fast Talk",
+] as const;
+const DEFAULT_INTEREST_FILLERS = [
+  "Listen", "First Aid", "Navigate", "Mechanical Repair",
+  "Natural World", "Charm", "Fast Talk", "Appraise", "Law",
+  "Accounting", "History", "Track",
 ] as const;
 const SKILL_CANONICAL: Record<string, string> = {
   photography: "Art and Craft (Photography)",
@@ -197,15 +204,22 @@ function conservativeBase(skillId: string, edu: number, dex: number): number {
   return CONSERVATIVE_SKILL_BASE;
 }
 
-function simulateOccupationSpend(skillIds: string[], budget: number, edu: number, dex: number): number {
-  const ids = skillIds.includes(CREDIT_RATING) ? skillIds : [...skillIds, CREDIT_RATING];
-  const allocations = new Map(ids.map((id) => [id, 0]));
+function simulateSpend(
+  skillIds: string[],
+  budget: number,
+  edu: number,
+  dex: number,
+  prior: Map<string, number>,
+): Map<string, number> {
+  const allocations = new Map(skillIds.map((id) => [id, 0]));
   let remaining = budget;
   while (remaining > 0) {
     let progressed = false;
-    for (const skillId of ids) {
+    for (const skillId of skillIds) {
       if (remaining <= 0) break;
-      const current = conservativeBase(skillId, edu, dex) + (allocations.get(skillId) ?? 0);
+      const current = conservativeBase(skillId, edu, dex)
+        + (prior.get(skillId) ?? 0)
+        + (allocations.get(skillId) ?? 0);
       if (current >= STARTING_SKILL_CAP) continue;
       allocations.set(skillId, (allocations.get(skillId) ?? 0) + 1);
       remaining -= 1;
@@ -213,47 +227,82 @@ function simulateOccupationSpend(skillIds: string[], budget: number, edu: number
     }
     if (!progressed) break;
   }
-  return budget - remaining;
+  return allocations;
+}
+
+function spendTotal(allocations: Map<string, number>): number {
+  let total = 0;
+  for (const value of allocations.values()) total += value;
+  return total;
+}
+
+function hasName(pool: string[], name: string): boolean {
+  return pool.some((item) => item.toLowerCase() === name.toLowerCase());
 }
 
 export function planChargenSkillLists(brief: ChargenClerkBrief): {
   occupation_skill_names: string[];
   interest_skill_names: string[];
   occupation_budget: number;
+  interest_budget: number;
 } {
   const assignment = resolveAssignmentPriority(brief.assignment_priority);
   const chars = quickFireCharacteristics(assignment);
   const edu = chars.EDU ?? 80;
   const dex = chars.DEX ?? 50;
   const occupationBudget = edu * 4;
+  const interestBudget = Math.max((chars.INT ?? MAX_QUICK_FIRE_INT) * 2, MAX_INTEREST_BUDGET);
   const mains = uniqueSkillNames(brief.occupation_skill_names);
-  const auxiliaries = uniqueSkillNames(brief.interest_skill_names)
-    .filter((name) => !mains.some((main) => main.toLowerCase() === name.toLowerCase()));
+  const statedInterests = uniqueSkillNames(brief.interest_skill_names);
   const occupation = [...mains];
-  const capacityFillers = [...auxiliaries].reverse();
-  const canPlace = (pool: string[]) => (
-    simulateOccupationSpend(pool, occupationBudget, edu, dex) === occupationBudget
+  const occPool = (pool: string[]) => (
+    pool.includes(CREDIT_RATING) ? pool : [...pool, CREDIT_RATING]
   );
-  while (!canPlace(occupation) && capacityFillers.length > 0) {
-    const next = capacityFillers.shift() as string;
-    if (!occupation.some((name) => name.toLowerCase() === next.toLowerCase())) {
-      occupation.push(next);
-    }
-  }
+  const canPlaceOcc = (pool: string[]) => (
+    spendTotal(simulateSpend(occPool(pool), occupationBudget, edu, dex, new Map()))
+      === occupationBudget
+  );
   for (const filler of DEFAULT_OCCUPATION_FILLERS) {
-    if (canPlace(occupation)) break;
-    if (occupation.some((name) => name.toLowerCase() === filler.toLowerCase())) continue;
+    if (canPlaceOcc(occupation)) break;
+    if (hasName(occupation, filler) || hasName(statedInterests, filler)) continue;
     occupation.push(filler);
   }
-  const interest = auxiliaries.length
-    ? auxiliaries
-    : uniqueSkillNames([...DEFAULT_OCCUPATION_FILLERS])
-      .filter((name) => !occupation.some((item) => item.toLowerCase() === name.toLowerCase()))
-      .slice(0, 4);
+  const stealFrom = [...statedInterests].reverse();
+  while (!canPlaceOcc(occupation) && stealFrom.length > 0) {
+    const next = stealFrom.shift() as string;
+    if (!hasName(occupation, next)) occupation.push(next);
+  }
+  for (const filler of DEFAULT_OCCUPATION_FILLERS) {
+    if (canPlaceOcc(occupation)) break;
+    if (hasName(occupation, filler)) continue;
+    occupation.push(filler);
+  }
+  const occAlloc = simulateSpend(
+    occPool(occupation),
+    occupationBudget,
+    edu,
+    dex,
+    new Map(),
+  );
+  const interest = [...statedInterests];
+  const canPlaceInterest = (pool: string[]) => (
+    spendTotal(simulateSpend(pool, interestBudget, edu, dex, occAlloc)) === interestBudget
+  );
+  for (const filler of DEFAULT_INTEREST_FILLERS) {
+    if (canPlaceInterest(interest)) break;
+    if (hasName(interest, filler)) continue;
+    interest.push(filler);
+  }
+  for (const filler of [...DEFAULT_OCCUPATION_FILLERS, ...mains]) {
+    if (canPlaceInterest(interest)) break;
+    if (hasName(interest, filler)) continue;
+    interest.push(filler);
+  }
   return {
     occupation_skill_names: occupation,
     interest_skill_names: interest,
     occupation_budget: occupationBudget,
+    interest_budget: interestBudget,
   };
 }
 

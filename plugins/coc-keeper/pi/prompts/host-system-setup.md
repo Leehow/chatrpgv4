@@ -152,7 +152,9 @@ deliver opening narration here.
   Pass a semantic skill brief: the player's stated focus skills first in
   `occupation_skill_names`, plus confirmed supporting skills in
   `interest_skill_names`. Three focus skills are not a complete occupation
-  pool; the wrapper expands the legal set. Runtime then owns Quick Fire
+  pool; the wrapper expands both occupation and interest support so the
+  point budgets fit under the starting cap. Do not ask the player to add,
+  drop, or count skills to balance machine budgets. Runtime then owns Quick Fire
   array, occupation formula, skill fill, Luck `auto_roll`, create → link →
   render_card. Always pass `assignment_priority` as eight keys **high-to-low**
   (first key receives Quick Fire 80). Do not invert that order. You receive

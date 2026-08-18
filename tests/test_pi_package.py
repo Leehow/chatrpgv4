@@ -120,6 +120,8 @@ def test_pi_chargen_delegate_allocates_campaign_scoped_ids():
     assert result["ok"] is True
     assert result["allocated"] != result["otherCampaign"]
     assert result["allocated"] != "inv-investigator"
+    assert result["journalistInterestCount"] >= 6
+    assert result["singleInterestCount"] >= 5
 
 
 def test_pi_opening_forwards_only_contract_selected_era_adaptive_creation():

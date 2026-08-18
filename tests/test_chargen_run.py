@@ -277,6 +277,44 @@ def test_chargen_run_int_edu_priority_and_photography_interest(tmp_path: Path) -
     assert "Occult" not in int_alloc
 
 
+def test_chargen_run_journalist_single_interest_expands_under_cap(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-journalist")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "shen-yan-journo",
+            "name": "沈砚",
+            "occupation_name": "Journalist",
+            "assignment_priority": PRIORITY,
+            "occupation_skill_names": [
+                "Persuade", "Psychology", "Library Use",
+            ],
+            "interest_skill_names": [
+                "Spot Hidden",
+                "Listen",
+                "First Aid",
+                "Navigate",
+                "Mechanical Repair",
+                "Natural World",
+            ],
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    chars = envelope["data"]["result"]["characteristics"]
+    assert chars["INT"] == 80
+    creation = json.loads(
+        (
+            tmp_path / ".coc" / "investigators" / "shen-yan-journo" / "creation.json"
+        ).read_text(encoding="utf-8")
+    )
+    int_alloc = creation["skill_budget"]["personal_interest_points"]["allocations"]
+    assert sum(int_alloc.values()) == 160
+    assert int_alloc.get("Spot Hidden", 0) > 0
+
+
 def test_chargen_run_focus_plus_support_union_places(tmp_path: Path) -> None:
     campaign_id = _create_campaign(tmp_path, "chargen-union-occ")
     envelope = coc_toolbox.run_tool(
