@@ -1,0 +1,35 @@
+{
+  "_comment": "consumer=launcher+server-node. Single source for setup|play --skill whitelist and host prompt paths (relative to repo root).",
+  "setup": {
+    "skills": [
+      "plugins/coc-keeper/skills/coc-main",
+      "plugins/coc-keeper/skills/coc-scenario-import",
+      "plugins/coc-keeper/skills/trpg-pdf-ingest",
+      "plugins/coc-keeper/skills/coc-campaign-state",
+      "plugins/coc-keeper/skills/coc-steward-parse",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-character",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine"
+    ],
+    "prompt": "plugins/coc-keeper/pi/prompts/host-system-setup.md"
+  },
+  "play": {
+    "skills": [
+      "plugins/coc-keeper/skills/coc-main",
+      "plugins/coc-keeper/skills/coc-keeper-play",
+      "plugins/coc-keeper/skills/coc-meta",
+      "plugins/coc-keeper/skills/coc-story-director",
+      "plugins/coc-keeper/skills/coc-scene-supply",
+      "plugins/coc-keeper/skills/coc-map-supply",
+      "plugins/coc-keeper/skills/coc-steward",
+      "plugins/coc-keeper/skills/coc-export-battle-report",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-chase",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-combat",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-development",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-magic",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-mythos-reference",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine",
+      "plugins/coc-keeper/rulesets/coc7/skills/coc-sanity"
+    ],
+    "prompt": "plugins/coc-keeper/pi/prompts/host-system-play.md"
+  }
+}

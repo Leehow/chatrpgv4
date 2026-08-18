@@ -299,12 +299,90 @@ if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
   export PI_COC_CAMPAIGN_ID
 fi
 
+# Role-scoped skills/prompt when --campaign is set and the role CLI succeeds.
+# Failure or no campaign selector keeps the historical full-package + legacy prompt.
+SESSION_SKILL_ARGS=()
+if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
+  ROLE_OUT=
+  if ROLE_OUT=$(
+    "$UV_PATH" run --frozen --project "$REPO_ROOT" python \
+      "$REPO_ROOT/plugins/coc-keeper/scripts/coc_session_role.py" \
+      "$(pwd)" "$PI_COC_CAMPAIGN_ID"
+  ); then
+    ROLE_OUT=${ROLE_OUT//$'\r'/}
+    ROLE_OUT=${ROLE_OUT%%$'\n'*}
+    case "$ROLE_OUT" in
+      setup|play)
+        export COC_PI_SESSION_ROLE=$ROLE_OUT
+        MANIFEST=$REPO_ROOT/plugins/coc-keeper/pi/session-roles.json
+        if [[ -f "$MANIFEST" ]]; then
+          ROLE_PACK=$(node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const manifestPath = process.argv[1];
+            const role = process.argv[2];
+            const repoRoot = process.argv[3];
+            let manifest;
+            try {
+              manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+            } catch (err) {
+              process.stderr.write("pi-coc: session-roles.json unreadable; using full skill set\n");
+              process.exit(1);
+            }
+            const entry = manifest[role];
+            if (!entry || !Array.isArray(entry.skills) || typeof entry.prompt !== "string") {
+              process.stderr.write("pi-coc: session-roles.json missing " + role + "; using full skill set\n");
+              process.exit(1);
+            }
+            const prompt = path.join(repoRoot, entry.prompt);
+            const skills = entry.skills.map((rel) => path.join(repoRoot, rel));
+            process.stdout.write([prompt, ...skills].join("\n"));
+          ' "$MANIFEST" "$ROLE_OUT" "$REPO_ROOT") || ROLE_PACK=
+          if [[ -n "${ROLE_PACK}" ]]; then
+            PROMPT_LINE=
+            SKILL_LINES=()
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              if [[ -z "$PROMPT_LINE" ]]; then
+                PROMPT_LINE=$line
+              else
+                SKILL_LINES+=("$line")
+              fi
+            done <<< "$ROLE_PACK"
+            if [[ -n "$PROMPT_LINE" && ! -f "$PROMPT_LINE" ]]; then
+              printf '%s\n' "pi-coc: missing role prompt $PROMPT_LINE; falling back to host-system.md" >&2
+              PROMPT_LINE=$HOST_SYSTEM_PROMPT
+            fi
+            if [[ -n "$PROMPT_LINE" && -f "$PROMPT_LINE" ]]; then
+              HOST_SYSTEM_PROMPT=$PROMPT_LINE
+            fi
+            SESSION_SKILL_ARGS=(--no-skills)
+            for skill_path in "${SKILL_LINES[@]+"${SKILL_LINES[@]}"}"; do
+              [[ -n "$skill_path" ]] || continue
+              SESSION_SKILL_ARGS+=(--skill "$skill_path")
+            done
+          fi
+        else
+          printf '%s\n' "pi-coc: missing session-roles.json; using full skill set" >&2
+        fi
+        ;;
+      *)
+        printf '%s\n' "pi-coc: unexpected session role '$ROLE_OUT'; using full skill set" >&2
+        ;;
+    esac
+  else
+    printf '%s\n' "pi-coc: session role CLI failed; using full skill set" >&2
+  fi
+fi
+
 PI_ARGS=(
   --no-builtin-tools
   --approve
   --no-context-files
-  --append-system-prompt "$HOST_SYSTEM_PROMPT"
 )
+if ((${#SESSION_SKILL_ARGS[@]} > 0)); then
+  PI_ARGS+=("${SESSION_SKILL_ARGS[@]}")
+fi
+PI_ARGS+=(--append-system-prompt "$HOST_SYSTEM_PROMPT")
 if [[ "$WANT_NEW" -eq 0 && "$USER_SESSION_OPT" -eq 0 ]]; then
   PI_ARGS+=(--session-id "$DEFAULT_SESSION_ID")
 fi
