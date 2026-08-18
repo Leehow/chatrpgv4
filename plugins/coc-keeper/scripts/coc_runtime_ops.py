@@ -88,12 +88,23 @@ SETUP_OPERATION_KINDS = frozenset({
     "campaign.quick_start", "scenario.bind_pdf", "campaign.render_briefing",
     "actor.create", "investigator.create", "investigator.render_card",
     "investigator.contract", "campaign.link_investigator",
-    "campaign.adopt_source_facts",
+    "campaign.adopt_source_facts", "campaign.complete",
 })
 
 
 class RuntimeOperationError(ValueError):
     """Stable validation failure for the shared operation protocol."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details
 
 
 def validate_semantic_route(value: Any) -> dict[str, Any]:
@@ -4797,6 +4808,151 @@ def _install_kp_guided_era_adaptive_contract_branch(
     ]
 
 
+def _opening_projection_ref(campaign_dir: Path) -> dict[str, Any] | None:
+    receipt = coc_module_project.current_opening_projection_receipt(campaign_dir)
+    if isinstance(receipt, dict):
+        return {"kind": "opening_projection_receipt", "receipt": deepcopy(receipt)}
+    readiness = coc_module_project.opening_source_readiness(campaign_dir)
+    return {
+        "kind": "opening_source_readiness",
+        "state": readiness.get("state"),
+        "reason": readiness.get("reason"),
+    }
+
+
+def _lane_interrupted_at_handoff(root: Path, campaign_dir: Path) -> bool:
+    """True when source-bound Tier 2/3 progressive work is not terminal."""
+    readiness = coc_module_project.opening_source_readiness(campaign_dir)
+    if readiness.get("state") == coc_module_project.OPENING_SOURCE_NOT_GATED:
+        return False
+    scenario = campaign_dir / "scenario" / "scenario.json"
+    try:
+        payload = json.loads(scenario.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    root_id = str(
+        payload.get("progressive_asset_root_id")
+        or payload.get("source_cache_asset_root_id")
+        or ""
+    ).strip()
+    if not root_id:
+        return False
+    try:
+        summary = coc_module_assets.host_work_lifecycle_summary(root, root_id)
+    except Exception:
+        return True
+    open_count = int(summary.get("open_host_work_count") or 0)
+    parse_tier_max = 0
+    try:
+        registry = coc_module_assets.load_registry(root)
+        entry = (registry.get("modules") or {}).get(root_id) or {}
+        parse_tier_max = int(entry.get("parse_tier_max") or 0)
+    except Exception:
+        parse_tier_max = 0
+    return open_count > 0 or parse_tier_max < 3
+
+
+def _execute_campaign_complete(
+    root: Path, payload: dict[str, Any],
+) -> dict[str, Any]:
+    allowed = {"campaign_id", "decision_id"}
+    if set(payload) - allowed or "campaign_id" not in payload or "decision_id" not in payload:
+        raise RuntimeOperationError(
+            "campaign.complete requires campaign_id and decision_id",
+            code="invalid_param",
+        )
+    campaign_id = _id(payload.get("campaign_id"), "campaign_id")
+    raw_decision_id = payload.get("decision_id")
+    if not isinstance(raw_decision_id, str) or not raw_decision_id.strip() or raw_decision_id != raw_decision_id.strip():
+        raise RuntimeOperationError(
+            "campaign.complete requires a stable decision_id",
+            code="invalid_param",
+        )
+    decision_id = raw_decision_id
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    if not campaign_dir.is_dir():
+        raise RuntimeOperationError(
+            f"unknown campaign: {campaign_id}",
+            code="unknown_campaign",
+        )
+    try:
+        campaign = coc_state.load_campaign_state(campaign_dir)
+    except coc_state.UnsupportedSaveSchema as exc:
+        raise RuntimeOperationError(
+            "campaign schema is not the exact current generation",
+            code=exc.code,
+            details=exc.to_dict(),
+        ) from exc
+    import coc_toolbox
+    if not coc_toolbox._campaign_has_confirmed_investigator(
+        campaign_dir, campaign_id,
+    ):
+        raise RuntimeOperationError(
+            "character setup is incomplete; a confirmed investigator is required",
+            code="character_setup_incomplete",
+        )
+    readiness = coc_module_project.opening_source_readiness(campaign_dir)
+    state = str(readiness.get("state") or "")
+    if state == coc_module_project.OPENING_SOURCE_FAILED:
+        raise RuntimeOperationError(
+            "the bound source opening failed to parse and project",
+            code="opening_source_failed",
+            details={"readiness": readiness},
+        )
+    if state == coc_module_project.OPENING_SOURCE_NOT_PREPARED:
+        raise RuntimeOperationError(
+            "this campaign is source-bound but no opening projection was ever prepared",
+            code="opening_source_not_prepared",
+            details={"readiness": readiness},
+        )
+    if state == coc_module_project.OPENING_SOURCE_PENDING:
+        raise RuntimeOperationError(
+            "the background source parse has not projected the opening yet",
+            code="opening_source_pending",
+            details={"readiness": readiness},
+        )
+    if state not in {
+        coc_module_project.OPENING_SOURCE_NOT_GATED,
+        coc_module_project.OPENING_SOURCE_READY,
+    }:
+        raise RuntimeOperationError(
+            "the background source parse has not projected the opening yet",
+            code="opening_source_pending",
+            details={"readiness": readiness},
+        )
+    party = json.loads((campaign_dir / "party.json").read_text(encoding="utf-8"))
+    investigator_ids = [
+        value for value in (party.get("investigator_ids") or [])
+        if isinstance(value, str) and value
+    ]
+    try:
+        receipt = coc_state.complete_setup_handoff(
+            campaign_dir,
+            decision_id=decision_id,
+            investigator_ids=investigator_ids,
+            opening_projection_ref=_opening_projection_ref(campaign_dir),
+            lane_interrupted_at_handoff=_lane_interrupted_at_handoff(
+                root, campaign_dir,
+            ),
+        )
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc), code="invalid_param") from exc
+    return {
+        "schema_version": 1,
+        "status": "PASS",
+        "kind": "campaign.complete",
+        "result": {
+            "campaign_id": campaign_id,
+            "ready_for_table": True,
+            "next": "table_opening",
+            "handoff": receipt,
+        },
+        "state_refs": [f".coc/campaigns/{campaign_id}/campaign.json"],
+    }
+
+
 def execute_setup_operation(
     workspace: Path | str,
     *,
@@ -5409,6 +5565,9 @@ def execute_setup_operation(
                 rendered["briefing_path"],
             ],
         }
+
+    if kind == "campaign.complete":
+        return _execute_campaign_complete(root, payload)
 
     allowed = {
         "campaign_id", "scenario_id", "title", "source_bundle_path",

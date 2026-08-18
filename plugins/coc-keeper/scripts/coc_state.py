@@ -1491,6 +1491,54 @@ def _create_campaign_at(
     return campaign_path
 
 
+def complete_setup_handoff(
+    campaign_dir: Path,
+    *,
+    decision_id: str,
+    investigator_ids: list[str],
+    opening_projection_ref: dict[str, Any] | None,
+    lane_interrupted_at_handoff: bool,
+) -> dict[str, Any]:
+    """Advance ``status`` setup → ready_for_table and persist the handoff receipt.
+
+    Canonical caller: setup-session KP after confirmed investigators (and, for
+    source-bound campaigns, a terminal Tier-1 opening projection).
+    Consumer: server-node/launcher reads this receipt to switch to a play session.
+    Idempotent on ``decision_id``; a later distinct decision_id returns the same
+    already-written receipt without rewriting it.
+    """
+    campaign_dir = Path(campaign_dir)
+    campaign_path = campaign_dir / "campaign.json"
+    lock_path = campaign_dir / "setup-handoff.lock"
+    with _advisory_file_lock(lock_path):
+        campaign = load_campaign_state(campaign_dir)
+        existing = campaign.get("setup_handoff")
+        if isinstance(existing, dict) and existing.get("decision_id") == decision_id:
+            return existing
+        if isinstance(existing, dict) and campaign.get("status") == "ready_for_table":
+            return existing
+        status = campaign.get("status")
+        if status not in {"setup", "ready_for_table"}:
+            raise ValueError(
+                f"campaign status {status!r} cannot accept setup.complete"
+            )
+        completed_at = now_iso()
+        receipt = {
+            "schema_version": 1,
+            "decision_id": decision_id,
+            "campaign_id": campaign["campaign_id"],
+            "investigator_ids": list(investigator_ids),
+            "completed_at": completed_at,
+            "opening_projection_ref": opening_projection_ref,
+            "lane_interrupted_at_handoff": bool(lane_interrupted_at_handoff),
+        }
+        campaign["status"] = "ready_for_table"
+        campaign["updated_at"] = completed_at
+        campaign["setup_handoff"] = receipt
+        write_json_atomic(campaign_path, campaign)
+        return receipt
+
+
 def create_campaign(
     root: Path,
     campaign_id: str,

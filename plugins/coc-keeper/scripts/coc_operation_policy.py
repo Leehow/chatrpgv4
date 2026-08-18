@@ -249,6 +249,10 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
     "state.inventory_list": {
         "phases": ("live_turn", "pending_finalization", "opening"),
     },
+    "setup.complete": {
+        "phases": ("cold_start", "opening"),
+        "contract": "state",
+    },
     "evidence.table_opening": {
         "phases": ("opening",),
     },
