@@ -7510,6 +7510,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     "pending_finalization",
     "open_turn_recovery",
     "awaiting_player",
+    // ready_for_table after setup.complete (web respawn + launcher re-exec)
+    "table_opening",
   ]);
   const classifyStartupResumeResult = (
     value: unknown,

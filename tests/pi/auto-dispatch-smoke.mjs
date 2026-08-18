@@ -4671,6 +4671,76 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
+// Web setup→play respawn and launcher re-exec both call session.resume on
+// ready_for_table; mode table_opening must clear the startup gate so
+// evidence.table_opening is not terminalized as startup_resume_result_invalid.
+{
+  const campaignId = "startup-table-opening-campaign";
+  const harness = mainExtensionHarness((name, params) => {
+    if (name !== "coc_invoke") {
+      throw new Error(`unexpected table_opening startup tool ${name}`);
+    }
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "table_opening",
+          next_operations: ["evidence.table_opening"],
+        },
+      };
+    }
+    if (params.operation === "evidence.table_opening") {
+      return {
+        ok: true,
+        tool: "evidence.table_opening",
+        data: { schema_version: 1, campaign_id: campaignId, text: "开场" },
+      };
+    }
+    throw new Error(`unexpected table_opening startup call ${params.operation}`);
+  }, { startupCampaignId: campaignId });
+  await harness.start();
+  const resumed = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-table-opening-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const opening = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "startup-table-opening-evidence",
+    {
+      operation: "evidence.table_opening",
+      root,
+      campaign: campaignId,
+      arguments: { decision_id: "opening-1" },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("ready_for_table startup resume accepts table_opening and unblocks opening",
+    resumed.ok === true
+    && resumed.data.mode === "table_opening"
+    && opening.ok === true
+    && opening.tool === "evidence.table_opening"
+    && !harness.sent.some((entry) => (
+      entry.message?.customType === "coc-startup-resume-blocker"
+    )));
+  await harness.shutdown();
+}
+
 // The canonical current-source/empty-party discriminator rehydrates the same
 // guided setup gate used by a fresh Pi opening. Its backend message and
 // instruction never enter KP context.
