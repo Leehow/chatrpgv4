@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,13 +29,14 @@ import coc_rulesets
 # registry or legacy reader.
 SESSION_ROLE_SETUP = "setup"
 SESSION_ROLE_PLAY = "play"
-# campaign.json status → pi-coc session role. Only ``setup`` stays in the
-# setup session; ready_for_table and every later existing status is play.
+# campaign.json status → pi-coc session role after chargen completion.
+# Incomplete chargen stays setup even when status was written active.
 CAMPAIGN_STATUS_TO_SESSION_ROLE: dict[str, str] = {
     "setup": SESSION_ROLE_SETUP,
     "ready_for_table": SESSION_ROLE_PLAY,
     "active": SESSION_ROLE_PLAY,
 }
+PLACEHOLDER_CREATION_METHODS = frozenset({"complete_sheet_placeholder"})
 
 CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
     # campaign 3: campaigns persist era provenance (``era_source``) so a raw-PDF
@@ -1549,11 +1551,65 @@ def complete_setup_handoff(
         return receipt
 
 
-def infer_pi_session_role(root: Path, campaign_id: str) -> str:
-    """Return ``setup`` or ``play`` from canonical campaign.json status.
+def campaign_has_confirmed_investigator(
+    campaign_dir: Path,
+    campaign_id: str,
+) -> bool:
+    """True when party has a finished investigator, not a setup placeholder.
 
-    Missing campaign → setup (new table). Workspace that is not a directory
-    is a hard error. Unlisted statuses after the table exists map to play.
+    Shared chargen-completion predicate for ``setup.complete`` and session
+    role. A linked ``complete_sheet_placeholder`` row is not completion.
+    """
+    party_path = Path(campaign_dir) / "party.json"
+    try:
+        party_mode = party_path.lstat().st_mode
+        if not stat.S_ISREG(party_mode):
+            return False
+        party = json.loads(party_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    if (
+        not isinstance(party, dict)
+        or party.get("schema_version") != 1
+        or party.get("campaign_id") != campaign_id
+    ):
+        return False
+    investigator_ids = party.get("investigator_ids")
+    active_ids = party.get("active_investigator_ids")
+    if not (
+        isinstance(investigator_ids, list)
+        and investigator_ids
+        and all(isinstance(value, str) and value for value in investigator_ids)
+        and isinstance(active_ids, list)
+        and active_ids
+        and all(isinstance(value, str) and value for value in active_ids)
+        and set(active_ids).issubset(set(investigator_ids))
+    ):
+        return False
+    investigators_root = Path(campaign_dir).parent.parent / "investigators"
+    for investigator_id in investigator_ids:
+        if not isinstance(investigator_id, str) or not investigator_id:
+            continue
+        creation_path = investigators_root / investigator_id / "creation.json"
+        try:
+            creation = json.loads(creation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return True
+        if not isinstance(creation, dict):
+            return True
+        method = str(creation.get("method") or "")
+        if method not in PLACEHOLDER_CREATION_METHODS:
+            return True
+    return False
+
+
+def infer_pi_session_role(root: Path, campaign_id: str) -> str:
+    """Return ``setup`` or ``play`` from status plus chargen completion.
+
+    Missing campaign → setup. Workspace that is not a directory is a hard
+    error. Incomplete chargen (empty or placeholder party) stays setup even
+    when status is ``active``. ``ready_for_table``, or ``active`` with a
+    confirmed investigator, is play.
     """
     workspace = Path(root)
     if not workspace.is_dir():
@@ -1570,6 +1626,12 @@ def infer_pi_session_role(root: Path, campaign_id: str) -> str:
         return SESSION_ROLE_SETUP
     if status == "setup":
         return SESSION_ROLE_SETUP
+    if status == "ready_for_table":
+        return SESSION_ROLE_PLAY
+    if not campaign_has_confirmed_investigator(campaign_dir, campaign_id):
+        return SESSION_ROLE_SETUP
+    if status == "active":
+        return SESSION_ROLE_PLAY
     return CAMPAIGN_STATUS_TO_SESSION_ROLE.get(status, SESSION_ROLE_PLAY)
 
 
