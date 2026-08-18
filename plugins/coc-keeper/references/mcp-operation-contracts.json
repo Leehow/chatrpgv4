@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:31038b9055035b8e41dd69fac9685b8948b3b7fca616bb1255a959d4f602174d",
+  "content_sha256": "sha256:86e1600aa84d21743cb65080d9efe4c448964efc01f7624f6cc2281a9981b539",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 110,
+  "operation_count": 111,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -4132,6 +4132,50 @@
         ]
       },
       "summary": "Adopt the six source-grounded opening facts after scenario.bind_pdf and before investigator construction. Every source or unresolved answer must cite accepted pages inspected in the campaign's current bound bundle."
+    },
+    "setup.complete": {
+      "access": "mutation",
+      "canonical_operation": "setup.complete",
+      "description": "Handoff a finished setup campaign to play: confirm investigators and (when source-bound) a terminal opening projection, persist ready_for_table, and emit the setup-session exit receipt. Canonical operation `setup.complete`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "campaign_id": {
+            "description": "exact existing campaign id to hand off",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key for the handoff receipt",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "state",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening"
+        ]
+      },
+      "summary": "Handoff a finished setup campaign to play: confirm investigators and (when source-bound) a terminal opening projection, persist ready_for_table, and emit the setup-session exit receipt."
     },
     "setup.inspect": {
       "access": "query",
