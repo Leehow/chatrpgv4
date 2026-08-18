@@ -12,6 +12,7 @@ checks/ocr-cached/
 checks/py4llm-cached/
 node_modules.noindex/
 .pi-subagents/
+.pi/
 
 # Large local evidence archives — keep on disk, not in git
 archives/**/*.tar.gz
