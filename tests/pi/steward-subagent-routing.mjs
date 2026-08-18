@@ -40,6 +40,7 @@ for (const handler of handlers.get("session_start") || []) {
 assert.deepEqual(activeTools.at(-1), [
   "read", "subagent", "subagent_wait",
   "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
+  "coc_chargen_delegate",
 ]);
 assert.match(
   await (await import("node:fs/promises")).readFile(

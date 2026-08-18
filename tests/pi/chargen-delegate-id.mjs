@@ -103,7 +103,7 @@ assert.deepEqual(resolveAssignmentPriority("INT/EDU/POW/DEX/CON/APP/SIZ/STR"), [
 ]);
 assert.deepEqual(resolveAssignmentPriority(undefined)[0], "INT");
 assert.ok(planned.interest_skill_names.includes("Art and Craft (Photography)"));
-assert.ok(planned.occupation_skill_names.includes("Accounting"));
+assert.ok(planned.interest_skill_names.includes("Accounting"));
 assert.equal(planned.occupation_skill_names.includes("Occult"), false);
 assert.equal(planned.interest_skill_names.includes("Occult"), false);
 for (const skill of focus) {
@@ -147,6 +147,43 @@ assert.ok(nanZhouCalls[0].args.interest_skill_names.includes("Art and Craft (Pho
 assert.equal(nanZhouCalls.some((row) => row.op === "setup.complete"), false);
 assert.equal(nanZhou.investigator_id, nanZhouCalls[0].args.investigator_id);
 
+const journalistFocus = ["Persuade", "Psychology", "Library Use"];
+const journalistInterests = ["Photography", "Spot Hidden", "Stealth"];
+const journalist = planChargenSkillLists(parseChargenClerkBrief({
+  name: "沈砚",
+  occupation_or_concept: "记者",
+  assignment_priority: "DEX APP INT POW EDU CON SIZ STR",
+  occupation_skill_names: journalistFocus,
+  interest_skill_names: journalistInterests,
+}));
+assert.deepEqual(journalist.occupation_skill_names.slice(0, 3), journalistFocus);
+assert.equal(journalist.interest_skill_names[0], "Art and Craft (Photography)");
+assert.ok(journalist.interest_skill_names.includes("Spot Hidden"));
+assert.ok(journalist.interest_skill_names.includes("Stealth"));
+assert.ok(journalist.interest_skill_names.length >= 6);
+assert.equal(journalist.interest_budget, 160);
+
+const singleInterest = planChargenSkillLists(parseChargenClerkBrief({
+  name: "沈砚",
+  occupation_or_concept: "记者",
+  assignment_priority: "INT EDU POW DEX APP SIZ CON STR",
+  occupation_skill_names: journalistFocus,
+  interest_skill_names: ["Spot Hidden"],
+}));
+assert.equal(singleInterest.interest_skill_names[0], "Spot Hidden");
+assert.ok(singleInterest.interest_skill_names.length >= 5);
+assert.equal(singleInterest.interest_budget, 160);
+
+const revised = planChargenSkillLists(parseChargenClerkBrief({
+  name: "沈砚",
+  occupation_or_concept: "记者",
+  assignment_priority: "APP DEX INT EDU POW CON SIZ STR",
+  occupation_skill_names: journalistFocus,
+  interest_skill_names: ["Stealth", "Listen"],
+}));
+assert.deepEqual(revised.interest_skill_names.slice(0, 2), ["Stealth", "Listen"]);
+assert.ok(revised.interest_skill_names.length >= 5);
+
 process.stdout.write(JSON.stringify({
   ok: true,
   allocated: a,
@@ -154,4 +191,6 @@ process.stdout.write(JSON.stringify({
   focusPreserved: true,
   delegateOnly: true,
   occupationCount: nanZhouCalls[0].args.occupation_skill_names.length,
+  journalistInterestCount: journalist.interest_skill_names.length,
+  singleInterestCount: singleInterest.interest_skill_names.length,
 }));

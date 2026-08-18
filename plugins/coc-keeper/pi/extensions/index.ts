@@ -8895,11 +8895,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         + "the player explicitly confirms the presented draft, or when they "
         + "explicitly ask for a same-turn quick/auto card. Pass focus skills "
         + "in occupation_skill_names and supporting skills in "
-        + "interest_skill_names; the wrapper expands a legal occupation pool. "
+        + "interest_skill_names; the wrapper expands occupation and interest "
+        + "support so both budgets fit. Do not ask the player to add or drop "
+        + "skills to balance points. "
         + "assignment_priority is eight keys high-to-low; first receives 80. "
         + "Call at most once per player turn; do not retry or guess formulas "
-        + "on failure. After a numeric card, do not invite respec and do not "
-        + "call setup.complete from this tool. Do not assemble "
+        + "on failure. After a numeric card, same-id setup revision is allowed "
+        + "on a later player turn; do not call setup.complete from this tool "
+        + "or treat the card as table-opening confirmation. Do not assemble "
         + "investigator.create. Setup role only.",
       parameters: chargenDelegateSchema,
       ...compactToolRenderers("coc_chargen_delegate"),
