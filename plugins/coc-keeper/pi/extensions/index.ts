@@ -76,8 +76,13 @@ import {
   inferPhaseFromEnvelope,
   inferPhaseFromError,
   isCanonicalInvokeSurface,
+  sessionRoleFromEnv,
   type PlayPhase,
 } from "../lib/domain-tools.ts";
+import {
+  COC_SETUP_HANDOFF_EXIT_CODE,
+  handoffFromEnvelope,
+} from "../lib/handoff.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -7066,7 +7071,51 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const applyKpActiveTools = () => {
     if (process.env.PI_SUBAGENT_CHILD === "1") return;
-    pi.setActiveTools(activeToolsForPhase(resolveAclPhase()));
+    const role = sessionRoleFromEnv();
+    pi.setActiveTools(activeToolsForPhase(resolveAclPhase(), role));
+  };
+  const queueSetupHandoffExit = () => {
+    const leave = () => {
+      const done = () => process.exit(COC_SETUP_HANDOFF_EXIT_CODE);
+      try {
+        if (process.stdout.writable) {
+          process.stdout.write("", done);
+          return;
+        }
+      } catch { /* exit anyway */ }
+      done();
+    };
+    setImmediate(leave);
+  };
+  const emitSetupHandoff = (envelope: JsonObject | null, operation: string) => {
+    const handoff = handoffFromEnvelope({
+      ...(envelope ?? {}),
+      operation,
+    });
+    if (handoff === null) return;
+    const payload = {
+      type: "coc_setup_handoff",
+      campaign_id: handoff.campaign_id,
+      receipt: handoff.receipt,
+      at: new Date().toISOString(),
+      consumer: "server-node/launcher",
+    };
+    // Same custom_message / session-entry channel as other host takeovers
+    // (pi.sendMessage → sendCustomMessage + appendEntry). sendMessage is
+    // fire-and-forget; appendEntry is sync so the launcher can read the log
+    // after exit 42. Flush stdout after this tool result returns.
+    try {
+      pi.sendMessage({
+        customType: "coc_setup_handoff",
+        content: JSON.stringify(payload),
+        display: false,
+        details: payload,
+      }, { triggerTurn: false });
+    } catch { /* live custom_message is best effort */ }
+    try {
+      pi.appendEntry("coc_setup_handoff", payload);
+    } catch { /* session event-log is best effort */ }
+    if (sessionRoleFromEnv() === "setup") queueSetupHandoffExit();
   };
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
@@ -8585,6 +8634,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const data = objectOrNull(envelope?.data);
       const operation = String(params.operation);
       openingContinuationGate.observeCanonicalReceipt(operation, envelope);
+      emitSetupHandoff(envelope, operation);
       const nextPhase = inferPhaseFromEnvelope(operation, value, kpPlayPhase);
       if (nextPhase !== kpPlayPhase) {
         kpPlayPhase = nextPhase;
