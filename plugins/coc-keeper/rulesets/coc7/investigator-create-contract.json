@@ -7,7 +7,7 @@
   "runtime_authority": {
     "authoritative_validator": "plugins/coc-keeper/scripts/coc_character.py",
     "schema_role": "upfront machine-readable construction guidance",
-    "note": "This schema describes the supported payload shapes. Existing deterministic runtime materialization, arithmetic, derived-value consistency, creation-method validation, and state-write checks remain authoritative."
+    "note": "This schema describes the supported payload shapes. The ordinary live path is setup.chargen_run / coc_chargen_delegate; do not hand-assemble investigator.create. Existing deterministic runtime materialization, arithmetic, derived-value consistency, creation-method validation, and state-write checks remain authoritative."
   },
   "payload_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

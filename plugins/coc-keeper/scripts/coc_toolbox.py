@@ -1282,6 +1282,7 @@ _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
     "progressive.release_host_work_leases",
     "setup.adopt_source_facts",
     "setup.investigator_contract",
+    "setup.chargen_run",
     "rules.cash_assets",
 })
 _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS = frozenset({
@@ -8041,6 +8042,112 @@ def _tool_setup_complete(ctx: Ctx, args: dict[str, Any]):
     return receipt, [], [
         "retain this handoff receipt; the setup session should exit so a play session can session.resume this ready_for_table campaign",
     ]
+
+
+@tool(
+    "setup.chargen_run",
+    "In-process deterministic Quick Fire investigator: occupation table + "
+    "assignment_priority → create → link → render_card under the session lock. "
+    "Do not hand-assemble investigator.create. Do not call setup.quick_start "
+    "when a setup campaign already exists.",
+    {
+        "campaign_id": {
+            "type": "string",
+            "required": True,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "desc": "existing campaign to link the investigator into",
+        },
+        "investigator_id": {
+            "type": "string",
+            "required": True,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "desc": "new reusable investigator id",
+        },
+        "name": {
+            "type": "string",
+            "required": True,
+            "desc": "investigator display name",
+        },
+        "occupation_name": {
+            "type": "string",
+            "required": True,
+            "desc": "sample occupation name from occupations.json, or a concept if skill names are supplied",
+        },
+        "assignment_priority": {
+            "type": "array",
+            "desc": "eight unique characteristic keys in Quick Fire descending priority",
+        },
+        "occupation_skill_names": {
+            "type": "array",
+            "desc": "optional concrete occupation skill names",
+        },
+        "interest_skill_names": {
+            "type": "array",
+            "desc": "optional personal-interest skill names",
+        },
+        "occupation_allocations": {
+            "type": "object",
+            "desc": "optional explicit occupation point map; totals must match the formula",
+        },
+        "interest_allocations": {
+            "type": "object",
+            "desc": "optional explicit interest point map; totals must match INT*2",
+        },
+        "luck": {
+            "type": "object",
+            "desc": "optional {mode:auto_roll}; default auto_roll",
+        },
+        "age": {
+            "type": "integer",
+            "desc": "optional age; default 27",
+        },
+    },
+    needs_campaign=False,
+    access="mutation",
+    write_domains=("setup",),
+)
+def _tool_setup_chargen_run(ctx: Ctx, args: dict[str, Any]):
+    allowed = {
+        "campaign_id", "investigator_id", "name", "occupation_name",
+        "assignment_priority", "occupation_skill_names", "interest_skill_names",
+        "occupation_allocations", "interest_allocations", "luck", "age",
+    }
+    unsupported = sorted(set(args) - allowed)
+    if unsupported:
+        raise ToolError(
+            "invalid_param",
+            "setup.chargen_run has unsupported fields: " + ", ".join(unsupported),
+        )
+    try:
+        receipt = coc_runtime_ops.execute_setup_operation(
+            ctx.root,
+            operation={
+                "schema_version": 1,
+                "kind": "setup.chargen_run",
+                "payload": {
+                    key: args[key] for key in allowed if key in args
+                },
+            },
+        )
+    except (
+        coc_runtime_ops.RuntimeOperationError,
+        FileExistsError,
+        FileNotFoundError,
+    ) as exc:
+        raise ToolError("setup_failed", str(exc)) from exc
+    result = receipt.get("result") if isinstance(receipt.get("result"), dict) else {}
+    hints = [
+        "normal Quick Fire path is setup.chargen_run / coc_chargen_delegate; "
+        "do not hand-assemble investigator.create",
+        "do not call setup.quick_start when a setup campaign already exists",
+    ]
+    if result.get("ok") is not True:
+        raise ToolError(
+            "chargen_failed",
+            str(result.get("error") or "setup.chargen_run failed"),
+            details=result if isinstance(result, dict) else None,
+        )
+    return receipt, [], hints
 
 
 @tool(

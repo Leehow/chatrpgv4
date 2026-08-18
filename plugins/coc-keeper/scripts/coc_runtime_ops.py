@@ -89,6 +89,7 @@ SETUP_OPERATION_KINDS = frozenset({
     "actor.create", "investigator.create", "investigator.render_card",
     "investigator.contract", "campaign.link_investigator",
     "campaign.adopt_source_facts", "campaign.complete",
+    "setup.chargen_run",
 })
 
 
@@ -5014,6 +5015,207 @@ def _execute_campaign_complete(
     }
 
 
+def _chargen_fail(
+    stage: str,
+    error: str,
+    *,
+    expected: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"ok": False, "stage": stage, "error": error}
+    if expected is not None:
+        result["expected"] = expected
+    if extra:
+        result.update(extra)
+    return {
+        "schema_version": 1,
+        "status": "FAIL",
+        "kind": "setup.chargen_run",
+        "result": result,
+        "state_refs": [],
+    }
+
+
+def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "campaign_id", "investigator_id", "name", "occupation_name",
+        "assignment_priority", "occupation_skill_names", "interest_skill_names",
+        "occupation_allocations", "interest_allocations", "luck", "age",
+    }
+    required = {"campaign_id", "investigator_id", "name", "occupation_name"}
+    received = set(payload)
+    if received - allowed or not required <= received:
+        return _chargen_fail(
+            "payload",
+            "setup.chargen_run has unsupported or missing fields",
+            expected={
+                "allowed": sorted(allowed),
+                "required": sorted(required),
+                "received": sorted(received),
+            },
+        )
+    try:
+        campaign_id = _id(payload.get("campaign_id"), "campaign_id")
+        investigator_id = _id(payload.get("investigator_id"), "investigator_id")
+    except RuntimeOperationError as exc:
+        return _chargen_fail("payload", str(exc))
+    name = payload.get("name")
+    occupation_name = payload.get("occupation_name")
+    if not isinstance(name, str) or not name.strip():
+        return _chargen_fail("payload", "name must be a non-empty string")
+    if not isinstance(occupation_name, str) or not occupation_name.strip():
+        return _chargen_fail("occupation", "occupation_name must be a non-empty string")
+    assignment = payload.get("assignment_priority")
+    if assignment is not None:
+        if isinstance(assignment, str):
+            assignment = [part.strip() for part in assignment.replace(",", " ").split() if part.strip()]
+        if not isinstance(assignment, list):
+            return _chargen_fail("assignment", "assignment_priority must be an 8-key list")
+    occ_names = payload.get("occupation_skill_names")
+    if occ_names is not None and (
+        not isinstance(occ_names, list) or any(not isinstance(item, str) for item in occ_names)
+    ):
+        return _chargen_fail("occupation", "occupation_skill_names must be a list of strings")
+    interest_names = payload.get("interest_skill_names")
+    if interest_names is not None and (
+        not isinstance(interest_names, list)
+        or any(not isinstance(item, str) for item in interest_names)
+    ):
+        return _chargen_fail("interest", "interest_skill_names must be a list of strings")
+    luck = payload.get("luck") or {"mode": "auto_roll"}
+    if not isinstance(luck, dict) or luck.get("mode") != "auto_roll":
+        return _chargen_fail("luck", "luck.mode must be auto_roll")
+    age = payload.get("age", 27)
+    if isinstance(age, bool) or not isinstance(age, int):
+        return _chargen_fail("payload", "age must be an integer")
+    occ_alloc = payload.get("occupation_allocations")
+    int_alloc = payload.get("interest_allocations")
+    if occ_alloc is not None and not isinstance(occ_alloc, dict):
+        return _chargen_fail("occupation_allocations", "occupation_allocations must be an object")
+    if int_alloc is not None and not isinstance(int_alloc, dict):
+        return _chargen_fail("interest_allocations", "interest_allocations must be an object")
+    try:
+        sheet, creation, meta = coc_character.build_quick_fire_chargen_payload(
+            investigator_id=investigator_id,
+            name=name.strip(),
+            occupation_name=occupation_name.strip(),
+            assignment_priority=assignment,
+            occupation_skill_names=occ_names,
+            interest_skill_names=interest_names,
+            occupation_allocations=occ_alloc,
+            interest_allocations=int_alloc,
+            age=age,
+        )
+    except coc_character.ChargenRunError as exc:
+        expected = exc.expected if isinstance(exc.expected, dict) else None
+        return _chargen_fail(exc.stage, str(exc), expected=expected)
+    try:
+        created = execute_setup_operation(
+            root,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": {
+                    "campaign_id": campaign_id,
+                    "investigator_id": investigator_id,
+                    "sheet": sheet,
+                    "creation": creation,
+                },
+            },
+        )
+    except (RuntimeOperationError, FileExistsError, FileNotFoundError, OSError) as exc:
+        return _chargen_fail("create", str(exc))
+    if created.get("status") != "PASS":
+        return _chargen_fail("create", "investigator.create did not pass")
+    try:
+        linked = execute_setup_operation(
+            root,
+            operation={
+                "schema_version": 1,
+                "kind": "campaign.link_investigator",
+                "payload": {
+                    "campaign_id": campaign_id,
+                    "investigator_ids": [investigator_id],
+                },
+            },
+        )
+    except (RuntimeOperationError, FileNotFoundError, OSError) as exc:
+        return _chargen_fail(
+            "link",
+            str(exc),
+            extra={"investigator_id": investigator_id},
+        )
+    if linked.get("status") != "PASS":
+        return _chargen_fail(
+            "link",
+            "campaign.link_investigator did not pass",
+            extra={"investigator_id": investigator_id},
+        )
+    try:
+        rendered = execute_setup_operation(
+            root,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.render_card",
+                "payload": {
+                    "campaign_id": campaign_id,
+                    "investigator_id": investigator_id,
+                },
+            },
+        )
+    except (RuntimeOperationError, FileNotFoundError, OSError) as exc:
+        return _chargen_fail(
+            "render",
+            str(exc),
+            extra={"investigator_id": investigator_id},
+        )
+    render_result = rendered.get("result") if isinstance(rendered.get("result"), dict) else {}
+    character_path = (
+        root / ".coc" / "investigators" / investigator_id / "character.json"
+    )
+    try:
+        stored = _read_object(character_path)
+    except RuntimeOperationError as exc:
+        return _chargen_fail("render", str(exc), extra={"investigator_id": investigator_id})
+    derived = stored.get("derived") if isinstance(stored.get("derived"), dict) else {}
+    skills = stored.get("skills") if isinstance(stored.get("skills"), dict) else {}
+    skill_top = sorted(
+        (
+            {"name": key, "value": int(value)}
+            for key, value in skills.items()
+            if isinstance(value, int) and not isinstance(value, bool)
+        ),
+        key=lambda row: (-row["value"], row["name"]),
+    )[:8]
+    luck_receipt = creation.get("luck_roll_receipt") if isinstance(creation.get("luck_roll_receipt"), dict) else {}
+    roll_ids = []
+    if isinstance(luck_receipt.get("roll_id"), str) and luck_receipt["roll_id"].strip():
+        roll_ids.append(luck_receipt["roll_id"])
+    card_path = render_result.get("markdown_path") or render_result.get("card_path")
+    return {
+        "schema_version": 1,
+        "status": "PASS",
+        "kind": "setup.chargen_run",
+        "result": {
+            "ok": True,
+            "investigator_id": investigator_id,
+            "characteristics": stored.get("characteristics") or meta["characteristics"],
+            "derived": {
+                "hp": derived.get("HP"),
+                "mp": derived.get("MP"),
+                "san": derived.get("SAN"),
+                "luck": derived.get("Luck"),
+            },
+            "skill_top": skill_top,
+            "card_path": card_path,
+            "roll_ids": roll_ids,
+        },
+        "state_refs": list(created.get("state_refs") or []) + list(
+            linked.get("state_refs") or []
+        ) + list(rendered.get("state_refs") or []),
+    }
+
+
 def execute_setup_operation(
     workspace: Path | str,
     *,
@@ -5641,6 +5843,9 @@ def execute_setup_operation(
                 rendered["briefing_path"],
             ],
         }
+
+    if kind == "setup.chargen_run":
+        return _execute_chargen_run(root, payload)
 
     if kind == "campaign.complete":
         return _execute_campaign_complete(root, payload)

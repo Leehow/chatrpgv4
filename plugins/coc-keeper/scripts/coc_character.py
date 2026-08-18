@@ -1183,3 +1183,342 @@ def assert_unique_canonical_skills(sheet: dict) -> None:
                 f"{prior_key!r} and {key!r} both resolve to {prior_canonical!r}"
             )
         seen[folded] = (key, canonical)
+
+
+class ChargenRunError(ValueError):
+    def __init__(
+        self,
+        stage: str,
+        message: str,
+        *,
+        expected: Any = None,
+    ) -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.expected = expected
+
+
+_INTERPERSONAL_SKILLS = ("Charm", "Fast Talk", "Intimidate", "Persuade")
+_DEFAULT_INTEREST_SKILLS = ("Listen", "Spot Hidden", "Stealth", "First Aid")
+_STARTING_SKILL_CAP = 75
+
+
+def lookup_occupation_template(occupation_name: str) -> tuple[str, dict[str, Any]] | None:
+    """Return occupations.json entry for a name, or None."""
+    try:
+        table = coc_rules.load_rule_table("occupations")
+    except (OSError, KeyError, json.JSONDecodeError):
+        return None
+    occupations = table.get("occupations") if isinstance(table, dict) else None
+    if not isinstance(occupations, dict):
+        return None
+    wanted = str(occupation_name or "").strip()
+    if not wanted:
+        return None
+    if wanted in occupations and isinstance(occupations[wanted], dict):
+        return wanted, occupations[wanted]
+    folded = _compact_skill_fold(wanted)
+    for key, spec in occupations.items():
+        if not isinstance(spec, dict):
+            continue
+        if str(key).casefold() == wanted.casefold() or _compact_skill_fold(str(key)) == folded:
+            return str(key), spec
+    return None
+
+
+def resolve_catalog_skill_name(name: str, catalog: dict[str, dict] | None = None) -> str | None:
+    catalog = catalog if catalog is not None else _skill_catalog()
+    raw = str(name or "").strip()
+    if not raw:
+        return None
+    identity = _canonical_skill_identity(raw, catalog)
+    if identity in catalog:
+        return identity
+    aliases = {
+        "own language": "Language (Own)",
+        "language (own)": "Language (Own)",
+        "firearms": "Firearms (Handgun)",
+        "art/craft (photography)": "Art and Craft (Photography)",
+        "art (literature)": "Art and Craft (Writing)",
+    }
+    mapped = aliases.get(_compact_skill_fold(raw))
+    if mapped and mapped in catalog:
+        return mapped
+    return None
+
+
+def occupation_point_budget(
+    formula: str,
+    characteristics: dict[str, int],
+) -> int:
+    normalized = _normalized_skill_point_formula(formula) or "EDU*4"
+    variants = _OCCUPATION_FORMULA_VARIANTS.get(formula) or _OCCUPATION_FORMULA_VARIANTS.get(normalized)
+    if variants is None:
+        if normalized == "EDU*4":
+            terms = (("EDU", 4),)
+        else:
+            terms = (("EDU", 4),)
+    else:
+        terms = variants[0]
+    return sum(int(characteristics[key]) * int(mult) for key, mult in terms)
+
+
+def _is_wildcard_occupation_skill(token: str) -> bool:
+    folded = token.casefold()
+    return folded.startswith("any ") or "other skill" in folded or "personal special" in folded
+
+
+def _is_interpersonal_choice(token: str) -> bool:
+    folded = token.casefold()
+    return "interpersonal" in folded and any(
+        name.casefold() in folded for name in _INTERPERSONAL_SKILLS
+    )
+
+
+def resolve_occupation_skill_list(
+    occupation_spec: dict[str, Any] | None,
+    occupation_skill_names: list[str] | None,
+) -> list[str]:
+    catalog = _skill_catalog()
+    resolved: list[str] = []
+    seen: set[str] = set()
+
+    def _add(name: str | None) -> None:
+        if not name or name not in catalog or name in seen:
+            return
+        seen.add(name)
+        resolved.append(name)
+
+    extras = [str(item).strip() for item in (occupation_skill_names or []) if str(item).strip()]
+    extra_iter = iter(extras)
+    tokens: list[str] = []
+    if isinstance(occupation_spec, dict):
+        raw_skills = occupation_spec.get("occupational_skills")
+        if isinstance(raw_skills, list):
+            tokens = [str(item) for item in raw_skills if isinstance(item, str)]
+    for token in tokens:
+        if _is_wildcard_occupation_skill(token):
+            continue
+        if _is_interpersonal_choice(token):
+            count = 2 if token.casefold().startswith("two ") else 1
+            added = 0
+            for candidate in _INTERPERSONAL_SKILLS:
+                if added >= count:
+                    break
+                if candidate not in seen:
+                    _add(candidate)
+                    added += 1
+            continue
+        _add(resolve_catalog_skill_name(token, catalog))
+    for extra in extra_iter:
+        _add(resolve_catalog_skill_name(extra, catalog))
+    _add("Credit Rating")
+    return resolved
+
+
+def allocate_points_in_order(
+    skill_ids: list[str],
+    budget: int,
+    bases: dict[str, int],
+    *,
+    cap: int = _STARTING_SKILL_CAP,
+    floor: dict[str, int] | None = None,
+) -> dict[str, int]:
+    allocations = {skill_id: 0 for skill_id in skill_ids}
+    remaining = int(budget)
+    floors = floor or {}
+    for skill_id, need in floors.items():
+        if skill_id not in allocations:
+            continue
+        room = max(0, cap - bases.get(skill_id, 0))
+        take = min(max(0, int(need)), room, remaining)
+        allocations[skill_id] += take
+        remaining -= take
+    while remaining > 0:
+        progressed = False
+        for skill_id in skill_ids:
+            if remaining <= 0:
+                break
+            current = bases.get(skill_id, 0) + allocations[skill_id]
+            if current >= cap:
+                continue
+            allocations[skill_id] += 1
+            remaining -= 1
+            progressed = True
+        if not progressed:
+            break
+    return {key: value for key, value in allocations.items() if value > 0}
+
+
+def build_quick_fire_chargen_payload(
+    *,
+    investigator_id: str,
+    name: str,
+    occupation_name: str,
+    assignment_priority: list[str] | None = None,
+    occupation_skill_names: list[str] | None = None,
+    interest_skill_names: list[str] | None = None,
+    occupation_allocations: dict[str, int] | None = None,
+    interest_allocations: dict[str, int] | None = None,
+    age: int = 27,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Build compact sheet + creation for investigator.create. No I/O."""
+    catalog = _skill_catalog()
+    if not catalog:
+        raise ChargenRunError("occupation", "canonical skill catalog is unavailable")
+    order = list(assignment_priority or REQUIRED_CHARACTERISTICS)
+    if (
+        len(order) != len(REQUIRED_CHARACTERISTICS)
+        or set(order) != set(REQUIRED_CHARACTERISTICS)
+    ):
+        raise ChargenRunError(
+            "assignment",
+            "assignment_priority must list STR, CON, SIZ, DEX, APP, INT, POW, EDU once",
+        )
+    method = characteristic_generation_methods().get("quick_fire_array") or {}
+    values = method.get("array")
+    if not isinstance(values, list) or len(values) != 8:
+        raise ChargenRunError("assignment", "quick_fire_array rule data is invalid")
+    characteristics = {
+        key: int(value) for key, value in zip(order, values, strict=True)
+    }
+    found = lookup_occupation_template(occupation_name)
+    if found is None and not occupation_skill_names:
+        raise ChargenRunError(
+            "occupation",
+            f"unknown occupation {occupation_name!r} and no occupation_skill_names",
+        )
+    occ_key, occ_spec = found if found is not None else (occupation_name, None)
+    formula = "EDU*4"
+    cr_range = (0, 99)
+    if isinstance(occ_spec, dict):
+        raw_formula = occ_spec.get("skill_point_formula")
+        if isinstance(raw_formula, str) and raw_formula.strip():
+            formula = raw_formula.strip()
+        raw_cr = occ_spec.get("credit_rating_range")
+        if (
+            isinstance(raw_cr, list)
+            and len(raw_cr) == 2
+            and all(isinstance(item, int) and not isinstance(item, bool) for item in raw_cr)
+        ):
+            cr_range = (int(raw_cr[0]), int(raw_cr[1]))
+    occ_skills = resolve_occupation_skill_list(occ_spec, occupation_skill_names)
+    if not occ_skills:
+        raise ChargenRunError(
+            "occupation",
+            f"occupation {occupation_name!r} produced no catalog skills",
+        )
+    occ_budget = occupation_point_budget(formula, characteristics)
+    interest_budget = int(characteristics["INT"]) * 2
+    interest_ids = [
+        resolved
+        for name in (interest_skill_names or list(_DEFAULT_INTEREST_SKILLS))
+        if (resolved := resolve_catalog_skill_name(name, catalog))
+    ]
+    if not interest_ids:
+        interest_ids = [sid for sid in _DEFAULT_INTEREST_SKILLS if sid in catalog]
+    bases = {
+        skill_id: _guided_skill_base(skill_id, catalog[skill_id], characteristics)
+        for skill_id in set(occ_skills) | set(interest_ids)
+        if skill_id in catalog
+    }
+    if occupation_allocations is not None:
+        occ_alloc = {
+            str(key): int(value)
+            for key, value in occupation_allocations.items()
+            if int(value) > 0
+        }
+        got = sum(occ_alloc.values())
+        if got != occ_budget:
+            raise ChargenRunError(
+                "occupation_allocations",
+                "occupation allocations total mismatch",
+                expected={"expected": occ_budget, "got": got},
+            )
+    else:
+        occ_alloc = allocate_points_in_order(
+            occ_skills,
+            occ_budget,
+            bases,
+            floor={"Credit Rating": cr_range[0]},
+        )
+        if sum(occ_alloc.values()) != occ_budget:
+            raise ChargenRunError(
+                "occupation_allocations",
+                "could not place occupation points under the starting cap",
+                expected={"expected": occ_budget, "got": sum(occ_alloc.values())},
+            )
+    if interest_allocations is not None:
+        int_alloc = {
+            str(key): int(value)
+            for key, value in interest_allocations.items()
+            if int(value) > 0
+        }
+        got = sum(int_alloc.values())
+        if got != interest_budget:
+            raise ChargenRunError(
+                "interest_allocations",
+                "interest allocations total mismatch",
+                expected={"expected": interest_budget, "got": got},
+            )
+    else:
+        interest_bases = {
+            skill_id: bases.get(skill_id, 0) + occ_alloc.get(skill_id, 0)
+            for skill_id in set(bases) | set(interest_ids)
+        }
+        int_alloc = allocate_points_in_order(
+            interest_ids, interest_budget, interest_bases,
+        )
+        if sum(int_alloc.values()) != interest_budget:
+            raise ChargenRunError(
+                "interest_allocations",
+                "could not place interest points under the starting cap",
+                expected={"expected": interest_budget, "got": sum(int_alloc.values())},
+            )
+    default_ids = list(
+        ((_guided_skill_policy().get("standard_sheet") or {}).get("1920s") or {}).get(
+            "default_skill_ids"
+        )
+        or []
+    )
+    required = set(default_ids) | set(occ_alloc) | set(int_alloc)
+    skills: dict[str, int] = {}
+    for skill_id in catalog:
+        if skill_id not in required:
+            continue
+        base = _guided_skill_base(skill_id, catalog[skill_id], characteristics)
+        skills[skill_id] = (
+            base + occ_alloc.get(skill_id, 0) + int_alloc.get(skill_id, 0)
+        )
+    sheet = {
+        "id": investigator_id,
+        "name": name,
+        "occupation": occ_key,
+        "age": age,
+        "skills": skills,
+        "player_facing_sheet_zh": {"display_name": name, "skills": []},
+    }
+    creation = {
+        "method": "quick_fire_array",
+        "input_mode": "guided_quick_fire",
+        "characteristic_assignment_order": order,
+        "luck": {"mode": "auto_roll"},
+        "occupation": {"name": occ_key, "skill_point_formula": formula},
+        "skill_budget": {
+            "occupation_points": {
+                "budget": occ_budget,
+                "spent": occ_budget,
+                "allocations": occ_alloc,
+            },
+            "personal_interest_points": {
+                "budget": interest_budget,
+                "spent": interest_budget,
+                "allocations": int_alloc,
+            },
+        },
+    }
+    return sheet, creation, {
+        "occupation_key": occ_key,
+        "formula": formula,
+        "characteristics": characteristics,
+    }

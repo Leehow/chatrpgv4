@@ -131,16 +131,15 @@ deliver opening narration here.
   (`display:false`, `triggerTurn:true`); consume only its compact status, then
   query `steward.deliveries` / the domain state as needed. Never make a player
   wait for NPC/rule/clue parsing.
-- Character creation is a semantic brief plus `coc_chargen_delegate`.
-  Collect name, occupation/concept, optional assignment priority, optional
-  interest allocation, and `mode` (`quick_fire` or `pregen` + `pregen_id`).
-  Then call `coc_chargen_delegate` once. The clerk owns contract → create →
-  link → render_card, dice receipts, payload schema, and error retries.
-  You only receive compact JSON (`ok`, `investigator_id`, stats, `card_path`,
-  `roll_ids`). Do not call `setup.investigator_contract` or assemble an
-  `investigator.create` payload in this host context. When the player has
-  selected an L0 pregen, pass `mode: "pregen"` and that `pregen_id` without
-  asking a second time. Do not invent sheet numbers.
+- Character creation is one in-process `coc_chargen_delegate` / `setup.chargen_run`
+  call. Collect name, occupation/concept, optional eight-key assignment
+  priority, optional occupation/interest skill name lists. Then call the
+  delegate once. Runtime owns Quick Fire array, occupation formula, skill
+  fill, Luck auto_roll, create → link → render_card. You receive compact JSON
+  (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`). Do not spawn a
+  clerk, do not call `setup.investigator_contract`, and do not assemble an
+  `investigator.create` payload in this host context. Do not invent sheet
+  numbers. Do not call `setup.quick_start` when a setup campaign already exists.
 
 ## 幕间交接
 

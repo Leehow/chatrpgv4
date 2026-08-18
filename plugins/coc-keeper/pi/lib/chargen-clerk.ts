@@ -1,31 +1,6 @@
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  MAX_BYTES,
-  piInvocation,
-  safeEnv,
-  terminateTree,
-  type JsonObject,
-} from "./runtime.ts";
+import type { JsonObject, McpCaller } from "./runtime.ts";
 
 export const CHARGEN_CLERK_ENV = "COC_PI_CHARGEN_CLERK";
-export const CHARGEN_CLERK_TIMEOUT_MS = 600_000;
-export const CHARGEN_CLERK_PROMPT = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../prompts/chargen-clerk.md",
-);
-
-const SETUP_SKILLS = [
-  "plugins/coc-keeper/skills/coc-main",
-  "plugins/coc-keeper/skills/coc-scenario-import",
-  "plugins/coc-keeper/skills/trpg-pdf-ingest",
-  "plugins/coc-keeper/skills/coc-campaign-state",
-  "plugins/coc-keeper/skills/coc-steward-parse",
-  "plugins/coc-keeper/rulesets/coc7/skills/coc-character",
-  "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine",
-] as const;
 
 export type ChargenClerkMode = "quick_fire" | "pregen";
 
@@ -34,14 +9,17 @@ export interface ChargenClerkBrief {
   occupation_or_concept: string;
   assignment_priority?: string;
   interest_allocation_intent?: string;
+  occupation_skill_names?: string[];
+  interest_skill_names?: string[];
+  investigator_id?: string;
   mode: ChargenClerkMode;
   pregen_id?: string;
 }
 
 export function isChargenClerkProcess(
-  env: NodeJS.ProcessEnv = process.env,
+  _env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return env[CHARGEN_CLERK_ENV] === "1";
+  return false;
 }
 
 export function slugInvestigatorToken(value: string): string {
@@ -57,7 +35,7 @@ export function slugInvestigatorToken(value: string): string {
 export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   const name = String(params.name ?? "").trim();
   const occupation = String(params.occupation_or_concept ?? "").trim();
-  const modeRaw = String(params.mode ?? "").trim();
+  const modeRaw = String(params.mode ?? "quick_fire").trim() || "quick_fire";
   if (!name) throw new Error("coc_chargen_delegate requires name");
   if (!occupation) {
     throw new Error("coc_chargen_delegate requires occupation_or_concept");
@@ -74,6 +52,16 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   if (assignment) brief.assignment_priority = assignment;
   const interest = String(params.interest_allocation_intent ?? "").trim();
   if (interest) brief.interest_allocation_intent = interest;
+  const investigatorId = String(params.investigator_id ?? "").trim();
+  if (investigatorId) brief.investigator_id = investigatorId;
+  if (Array.isArray(params.occupation_skill_names)) {
+    brief.occupation_skill_names = params.occupation_skill_names
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+  if (Array.isArray(params.interest_skill_names)) {
+    brief.interest_skill_names = params.interest_skill_names
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
   const pregenId = String(params.pregen_id ?? "").trim();
   if (pregenId) brief.pregen_id = pregenId;
   if (modeRaw === "pregen" && !pregenId) {
@@ -82,171 +70,72 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   return brief;
 }
 
-export function extractCompactClerkJson(stdout: string): JsonObject {
-  const trimmed = stdout.trim();
-  const candidates: string[] = [];
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) candidates.push(fenced[1].trim());
-  const lastBrace = trimmed.lastIndexOf("{");
-  if (lastBrace >= 0) {
-    const fromLast = trimmed.slice(lastBrace);
-    const end = fromLast.lastIndexOf("}");
-    if (end > 0) candidates.push(fromLast.slice(0, end + 1));
-  }
-  candidates.push(trimmed);
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as JsonObject;
-      }
-    } catch {
-      /* try next */
-    }
-  }
-  return {
-    ok: false,
-    error: "clerk_stdout_not_compact_json",
-    stdout_tail: trimmed.slice(-1200),
-  };
+function assignmentList(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  const parts = raw.split(/[,\s]+/).map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : undefined;
 }
 
-export function clerkSessionId(campaignId: string, name: string): string {
-  return `chargen-clerk-${campaignId}-${slugInvestigatorToken(name)}`;
-}
-
-function repoRootFromHere(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-}
-
-export async function runChargenClerk(options: {
-  cwd: string;
+export async function runChargenInProcess(options: {
   campaignId: string;
   brief: ChargenClerkBrief;
-  timeoutMs?: number;
+  callTool: McpCaller;
   signal?: AbortSignal;
 }): Promise<JsonObject> {
-  if (isChargenClerkProcess()) {
-    return { ok: false, error: "nested_chargen_clerk_forbidden" };
-  }
-  if (!existsSync(CHARGEN_CLERK_PROMPT)) {
-    return { ok: false, error: "chargen_clerk_prompt_missing" };
-  }
-  const timeoutMs = options.timeoutMs ?? CHARGEN_CLERK_TIMEOUT_MS;
-  const repoRoot = repoRootFromHere();
-  const invocation = piInvocation();
-  const sessionId = clerkSessionId(options.campaignId, options.brief.name);
-  const userMessage = JSON.stringify({
-    campaign_id: options.campaignId,
-    workspace_root: options.cwd,
-    brief: options.brief,
-  });
-  const args = [
-    ...invocation.args,
-    "--no-builtin-tools",
-    "--approve",
-    "--no-context-files",
-    "--no-skills",
-    ...SETUP_SKILLS.flatMap((rel) => ["--skill", join(repoRoot, rel)]),
-    "--append-system-prompt",
-    CHARGEN_CLERK_PROMPT,
-    "--session-id",
-    sessionId,
-    "--thinking",
-    "off",
-    "-p",
-    userMessage,
-  ];
-  const child = spawn(invocation.command, args, {
-    cwd: options.cwd,
-    shell: false,
-    detached: process.platform !== "win32",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: safeEnv({
-      COC_HOST: "pi",
-      COC_PROJECT_ROOT: options.cwd,
-      COC_PI_SESSION_ROLE: "setup",
-      PI_COC_CAMPAIGN_ID: options.campaignId,
-      [CHARGEN_CLERK_ENV]: "1",
-    }),
-  });
-  let stdout = "";
-  let stderr = "";
-  const code = await new Promise<number | null>((resolveClose, rejectClose) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const finishError = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", abort);
-      void terminateTree(child).then(
-        () => rejectClose(error),
-        (terminationError) => rejectClose(
-          new Error(
-            `${error.message}; clerk tree termination failed: ${
-              terminationError instanceof Error
-                ? terminationError.message
-                : "unknown error"
-            }`,
-          ),
-        ),
-      );
-    };
-    const abort = () => finishError(new Error("chargen clerk aborted"));
-    timer = setTimeout(
-      () => finishError(new Error("chargen clerk timed out")),
-      timeoutMs,
-    );
-    child.stdout.on("data", (chunk) => {
-      if (settled) return;
-      stdout += chunk.toString();
-      if (Buffer.byteLength(stdout, "utf8") > MAX_BYTES) {
-        finishError(new Error("chargen clerk stdout exceeded limit"));
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      if (settled) return;
-      stderr += chunk.toString();
-      if (Buffer.byteLength(stderr, "utf8") > MAX_BYTES) {
-        finishError(new Error("chargen clerk stderr exceeded limit"));
-      }
-    });
-    child.once("error", finishError);
-    child.once("close", (closeCode) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", abort);
-      resolveClose(closeCode);
-    });
-    if (options.signal?.aborted) abort();
-    else options.signal?.addEventListener("abort", abort, { once: true });
-  }).catch((error: Error) => {
+  if (options.brief.mode === "pregen") {
     return {
       ok: false,
-      error: error.message,
-      session_id: sessionId,
-    } as const;
-  });
-  if (typeof code === "object" && code !== null && "error" in code) {
-    return { ...code, session_id: sessionId };
+      stage: "pregen",
+      error: "pregen mode uses setup.quick_start, not setup.chargen_run",
+    };
   }
-  const compact = extractCompactClerkJson(stdout);
+  const investigatorId = options.brief.investigator_id
+    || `inv-${slugInvestigatorToken(options.brief.name)}`;
+  const args: JsonObject = {
+    campaign_id: options.campaignId,
+    investigator_id: investigatorId,
+    name: options.brief.name,
+    occupation_name: options.brief.occupation_or_concept,
+    luck: { mode: "auto_roll" },
+  };
+  const assignment = assignmentList(options.brief.assignment_priority);
+  if (assignment) args.assignment_priority = assignment;
+  if (options.brief.occupation_skill_names?.length) {
+    args.occupation_skill_names = options.brief.occupation_skill_names;
+  }
+  if (options.brief.interest_skill_names?.length) {
+    args.interest_skill_names = options.brief.interest_skill_names;
+  }
+  const envelope = await options.callTool("setup.chargen_run", args, options.signal);
+  if (envelope.ok === true && envelope.data && typeof envelope.data === "object") {
+    const data = envelope.data as JsonObject;
+    const result = (data.result && typeof data.result === "object")
+      ? data.result as JsonObject
+      : data;
+    return result;
+  }
+  const details = envelope.error && typeof envelope.error === "object"
+    ? (envelope.error as JsonObject).details
+    : undefined;
+  if (details && typeof details === "object") return details as JsonObject;
   return {
-    ...compact,
-    session_id: sessionId,
-    exit_code: code,
-    ...(compact.ok === true ? {} : {
-      stderr_tail: stderr.trim().slice(-800),
-    }),
+    ok: false,
+    stage: "delegate",
+    error: String(
+      (envelope.error && typeof envelope.error === "object"
+        ? (envelope.error as JsonObject).message
+        : envelope.error) || "setup.chargen_run failed",
+    ),
   };
 }
+
+/** @deprecated spawn clerk retired; kept as alias of in-process run */
+export const runChargenClerk = runChargenInProcess;
 
 export function chargenClerkActiveTools(): string[] {
   return ["coc_setup", "coc_context", "coc_rules", "coc_state"];
 }
 
 export function shouldRegisterChargenDelegate(): boolean {
-  return !isChargenClerkProcess();
+  return true;
 }
