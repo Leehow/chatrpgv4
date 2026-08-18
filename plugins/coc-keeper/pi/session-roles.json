@@ -10,7 +10,9 @@
       "plugins/coc-keeper/rulesets/coc7/skills/coc-character",
       "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine"
     ],
-    "prompt": "plugins/coc-keeper/pi/prompts/host-system-setup.md"
+    "prompt": "plugins/coc-keeper/pi/prompts/host-system-setup.md",
+    "chargen_clerk_prompt": "plugins/coc-keeper/pi/prompts/chargen-clerk.md",
+    "tools": ["coc_chargen_delegate"]
   },
   "play": {
     "skills": [

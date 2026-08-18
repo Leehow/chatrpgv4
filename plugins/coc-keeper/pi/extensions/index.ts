@@ -83,6 +83,13 @@ import {
   COC_SETUP_HANDOFF_EXIT_CODE,
   handoffFromEnvelope,
 } from "../lib/handoff.ts";
+import {
+  chargenClerkActiveTools,
+  isChargenClerkProcess,
+  parseChargenClerkBrief,
+  runChargenClerk,
+  shouldRegisterChargenDelegate,
+} from "../lib/chargen-clerk.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -152,6 +159,19 @@ const mapSupplySchema = {
     caption: { type: "string", maxLength: 400 },
   },
   required: ["operation"], additionalProperties: false,
+} as const;
+const chargenDelegateSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string", minLength: 1 },
+    occupation_or_concept: { type: "string", minLength: 1 },
+    assignment_priority: { type: "string" },
+    interest_allocation_intent: { type: "string" },
+    mode: { type: "string", enum: ["quick_fire", "pregen"] },
+    pregen_id: { type: "string" },
+  },
+  required: ["name", "occupation_or_concept", "mode"],
+  additionalProperties: false,
 } as const;
 const ocrSchema = {
   type: "object",
@@ -7071,8 +7091,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const applyKpActiveTools = () => {
     if (process.env.PI_SUBAGENT_CHILD === "1") return;
+    if (isChargenClerkProcess()) {
+      pi.setActiveTools(chargenClerkActiveTools());
+      return;
+    }
     const role = sessionRoleFromEnv();
-    pi.setActiveTools(activeToolsForPhase(resolveAclPhase(), role));
+    const tools = activeToolsForPhase(resolveAclPhase(), role);
+    if (role === "setup") tools.push("coc_chargen_delegate");
+    pi.setActiveTools(tools);
   };
   const queueSetupHandoffExit = () => {
     const leave = () => {
@@ -7115,7 +7141,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     try {
       pi.appendEntry("coc_setup_handoff", payload);
     } catch { /* session event-log is best effort */ }
-    if (sessionRoleFromEnv() === "setup") queueSetupHandoffExit();
+    if (sessionRoleFromEnv() === "setup" && !isChargenClerkProcess()) {
+      queueSetupHandoffExit();
+    }
   };
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
@@ -7357,7 +7385,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const startupCampaignId = overrides.startupCampaignId === undefined
       ? explicitPiStartupCampaignId()
       : overrides.startupCampaignId();
-    startupResumeGate = startupCampaignId === null
+    startupResumeGate = startupCampaignId === null || isChargenClerkProcess()
       ? null
       : {
           campaignId: startupCampaignId,
@@ -8856,6 +8884,41 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error("unsupported coc_map_supply operation");
     },
   });
+  if (shouldRegisterChargenDelegate() && sessionRoleFromEnv() !== "play") {
+    pi.registerTool({
+      name: "coc_chargen_delegate",
+      label: "COC chargen clerk",
+      description:
+        "Delegate mechanical investigator creation to a closed pi -p clerk. "
+        + "Pass a semantic brief only; receive compact card JSON. Setup role only.",
+      parameters: chargenDelegateSchema,
+      ...compactToolRenderers("coc_chargen_delegate"),
+      async execute(
+        _id: string,
+        params: JsonObject,
+        signal: AbortSignal | undefined,
+        _update: unknown,
+        ctx: ExtensionContext,
+      ) {
+        if (sessionRoleFromEnv() === "play") {
+          throw new Error("coc_chargen_delegate is setup-role only");
+        }
+        const brief = parseChargenClerkBrief(params);
+        const campaignId = String(
+          process.env.PI_COC_CAMPAIGN_ID ?? "",
+        ).trim();
+        if (!campaignId) {
+          throw new Error("coc_chargen_delegate requires PI_COC_CAMPAIGN_ID");
+        }
+        return result(await runChargenClerk({
+          cwd: ctx.cwd,
+          campaignId,
+          brief,
+          signal,
+        }));
+      },
+    });
+  }
   pi.registerTool({
     name: "coc_progressive_ocr", label: "Progressive OCR",
     description: "Run configured external Progressive OCR status/fast/enhance/export.", parameters: ocrSchema,
@@ -9044,6 +9107,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("session_start", async (event, ctx) => {
     sceneSupplyWaits.clear();
     const startupCampaignId = initializeSession(ctx);
+    if (isChargenClerkProcess()) {
+      applyKpActiveTools();
+      return;
+    }
     if (startupCampaignId !== null) {
       await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
     }
