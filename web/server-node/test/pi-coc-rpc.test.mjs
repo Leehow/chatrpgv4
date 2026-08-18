@@ -8,6 +8,7 @@ import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import {
+  HANDOFF_EXIT_CODE,
   UI_AUTO_OPEN_MARKER,
   UI_IDLE_MARKER,
   buildChildEnv,
@@ -464,4 +465,39 @@ test("abort unblocks attachOpening while waiting for UI intent", { timeout: 2000
   await new Promise((r) => setTimeout(r, 20));
   await host.abort();
   await assert.rejects(attachP, (err) => err.kind === "pi_coc_rpc_aborted");
+});
+
+test("mapRpcEventToSse treats process_exit 42 as setup handoff", () => {
+  const frames = mapRpcEventToSse({
+    type: "process_exit",
+    code: HANDOFF_EXIT_CODE,
+    signal: null,
+    campaign_id: "c42",
+  });
+  assert.equal(frames[0].event, "coc_setup_handoff");
+  assert.equal(frames[0].data.reason, "exit_42");
+});
+
+test("prompt settles on exit 42 instead of throwing during turn", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "c42",
+    sessionId: "web-c42",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const promptP = host.prompt("完成建卡");
+  await new Promise((r) => setTimeout(r, 20));
+  const first = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({ id: first.id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.emit("exit", HANDOFF_EXIT_CODE, null);
+  await promptP;
+  assert.equal(host.lastExitCode, HANDOFF_EXIT_CODE);
+  assert.equal(host.isHandoffShutdown(), true);
 });

@@ -18,6 +18,39 @@ export const cocRoot = (workspace) => path.join(workspace, ".coc");
 export const campaignDir = (workspace, campaignId) =>
   path.join(cocRoot(workspace), "campaigns", campaignId);
 
+/** Sidebar extras: first party investigator name + campaign.json mtime. */
+export function campaignListExtras(workspace, campaignId) {
+  const dir = campaignDir(workspace, campaignId);
+  const party = readJsonFile(path.join(dir, "party.json"));
+  const ids = Array.isArray(party?.investigator_ids) ? party.investigator_ids : [];
+  const first = typeof ids[0] === "string" ? ids[0].trim() : "";
+  let investigator_name = null;
+  if (first) {
+    const sheets = [
+      path.join(cocRoot(workspace), "investigators", first, "character.json"),
+      path.join(dir, "investigators", first, "character.json"),
+    ];
+    for (const file of sheets) {
+      const sheet = readJsonFile(file);
+      const name = typeof sheet?.name === "string" ? sheet.name.trim() : "";
+      if (name) {
+        investigator_name = name;
+        break;
+      }
+    }
+  }
+  let last_active_at = null;
+  for (const file of [path.join(dir, "campaign.json"), dir]) {
+    try {
+      last_active_at = fs.statSync(file).mtime.toISOString();
+      break;
+    } catch {
+      /* try next */
+    }
+  }
+  return { investigator_name, last_active_at };
+}
+
 export function readJsonFile(file) {
   try {
     const data = JSON.parse(fs.readFileSync(file, "utf-8"));

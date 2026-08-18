@@ -25,6 +25,8 @@ export interface CampaignSummary {
   active_scenario_id?: string | null;
   compatible?: boolean;
   schema_version?: number;
+  investigator_name?: string | null;
+  last_active_at?: string | null;
 }
 
 export interface Pregen {

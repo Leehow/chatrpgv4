@@ -7,6 +7,7 @@ import {
 } from "../pi-coc-rpc.mjs";
 import {
   CampaignHostOrchestrator,
+  parseSessionRoleStdout,
   SESSION_BUSY_CODE,
   SESSION_TRANSITIONING_CODE,
   transitioningInputError,
@@ -88,6 +89,7 @@ test("handoff event path: spawn + attach + role flip", async () => {
       return host;
     },
     attachFn: async (host) => host.attachOpening(),
+    resolveRoleFn: async () => "play",
   });
   await orchestrator.acquire("haunting-1", { tableIntent: "character-setup" });
   assert.equal(created.length, 1);
@@ -117,6 +119,7 @@ test("handoff event path: spawn + attach + role flip", async () => {
 
 test("exit code 42 fallback starts the same handoff", async () => {
   const created = [];
+  let resolveCalls = 0;
   const orchestrator = new CampaignHostOrchestrator({
     createHost: (opts) => {
       const host = fakeHost({ campaignId: opts.campaignId });
@@ -124,6 +127,10 @@ test("exit code 42 fallback starts the same handoff", async () => {
       return host;
     },
     attachFn: async (host) => host.attachOpening(),
+    resolveRoleFn: async () => {
+      resolveCalls += 1;
+      return "play";
+    },
   });
   await orchestrator.acquire("c42", { tableIntent: "character-setup" });
   created[0].emit({ type: "process_exit", code: 42, signal: null });
@@ -131,6 +138,7 @@ test("exit code 42 fallback starts the same handoff", async () => {
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(created.length, 2);
   assert.equal(created[1].attached, 1);
+  assert.equal(resolveCalls, 1);
   assert.deepEqual(orchestrator.statusOf("c42"), {
     session_role: "play",
     transitioning: false,
@@ -145,6 +153,7 @@ test("player input is rejected while transitioning", async () => {
   const orchestrator = new CampaignHostOrchestrator({
     createHost: (opts) => fakeHost({ campaignId: opts.campaignId }),
     attachFn: async () => gate,
+    resolveRoleFn: async () => "play",
   });
   await orchestrator.acquire("c-in", { tableIntent: "character-setup" });
   const pending = orchestrator.beginHandoff("c-in", { reason: "event" });
@@ -164,6 +173,7 @@ test("player input is rejected while transitioning", async () => {
 test("same campaign refuses a second live child", async () => {
   const orchestrator = new CampaignHostOrchestrator({
     createHost: (opts) => fakeHost({ campaignId: opts.campaignId }),
+    resolveRoleFn: async () => "play",
   });
   await orchestrator.acquire("solo", { tableIntent: "setup" });
   await assert.rejects(
@@ -171,4 +181,9 @@ test("same campaign refuses a second live child", async () => {
     (err) => err.code === SESSION_BUSY_CODE,
   );
   assert.equal(orchestrator.hosts.size, 1);
+});
+
+test("parseSessionRoleStdout reads play from JSON or token", () => {
+  assert.equal(parseSessionRoleStdout('{"role":"play","status":"ready_for_table"}'), "play");
+  assert.equal(parseSessionRoleStdout("play"), "play");
 });

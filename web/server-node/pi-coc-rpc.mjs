@@ -14,6 +14,12 @@ import { lastVisibleAssistantText } from "./pi-session-text.mjs";
 
 export const UI_AUTO_OPEN_MARKER = "[coc-pi-ui] auto-open";
 export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
+/** Setup session exit that means re-exec as play (pi-coc launcher contract). */
+export const HANDOFF_EXIT_CODE = 42;
+
+export function isHandoffExit(code) {
+  return Number(code) === HANDOFF_EXIT_CODE;
+}
 
 /** Prefer the fatal Error line so a leading warning is not the headline. */
 export function summarizeRpcDeath(stderr) {
@@ -213,6 +219,17 @@ export function mapRpcEventToSse(event) {
   if (handoff) {
     return [{ event: "coc_setup_handoff", data: handoff }];
   }
+  if (event.type === "process_exit" && isHandoffExit(event.code)) {
+    return [{
+      event: "coc_setup_handoff",
+      data: {
+        type: "coc_setup_handoff",
+        campaign_id: event.campaign_id ?? null,
+        reason: "exit_42",
+        at: Date.now(),
+      },
+    }];
+  }
   const type = event.type;
   if (type === "message_update") {
     const out = [];
@@ -317,6 +334,11 @@ export class PiCocRpcHost {
     this.#stderr = "";
     this.#eventLog = [];
     this.lastExitCode = null;
+    this.expectedShutdown = false;
+  }
+
+  isHandoffShutdown() {
+    return this.expectedShutdown || isHandoffExit(this.lastExitCode);
   }
 
   #pending;
@@ -433,10 +455,13 @@ export class PiCocRpcHost {
       this.closed = true;
       this.streaming = false;
       this.lastExitCode = code;
-      this.#emit({ type: "process_exit", code, signal });
+      this.#emit({ type: "process_exit", code, signal, campaign_id: this.campaignId });
+      const kind = isHandoffExit(code) || this.expectedShutdown
+        ? "pi_coc_rpc_handoff"
+        : "pi_coc_rpc_exited";
       const err = new PiCocRpcError(
         `pi-coc RPC exited (code=${code} signal=${signal})`,
-        { kind: "pi_coc_rpc_exited" },
+        { kind },
       );
       for (const pending of this.#pending.values()) pending.reject(err);
       this.#pending.clear();
@@ -513,6 +538,7 @@ export class PiCocRpcHost {
         throw this.#abortedError();
       }
       if (this.closed) {
+        if (this.isHandoffShutdown()) return this.uiIntent || "idle";
         throw new PiCocRpcError("pi-coc RPC exited before UI intent");
       }
       await new Promise((r) => setTimeout(r, 100));
@@ -594,7 +620,11 @@ export class PiCocRpcHost {
         } else if (this.abortGeneration > abortAt) {
           finish(this.#abortedError());
         } else if (this.closed) {
-          finish(new PiCocRpcError("pi-coc RPC exited during turn"));
+          if (this.isHandoffShutdown()) {
+            settle();
+          } else {
+            finish(new PiCocRpcError("pi-coc RPC exited during turn"));
+          }
         } else if (Date.now() > deadline) {
           finish(new PiCocRpcError("pi-coc turn timed out", { kind: "pi_coc_rpc_timeout" }));
         }
@@ -656,6 +686,7 @@ export class PiCocRpcHost {
   }
 
   async close() {
+    this.expectedShutdown = true;
     if (!this.child || this.closed) return;
     this.abortGeneration += 1;
     try {
