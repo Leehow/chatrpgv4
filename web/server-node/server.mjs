@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { Sidecar, SidecarError } from "./sidecar.mjs";
 import { PiCocRpcError, PiCocRpcHost, sessionOpeningFlags, webSessionId } from "./pi-coc-rpc.mjs";
+import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
 import {
   campaignDir,
@@ -765,6 +766,7 @@ async function handleCreateSession(req, res) {
     || resolveInvestigator(campaignId)
     || "";
   const sessionId = webSessionId(campaignId);
+  const selectedModel = resolveRequestedModelSettings(modelsPayload(), body);
   let host = HOSTS.get(campaignId);
   let spawned = false;
   if (!host || host.closed) {
@@ -774,6 +776,7 @@ async function handleCreateSession(req, res) {
       campaignId,
       sessionId,
       tableIntent: resolveInvestigator(campaignId) ? "continue" : "character-setup",
+      ...selectedModel,
     });
     HOSTS.set(campaignId, host);
     spawned = true;
@@ -860,9 +863,8 @@ async function handleTurn(req, res, sid) {
   const attach = body.attach === true;
   const playerInput = String(body.input || "").trim();
   if (!attach && !playerInput) throw httpError(400, "input is required");
-  const provider = String(body.provider || "").trim();
-  const model = String(body.model || "").trim();
-  const thinking = String(body.thinking || "").trim();
+  const selectedModel = resolveRequestedModelSettings(modelsPayload(), body);
+  const { provider, model, thinking } = selectedModel;
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",

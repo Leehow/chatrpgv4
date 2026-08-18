@@ -12,6 +12,7 @@ import { CombatOverlay } from "./components/CombatOverlay";
 import { GuidedStart } from "./components/GuidedStart";
 import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
 import { Panel, PanelContent } from "./components/Panel";
+import { effectiveThinkingLevel } from "./model-thinking";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -330,11 +331,22 @@ export default function App() {
     }
   }, [models]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const thinkingLevels =
+    models?.providers[provider]?.models.find((entry) => entry.id === model)?.thinkingLevels;
+  const effectiveThinking = effectiveThinkingLevel(thinking, thinkingLevels);
+
+  // A persisted level belongs to the previous model. Reflect the selected
+  // model's actual capability in state as soon as the catalog/model changes.
+  useEffect(() => {
+    if (!models || thinking === effectiveThinking) return;
+    setThinking(effectiveThinking);
+  }, [effectiveThinking, models, thinking]);
+
   useEffect(() => {
     if (provider) localStorage.setItem(LS.provider, provider);
     if (model) localStorage.setItem(LS.model, model);
-    if (thinking) localStorage.setItem(LS.thinking, thinking);
-  }, [provider, model, thinking]);
+    if (effectiveThinking) localStorage.setItem(LS.thinking, effectiveThinking);
+  }, [provider, model, effectiveThinking]);
 
   useEffect(() => {
     localStorage.setItem(LS.appearance, appearance);
@@ -359,11 +371,14 @@ export default function App() {
       setBusy(true);
       setError(null);
       try {
-        const info = await api.createSession(campaignId);
+        const info = await api.createSession(campaignId, {
+          provider,
+          model,
+          thinking: effectiveThinking,
+        });
         setSession(info);
         setState(info.state);
-        localStorage.setItem(LS.campaign, campaignId);
-        const sameCampaign = session?.campaign_id === campaignId;
+        const sameCampaign = !session || session.campaign_id === campaignId;
         let hydrated = false;
         try {
           const t = await api.fetchTranscript(info.session_id);
@@ -375,12 +390,7 @@ export default function App() {
         } catch {
           replaceMessagesFromTranscript(setMessages, [], sameCampaign);
         }
-        const shouldAttach = Boolean(
-          (info.host_opening
-            || info.character_setup
-            || info.state?.character_setup_pending)
-          && !hydrated,
-        );
+        const shouldAttach = Boolean(info.host_opening && !hydrated);
         if (!shouldAttach) {
           setBusy(false);
           return info;
@@ -412,7 +422,7 @@ export default function App() {
           "",
           provider,
           model,
-          thinking,
+          effectiveThinking,
           undefined,
           {
             onTool: (phase, tool) => {
@@ -549,7 +559,7 @@ export default function App() {
         openingRef.current = null;
       }
     },
-    [model, provider, session, thinking],
+    [effectiveThinking, model, provider, session],
   );
 
   // Leave the new-campaign form as soon as a session exists so the
@@ -557,15 +567,6 @@ export default function App() {
   useEffect(() => {
     if (session) setCreating(false);
   }, [session]);
-
-  // Reopen the last campaign once the campaign list is available.
-  useEffect(() => {
-    if (!bootstrap || session || openingRef.current) return;
-    const last = localStorage.getItem(LS.campaign);
-    if (last && bootstrap.campaigns.some((c) => c.campaign_id === last)) {
-      void openCampaign(last);
-    }
-  }, [bootstrap, session, openCampaign]);
 
   const createCampaign = useCallback(
     async (
@@ -652,7 +653,11 @@ export default function App() {
       try {
         nextState = await api.fetchState(sid);
       } catch {
-        const reopened = await api.createSession(active.campaign_id);
+        const reopened = await api.createSession(active.campaign_id, {
+          provider,
+          model,
+          thinking: effectiveThinking,
+        });
         setSession(reopened);
         sid = reopened.session_id;
         nextState = reopened.state;
@@ -666,7 +671,7 @@ export default function App() {
     } finally {
       setBusy(false);
     }
-  }, [session, busy]);
+  }, [busy, effectiveThinking, model, provider, session]);
 
   // Sidebar consumable use: one canonical state.item_use through the bridge,
   // then the response's fresh state replaces the panel (used-up items vanish).
@@ -724,7 +729,7 @@ export default function App() {
       let settledText = "";
       const controller = new AbortController();
       turnAbortRef.current = controller;
-      await api.streamTurn(active.session_id, text, provider, model, thinking, playerIntent, {
+      await api.streamTurn(active.session_id, text, provider, model, effectiveThinking, playerIntent, {
         onTool: (phase, tool) => {
           if (phase === "start") {
             setMessages(foldInterimSegment);
@@ -917,7 +922,7 @@ export default function App() {
       }
       setBusy(false);
     },
-    [session, busy, provider, model, thinking],
+    [session, busy, provider, model, effectiveThinking],
   );
 
   /** Stop the in-flight keeper turn on the host, then drop the live stream. */
@@ -1239,10 +1244,8 @@ export default function App() {
               provider={provider}
               model={model}
               hiddenProviders={hiddenProviders}
-              thinking={thinking}
-              thinkingLevels={
-                models?.providers[provider]?.models.find((m) => m.id === model)?.thinkingLevels
-              }
+              thinking={effectiveThinking}
+              thinkingLevels={thinkingLevels}
               onModelChange={(p, m) => {
                 setProvider(p);
                 setModel(m);

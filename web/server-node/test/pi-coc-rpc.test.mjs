@@ -43,14 +43,34 @@ test("buildPiCocArgs uses RPC mode and a campaign selector", () => {
   );
 });
 
-test("sessionOpeningFlags keeps investigator-less tables on the setup open path", () => {
+test("buildPiCocArgs pins the selected model and exact supported thinking at startup", () => {
+  assert.deepEqual(
+    buildPiCocArgs({
+      campaignId: "haunting-1",
+      sessionId: "web-haunting-1",
+      provider: "jellytoken",
+      model: "deepseek-v4-flash",
+      thinking: "off",
+    }),
+    [
+      "--mode", "rpc",
+      "--session-id", "web-haunting-1",
+      "--campaign", "haunting-1",
+      "--provider", "jellytoken",
+      "--model", "deepseek-v4-flash",
+      "--thinking", "off",
+    ],
+  );
+});
+
+test("sessionOpeningFlags opens the host only for a fresh spawn", () => {
   assert.deepEqual(sessionOpeningFlags({ spawned: true, hasInvestigator: false }), {
     character_setup: true,
     host_opening: true,
   });
   assert.deepEqual(sessionOpeningFlags({ spawned: false, hasInvestigator: false }), {
     character_setup: true,
-    host_opening: true,
+    host_opening: false,
   });
   assert.deepEqual(sessionOpeningFlags({ spawned: false, hasInvestigator: true }), {
     character_setup: false,
@@ -264,7 +284,7 @@ test("PiCocRpcHost prompts until agent_settled and maps live SSE", async () => {
   assert.deepEqual(frames, [{ event: "delta", data: { text: "好。" } }]);
 });
 
-test("attachOpening replays a turn that settled before the UI attached", async () => {
+test("attachOpening returns without replaying a turn that settled before the UI attached", async () => {
   const child = fakeChild();
   const host = new PiCocRpcHost({
     repoRoot: "/tmp/missing-repo",
@@ -287,7 +307,7 @@ test("attachOpening replays a turn that settled before the UI attached", async (
     onSse: (frame) => frames.push(frame),
   });
   assert.deepEqual(result, { opened: true });
-  assert.deepEqual(frames, [{ event: "delta", data: { text: "先建卡" } }]);
+  assert.deepEqual(frames, []);
 });
 
 test("attachOpening returns immediately on idle UI intent", async () => {

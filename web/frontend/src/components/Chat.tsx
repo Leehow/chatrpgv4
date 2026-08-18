@@ -1090,7 +1090,7 @@ export function Chat({
                 <>
                   <span className="keeper-empty-mark" aria-hidden="true" />
                   <h1 className="font-display text-3xl font-semibold text-foreground">
-                    守秘人正在候场
+                    {busy ? "正在打开战役……" : "守秘人正在候场"}
                   </h1>
                   <p className="text-sm text-muted-foreground">
                     从左侧选择一场战役，或创建新战役开始游戏。

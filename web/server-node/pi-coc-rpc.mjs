@@ -88,13 +88,16 @@ export function sessionOpeningFlags({ spawned, hasInvestigator }) {
   const characterSetup = !hasInvestigator;
   return {
     character_setup: characterSetup,
-    host_opening: Boolean(spawned || characterSetup),
+    host_opening: Boolean(spawned),
   };
 }
 
-export function buildPiCocArgs({ campaignId, sessionId }) {
+export function buildPiCocArgs({ campaignId, sessionId, provider, model, thinking }) {
   const args = ["--mode", "rpc", "--session-id", sessionId];
   if (campaignId) args.push("--campaign", String(campaignId));
+  if (provider) args.push("--provider", String(provider));
+  if (model) args.push("--model", String(model));
+  if (thinking) args.push("--thinking", String(thinking));
   return args;
 }
 
@@ -244,6 +247,9 @@ export class PiCocRpcHost {
     agentDir,
     launcherPath,
     tableIntent,
+    provider,
+    model,
+    thinking,
     spawnFn = spawn,
   }) {
     this.repoRoot = repoRoot;
@@ -253,6 +259,9 @@ export class PiCocRpcHost {
     this.agentDir = agentDir || process.env.PI_AGENT_DIR || "";
     this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
     this.tableIntent = tableIntent || null;
+    this.provider = provider || "";
+    this.model = model || "";
+    this.thinking = thinking || "";
     this.spawnFn = spawnFn;
     this.child = null;
     this.ready = false;
@@ -357,6 +366,9 @@ export class PiCocRpcHost {
     const args = buildPiCocArgs({
       campaignId: this.campaignId,
       sessionId: this.sessionId,
+      provider: this.provider,
+      model: this.model,
+      thinking: this.thinking,
     });
     const env = buildChildEnv({
       workspace: this.workspace,
@@ -547,10 +559,10 @@ export class PiCocRpcHost {
   }
 
   async attachOpening({ onSse, timeoutMs = 900_000 } = {}) {
-    const replayed = this.#replaySse(onSse);
     if (this.settleGeneration > 0 && !this.streaming) {
       return { opened: true };
     }
+    const replayed = this.#replaySse(onSse);
     if (this.streaming) {
       await this.#waitSettleAfter(this.settleGeneration, onSse, timeoutMs);
       return { opened: true };

@@ -305,11 +305,14 @@ export function createInvestigator(payload: {
   });
 }
 
-export function createSession(campaignId: string): Promise<SessionInfo> {
+export function createSession(
+  campaignId: string,
+  selection: { provider: string; model: string; thinking: string },
+): Promise<SessionInfo> {
   return request<SessionInfo>("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ campaign_id: campaignId }),
+    body: JSON.stringify({ campaign_id: campaignId, ...selection }),
   });
 }
 
