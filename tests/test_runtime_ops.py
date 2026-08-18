@@ -3282,6 +3282,27 @@ def test_medieval_pdf_bind_and_rerender_write_kp_guided_briefing(tmp_path):
     assert_kp_guided(rerendered_markdown)
 
 
+def test_investigator_create_field_errors_echo_received_and_allowed(tmp_path):
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=(
+            r"investigator\.create has unsupported or missing fields "
+            r"\(received: \['assignment_order', 'investigator_id', 'name'\]; "
+            r"missing required: \['sheet'\]; "
+            r"unsupported: \['assignment_order', 'name'\]"
+        ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": {
+                "investigator_id": "echo-inv",
+                "name": "Wrong",
+                "assignment_order": ["STR"],
+            },
+        })
+
+
 def test_investigator_create_rejects_localized_machine_skills_before_write(tmp_path):
     sheet = {
         "schema_version": 1,

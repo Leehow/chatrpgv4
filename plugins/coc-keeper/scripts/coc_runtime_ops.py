@@ -5362,8 +5362,16 @@ def execute_setup_operation(
         }
     if kind == "investigator.create":
         allowed = {"campaign_id", "investigator_id", "sheet", "creation"}
-        if set(payload) - allowed or not {"investigator_id", "sheet"} <= set(payload):
-            raise RuntimeOperationError("investigator.create has unsupported or missing fields")
+        required = {"investigator_id", "sheet"}
+        received = set(payload)
+        if received - allowed or not required <= received:
+            raise RuntimeOperationError(
+                "investigator.create has unsupported or missing fields "
+                f"(received: {sorted(received) or ['none']}; "
+                f"missing required: {sorted(required - received) or ['none']}; "
+                f"unsupported: {sorted(received - allowed) or ['none']}; "
+                f"allowed: {sorted(allowed)})"
+            )
         investigator_id = _id(payload.get("investigator_id"), "investigator_id")
         sheet = payload.get("sheet")
         creation = payload.get("creation")

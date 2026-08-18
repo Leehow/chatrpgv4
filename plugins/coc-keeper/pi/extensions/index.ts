@@ -90,6 +90,7 @@ import {
   runChargenClerk,
   shouldRegisterChargenDelegate,
 } from "../lib/chargen-clerk.ts";
+import { extraToolsForSessionRole } from "../lib/session-role-tools.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -7097,7 +7098,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     const role = sessionRoleFromEnv();
     const tools = activeToolsForPhase(resolveAclPhase(), role);
-    if (role === "setup") tools.push("coc_chargen_delegate");
     pi.setActiveTools(tools);
   };
   const queueSetupHandoffExit = () => {
@@ -8884,7 +8884,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error("unsupported coc_map_supply operation");
     },
   });
-  if (shouldRegisterChargenDelegate() && sessionRoleFromEnv() !== "play") {
+  if (
+    shouldRegisterChargenDelegate()
+    && extraToolsForSessionRole(sessionRoleFromEnv()).includes("coc_chargen_delegate")
+  ) {
     pi.registerTool({
       name: "coc_chargen_delegate",
       label: "COC chargen clerk",
