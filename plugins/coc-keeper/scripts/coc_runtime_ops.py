@@ -2540,7 +2540,8 @@ class DevelopmentRecoveryConflict(RuntimeOperationError):
         self.conflicting_paths = list(conflicting_paths)
         joined = ", ".join(self.conflicting_paths)
         super().__init__(
-            f"RECOVERY_CONFLICT {transaction_id}: foreign divergence at {joined}"
+            f"RECOVERY_CONFLICT {transaction_id}: foreign divergence at {joined}",
+            code=self.code,
         )
 
 
