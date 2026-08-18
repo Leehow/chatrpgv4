@@ -1,0 +1,117 @@
+#!/usr/bin/env node
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import test from "node:test";
+
+const root = path.resolve(process.cwd());
+const ENV = "COC_PI_SESSION_ROLE";
+const domainUrl = pathToFileURL(
+  path.join(root, "plugins/coc-keeper/pi/lib/domain-tools.ts"),
+).href;
+
+async function loadDomain() {
+  return import(`${domainUrl}?t=${Date.now()}-${Math.random()}`);
+}
+
+function withRole(role, fn) {
+  const prev = process.env[ENV];
+  if (role === undefined) delete process.env[ENV];
+  else process.env[ENV] = role;
+  const restore = () => {
+    if (prev === undefined) delete process.env[ENV];
+    else process.env[ENV] = prev;
+  };
+  return Promise.resolve()
+    .then(fn)
+    .finally(restore);
+}
+
+test("setup role rejects turn.finalize", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    const denied = mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.finalize",
+      phase: "pending_finalization",
+    });
+    assert.equal(denied.ok, false);
+    assert.equal(denied.code, "role_forbidden");
+  });
+});
+
+test("play role rejects setup.complete", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    const denied = mod.evaluateExecuteAcl({
+      toolName: "coc_setup",
+      operation: "setup.complete",
+      phase: "opening",
+    });
+    assert.equal(denied.ok, false);
+    assert.equal(denied.code, "role_forbidden");
+  });
+});
+
+test("play role allows session.resume", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    const allowed = mod.evaluateExecuteAcl({
+      toolName: "coc_setup",
+      operation: "session.resume",
+      phase: "live_turn",
+    });
+    assert.equal(allowed.ok, true);
+  });
+});
+
+test("unset role env is legacy allow-all (phase still applies)", async () => {
+  await withRole(undefined, async () => {
+    const mod = await loadDomain();
+    assert.equal(mod.sessionRoleFromEnv(), null);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.finalize",
+      phase: "pending_finalization",
+    }).ok, true);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_setup",
+      operation: "setup.complete",
+      phase: "opening",
+    }).ok, true);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_setup",
+      operation: "session.resume",
+      phase: "live_turn",
+    }).ok, true);
+  });
+});
+
+test("invalid role env is treated as unset and warns", () => {
+  const script = `
+    process.env.${ENV} = "kp";
+    const mod = await import(${JSON.stringify(domainUrl)});
+    if (mod.sessionRoleFromEnv() !== null) {
+      console.error("expected null role");
+      process.exit(2);
+    }
+    const allowed = mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.finalize",
+      phase: "pending_finalization",
+    });
+    if (!allowed.ok) {
+      console.error("expected legacy allow");
+      process.exit(3);
+    }
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ["--experimental-strip-types", "--input-type=module", "-e", script],
+    { encoding: "utf8", cwd: root, env: { ...process.env, [ENV]: "kp" } },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /COC_PI_SESSION_ROLE/);
+  assert.match(result.stderr, /legacy/);
+});

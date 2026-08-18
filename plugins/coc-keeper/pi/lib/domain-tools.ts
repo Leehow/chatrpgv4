@@ -7,10 +7,13 @@ import {
   HOST_INVOKE_COMPAT_OPERATIONS,
   OPERATION_POLICY,
   OPERATIONS_BY_SURFACE,
+  SESSION_ROLES,
+  sessionRolesForPolicy,
   SOURCE_WORKER_LIFECYCLE_OPERATIONS,
   type DomainToolName,
   type KpSurface,
   type PlayPhase,
+  type SessionRole,
 } from "./operation-policy.ts";
 
 export {
@@ -20,7 +23,33 @@ export {
   HOST_INVOKE_COMPAT_OPERATIONS,
   SOURCE_WORKER_LIFECYCLE_OPERATIONS,
 };
-export type { DomainToolName, PlayPhase };
+export type { DomainToolName, PlayPhase, SessionRole };
+export { SESSION_ROLES, sessionRolesForPolicy };
+
+const SESSION_ROLE_ENV = "COC_PI_SESSION_ROLE";
+
+/** Canonical caller: evaluateExecuteAcl / activeToolsForPhase. Consumer: Pi dual-session host. */
+export function sessionRoleFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): SessionRole | null {
+  const raw = env[SESSION_ROLE_ENV];
+  if (raw == null || raw === "") return null;
+  if ((SESSION_ROLES as readonly string[]).includes(raw)) {
+    return raw as SessionRole;
+  }
+  console.warn(
+    `[coc] ${SESSION_ROLE_ENV}=${JSON.stringify(raw)} is not setup|play; role ACL disabled (legacy)`,
+  );
+  return null;
+}
+
+function operationAllowedForSessionRole(
+  operation: string,
+  policy: { audience: string; kp_surface: KpSurface },
+  role: SessionRole,
+): boolean {
+  return sessionRolesForPolicy(operation, policy as typeof OPERATION_POLICY[string]).includes(role);
+}
 
 export const HIDDEN_COMPAT_INVOKE = "coc_invoke";
 export const TRANSPORT_TOOL = "coc_invoke";
@@ -92,6 +121,17 @@ export type AclDecision =
   }
   | { ok: false; code: string; message: string };
 
+function roleForbidden(operation: string, policy: typeof OPERATION_POLICY[string]): AclDecision | null {
+  const role = sessionRoleFromEnv();
+  if (!role) return null;
+  if (operationAllowedForSessionRole(operation, policy, role)) return null;
+  return {
+    ok: false,
+    code: "role_forbidden",
+    message: `operation ${operation} is not allowed in session role ${role}`,
+  };
+}
+
 export function evaluateExecuteAcl(args: {
   toolName: string;
   operation: string;
@@ -136,6 +176,8 @@ export function evaluateExecuteAcl(args: {
         message: `operation ${operation} is not allowed in phase ${args.phase}`,
       };
     }
+    const compatRoleDenied = roleForbidden(operation, policy);
+    if (compatRoleDenied) return compatRoleDenied;
     return {
       ok: true,
       wrapper: HIDDEN_COMPAT_INVOKE,
@@ -159,6 +201,8 @@ export function evaluateExecuteAcl(args: {
       message: `operation ${operation} is not allowed in phase ${args.phase}`,
     };
   }
+  const roleDenied = roleForbidden(operation, policy);
+  if (roleDenied) return roleDenied;
   return {
     ok: true,
     wrapper: args.toolName === HIDDEN_COMPAT_INVOKE ? expectedTool : args.toolName,
@@ -168,27 +212,41 @@ export function evaluateExecuteAcl(args: {
   };
 }
 
-export function activeToolsForPhase(phase: PlayPhase): string[] {
+export function activeToolsForPhase(phase: PlayPhase, role?: SessionRole | null): string[] {
   const core = ["read", "subagent", "subagent_wait"] as const;
+  let tools: string[];
   if (phase === "pending_finalization") {
-    return [...core, "coc_turn", "coc_context", "coc_state", "coc_advice"];
+    tools = [...core, "coc_turn", "coc_context", "coc_state", "coc_advice"];
+  } else if (phase === "ending" || phase === "recovery") {
+    tools = [...core, "coc_setup", "coc_context", "coc_turn", "coc_state"];
+  } else if (phase === "opening" || phase === "cold_start") {
+    tools = [...core, "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state"];
+  } else {
+    tools = [
+      ...core,
+      "coc_context",
+      "coc_rules",
+      "coc_state",
+      "coc_npc",
+      "coc_turn",
+      "coc_subsystem",
+      "coc_advice",
+    ];
   }
-  if (phase === "ending" || phase === "recovery") {
-    return [...core, "coc_setup", "coc_context", "coc_turn", "coc_state"];
-  }
-  if (phase === "opening" || phase === "cold_start") {
-    return [...core, "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state"];
-  }
-  return [
-    ...core,
-    "coc_context",
-    "coc_rules",
-    "coc_state",
-    "coc_npc",
-    "coc_turn",
-    "coc_subsystem",
-    "coc_advice",
-  ];
+  const sessionRole = role === undefined ? sessionRoleFromEnv() : role;
+  if (!sessionRole) return tools;
+  return tools.filter((name) => {
+    if (!(DOMAIN_TOOL_NAMES as readonly string[]).includes(name)) return true;
+    const surface = SURFACE_BY_TOOL[name as DomainToolName];
+    return OPERATIONS_BY_SURFACE[surface].some((operation) => {
+      const policy = OPERATION_POLICY[operation];
+      return (
+        policy
+        && policy.phases.includes(phase)
+        && operationAllowedForSessionRole(operation, policy, sessionRole)
+      );
+    });
+  });
 }
 
 function resumeSignalsIncompleteOpening(
