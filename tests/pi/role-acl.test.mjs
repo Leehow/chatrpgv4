@@ -66,6 +66,50 @@ test("play role allows session.resume", async () => {
   });
 });
 
+test("setup role allows chargen rules.roll_dice", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    const allowed = mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.roll_dice",
+      phase: "cold_start",
+    });
+    assert.equal(allowed.ok, true);
+  });
+});
+
+test("play role still allows rules.roll_dice", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    const allowed = mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.roll_dice",
+      phase: "live_turn",
+    });
+    assert.equal(allowed.ok, true);
+  });
+});
+
+test("setup role rejects turn.finalize and combat.resolve", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    const finalize = mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.finalize",
+      phase: "pending_finalization",
+    });
+    assert.equal(finalize.ok, false);
+    assert.equal(finalize.code, "role_forbidden");
+    const combat = mod.evaluateExecuteAcl({
+      toolName: "coc_subsystem",
+      operation: "combat.resolve",
+      phase: "live_turn",
+    });
+    assert.equal(combat.ok, false);
+    assert.equal(combat.code, "role_forbidden");
+  });
+});
+
 test("unset role env is legacy allow-all (phase still applies)", async () => {
   await withRole(undefined, async () => {
     const mod = await loadDomain();

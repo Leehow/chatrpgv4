@@ -8,10 +8,13 @@ export type OperationPolicy = { audience: string; phases: readonly string[]; con
 /** Pi dual-session role. Canonical caller: domain-tools sessionRoleFromEnv / evaluateExecuteAcl. Consumer: execute-time ACL + tool visibility. */
 export const SESSION_ROLES = ["setup", "play"] as const;
 export type SessionRole = typeof SESSION_ROLES[number];
-/** Shared across setup|play. Audience alone cannot mark these: setup.inspect is audience=setup, session.resume is audience=host. Consumer: sessionRolesForPolicy. */
+/** Shared across setup|play. Audience alone cannot mark these: setup.inspect is audience=setup, session.resume is audience=host. Chargen dice/read-face rules are audience=keeper but required in the setup session. Consumer: sessionRolesForPolicy. */
 export const SESSION_ROLE_SHARED_OPERATIONS = new Set<string>([
   "setup.inspect",
   "session.resume",
+  "rules.roll_dice",
+  "rules.cash_assets",
+  "rules.skill_describe",
 ]);
 export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   "actions.advise": {
