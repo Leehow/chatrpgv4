@@ -673,20 +673,29 @@ def _guided_quick_fire_skill_reconciliation(
                 continue
             normalized[skill_id] = delta
         derived_spent = sum(normalized.values())
+        if (
+            account_name == "personal_interest_points"
+            and isinstance(characteristics.get("INT"), int)
+            and not isinstance(characteristics.get("INT"), bool)
+        ):
+            intelligence = int(characteristics["INT"])
+            expected = intelligence * 2
+            if derived_spent == expected:
+                account["budget"] = expected
+                account["spent"] = expected
+                declared_budget = expected
+                declared_spent = expected
+            elif declared_budget != expected:
+                errors.append(
+                    "skill_budget.personal_interest_points budget must equal "
+                    f"INT*2 (INT={intelligence}, expected={expected}, "
+                    f"got={declared_budget})"
+                )
         if derived_spent != declared_spent or declared_spent != declared_budget:
             errors.append(
                 f"skill_budget.{account_name} derived allocation total "
                 f"{derived_spent} must equal spent and budget "
                 f"{declared_spent}/{declared_budget}"
-            )
-        if (
-            account_name == "personal_interest_points"
-            and isinstance(characteristics.get("INT"), int)
-            and not isinstance(characteristics.get("INT"), bool)
-            and declared_budget != int(characteristics["INT"]) * 2
-        ):
-            errors.append(
-                "skill_budget.personal_interest_points budget must equal INT*2"
             )
         allocations_by_account[account_name] = normalized
 

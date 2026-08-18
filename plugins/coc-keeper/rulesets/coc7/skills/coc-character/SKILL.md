@@ -56,30 +56,31 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `../../../../scripts/coc_character.py`.
 - **Quick Fire deterministic materialization:** after semantic assignment,
   submit `creation.input_mode="guided_quick_fire"` and
-  `creation.method="quick_fire_array"`,
-  `creation.characteristic_assignment_order` as the eight unique canonical
-  characteristic keys in descending array-slot order, and
-  `creation.luck_roll_total` as the authoritative 3D6 total. Also submit
-  top-level `payload.campaign_id` as the current campaign and
-  `creation.luck_roll_receipt` with the current `campaign_id`, the same stable
-  `decision_id`, and the exact returned `roll_id`; creation revalidates that
-  the independently declared current campaign and the receipt campaign match,
-  then revalidates that campaign's immutable `rules.roll_dice` source receipt
-  and rejects an unreceipted, cross-campaign, or mismatched total. Omit
-  `sheet.characteristics` and `sheet.derived`; `investigator.create` copies the
-  configured `[80,70,60,60,50,50,50,40]` array, multiplies Luck by five, and
-  derives HP/MP/SAN/DB/Build/MOV deterministically. The Keeper still owns the
+  `creation.method="quick_fire_array"`. The Keeper's semantic payload is
+  investigator `name`, occupation, `characteristic_assignment_order` (the eight
+  unique canonical keys in descending array-slot priority), interest-point
+  allocations, and optionally `creation.luck={"mode":"auto_roll"}`. Do not
+  zip the fixed array or compute `INT*2` by hand. Runtime materializes
+  characteristics from `[80,70,60,60,50,50,50,40]`, owns personal-interest
+  `budget`/`spent` as materialized `INT*2` (aligns them when allocations sum to
+  that expected value; otherwise fails with `INT=`, `expected=`, `got=`), and
+  owns the Luck receipt. Prefer `creation.luck={"mode":"auto_roll"}` so create
+  issues the canonical 3D6 `investigator_creation_luck` roll with deterministic
+  `decision_id` `chargen-luck-{campaign_id}-{investigator_id}` (idempotent).
+  The explicit `luck_roll_total` plus `luck_roll_receipt` path remains valid.
+  Submit top-level `payload.campaign_id` as the current campaign. Omit
+  `sheet.characteristics` and `sheet.derived`; `investigator.create` multiplies
+  Luck by five and derives HP/MP/SAN/DB/Build/MOV. The Keeper still owns the
   concept and semantic priority order. Include the confirmed
   `sheet.player_facing_sheet_zh` with a non-empty `display_name` and one
   localized `skills` array; the deterministic materializer regenerates that
   array from the canonical `skills.json` zh-Hans labels and reconciled values.
-  Include `creation.skill_budget` with exact `occupation_points` and
+  Include `creation.skill_budget` with `occupation_points` and
   `personal_interest_points` accounts. Each account contains `budget`, `spent`,
   and an `allocations` map from canonical skill key to added points. Runtime
-  sums those maps, requires each derived sum to equal `spent` and `budget`,
-  requires personal-interest budget to equal `INT*2`, resolves flat,
-  `half_DEX`, and `EDU` catalog bases, and requires every final machine value
-  to equal base plus both deltas. This package selects the optional starting
+  sums those maps, aligns or rejects personal-interest against `INT*2`,
+  resolves flat, `half_DEX`, and `EDU` catalog bases, and requires every final
+  machine value to equal base plus both deltas. This package selects the optional starting
   skill cap of 75 from Keeper Rulebook p.48. That optional cap constrains
   player-allocated and non-derived starting values; it never lowers an
   unallocated standard-sheet base derived directly from a characteristic.
@@ -117,21 +118,15 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `creation.input_mode="import_complete_sheet"` branch, including during an
   owned Pi live opening; it must not be recast as KP-guided creation. Other
   already complete external sheets use that same explicit import branch.
-- **Quick-Fire Luck exact recipe:** invoke `coc_invoke` exactly once with
-  `operation="rules.roll_dice"`, the current campaign, and `arguments`
-  containing required fields `expression="3D6"`, a stable creation-scoped
-  `decision_id`, and `purpose="investigator_creation_luck"`. `reason` is
-  optional human-readable context and is not a hidden authorization literal.
-  Reuse the same
-  `decision_id` value on retry. Apply the COC7 creation formula to the
-  authoritative returned total as `creation.luck_roll_total`, and retain the
-  returned `roll_id` in `creation.luck_roll_receipt`; the setup rules layer
-  verifies the source receipt and performs `Luck = total × 5`. Do not call `rules.roll`,
-  invent `rules.roll_expression`, browse the `setup` or `rules` catalogs, omit
-  `decision_id`, or send the unsupported expression `3D6*5`. This exact dice
-  recipe preserves deterministic rolls; investigator concept, characteristic
-  assignment, occupation, backstory, and final character craft remain live
-  semantic Keeper work.
+- **Quick-Fire Luck:** prefer `creation.luck={"mode":"auto_roll"}` on
+  `investigator.create`. The runtime calls the existing 3D6
+  `investigator_creation_luck` implementation, reuses
+  `chargen-luck-{campaign_id}-{investigator_id}` on retry, and writes
+  `luck_roll_total` / `luck_roll_receipt` before materialization. The explicit
+  `rules.roll_dice` path (`expression="3D6"`, `purpose="investigator_creation_luck"`,
+  then copy `total`/`roll_id`) remains compatible. Do not invent a second dice
+  engine or send `3D6*5`. Investigator concept, assignment, occupation,
+  backstory, and final craft remain live semantic Keeper work.
 - During this guided setup window, use `rules.cash_assets` with the confirmed
   canonical `Credit Rating`; omit `period` to bind the lookup to the canonical
   campaign era. An explicit period must match that era. A campaign era without
