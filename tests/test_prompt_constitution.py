@@ -50,6 +50,8 @@ def test_setup_guided_chargen_forbids_first_turn_delegate() -> None:
     assert "explicitly asked for a quick/auto/direct card" in setup
     assert "no dry-run" in setup
     assert "inv-investigator" in setup
+    assert "Call the delegate at most once per player turn" in setup
+    assert "Do **not** call" in setup and "setup.complete" in setup
 
 
 def test_legacy_host_system_md_unmodified() -> None:

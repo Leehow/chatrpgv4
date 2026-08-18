@@ -182,3 +182,52 @@ def test_occupation_template_source_exists() -> None:
     name, spec = found
     assert name == "Journalist"
     assert spec["skill_point_formula"] == "EDU*4"
+
+
+FOCUS = ["Library Use", "History", "Spot Hidden"]
+SUPPORT = [
+    "Photography", "Appraise", "Psychology", "Listen", "Dodge", "Fast Talk",
+    "Accounting",
+]
+PRIORITY = ["INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR"]
+
+
+def test_chargen_run_three_occupation_skills_cannot_place(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-three-occ")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "gu-three",
+            "name": "顾南舟",
+            "occupation_name": "旧书商",
+            "assignment_priority": PRIORITY,
+            "occupation_skill_names": FOCUS,
+            "interest_skill_names": SUPPORT,
+        },
+    )
+    assert envelope["ok"] is False, envelope
+    details = (envelope.get("error") or {}).get("details") or {}
+    assert "could not place occupation points" in str(details.get("error", details))
+
+
+def test_chargen_run_focus_plus_support_union_places(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-union-occ")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "gu-union",
+            "name": "顾南舟",
+            "occupation_name": "旧书商",
+            "assignment_priority": PRIORITY,
+            "occupation_skill_names": FOCUS + SUPPORT[:3],
+            "interest_skill_names": SUPPORT[3:],
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    assert envelope["data"]["result"]["ok"] is True

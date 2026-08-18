@@ -111,10 +111,116 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   return brief;
 }
 
+const REQUIRED_CHARACTERISTICS = [
+  "STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU",
+] as const;
+const QUICK_FIRE_ARRAY = [80, 70, 60, 60, 50, 50, 50, 40] as const;
+const STARTING_SKILL_CAP = 75;
+const CONSERVATIVE_SKILL_BASE = 40;
+const CREDIT_RATING = "Credit Rating";
+const DEFAULT_OCCUPATION_FILLERS = [
+  "Stealth", "First Aid", "Occult", "Natural World", "Persuade",
+  "Charm", "Navigate", "Mechanical Repair", "Psychology", "Listen",
+] as const;
+
 function assignmentList(raw: string | undefined): string[] | undefined {
   if (!raw) return undefined;
   const parts = raw.split(/[,\s]+/).map((part) => part.trim()).filter(Boolean);
   return parts.length ? parts : undefined;
+}
+
+function uniqueSkillNames(names: string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const raw of names ?? []) {
+    const name = raw.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key) || key === CREDIT_RATING.toLowerCase()) continue;
+    seen.add(key);
+    ordered.push(name);
+  }
+  return ordered;
+}
+
+function quickFireCharacteristics(
+  assignment: string[] | undefined,
+): Record<string, number> {
+  const order = assignment
+    && assignment.length === REQUIRED_CHARACTERISTICS.length
+    && new Set(assignment).size === REQUIRED_CHARACTERISTICS.length
+    && REQUIRED_CHARACTERISTICS.every((key) => assignment.includes(key))
+    ? assignment
+    : [...REQUIRED_CHARACTERISTICS];
+  const chars: Record<string, number> = {};
+  for (let index = 0; index < order.length; index += 1) {
+    chars[order[index]] = QUICK_FIRE_ARRAY[index];
+  }
+  return chars;
+}
+
+function conservativeBase(skillId: string, edu: number, dex: number): number {
+  if (skillId === CREDIT_RATING || skillId === "Cthulhu Mythos") return 0;
+  if (skillId === "Dodge") return Math.floor(dex / 2);
+  if (skillId === "Language (Own)" || skillId === "Own Language") return edu;
+  return CONSERVATIVE_SKILL_BASE;
+}
+
+function simulateOccupationSpend(skillIds: string[], budget: number, edu: number, dex: number): number {
+  const ids = skillIds.includes(CREDIT_RATING) ? skillIds : [...skillIds, CREDIT_RATING];
+  const allocations = new Map(ids.map((id) => [id, 0]));
+  let remaining = budget;
+  while (remaining > 0) {
+    let progressed = false;
+    for (const skillId of ids) {
+      if (remaining <= 0) break;
+      const current = conservativeBase(skillId, edu, dex) + (allocations.get(skillId) ?? 0);
+      if (current >= STARTING_SKILL_CAP) continue;
+      allocations.set(skillId, (allocations.get(skillId) ?? 0) + 1);
+      remaining -= 1;
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+  return budget - remaining;
+}
+
+export function planChargenSkillLists(brief: ChargenClerkBrief): {
+  occupation_skill_names: string[];
+  interest_skill_names: string[];
+  occupation_budget: number;
+} {
+  const assignment = assignmentList(brief.assignment_priority);
+  const chars = quickFireCharacteristics(assignment);
+  const edu = chars.EDU ?? 80;
+  const dex = chars.DEX ?? 50;
+  const occupationBudget = edu * 4;
+  const mains = uniqueSkillNames(brief.occupation_skill_names);
+  const auxiliaries = uniqueSkillNames(brief.interest_skill_names)
+    .filter((name) => !mains.some((main) => main.toLowerCase() === name.toLowerCase()));
+  const occupation = [...mains];
+  const leftover = [...auxiliaries];
+  const canPlace = (pool: string[]) => (
+    simulateOccupationSpend(pool, occupationBudget, edu, dex) === occupationBudget
+  );
+  while (!canPlace(occupation) && leftover.length > 0) {
+    occupation.push(leftover.shift() as string);
+  }
+  for (const filler of DEFAULT_OCCUPATION_FILLERS) {
+    if (canPlace(occupation)) break;
+    if (occupation.some((name) => name.toLowerCase() === filler.toLowerCase())) continue;
+    occupation.push(filler);
+  }
+  const interest = leftover.length
+    ? leftover
+    : uniqueSkillNames([...auxiliaries, ...DEFAULT_OCCUPATION_FILLERS])
+      .filter((name) => !occupation.some((item) => item.toLowerCase() === name.toLowerCase()))
+      .slice(0, 4);
+  return {
+    occupation_skill_names: occupation,
+    interest_skill_names: interest,
+    occupation_budget: occupationBudget,
+  };
 }
 
 export async function runChargenInProcess(options: {
@@ -144,11 +250,12 @@ export async function runChargenInProcess(options: {
   };
   const assignment = assignmentList(options.brief.assignment_priority);
   if (assignment) args.assignment_priority = assignment;
-  if (options.brief.occupation_skill_names?.length) {
-    args.occupation_skill_names = options.brief.occupation_skill_names;
+  const planned = planChargenSkillLists(options.brief);
+  if (planned.occupation_skill_names.length) {
+    args.occupation_skill_names = planned.occupation_skill_names;
   }
-  if (options.brief.interest_skill_names?.length) {
-    args.interest_skill_names = options.brief.interest_skill_names;
+  if (planned.interest_skill_names.length) {
+    args.interest_skill_names = planned.interest_skill_names;
   }
   const envelope = await options.callTool("setup.chargen_run", args, options.signal);
   if (envelope.ok === true && envelope.data && typeof envelope.data === "object") {

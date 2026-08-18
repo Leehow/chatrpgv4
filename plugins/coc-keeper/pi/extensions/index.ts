@@ -8893,8 +8893,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       description:
         "Commit one in-process setup.chargen_run from a semantic brief after "
         + "the player explicitly confirms the presented draft, or when they "
-        + "explicitly ask for a same-turn quick/auto card. Do not call on the "
-        + "first name+occupation line of the default guided path. Do not "
+        + "explicitly ask for a same-turn quick/auto card. Pass focus skills "
+        + "in occupation_skill_names and supporting skills in "
+        + "interest_skill_names; the wrapper expands a legal occupation pool. "
+        + "Call at most once per player turn; do not retry or guess formulas "
+        + "on failure. Do not call setup.complete from this tool. Do not "
         + "assemble investigator.create. Setup role only.",
       parameters: chargenDelegateSchema,
       ...compactToolRenderers("coc_chargen_delegate"),

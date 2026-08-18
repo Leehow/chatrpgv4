@@ -149,18 +149,25 @@ deliver opening narration here.
   After any change, show the full draft again. Call `coc_chargen_delegate`
   **once** only after the player explicitly confirms that draft, or on the
   same turn only when they explicitly asked for a quick/auto/direct card.
-  Runtime then owns Quick Fire array, occupation formula, skill fill, Luck
-  `auto_roll`, create → link → render_card. You receive compact JSON
-  (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`). Then
-  `setup.complete`. Do not spawn a clerk, do not call
-  `setup.investigator_contract`, and do not assemble an
-  `investigator.create` payload in this host context. Do not invent sheet
-  numbers. Do not call `setup.quick_start` when a setup campaign already exists.
+  Pass a semantic skill brief: the player's stated focus skills first in
+  `occupation_skill_names`, plus confirmed supporting skills in
+  `interest_skill_names`. Three focus skills are not a complete occupation
+  pool; the wrapper expands the legal set. Runtime then owns Quick Fire
+  array, occupation formula, skill fill, Luck `auto_roll`, create → link →
+  render_card. You receive compact JSON (`ok`, `investigator_id`, stats,
+  `card_path`, `roll_ids`). Present that numeric card. Do **not** call
+  `setup.complete` until the player explicitly confirms they want the table
+  to open. Do not spawn a clerk, do not call `setup.investigator_contract`,
+  and do not assemble an `investigator.create` payload in this host context.
+  Do not invent sheet numbers. Do not call `setup.quick_start` when a setup
+  campaign already exists.
 - Never omit `investigator_id` as `inv-investigator` or another generic
   placeholder. Leave it blank and let the wrapper allocate a campaign-scoped
-  unique id, or pass an explicit unique id. On id conflict, do not inspect,
-  guess linked/global, or retry in the player-visible turn — the wrapper owns
-  uniqueness.
+  unique id, or pass an explicit unique id. On id conflict or a chargen
+  failure, do not inspect, guess EDU/skill-count math, or retry in the
+  player-visible turn. Call the delegate at most once per player turn. If it
+  fails with an error the wrapper cannot preflight, report one short table
+  failure and stop.
 
 ## 幕间交接
 
