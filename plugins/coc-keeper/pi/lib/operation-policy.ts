@@ -5,6 +5,14 @@ export type PlayPhase = typeof PLAY_PHASES[number];
 export const KP_SURFACES = ["context","rules","state","npc","turn","setup","advice","subsystem","none"] as const;
 export type KpSurface = typeof KP_SURFACES[number];
 export type OperationPolicy = { audience: string; phases: readonly string[]; contract: string; advisory: boolean; kp_surface: KpSurface };
+/** Pi dual-session role. Canonical caller: domain-tools sessionRoleFromEnv / evaluateExecuteAcl. Consumer: execute-time ACL + tool visibility. */
+export const SESSION_ROLES = ["setup", "play"] as const;
+export type SessionRole = typeof SESSION_ROLES[number];
+/** Shared across setup|play. Audience alone cannot mark these: setup.inspect is audience=setup, session.resume is audience=host. Consumer: sessionRolesForPolicy. */
+export const SESSION_ROLE_SHARED_OPERATIONS = new Set<string>([
+  "setup.inspect",
+  "session.resume",
+]);
 export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   "actions.advise": {
     "audience": "keeper",
@@ -629,6 +637,16 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "advisory": false,
     "kp_surface": "setup"
   },
+  "setup.complete": {
+    "audience": "setup",
+    "phases": [
+      "cold_start",
+      "opening"
+    ],
+    "contract": "state",
+    "advisory": false,
+    "kp_surface": "setup"
+  },
   "setup.adopt_source_facts": {
     "audience": "setup",
     "phases": [
@@ -1097,7 +1115,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
   state: ["state.advance_time", "state.backstory_corruption_add", "state.belief_apply", "state.cash_semantic", "state.clear_transient_condition", "state.clock_discontinuity", "state.end_session", "state.exceptional_effect", "state.inventory_list", "state.item_grant", "state.item_remove", "state.item_use", "state.mark_safe_rest", "state.move_scene", "state.npc_presence", "state.npc_update", "state.personal_horror_add", "state.personal_horror_mark_woven", "state.promote_scene", "state.record_clue", "state.record_npc_engagement", "state.record_route_completion", "state.set_flag", "state.supersede_settlement", "state.threat_tick", "state.time_appearance", "state.time_marker"],
   npc: ["npc.query", "npc.reaction"],
   turn: ["state.journal", "turn.finalize", "turn.output_context"],
-  setup: ["progressive.follow_mentions", "progressive.on_enter_scene", "progressive.opening_bootstrap", "progressive.prepare_opening", "progressive.request_mechanics", "session.resume", "setup.adopt_source_facts", "setup.inspect", "setup.investigator_contract", "setup.invoke", "setup.quick_start"],
+  setup: ["progressive.follow_mentions", "progressive.on_enter_scene", "progressive.opening_bootstrap", "progressive.prepare_opening", "progressive.request_mechanics", "session.resume", "setup.adopt_source_facts", "setup.complete", "setup.inspect", "setup.investigator_contract", "setup.invoke", "setup.quick_start"],
   advice: ["actions.advise", "director.advise", "narration.brief", "narration.review", "npc.advise", "storylets.suggest"],
   subsystem: ["chase.context", "chase.execute", "combat.context", "combat.end", "combat.resolve", "mechanics.ensure", "sanity.context", "sanity.execute"],
 };
@@ -1112,3 +1130,16 @@ export const DOMAIN_TOOL_NAMES = [
   "coc_subsystem",
 ] as const;
 export type DomainToolName = typeof DOMAIN_TOOL_NAMES[number];
+
+/** Session-role projection of audience (+ shared set). Caller: evaluateExecuteAcl / activeToolsForPhase. */
+export function sessionRolesForPolicy(
+  operation: string,
+  policy: OperationPolicy,
+): readonly SessionRole[] {
+  if (SESSION_ROLE_SHARED_OPERATIONS.has(operation)) {
+    return SESSION_ROLES;
+  }
+  if (policy.audience === "setup") return ["setup"];
+  if (policy.audience === "keeper") return ["play"];
+  return [];
+}
