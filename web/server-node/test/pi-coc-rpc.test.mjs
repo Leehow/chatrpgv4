@@ -395,6 +395,32 @@ test("attachOpening follows an auto-open already in flight", async () => {
   assert.deepEqual(frames, [{ event: "delta", data: { text: "开桌" } }]);
 });
 
+test("handoff opening fails without a visible delta and never emits the silent fallback", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "c-handoff",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attachP = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+    requireVisibleText: true,
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await assert.rejects(
+    attachP,
+    (err) => err.kind === "pi_coc_opening_not_visible",
+  );
+  assert.equal(frames.some((frame) => frame.event === "notice"), false);
+});
+
 function writtenCommands(written) {
   return written
     .join("")
@@ -478,6 +504,37 @@ test("mapRpcEventToSse treats process_exit 42 as setup handoff", () => {
   assert.equal(frames[0].data.reason, "exit_42");
 });
 
+test("setup handoff event followed by agent_settled stays pending without a silent notice", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "c-event",
+    sessionId: "web-c-event",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const promptP = host.prompt("完成建卡", {
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  const first = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({ id: first.id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "custom_message",
+    customType: "coc_setup_handoff",
+    details: { type: "coc_setup_handoff", campaign_id: "c-event" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await promptP;
+  assert.equal(result.handoff, true);
+  assert.deepEqual(frames.map((frame) => frame.event), ["coc_setup_handoff"]);
+});
+
 test("prompt settles on exit 42 instead of throwing during turn", async () => {
   const child = fakeChild();
   const written = [];
@@ -491,13 +548,19 @@ test("prompt settles on exit 42 instead of throwing during turn", async () => {
     spawnFn: () => child,
   });
   host.start();
-  const promptP = host.prompt("完成建卡");
+  const frames = [];
+  const promptP = host.prompt("完成建卡", {
+    onSse: (frame) => frames.push(frame),
+  });
   await new Promise((r) => setTimeout(r, 20));
   const first = JSON.parse(written[0].trim());
   child.stdout.write(`${JSON.stringify({ id: first.id, type: "response", command: "prompt", success: true })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
   child.emit("exit", HANDOFF_EXIT_CODE, null);
-  await promptP;
+  const result = await promptP;
+  assert.equal(result.handoff, true);
   assert.equal(host.lastExitCode, HANDOFF_EXIT_CODE);
   assert.equal(host.isHandoffShutdown(), true);
+  assert.equal(frames.some((frame) => frame.event === "notice"), false);
+  assert.deepEqual(frames.map((frame) => frame.event), ["coc_setup_handoff"]);
 });

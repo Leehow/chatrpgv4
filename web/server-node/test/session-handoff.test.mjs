@@ -41,8 +41,9 @@ function fakeHost({ campaignId = "c1" } = {}) {
     async waitUntilReady() {
       this.readyCalls += 1;
     },
-    async attachOpening() {
+    async attachOpening({ onSse } = {}) {
       this.attached += 1;
+      onSse?.({ event: "delta", data: { text: "雾中的宅邸在你面前显出轮廓。" } });
       return { opened: true };
     },
     async close() {
@@ -88,7 +89,7 @@ test("handoff event path: spawn + attach + role flip", async () => {
       created.push(host);
       return host;
     },
-    attachFn: async (host) => host.attachOpening(),
+    attachFn: async (host, opts) => host.attachOpening(opts),
     resolveRoleFn: async () => "play",
   });
   await orchestrator.acquire("haunting-1", { tableIntent: "character-setup" });
@@ -108,8 +109,20 @@ test("handoff event path: spawn + attach + role flip", async () => {
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(created.length, 2);
   assert.equal(created[0].closed, true);
-  assert.equal(created[1].attached, 1);
+  assert.equal(created[1].attached, 0);
   assert.equal(created[1].tableIntent, "continue");
+  assert.deepEqual(orchestrator.statusOf("haunting-1"), {
+    session_role: "play",
+    transitioning: true,
+  });
+  const frames = [];
+  await orchestrator.completeHandoffOpening("haunting-1", {
+    onSse: (frame) => frames.push(frame),
+  });
+  assert.equal(created[1].attached, 1);
+  assert.deepEqual(frames, [
+    { event: "delta", data: { text: "雾中的宅邸在你面前显出轮廓。" } },
+  ]);
   assert.deepEqual(orchestrator.statusOf("haunting-1"), {
     session_role: "play",
     transitioning: false,
@@ -126,7 +139,7 @@ test("exit code 42 fallback starts the same handoff", async () => {
       created.push(host);
       return host;
     },
-    attachFn: async (host) => host.attachOpening(),
+    attachFn: async (host, opts) => host.attachOpening(opts),
     resolveRoleFn: async () => {
       resolveCalls += 1;
       return "play";
@@ -137,8 +150,14 @@ test("exit code 42 fallback starts the same handoff", async () => {
   created[0].closed = true;
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(created.length, 2);
-  assert.equal(created[1].attached, 1);
+  assert.equal(created[1].attached, 0);
   assert.equal(resolveCalls, 1);
+  assert.deepEqual(orchestrator.statusOf("c42"), {
+    session_role: "play",
+    transitioning: true,
+  });
+  await orchestrator.completeHandoffOpening("c42");
+  assert.equal(created[1].attached, 1);
   assert.deepEqual(orchestrator.statusOf("c42"), {
     session_role: "play",
     transitioning: false,
@@ -156,7 +175,7 @@ test("player input is rejected while transitioning", async () => {
     resolveRoleFn: async () => "play",
   });
   await orchestrator.acquire("c-in", { tableIntent: "character-setup" });
-  const pending = orchestrator.beginHandoff("c-in", { reason: "event" });
+  const pending = orchestrator.completeHandoffOpening("c-in", { reason: "event" });
   assert.equal(orchestrator.isTransitioning("c-in"), true);
   const err = transitioningInputError();
   assert.equal(err.code, SESSION_TRANSITIONING_CODE);
@@ -168,6 +187,28 @@ test("player input is rejected while transitioning", async () => {
   release();
   await pending;
   orchestrator.assertAcceptsPlayerInput("c-in");
+});
+
+test("opening attach failure preserves the exact handoff error", async () => {
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => fakeHost({ campaignId: opts.campaignId }),
+    attachFn: async () => {
+      throw new Error("play respawn lost RPC readiness");
+    },
+    resolveRoleFn: async () => "play",
+  });
+  await orchestrator.acquire("broken", { tableIntent: "character-setup" });
+  await assert.rejects(
+    () => orchestrator.completeHandoffOpening("broken", { reason: "exit_42" }),
+    (err) => {
+      assert.equal(err.code, "session_handoff_failed");
+      assert.equal(
+        err.message,
+        "建卡到开桌交接失败：play respawn lost RPC readiness",
+      );
+      return true;
+    },
+  );
 });
 
 test("same campaign refuses a second live child", async () => {

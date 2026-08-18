@@ -569,18 +569,21 @@ export class PiCocRpcHost {
     return new PiCocRpcError("pi-coc turn aborted", { kind: "pi_coc_rpc_aborted" });
   }
 
-  #waitSettleAfter(startGen, onSse, timeoutMs) {
+  #waitSettleAfter(startGen, onSse, timeoutMs, { suppressSilentNotice = false } = {}) {
     const deadline = Date.now() + timeoutMs;
     const abortAt = this.abortGeneration;
     return new Promise((resolve, reject) => {
       // Transparency only (never blocks): a settled turn that produced neither
       // player-visible text nor an error frame is a silent no-op for the
       // player (E2E findings F6/F14 — e.g. narration trapped in the model's
-      // thinking channel). Surface a notice so the UI can say so honestly.
+      // thinking channel). A setup exit-42 is not settled player output: its
+      // play-session continuation owns the still-open turn instead.
       let sawPlayerText = false;
       let sawError = false;
+      let sawHandoff = false;
+      let timer = null;
       const notifyIfSilent = () => {
-        if (sawPlayerText || sawError) return;
+        if (suppressSilentNotice || sawPlayerText || sawError) return;
         onSse?.({
           event: "notice",
           data: {
@@ -589,15 +592,15 @@ export class PiCocRpcHost {
           },
         });
       };
-      const finish = (err) => {
+      const finish = (err, result = {}) => {
         off();
-        clearInterval(timer);
+        if (timer !== null) clearInterval(timer);
         if (err) reject(err);
-        else resolve();
+        else resolve({ sawPlayerText, sawError, sawHandoff, ...result });
       };
-      const settle = () => {
-        notifyIfSilent();
-        finish();
+      const settle = (result = {}) => {
+        if (!result.handoff) notifyIfSilent();
+        finish(null, result);
       };
       const off = this.onEvent((event) => {
         for (const frame of mapRpcEventToSse(event)) {
@@ -605,23 +608,26 @@ export class PiCocRpcHost {
             sawPlayerText = true;
           } else if (frame.event === "error") {
             sawError = true;
+          } else if (frame.event === "coc_setup_handoff") {
+            if (sawHandoff) continue;
+            sawHandoff = true;
           }
           onSse?.(frame);
         }
-        if (this.settleGeneration > startGen) settle();
+        if (this.settleGeneration > startGen) settle({ handoff: sawHandoff });
       });
       if (this.settleGeneration > startGen) {
-        settle();
+        settle({ handoff: sawHandoff });
         return;
       }
-      const timer = setInterval(() => {
+      timer = setInterval(() => {
         if (this.settleGeneration > startGen) {
-          settle();
+          settle({ handoff: sawHandoff });
         } else if (this.abortGeneration > abortAt) {
           finish(this.#abortedError());
         } else if (this.closed) {
           if (this.isHandoffShutdown()) {
-            settle();
+            settle({ handoff: true });
           } else {
             finish(new PiCocRpcError("pi-coc RPC exited during turn"));
           }
@@ -632,20 +638,47 @@ export class PiCocRpcHost {
     });
   }
 
-  async attachOpening({ onSse, timeoutMs = 900_000 } = {}) {
+  async attachOpening({
+    onSse,
+    timeoutMs = 900_000,
+    requireVisibleText = false,
+  } = {}) {
+    let sawVisibleText = false;
+    const relay = (frame) => {
+      if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
+        sawVisibleText = true;
+      }
+      onSse?.(frame);
+    };
+    const finish = (opened) => {
+      if (requireVisibleText && !sawVisibleText) {
+        throw new PiCocRpcError("开桌会话未产出玩家可见文本。", {
+          kind: "pi_coc_opening_not_visible",
+        });
+      }
+      return { opened };
+    };
     if (this.settleGeneration > 0 && !this.streaming) {
-      return { opened: true };
+      if (requireVisibleText) {
+        this.#replaySse(relay);
+        if (!sawVisibleText) this.#replaySessionAssistant(relay);
+      }
+      return finish(true);
     }
-    const replayed = this.#replaySse(onSse);
+    const replayed = this.#replaySse(relay);
     if (this.streaming) {
-      await this.#waitSettleAfter(this.settleGeneration, onSse, timeoutMs);
-      return { opened: true };
+      await this.#waitSettleAfter(this.settleGeneration, relay, timeoutMs, {
+        suppressSilentNotice: requireVisibleText,
+      });
+      return finish(true);
     }
     const intent = await this.waitForUiIntent(45_000);
     if (intent === "auto-open" || this.streaming) {
       const startGen = this.settleGeneration;
       const abortAt = this.abortGeneration;
-      const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs);
+      const settled = this.#waitSettleAfter(startGen, relay, timeoutMs, {
+        suppressSilentNotice: requireVisibleText,
+      });
       const startDeadline = Date.now() + 60_000;
       while (!this.streaming && this.settleGeneration === startGen
         && this.abortGeneration === abortAt
@@ -654,13 +687,13 @@ export class PiCocRpcHost {
       }
       if (this.abortGeneration > abortAt || this.streaming || this.settleGeneration > startGen) {
         await settled;
-        return { opened: true };
+        return finish(true);
       }
     }
-    if (this.#replaySessionAssistant(onSse)) {
-      return { opened: true };
+    if (this.#replaySessionAssistant(relay)) {
+      return finish(true);
     }
-    return { opened: replayed };
+    return finish(replayed);
   }
 
   async prompt(message, { onSse, timeoutMs = 900_000 } = {}) {
@@ -671,8 +704,14 @@ export class PiCocRpcHost {
       message: String(message ?? ""),
     };
     if (this.streaming) payload.streamingBehavior = "followUp";
-    await this.#request(payload, 15_000);
-    await settled;
+    try {
+      await this.#request(payload, 15_000);
+    } catch (err) {
+      if (err?.kind !== "pi_coc_rpc_handoff") throw err;
+      const result = await settled;
+      return { ...result, handoff: true };
+    }
+    return await settled;
   }
 
   async abort() {

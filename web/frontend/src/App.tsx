@@ -181,7 +181,6 @@ export default function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   const [transition, setTransition] = useState(initialTransitionState);
-  const attachAfterHandoffRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   /** Live keeper-turn step feed (one entry per tool start, closed on end). */
   const [toolSteps, setToolSteps] = useState<
@@ -212,13 +211,9 @@ export default function App() {
         transitioning: Boolean(nextState.transitioning),
       }),
     );
-    if (nextState.transitioning === true) {
-      attachAfterHandoffRef.current = true;
-    }
   }, []);
 
   const noteHandoff = useCallback((payload: unknown) => {
-    attachAfterHandoffRef.current = true;
     setTransition((prev) =>
       reduceTransition(prev, {
         kind: "handoff",
@@ -766,14 +761,6 @@ export default function App() {
     };
   }, [applyGameState, session, transition.phase]);
 
-  useEffect(() => {
-    if (transition.phase !== "idle" || !attachAfterHandoffRef.current) return;
-    const campaignId = session?.campaign_id ?? transition.campaignId;
-    if (!campaignId) return;
-    attachAfterHandoffRef.current = false;
-    void openCampaign(campaignId);
-  }, [openCampaign, session?.campaign_id, transition.campaignId, transition.phase]);
-
   const send = useCallback(
     async (text: string, playerIntent?: PlayerIntent) => {
       const active = session;
@@ -1035,7 +1022,6 @@ export default function App() {
           setSession(null);
           setState(null);
           setTransition(initialTransitionState);
-          attachAfterHandoffRef.current = false;
           setMessages([]);
           localStorage.removeItem(LS.campaign);
         }

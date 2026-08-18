@@ -83,7 +83,7 @@ export class CampaignHostOrchestrator {
     this.#status = new Map();
     this.#handoffPromises = new Map();
     this.createHost = createHost;
-    this.attachFn = attachFn || ((host) => host.attachOpening());
+    this.attachFn = attachFn || ((host, opts) => host.attachOpening(opts));
     this.resolveRoleFn = resolveRoleFn || defaultResolveSessionRole;
     this.lastHandoff = new Map();
     this.#listeners = new Set();
@@ -141,6 +141,8 @@ export class CampaignHostOrchestrator {
     host.onEvent((event) => {
       const handoff = parseSetupHandoffEvent(event);
       if (handoff) {
+        // Respawn immediately, but do not consume the play opening here: the
+        // still-open HTTP turn must receive that narration on its own SSE.
         this.beginHandoff(campaignId, { reason: "event", handoff }).catch(() => {});
         return;
       }
@@ -220,6 +222,57 @@ export class CampaignHostOrchestrator {
     }
   }
 
+  async completeHandoffOpening(campaignId, { reason, handoff, onSse } = {}) {
+    let host;
+    const inflight = this.#handoffPromises.get(campaignId);
+    if (inflight) {
+      host = await inflight;
+    } else {
+      const row = this.#status.get(campaignId);
+      const current = this.hosts.get(campaignId);
+      const alreadyRespawned = Boolean(
+        row?.transitioning
+        && row?.session_role === "play"
+        && current
+        && !current.closed,
+      );
+      host = alreadyRespawned
+        ? current
+        : await this.beginHandoff(campaignId, { reason, handoff });
+    }
+    if (!host || host.closed) {
+      throw this.#handoffError(new Error("开桌宿主未启动。"));
+    }
+    const row = this.#status.get(campaignId);
+    if (row?.openingAttached && !row.transitioning) return host;
+    try {
+      await this.attachFn(host, {
+        onSse,
+        requireVisibleText: true,
+      });
+    } catch (err) {
+      this.#setStatus(campaignId, { transitioning: false });
+      this.#emitTransition(campaignId, { reason: "failed", error: String(err) });
+      throw this.#handoffError(err);
+    }
+    this.#setStatus(campaignId, {
+      session_role: "play",
+      transitioning: false,
+      openingAttached: true,
+    });
+    this.#emitTransition(campaignId, { reason: "opening_visible" });
+    return host;
+  }
+
+  #handoffError(err) {
+    if (err?.code === "session_handoff_failed") return err;
+    const detail = String(err?.message || err || "未知错误");
+    const wrapped = new Error(`建卡到开桌交接失败：${detail}`);
+    wrapped.code = "session_handoff_failed";
+    wrapped.cause = err;
+    return wrapped;
+  }
+
   async #runHandoff(campaignId, { reason, handoff } = {}) {
     this.#setStatus(campaignId, { transitioning: true });
     if (handoff) this.lastHandoff.set(campaignId, handoff);
@@ -258,18 +311,17 @@ export class CampaignHostOrchestrator {
       }
       this.hosts.delete(campaignId);
       const { host } = await this.acquire(campaignId, opts, { exclusive: true, reuse: false });
-      try {
-        await this.attachFn(host);
-      } catch {
-        /* attach is best-effort; host is already ready */
-      }
-      this.#setStatus(campaignId, { session_role: sessionRole, transitioning: false });
-      this.#emitTransition(campaignId, { reason: "attached" });
+      this.#setStatus(campaignId, {
+        session_role: sessionRole,
+        transitioning: true,
+        openingAttached: false,
+      });
+      this.#emitTransition(campaignId, { reason: "respawned" });
       return host;
     } catch (err) {
       this.#setStatus(campaignId, { transitioning: false });
       this.#emitTransition(campaignId, { reason: "failed", error: String(err) });
-      throw err;
+      throw this.#handoffError(err);
     }
   }
 }

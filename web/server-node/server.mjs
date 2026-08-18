@@ -24,6 +24,7 @@ import {
 } from "./session-handoff.mjs";
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
+import { finishPromptTurn } from "./turn-flow.mjs";
 import {
   campaignDir,
   combatInitiativeDisplay,
@@ -910,51 +911,15 @@ async function handleTurn(req, res, sid) {
     sseWrite(res, event, data);
     return true;
   };
-
-  try {
-    let host = HOSTS.get(info.campaign_id);
-    if (
-      host?.isHandoffShutdown?.()
-      || orchestrator.isTransitioning(info.campaign_id)
-    ) {
-      await orchestrator.beginHandoff(info.campaign_id, { reason: "turn_wait" });
-      host = HOSTS.get(info.campaign_id);
-    }
-    if (!host || host.closed) {
-      throw new PiCocRpcError("pi-coc 宿主未启动；请刷新后重开战役。");
-    }
-    safeWrite("status", { phase: "accepted" });
-    const onSse = (frame) => safeWrite(frame.event, frame.data);
-    if (provider && model) {
-      try {
-        await host.setModel(provider, model);
-      } catch (err) {
-        safeWrite("error", { message: `无法切换模型：${err?.message || err}` });
-        return;
-      }
-    }
-    if (thinking) await host.setThinking(thinking);
-    if (attach) {
-      await host.attachOpening({ onSse });
-    } else {
-      await host.prompt(playerInput, { onSse });
-    }
-    if (host.isHandoffShutdown?.()) {
-      safeWrite("coc_setup_handoff", {
-        type: "coc_setup_handoff",
-        campaign_id: info.campaign_id,
-        reason: "exit_42",
-      });
-      await orchestrator.beginHandoff(info.campaign_id, { reason: "exit_42" });
-      host = HOSTS.get(info.campaign_id) || host;
-    }
+  const onSse = (frame) => safeWrite(frame.event, frame.data);
+  const finalize = async (activeHost) => {
     let state;
     try {
       state = await statePayload(info);
     } catch (err) {
       state = { error: `${err?.constructor?.name || "Error"}: ${err?.message || err}` };
     }
-    const usage = host.lastUsage;
+    const usage = activeHost.lastUsage;
     safeWrite("turn", {
       events: [],
       state,
@@ -966,28 +931,66 @@ async function handleTurn(req, res, sid) {
         : lastTelemetryUsage(info.campaign_id),
     });
     safeWrite("end", {});
+  };
+
+  try {
+    let host = HOSTS.get(info.campaign_id);
+    let handoffOpeningCompleted = false;
+    if (
+      host?.isHandoffShutdown?.()
+      || orchestrator.isTransitioning(info.campaign_id)
+    ) {
+      host = await orchestrator.completeHandoffOpening(info.campaign_id, {
+        reason: "turn_wait",
+        onSse,
+      });
+      handoffOpeningCompleted = true;
+    }
+    if (!host || host.closed) {
+      throw new PiCocRpcError("pi-coc 宿主未启动；请刷新后重开战役。");
+    }
+    safeWrite("status", { phase: "accepted" });
+    if (provider && model) {
+      try {
+        await host.setModel(provider, model);
+      } catch (err) {
+        safeWrite("error", { message: `无法切换模型：${err?.message || err}` });
+        return;
+      }
+    }
+    if (thinking) await host.setThinking(thinking);
+    let promptResult = {};
+    if (attach) {
+      if (!handoffOpeningCompleted) await host.attachOpening({ onSse });
+    } else {
+      promptResult = (await host.prompt(playerInput, { onSse })) || {};
+    }
+    host = await finishPromptTurn({
+      host,
+      promptResult,
+      campaignId: info.campaign_id,
+      orchestrator,
+      onSse,
+      finalize,
+    });
   } catch (err) {
     if (err?.kind === "pi_coc_rpc_aborted") {
       safeWrite("end", { aborted: true });
     } else if (err?.kind === "pi_coc_rpc_handoff") {
-      safeWrite("coc_setup_handoff", {
-        type: "coc_setup_handoff",
-        campaign_id: info.campaign_id,
-        reason: "exit_42",
-      });
       try {
-        await orchestrator.beginHandoff(info.campaign_id, { reason: "exit_42" });
-      } catch {
-        /* respawn is best-effort; interlude already shown */
+        await finishPromptTurn({
+          host: HOSTS.get(info.campaign_id),
+          promptResult: { handoff: true },
+          campaignId: info.campaign_id,
+          orchestrator,
+          onSse,
+          finalize,
+        });
+      } catch (handoffErr) {
+        safeWrite("error", { message: handoffErr?.message || String(handoffErr) });
       }
-      let state;
-      try {
-        state = await statePayload(info);
-      } catch (stateErr) {
-        state = { error: `${stateErr?.message || stateErr}` };
-      }
-      safeWrite("turn", { events: [], state });
-      safeWrite("end", {});
+    } else if (err?.code === "session_handoff_failed") {
+      safeWrite("error", { message: err.message });
     } else {
       safeWrite("error", { message: playerVisibleTurnError(err) });
     }
