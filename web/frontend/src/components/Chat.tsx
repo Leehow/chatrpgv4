@@ -9,6 +9,12 @@ import { ModelMenu } from "./ModelMenu";
 import { ThinkingMenu } from "./ThinkingMenu";
 import { toolToStatus, trailToCurrentStatus } from "../toolStatus";
 import type { ChatMessage, KeeperContentBlock, ModelsResponse, PendingChoice, PlayerIntent, RollDisplay, ToolStep } from "../types";
+import {
+  COMPOSER_PLACEHOLDER,
+  INTERLUDE_COPY,
+  STALLED_COPY,
+  type TransitionPhase,
+} from "../session-transition";
 
 /** One-click default game offered on the waiting screen: preset starter +
  *  KP-guided investigator creation, straight into play. */
@@ -53,6 +59,9 @@ interface Props {
   thinkingLevels?: string[];
   onModelChange: (provider: string, model: string) => void;
   onThinkingChange: (level: string) => void;
+  /** setup→play interlude; idle hides the card. */
+  transitionPhase?: TransitionPhase;
+  onRetryHandoff?: () => void;
 }
 
 /** Type out `text` character-by-character; restarts when `text` changes. */
@@ -1009,6 +1018,8 @@ export function Chat({
   thinkingLevels,
   onModelChange,
   onThinkingChange,
+  transitionPhase = "idle",
+  onRetryHandoff,
 }: Props) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1043,9 +1054,10 @@ export function Chat({
     el.scrollTo({ top: el.scrollHeight, behavior: streaming ? "auto" : "smooth" });
   }, [messages, toolTrail, statusLine, busy]);
 
+  const handoffLocked = transitionPhase !== "idle";
   const submit = () => {
     const text = draft.trim();
-    if (!text || busy || !connected) return;
+    if (!text || busy || !connected || handoffLocked) return;
     setDraft("");
     nearBottomRef.current = true;
     onSend(text);
@@ -1213,6 +1225,25 @@ export function Chat({
             <ThinkingFeed text={kpThinking} />
           )}
 
+          {connected && transitionPhase !== "idle" && (
+            <div className="rounded-2xl border border-primary/30 bg-primary/5 px-5 py-6 text-center shadow-sm">
+              <p className="font-display text-lg text-foreground">{INTERLUDE_COPY}</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                烛火还在另一侧。调查员已经站好，桌面尚未铺开。
+              </p>
+              {transitionPhase === "stalled" && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-sm text-warning">{STALLED_COPY}</p>
+                  {onRetryHandoff && (
+                    <Button size="sm" variant="outline" onClick={onRetryHandoff}>
+                      再请守秘人开桌
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {connected && !busy && choices.length > 0 && (
             pendingChoice?.kind === "combat_defense" && pendingChoice.combat_context ? (
               <CombatDefenseChoices
@@ -1274,11 +1305,13 @@ export function Chat({
               placeholder={
                 !connected
                   ? "先选择一场战役"
-                  : setupPending
-                    ? "回答守秘人的建卡问题…"
-                    : "描述你的行动…"
+                  : handoffLocked
+                    ? COMPOSER_PLACEHOLDER
+                    : setupPending
+                      ? "回答守秘人的建卡问题…"
+                      : "描述你的行动…"
               }
-              disabled={!connected || busy}
+              disabled={!connected || busy || handoffLocked}
               rows={2}
               className="min-h-12 resize-none rounded-none border-0 bg-transparent px-3.5 pt-3 pb-1 shadow-none transition-colors focus-visible:ring-0"
             />

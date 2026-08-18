@@ -357,6 +357,13 @@ export interface TurnHandlers {
   onError?: (message: string) => void;
   /** Advisory transparency notice (e.g. a turn settled with no visible text). */
   onNotice?: (message: string) => void;
+  /** Setup→play host handoff (customType coc_setup_handoff). */
+  onHandoff?: (payload: {
+    type: string;
+    campaign_id?: string;
+    receipt?: unknown;
+    at?: string | number;
+  }) => void;
 }
 
 /**
@@ -465,6 +472,13 @@ export async function streamTurn(
         handlers.onError?.(String(data.message ?? "未知错误"));
       } else if (event === "notice") {
         handlers.onNotice?.(String(data.message ?? ""));
+      } else if (event === "coc_setup_handoff" || data.type === "coc_setup_handoff") {
+        handlers.onHandoff?.({
+          type: "coc_setup_handoff",
+          campaign_id: typeof data.campaign_id === "string" ? data.campaign_id : undefined,
+          receipt: data.receipt,
+          at: data.at as string | number | undefined,
+        });
       } else if (event === "end") {
         return;
       }

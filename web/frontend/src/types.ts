@@ -260,6 +260,10 @@ export interface GameState {
   /** True while the linked investigator is the setup draft shell (creation
    *  guided in chat; its placeholder numbers are not a real sheet). */
   character_setup_pending?: boolean;
+  /** Host session role for this campaign (setup table vs play table). */
+  session_role?: "setup" | "play" | null;
+  /** True while setup→play attach is in flight. */
+  transitioning?: boolean;
   time?: TimeInfo | null;
   /** Canonical CoC DEX order for the active combat round. */
   combat?: CombatInitiative | null;
