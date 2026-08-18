@@ -250,7 +250,9 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "phases": ("live_turn", "pending_finalization", "opening"),
     },
     "setup.complete": {
-        "phases": ("cold_start", "opening"),
+        # live_turn: in-process chargen/link or session.resume can advance
+        # the host phase before handoff; setup.complete must still be legal.
+        "phases": ("cold_start", "opening", "live_turn"),
         "contract": "state",
     },
     "evidence.table_opening": {

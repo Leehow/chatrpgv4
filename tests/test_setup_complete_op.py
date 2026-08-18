@@ -147,6 +147,42 @@ def test_setup_complete_builtin_confirmed_is_idempotent(tmp_path: Path):
     assert replay["data"]["result"]["handoff"] == receipt
 
 
+def test_setup_complete_after_active_status_from_link_is_idempotent(tmp_path: Path):
+    """Chargen/link or compile_now may stamp status=active before handoff."""
+    campaign_id = "active-after-link"
+    campaign_dir = _make_campaign(tmp_path, campaign_id)
+    _link_investigator(tmp_path, campaign_id, "inv-ok")
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["status"] = "active"
+    campaign["active_subsystem"] = "play"
+    campaign_path.write_text(
+        json.dumps(campaign, indent=2) + "\n", encoding="utf-8",
+    )
+    first = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-active"},
+    )
+    assert first["ok"] is True, first
+    result = first["data"]["result"]
+    assert result["ready_for_table"] is True
+    written = json.loads(campaign_path.read_text(encoding="utf-8"))
+    assert written["status"] == "ready_for_table"
+    receipt = written["setup_handoff"]
+    assert receipt["decision_id"] == "handoff-active"
+    assert receipt["investigator_ids"] == ["inv-ok"]
+    replay = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-active"},
+    )
+    assert replay["ok"] is True, replay
+    assert replay["data"]["result"]["handoff"] == receipt
+
+
 def test_setup_complete_source_bound_projected_succeeds(tmp_path: Path):
     campaign_id = "src-ready"
     campaign_dir = _make_campaign(tmp_path, campaign_id)

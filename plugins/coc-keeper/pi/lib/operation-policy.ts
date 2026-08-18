@@ -644,7 +644,8 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "audience": "setup",
     "phases": [
       "cold_start",
-      "opening"
+      "opening",
+      "live_turn"
     ],
     "contract": "state",
     "advisory": false,
