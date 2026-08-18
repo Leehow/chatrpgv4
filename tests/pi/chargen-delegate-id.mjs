@@ -11,6 +11,7 @@ const {
   allocateInvestigatorId,
   isGenericInvestigatorPlaceholder,
   parseChargenClerkBrief,
+  planChargenSkillLists,
   runChargenInProcess,
 } = await import(`${clerkUrl}?chargen-id=${Date.now()}`);
 
@@ -82,8 +83,64 @@ await runChargenInProcess({
 });
 assert.deepEqual(explicitCalls, ["inv-explicit-keep"]);
 
+const focus = ["Library Use", "History", "Spot Hidden"];
+const support = [
+  "Photography", "Appraise", "Psychology", "Listen", "Dodge", "Fast Talk",
+  "Accounting",
+];
+const planned = planChargenSkillLists(parseChargenClerkBrief({
+  name: "顾南舟",
+  occupation_or_concept: "旧书商",
+  assignment_priority: "INT EDU POW DEX CON APP SIZ STR",
+  occupation_skill_names: focus,
+  interest_skill_names: support,
+}));
+assert.deepEqual(planned.occupation_skill_names.slice(0, 3), focus);
+assert.ok(planned.occupation_skill_names.length > 3);
+for (const skill of focus) {
+  assert.ok(planned.occupation_skill_names.includes(skill));
+}
+
+const nanZhouCalls = [];
+const nanZhou = await runChargenInProcess({
+  campaignId: "the-haunting-qs-msyp17l9",
+  brief: parseChargenClerkBrief({
+    name: "顾南舟",
+    occupation_or_concept: "旧书商",
+    assignment_priority: "INT,EDU,POW,DEX,CON,APP,SIZ,STR",
+    occupation_skill_names: focus,
+    interest_skill_names: support,
+  }),
+  callTool: async (op, args) => {
+    nanZhouCalls.push({ op, args });
+    return {
+      ok: true,
+      data: {
+        result: {
+          ok: true,
+          investigator_id: args.investigator_id,
+          occupation_skill_names: args.occupation_skill_names,
+        },
+      },
+    };
+  },
+});
+assert.equal(nanZhouCalls.length, 1);
+assert.equal(nanZhouCalls[0].op, "setup.chargen_run");
+assert.notEqual(nanZhouCalls[0].args.investigator_id, "inv-investigator");
+assert.deepEqual(
+  nanZhouCalls[0].args.occupation_skill_names.slice(0, 3),
+  focus,
+);
+assert.ok(nanZhouCalls[0].args.occupation_skill_names.length > 3);
+assert.equal(nanZhouCalls.some((row) => row.op === "setup.complete"), false);
+assert.equal(nanZhou.investigator_id, nanZhouCalls[0].args.investigator_id);
+
 process.stdout.write(JSON.stringify({
   ok: true,
   allocated: a,
   otherCampaign: b,
+  focusPreserved: true,
+  delegateOnly: true,
+  occupationCount: nanZhouCalls[0].args.occupation_skill_names.length,
 }));
