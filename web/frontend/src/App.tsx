@@ -13,6 +13,12 @@ import { GuidedStart } from "./components/GuidedStart";
 import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
 import { Panel, PanelContent } from "./components/Panel";
 import { effectiveThinkingLevel } from "./model-thinking";
+import {
+  handoffCampaignId,
+  initialTransitionState,
+  isHandoffEvent,
+  reduceTransition,
+} from "./session-transition";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -174,6 +180,8 @@ export default function App() {
   const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [state, setState] = useState<GameState | null>(null);
+  const [transition, setTransition] = useState(initialTransitionState);
+  const attachAfterHandoffRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   /** Live keeper-turn step feed (one entry per tool start, closed on end). */
   const [toolSteps, setToolSteps] = useState<
@@ -193,6 +201,31 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const openingRef = useRef<string | null>(null);
   const lastRefreshAtRef = useRef(0);
+
+  const applyGameState = useCallback((nextState: GameState | null | undefined) => {
+    if (!nextState || nextState.error) return;
+    setState(nextState);
+    setTransition((prev) =>
+      reduceTransition(prev, {
+        kind: "campaign_status",
+        session_role: nextState.session_role ?? null,
+        transitioning: Boolean(nextState.transitioning),
+      }),
+    );
+    if (nextState.transitioning === true) {
+      attachAfterHandoffRef.current = true;
+    }
+  }, []);
+
+  const noteHandoff = useCallback((payload: unknown) => {
+    attachAfterHandoffRef.current = true;
+    setTransition((prev) =>
+      reduceTransition(prev, {
+        kind: "handoff",
+        campaign_id: handoffCampaignId(payload),
+      }),
+    );
+  }, []);
   /* Pure UI state (layout only — no effect on the session state machine). */
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -377,7 +410,7 @@ export default function App() {
           thinking: effectiveThinking,
         });
         setSession(info);
-        setState(info.state);
+        applyGameState(info.state);
         const sameCampaign = !session || session.campaign_id === campaignId;
         let hydrated = false;
         try {
@@ -471,12 +504,16 @@ export default function App() {
               liveUsageRef.current = value;
               setLiveUsage(value);
             },
-            onTurn: ({ state: nextState }) => {
-              if (nextState && !nextState.error) setState(nextState);
+            onTurn: ({ events, state: nextState }) => {
+              if (nextState && !nextState.error) applyGameState(nextState);
+              for (const ev of events || []) {
+                if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
+              }
               setToolSteps([]);
               setLiveUsage(null);
               liveUsageRef.current = null;
             },
+            onHandoff: (payload) => noteHandoff(payload),
             onError: (message) => {
               setMessages((prev) => {
                 const next = [...prev];
@@ -559,7 +596,7 @@ export default function App() {
         openingRef.current = null;
       }
     },
-    [effectiveThinking, model, provider, session],
+    [applyGameState, effectiveThinking, model, noteHandoff, provider, session],
   );
 
   // Leave the new-campaign form as soon as a session exists so the
@@ -662,7 +699,7 @@ export default function App() {
         sid = reopened.session_id;
         nextState = reopened.state;
       }
-      setState(nextState);
+      applyGameState(nextState);
       const t = await api.fetchTranscript(sid);
       replaceMessagesFromTranscript(setMessages, t.messages, true);
       lastRefreshAtRef.current = Date.now();
@@ -671,7 +708,7 @@ export default function App() {
     } finally {
       setBusy(false);
     }
-  }, [busy, effectiveThinking, model, provider, session]);
+  }, [applyGameState, busy, effectiveThinking, model, provider, session]);
 
   // Sidebar consumable use: one canonical state.item_use through the bridge,
   // then the response's fresh state replaces the panel (used-up items vanish).
@@ -702,10 +739,45 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refresh]);
 
+  useEffect(() => {
+    if (transition.phase !== "interlude") return;
+    const id = window.setInterval(() => {
+      setTransition((prev) => reduceTransition(prev, { kind: "tick", now: Date.now() }));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [transition.phase]);
+
+  useEffect(() => {
+    if (transition.phase === "idle" || !session) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const next = await api.fetchState(session.session_id);
+        if (!cancelled) applyGameState(next);
+      } catch {
+        /* session id may rotate during attach */
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [applyGameState, session, transition.phase]);
+
+  useEffect(() => {
+    if (transition.phase !== "idle" || !attachAfterHandoffRef.current) return;
+    const campaignId = session?.campaign_id ?? transition.campaignId;
+    if (!campaignId) return;
+    attachAfterHandoffRef.current = false;
+    void openCampaign(campaignId);
+  }, [openCampaign, session?.campaign_id, transition.campaignId, transition.phase]);
+
   const send = useCallback(
     async (text: string, playerIntent?: PlayerIntent) => {
       const active = session;
-      if (!active || busy || !text.trim()) return;
+      if (!active || busy || !text.trim() || transition.phase !== "idle") return;
       setBusy(true);
       setError(null);
       setToolSteps([]);
@@ -834,11 +906,15 @@ export default function App() {
             }
             return next;
           });
-          if (nextState && !nextState.error) setState(nextState);
+          if (nextState && !nextState.error) applyGameState(nextState);
+          for (const ev of events || []) {
+            if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
+          }
           setToolSteps([]);
           setLiveUsage(null);
           liveUsageRef.current = null;
         },
+        onHandoff: (payload) => noteHandoff(payload),
         onError: (message) => {
           const finishedAt = Date.now();
           setMessages((prev) => {
@@ -922,7 +998,7 @@ export default function App() {
       }
       setBusy(false);
     },
-    [session, busy, provider, model, effectiveThinking],
+    [session, busy, provider, model, effectiveThinking, applyGameState, noteHandoff, transition.phase],
   );
 
   /** Stop the in-flight keeper turn on the host, then drop the live stream. */
@@ -958,6 +1034,8 @@ export default function App() {
           turnAbortRef.current?.abort();
           setSession(null);
           setState(null);
+          setTransition(initialTransitionState);
+          attachAfterHandoffRef.current = false;
           setMessages([]);
           localStorage.removeItem(LS.campaign);
         }
@@ -1251,6 +1329,12 @@ export default function App() {
                 setModel(m);
               }}
               onThinkingChange={setThinking}
+              transitionPhase={transition.phase}
+              onRetryHandoff={() => {
+                setTransition((prev) => reduceTransition(prev, { kind: "retry" }));
+                if (!session) return;
+                void api.fetchState(session.session_id).then(applyGameState).catch(() => undefined);
+              }}
             />
           )}
 
