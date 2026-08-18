@@ -15,6 +15,7 @@ import {
   type PlayPhase,
   type SessionRole,
 } from "./operation-policy.ts";
+import { extraToolsForSessionRole } from "./session-role-tools.ts";
 
 export {
   DOMAIN_TOOL_NAMES,
@@ -234,19 +235,24 @@ export function activeToolsForPhase(phase: PlayPhase, role?: SessionRole | null)
     ];
   }
   const sessionRole = role === undefined ? sessionRoleFromEnv() : role;
-  if (!sessionRole) return tools;
-  return tools.filter((name) => {
-    if (!(DOMAIN_TOOL_NAMES as readonly string[]).includes(name)) return true;
-    const surface = SURFACE_BY_TOOL[name as DomainToolName];
-    return OPERATIONS_BY_SURFACE[surface].some((operation) => {
-      const policy = OPERATION_POLICY[operation];
-      return (
-        policy
-        && policy.phases.includes(phase)
-        && operationAllowedForSessionRole(operation, policy, sessionRole)
-      );
+  if (sessionRole) {
+    tools = tools.filter((name) => {
+      if (!(DOMAIN_TOOL_NAMES as readonly string[]).includes(name)) return true;
+      const surface = SURFACE_BY_TOOL[name as DomainToolName];
+      return OPERATIONS_BY_SURFACE[surface].some((operation) => {
+        const policy = OPERATION_POLICY[operation];
+        return (
+          policy
+          && policy.phases.includes(phase)
+          && operationAllowedForSessionRole(operation, policy, sessionRole)
+        );
+      });
     });
-  });
+  }
+  for (const extra of extraToolsForSessionRole(sessionRole)) {
+    if (!tools.includes(extra)) tools.push(extra);
+  }
+  return tools;
 }
 
 function resumeSignalsIncompleteOpening(

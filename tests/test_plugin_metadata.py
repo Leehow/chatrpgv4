@@ -2018,6 +2018,28 @@ def test_required_canonical_skills_are_present():
     assert COC7_RULE_SKILLS <= pack_names
 
 
+def test_coc_character_skill_quick_fire_fields_match_create_contract():
+    contract = _json(
+        PLUGIN_ROOT / "rulesets" / "coc7" / "investigator-create-contract.json"
+    )
+    payload = contract["payload_schema"]
+    qf = payload["oneOf"][0]
+    defs = payload["$defs"]
+    top = set(qf["required"])
+    sheet_req = set(defs["quick_fire_sheet"]["required"])
+    creation_req = set(defs["quick_fire_creation"]["required"])
+    skill = _text(COC7_SKILL_PACK / "coc-character" / "SKILL.md")
+    qf_section = skill.split("**Quick Fire deterministic materialization:**", 1)[1]
+    qf_section = qf_section.split("- **Quick-Fire Luck:**", 1)[0]
+    for name in sorted(top | sheet_req | {"characteristic_assignment_order", "skill_budget", "input_mode"}):
+        assert f"`{name}`" in qf_section or name in qf_section, name
+    assert "Do not send top-level `name`, `occupation`," in qf_section
+    assert "`assignment_order`" in qf_section.split("Do not send", 1)[1][:200]
+    assert "`creation.luck.auto_roll`" not in skill
+    assert "Allowed top-level keys are only `campaign_id`" in qf_section
+    assert creation_req >= {"input_mode", "method", "characteristic_assignment_order", "skill_budget"}
+
+
 def test_host_native_image_generation_is_explicitly_gated():
     character = _text(COC7_SKILL_PACK / "coc-character" / "SKILL.md")
     assert "HOST_NATIVE_IMAGEGEN_BEGIN" in character

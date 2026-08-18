@@ -159,3 +159,18 @@ test("invalid role env is treated as unset and warns", () => {
   assert.match(result.stderr, /COC_PI_SESSION_ROLE/);
   assert.match(result.stderr, /legacy/);
 });
+
+test("setup and unset role expose coc_chargen_delegate; play does not", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    assert.ok(
+      mod.activeToolsForPhase("recovery", "setup").includes("coc_chargen_delegate"),
+    );
+    assert.ok(
+      mod.activeToolsForPhase("opening", null).includes("coc_chargen_delegate"),
+    );
+    assert.ok(
+      !mod.activeToolsForPhase("live_turn", "play").includes("coc_chargen_delegate"),
+    );
+  });
+});

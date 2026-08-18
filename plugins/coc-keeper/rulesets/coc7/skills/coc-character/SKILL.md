@@ -55,11 +55,18 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   method in the creation draft and validate fixed/point-buy values with
   `../../../../scripts/coc_character.py`.
 - **Quick Fire deterministic materialization:** after semantic assignment,
-  submit `creation.input_mode="guided_quick_fire"` and
-  `creation.method="quick_fire_array"`. The Keeper's semantic payload is
-  investigator `name`, occupation, `characteristic_assignment_order` (the eight
-  unique canonical keys in descending array-slot priority), interest-point
-  allocations, and optionally `creation.luck={"mode":"auto_roll"}`. Do not
+  submit exactly the `investigator.create` payload contract (first `oneOf`
+  branch). Allowed top-level keys are only `campaign_id`, `investigator_id`,
+  `sheet`, and `creation`. Do not send top-level `name`, `occupation`,
+  `assignment_order`, or `interest_allocation_intent`.
+  `sheet` required keys: `id`, `name`, `skills`, `player_facing_sheet_zh`.
+  `creation` required keys: `input_mode` (`guided_quick_fire`), `method`
+  (`quick_fire_array`), `characteristic_assignment_order` (the eight unique
+  canonical keys in descending array-slot priority), `skill_budget`, plus
+  either `creation.luck={"mode":"auto_roll"}` (runtime fills Luck) or both
+  `luck_roll_total` and `luck_roll_receipt`. Occupation and interest points
+  live under `creation.skill_budget.occupation_points` /
+  `personal_interest_points` (`budget`, `spent`, `allocations`). Do not
   zip the fixed array or compute `INT*2` by hand. Runtime materializes
   characteristics from `[80,70,60,60,50,50,50,40]`, owns personal-interest
   `budget`/`spent` as materialized `INT*2` (aligns them when allocations sum to
