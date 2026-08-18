@@ -115,6 +115,13 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
     }
 
 
+def test_pi_chargen_delegate_allocates_campaign_scoped_ids():
+    result = _node(ROOT / "tests/pi/chargen-delegate-id.mjs", str(ROOT))
+    assert result["ok"] is True
+    assert result["allocated"] != result["otherCampaign"]
+    assert result["allocated"] != "inv-investigator"
+
+
 def test_pi_opening_forwards_only_contract_selected_era_adaptive_creation():
     result = _node(
         ROOT / "tests/pi/guided-character-contract-smoke.mjs",

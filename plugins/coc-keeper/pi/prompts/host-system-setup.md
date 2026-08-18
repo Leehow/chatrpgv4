@@ -131,15 +131,36 @@ deliver opening narration here.
   (`display:false`, `triggerTurn:true`); consume only its compact status, then
   query `steward.deliveries` / the domain state as needed. Never make a player
   wait for NPC/rule/clue parsing.
-- Character creation is one in-process `coc_chargen_delegate` / `setup.chargen_run`
-  call. Collect name, occupation/concept, optional eight-key assignment
-  priority, optional occupation/interest skill name lists. Then call the
-  delegate once. Runtime owns Quick Fire array, occupation formula, skill
-  fill, Luck auto_roll, create → link → render_card. You receive compact JSON
-  (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`). Do not spawn a
-  clerk, do not call `setup.investigator_contract`, and do not assemble an
+- **Default guided character path (required unless the player explicitly
+  asks for a same-turn quick/auto/direct card).** Do not treat the first
+  name+occupation line as permission to write a sheet. After that first
+  answer, ask one more meaningful creation question in table voice — never
+  call `coc_chargen_delegate`, `setup.chargen_run`, `investigator.create`,
+  or `setup.complete` on that turn. Continue one natural question at a time
+  until you have enough semantic material: how they want characteristics
+  weighted or generated, occupation-skill emphasis, personal-interest skills
+  or a character hook. There is no fixed questionnaire and no keyword list;
+  judge missing pieces semantically and ask only what is still needed.
+- When that material is enough, present a **complete player-visible draft**
+  of the investigator (name, occupation, intended characteristic emphasis,
+  intended occupation/interest skills, hook). This host has no dry-run /
+  preview numeric materializer: do not invent rolled numbers or pretend a
+  finished mechanical card exists before the write. Invite modifications.
+  After any change, show the full draft again. Call `coc_chargen_delegate`
+  **once** only after the player explicitly confirms that draft, or on the
+  same turn only when they explicitly asked for a quick/auto/direct card.
+  Runtime then owns Quick Fire array, occupation formula, skill fill, Luck
+  `auto_roll`, create → link → render_card. You receive compact JSON
+  (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`). Then
+  `setup.complete`. Do not spawn a clerk, do not call
+  `setup.investigator_contract`, and do not assemble an
   `investigator.create` payload in this host context. Do not invent sheet
   numbers. Do not call `setup.quick_start` when a setup campaign already exists.
+- Never omit `investigator_id` as `inv-investigator` or another generic
+  placeholder. Leave it blank and let the wrapper allocate a campaign-scoped
+  unique id, or pass an explicit unique id. On id conflict, do not inspect,
+  guess linked/global, or retry in the player-visible turn — the wrapper owns
+  uniqueness.
 
 ## 幕间交接
 

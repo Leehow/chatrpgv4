@@ -22,6 +22,13 @@ export function isChargenClerkProcess(
   return false;
 }
 
+const GENERIC_INVESTIGATOR_IDS = new Set([
+  "investigator",
+  "inv-investigator",
+  "inv",
+  "inv-",
+]);
+
 export function slugInvestigatorToken(value: string): string {
   const slug = value
     .trim()
@@ -30,6 +37,40 @@ export function slugInvestigatorToken(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
   return slug || "investigator";
+}
+
+export function isGenericInvestigatorPlaceholder(
+  investigatorId: string | undefined,
+): boolean {
+  if (investigatorId === undefined) return true;
+  const token = investigatorId.trim().toLowerCase();
+  return token.length === 0 || GENERIC_INVESTIGATOR_IDS.has(token);
+}
+
+export function shortStableToken(value: string, length = 8): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0").slice(0, length);
+}
+
+export function allocateInvestigatorId(
+  campaignId: string,
+  name: string,
+  explicitId?: string,
+): string {
+  const explicit = (explicitId ?? "").trim();
+  if (explicit && !isGenericInvestigatorPlaceholder(explicit)) {
+    return explicit.slice(0, 128);
+  }
+  const nameSlug = slugInvestigatorToken(name);
+  const namePart = nameSlug === "investigator"
+    ? `x${shortStableToken(name.trim())}`
+    : nameSlug;
+  const campaignPart = shortStableToken(campaignId.trim() || "campaign");
+  return `inv-${namePart}-${campaignPart}`.slice(0, 128);
 }
 
 export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
@@ -89,8 +130,11 @@ export async function runChargenInProcess(options: {
       error: "pregen mode uses setup.quick_start, not setup.chargen_run",
     };
   }
-  const investigatorId = options.brief.investigator_id
-    || `inv-${slugInvestigatorToken(options.brief.name)}`;
+  const investigatorId = allocateInvestigatorId(
+    options.campaignId,
+    options.brief.name,
+    options.brief.investigator_id,
+  );
   const args: JsonObject = {
     campaign_id: options.campaignId,
     investigator_id: investigatorId,

@@ -8891,8 +8891,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       name: "coc_chargen_delegate",
       label: "COC chargen",
       description:
-        "Run in-process setup.chargen_run from a semantic brief. "
-        + "Do not assemble investigator.create. Setup role only.",
+        "Commit one in-process setup.chargen_run from a semantic brief after "
+        + "the player explicitly confirms the presented draft, or when they "
+        + "explicitly ask for a same-turn quick/auto card. Do not call on the "
+        + "first name+occupation line of the default guided path. Do not "
+        + "assemble investigator.create. Setup role only.",
       parameters: chargenDelegateSchema,
       ...compactToolRenderers("coc_chargen_delegate"),
       async execute(
