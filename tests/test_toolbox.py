@@ -1458,6 +1458,54 @@ def test_rules_roll_dice_same_seed_is_deterministic(campaign_ws):
     assert matching[0]["payload"]["roll_id"] == data["roll_id"]
 
 
+def test_parallel_chargen_roll_dice_receipts_are_isolated_by_decision_id(
+    campaign_ws,
+):
+    specs = [
+        ("qs-luck-eleanor", "investigator_creation_luck"),
+        ("qs-str-eleanor", "investigator_creation_characteristic"),
+        ("qs-con-eleanor", "investigator_creation_characteristic"),
+        ("qs-siz-eleanor", "investigator_creation_characteristic"),
+        ("qs-dex-eleanor", "investigator_creation_characteristic"),
+        ("qs-app-eleanor", "investigator_creation_characteristic"),
+        ("qs-int-eleanor", "investigator_creation_characteristic"),
+        ("qs-edu-eleanor", "investigator_creation_characteristic"),
+    ]
+
+    # Same-PID campaign_lock refuses nested wait; live KP bursts are sequential
+    # processes. The production failure was purpose-whitelisting, not lock loss.
+    results = [
+        _run(
+            campaign_ws,
+            "rules.roll_dice",
+            {
+                "expression": "3D6",
+                "decision_id": decision_id,
+                "purpose": purpose,
+                "reason": f"chargen {decision_id}",
+            },
+        )
+        for decision_id, purpose in specs
+    ]
+
+    assert all(row["ok"] is True for row in results), results
+    assert len({row["data"]["roll_id"] for row in results}) == 8
+    document = json.loads(
+        (
+            campaign_ws["campaign_dir"]
+            / "save"
+            / "roll-operation-receipts.json"
+        ).read_text(encoding="utf-8")
+    )
+    by_id = document["receipts"]["rules.roll_dice"]
+    assert set(by_id) >= {decision_id for decision_id, _purpose in specs}
+    for decision_id, purpose in specs:
+        receipt = by_id[decision_id]
+        assert receipt["decision_id"] == decision_id
+        assert receipt["operation"]["purpose"] == purpose
+        assert receipt["data"]["purpose"] == purpose
+
+
 def test_rules_opposed_requires_explicit_noncombat_domain_and_keeps_generic_tie(
     campaign_ws,
 ):
