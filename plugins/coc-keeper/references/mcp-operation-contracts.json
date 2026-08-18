@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b78a8a5ff199d6a64c51f9fcf4e8a39bbd7a4ae1a212a945b553f431029b600e",
+  "content_sha256": "sha256:b8637bc168d55e90c169d7f5bcb76a97463ec0169a04220a1d31dbcb59493100",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4277,7 +4277,7 @@
           },
           "payload": {
             "additionalProperties": false,
-            "description": "exact payload for the selected kind: campaign.create requires campaign_id/title and optionally ruleset_id/era/play_language/start_clock, and an omitted era stays unestablished rather than defaulting; actor.create requires campaign_id/actor_id/sheet and delegates validation to that campaign's ruleset; investigator.create requires investigator_id/sheet and optionally creation; deterministic Quick Fire additionally requires the current campaign_id and may omit sheet characteristics/derived when creation supplies characteristic_assignment_order, luck_roll_total, and that campaign's exact luck_roll_receipt; campaign.link_investigator requires exactly campaign_id/investigator_ids; scenario.bind_pdf requires campaign_id/scenario_id/title/source_bundle_path and optionally compile_now; playable-opening review authority is never a public setup payload; campaign.render_briefing requires campaign_id and optionally language; investigator.render_card requires campaign_id/investigator_id and optionally language/html_mode. Per-kind allowed fields are enforced by the canonical setup runtime. For installed-host progressive binding, omit compile_now or pass false; true requires the repository cold compiler runtime and is not part of the opening critical path",
+            "description": "exact payload for the selected kind: campaign.create requires campaign_id/title and optionally ruleset_id/era/play_language/start_clock, and an omitted era stays unestablished rather than defaulting; actor.create requires campaign_id/actor_id/sheet and delegates validation to that campaign's ruleset; investigator.create requires investigator_id/sheet and optionally creation; deterministic Quick Fire additionally requires the current campaign_id and may omit sheet characteristics/derived when creation supplies characteristic_assignment_order plus either luck auto_roll or luck_roll_total plus that campaign's exact luck_roll_receipt; semantic Quick Fire payload is name/occupation/assignment_order/interest allocations and optional creation.luck={mode:auto_roll} — runtime owns INT*2 budget and Luck receipt; campaign.link_investigator requires exactly campaign_id/investigator_ids; scenario.bind_pdf requires campaign_id/scenario_id/title/source_bundle_path and optionally compile_now; playable-opening review authority is never a public setup payload; campaign.render_briefing requires campaign_id and optionally language; investigator.render_card requires campaign_id/investigator_id and optionally language/html_mode. Per-kind allowed fields are enforced by the canonical setup runtime. For installed-host progressive binding, omit compile_now or pass false; true requires the repository cold compiler runtime and is not part of the opening critical path",
             "properties": {
               "actor_id": {
                 "type": "string"
@@ -4373,7 +4373,7 @@
     "setup.quick_start": {
       "access": "mutation",
       "canonical_operation": "setup.quick_start",
-      "description": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
+      "description": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4382,7 +4382,7 @@
             "type": "string"
           },
           "campaign_id": {
-            "description": "optional stable campaign id; omit to let the canonical starter choose one",
+            "description": "optional stable campaign id; omit to create {scenario_id}-qs. Forbidden when a setup campaign already exists",
             "type": "string"
           },
           "pregen_id": {
@@ -4420,7 +4420,7 @@
           "live_turn"
         ]
       },
-      "summary": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans."
+      "summary": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans."
     },
     "state.advance_time": {
       "access": "mutation",
