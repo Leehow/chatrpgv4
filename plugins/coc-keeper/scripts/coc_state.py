@@ -26,6 +26,16 @@ import coc_rulesets
 # Per-kind current schema versions. Persisted state is accepted only when it
 # matches these versions exactly. This project intentionally has no migration
 # registry or legacy reader.
+SESSION_ROLE_SETUP = "setup"
+SESSION_ROLE_PLAY = "play"
+# campaign.json status → pi-coc session role. Only ``setup`` stays in the
+# setup session; ready_for_table and every later existing status is play.
+CAMPAIGN_STATUS_TO_SESSION_ROLE: dict[str, str] = {
+    "setup": SESSION_ROLE_SETUP,
+    "ready_for_table": SESSION_ROLE_PLAY,
+    "active": SESSION_ROLE_PLAY,
+}
+
 CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
     # campaign 3: campaigns persist era provenance (``era_source``) so a raw-PDF
     # campaign cannot present a placeholder era as source-established fact.
@@ -1537,6 +1547,30 @@ def complete_setup_handoff(
         campaign["setup_handoff"] = receipt
         write_json_atomic(campaign_path, campaign)
         return receipt
+
+
+def infer_pi_session_role(root: Path, campaign_id: str) -> str:
+    """Return ``setup`` or ``play`` from canonical campaign.json status.
+
+    Missing campaign → setup (new table). Workspace that is not a directory
+    is a hard error. Unlisted statuses after the table exists map to play.
+    """
+    workspace = Path(root)
+    if not workspace.is_dir():
+        raise FileNotFoundError(f"workspace is not a directory: {workspace}")
+    if not isinstance(campaign_id, str) or _SAFE_ID.fullmatch(campaign_id) is None:
+        raise ValueError(f"invalid campaign_id: {campaign_id!r}")
+    campaign_dir = coc_root(workspace) / "campaigns" / campaign_id
+    campaign_path = campaign_dir / "campaign.json"
+    if not campaign_dir.is_dir() or not campaign_path.is_file():
+        return SESSION_ROLE_SETUP
+    campaign = load_campaign_state(campaign_dir)
+    status = campaign.get("status", "setup")
+    if not isinstance(status, str) or not status:
+        return SESSION_ROLE_SETUP
+    if status == "setup":
+        return SESSION_ROLE_SETUP
+    return CAMPAIGN_STATUS_TO_SESSION_ROLE.get(status, SESSION_ROLE_PLAY)
 
 
 def create_campaign(
