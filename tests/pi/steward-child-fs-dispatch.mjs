@@ -23,12 +23,11 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import os from "node:os";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const PI = process.env.PI_SUBAGENT_PI_BINARY || "/Users/haoli/.npm-global/bin/pi";
 const AGENT_HOME = process.env.PI_SUBAGENT_CHILD_TEST_AGENT_DIR
-  || path.join(os.homedir(), ".pi", "coc-agent");
+  || path.join(root, ".pi", "coc-agent");
 const stewardsAllowlist = "read,grep,find,bash,subagent,subagent_wait";
 
 const work = mkdtempSync(path.join(tmpdir(), "steward-bind-fs-"));

@@ -2111,6 +2111,17 @@ async function exerciseFailureDrain(mode) {
 {
   const campaignId = "semantic-readiness-no-gate";
   const harness = mainExtensionHarness((name, params) => {
+    if (name === "coc_invoke" && params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "awaiting_player",
+        },
+      };
+    }
     if (name === "coc_invoke" && params.operation === "scene.context") {
       return {
         ok: true,
@@ -2128,8 +2139,20 @@ async function exerciseFailureDrain(mode) {
       };
     }
     throw new Error(`unexpected semantic-readiness operation ${name}`);
-  });
+  }, { startupCampaignId: campaignId });
   await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "semantic-readiness-startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const scene = JSON.parse((await harness.registered.get("coc_invoke").execute(
     "semantic-readiness-scene-missing",
     {
@@ -2142,14 +2165,14 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   )).content[0].text);
-  const readinessAudit = harness.appended.find((entry) => (
+  const readinessAudit = [...harness.appended].reverse().find((entry) => (
     entry.name === "coc-semantic-readiness"
     && entry.value?.campaign_id === campaignId
   ));
   check("scene/source-material gap is recorded without a hard gate or dispatch",
     scene.ok === true
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "scene.context"
+      === "session.resume,scene.context"
     && harness.launches.length === 0
     && readinessAudit?.value?.semantic_compile?.status === "ready"
     && readinessAudit?.value?.current_scene_projection?.status === "missing"
@@ -2414,6 +2437,17 @@ async function exerciseFailureDrain(mode) {
   const task = coordinatorTask("coord-scene-priority-move", { campaignId });
   let statusCalls = 0;
   const harness = mainExtensionHarness((name, params) => {
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "awaiting_player",
+        },
+      };
+    }
     if (name !== "coc_invoke") throw new Error(`unexpected move priority tool ${name}`);
     if (params.operation === "state.move_scene") {
       return sourceBoundMoveResult(campaignId);
@@ -2426,8 +2460,20 @@ async function exerciseFailureDrain(mode) {
       return value;
     }
     throw new Error(`unexpected move priority operation ${params.operation}`);
-  });
+  }, { startupCampaignId: campaignId });
   await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "scene-priority-move-startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const moved = JSON.parse((await harness.registered.get("coc_invoke").execute(
     "scene-priority-move",
     {
@@ -2451,7 +2497,7 @@ async function exerciseFailureDrain(mode) {
     && moved.data.next_operation.hard_gate === false
     && !JSON.stringify(moved).includes('"hard_gate":true')
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "state.move_scene,progressive.status"
+      === "session.resume,state.move_scene,progressive.status"
     && harness.launches.join(",") === task.packet.packet_id
     && waiting?.message?.display === false
     && waiting?.message?.details?.scene_priority?.source_specific_facts
@@ -2474,6 +2520,17 @@ async function exerciseFailureDrain(mode) {
   const task = coordinatorTask("coord-scene-priority-context", { campaignId });
   let sceneReads = 0;
   const harness = mainExtensionHarness((name, params) => {
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "awaiting_player",
+        },
+      };
+    }
     if (name !== "coc_invoke") throw new Error(`unexpected context priority tool ${name}`);
     if (params.operation === "scene.context") {
       sceneReads += 1;
@@ -2492,9 +2549,20 @@ async function exerciseFailureDrain(mode) {
     if (params.operation === "secrets.briefing") {
       return { ok: true, tool: "secrets.briefing", data: { source_sections: [{ section_id: "synthetic-section", body: "keeper body", secret: true }] } };
     }
-    throw new Error(`unexpected context priority operation ${params.operation}`);
-  });
+  }, { startupCampaignId: campaignId });
   await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "scene-priority-context-startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const invoke = (id) => harness.registered.get("coc_invoke").execute(
     id,
     { operation: "scene.context", root, campaign: campaignId, arguments: {} },
@@ -2576,12 +2644,35 @@ async function exerciseFailureDrain(mode) {
 {
   const campaignId = "scene-priority-already-ready";
   const harness = mainExtensionHarness((name, params) => {
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "awaiting_player",
+        },
+      };
+    }
     if (name === "coc_invoke" && params.operation === "scene.context") {
       return sourceBoundReadySceneContext(campaignId);
     }
     throw new Error(`unexpected ready scene operation ${params.operation}`);
-  });
+  }, { startupCampaignId: campaignId });
   await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "scene-priority-ready-startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   await harness.registered.get("coc_invoke").execute(
     "scene-priority-ready",
     { operation: "scene.context", root, campaign: campaignId, arguments: {} },
@@ -2593,7 +2684,7 @@ async function exerciseFailureDrain(mode) {
   check("already-ready source scene dispatches zero priority work",
     harness.launches.length === 0
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "scene.context");
+      === "session.resume,scene.context");
   await harness.shutdown();
 }
 
@@ -2615,12 +2706,35 @@ async function exerciseFailureDrain(mode) {
     retry_exhausted: true,
   };
   const harness = mainExtensionHarness((name, params) => {
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "awaiting_player",
+        },
+      };
+    }
     if (name === "coc_invoke" && params.operation === "scene.context") {
       return sourceBoundMissingSceneContext(task);
     }
     throw new Error(`unexpected terminal scene operation ${params.operation}`);
-  });
+  }, { startupCampaignId: campaignId });
   await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "scene-priority-terminal-startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const invoke = (id) => harness.registered.get("coc_invoke").execute(
     id,
     { operation: "scene.context", root, campaign: campaignId, arguments: {} },
@@ -2675,6 +2789,17 @@ async function exerciseFailureDrain(mode) {
     campaignId: "scene-priority-current",
   });
   const harness = mainExtensionHarness((name, params) => {
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: active.packet.campaign_id,
+          mode: "awaiting_player",
+        },
+      };
+    }
     if (name !== "coc_invoke" || params.operation !== "scene.context") {
       throw new Error(`unexpected priority queue operation ${params.operation}`);
     }
@@ -2684,8 +2809,20 @@ async function exerciseFailureDrain(mode) {
       return sourceBoundMissingSceneContext(current);
     }
     throw new Error(`unexpected priority queue campaign ${params.campaign}`);
-  });
+  }, { startupCampaignId: active.packet.campaign_id });
   await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "scene-priority-queue-startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: active.packet.campaign_id,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   const invoke = (id, campaign) => harness.registered.get("coc_invoke").execute(
     id,
     { operation: "scene.context", root, campaign, arguments: {} },
@@ -8455,6 +8592,17 @@ for (const terminalCase of [
   const invalidation = deferredValue();
   let bootstrapCalls = 0;
   const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaignId,
+          mode: "awaiting_player",
+        },
+      };
+    }
     if (params.operation === "progressive.status") {
       return directTakeoverResult(activeTask);
     }
@@ -8474,8 +8622,20 @@ for (const terminalCase of [
         : openingBootstrapResult(openingTask);
     }
     throw new Error(`unexpected operation ${params.operation}`);
-  });
+  }, { startupCampaignId: campaignId });
   await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "gateway-pending-startup-resume",
+    {
+      operation: "session.resume",
+      root,
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
   await harness.registered.get("coc_invoke").execute(
     "gateway-pending-active-call",
     {
@@ -10459,6 +10619,17 @@ process.stdout.write(JSON.stringify({
   const fakeClient = {
     callTool: async (name, params) => {
       clientCalls.push({ name, params });
+      if (params?.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            campaign_id: "fixture",
+            mode: "awaiting_player",
+          },
+        };
+      }
       return directTakeoverResult(coordinatorTask("coord-extension-race"));
     },
     close: async () => { closeCalls += 1; },
@@ -10472,6 +10643,7 @@ process.stdout.write(JSON.stringify({
     shutdown: async () => {},
   };
   main.default(fakePi, {
+    startupCampaignId: () => "fixture",
     coordinatorEnabled: () => delayedEnabled,
     createClient: () => fakeClient,
     createManager: () => {
@@ -10494,6 +10666,13 @@ process.stdout.write(JSON.stringify({
   await mainSessionStart({ reason: "startup" }, ctx);
   check("KP active tools hide manual source dispatch",
     activeTools.at(-1)?.includes("coc_dispatch_source_work") === false);
+  await registered.get("coc_setup").execute(
+    "extension-race-startup-resume",
+    { operation: "session.resume", root, campaign: "fixture", arguments: {} },
+    undefined,
+    undefined,
+    ctx,
+  );
   await registered.get("coc_invoke").execute(
     "invoke-race",
     { operation: "scene.context", campaign: "fixture", arguments: {} },
@@ -10530,6 +10709,13 @@ process.stdout.write(JSON.stringify({
 
   // A real new session receives a fresh generation and can create one manager.
   await mainSessionStart({ reason: "new" }, ctx);
+  await registered.get("coc_setup").execute(
+    "extension-new-session-startup-resume",
+    { operation: "session.resume", root, campaign: "fixture", arguments: {} },
+    undefined,
+    undefined,
+    ctx,
+  );
   await registered.get("coc_invoke").execute(
     "invoke-new-session",
     { operation: "scene.context", campaign: "fixture", arguments: {} },
@@ -10563,7 +10749,9 @@ process.stdout.write(JSON.stringify({
   check("main KP cannot invoke private lease lifecycle operations",
     privateRejected && clientCalls.length === callsBeforePrivate);
   await shutdown({ reason: "quit" }, ctx);
-  check("main extension activated expected tool surface", activeTools.length === 2);
+  check("main extension activated expected tool surface",
+    activeTools.length === 4
+    && !activeTools.at(-1).includes("coc_setup"));
 }
 
 await exerciseFailureDrain("activation");

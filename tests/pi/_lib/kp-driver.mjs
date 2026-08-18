@@ -21,7 +21,7 @@ const rawMessages = process.argv[3] || "用一句话确认就绪。";
 const messages = rawMessages.split("|").map((s) => s.trim()).filter(Boolean);
 const PER_TURN_TIMEOUT_MS = Number(process.env.KP_TURN_TIMEOUT_MS || 240000);
 
-const agentDir = process.env.PI_COC_AGENT_DIR || path.join(process.env.HOME || "", ".pi/coc-agent");
+const agentDir = process.env.PI_COC_AGENT_DIR || path.join(repoRoot, ".pi", "coc-agent");
 
 const loader = new DefaultResourceLoader({
   cwd: repoRoot,

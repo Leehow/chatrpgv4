@@ -257,4 +257,14 @@ assert.equal(
   "pending_finalization",
 );
 
+assert.equal(mod.inferPhaseFromEnvelope("session.resume",
+  { ok: true, data: { mode: "awaiting_player", investigators: [] } }, "opening"), "opening");
+assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", investigators: [] }), "opening");
+assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", character_creation: {} }), "opening");
+assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", opening_gate: { phase: "opening_setup" } }), "opening");
+assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", investigators: [{ id: "inv-1" }] }), "live_turn");
+assert.equal(mod.inferPhaseFromEnvelope("session.resume", { ok: true }, "opening"), "opening");
+assert.equal(mod.inferPhaseFromEnvelope("session.resume", { ok: true }, "cold_start"), "opening");
+assert.equal(mod.inferPhaseFromEnvelope("session.resume", { ok: true }, "live_turn"), "live_turn");
+assert.ok(mod.activeToolsForPhase("opening").includes("coc_setup"));
 process.stdout.write(JSON.stringify({ ok: true }));

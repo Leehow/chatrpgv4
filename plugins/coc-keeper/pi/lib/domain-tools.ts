@@ -191,6 +191,23 @@ export function activeToolsForPhase(phase: PlayPhase): string[] {
   ];
 }
 
+function resumeSignalsIncompleteOpening(
+  data: Record<string, unknown>,
+  mode: string,
+): boolean {
+  if (mode.startsWith("opening_") || mode.includes("character_setup")) return true;
+  const gate = data.opening_gate && typeof data.opening_gate === "object"
+    && !Array.isArray(data.opening_gate)
+    ? data.opening_gate as Record<string, unknown>
+    : null;
+  const gatePhase = typeof gate?.phase === "string" ? gate.phase : "";
+  if (gatePhase.startsWith("opening_") || gatePhase.includes("character_setup")) return true;
+  if (Array.isArray(data.investigators) && data.investigators.length === 0) return true;
+  if (Array.isArray(data.party) && data.party.length === 0) return true;
+  if (data.character_creation && typeof data.character_creation === "object") return true;
+  return false;
+}
+
 export function playPhaseFromResumeData(data: Record<string, unknown> | null): PlayPhase | null {
   if (!data) return null;
   const mode = typeof data.mode === "string" ? data.mode : "";
@@ -198,6 +215,7 @@ export function playPhaseFromResumeData(data: Record<string, unknown> | null): P
     return "pending_finalization";
   }
   if (mode === "open_turn_recovery") return "recovery";
+  if (resumeSignalsIncompleteOpening(data, mode)) return "opening";
   if (mode === "already_acknowledged" || mode === "awaiting_player") return "live_turn";
   return null;
 }
@@ -216,7 +234,10 @@ export function inferPhaseFromEnvelope(
   if (operation === "session.resume") {
     const fromResume = playPhaseFromResumeData(data);
     if (fromResume !== null) return fromResume;
-    if (envelope?.ok === true) return "live_turn";
+    // Bare ok never proves live play; coc_setup keeps guiding chargen.
+    if (envelope?.ok === true && (previous === "opening" || previous === "cold_start")) {
+      return "opening";
+    }
   }
   if (operation === "turn.finalize" && envelope?.ok === true) return "live_turn";
   if (operation === "state.end_session" && envelope?.ok === true) return "ending";

@@ -8844,7 +8844,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const agentDir = (
     overrides.welcomeAgentDir
     ?? process.env.PI_CODING_AGENT_DIR
-    ?? join(homedir(), ".pi", "coc-agent")
+    ?? join(process.cwd(), ".pi", "coc-agent")
   );
   const startCocWelcome = registerCocWelcome(
     pi,
