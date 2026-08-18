@@ -18,13 +18,14 @@ no longer needs the legacy narrator role.
 
 ## Dual entry: `pi` (coding) vs `pi-coc` (this campaign)
 
-Do **not** `pi install` this repository into the global coding agent home
-(`~/.pi/agent`). Coding and COC play use separate Pi config homes:
+Do **not** `pi install` this repository into a global coding agent home
+(`~/.pi/agent`). Pi homes are per-project. Coding and COC play use separate
+directories inside this repo:
 
 | Command | Config home | Role |
 |---|---|---|
-| `pi` | `~/.pi/agent` | Global coding agent — no COC package |
-| `pi-coc` | `~/.pi/coc-agent` (override with `PI_COC_AGENT_DIR`) | This repo only — COC Keeper package |
+| `pi` / PipiUI coding | `{this-repo}/.pi/agent` | Coding only — no COC package |
+| `pi-coc` | `{this-repo}/.pi/coc-agent` (override with `PI_COC_AGENT_DIR`) | This repo only — COC Keeper package |
 
 `pi-coc` is [`bin/pi-coc`](bin/pi-coc). It sets `PI_CODING_AGENT_DIR` to the COC
 home, forces cwd to this repository root, and launches with desktop defaults:
@@ -75,8 +76,7 @@ player to type「激活 COC」.
 
 ```bash
 REPO=/absolute/path/to/chatrpgv4
-COC_HOME=$HOME/.pi/coc-agent
-AGENT_HOME=$HOME/.pi/agent
+COC_HOME=$REPO/.pi/coc-agent
 
 mkdir -p "$COC_HOME/sessions"
 cat > "$COC_HOME/settings.json" <<EOF
@@ -91,25 +91,22 @@ cat > "$COC_HOME/settings.json" <<EOF
 }
 EOF
 
-ln -sfn "$AGENT_HOME/auth.json" "$COC_HOME/auth.json"
-ln -sfn "$AGENT_HOME/models.json" "$COC_HOME/models.json"
-ln -sfn "$AGENT_HOME/models-store.json" "$COC_HOME/models-store.json"
-# Share fd/rg tool binaries; without this, pi-coc downloads into an empty home.
-ln -sfn "$AGENT_HOME/bin" "$COC_HOME/bin"
+# Copy credentials into this repo. Do not symlink ~/.pi.
+# cp /path/to/auth.json "$COC_HOME/auth.json"
+# cp /path/to/models.json "$COC_HOME/models.json"
 
 chmod +x "$REPO/plugins/coc-keeper/pi/bin/pi-coc"
 ln -sfn "$REPO/plugins/coc-keeper/pi/bin/pi-coc" "$HOME/.npm-global/bin/pi-coc"
 ```
 
-If the package was previously installed into the global coding home, remove it:
+If the package was previously installed into a global coding home, remove it:
 
 ```bash
 pi remove /absolute/path/to/chatrpgv4
 ```
 
-Do not add a project-local `.pi/settings.json` for this package: keeping the
-package only under `~/.pi/coc-agent` lets `pi` inside this repo stay a coding
-agent.
+Do not add the COC package to `{this-repo}/.pi/agent/settings.json`. Coding
+`pi` / PipiUI in this repo uses `.pi/agent`; `pi-coc` uses `.pi/coc-agent`.
 
 ### Daily use
 
@@ -164,7 +161,7 @@ Undiscovered clues and keeper-only fields never appear on this strip.
 
 ### Turn timing telemetry (`/timing`)
 
-`~/.pi/coc-agent/telemetry/turns.jsonl` is a machine-first, fine-grained log
+`{this-repo}/.pi/coc-agent/telemetry/turns.jsonl` is a machine-first, fine-grained log
 for offline latency analysis (schema v2, one JSON line per record). A
 `record:"session"` header opens each session (label, mode, agent dir). Every
 `record:"turn"` line reconstructs the full timeline of one KP turn:
@@ -208,7 +205,7 @@ player surface of this same host: it launches `pi-coc --mode rpc --campaign
 passes that exact `ctx.cwd` as `COC_PROJECT_ROOT`, sets
 `COC_HOST=pi`, and binds the MCP child to the current Pi session id. No child
 starts merely by loading the package. COC sessions live under
-`~/.pi/coc-agent/sessions`, separate from coding sessions.
+`{this-repo}/.pi/coc-agent/sessions`, separate from coding sessions.
 
 `--session-id` / `PI_COC_SESSION_ID` affects only that Pi session storage.
 Existing-campaign continuation is armed only by the distinct explicit

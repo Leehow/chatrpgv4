@@ -74,7 +74,17 @@ case ":$PATH_CURRENT:" in
 esac
 export PATH
 
-PI_CODING_AGENT_DIR=${PI_COC_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/coc-agent}}
+DEFAULT_COC_HOME=$REPO_ROOT/.pi/coc-agent
+if [ -z "${PI_COC_AGENT_DIR:-}" ] && [ -z "${PI_CODING_AGENT_DIR:-}" ]; then
+  # One-time move off the retired global home. Copy, never symlink.
+  if [ ! -f "$DEFAULT_COC_HOME/settings.json" ] && [ -f "$HOME/.pi/coc-agent/settings.json" ]; then
+    mkdir -p "$REPO_ROOT/.pi"
+    cp -R "$HOME/.pi/coc-agent" "$DEFAULT_COC_HOME"
+  fi
+  PI_CODING_AGENT_DIR=$DEFAULT_COC_HOME
+else
+  PI_CODING_AGENT_DIR=${PI_COC_AGENT_DIR:-$PI_CODING_AGENT_DIR}
+fi
 export PI_CODING_AGENT_DIR
 # Skill 3 scene supply is Pi-Coc-only. Direct extension probes and the retired
 # semantic-source coordinator remain unaffected unless launched through pi-coc.
@@ -131,8 +141,8 @@ if [ ! -f "$PI_CODING_AGENT_DIR/settings.json" ]; then
 pi-coc: missing COC agent home settings: $PI_CODING_AGENT_DIR/settings.json
 
 One-time bootstrap (example):
-  mkdir -p "\$HOME/.pi/coc-agent/sessions"
-  cat > "\$HOME/.pi/coc-agent/settings.json" <<'JSON'
+  mkdir -p "$REPO_ROOT/.pi/coc-agent/sessions"
+  cat > "$REPO_ROOT/.pi/coc-agent/settings.json" <<'JSON'
   {
     "defaultProvider": "grok-relay",
     "defaultModel": "grok-4.5",
@@ -141,10 +151,8 @@ One-time bootstrap (example):
     "quietStartup": true
   }
   JSON
-  ln -sfn "\$HOME/.pi/agent/auth.json" "\$HOME/.pi/coc-agent/auth.json"
-  ln -sfn "\$HOME/.pi/agent/models.json" "\$HOME/.pi/coc-agent/models.json"
-  ln -sfn "\$HOME/.pi/agent/models-store.json" "\$HOME/.pi/coc-agent/models-store.json"
-  ln -sfn "\$HOME/.pi/agent/bin" "\$HOME/.pi/coc-agent/bin"
+  # Copy credentials into this repo's COC home. Do not symlink ~/.pi.
+  # cp /path/to/your/auth.json "$REPO_ROOT/.pi/coc-agent/auth.json"
   ln -sfn "$REPO_ROOT/plugins/coc-keeper/pi/bin/pi-coc" "\$HOME/.npm-global/bin/pi-coc"
 
 See plugins/coc-keeper/pi/README.md for the dual-entry workflow.
@@ -232,34 +240,21 @@ if ! resolve_pi_cli >/dev/null; then
   exit 1
 fi
 
-# Pi looks up fd/rg under $PI_CODING_AGENT_DIR/bin. Share coding-home binaries
-# instead of letting interactive startup download into an empty COC home.
+# Pi looks up fd/rg under $PI_CODING_AGENT_DIR/bin. Bind PATH copies into this
+# project home; never share ~/.pi/agent/bin.
 if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ] || [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
-  if attached_ui_enabled; then
-    mkdir -p "$PI_CODING_AGENT_DIR/bin"
-    for src in "$HOME/.pi/agent/bin" "$HOME/.pi/coc-agent/bin"; do
-      if [ -x "$src/fd" ] && [ -x "$src/rg" ]; then
-        ln -sfn "$src/fd" "$PI_CODING_AGENT_DIR/bin/fd"
-        ln -sfn "$src/rg" "$PI_CODING_AGENT_DIR/bin/rg"
-        break
-      fi
-    done
-    if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ]; then
-      fd_src=$(command -v fd || true)
-      if [ -n "$fd_src" ] && [ -x "$fd_src" ]; then
-        ln -sfn "$fd_src" "$PI_CODING_AGENT_DIR/bin/fd"
-      fi
-    fi
-    if [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
-      rg_src=$(command -v rg || true)
-      if [ -n "$rg_src" ] && [ -x "$rg_src" ]; then
-        ln -sfn "$rg_src" "$PI_CODING_AGENT_DIR/bin/rg"
-      fi
-    fi
+  mkdir -p "$PI_CODING_AGENT_DIR/bin"
+  fd_src=$(command -v fd || true)
+  if [ -n "$fd_src" ] && [ -x "$fd_src" ] && [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ]; then
+    ln -sfn "$fd_src" "$PI_CODING_AGENT_DIR/bin/fd"
+  fi
+  rg_src=$(command -v rg || true)
+  if [ -n "$rg_src" ] && [ -x "$rg_src" ] && [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
+    ln -sfn "$rg_src" "$PI_CODING_AGENT_DIR/bin/rg"
   fi
   if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ] || [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
     printf '%s\n' "pi-coc: missing fd/rg under $PI_CODING_AGENT_DIR/bin" >&2
-    printf '%s\n' "Fix: ln -sfn \"\$HOME/.pi/agent/bin\" \"$PI_CODING_AGENT_DIR/bin\"" >&2
+    printf '%s\n' "Fix: put fd and rg on PATH, then relaunch pi-coc" >&2
     exit 1
   fi
 fi

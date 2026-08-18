@@ -1,5 +1,16 @@
 # Project Rules
 
+## Pi home isolation (binding)
+
+Pi is fully isolated inside this repository. Never use `~/.pi/agent`,
+`~/.pi/coc-agent`, or another project's `.pi/`.
+
+- Coding (`pi` / PipiUI): `{this-repo}/.pi/agent`
+- COC play (`pi-coc`): `{this-repo}/.pi/coc-agent`
+
+Find this project's own home. Do not `pi install` the COC package into a
+global `settings.json`, and do not symlink this home back to `~/.pi`.
+
 ## Authority And Required Routing
 
 This is the always-loaded invariant kernel; detailed procedures live below.
