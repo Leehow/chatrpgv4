@@ -33,6 +33,18 @@ def _node(script: Path, *args: str, env: dict[str, str] | None = None) -> dict:
     return json.loads(completed.stdout)
 
 
+def _node_test(*scripts: Path, env: dict[str, str] | None = None) -> None:
+    run_env = dict(os.environ if env is None else env)
+    run_env.pop("PI_SUBAGENT_CHILD", None)
+    completed = subprocess.run(
+        ["node", "--experimental-strip-types", "--test", *[str(script) for script in scripts]],
+        cwd=ROOT, env=run_env, check=False, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, (
+        completed.stdout + "\n" + completed.stderr
+    )
+
+
 def _load_toolbox():
     path = PLUGIN / "scripts" / "coc_toolbox.py"
     spec = importlib.util.spec_from_file_location("coc_toolbox_pi_revision", path)
@@ -87,12 +99,14 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     assert {".python-version", "pyproject.toml", "uv.lock", "runtime/**", "plugins/coc-keeper/**"} <= set(manifest["files"])
     result = _node(ROOT / "tests/pi/package-smoke.mjs", str(ROOT))
     assert result["extensionCount"] == 1
-    assert result["toolNames"] == [
-        "coc_advice", "coc_capabilities", "coc_chargen_delegate", "coc_context",
-        "coc_discover", "coc_dispatch_source_work", "coc_invoke", "coc_map_supply",
-        "coc_npc", "coc_progressive_ocr", "coc_rules", "coc_setup",
-        "coc_state", "coc_subsystem", "coc_turn",
-    ]
+    assert result["toolNames"] == result["expectedToolNames"]
+    assert "coc_rules" in result["toolNames"]
+    assert "coc_rules_roll" in result["toolNames"]
+    assert "coc_npc_reaction" in result["toolNames"]
+    assert "coc_turn_finalize" in result["toolNames"]
+    assert set(result["genericToolNames"]) <= set(result["toolNames"])
+    assert set(result["typedToolNames"]) <= set(result["toolNames"])
+    assert set(result["hostToolNames"]) <= set(result["toolNames"])
     assert not {"subagent", "edit", "write", "coc_run_source_coordinator", "coc_read_source_packet"} & set(result["toolNames"])
     assert {"coc-main", "coc-keeper-play", "coc-story-director", "coc-rules-engine", "coc-character"} <= set(result["skillNames"])
     assert result["skillDiagnostics"] == []
@@ -106,6 +120,61 @@ def test_pi_domain_tools_acl_and_closed_enums():
     assert result == {"ok": True}
 
 
+def test_pi_role_acl():
+    _node_test(ROOT / "tests/pi/role-acl.test.mjs")
+
+
+def test_pi_operation_contract_loader():
+    _node_test(ROOT / "tests/pi/operation-contract-loader.mjs")
+
+
+def test_pi_typed_tool_surface():
+    _node_test(ROOT / "tests/pi/typed-tool-surface.mjs")
+
+
+def test_pi_provider_capability_schema_semantics():
+    _node_test(ROOT / "tests/pi/provider-capability-schema.mjs")
+
+
+def test_pi_startup_tool_union_contract():
+    _node_test(PLUGIN / "pi" / "test" / "startup-tool-union.test.mjs")
+
+
+def test_pi_plugin_node_contracts():
+    tests = sorted((PLUGIN / "pi" / "test").glob("*.test.mjs"))
+    assert tests, "expected plugins/coc-keeper/pi/test/*.test.mjs"
+    _node_test(*tests)
+
+
+def test_pi_startup_resume_table_opening():
+    run_env = dict(os.environ)
+    run_env.pop("PI_SUBAGENT_CHILD", None)
+    completed = subprocess.run(
+        [
+            "node", "--experimental-strip-types",
+            str(ROOT / "tests/pi/startup-resume-table-opening.mjs"), str(ROOT),
+        ],
+        cwd=ROOT, env=run_env, check=True, capture_output=True, text=True,
+    )
+    assert completed.stdout.strip().endswith("startup-resume-table-opening ok")
+
+
+def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
+    result = _node(ROOT / "tests/pi/recovery-kp-guidance.mjs", str(ROOT))
+    assert result == {
+        "ok": True,
+        "contract": "coc.pi-open-turn-recovery-guidance.v1",
+        "attachedOnOpenTurnRecovery": True,
+        "skippedModes": [
+            "table_opening",
+            "awaiting_player",
+            "pending_finalization",
+        ],
+        "noMidPairCustom": True,
+        "providerValid": True,
+    }
+
+
 def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
     result = _node(ROOT / "tests/pi/steward-subagent-routing.mjs", str(ROOT))
     assert result == {
@@ -116,6 +185,19 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
             "coc_chargen_delegate",
         ],
     }
+
+
+def test_pi_steward_tools_bind_keeps_child_allowlist_and_typed_role_surface():
+    result = _node(ROOT / "tests/pi/steward-tools-bind.mjs", str(ROOT))
+    assert result["ok"] is True
+    assert result["childSessionSetActiveToolsCalls"] == 0
+    assert "coc_rules" in result["kpActiveTools"]
+    assert "coc_rules_roll" not in result["kpActiveTools"]
+    assert "coc_setup_inspect" in result["setupActiveTools"]
+    assert "coc_rules" not in result["setupActiveTools"]
+    assert "coc_session_resume" in result["playActiveTools"]
+    assert "coc_rules" not in result["playActiveTools"]
+    assert "coc_setup_complete" not in result["playActiveTools"]
 
 
 def test_pi_chargen_delegate_allocates_campaign_scoped_ids():
@@ -228,6 +310,27 @@ def test_real_canonical_briefing_receipt_authorizes_conversational_pi_output(
     assert result["publicSetupSha256"] == rendered["data"]["result"][
         "public_setup_sha256"
     ]
+
+
+def test_reattach_orphan_tool_results_stay_provider_valid():
+    result = _node(ROOT / "tests/pi/reattach-orphan-tool-results.mjs", str(ROOT))
+    assert result == {
+        "ok": True,
+        "convertToLlm": "pi-coding-agent/dist/core/messages.js",
+        "transformMessages": "pi-ai/dist/api/transform-messages.js",
+    }
+
+
+def test_provider_developer_role_normalizes_unsupported_history():
+    result = _node(ROOT / "tests/pi/provider-developer-role.mjs", str(ROOT))
+    assert result == {
+        "ok": True,
+        "convertToLlm": "pi-coding-agent/dist/core/messages.js",
+        "convertMessages": "pi-ai/dist/api/openai-completions.js",
+        "jellytokenSupportsDeveloperRole": False,
+        "openaiSupportsDeveloperRole": True,
+        "deepseekSupportsDeveloperRole": False,
+    }
 
 
 def test_coc_tools_register_compact_tui_renderers():
@@ -1233,14 +1336,18 @@ def test_revision_component_chain_bindings_activation_roles_and_secrets():
     assert result["ocrGood"] == {"status": "ok", "layout_noise": "tolerated"}
     assert result["ocrDelayed"] == {"status": "delayed-close"}
     assert result["ocrAbortRejected"] is True
-    assert result["coordinatorSurface"] == {
-        "registered": ["coc_run_source_coordinator"],
-        "active": ["coc_run_source_coordinator"],
-    }
-    assert result["leafSurface"] == {
-        "registered": [],
-        "active": [],
-    }
+    assert result["coordinatorSurface"]["registered"] == ["coc_run_source_coordinator"]
+    assert result["coordinatorSurface"]["active"] == ["coc_run_source_coordinator"]
+    assert result["coordinatorSurface"]["typedRegistered"] == []
+    assert result["coordinatorSurface"]["typedActive"] == []
+    assert result["coordinatorSurface"]["genericRegistered"] == []
+    assert result["coordinatorSurface"]["genericActive"] == []
+    assert result["leafSurface"]["registered"] == []
+    assert result["leafSurface"]["active"] == []
+    assert result["leafSurface"]["typedRegistered"] == []
+    assert result["leafSurface"]["typedActive"] == []
+    assert result["leafSurface"]["genericRegistered"] == []
+    assert result["leafSurface"]["genericActive"] == []
     for role, tools in (
         ("coordinator", ["coc_run_source_coordinator"]),
         ("leaf", []),
@@ -1276,6 +1383,9 @@ def test_pi_mcp_error_surface_includes_toolbox_code_and_message():
     assert "turn_pending_finalization" in result["cases"]["pendingFinalization"]
     assert "turn_finalization_pending" in result["cases"]["journalBlocked"]
     assert result["cases"]["transport"].startswith("MCP request failed:")
+    assert result["asserts"]["missingParamExpectedSchema"] is True
+    assert result["asserts"]["missingParamDetailsPreserved"] is True
+    assert result["asserts"]["protocolNoEnvelopeThrowsPath"] is True
 
 
 def test_pi_mcp_parallel_dispatch_transport():
@@ -2002,9 +2112,11 @@ def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
 
 def test_pi_auto_dispatch_uses_named_paths_bounded_queues_and_scene_priority():
     """The Node contract includes Pi-only source-bound scene priority."""
+    run_env = dict(os.environ)
+    run_env.pop("PI_SUBAGENT_CHILD", None)
     completed = subprocess.run(
         ["node", "--experimental-strip-types", str(ROOT / "tests/pi/auto-dispatch-smoke.mjs"), str(ROOT)],
-        cwd=ROOT, check=True, capture_output=True, text=True,
+        cwd=ROOT, env=run_env, check=True, capture_output=True, text=True,
     )
     assert completed.stdout.strip() == "auto-dispatch smoke OK"
 

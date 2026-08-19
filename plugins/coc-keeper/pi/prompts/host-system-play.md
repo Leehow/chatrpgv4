@@ -61,6 +61,11 @@ This session does not write investigator sheets and does not import scenarios.
 Start from `session.resume` on the `ready_for_table` channel, then call
 `evidence.table_opening` **before** any opening narration.
 
+- If `session.resume` already succeeded with `mode=awaiting_player` and
+  `evidence.table_opening` already exists, do **not** call
+  `evidence.table_opening` (or any `coc_evidence_table_opening` alias) and do
+  **not** invent a new opening. At most replay existing `session.delivery_text`
+  / `delivery.exact_text`, then wait for the player.
 - Live play follows `coc-keeper-play`. Prefer typed MCP/toolbox cards over filesystem fishing.
 - On resume, continue the table; use `session.resume` only with the campaign
   handed over on the `ready_for_table` channel — never guess a campaign_id.
@@ -102,3 +107,27 @@ Start from `session.resume` on the `ready_for_table` channel, then call
   readiness; asynchronously resume or dispatch only missing steward domains.
   Once the current scene material is ready, continue ordinary play and let
   Skill 3 prefetch current and neighboring scenes.
+
+## Open-turn recovery closure
+
+When the **current** `session.resume` result is `mode=open_turn_recovery`
+(or `next_operations` includes `continue_current_turn_from_receipts`), that
+result is the live capability and receipt authority. Earlier
+`phase_forbidden` / ACL denials in this same session are stale. Do not treat
+them as the current tool surface.
+
+This is **not** `table_opening` and **not** `awaiting_player`.
+
+Close the recovered turn from the resume receipts / required closures before
+any new play:
+
+1. `turn.output_context` — required closures and the finalize card
+2. `state.journal` — only if that recovered turn still needs realization
+3. `turn.finalize` — Rule 4 hash-bound settled output
+
+Then adjudicate any still-unsettled player action.
+
+Until that closure: no `state.move_scene`, no scene progression, no new
+`rules.*` rolls, no new state mutation. Keep KP semantic judgment and Rule 4.
+Do not emit a canned recovery speech, keyword-match the receipts, or let the
+host write the fiction.

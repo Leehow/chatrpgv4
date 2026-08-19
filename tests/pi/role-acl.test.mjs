@@ -90,6 +90,151 @@ test("play role still allows rules.roll_dice", async () => {
   });
 });
 
+test("setup role does not gain recovery closure rights", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    for (const operation of ["turn.output_context", "state.journal", "turn.finalize"]) {
+      const denied = mod.evaluateExecuteAcl({
+        toolName: "coc_turn",
+        operation,
+        phase: "recovery",
+      });
+      assert.equal(denied.ok, false, operation);
+      assert.equal(denied.code, "role_forbidden", operation);
+    }
+    const resume = mod.evaluateExecuteAcl({
+      toolName: "coc_setup",
+      operation: "session.resume",
+      phase: "recovery",
+    });
+    assert.equal(resume.ok, true);
+  });
+});
+
+test("play role may close an open recovery turn but not reroll", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    for (const operation of ["turn.output_context", "state.journal", "turn.finalize"]) {
+      const allowed = mod.evaluateExecuteAcl({
+        toolName: "coc_turn",
+        operation,
+        phase: "recovery",
+      });
+      assert.equal(allowed.ok, true, operation);
+    }
+    const roll = mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.roll",
+      phase: "recovery",
+    });
+    assert.equal(roll.ok, false);
+    assert.equal(roll.code, "phase_forbidden");
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.roll",
+      phase: "live_turn",
+    }).ok, true);
+  });
+});
+
+test("play role allows social_adjudicate only after live_turn", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    const opening = mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.social_adjudicate",
+      phase: "opening",
+    });
+    assert.equal(opening.ok, false);
+    assert.equal(opening.code, "phase_forbidden");
+    const live = mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.social_adjudicate",
+      phase: "live_turn",
+    });
+    assert.equal(live.ok, true);
+    assert.equal(live.wrapper, "coc_rules");
+  });
+});
+
+test("setup role still rejects live-turn social_adjudicate", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    const denied = mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.social_adjudicate",
+      phase: "live_turn",
+    });
+    assert.equal(denied.ok, false);
+    assert.equal(denied.code, "role_forbidden");
+  });
+});
+
+test("setup role startup union does not grant play-only execute rights", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    const tools = mod.activeToolsForStartupResumePending({
+      workspaceRoot: root,
+      campaignId: "setup-no-expansion",
+      fallbackPhase: "live_turn",
+      role: "setup",
+    });
+    assert.ok(tools.includes("coc_session_resume"));
+    assert.ok(tools.includes("coc_chargen_delegate"));
+    assert.ok(!tools.includes("coc_setup"));
+    assert.ok(!tools.includes("coc_npc"));
+    assert.ok(!tools.includes("coc_npc_reaction"));
+    assert.ok(!tools.includes("coc_subsystem"));
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.finalize",
+      phase: "live_turn",
+    }).code, "role_forbidden");
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.roll",
+      phase: "live_turn",
+    }).code, "role_forbidden");
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "state.journal",
+      phase: "live_turn",
+    }).code, "role_forbidden");
+  });
+});
+
+test("play role startup union keeps live tools and pending non-resume is forbidden", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    const tools = mod.activeToolsForStartupResumePending({
+      workspaceRoot: root,
+      campaignId: "play-startup-union",
+      fallbackPhase: "live_turn",
+      role: "play",
+    });
+    assert.ok(tools.includes("coc_session_resume"));
+    assert.ok(tools.includes("coc_rules_roll"));
+    assert.ok(tools.includes("coc_turn_finalize"));
+    assert.ok(!tools.includes("coc_rules"));
+    assert.ok(!tools.includes("coc_chargen_delegate"));
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.roll",
+      phase: "recovery",
+    }).code, "phase_forbidden");
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation: "rules.roll",
+      phase: "live_turn",
+    }).ok, true);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.finalize",
+      phase: "live_turn",
+    }).ok, true);
+  });
+});
+
 test("setup role rejects turn.finalize and combat.resolve", async () => {
   await withRole("setup", async () => {
     const mod = await loadDomain();

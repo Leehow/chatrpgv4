@@ -2,6 +2,8 @@
  * Closed Pi-Coc domain wrappers over the one canonical gateway.
  * ACL is execute-time policy, never setActiveTools.
  */
+import { statSync } from "node:fs";
+import path from "node:path";
 import {
   DOMAIN_TOOL_NAMES,
   HOST_INVOKE_COMPAT_OPERATIONS,
@@ -16,6 +18,11 @@ import {
   type SessionRole,
 } from "./operation-policy.ts";
 import { extraToolsForSessionRole } from "./session-role-tools.ts";
+import {
+  isTypedOperationTool,
+  operationForTypedTool,
+  typedToolsForSurfacePhase,
+} from "./typed-tools.ts";
 
 export {
   DOMAIN_TOOL_NAMES,
@@ -85,7 +92,7 @@ export function isDomainToolName(name: string): name is DomainToolName {
 }
 
 export function isCanonicalInvokeSurface(name: string): boolean {
-  return name === HIDDEN_COMPAT_INVOKE || isDomainToolName(name);
+  return name === HIDDEN_COMPAT_INVOKE || isDomainToolName(name) || isTypedOperationTool(name);
 }
 
 export function operationsForSurface(surface: Exclude<KpSurface, "none">): readonly string[] {
@@ -138,7 +145,8 @@ export function evaluateExecuteAcl(args: {
   operation: string;
   phase: PlayPhase;
 }): AclDecision {
-  const operation = args.operation.trim();
+  const typedOperation = operationForTypedTool(args.toolName);
+  const operation = (args.operation.trim() || typedOperation || "");
   const policy = OPERATION_POLICY[operation];
   if (!policy) {
     return {
@@ -188,7 +196,18 @@ export function evaluateExecuteAcl(args: {
     };
   }
   const expectedTool = TOOL_BY_SURFACE[policy.kp_surface];
-  if (args.toolName !== HIDDEN_COMPAT_INVOKE && args.toolName !== expectedTool) {
+  if (typedOperation && typedOperation !== operation) {
+    return {
+      ok: false,
+      code: "domain_mismatch",
+      message: `operation ${operation} belongs to ${expectedTool}, not ${args.toolName}`,
+    };
+  }
+  if (
+    args.toolName !== HIDDEN_COMPAT_INVOKE
+    && args.toolName !== expectedTool
+    && typedOperation !== operation
+  ) {
     return {
       ok: false,
       code: "domain_mismatch",
@@ -206,7 +225,11 @@ export function evaluateExecuteAcl(args: {
   if (roleDenied) return roleDenied;
   return {
     ok: true,
-    wrapper: args.toolName === HIDDEN_COMPAT_INVOKE ? expectedTool : args.toolName,
+    wrapper: (
+      args.toolName === HIDDEN_COMPAT_INVOKE || typedOperation
+        ? expectedTool
+        : args.toolName
+    ),
     transport_tool: TRANSPORT_TOOL,
     operation,
     canonical_operation: operation,
@@ -236,23 +259,75 @@ export function activeToolsForPhase(phase: PlayPhase, role?: SessionRole | null)
   }
   const sessionRole = role === undefined ? sessionRoleFromEnv() : role;
   if (sessionRole) {
-    tools = tools.filter((name) => {
-      if (!(DOMAIN_TOOL_NAMES as readonly string[]).includes(name)) return true;
+    const next: string[] = [];
+    for (const name of tools) {
+      if (!(DOMAIN_TOOL_NAMES as readonly string[]).includes(name)) {
+        next.push(name);
+        continue;
+      }
       const surface = SURFACE_BY_TOOL[name as DomainToolName];
-      return OPERATIONS_BY_SURFACE[surface].some((operation) => {
-        const policy = OPERATION_POLICY[operation];
-        return (
-          policy
-          && policy.phases.includes(phase)
-          && operationAllowedForSessionRole(operation, policy, sessionRole)
-        );
-      });
-    });
+      for (const typed of typedToolsForSurfacePhase(surface, phase, sessionRole)) {
+        if (!next.includes(typed)) next.push(typed);
+      }
+    }
+    tools = next;
   }
   for (const extra of extraToolsForSessionRole(sessionRole)) {
     if (!tools.includes(extra)) tools.push(extra);
   }
   return tools;
+}
+
+/** Safe visibility union. Execute ACL / startupResumeToolError stay authoritative. */
+export function unionActiveToolsForPhases(
+  phases: readonly PlayPhase[],
+  role?: SessionRole | null,
+): string[] {
+  const seen = new Set<string>();
+  const tools: string[] = [];
+  for (const phase of phases) {
+    for (const tool of activeToolsForPhase(phase, role)) {
+      if (seen.has(tool)) continue;
+      seen.add(tool);
+      tools.push(tool);
+    }
+  }
+  return tools;
+}
+
+/**
+ * Startup pending schema: recovery tools plus the campaign/resume projection.
+ * Never shrink an already-live table back to recovery-only.
+ */
+export function activeToolsForStartupResumePending(args: {
+  workspaceRoot: string;
+  campaignId: string;
+  fallbackPhase: PlayPhase;
+  role?: SessionRole | null;
+}): string[] {
+  const projected = projectPlayPhaseFromCampaignEvidence(
+    args.workspaceRoot,
+    args.campaignId,
+    args.fallbackPhase,
+  );
+  return unionActiveToolsForPhases(["recovery", projected], args.role);
+}
+
+export function projectPlayPhaseFromCampaignEvidence(
+  root: string,
+  campaignId: string,
+  fallbackPhase: PlayPhase = "opening",
+): PlayPhase {
+  if (campaignHasStartedTableEvidence(root, campaignId)) return "live_turn";
+  if (
+    fallbackPhase === "live_turn"
+    || fallbackPhase === "pending_finalization"
+    || fallbackPhase === "opening"
+    || fallbackPhase === "cold_start"
+  ) {
+    return fallbackPhase === "cold_start" ? "opening" : fallbackPhase;
+  }
+  return "opening";
 }
 
 function resumeSignalsIncompleteOpening(
@@ -272,22 +347,169 @@ function resumeSignalsIncompleteOpening(
   return false;
 }
 
-export function playPhaseFromResumeData(data: Record<string, unknown> | null): PlayPhase | null {
+const SAFE_CAMPAIGN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const STARTED_TABLE_TURN_TOOLS = new Set([
+  "evidence.table_opening",
+  "turn.finalize",
+  "turn.output_context",
+  "state.journal",
+  "rules.roll",
+  "rules.social_adjudicate",
+  "rules.check",
+  "npc.reaction",
+]);
+
+/** Optional host-local extras when the resume envelope aliases live play as table_opening. */
+export type PhaseInferenceContext = {
+  tableStarted?: boolean;
+  workspaceRoot?: string;
+  campaignId?: string;
+};
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function positiveTurn(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function nonemptyString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/** Read-only host probe: a non-empty table transcript means opening already started. */
+export function campaignHasStartedTableEvidence(
+  root: string,
+  campaignId: string,
+): boolean {
+  const id = campaignId.trim();
+  if (!root || !SAFE_CAMPAIGN_ID.test(id)) return false;
+  const transcript = path.join(
+    root,
+    ".coc",
+    "campaigns",
+    id,
+    "logs",
+    "table-transcript.jsonl",
+  );
+  try {
+    const st = statSync(transcript);
+    return st.isFile() && st.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+function resumeSignalsStartedTable(data: Record<string, unknown>): boolean {
+  const checkpoint = objectRecord(data.checkpoint);
+  const scene = objectRecord(data.scene_context);
+  const pendingOut = objectRecord(data.pending_output_context);
+  const capsule = objectRecord(data.semantic_capsule);
+  const delivery = objectRecord(data.delivery);
+  const currentTurn = objectRecord(data.current_turn);
+  const pendingTurn = objectRecord(data.pending_turn);
+  const source = objectRecord(checkpoint?.source);
+  if (
+    positiveTurn(checkpoint?.turn_number)
+    || positiveTurn(scene?.turn_number)
+    || positiveTurn(pendingOut?.turn_number)
+    || positiveTurn(capsule?.updated_from_turn)
+  ) {
+    return true;
+  }
+  if (nonemptyString(source?.finalization_id)) return true;
+  if (nonemptyString(delivery?.finalization_id) || nonemptyString(delivery?.rendered_sha256)) {
+    return true;
+  }
+  const windows = [currentTurn, pendingTurn, pendingOut];
+  for (const window of windows) {
+    const rows = Array.isArray(window?.rows) ? window.rows : [];
+    for (const row of rows) {
+      const rec = objectRecord(row);
+      const tool = typeof rec?.tool === "string" ? rec.tool : "";
+      if (STARTED_TABLE_TURN_TOOLS.has(tool)) return true;
+    }
+  }
+  return false;
+}
+
+function hostLocalTableStarted(
+  data: Record<string, unknown>,
+  context?: PhaseInferenceContext,
+): boolean {
+  if (context?.tableStarted === true) return true;
+  const root = typeof context?.workspaceRoot === "string" ? context.workspaceRoot : "";
+  const campaignId = nonemptyString(context?.campaignId)
+    ? String(context?.campaignId).trim()
+    : typeof data.campaign_id === "string" ? data.campaign_id.trim() : "";
+  if (!root || !campaignId) return false;
+  return campaignHasStartedTableEvidence(root, campaignId);
+}
+
+export function playPhaseFromResumeData(
+  data: Record<string, unknown> | null,
+  context?: PhaseInferenceContext,
+): PlayPhase | null {
   if (!data) return null;
   const mode = typeof data.mode === "string" ? data.mode : "";
   if (mode === "pending_finalization" || data.pending_output_context) {
     return "pending_finalization";
   }
   if (mode === "open_turn_recovery") return "recovery";
+  // ready_for_table resumes keep mode=table_opening even after opening/play.
+  // Do not map every table_opening to live_turn: a fresh handoff stays opening.
+  if (mode === "table_opening") {
+    if (hostLocalTableStarted(data, context) || resumeSignalsStartedTable(data)) {
+      return "live_turn";
+    }
+    return "opening";
+  }
   if (resumeSignalsIncompleteOpening(data, mode)) return "opening";
   if (mode === "already_acknowledged" || mode === "awaiting_player") return "live_turn";
   return null;
+}
+
+function resumeEnvelopeData(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const rec = value as Record<string, unknown>;
+  if (rec.data && typeof rec.data === "object" && !Array.isArray(rec.data)) {
+    return rec.data as Record<string, unknown>;
+  }
+  return rec;
+}
+
+/**
+ * Play-role auto-open is already satisfied: resume is live `awaiting_player`
+ * and the table opening already exists. Do not trigger a new opening turn.
+ */
+export function resumeSatisfiesPlayAutoOpen(
+  value: unknown,
+  context?: PhaseInferenceContext,
+): boolean {
+  const data = resumeEnvelopeData(value);
+  if (!data) return false;
+  if (data.mode !== "awaiting_player") return false;
+  const next = Array.isArray(data.next_operations) ? data.next_operations : [];
+  if (next.includes("evidence.table_opening")) return false;
+  const evidence = objectRecord(data.evidence);
+  if (evidence && (evidence.table_opening || evidence.table_opening_id)) {
+    return true;
+  }
+  if (resumeSignalsStartedTable(data) || hostLocalTableStarted(data, context)) {
+    return true;
+  }
+  // Toolbox remaps unopened ready_for_table to mode=table_opening.
+  return true;
 }
 
 export function inferPhaseFromEnvelope(
   operation: string,
   value: unknown,
   previous: PlayPhase,
+  context?: PhaseInferenceContext,
 ): PlayPhase {
   const envelope = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -296,8 +518,23 @@ export function inferPhaseFromEnvelope(
     ? envelope.data as Record<string, unknown>
     : null;
   if (operation === "session.resume") {
-    const fromResume = playPhaseFromResumeData(data);
-    if (fromResume !== null) return fromResume;
+    const fromResume = playPhaseFromResumeData(data, context);
+    if (fromResume !== null) {
+      // Same-session mid-play resume may still alias as table_opening.
+      // Never demote an already-live table back to opening ACL.
+      if (
+        fromResume === "opening"
+        && data?.mode === "table_opening"
+        && (
+          previous === "live_turn"
+          || previous === "pending_finalization"
+          || previous === "recovery"
+        )
+      ) {
+        return previous;
+      }
+      return fromResume;
+    }
     // Bare ok never proves live play; coc_setup keeps guiding chargen.
     if (envelope?.ok === true && (previous === "opening" || previous === "cold_start")) {
       return "opening";
@@ -355,13 +592,17 @@ export function classifyToolCall(toolName: string, args: unknown): {
   const operation = typeof record?.operation === "string" && record.operation
     ? record.operation
     : null;
-  if (isCanonicalInvokeSurface(toolName) && operation) {
-    const mapped = domainToolForOperation(operation);
+  const typedFromName = operationForTypedTool(toolName);
+  const resolvedOperation = operation ?? typedFromName;
+  if (isCanonicalInvokeSurface(toolName) && resolvedOperation) {
+    const mapped = domainToolForOperation(resolvedOperation);
     return {
-      wrapper_tool: toolName === HIDDEN_COMPAT_INVOKE ? (mapped ?? toolName) : toolName,
+      wrapper_tool: toolName === HIDDEN_COMPAT_INVOKE || typedFromName
+        ? (mapped ?? toolName)
+        : toolName,
       transport_tool: TRANSPORT_TOOL,
-      canonical_operation: operation,
-      label: `${toolName}.${operation}`,
+      canonical_operation: resolvedOperation,
+      label: `${toolName}.${resolvedOperation}`,
     };
   }
   if (operation) {

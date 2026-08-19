@@ -1,0 +1,91 @@
+diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js b/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js
+index 69923d6..de1ecb2 100644
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js
+@@ -67,14 +67,32 @@ export function createCustomMessage(customType, content, display, details, times
+ /**
+  * Transform AgentMessages (including custom types) to LLM-compatible Messages.
+  *
++ * Custom / bash / summary entries become role=user for the provider. Emitting
++ * those converted user turns between an assistant toolCall and its toolResult
++ * makes transformMessages treat the pair as interrupted: it synthesizes
++ * "No result provided" and then still keeps the real toolResult. DeepSeek
++ * rejects that shape. Defer converted user turns until every current
++ * toolCall has a matching toolResult. Genuine role=user turns stay in place.
++ * display:false custom still participates in LLM context (sendMessage
++ * contract) but is not allowed to split a live tool pair.
++ *
+  * This is used by:
+  * - Agent's transormToLlm option (for prompt calls and queued messages)
+  * - Compaction's generateSummary (for summarization)
+  * - Custom extensions and tools
+  */
+ export function convertToLlm(messages) {
+-    return messages
+-        .map((m) => {
++    const result = [];
++    const deferredConvertedUsers = [];
++    let unmatchedToolCallIds = new Set();
++    const flushDeferredConvertedUsers = () => {
++        if (unmatchedToolCallIds.size > 0 || deferredConvertedUsers.length === 0) {
++            return;
++        }
++        result.push(...deferredConvertedUsers);
++        deferredConvertedUsers.length = 0;
++    };
++    const convertInjected = (m) => {
+         switch (m.role) {
+             case "bashExecution":
+                 // Skip messages excluded from context (!! prefix)
+@@ -108,16 +126,42 @@ export function convertToLlm(messages) {
+                     ],
+                     timestamp: m.timestamp,
+                 };
+-            case "user":
+-            case "assistant":
+-            case "toolResult":
+-                return m;
+             default:
+-                // biome-ignore lint/correctness/noSwitchDeclarations: fine
+-                const _exhaustiveCheck = m;
+                 return undefined;
+         }
+-    })
+-        .filter((m) => m !== undefined);
++    };
++    for (const m of messages) {
++        if (m.role === "assistant") {
++            result.push(m);
++            const toolCalls = Array.isArray(m.content)
++                ? m.content.filter((block) => block.type === "toolCall")
++                : [];
++            if (toolCalls.length > 0) {
++                unmatchedToolCallIds = new Set(toolCalls.map((tc) => tc.id));
++            }
++            continue;
++        }
++        if (m.role === "toolResult") {
++            result.push(m);
++            unmatchedToolCallIds.delete(m.toolCallId);
++            flushDeferredConvertedUsers();
++            continue;
++        }
++        if (m.role === "user") {
++            result.push(m);
++            continue;
++        }
++        const converted = convertInjected(m);
++        if (!converted) {
++            continue;
++        }
++        if (unmatchedToolCallIds.size > 0) {
++            deferredConvertedUsers.push(converted);
++            continue;
++        }
++        result.push(converted);
++    }
++    flushDeferredConvertedUsers();
++    return result;
+ }
+ //# sourceMappingURL=messages.js.map
+\ No newline at end of file

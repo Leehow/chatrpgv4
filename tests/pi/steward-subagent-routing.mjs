@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 
 const root = path.resolve(process.argv[2] || process.cwd());
+delete process.env.PI_SUBAGENT_CHILD;
+delete process.env.COC_PI_SESSION_ROLE;
 const extension = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 const handlers = new Map();
 const activeTools = [];

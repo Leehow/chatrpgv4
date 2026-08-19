@@ -18,6 +18,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+delete process.env.PI_SUBAGENT_CHILD;
+delete process.env.COC_PI_SESSION_ROLE;
 const root = path.resolve(process.argv[2] || process.cwd());
 const extensionWelcomeAgentDir = mkdtempSync(
   path.join(tmpdir(), "pi-coc-extension-welcome-"),
@@ -10606,22 +10608,23 @@ process.stdout.write(JSON.stringify({
     });
     await hardGateContext.startAll();
     for (const invocationId of ["hard-gate-error-a", "hard-gate-error-b"]) {
-      let rejected = false;
-      try {
-        await hardGateContext.registered.get("coc_invoke").execute(
-          invocationId,
-          {
-            operation: "setup.adopt_source_facts",
-            root,
-            campaign: errorCampaignId,
-            arguments: { campaign_id: errorCampaignId, facts },
-          },
-          undefined, undefined, hardGateContext.ctx,
-        );
-      } catch (error) {
-        rejected = error instanceof runtime.CanonicalToolError;
-      }
-      check(`${invocationId} preserves the canonical hard gate`, rejected);
+      const executed = await hardGateContext.registered.get("coc_invoke").execute(
+        invocationId,
+        {
+          operation: "setup.adopt_source_facts",
+          root,
+          campaign: errorCampaignId,
+          arguments: { campaign_id: errorCampaignId, facts },
+        },
+        undefined, undefined, hardGateContext.ctx,
+      );
+      const envelope = JSON.parse(executed.content[0].text);
+      check(
+        `${invocationId} preserves the canonical hard gate`,
+        envelope.ok === false
+          && envelope.tool === "setup.adopt_source_facts"
+          && envelope.error?.code === "opening_setup_incomplete",
+      );
     }
     for (let index = 0; index < 20; index += 1) {
       if (hardGateContext.sent.some((entry) => (

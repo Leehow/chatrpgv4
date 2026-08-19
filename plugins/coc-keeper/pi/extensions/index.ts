@@ -17,6 +17,7 @@ import {
   asObject,
   CanonicalToolError,
   exactKeys,
+  modelVisibleCanonicalToolResult,
   loadSecrets,
   MAX_BYTES,
   McpJsonlClient,
@@ -68,6 +69,7 @@ import {
 import { isCanonicalCampaignId } from "../lib/campaign-id.mjs";
 import {
   activeToolsForPhase,
+  activeToolsForStartupResumePending,
   DOMAIN_TOOL_DESCRIPTIONS,
   DOMAIN_TOOL_LABELS,
   DOMAIN_TOOL_NAMES,
@@ -89,6 +91,15 @@ import {
   shouldRegisterChargenDelegate,
 } from "../lib/chargen-clerk.ts";
 import { extraToolsForSessionRole } from "../lib/session-role-tools.ts";
+import {
+  applyOpenTurnRecoveryGuidance,
+  OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
+} from "../lib/recovery-guidance.ts";
+import {
+  attachExpectedSchema,
+  listTypedOperationTools,
+  wrapTypedToolInvokeParams,
+} from "../lib/typed-tools.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -7094,7 +7105,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const applyKpActiveTools = () => {
     if (process.env.PI_SUBAGENT_CHILD === "1") return;
     const role = sessionRoleFromEnv();
-    const tools = activeToolsForPhase(resolveAclPhase(), role);
+    const gate = startupResumeGate;
+    // Schema-time union only. Execute ACL still uses resolveAclPhase (recovery
+    // while pending) and startupResumeToolError still hard-rejects non-resume.
+    const tools = gate !== null && gate.phase === "pending"
+      ? activeToolsForStartupResumePending({
+          workspaceRoot: gate.workspaceRoot,
+          campaignId: gate.campaignId,
+          fallbackPhase: kpPlayPhase,
+          role,
+        })
+      : activeToolsForPhase(resolveAclPhase(), role);
     pi.setActiveTools(tools);
   };
   const queueSetupHandoffExit = () => {
@@ -8039,6 +8060,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     };
   };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
+    params = wrapTypedToolInvokeParams(name, params) as JsonObject;
     if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
     }
@@ -8279,7 +8301,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             });
           }
         }
-        throw error;
+        const visible = error instanceof CanonicalToolError
+          ? attachExpectedSchema(
+            modelVisibleCanonicalToolResult(error),
+            typeof params.operation === "string" ? params.operation : null,
+          )
+          : null;
+        if (visible === null) throw error;
+        value = visible;
       }
     }
     if (isCanonicalInvokeSurface(name)) {
@@ -8662,7 +8691,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const operation = String(params.operation);
       openingContinuationGate.observeCanonicalReceipt(operation, envelope);
       emitSetupHandoff(envelope, operation);
-      const nextPhase = inferPhaseFromEnvelope(operation, value, kpPlayPhase);
+      const nextPhase = inferPhaseFromEnvelope(operation, value, kpPlayPhase, {
+        workspaceRoot: typeof params.root === "string" ? params.root : ctx.cwd,
+        campaignId: typeof params.campaign === "string" ? params.campaign : undefined,
+      });
       if (nextPhase !== kpPlayPhase) {
         kpPlayPhase = nextPhase;
         applyKpActiveTools();
@@ -8796,6 +8828,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ).catch(() => {});
       }
     }
+    if (isCanonicalInvokeSurface(name) && params.operation === "session.resume") {
+      const guided = applyOpenTurnRecoveryGuidance(value);
+      if (guided.attached) {
+        value = guided.envelope as JsonObject;
+        try {
+          pi.appendEntry(OPEN_TURN_RECOVERY_GUIDANCE_AUDIT, guided.audit);
+        } catch { /* recovery-guidance audit is best effort */ }
+      }
+    }
     return result(value);
   };
   pi.registerTool({
@@ -8824,6 +8865,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       parameters: domainToolSchema(domainName),
       execute: gateway(domainName),
       ...compactToolRenderers(domainName),
+    });
+  }
+  for (const typed of listTypedOperationTools()) {
+    pi.registerTool({
+      name: typed.name,
+      label: typed.label,
+      description: typed.description,
+      parameters: typed.parameters,
+      execute: gateway(typed.name),
+      ...compactToolRenderers(typed.name),
     });
   }
   pi.registerTool({

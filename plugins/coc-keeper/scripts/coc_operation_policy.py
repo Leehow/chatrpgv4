@@ -199,7 +199,9 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "turn": {
         "audience": "keeper",
-        "phases": ("live_turn", "pending_finalization"),
+        # recovery: close an already-open turn from existing receipts only.
+        # Startup pending still hard-rejects these via the host resume gate.
+        "phases": ("live_turn", "pending_finalization", "recovery"),
         "contract": "finalize",
         "advisory": False,
         "kp_surface": "turn",
@@ -237,7 +239,7 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "phases": ("ending",),
     },
     "state.journal": {
-        "phases": ("live_turn", "pending_finalization"),
+        "phases": ("live_turn", "pending_finalization", "recovery"),
         "kp_surface": "turn",
     },
     "state.exceptional_effect": {

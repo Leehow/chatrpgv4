@@ -1782,6 +1782,46 @@ export class CanonicalToolError extends Error {
   }
 }
 
+/**
+ * Model-visible structured tool result for a toolbox business failure.
+ * Protocol/transport/JSONL/missing-envelope errors stay thrown (return null).
+ * Host must not auto-retry from this surface.
+ */
+export function modelVisibleCanonicalToolResult(
+  error: CanonicalToolError,
+): JsonObject | null {
+  const envelope = error.envelope;
+  if (!envelope) return null;
+  const err = (
+    envelope.error
+    && typeof envelope.error === "object"
+    && !Array.isArray(envelope.error)
+  ) ? envelope.error as JsonObject : null;
+  const code = typeof err?.code === "string" ? err.code.trim() : error.code.trim();
+  if (!code) return null;
+  const message = typeof err?.message === "string" && err.message.trim()
+    ? err.message
+    : error.message;
+  const details = (
+    err?.details
+    && typeof err.details === "object"
+    && !Array.isArray(err.details)
+  ) ? err.details as JsonObject : error.details;
+  const retryable = err?.retryable === true;
+  return {
+    ...envelope,
+    ok: false,
+    isError: true,
+    error: {
+      ...(err ?? {}),
+      code,
+      message,
+      retryable,
+      ...(details ? { details } : {}),
+    },
+  };
+}
+
 function requestForWorkerResult(
   task: JsonObject,
   workerResult: JsonObject,

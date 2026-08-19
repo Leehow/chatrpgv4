@@ -5,21 +5,20 @@
 // a pi-subagents child process wiped the agent's own --tools allowlist
 // (bash/read/grep/find) and left the steward without host FS tools.
 //
-// The fix keeps the call for the KP root session (no PI_SUBAGENT_CHILD) and
-// skips it inside a pi-subagents child (PI_SUBAGENT_CHILD=1), so the child
-// keeps its own allowlist. This test asserts both halves of that seam with a
-// fake pi host and no model calls.
+// After typed operation tools: setup/play hide generic wrappers and expose
+// operation-specific names; unset role stays on the legacy generic surface.
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const extension = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
+const domain = await import(
+  pathToFileURL(path.join(root, "plugins/coc-keeper/pi/lib/domain-tools.ts")).href
+);
 
-const expectedKpActiveTools = [
-  "read", "coc_capabilities", "coc_discover", "coc_invoke", "coc_progressive_ocr",
-  "coc_map_supply", "subagent", "subagent_wait",
-];
+const ROLE_ENV = "COC_PI_SESSION_ROLE";
 const handlers = new Map();
 const activeTools = [];
 const tools = new Map();
@@ -30,7 +29,7 @@ const fakePi = {
   on: (name, handler) => handlers.set(name, [...(handlers.get(name) || []), handler]),
   appendEntry() {},
   sendMessage() {},
-  setActiveTools: (names) => activeTools.push(names),
+  setActiveTools: (names) => activeTools.push([...names]),
   getThinkingLevel: () => "off",
 };
 extension.default(fakePi, {
@@ -56,34 +55,76 @@ const fire = async () => {
   }
 };
 
-// 1) KP root session: no PI_SUBAGENT_CHILD env → setActiveTools still applies
-// the KP set (KP tool surface unchanged by this fix).
 const priorChildEnv = process.env.PI_SUBAGENT_CHILD;
+const priorRole = process.env[ROLE_ENV];
 delete process.env.PI_SUBAGENT_CHILD;
-await fire();
-assert.equal(activeTools.length, 1, "KP session must call setActiveTools exactly once");
-assert.deepEqual(activeTools[0], expectedKpActiveTools, "KP active tools must stay the canonical KP set");
 
-// 2) pi-subagents child session: PI_SUBAGENT_CHILD=1 → the coc extension must
-// NOT call setActiveTools, so the child keeps the agent's own --tools allowlist
-// (bash/read/grep/find injected by pi-subagents per agent config).
-process.env.PI_SUBAGENT_CHILD = "1";
-await fire();
-assert.equal(
-  activeTools.length, 1,
-  "subagent child must not trigger setActiveTools (would wipe its allowlist)",
-);
-if (priorChildEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
-else process.env.PI_SUBAGENT_CHILD = priorChildEnv;
+const assertNoGenericWrappers = (names, label) => {
+  for (const wrapper of domain.DOMAIN_TOOL_NAMES) {
+    assert.ok(!names.includes(wrapper), `${label} must hide generic ${wrapper}`);
+  }
+};
 
-// The coc_* tools remain registered either way (registration is not affected);
-// only the active-tool override must be skipped in a child.
-for (const name of ["coc_capabilities", "coc_discover", "coc_invoke"]) {
+try {
+  delete process.env[ROLE_ENV];
+  await fire();
+  assert.equal(activeTools.length, 1, "unset KP session must call setActiveTools exactly once");
+  const unsetActive = activeTools[0];
+  assert.deepEqual(unsetActive, [
+    "read", "subagent", "subagent_wait",
+    "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
+    "coc_chargen_delegate",
+  ]);
+  assert.ok(!unsetActive.includes("coc_rules_roll"), "unset legacy must not activate typed names");
+  assert.ok(!unsetActive.includes("coc_discover"));
+  assert.ok(!unsetActive.includes("coc_invoke"));
+
+  process.env[ROLE_ENV] = "setup";
+  await fire();
+  const setupActive = activeTools.at(-1);
+  assertNoGenericWrappers(setupActive, "setup");
+  assert.ok(setupActive.includes("coc_setup_inspect"));
+  assert.ok(setupActive.includes("coc_session_resume"));
+  assert.ok(setupActive.includes("coc_rules_roll_dice"));
+  assert.ok(setupActive.includes("coc_chargen_delegate"));
+  assert.ok(!setupActive.includes("coc_rules_roll"));
+  assert.ok(!setupActive.includes("coc_npc_reaction"));
+  assert.ok(!setupActive.includes("coc_turn_finalize"));
+
+  process.env[ROLE_ENV] = "play";
+  await fire();
+  const playActive = activeTools.at(-1);
+  assertNoGenericWrappers(playActive, "play");
+  assert.ok(playActive.includes("coc_session_resume"));
+  assert.ok(playActive.includes("coc_setup_inspect"));
+  assert.ok(playActive.includes("coc_rules_roll_dice"));
+  assert.ok(!playActive.includes("coc_setup_complete"));
+  assert.ok(!playActive.includes("coc_chargen_delegate"));
+  assert.ok(!playActive.includes("coc_npc_reaction"));
+
+  process.env.PI_SUBAGENT_CHILD = "1";
+  const beforeChild = activeTools.length;
+  await fire();
+  assert.equal(
+    activeTools.length,
+    beforeChild,
+    "subagent child must not trigger setActiveTools (would wipe its allowlist)",
+  );
+} finally {
+  if (priorChildEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
+  else process.env.PI_SUBAGENT_CHILD = priorChildEnv;
+  if (priorRole === undefined) delete process.env[ROLE_ENV];
+  else process.env[ROLE_ENV] = priorRole;
+}
+
+for (const name of ["coc_capabilities", "coc_discover", "coc_invoke", "coc_rules", "coc_rules_roll"]) {
   assert.ok(tools.has(name), `coc extension must still register ${name}`);
 }
 
 process.stdout.write(JSON.stringify({
   ok: true,
   kpActiveTools: activeTools[0],
-  childSessionSetActiveToolsCalls: activeTools.length - 1,
+  setupActiveTools: activeTools[1],
+  playActiveTools: activeTools[2],
+  childSessionSetActiveToolsCalls: 0,
 }));

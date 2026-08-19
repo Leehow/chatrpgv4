@@ -4,6 +4,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { campaignHasStartedTableEvidence } from "./domain-tools.ts";
 import type { McpJsonlClient } from "./runtime.ts";
 
 export const WELCOME_CUSTOM_TYPE = "coc-pi-welcome";
@@ -142,6 +143,11 @@ export function tableOpenInstruction(
       "pi-coc table open: COC mode is already active on this dedicated desktop.",
       "Do not ask the player to activate COC.",
       startupResumeInstruction(startupCampaignId, workspaceRoot),
+      "After that resume succeeds: if data.mode is awaiting_player and",
+      "evidence.table_opening already exists, do not call evidence.table_opening",
+      "or any coc_evidence_table_opening alias, and do not invent new opening prose.",
+      "At most replay existing session.delivery_text / delivery.exact_text.",
+      "Wait for the player.",
     ].join(" ");
   }
   return [
@@ -244,6 +250,16 @@ export function shouldAutoOpenTable(
   );
 }
 
+/** Play-role continue: skip triggerTurn when resume already awaits the player. */
+export function tableOpenShouldTriggerTurn(options: {
+  intent?: TableOpenIntent;
+  resumeSatisfied?: boolean;
+} = {}): boolean {
+  if (options.intent === "character-setup") return true;
+  if (options.resumeSatisfied === true) return false;
+  return true;
+}
+
 /** Web/Electron is the attached player surface of this pi-coc host. */
 export function attachedUiEnabled(
   env: Record<string, string | undefined> = process.env,
@@ -277,6 +293,7 @@ export function registerCocWelcome(
     startupCampaignId: string | null,
     workspaceRoot: string,
     intent: TableOpenIntent,
+    triggerTurn: boolean,
   ) => {
     pi.sendMessage(
       {
@@ -288,6 +305,7 @@ export function registerCocWelcome(
           mode: "active",
           auto_open: true,
           table_intent: intent,
+          table_open_satisfied: triggerTurn === false,
           ...(startupCampaignId === null
             ? {}
             : {
@@ -298,7 +316,7 @@ export function registerCocWelcome(
               }),
         },
       },
-      { triggerTurn: true },
+      { triggerTurn },
     );
   };
 
@@ -367,7 +385,17 @@ export function registerCocWelcome(
       console.error(mayAutoOpen ? "[coc-pi-ui] auto-open" : "[coc-pi-ui] idle");
     }
     if (mayAutoOpen) {
-      openTable(startupCampaignId, ctx.cwd, intent);
+      const resumeSatisfied = (
+        intent === "continue"
+        && startupCampaignId !== null
+        && campaignHasStartedTableEvidence(ctx.cwd, startupCampaignId)
+      );
+      openTable(
+        startupCampaignId,
+        ctx.cwd,
+        intent,
+        tableOpenShouldTriggerTurn({ intent, resumeSatisfied }),
+      );
     } else if (startupCampaignId !== null) {
       pi.sendMessage(
         {

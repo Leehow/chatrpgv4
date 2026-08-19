@@ -1,5 +1,6 @@
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -9,6 +10,12 @@ import {
 
 const repoRoot = path.resolve(process.argv[2] || process.cwd());
 const packageRoot = repoRoot;
+const typed = await import(
+  pathToFileURL(path.join(repoRoot, "plugins/coc-keeper/pi/lib/typed-tools.ts")).href
+);
+const domain = await import(
+  pathToFileURL(path.join(repoRoot, "plugins/coc-keeper/pi/lib/domain-tools.ts")).href
+);
 const beforeHandles = process._getActiveHandles().length;
 const loader = new DefaultResourceLoader({
   cwd: repoRoot,
@@ -40,9 +47,24 @@ const { session } = await createAgentSession({
 });
 const activeToolNames = session.getActiveToolNames().sort();
 session.dispose();
+const typedToolNames = typed.listTypedOperationTools().map((row) => row.name).sort();
+const genericToolNames = [...domain.DOMAIN_TOOL_NAMES].sort();
+const hostToolNames = [
+  "coc_capabilities", "coc_chargen_delegate", "coc_discover",
+  "coc_dispatch_source_work", "coc_invoke", "coc_map_supply", "coc_progressive_ocr",
+];
+const expectedToolNames = [...new Set([
+  ...hostToolNames,
+  ...genericToolNames,
+  ...typedToolNames,
+])].sort();
 process.stdout.write(JSON.stringify({
   extensionCount: extensions.extensions.length,
   toolNames,
+  expectedToolNames,
+  typedToolNames,
+  genericToolNames,
+  hostToolNames,
   skillNames,
   skillDiagnostics: skillsResult.diagnostics,
   childStartedOnLoad: afterHandles > beforeHandles,
