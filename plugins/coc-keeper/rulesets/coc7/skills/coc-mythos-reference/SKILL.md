@@ -40,8 +40,12 @@ monster is in play:
   threats may leave this `null`.
 
 Lookup is by structured monster id only (`monster_ids` / `monster_id` on the
-active scene or threat fronts). Never infer a creature's identity by scanning
-player-facing prose.
+active scene or threat fronts). Discover candidates with `rules.catalog_search`
+(`kinds: ["creature"]`); the KP chooses the exact id semantically. Unknown
+ids stay fail-closed (`monster_by_name`). There is **no** `combat.spawn` on
+the Pi live path — creatures are searchable with a limited consumer (profile
+lookup / authored combat), not a parallel spawn engine. Never infer a
+creature's identity by scanning player-facing prose.
 
 ## Tome Reading
 

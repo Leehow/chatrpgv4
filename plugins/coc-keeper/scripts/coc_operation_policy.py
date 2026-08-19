@@ -371,6 +371,11 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
     "rules.cash_assets": {
         "phases": ("cold_start", "opening", "live_turn"),
     },
+    "rules.catalog_search": {
+        "phases": ("cold_start", "opening", "live_turn"),
+        "contract": "advisory",
+        "advisory": True,
+    },
     "state.cash_semantic": {
         "phases": ("cold_start", "opening", "live_turn"),
     },

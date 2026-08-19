@@ -7538,15 +7538,18 @@ def _dispatch_combat(
                 "max_points": min(int(payload["luck_spend_max"]), current_luck),
                 "current_luck": current_luck,
             }
-        turn = session.declare_and_resolve_turn(
-            pending["actor_id"], pending["declared_intent"],
-            target_actor_id=pending["target_actor_id"], defense_kind=defense,
-            weapon_id=pending.get("weapon_id"),
-            rulebook_exception=pending.get("rulebook_exception"),
-            resolution_hint=pending["resolution_hint"],
-            luck_precommit=luck_precommit,
-            resolution_command_id=command_id,
-        )
+        try:
+            turn = session.declare_and_resolve_turn(
+                pending["actor_id"], pending["declared_intent"],
+                target_actor_id=pending["target_actor_id"], defense_kind=defense,
+                weapon_id=pending.get("weapon_id"),
+                rulebook_exception=pending.get("rulebook_exception"),
+                resolution_hint=pending["resolution_hint"],
+                luck_precommit=luck_precommit,
+                resolution_command_id=command_id,
+            )
+        except coc_combat.UnknownWeaponError as exc:
+            raise _error("unknown_weapon", "weapon_id", str(exc)) from exc
         rolls, engine_events = session.drain_pending()
         luck_events = [
             candidate

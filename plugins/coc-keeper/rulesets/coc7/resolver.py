@@ -498,6 +498,31 @@ def weekly_recovery(
     return request
 
 
+def _catalog_module():
+    name = "coc7_catalog_adapter"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, PACKAGE_DIR / "catalog.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def catalog_supported_kinds() -> list[str]:
+    return list(_catalog_module().supported_kinds())
+
+
+def catalog_records(kinds: list[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+    return list(_catalog_module().catalog_records(kinds))
+
+
+def catalog_search(kinds: list[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+    """Capability marker for toolbox ``rules.catalog_search`` (kernel owns recall)."""
+    return catalog_records(kinds)
+
+
 def dying_check(decision_id: str, clock_kind: str) -> dict[str, Any]:
     """Build this package's canonical CON death-clock tick request."""
     return {
@@ -624,6 +649,11 @@ def public_api_index() -> dict[str, dict[str, Any]]:
             "aliases": [],
             "signature": "dying_check(decision_id, clock_kind)",
             "returns": "canonical dying-tick request for the subsystem executor",
+        },
+        "catalog_search": {
+            "aliases": ["catalog_records"],
+            "signature": "catalog_search(query, kinds=None, era=None, limit=None)",
+            "returns": "advisory candidate-only catalog recall; never selects entity_id",
         },
     }
     for name, entry in coc_roll.public_api_index().items():

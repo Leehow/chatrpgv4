@@ -5,13 +5,20 @@ description: Resolve Call of Cthulhu spell learning and casting through the cano
 
 # COC Magic
 
-Spell learning and casting are typed state-changing operations. Never settle
-them from memory or host-side prose.
+Spell names are **searchable** via `rules.catalog_search` (`kinds: ["spell"]`).
+There is **no live Pi toolbox cast/learn tool** on the normal play path; do
+not advertise complete live-cast wiring. The existing engine is
+`coc_magic.cast_spell` / `learn_spell` plus `runtime` `magic.cast` / `magic.learn`.
+Unknown spells fail closed (no 0 MP / 0 SAN default). Search is advisory and
+Keeper-only (`secret:true`); the KP chooses the exact name semantically.
+
+When a host *does* expose the typed gateway, never settle from memory or
+host-side prose.
 
 For Codex, Cursor, and Claude Code, call
 `../../../../scripts/coc_runtime_ops.py` / `execute_operation(...)`. The standalone
-Pi interface calls the exact same implementation through
-`runtime.sdk.api.operate(...)`.
+headless interface can call the same implementation through
+`runtime.sdk.api.operate(...)`. That is **not** a Pi-coc live consumer.
 
 Cast request:
 

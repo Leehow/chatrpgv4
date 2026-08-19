@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:03dc334b89fb9cc17bd66816699f80c6cac0ee0b7602f16ce5fb3920b5bc710e",
+  "content_sha256": "sha256:2d861fd880678bb679bac02c67c8939b70fd9f9d34ee8c23df119e9f3b1da9c3",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 112,
+  "operation_count": 113,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -2144,6 +2144,57 @@
         ]
       },
       "summary": "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter."
+    },
+    "rules.catalog_search": {
+      "access": "query",
+      "canonical_operation": "rules.catalog_search",
+      "description": "Keeper-only advisory catalog candidate recall for weapons, spells, creatures, and other table entities. Returns candidates with match reasons; never auto-selects entity_id. Secret rows stay secret:true and must not be dumped to players. Canonical operation `rules.catalog_search`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "era": {
+            "description": "optional era filter such as 1920s or modern",
+            "type": "string"
+          },
+          "kinds": {
+            "description": "optional kind filters (weapon, spell, creature, …)",
+            "type": "array"
+          },
+          "limit": {
+            "description": "max candidates (1-50, default 20)",
+            "type": "integer"
+          },
+          "query": {
+            "description": "ID/name-like search text (structured tokens; digits kept)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "kp_surface": "rules",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
+      "summary": "Keeper-only advisory catalog candidate recall for weapons, spells, creatures, and other table entities. Returns candidates with match reasons; never auto-selects entity_id. Secret rows stay secret:true and must not be dumped to players."
     },
     "rules.check": {
       "access": "mutation",
@@ -5159,7 +5210,7 @@
     "state.item_grant": {
       "access": "mutation",
       "canonical_operation": "state.item_grant",
-      "description": "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement. Canonical operation `state.item_grant`; the result envelope is authoritative.",
+      "description": "Grant an item or weapon earned in play. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon. Canonical operation `state.item_grant`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5239,7 +5290,7 @@
           "live_turn"
         ]
       },
-      "summary": "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement."
+      "summary": "Grant an item or weapon earned in play. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon."
     },
     "state.item_remove": {
       "access": "mutation",
@@ -7213,6 +7264,7 @@
                 },
                 "segment_type": {
                   "enum": [
+                    "asset_delta",
                     "exceptional_effect",
                     "public_check",
                     "state_delta"

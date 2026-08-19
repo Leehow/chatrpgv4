@@ -286,16 +286,10 @@ def cast_spell(
     rng = rng or random.Random()
     casting = casting_rules()
 
-    # Spell rule data (costs). Unknown spells still resolve with zero costs so
-    # the engine degrades gracefully; callers validate spell names upstream.
-    try:
-        spell = coc_rules.spell_by_name(spell_name)
-        mp_cost_expr = spell.get("cost_mp", "0")
-        san_cost_expr = spell.get("cost_sanity", "0")
-    except KeyError:
-        spell = {"name": spell_name}
-        mp_cost_expr = "0"
-        san_cost_expr = "0"
+    # Unknown spells fail closed. Never invent 0 MP / 0 SAN costs.
+    spell = coc_rules.spell_by_name(spell_name)
+    mp_cost_expr = spell.get("cost_mp", "0")
+    san_cost_expr = spell.get("cost_sanity", "0")
 
     # --- Interruption: committed base MP lost, spell fails, no push extras -- #
     # Resolve MP before any POW roll so interruption does not consume roll RNG.
@@ -451,6 +445,7 @@ def learn_spell(
 
     if source not in ("tome", "person", "entity"):
         raise ValueError(f"unsupported learn source: {source!r}")
+    spell = coc_rules.spell_by_name(spell_name)
 
     int_value = int(learner_state.get("int", 0))
     roll_result = coc_roll.percentile_check(
@@ -466,10 +461,6 @@ def learn_spell(
 
     if source == "entity":
         # Spell-level floor when present; else learning block; else "1D6".
-        try:
-            spell = coc_rules.spell_by_name(spell_name)
-        except KeyError:
-            spell = {}
         san_cost_expr = (
             spell.get("from_entity_min_sanity_cost")
             or learning.get("from_entity_min_sanity_cost")

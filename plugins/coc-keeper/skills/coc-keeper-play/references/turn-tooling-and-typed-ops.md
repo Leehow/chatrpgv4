@@ -268,7 +268,14 @@ contract above still applies. This is the natural rhythm:
    possession (found gear, a purchase, a seized weapon, a spent ledger),
    call `state.item_grant` / `state.item_remove`, and use
    `state.inventory_list` to check current holdings (an investigator's or an
-   NPC's). A granted weapon is a legal combat `weapon_id` at once; a weapon
+   NPC's). Before granting or resolving a weapon, spell, creature, or other
+   table-entity id, call `rules.catalog_search` for candidates, then choose
+   the exact `entity_id` semantically (keep multiple candidates on
+   ambiguity; never regex-auto-pick the first string match). The consumer
+   (`state.item_grant`, `combat.resolve`, `spell_by_name` / `monster_by_name`)
+   validates that id and fail-closes on unknown rows. Catalog output is
+   Keeper-only advisory; never dump `secret:true` rows or the raw candidate
+   list to the player. A granted *validated* weapon is a legal combat `weapon_id` at once; a weapon
    taken by a successful disarm maneuver commits automatically when the
    combat ends. Looting a downed or surrendered opponent is explicit:
    `state.item_grant` to the looter plus `state.item_remove` from the NPC.

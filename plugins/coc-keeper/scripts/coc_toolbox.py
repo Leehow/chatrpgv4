@@ -66,6 +66,7 @@ coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_language = _load_sibling("coc_language", "coc_language.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
+coc_catalog = _load_sibling("coc_catalog", "coc_catalog.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
@@ -699,6 +700,7 @@ _RULE_TOOL_CAPABILITIES = {
     "rules.medicine": "medicine",
     "rules.weekly_recovery": "weekly_recovery",
     "rules.dying_check": "dying_check",
+    "rules.catalog_search": "catalog_search",
 }
 
 _RULE_TOOL_RESOURCE_REQUIREMENTS = {
@@ -9149,6 +9151,61 @@ def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "rules.catalog_search",
+    "Keeper-only advisory catalog candidate recall for weapons, spells, creatures, and other table entities. Returns candidates with match reasons; never auto-selects entity_id. Secret rows stay secret:true and must not be dumped to players.",
+    {
+        "query": {
+            "type": "string",
+            "required": True,
+            "desc": "ID/name-like search text (structured tokens; digits kept)",
+        },
+        "kinds": {
+            "type": "array",
+            "desc": "optional kind filters (weapon, spell, creature, …)",
+        },
+        "era": {
+            "type": "string",
+            "desc": "optional era filter such as 1920s or modern",
+        },
+        "limit": {
+            "type": "integer",
+            "desc": "max candidates (1-50, default 20)",
+        },
+    },
+    needs_campaign=False,
+    access="query",
+    recovery_domains=(),
+)
+def _tool_rules_catalog_search(ctx: Ctx, args: dict[str, Any]):
+    campaign = None
+    if ctx.campaign_dir is not None:
+        campaign = coc_state.load_campaign_state(ctx.campaign_dir)
+    result = coc_catalog.search_catalog(
+        query=args.get("query"),
+        kinds=args.get("kinds"),
+        era=args.get("era"),
+        limit=args.get("limit"),
+        campaign=campaign,
+    )
+    if not result.get("ok"):
+        err = result.get("error") if isinstance(result.get("error"), dict) else {}
+        code = str(err.get("code") or "catalog_search_failed")
+        message = str(err.get("detail") or err.get("message") or code)
+        raise ToolError(code, message, details=err or None)
+    data = dict(result)
+    data["authority"] = "advisory"
+    data["candidate_only"] = True
+    data["selected"] = None
+    if any(isinstance(row, dict) and row.get("secret") for row in data.get("candidates") or []):
+        data["secret"] = True
+    hints = [
+        "authority=advisory; candidates only. KP chooses the exact entity_id semantically; never auto-pick the first string match.",
+        "Do not print this catalog payload or any secret:true row to the player.",
+    ]
+    return data, [], hints
+
+
+@tool(
     "rules.build_scale",
     "Comparative build scale and lift/throw capability (Table XV, p.279). Read-only lookup; use when size shapes the fiction — who can lift, carry, or throw whom, and how big something reads.",
     {
@@ -12007,6 +12064,44 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "weapon_effect_ids must be non-empty strings")
     if len(selected_effect_ids) != len(set(selected_effect_ids)):
         raise ToolError("invalid_param", "weapon_effect_ids must be unique")
+    selected_weapon_id = str(args.get("weapon_id") or "").strip()
+    if selected_weapon_id and selected_weapon_id != "unarmed":
+        # Investigator attacks require inventory/sheet ownership. Catalog
+        # membership only proves the id is a valid parameter, never possession.
+        # NPC/monster profile weapons are resolved from actor authority later.
+        owned_rows = [
+            row for row in (investigator_profile.get("weapons") or [])
+            if isinstance(row, dict) and row.get("weapon_id")
+        ]
+        owned = {str(row.get("weapon_id")) for row in owned_rows}
+        catalog = coc_subsystem_executor.coc_combat.resolve_module_weapons(None)
+        owned_row = next(
+            (
+                row for row in owned_rows
+                if str(row.get("weapon_id") or "") == selected_weapon_id
+            ),
+            None,
+        )
+        complete_custom = (
+            isinstance(owned_row, dict)
+            and str(owned_row.get("skill") or "").strip()
+            and str(owned_row.get("damage") or "").strip()
+        )
+        if selected_weapon_id not in owned:
+            if selected_weapon_id in catalog:
+                raise ToolError(
+                    "unowned_weapon",
+                    f"unowned_weapon: {selected_weapon_id!r} is catalog-valid but not in investigator inventory",
+                )
+            raise ToolError(
+                "unknown_weapon",
+                f"unknown_weapon: {selected_weapon_id!r} is not a catalog, module, or owned custom weapon",
+            )
+        if selected_weapon_id not in catalog and not complete_custom:
+            raise ToolError(
+                "unknown_weapon",
+                f"unknown_weapon: {selected_weapon_id!r} is owned but is not a resolvable weapon",
+            )
     if selected_effect_ids:
         selected_weapon_id = str(args.get("weapon_id") or "").strip()
         selected_weapon = next(
@@ -22906,7 +23001,7 @@ def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "state.item_grant",
-    "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement.",
+    "Grant an item or weapon earned in play. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon.",
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "desc": "NPC actor id (exactly one of investigator/npc_id)"},
@@ -22980,21 +23075,29 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
                 raise ToolError("invalid_param", "mechanics_ref does not resolve to a weapon profile")
             weapon_spec = deepcopy(profile)
             weapon_spec.pop("profile_kind", None)
+            try:
+                weapon_spec = coc_mechanics.accept_granted_weapon(weapon_spec)
+            except coc_mechanics.MechanicsError as exc:
+                raise ToolError("unknown_weapon", str(exc)) from exc
         elif raw_weapon is not None:
             if not isinstance(raw_weapon, dict):
                 raise ToolError("invalid_param", "weapon must be an object")
-            weapon_spec = deepcopy(raw_weapon)
-            if coc_inventory.weapon_ref_id(weapon_spec) is None:
-                raise ToolError(
-                    "invalid_param", "weapon.weapon_id must be a non-empty string"
-                )
+            try:
+                weapon_spec = coc_mechanics.accept_granted_weapon(deepcopy(raw_weapon))
+            except coc_mechanics.MechanicsError as exc:
+                raise ToolError("unknown_weapon", str(exc)) from exc
         else:
             weapon_id = str(args.get("weapon_id") or "").strip()
             if not weapon_id:
                 raise ToolError(
                     "invalid_param", "kind=weapon requires weapon_id or weapon"
                 )
-            weapon_spec = {"weapon_id": weapon_id}
+            try:
+                weapon_spec = coc_mechanics.accept_granted_weapon(
+                    {"weapon_id": weapon_id}
+                )
+            except coc_mechanics.MechanicsError as exc:
+                raise ToolError("unknown_weapon", str(exc)) from exc
         item_id = (
             str(args.get("item_id") or "").strip()
             or coc_inventory.weapon_ref_id(weapon_spec)

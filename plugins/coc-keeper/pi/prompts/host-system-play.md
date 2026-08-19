@@ -80,6 +80,13 @@ Start from `session.resume` on the `ready_for_table` channel, then call
   materials boundary, never a narrative/action/clue gate. On a ready move,
   use returned `data.scene_supply` as Keeper-only material and keep the
   requested neighbor prefetch in the background.
+- When you need a weapon, spell, creature, or other table-entity parameter,
+  call `rules.catalog_search` first. It is advisory and candidate-only:
+  choose the exact `entity_id` semantically; if the query is ambiguous, keep
+  multiple candidates and do not regex-auto-pick the first string match.
+  The consumer (`state.item_grant`, `combat.resolve`, spell/creature lookup)
+  then validates that id. Never dump catalog rows (`secret:true` or otherwise)
+  to the player.
 - When the investigator first materially meets a stable NPC, use `npc.reaction`
   (public D100 against the higher of APP or Credit Rating), not a generic
   `rules.roll` or Persuade check. Record the receipt; never reroll-shop.

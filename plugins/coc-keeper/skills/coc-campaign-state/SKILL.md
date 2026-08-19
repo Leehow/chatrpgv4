@@ -20,6 +20,18 @@ Runtime item truth is campaign-local: investigator items live in
 `lost_weapon_ids`), NPC item overrides live in `save/npc-state.json["items"]`.
 They reach the reusable library sheet only through development settlement
 (see `coc-development`), which also appends to `inventory-history.jsonl`.
+Ordinary play writes those inventories only through `state.item_grant` /
+`state.item_remove` / `state.item_use` (query with `state.inventory_list`).
+When the KP needs a legal weapon/spell/creature/`weapon_id` from the rules
+tables, call `rules.catalog_search` first and pick the exact `entity_id`
+semantically (keep multiple candidates if `.38`-style queries are
+ambiguous; never regex-auto-select). `state.item_grant(kind=weapon)` then
+validates that id against the active catalog, a legal `mechanics_ref`, or a
+complete custom weapon schema and fail-closes without writing inventory on
+unknown ids. That search tool is Keeper-only advisory; never copy its payload or
+`secret:true` rows into player-visible state or prose. Spells and creatures
+are searchable the same way; Pi play has no `combat.spawn` and no live
+`rules.cast` toolbox tool — do not advertise a complete spawn/cast wiring.
 
 ## Operations
 

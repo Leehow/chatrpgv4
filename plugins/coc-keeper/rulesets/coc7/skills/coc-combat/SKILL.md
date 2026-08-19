@@ -164,7 +164,7 @@ Melee weapon damage expressions in the rulebook **exclude** DB (e.g. medium knif
 
 - Each weapon carries `adds_damage_bonus: true|false`. Melee weapons and natural weapons (claws) set this true; firearms set it false (bullets don't get stronger from the shooter's muscles).
 - The attacker's `damage_bonus` field (e.g. `"+1D4"`, `"-2"`, `"none"`, derived from STR+SIZ via `damage-bonus-build.json`) is appended to the die expression when `adds_damage_bonus` is true.
-- The canonical weapon catalog lives in `../../rules-json/weapons.json` (unarmed, knife_medium, knife_small, club_small, club_large, revolver_38, revolver_45, shotgun, rifle_22, claws, etc.). Each entry has `skill`, `damage` (excluding DB), `adds_damage_bonus`, `impales`, `base_range_yards`, `category`.
+- The canonical weapon catalog lives in `../../rules-json/weapons.json` (unarmed, knife_medium, knife_small, club_small, club_large, revolver_38, revolver_38_or_9mm, revolver_45, shotgun, rifle_22, claws, etc.). Each entry has `skill`, `damage` (excluding DB), `adds_damage_bonus`, `impales`, `base_range_yards`, `category`. Discover candidates with `rules.catalog_search` (e.g. `.38` is ambiguous); the KP chooses an exact `weapon_id` semantically, then `state.item_grant` / `combat.resolve` validate it. Unknown or inventory-corrupt ids fail closed — they never silently become unarmed 1D3/Brawl. Explicit `unarmed` stays the legal empty-handed path. `revolver_38_or_9mm` is 1D10 / 15 yd / cap 6 / malf 100.
 
 Never write a melee weapon's damage as `1D4+2` without DB — that under-counts damage. Always let the engine append DB via `adds_damage_bonus`.
 

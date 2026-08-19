@@ -430,6 +430,33 @@ def validate_fact_provenance(
             )
 
 
+def accept_granted_weapon(spec: Any) -> dict[str, Any]:
+    """Fail-closed grant validation for kind=weapon.
+
+    A grant is legal only when ``weapon_id`` is an active canonical catalog
+    id, or the object is a complete custom / ``extends`` profile that passes
+    ``validate_weapon_profile``. Label-only or kind=gear is not a weapon.
+    """
+    if not isinstance(spec, dict):
+        raise MechanicsError("weapon spec must be an object")
+    weapon_id = _nonempty(spec.get("weapon_id"))
+    if not weapon_id:
+        raise MechanicsError("weapon spec requires weapon_id")
+    extra = {
+        key: value
+        for key, value in spec.items()
+        if key != "weapon_id" and value is not None
+    }
+    if not extra:
+        if weapon_id not in canonical_weapon_ids():
+            raise MechanicsError(
+                f"unknown_weapon: {weapon_id!r} is not an active canonical weapon id"
+            )
+        return {"weapon_id": weapon_id}
+    validate_weapon_profile(spec)
+    return dict(spec)
+
+
 def validate_weapon_profile(profile: Any) -> None:
     if not isinstance(profile, dict):
         raise MechanicsError("weapon profile must be an object")

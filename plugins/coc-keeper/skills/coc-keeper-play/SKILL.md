@@ -274,7 +274,13 @@ settled finalization.
    `rules.opposed(contest_kind="noncombat")` / `sanity.execute` /
    `rules.damage`; combat reactions always go through `combat.resolve`. Prefer
    `rules.skill_describe` before rolling candidates (advisory; not mandatory
-   every turn). Critical/fumble/pushed failure → `state.exceptional_effect`
+   every turn). When you need a weapon, spell, creature, or other table-entity
+   parameter, call `rules.catalog_search` first, then choose the exact
+   `entity_id` semantically (keep multiple candidates when ambiguous; never
+   regex-auto-pick the first string match) before the consumer validates it.
+   Catalog results are
+   Keeper-only (`authority:advisory`; `secret:true` rows stay secret); never
+   dump them to the player. Critical/fumble/pushed failure → `state.exceptional_effect`
    before journal. Prefer **Table Wit** on fumbles / hard-fought failures when
    tone allows (`references/style-scene-craft.md`). Preserve a prefilled
    `resolution_context` when invoking a route-bound roll. If a later roll in

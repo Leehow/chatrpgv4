@@ -47,6 +47,14 @@ coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 
 
+class UnknownWeaponError(ValueError):
+    """Selected weapon_id is not catalog, module, complete custom, or unarmed."""
+
+    def __init__(self, weapon_id: str):
+        self.weapon_id = weapon_id
+        super().__init__(f"unknown_weapon: {weapon_id!r}")
+
+
 # --------------------------------------------------------------------------- #
 # Weapon catalog + module weapon extension
 # --------------------------------------------------------------------------- #
@@ -2628,14 +2636,35 @@ class CombatSession:
             if wid == weapon_id:
                 participant_ref = w if isinstance(w, dict) else {}
                 break
-        # Merge catalog base + participant override.
-        catalog_entry = dict(self._weapon_catalog.get(weapon_id, {}))
+        # Merge catalog base + participant override. Unknown IDs fail closed:
+        # never invent 1D3 / Brawl / DB for a missing catalog row.
+        if str(weapon_id) == "unarmed":
+            unarmed = dict(self._weapon_catalog.get("unarmed") or {})
+            merged = {
+                "weapon_id": "unarmed",
+                "skill": "Fighting (Brawl)",
+                "damage": "1D3",
+                "adds_damage_bonus": True,
+                "impales": False,
+                "special": None,
+                **unarmed,
+                **participant_ref,
+                "weapon_id": "unarmed",
+            }
+            return merged
+        catalog_hit = weapon_id in self._weapon_catalog
+        catalog_entry = dict(self._weapon_catalog.get(weapon_id) or {})
         catalog_entry.update(participant_ref)
-        catalog_entry.setdefault("weapon_id", weapon_id)
-        catalog_entry.setdefault("damage", "1D3")
-        catalog_entry.setdefault("skill", "Fighting (Brawl)")
-        catalog_entry.setdefault("adds_damage_bonus", True)
-        catalog_entry.setdefault("impales", False)
+        catalog_entry["weapon_id"] = weapon_id
+        complete_custom = (
+            str(catalog_entry.get("skill") or "").strip()
+            and str(catalog_entry.get("damage") or "").strip()
+        )
+        if not catalog_hit and not complete_custom:
+            raise UnknownWeaponError(str(weapon_id))
+        if complete_custom:
+            catalog_entry.setdefault("adds_damage_bonus", True)
+            catalog_entry.setdefault("impales", False)
         catalog_entry.setdefault("special", None)
         return catalog_entry
 
