@@ -17,6 +17,8 @@ import {
   mapRpcEventToSse,
   PiCocRpcHost,
   PLAY_TABLE_OPENING_PROMPT,
+  SETUP_CHARACTER_OPENING_MARKER,
+  setupCharacterOpeningPrompt,
   sessionOpeningFlags,
   summarizeRpcDeath,
   webSessionId,
@@ -374,6 +376,54 @@ test("attachOpening returns without replaying a turn that settled before the UI 
   assert.deepEqual(frames, []);
 });
 
+test("attachOpening replays settled session assistant text without injecting", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-pi-settled-"));
+  try {
+    const sessionDir = path.join(agentDir, "sessions", "cwd");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, "2026-08-20T03-06-16Z_web-needs-inv.jsonl"),
+      `${JSON.stringify({
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "先告诉我：这个人是谁？" }],
+        },
+      })}\n`,
+    );
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "needs-inv",
+      sessionId: "web-needs-inv",
+      agentDir,
+      tableIntent: "character-setup",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+    });
+    host.start();
+    child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    await new Promise((r) => setTimeout(r, 20));
+    const frames = [];
+    const result = await host.attachOpening({
+      onSse: (frame) => frames.push(frame),
+    });
+    assert.deepEqual(result, { opened: true });
+    assert.deepEqual(frames, [{ event: "delta", data: { text: "先告诉我：这个人是谁？" } }]);
+    assert.equal(
+      written.join("").split("\n").filter(Boolean).some((line) => JSON.parse(line).type === "prompt"),
+      false,
+    );
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
 test("attachOpening returns immediately on idle UI intent", async () => {
   const child = fakeChild();
   const host = new PiCocRpcHost({
@@ -425,6 +475,83 @@ test("attachOpening replays the existing Pi assistant when the host stays idle",
   } finally {
     fs.rmSync(agentDir, { recursive: true, force: true });
   }
+});
+
+test("attachOpening character-setup injects one hidden prompt when auto-open is silent", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "needs-inv",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_IDLE_MARKER}\n`);
+  const frames = [];
+  const attachP = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 40));
+  const cmds = written.join("").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(cmds.length, 1);
+  assert.equal(cmds[0].type, "prompt");
+  assert.equal(
+    cmds[0].message,
+    setupCharacterOpeningPrompt({ campaignId: "needs-inv", workspace: path.resolve("/tmp/ws") }),
+  );
+  assert.match(cmds[0].message, new RegExp(SETUP_CHARACTER_OPENING_MARKER));
+  child.stdout.write(`${JSON.stringify({ id: cmds[0].id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "先告诉我：这个人是谁？" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await attachP;
+  assert.equal(result.setupOpeningPrompted, true);
+  assert.deepEqual(frames, [{ event: "delta", data: { text: "先告诉我：这个人是谁？" } }]);
+  const again = await host.attachOpening();
+  const cmdsAfter = written.join("").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(cmdsAfter.filter((row) => row.type === "prompt").length, 1);
+  assert.deepEqual(again, { opened: true });
+});
+
+test("attachOpening character-setup does not inject when auto-open already has visible text", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "needs-inv",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attachP = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "先建卡：你是谁？" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await attachP;
+  assert.deepEqual(result, { opened: true });
+  assert.deepEqual(frames, [{ event: "delta", data: { text: "先建卡：你是谁？" } }]);
+  assert.equal(
+    written.join("").split("\n").filter(Boolean).some((line) => JSON.parse(line).type === "prompt"),
+    false,
+  );
 });
 
 test("attachOpening follows an auto-open already in flight", async () => {
@@ -622,4 +749,61 @@ test("prompt settles on exit 42 instead of throwing during turn", async () => {
   assert.equal(host.isHandoffShutdown(), true);
   assert.equal(frames.some((frame) => frame.event === "notice"), false);
   assert.deepEqual(frames.map((frame) => frame.event), ["coc_setup_handoff"]);
+});
+
+test("setupCharacterOpeningPrompt inlines an in-campaign briefing and does not ask for a file probe", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-open-brief-"));
+  try {
+    const root = path.join(workspace, ".coc", "campaigns", "am-open");
+    fs.mkdirSync(path.join(root, "assets", "character-creation"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "assets", "character-creation", "scenario-briefing.md"),
+      "1920s Boston salon. Player-safe hooks only.\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "campaign.json"),
+      JSON.stringify({
+        title: "永不凋谢",
+        character_creation: {
+          briefing_path: "assets/character-creation/scenario-briefing.md",
+        },
+      }),
+    );
+    const prompt = setupCharacterOpeningPrompt({ campaignId: "am-open", workspace });
+    assert.match(prompt, /1920s Boston salon/);
+    assert.match(prompt, /永不凋谢/);
+    assert.doesNotMatch(prompt, /briefing_path/);
+    assert.doesNotMatch(prompt, /find\/ls\/glob/);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("setupCharacterOpeningPrompt ignores a sibling-campaign briefing_path", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-open-sib-"));
+  try {
+    const sibling = path.join(workspace, ".coc", "campaigns", "other");
+    fs.mkdirSync(path.join(sibling, "assets", "character-creation"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sibling, "assets", "character-creation", "scenario-briefing.md"),
+      "SIBLING LEAK",
+    );
+    const root = path.join(workspace, ".coc", "campaigns", "am-self");
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "campaign.json"),
+      JSON.stringify({
+        title: "Self",
+        character_creation: {
+          briefing_path:
+            ".coc/campaigns/other/assets/character-creation/scenario-briefing.md",
+        },
+      }),
+    );
+    const prompt = setupCharacterOpeningPrompt({ campaignId: "am-self", workspace });
+    assert.doesNotMatch(prompt, /SIBLING LEAK/);
+    assert.match(prompt, /No player-safe briefing was readable/);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });

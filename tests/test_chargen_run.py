@@ -23,7 +23,12 @@ coc_runtime_ops = coc_toolbox.coc_runtime_ops
 coc_character = coc_runtime_ops.coc_character
 
 
-def _create_campaign(workspace: Path, campaign_id: str = "chargen-scratch") -> str:
+def _create_campaign(
+    workspace: Path,
+    campaign_id: str = "chargen-scratch",
+    *,
+    era: str = "1920s",
+) -> str:
     receipt = coc_runtime_ops.execute_setup_operation(
         workspace,
         operation={
@@ -32,7 +37,7 @@ def _create_campaign(workspace: Path, campaign_id: str = "chargen-scratch") -> s
             "payload": {
                 "campaign_id": campaign_id,
                 "title": "Chargen Scratch",
-                "era": "1920s",
+                "era": era,
             },
         },
     )
@@ -120,6 +125,36 @@ def test_chargen_run_luck_idempotent(tmp_path: Path) -> None:
     assert replay["ok"] is True, replay
     assert replay["data"]["total"] * 5 == first_luck
     assert replay["data"]["roll_id"] == first_rolls[0]
+
+
+def test_chargen_run_unrecognized_occupation_skill_names_invalid_param(
+    tmp_path: Path,
+) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-bad-skill")
+    mystery = "图书馆使用与珍本鉴定"
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "bad-skill",
+            "name": "Nobody",
+            "occupation_name": "旧书商",
+            "occupation_skill_names": [mystery, "Spot Hidden"],
+        },
+    )
+    assert envelope["ok"] is False, envelope
+    error = envelope.get("error") or {}
+    assert error.get("code") == "invalid_param"
+    assert mystery in str(error.get("message", ""))
+    details = error.get("details") or {}
+    assert details.get("stage") == "occupation"
+    assert mystery in str(details.get("error", ""))
+    assert mystery in str((details.get("expected") or {}).get("unrecognized", []))
+    assert not (
+        tmp_path / ".coc" / "investigators" / "bad-skill" / "character.json"
+    ).exists()
 
 
 def test_chargen_run_unknown_occupation_without_skills(tmp_path: Path) -> None:
@@ -447,3 +482,82 @@ def test_chargen_run_focus_plus_support_union_places(tmp_path: Path) -> None:
     )
     assert envelope["ok"] is True, envelope
     assert envelope["data"]["result"]["ok"] is True
+
+
+def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-ww1", era="ww1")
+    payload = {
+        "campaign_id": campaign_id,
+        "investigator_id": "ww1-ada",
+        "name": "Ada Lark",
+        "occupation_name": "Journalist",
+        "assignment_priority": [
+            "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
+        ],
+        "occupation_skill_names": ["Spot Hidden", "Listen"],
+        "interest_skill_names": ["Occult", "First Aid"],
+        "luck": {"mode": "auto_roll"},
+    }
+    assert "characteristics" not in payload
+    assert "occupation_allocations" not in payload
+    envelope = coc_toolbox.run_tool("setup.chargen_run", tmp_path, None, payload)
+    assert envelope["ok"] is True, envelope
+    result = envelope["data"]["result"]
+    assert result["ok"] is True
+    chars = result["characteristics"]
+    assert sorted(chars.values()) == [40, 50, 50, 50, 60, 60, 70, 80]
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "ww1-ada" / "character.json")
+        .read_text(encoding="utf-8")
+    )
+    creation = json.loads(
+        (tmp_path / ".coc" / "investigators" / "ww1-ada" / "creation.json")
+        .read_text(encoding="utf-8")
+    )
+    assert creation["input_mode"] == coc_character.ERA_ADAPTIVE_INPUT_MODE
+    assert stored["era_adaptive"] is True
+    assert stored["characteristics"] == chars
+    assert isinstance(stored["derived"]["Luck"], int)
+    budget = creation["skill_budget"]["occupation_points"]
+    assert budget["budget"] == budget["spent"] == sum(budget["allocations"].values())
+    assert budget["budget"] > 0
+
+
+def test_chargen_run_ww1_unrecognized_skill_is_structured_error(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-ww1-bad", era="ww1")
+    mystery = "战壕占星术"
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "ww1-bad",
+            "name": "Nobody",
+            "occupation_name": "Soldier",
+            "occupation_skill_names": [mystery],
+        },
+    )
+    assert envelope["ok"] is False, envelope
+    details = (envelope.get("error") or {}).get("details") or {}
+    assert details.get("stage") == "occupation"
+    assert mystery in str(details.get("expected", {}).get("unrecognized", []))
+    assert not (
+        tmp_path / ".coc" / "investigators" / "ww1-bad" / "character.json"
+    ).exists()
+
+
+def test_onboarding_inspect_pregen_summaries() -> None:
+    receipt = coc_runtime_ops.execute_setup_operation(
+        REPO,
+        operation={"schema_version": 1, "kind": "onboarding.inspect", "payload": {}},
+    )
+    assert receipt["status"] == "PASS"
+    starters = {item["scenario_id"]: item for item in receipt["result"]["starters"]}
+    haunting = starters["the-haunting"]["pregens"]
+    assert haunting
+    for row in haunting:
+        assert set(row) <= {"pregen_id", "name", "occupation"}
+        assert row["pregen_id"]
+        assert row["name"]
+    assert starters["the-white-war"]["pregens"] == []

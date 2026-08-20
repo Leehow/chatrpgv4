@@ -41,6 +41,29 @@ export function resolveProductAgentDir({
   return path.join(resolveProductUserData({ userData, ...rest }), "pi-agent");
 }
 
+/** Dirs where a pi-coc host may have written sessions.
+ *  Product PI_AGENT_DIR / desktop pi-agent first, then `{workspace}/.pi/agent`
+ *  (repo-root `node server.mjs --workspace .` historically wrote there because
+ *  Pi defaults to cwd/.pi/agent when the child env is not pinned). */
+export function resolveHostedSessionAgentDirs({
+  workspace,
+  agentDir = process.env.PI_AGENT_DIR,
+  userData,
+  ...rest
+} = {}) {
+  const dirs = [];
+  const push = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return;
+    const resolved = path.resolve(raw);
+    if (!dirs.includes(resolved)) dirs.push(resolved);
+  };
+  push(resolveProductAgentDir({ agentDir, userData, ...rest }));
+  const ws = String(workspace || "").trim();
+  if (ws) push(path.join(path.resolve(ws), ".pi", "agent"));
+  return dirs;
+}
+
 /**
  * Desktop settings stay next to the app-owned pi-agent dir.
  * An explicit terminal PI_AGENT_DIR (~/.pi/agent) is not a write target.

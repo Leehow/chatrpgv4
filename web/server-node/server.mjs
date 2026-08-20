@@ -25,6 +25,7 @@ import {
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
 import { finishPromptTurn } from "./turn-flow.mjs";
+import { buildTurnSseData, latestKeeperProjection, projectionIdentity } from "./turn-settle.mjs";
 import {
   campaignDir,
   combatInitiativeDisplay,
@@ -38,6 +39,7 @@ import {
   modelsPayload,
   readJsonFile,
   sceneDisplayLabel,
+  resolvePlaySceneId,
   sha256Bytes,
   sha256File,
   tableTranscriptMessages,
@@ -47,6 +49,7 @@ import {
 import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./model-editor.mjs";
 import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
 import { cancelLogin, loginSnapshot, respondLoginPrompt, startProviderLogin } from "./provider-login.mjs";
+import { derivePdfIngestStatus, readManifestFacts } from "./ingest-status.mjs";
 
 /**
  * Arm the canonical Pi source-lifecycle lanes for the pi-coc RPC child this
@@ -226,8 +229,10 @@ async function statePayload(info) {
   }
   state.character_setup_pending = !liveInvestigator;
   state.time = timeExtras(WORKSPACE, info.campaign_id, lang);
-  const sceneId = state.active_scene_id;
+  const sceneId =
+    resolvePlaySceneId(WORKSPACE, info.campaign_id) || state.active_scene_id;
   if (typeof sceneId === "string" && sceneId) {
+    state.active_scene_id = sceneId;
     state.active_scene_label =
       sceneDisplayLabel(WORKSPACE, info.campaign_id, sceneId, lang) || sceneId;
   } else {
@@ -283,7 +288,8 @@ async function transcriptPayload(info) {
   const timed = tableTranscriptMessages(WORKSPACE, info.campaign_id);
   if (timed !== null) return timed;
   const hosted = hostedSessionMessages({
-    agentDir: process.env.PI_AGENT_DIR,
+    workspace: WORKSPACE,
+    agentDir: resolveProductAgentDir(),
     sessionId: info.session_id || webSessionId(info.campaign_id),
   });
   if (hosted.length) return hosted;
@@ -857,6 +863,16 @@ function sseWrite(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function clientLiveId(body, attach) {
+  if (attach) return null;
+  const raw = body?.live_id;
+  if (typeof raw !== "string") return null;
+  const id = raw.trim();
+  if (!id || id.length > 128) return null;
+  if (/[\u0000-\u001f]/.test(id)) return null;
+  return id;
+}
+
 async function handleTurn(req, res, sid) {
   const info = SESSIONS.get(sid);
   if (!info) {
@@ -876,6 +892,10 @@ async function handleTurn(req, res, sid) {
   }
   const selectedModel = resolveRequestedModelSettings(modelsPayload(), body);
   const { provider, model, thinking } = selectedModel;
+  const previousIdentity = projectionIdentity(
+    latestKeeperProjection(WORKSPACE, info.campaign_id),
+  );
+  const liveId = clientLiveId(body, attach);
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -920,16 +940,23 @@ async function handleTurn(req, res, sid) {
       state = { error: `${err?.constructor?.name || "Error"}: ${err?.message || err}` };
     }
     const usage = activeHost.lastUsage;
-    safeWrite("turn", {
-      events: [],
-      state,
-      usage: usage
-        ? {
-            input_tokens: Number.isInteger(usage.input) ? usage.input : null,
-            output_tokens: Number.isInteger(usage.output) ? usage.output : null,
-          }
-        : lastTelemetryUsage(info.campaign_id),
-    });
+    const usagePayload = usage
+      ? {
+          input_tokens: Number.isInteger(usage.input) ? usage.input : null,
+          output_tokens: Number.isInteger(usage.output) ? usage.output : null,
+        }
+      : lastTelemetryUsage(info.campaign_id);
+    safeWrite(
+      "turn",
+      buildTurnSseData({
+        state,
+        usage: usagePayload,
+        workspace: WORKSPACE,
+        campaignId: info.campaign_id,
+        liveId,
+        previousIdentity,
+      }),
+    );
     safeWrite("end", {});
   };
 
@@ -1610,6 +1637,51 @@ async function handleIngestPdf(req, res) {
   }
 }
 
+function handlePdfIngestStatus(req, res) {
+  const url = new URL(req.url, "http://localhost");
+  const sha = String(url.searchParams.get("file_sha256") || "")
+    .trim()
+    .toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(sha)) {
+    throw httpError(400, "需要合法的 file_sha256");
+  }
+  const locked = Boolean(INGEST_LOCKS.get(sha));
+  const storedPath = findRegisteredPdf(sha);
+  const matched = findBundleByPdfSha256(WORKSPACE, sha);
+  const slug = storedPath
+    ? ingestIdentity(storedPath).slug
+    : matched && typeof matched.bundle_id === "string"
+      ? String(matched.bundle_id).replace(/-w2$/i, "")
+      : null;
+  const bundlesRoot = path.join(cocRoot(WORKSPACE), "source-bundles");
+  const firstId = slug || null;
+  const firstDir = firstId ? path.join(bundlesRoot, firstId) : null;
+  const firstFacts = firstDir
+    ? readManifestFacts(firstDir, fs, readJsonFile)
+    : { dir_exists: false, manifest_valid: false, pdf_indices: null, page_count: null };
+  const w2Id = firstId ? `${firstId}-w2` : null;
+  const w2Dir = w2Id ? path.join(bundlesRoot, w2Id) : null;
+  const w2Facts = w2Dir
+    ? readManifestFacts(w2Dir, fs, readJsonFile)
+    : { dir_exists: false, manifest_valid: false, pdf_indices: null, page_count: null };
+  const status = derivePdfIngestStatus({
+    locked,
+    firstWindow: {
+      bundle_id: firstId,
+      page_count: firstFacts.page_count,
+      rendered_pdf_indices: firstFacts.pdf_indices,
+      valid: firstFacts.manifest_valid,
+    },
+    w2: {
+      dir_exists: w2Facts.dir_exists,
+      manifest_valid: w2Facts.manifest_valid,
+      pdf_indices: w2Facts.pdf_indices,
+      bundle_id: w2Id,
+    },
+  });
+  sendJson(res, 200, { ok: true, result: { file_sha256: sha, ...status } });
+}
+
 // ---------------------------------------------------------------------------
 // Static files
 
@@ -1685,6 +1757,7 @@ async function route(req, res) {
     ) {
       return handleTranscript(req, res, parts[2]);
     }
+    if (urlPath === "/api/uploads/pdf/ingest-status") return handlePdfIngestStatus(req, res);
     if (urlPath === "/api/trash") return handleListTrash(req, res);
     if (urlPath.startsWith("/api/")) throw httpError(404, "not found");
     return serveStatic(req, res, urlPath);

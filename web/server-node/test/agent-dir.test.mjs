@@ -8,6 +8,7 @@ import {
   armProductAgentEnv,
   defaultDesktopUserData,
   resolveProductAgentDir,
+  resolveHostedSessionAgentDirs,
   resolveProductSettingsPath,
 } from "../agent-dir.mjs";
 
@@ -54,6 +55,19 @@ test("explicit PI_AGENT_DIR and userData still win", () => {
 
 test("a terminal ~/.pi/agent override is not a settings write target", () => {
   assert.equal(resolveProductSettingsPath({ agentDir: terminalAgent, userData: "" }), null);
+});
+
+test("hosted session dirs include product agent dir and workspace .pi/agent", () => {
+  const dirs = resolveHostedSessionAgentDirs({
+    workspace: "/tmp/repo-ws",
+    agentDir: "",
+    userData: "",
+  });
+  assert.deepEqual(dirs, [
+    path.resolve(desktopAgent),
+    path.resolve("/tmp/repo-ws/.pi/agent"),
+  ]);
+  assert.equal(dirs[0], path.resolve(resolveProductAgentDir({ agentDir: "", userData: "" })));
 });
 
 test("armProductAgentEnv fills only missing keys", () => {

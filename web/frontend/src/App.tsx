@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { AlertTriangle, Loader2, Menu, PanelRightOpen, Pencil, RefreshCw } from "lucide-react";
 import * as api from "./api";
 import { Button } from "@/components/ui/button";
@@ -12,13 +12,22 @@ import { CombatOverlay } from "./components/CombatOverlay";
 import { GuidedStart } from "./components/GuidedStart";
 import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
 import { Panel, PanelContent } from "./components/Panel";
+import { ResizeGutter, SidebarLayout, useResizableSidebarWidth } from "./components/SidebarLayout";
 import { effectiveThinkingLevel } from "./model-thinking";
+import {
+  ACTIVE_CAMPAIGN_KEY,
+  CAMPAIGN_SYNC_CHANNEL,
+  convergeCampaignViewport,
+  createCampaignViewportSync,
+  type CampaignViewportSync,
+} from "./campaign-viewport-sync";
 import {
   handoffCampaignId,
   initialTransitionState,
   isHandoffEvent,
   reduceTransition,
 } from "./session-transition";
+import { applySettledKeeperMessage } from "./transcript-merge";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -33,9 +42,13 @@ const LS = {
   provider: "coc-web.provider",
   model: "coc-web.model",
   thinking: "coc-web.thinking",
-  campaign: "coc-web.campaign",
+  campaign: ACTIVE_CAMPAIGN_KEY,
   guidedDismissed: "coc-web.guided-dismissed",
   appearance: "coc-web.appearance",
+  sidebarLeft: "coc-web.sidebar.left",
+  sidebarRight: "coc-web.sidebar.right",
+  sheetLeft: "coc-web.sheet.left",
+  sheetRight: "coc-web.sheet.right",
 };
 
 function savedAppearance(): Appearance {
@@ -199,7 +212,11 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const openingRef = useRef<string | null>(null);
+  const openGenRef = useRef(0);
   const lastRefreshAtRef = useRef(0);
+  const activeSessionRef = useRef<SessionInfo | null>(null);
+  const campaignSyncRef = useRef<CampaignViewportSync | null>(null);
+  activeSessionRef.current = session;
 
   const applyGameState = useCallback((nextState: GameState | null | undefined) => {
     if (!nextState || nextState.error) return;
@@ -224,6 +241,23 @@ export default function App() {
   /* Pure UI state (layout only — no effect on the session state machine). */
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(320);
+  const leftSheet = useResizableSidebarWidth({
+    side: "left",
+    storageKey: LS.sheetLeft,
+    defaultWidth: 320,
+    minWidth: 240,
+    maxWidth: 480,
+  });
+  const rightSheet = useResizableSidebarWidth({
+    side: "right",
+    storageKey: LS.sheetRight,
+    defaultWidth: 320,
+    minWidth: 240,
+    maxWidth: 480,
+  });
+  const leftSheetWidth = Math.min(leftSheet.width, typeof window !== "undefined" ? window.innerWidth - 24 : leftSheet.width);
+  const rightSheetWidth = Math.min(rightSheet.width, typeof window !== "undefined" ? window.innerWidth - 24 : rightSheet.width);
   const [creating, setCreating] = useState(false);
   /** First-run guided start; auto-entered for a workspace without campaigns. */
   const [guided, setGuided] = useState(false);
@@ -231,6 +265,7 @@ export default function App() {
   /** Desktop「导入 PDF 模组…」handoff: a shell-provided local path awaiting
    *  registration inside NewCampaignFlow's pdf mode. */
   const [pdfImportPath, setPdfImportPath] = useState<string | null>(null);
+  const [pdfImportFile, setPdfImportFile] = useState<File | null>(null);
   const pdfImportHandledRef = useRef<string | null>(null);
   /** Desktop fatal notice (bridge died): styled in-app modal, not a native box. */
   const [fatal, setFatal] = useState<{ title: string; message: string; detail?: string } | null>(null);
@@ -391,11 +426,19 @@ export default function App() {
   }, [appearance]);
 
   const openCampaign = useCallback(
-    async (campaignId: string): Promise<SessionInfo | null> => {
+    async (
+      campaignId: string,
+      opts?: { userSelected?: boolean },
+    ): Promise<SessionInfo | null> => {
       // In-flight guard only: released in `finally` so the same campaign can be
       // reopened later (e.g. to pick up turns played in the CLI).
       if (openingRef.current === campaignId) return null;
+      turnAbortRef.current?.abort();
+      const openGen = ++openGenRef.current;
       openingRef.current = campaignId;
+      if (opts?.userSelected) {
+        campaignSyncRef.current?.publish(campaignId);
+      }
       setBusy(true);
       setError(null);
       try {
@@ -404,12 +447,14 @@ export default function App() {
           model,
           thinking: effectiveThinking,
         });
+        if (openGen !== openGenRef.current) return null;
         setSession(info);
         applyGameState(info.state);
         const sameCampaign = !session || session.campaign_id === campaignId;
         let hydrated = false;
         try {
           const t = await api.fetchTranscript(info.session_id);
+          if (openGen !== openGenRef.current) return null;
           const applied = replaceMessagesFromTranscript(setMessages, t.messages, sameCampaign);
           hydrated = Boolean(
             applied
@@ -499,7 +544,9 @@ export default function App() {
               liveUsageRef.current = value;
               setLiveUsage(value);
             },
-            onTurn: ({ events, state: nextState }) => {
+            onTurn: ({ events, state: nextState, message }) => {
+              if (openGen !== openGenRef.current) return;
+              setMessages((prev) => applySettledKeeperMessage(prev, message));
               if (nextState && !nextState.error) applyGameState(nextState);
               for (const ev of events || []) {
                 if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
@@ -531,6 +578,7 @@ export default function App() {
           controller.signal,
           { attach: true },
         );
+        if (openGen !== openGenRef.current) return null;
         const stopped = controller.signal.aborted;
         turnAbortRef.current = null;
         const finishedAt = Date.now();
@@ -577,10 +625,17 @@ export default function App() {
         } catch {
           // Keep the settled stream visible; top-bar refresh retries projection.
         }
+        try {
+          const opened = await api.fetchState(info.session_id);
+          if (openGen === openGenRef.current) applyGameState(opened);
+        } catch {
+          /* attach already applied turn state */
+        }
         setMessages((prev) => prev.filter((row) =>
           row.text !== "正在打开建卡引导……"
           && row.text !== "正在打开 pi-coc 桌面……"
         ));
+        campaignSyncRef.current?.publish(info.campaign_id, info.session_id, true);
         setBusy(false);
         return info;
       } catch (e) {
@@ -588,7 +643,7 @@ export default function App() {
         setBusy(false);
         return null;
       } finally {
-        openingRef.current = null;
+        if (openingRef.current === campaignId) openingRef.current = null;
       }
     },
     [applyGameState, effectiveThinking, model, noteHandoff, provider, session],
@@ -661,7 +716,7 @@ export default function App() {
         const fresh = await api.fetchBootstrap();
         setBootstrap(fresh.result);
         setGuided(false);
-        return await openCampaign(resp.result.campaign_id);
+        return await openCampaign(resp.result.campaign_id, { userSelected: true });
       } catch (e) {
         setError(friendlyError(e instanceof Error ? e.message : String(e)));
         setBusy(false);
@@ -705,6 +760,34 @@ export default function App() {
     }
   }, [applyGameState, busy, effectiveThinking, model, provider, session]);
 
+  // Desktop and mobile remain independent responsive documents. Campaign
+  // selection opens the shared deterministic web session; a settled-session
+  // signal makes the sibling re-read canonical state/transcript from that
+  // same session without coupling viewport-local UI state.
+  useEffect(() => {
+    if (!models || !provider || !model) return;
+    const sync = createCampaignViewportSync({
+      storage: localStorage,
+      channel: new BroadcastChannel(CAMPAIGN_SYNC_CHANNEL),
+      storageEvents: window,
+      onSessionUpdated: (signal) => {
+        void convergeCampaignViewport(signal, {
+          currentSession: () => activeSessionRef.current,
+          refreshSession: async (active) => {
+            if (activeSessionRef.current?.session_id !== active.session_id) return;
+            await refresh();
+          },
+        });
+      },
+    });
+    campaignSyncRef.current = sync;
+    sync.start();
+    return () => {
+      sync.stop();
+      if (campaignSyncRef.current === sync) campaignSyncRef.current = null;
+    };
+  }, [model, models, openCampaign, provider, refresh]);
+
   // Sidebar consumable use: one canonical state.item_use through the bridge,
   // then the response's fresh state replaces the panel (used-up items vanish).
   const handleUseItem = useCallback(
@@ -714,6 +797,7 @@ export default function App() {
       try {
         const next = await api.useItem(active.session_id, itemId);
         setState(next);
+        campaignSyncRef.current?.publish(active.campaign_id, active.session_id, true);
       } catch (e) {
         setError(friendlyError(e instanceof Error ? e.message : String(e)));
       }
@@ -774,6 +858,7 @@ export default function App() {
       // Wall-clock from this user input until the whole turn settles (tools +
       // narration). Not SSE token drip duration.
       const inputAt = Date.now();
+      const liveId = crypto.randomUUID();
       setMessages((prev) => [
         ...prev,
         playerMessage(text, inputAt),
@@ -783,6 +868,7 @@ export default function App() {
           streaming: true,
           startedAt: inputAt,
           at: inputAt,
+          liveId,
         },
       ]);
       let settledText = "";
@@ -853,7 +939,7 @@ export default function App() {
           liveUsageRef.current = value;
           setLiveUsage(value);
         },
-        onTurn: ({ events, state: nextState, usage }) => {
+        onTurn: ({ events, state: nextState, usage, message }) => {
           const narration = events
             .filter(
               (e) =>
@@ -867,10 +953,11 @@ export default function App() {
           // Update text now; duration is closed only after the SSE stream ends
           // so we measure input → all content delivered, not mid-stream.
           setMessages((prev) => {
-            const next = [...prev];
+            const next = applySettledKeeperMessage(prev, message, liveId);
             for (let i = next.length - 1; i >= 0; i--) {
               const row = next[i];
               if (row.kind !== "keeper") continue;
+              if (row.liveId && row.liveId !== liveId) continue;
               const live = liveUsageRef.current;
               const settledUsage =
                 live && (live.input != null || live.output != null)
@@ -885,7 +972,7 @@ export default function App() {
                     : undefined;
               next[i] = {
                 ...row,
-                text: narration || row.text || settledText,
+                ...(narration ? { text: narration } : {}),
                 startedAt: row.startedAt ?? inputAt,
                 ...(settledUsage ? { usage: settledUsage } : {}),
               };
@@ -934,7 +1021,8 @@ export default function App() {
           ]);
         },
       },
-      controller.signal);
+      controller.signal,
+      { liveId });
       const stopped = controller.signal.aborted;
       turnAbortRef.current = null;
       // Authoritative close: stream fully finished (turn event + end).
@@ -983,6 +1071,7 @@ export default function App() {
         // The streamed narration remains usable when transcript refresh is
         // temporarily unavailable; the top-bar refresh can retry later.
       }
+      campaignSyncRef.current?.publish(active.campaign_id, active.session_id, true);
       setBusy(false);
     },
     [session, busy, provider, model, effectiveThinking, applyGameState, noteHandoff, transition.phase],
@@ -1091,12 +1180,13 @@ export default function App() {
       onOpen={(id) => {
         close();
         setCreating(false);
-        void openCampaign(id);
+        void openCampaign(id, { userSelected: true });
       }}
       onNew={() => {
         close();
         // Manual「＋ 新战役」must not inherit a previously imported PDF path.
         setPdfImportPath(null);
+        setPdfImportFile(null);
         setCreating(true);
       }}
       onRename={renameCampaign}
@@ -1107,7 +1197,10 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div
+      className="flex h-dvh flex-col"
+      style={{ ["--right-panel-width" as string]: `${rightPanelWidth}px` } as CSSProperties}
+    >
       {fatal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="mx-4 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
@@ -1239,15 +1332,27 @@ export default function App() {
 
       <div className="flex min-h-0 flex-1">
         {/* ≥ md：固定战役侧栏 */}
-        <aside className="hidden w-64 shrink-0 border-r border-border bg-sidebar md:block">
+        <SidebarLayout
+          side="left"
+          storageKey={LS.sidebarLeft}
+          defaultWidth={256}
+          minWidth={180}
+          maxWidth={480}
+          className="hidden md:block border-r border-border bg-sidebar"
+        >
           {sidebarContent(() => undefined)}
-        </aside>
+        </SidebarLayout>
 
         {/* < md：左侧抽屉 */}
         <Sheet open={navOpen} onOpenChange={setNavOpen}>
-          <SheetContent side="left" className="w-80 p-0">
+          <SheetContent
+            side="left"
+            className={cn("p-0", leftSheet.dragging && "transition-none")}
+            style={{ width: leftSheetWidth, maxWidth: leftSheetWidth }}
+          >
             <SheetTitle className="sr-only">战役卷宗</SheetTitle>
             {sidebarContent(() => setNavOpen(false))}
+            <ResizeGutter side="left" gutterHandlers={leftSheet.gutterHandlers} dragging={leftSheet.dragging} />
           </SheetContent>
         </Sheet>
 
@@ -1271,8 +1376,9 @@ export default function App() {
             <NewCampaignFlow
               bootstrap={bootstrap}
               busy={busy}
-              initialMode={pdfImportPath ? "pdf" : undefined}
+              initialMode={pdfImportPath || pdfImportFile ? "pdf" : undefined}
               initialPdfPath={pdfImportPath}
+              initialPdfFile={pdfImportFile}
               onCreate={(args) => {
                 void createCampaign(args).then((info) => {
                   if (!info) setCreating(false);
@@ -1280,6 +1386,7 @@ export default function App() {
               }}
               onBack={() => {
                 setPdfImportPath(null);
+                setPdfImportFile(null);
                 setCreating(false);
               }}
               onBootstrapRefresh={async () => {
@@ -1299,6 +1406,11 @@ export default function App() {
               pendingChoice={state?.pending_choice}
               sceneLabel={state?.active_scene_label || state?.active_scene_id || null}
               quickStart={quickStart}
+              onImportPdf={(file) => {
+                setPdfImportPath(null);
+                setPdfImportFile(file);
+                setCreating(true);
+              }}
               setupPending={setupPending}
               modelsReady={aiReady}
               onConfigureModels={() => setEditModelsOpen(true)}
@@ -1325,19 +1437,32 @@ export default function App() {
           )}
 
           {/* ≥ xl：常驻角色面板 */}
-          <div className="hidden w-80 shrink-0 border-l border-border bg-sidebar xl:block">
+          <SidebarLayout
+            side="right"
+            storageKey={LS.sidebarRight}
+            defaultWidth={320}
+            minWidth={240}
+            maxWidth={560}
+            className="hidden xl:block border-l border-border bg-sidebar"
+            onWidthChange={setRightPanelWidth}
+          >
             <Panel
               state={state}
               investigatorId={session?.investigator_id ?? null}
               setupPending={setupPending}
               onUseItem={handleUseItem}
             />
-          </div>
+          </SidebarLayout>
         </main>
 
         {/* < xl：角色面板右侧抽屉 */}
         <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
-          <SheetContent side="right" className="w-80 overflow-y-auto px-4 py-5">
+          <SheetContent
+            side="right"
+            className={cn("overflow-y-auto px-4 py-5", rightSheet.dragging && "transition-none")}
+            style={{ width: rightSheetWidth, maxWidth: rightSheetWidth }}
+          >
+            <ResizeGutter side="right" gutterHandlers={rightSheet.gutterHandlers} dragging={rightSheet.dragging} />
             <SheetTitle className="font-display text-lg font-semibold">
               角色卷宗
             </SheetTitle>

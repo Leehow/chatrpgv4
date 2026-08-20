@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Backpack, Clock3, Fingerprint, Search, Swords } from "lucide-react";
+import { Backpack, Clock3, Fingerprint, Search, Swords, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -11,6 +11,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import type { Actor, GameState } from "../types";
+import { safeDisplayText } from "../safe-display";
 
 interface Props {
   state: GameState | null;
@@ -125,6 +126,7 @@ export function PanelContent({
   // Live campaign-merged gear (weapons render in their own section above).
   const inventoryItems =
     sheet?.inventory_items?.filter((item) => item.kind !== "weapon") ?? null;
+  const cash = sheet?.cash ?? null;
   const handleUseItem = async (itemId: string) => {
     if (!onUseItem || usingItemId) return;
     setUsingItemId(itemId);
@@ -197,7 +199,7 @@ export function PanelContent({
                   <CardDescription className="flex flex-wrap gap-1.5">
                     {sheet?.occupation && (
                       <Badge variant="secondary" className="rounded-full font-normal">
-                        {sheet.occupation}
+                        {typeof sheet.occupation === "string" ? sheet.occupation : safeDisplayText(sheet.occupation)}
                       </Badge>
                     )}
                     {sheet?.era && (
@@ -290,6 +292,72 @@ export function PanelContent({
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* 现金 — after HP/SAN/MP/attributes, before the long skill list */}
+      {(view === "all" || view === "character" || view === "items") && !setupPending && (
+      <section className="panel-section">
+        <SectionTitle icon={<Wallet className="size-3.5" />} text="现金" />
+        {cash && Object.keys(cash.balances || {}).length ? (
+          <>
+            <div className="mt-2 space-y-1">
+              {Object.entries(cash.balances).map(([code, wallet]) => (
+                <div key={code} className="flex items-baseline gap-2">
+                  <span className="font-display text-xl leading-none font-semibold tabular-nums text-foreground">
+                    {wallet.amount}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {code}{wallet.unit ? ` · ${wallet.unit}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {cash.ledger.length ? (
+              <ul className="mt-2.5 space-y-1.5">
+                {cash.ledger
+                  .slice()
+                  .reverse()
+                  .map((row, i) => {
+                    const sign = row.op === "grant" ? "+" : "−";
+                    const why = row.localized_reason?.trim() || "未提供说明";
+                    const playerTime = row.player_time;
+                    const when =
+                      (typeof playerTime === "string" && playerTime.trim())
+                      || (playerTime && typeof playerTime === "object"
+                        && (playerTime.display_label || playerTime.display || "").trim())
+                      || (row.game_time?.display || "").trim();
+                    return (
+                      <li
+                        key={row.decision_id || `cash-row-${i}`}
+                        className="flex items-start justify-between gap-2 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <span className="tabular-nums text-foreground/90">
+                            {sign}
+                            {row.amount}
+                            {row.currency ? ` ${row.currency}` : ""}
+                          </span>
+                          <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                            {why}
+                          </div>
+                          {when ? (
+                            <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground/80">
+                              {when}
+                            </div>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+              </ul>
+            ) : (
+              <p className="mt-2.5 text-xs text-muted-foreground">暂无流水。</p>
+            )}
+          </>
+        ) : (
+          <p className="mt-2.5 text-xs text-muted-foreground">尚无现金记录。</p>
+        )}
+      </section>
       )}
 
       {/* 技能 */}

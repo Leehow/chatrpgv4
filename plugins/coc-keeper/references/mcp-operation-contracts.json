@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:13cdd321f875349fb6e92eed6f50325d0bcb380b23102d56447c389d34aca868",
+  "content_sha256": "sha256:efb57e895f79dcddad6f1a19722be148226f298d57a697a1ddbda38c141afb0d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -7265,6 +7265,7 @@
                 },
                 "segment_type": {
                   "enum": [
+                    "asset_delta",
                     "exceptional_effect",
                     "public_check",
                     "state_delta"

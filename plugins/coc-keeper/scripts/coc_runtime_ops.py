@@ -5162,18 +5162,51 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
         return _chargen_fail("occupation_allocations", "occupation_allocations must be an object")
     if int_alloc is not None and not isinstance(int_alloc, dict):
         return _chargen_fail("interest_allocations", "interest_allocations must be an object")
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    if not campaign_dir.is_dir():
+        return _chargen_fail("payload", f"unknown campaign: {campaign_id}")
     try:
-        sheet, creation, meta = coc_character.build_quick_fire_chargen_payload(
-            investigator_id=investigator_id,
-            name=name.strip(),
-            occupation_name=occupation_name.strip(),
-            assignment_priority=assignment,
-            occupation_skill_names=occ_names,
-            interest_skill_names=interest_names,
-            occupation_allocations=occ_alloc,
-            interest_allocations=int_alloc,
-            age=age,
-        )
+        campaign = coc_state.load_campaign_state(campaign_dir)
+    except (OSError, ValueError, RuntimeOperationError) as exc:
+        return _chargen_fail("payload", str(exc))
+    campaign_era = str(campaign.get("era") or "").strip()
+    input_mode = guided_character_creation_input_mode(campaign_era)
+    try:
+        if input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE:
+            luck_creation: dict[str, Any] = {"luck": {"mode": "auto_roll"}}
+            try:
+                _apply_quick_fire_auto_luck_roll(
+                    root,
+                    luck_creation,
+                    campaign_id=campaign_id,
+                    investigator_id=investigator_id,
+                )
+            except RuntimeOperationError as exc:
+                return _chargen_fail("luck", str(exc))
+            sheet, creation, meta = coc_character.build_era_adaptive_chargen_payload(
+                investigator_id=investigator_id,
+                name=name.strip(),
+                occupation_name=occupation_name.strip(),
+                era=campaign_era,
+                luck_roll_total=int(luck_creation["luck_roll_total"]),
+                luck_roll_receipt=luck_creation["luck_roll_receipt"],
+                assignment_priority=assignment,
+                occupation_skill_names=occ_names,
+                interest_skill_names=interest_names,
+                age=age,
+            )
+        else:
+            sheet, creation, meta = coc_character.build_quick_fire_chargen_payload(
+                investigator_id=investigator_id,
+                name=name.strip(),
+                occupation_name=occupation_name.strip(),
+                assignment_priority=assignment,
+                occupation_skill_names=occ_names,
+                interest_skill_names=interest_names,
+                occupation_allocations=occ_alloc,
+                interest_allocations=int_alloc,
+                age=age,
+            )
     except coc_character.ChargenRunError as exc:
         expected = exc.expected if isinstance(exc.expected, dict) else None
         return _chargen_fail(exc.stage, str(exc), expected=expected)
@@ -5324,8 +5357,9 @@ def execute_setup_operation(
                         **starter,
                         "pregens": [
                             {
-                                key: value for key, value in pregen.items()
-                                if key != "character_path"
+                                key: pregen[key]
+                                for key in ("pregen_id", "name", "occupation")
+                                if key in pregen
                             }
                             for pregen in coc_starter.list_pregens(starter["scenario_id"])
                         ],

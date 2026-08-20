@@ -1239,6 +1239,7 @@ def resolve_catalog_skill_name(name: str, catalog: dict[str, dict] | None = None
         "language (own)": "Language (Own)",
         "firearms": "Firearms (Handgun)",
         "art/craft (photography)": "Art and Craft (Photography)",
+        "photography": "Art and Craft (Photography)",
         "art (literature)": "Art and Craft (Writing)",
     }
     mapped = aliases.get(_compact_skill_fold(raw))
@@ -1310,8 +1311,20 @@ def resolve_occupation_skill_list(
                     added += 1
             continue
         _add(resolve_catalog_skill_name(token, catalog))
+    unresolved: list[str] = []
     for extra in extra_iter:
-        _add(resolve_catalog_skill_name(extra, catalog))
+        catalog_name = resolve_catalog_skill_name(extra, catalog)
+        if catalog_name is None:
+            unresolved.append(extra)
+        else:
+            _add(catalog_name)
+    if unresolved:
+        raise ChargenRunError(
+            "occupation",
+            "unrecognized occupation_skill_names: "
+            + ", ".join(repr(name) for name in unresolved),
+            expected={"unrecognized": unresolved},
+        )
     _add("Credit Rating")
     return resolved
 
@@ -1371,9 +1384,21 @@ def build_quick_fire_chargen_payload(
         len(order) != len(REQUIRED_CHARACTERISTICS)
         or set(order) != set(REQUIRED_CHARACTERISTICS)
     ):
+        unrecognized = [
+            str(item)
+            for item in order
+            if str(item) not in REQUIRED_CHARACTERISTICS
+        ]
+        extra = ""
+        if unrecognized:
+            extra = "; unrecognized: " + ", ".join(
+                repr(name) for name in unrecognized
+            )
         raise ChargenRunError(
             "assignment",
-            "assignment_priority must list STR, CON, SIZ, DEX, APP, INT, POW, EDU once",
+            "assignment_priority must list STR, CON, SIZ, DEX, APP, INT, POW, EDU once"
+            + extra,
+            expected={"unrecognized": unrecognized} if unrecognized else None,
         )
     method = characteristic_generation_methods().get("quick_fire_array") or {}
     values = method.get("array")
@@ -1522,3 +1547,130 @@ def build_quick_fire_chargen_payload(
         "formula": formula,
         "characteristics": characteristics,
     }
+
+
+def build_era_adaptive_chargen_payload(
+    *,
+    investigator_id: str,
+    name: str,
+    occupation_name: str,
+    era: str,
+    luck_roll_total: int,
+    luck_roll_receipt: dict[str, Any],
+    assignment_priority: list[str] | None = None,
+    occupation_skill_names: list[str] | None = None,
+    interest_skill_names: list[str] | None = None,
+    age: int = 27,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Build KP-semantic era-adaptive create sheet. Numbers stay system-owned."""
+    era_key = str(era or "").strip()
+    if not era_key:
+        raise ChargenRunError("payload", "campaign era is required for era-adaptive chargen")
+    if era_key in guided_quick_fire_supported_eras():
+        raise ChargenRunError(
+            "payload",
+            "era-adaptive chargen is unavailable for a guided Quick Fire era",
+        )
+    catalog = _skill_catalog()
+    occ_names = list(occupation_skill_names or [])
+    if lookup_occupation_template(occupation_name) is None and not occ_names:
+        occ_names = list(_DEFAULT_INTEREST_SKILLS)
+    interest_names = list(interest_skill_names or [])
+    extra = [
+        skill_id
+        for skill_id in catalog
+        if skill_id not in occ_names
+        and skill_id not in interest_names
+        and skill_id != "Cthulhu Mythos"
+    ]
+    last_error: ChargenRunError | None = None
+    while True:
+        try:
+            _sheet, creation_qf, meta = build_quick_fire_chargen_payload(
+                investigator_id=investigator_id,
+                name=name,
+                occupation_name=occupation_name,
+                assignment_priority=assignment_priority,
+                occupation_skill_names=occ_names,
+                interest_skill_names=interest_names,
+                age=age,
+            )
+            break
+        except ChargenRunError as exc:
+            last_error = exc
+            if exc.stage not in {"occupation_allocations", "interest_allocations"} or not extra:
+                raise
+            if exc.stage == "occupation_allocations":
+                occ_names.append(extra.pop(0))
+            else:
+                interest_names.append(extra.pop(0))
+    if last_error is not None and "_sheet" not in locals():
+        raise last_error
+    if (
+        isinstance(luck_roll_total, bool)
+        or not isinstance(luck_roll_total, int)
+        or not 3 <= luck_roll_total <= 18
+    ):
+        raise ChargenRunError("luck", "luck_roll_total must be an integer from 3 through 18")
+    if not _valid_kp_guided_roll_reference(luck_roll_receipt):
+        raise ChargenRunError(
+            "luck",
+            "luck_roll_receipt requires campaign_id, decision_id, and roll_id",
+        )
+    characteristics = meta["characteristics"]
+    derived = derive_values(
+        characteristics,
+        luck=luck_roll_total * characteristic_generation_multiplier(),
+    )
+    occ_key = str(meta["occupation_key"])
+    formula = str(meta["formula"])
+    found = lookup_occupation_template(occupation_name)
+    formula_reason = (
+        "package occupation formula from occupations.json"
+        if found is not None
+        else "default EDU*4 for a KP-named era-adapted occupation"
+    )
+    occupation_obj = {
+        "name": occ_key,
+        "reason": f"KP-guided era-adapted occupation {occ_key}",
+        "era_adaptive": True,
+        "skill_point_formula": formula,
+        "formula_reason": formula_reason,
+    }
+    skills = {
+        key: int(value)
+        for key, value in (_sheet.get("skills") or {}).items()
+        if isinstance(value, int) and not isinstance(value, bool)
+    }
+    sheet = {
+        "id": investigator_id,
+        "name": name,
+        "occupation": occupation_obj,
+        "age": age,
+        "era": era_key,
+        "era_adaptive": True,
+        "kp_guided": True,
+        "characteristics": characteristics,
+        "derived": derived,
+        "skills": skills,
+        "skill_provenance": {},
+        "player_facing_sheet_zh": {
+            "display_name": name,
+            "skills": _localized_skill_rows(skills),
+        },
+    }
+    creation = {
+        "input_mode": ERA_ADAPTIVE_INPUT_MODE,
+        "era": era_key,
+        "era_adaptive": True,
+        "kp_guided": True,
+        "method": "quick_fire_array",
+        "characteristic_assignment_order": list(
+            creation_qf.get("characteristic_assignment_order") or []
+        ),
+        "luck_roll_total": luck_roll_total,
+        "luck_roll_receipt": dict(luck_roll_receipt),
+        "occupation": occupation_obj,
+        "skill_budget": creation_qf["skill_budget"],
+    }
+    return sheet, creation, meta

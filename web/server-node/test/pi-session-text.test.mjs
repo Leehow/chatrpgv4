@@ -5,7 +5,10 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  hostedSessionMessages,
   lastVisibleAssistantText,
+  pickHostedSessionAgentDir,
+  SETUP_CHARACTER_OPENING_MARKER,
   visibleMessagesFromSessionFile,
 } from "../pi-session-text.mjs";
 
@@ -33,6 +36,13 @@ test("visibleMessagesFromSessionFile keeps only player-visible text", () => {
         message: {
           role: "assistant",
           content: [{ type: "toolCall", name: "coc_invoke" }],
+        },
+      },
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: `${SETUP_CHARACTER_OPENING_MARKER} first resume then contract` }],
         },
       },
       {
@@ -87,5 +97,40 @@ test("lastVisibleAssistantText finds the newest matching session file", () => {
     );
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("hostedSessionMessages finds workspace .pi/agent when product dir is empty", () => {
+  const product = fs.mkdtempSync(path.join(os.tmpdir(), "coc-product-agent-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-ws-"));
+  const sessionId = "web-the-white-war-qs-mt0c8rdz";
+  try {
+    const local = path.join(workspace, ".pi", "agent");
+    writeSession(local, sessionId, [
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "这就是你的调查员。确认吗？" }],
+        },
+      },
+    ]);
+    assert.equal(
+      pickHostedSessionAgentDir({
+        workspace,
+        agentDir: product,
+        sessionId,
+      }),
+      path.resolve(local),
+    );
+    const messages = hostedSessionMessages({
+      workspace,
+      agentDir: product,
+      sessionId,
+    });
+    assert.equal(messages.at(-1)?.text, "这就是你的调查员。确认吗？");
+  } finally {
+    fs.rmSync(product, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true });
   }
 });

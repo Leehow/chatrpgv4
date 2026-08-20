@@ -8144,9 +8144,17 @@ def _tool_setup_chargen_run(ctx: Ctx, args: dict[str, Any]):
         "do not call setup.quick_start when a setup campaign already exists",
     ]
     if result.get("ok") is not True:
+        error = str(result.get("error") or "setup.chargen_run failed")
+        unrecognized = (
+            "unrecognized occupation_skill_names" in error
+            or (
+                result.get("stage") == "assignment"
+                and "unrecognized:" in error
+            )
+        )
         raise ToolError(
-            "chargen_failed",
-            str(result.get("error") or "setup.chargen_run failed"),
+            "invalid_param" if unrecognized else "chargen_failed",
+            error,
             details=result if isinstance(result, dict) else None,
         )
     return receipt, [], hints

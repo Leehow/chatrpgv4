@@ -14,6 +14,7 @@ import {
   enrichTranscriptFromEvents,
   formatPlayerTime,
   sceneDisplayLabel,
+  resolvePlaySceneId,
   tableTranscriptMessages,
   localizeTerms,
   resolvedLocalizedTerms,
@@ -81,6 +82,22 @@ function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value));
 }
+
+test("resolvePlaySceneId prefers scene_history over stale world briefing", () => {
+  const ws = makeWorkspace();
+  writeJson(path.join(ws, ".coc/campaigns/c1/save/world-state.json"), {
+    active_scene_id: "mission-briefing",
+    visited_scene_ids: ["previous-tenants"],
+    scene_history: [{ scene_id: "previous-tenants" }],
+  });
+  writeJson(path.join(ws, ".coc/campaigns/c1/save/active-scene.json"), {
+    scene_id: "previous-tenants",
+  });
+  writeJson(path.join(ws, ".coc/campaigns/c1/campaign.json"), {
+    active_scene_id: "mission-briefing",
+  });
+  assert.equal(resolvePlaySceneId(ws, "c1"), "previous-tenants");
+});
 
 test("sceneDisplayLabel prefers localized names", () => {
   const ws = makeWorkspace();
@@ -272,6 +289,7 @@ test("tableTranscriptMessages exposes authoritative finalization roll segments",
       type: "roll_group",
       text: receipt,
       source_ids: ["roll-1"],
+      layout: "check",
       rolls: [{
         roll_id: "roll-1",
         roll: 47,
@@ -300,6 +318,18 @@ test("tableTranscriptMessages keeps every public roll in a finalization group", 
     path.join(logsDir, "table-transcript.jsonl"),
     JSON.stringify({ role: "keeper", text: receipt, turn: 1, finalization_id: "fin-multi" }) + "\n",
   );
+  writeJson(path.join(campaignPath, "save/toolbox-ledger.json"), {
+    schema_version: 2,
+    entries: {
+      '["rules.sanity_check","san-dec"]': {
+        entry_schema_version: 2,
+        tool: "rules.sanity_check",
+        decision_id: "san-dec",
+        ts: "2026-01-01T00:00:00Z",
+        data: { check_roll_id: "san", loss_roll_id: "loss", san_before: 30, san_after: 26, san_loss: 4 },
+      },
+    },
+  });
   fs.writeFileSync(
     path.join(logsDir, "turn-finalizations.jsonl"),
     JSON.stringify({
@@ -318,13 +348,18 @@ test("tableTranscriptMessages keeps every public roll in a finalization group", 
 
   const keeper = tableTranscriptMessages(ws, "c1")[0];
   assert.equal(keeper.content_blocks[0].type, "roll_group");
+  assert.equal(keeper.content_blocks[0].layout, "sanity");
   assert.deepEqual(keeper.content_blocks[0].source_ids, ["san", "loss", "shot"]);
   assert.deepEqual(keeper.content_blocks[0].rolls.map((roll) => roll.roll_id), ["san", "loss", "shot"]);
   assert.deepEqual(keeper.content_blocks[0].rolls[0], {
     roll_id: "san", roll: 70, display_skill: "理智", kind: "sanity_check",
-    outcome: "failure", target: 30, san_before: 30, san_after: 26, san_delta: -4,
-    passed: false,
+    outcome: "failure", target: 30, passed: false,
   });
+  assert.equal(keeper.content_blocks[0].sanity.check_roll_id, "san");
+  assert.equal(keeper.content_blocks[0].sanity.loss_roll_id, "loss");
+  assert.equal(keeper.content_blocks[0].sanity.san_before, 30);
+  assert.equal(keeper.content_blocks[0].sanity.san_after, 26);
+  assert.equal(keeper.content_blocks[0].sanity.san_delta, -4);
 });
 
 test("tableTranscriptMessages enriches combat rolls from canonical combat state", () => {
@@ -371,9 +406,13 @@ test("tableTranscriptMessages enriches combat rolls from canonical combat state"
     }],
   }));
 
-  const rolls = tableTranscriptMessages(ws, "c1")[0].content_blocks[0].rolls;
-  assert.deepEqual(rolls.map((roll) => roll.combat_role), ["attack", "defense", "damage"]);
-  assert.equal(rolls[0].defense_kind, "dodge");
+  const group = tableTranscriptMessages(ws, "c1")[0].content_blocks[0];
+  const rolls = group.rolls;
+  assert.equal(group.layout, "combat");
+  assert.equal(group.combat.defense_kind, "dodge");
+  assert.equal(group.combat.attack.roll_id, "attack");
+  assert.equal(group.combat.defense.roll_id, "dodge");
+  assert.equal(group.combat.damage.damage_roll_id, "damage");
   assert.deepEqual(
     {
       roll: rolls[0].roll, tens_values: rolls[0].tens_values,
@@ -381,9 +420,13 @@ test("tableTranscriptMessages enriches combat rolls from canonical combat state"
     },
     { roll: 24, tens_values: [8, 2], units: 4, unmodified_roll: 84 },
   );
-  assert.deepEqual(rolls[0].attack_modifiers, { point_blank: true, cover: false, bonus: 1 });
+  assert.deepEqual(group.combat.attack_modifiers, { point_blank: true, cover: false, bonus: 1 });
   assert.deepEqual(
-    { raw_damage: rolls[2].raw_damage, armor_absorbed: rolls[2].armor_absorbed, hp_after: rolls[2].hp_after },
+    {
+      raw_damage: group.combat.damage.raw_damage,
+      armor_absorbed: group.combat.damage.armor_absorbed,
+      hp_after: group.combat.damage.hp_after,
+    },
     { raw_damage: 6, armor_absorbed: 2, hp_after: 6 },
   );
   assert.deepEqual(
@@ -626,4 +669,280 @@ test("campaignListExtras reads first party investigator and mtime", () => {
   assert.equal(extras.investigator_name, "艾达");
   assert.equal(typeof extras.last_active_at, "string");
   assert.match(extras.last_active_at, /T/);
+});
+
+
+test("tableTranscriptMessages projects one cash card from structured state_delta", () => {
+  const ws = makeWorkspace();
+  const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const prose = "诺特把预付金塞进他手里。";
+  const receipt = "【变化】现金：获得 20 美元";
+  const rendered = `${prose}\n\n${receipt}`;
+  fs.writeFileSync(
+    path.join(logsDir, "table-transcript.jsonl"),
+    JSON.stringify({ role: "keeper", text: rendered, turn: 1, finalization_id: "fin-cash" }) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(logsDir, "turn-finalizations.jsonl"),
+    JSON.stringify({
+      finalization_id: "fin-cash",
+      rendered_text: rendered,
+      segments: [
+        { segment_type: "fiction", source_ids: [], text: prose },
+        { segment_type: "state_delta", source_ids: ["cash-1", "cash-1-dup"], text: receipt },
+      ],
+      bundle: {
+        state_delta: [
+          {
+            effect_id: "cash-1",
+            effect_kind: "cash",
+            amount: 20,
+            currency: "美元",
+            direction: "gain",
+            after: 35,
+            source_decision_id: "dec-cash-1",
+          },
+          {
+            effect_id: "cash-1-dup",
+            effect_kind: "cash",
+            amount: 20,
+            currency: "美元",
+            direction: "gain",
+            after: 35,
+            source_decision_id: "dec-cash-1",
+          },
+        ],
+      },
+    }) + "\n",
+  );
+
+  const keeper = tableTranscriptMessages(ws, "c1")[0];
+  const cashBlocks = keeper.content_blocks.filter((block) => block.type === "asset_changes");
+  assert.equal(cashBlocks.length, 1);
+  assert.deepEqual(cashBlocks[0].cash_changes, [{
+    effect_id: "cash-1",
+    amount: 20,
+    currency: "美元",
+    direction: "gain",
+    after: 35,
+    source_decision_id: "dec-cash-1",
+  }]);
+  assert.equal(cashBlocks[0].count, 1);
+  assert.equal(keeper.content_blocks.some((block) => block.type === "prose" && block.text.includes("20 美元")), false);
+});
+
+test("cash card preserves decimal localized reason and game time", () => {
+  const ws = makeWorkspace();
+  const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const prose = "他把一枚半克朗塞进衣袋。";
+  const receipt = "【变化】现金：获得 1.50 英镑（伦敦线人酬金）";
+  const rendered = `${prose}\n\n${receipt}`;
+  const gameTime = {
+    elapsed_minutes: 90,
+    display: "1920年1月12日 上午",
+    day_phase: "morning",
+    player_time: {
+      phase: "morning",
+      appearance_mode: "normal",
+      display_label: "上午",
+    },
+  };
+  fs.writeFileSync(
+    path.join(logsDir, "table-transcript.jsonl"),
+    JSON.stringify({ role: "keeper", text: rendered, turn: 1, finalization_id: "fin-cash-decimal" }) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(logsDir, "turn-finalizations.jsonl"),
+    JSON.stringify({
+      finalization_id: "fin-cash-decimal",
+      rendered_text: rendered,
+      segments: [
+        { segment_type: "fiction", source_ids: [], text: prose },
+        { segment_type: "state_delta", source_ids: ["cash-gbp-1"], text: receipt },
+      ],
+      bundle: {
+        state_delta: [
+          {
+            effect_id: "cash-gbp-1",
+            effect_kind: "cash",
+            amount: "1.50",
+            currency: "GBP",
+            direction: "gain",
+            balance_after: "1.50",
+            localized_reason: "伦敦线人酬金",
+            game_time: gameTime,
+            player_time: gameTime.player_time,
+            source_decision_id: "dec-cash-gbp",
+          },
+        ],
+      },
+    }) + "\n",
+  );
+
+  const keeper = tableTranscriptMessages(ws, "c1")[0];
+  const cashBlocks = keeper.content_blocks.filter((block) => block.type === "asset_changes");
+  assert.equal(cashBlocks.length, 1);
+  assert.deepEqual(cashBlocks[0].cash_changes, [{
+    effect_id: "cash-gbp-1",
+    amount: "1.50",
+    currency: "GBP",
+    direction: "gain",
+    after: "1.50",
+    localized_reason: "伦敦线人酬金",
+    game_time: gameTime,
+    player_time: gameTime.player_time,
+    source_decision_id: "dec-cash-gbp",
+  }]);
+  const dumped = JSON.stringify(cashBlocks[0]);
+  assert.equal(dumped.includes("recorded_at"), false);
+  assert.equal(dumped.includes("\"reason\""), false);
+  assert.equal(dumped.includes("\"tool\""), false);
+});
+
+test("tableTranscriptMessages emits no cash card without structured cash payload", () => {
+  const ws = makeWorkspace();
+  const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const prose = "他把钥匙塞进口袋。";
+  const receipt = "【变化】物品：获得「钥匙」";
+  const rendered = `${prose}\n\n${receipt}`;
+  fs.writeFileSync(
+    path.join(logsDir, "table-transcript.jsonl"),
+    JSON.stringify({ role: "keeper", text: rendered, turn: 1, finalization_id: "fin-item" }) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(logsDir, "turn-finalizations.jsonl"),
+    JSON.stringify({
+      finalization_id: "fin-item",
+      rendered_text: rendered,
+      segments: [
+        { segment_type: "fiction", source_ids: [], text: prose },
+        { segment_type: "state_delta", source_ids: ["item-1"], text: receipt },
+      ],
+      bundle: {
+        state_delta: [{
+          effect_id: "item-1",
+          effect_kind: "item",
+          item_id: "house-key",
+          label: "钥匙",
+          action: "acquired",
+          source_decision_id: "dec-item-1",
+        }],
+      },
+    }) + "\n",
+  );
+
+  const keeper = tableTranscriptMessages(ws, "c1")[0];
+  assert.equal(keeper.content_blocks.some((block) => block.type === "cash"), false);
+  const asset = keeper.content_blocks.filter((block) => block.type === "asset_changes");
+  assert.equal(asset.length, 1);
+  assert.equal(asset[0].item_changes[0].label, "钥匙");
+  assert.equal(keeper.content_blocks.some((block) => block.type === "prose" && block.text.includes("【变化】")), false);
+});
+
+test("mixed cash and item effects render one asset changes card without prose duplication", () => {
+  const ws = makeWorkspace();
+  const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const prose = "诺特把预付金和钥匙一并递过来。";
+  const receipt = [
+    "【变化】现金：+20.00 USD（0.00 → 20.00）；预付调查费；时段：早上",
+    "【变化】现金：+5.00 GBP（0.00 → 5.00）；伦敦线人酬金；时段：早上",
+    "【变化】现金：-1.50 USD（20.00 → 18.50）；去波士顿街的车费；时段：早上",
+    "【变化】物品：获得「钥匙」",
+  ].join("\n");
+  const rendered = `${prose}\n\n${receipt}`;
+  const gameTime = {
+    elapsed_minutes: 90,
+    display: "1920年1月12日 上午",
+    day_phase: "morning",
+    player_time: {
+      phase: "morning",
+      appearance_mode: "normal",
+      display_label: "上午",
+    },
+  };
+  fs.writeFileSync(
+    path.join(logsDir, "table-transcript.jsonl"),
+    JSON.stringify({ role: "keeper", text: rendered, turn: 1, finalization_id: "fin-assets" }) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(logsDir, "turn-finalizations.jsonl"),
+    JSON.stringify({
+      finalization_id: "fin-assets",
+      rendered_text: rendered,
+      segments: [
+        { segment_type: "fiction", source_ids: [], text: prose },
+        {
+          segment_type: "asset_delta",
+          source_ids: ["cash-usd-1", "cash-gbp-1", "cash-usd-2", "item-key"],
+          text: receipt,
+        },
+      ],
+      bundle: {
+        state_delta: [
+          {
+            effect_id: "cash-usd-1",
+            effect_kind: "cash",
+            action: "grant",
+            amount: "20.00",
+            currency: "USD",
+            balance_after: "20.00",
+            localized_reason: "预付调查费",
+            game_time: gameTime,
+            source_decision_id: "dec-usd-1",
+          },
+          {
+            effect_id: "cash-gbp-1",
+            effect_kind: "cash",
+            action: "grant",
+            amount: "5.00",
+            currency: "GBP",
+            balance_after: "5.00",
+            localized_reason: "伦敦线人酬金",
+            game_time: gameTime,
+            source_decision_id: "dec-gbp-1",
+          },
+          {
+            effect_id: "cash-usd-2",
+            effect_kind: "cash",
+            action: "spend",
+            amount: "1.50",
+            currency: "USD",
+            balance_after: "18.50",
+            localized_reason: "去波士顿街的车费",
+            game_time: gameTime,
+            source_decision_id: "dec-usd-2",
+          },
+          {
+            effect_id: "item-key",
+            effect_kind: "item",
+            action: "acquired",
+            item_id: "house-key",
+            label: "钥匙",
+            quantity: 1,
+            source_decision_id: "dec-item-1",
+          },
+        ],
+      },
+    }) + "\n",
+  );
+
+  const keeper = tableTranscriptMessages(ws, "c1")[0];
+  const assetBlocks = keeper.content_blocks.filter((block) => block.type === "asset_changes");
+  assert.equal(assetBlocks.length, 1);
+  assert.equal(assetBlocks[0].count, 4);
+  assert.equal(assetBlocks[0].cash_changes.length, 3);
+  assert.equal(assetBlocks[0].item_changes.length, 1);
+  assert.equal(assetBlocks[0].cash_changes[2].amount, "1.50");
+  assert.equal(assetBlocks[0].cash_changes[0].localized_reason, "预付调查费");
+  assert.equal(assetBlocks[0].cash_changes[0].game_time.display, "1920年1月12日 上午");
+  assert.equal(assetBlocks[0].item_changes[0].label, "钥匙");
+  const proseBlocks = keeper.content_blocks.filter((block) => block.type === "prose");
+  const proseText = proseBlocks.map((block) => block.text).join("\n");
+  assert.equal(proseText.includes("【变化】"), false);
+  assert.equal(proseText.includes("现金变动"), false);
+  assert.equal(proseText.includes("钥匙变动"), false);
 });

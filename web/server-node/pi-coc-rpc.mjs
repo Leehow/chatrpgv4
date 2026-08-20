@@ -10,7 +10,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { lastVisibleAssistantText } from "./pi-session-text.mjs";
+import {
+  lastVisibleAssistantText,
+  pickHostedSessionAgentDir,
+  SETUP_CHARACTER_OPENING_MARKER,
+} from "./pi-session-text.mjs";
+import { readCharacterSetupBriefing } from "./character-setup-briefing.mjs";
+
+export { SETUP_CHARACTER_OPENING_MARKER, isHiddenSetupOpeningPrompt } from "./pi-session-text.mjs";
 
 export const UI_AUTO_OPEN_MARKER = "[coc-pi-ui] auto-open";
 export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
@@ -25,6 +32,56 @@ export const PLAY_TABLE_OPENING_PROMPT = [
   "then deliver the player-visible formal opening from that receipt.",
   "Do not invent opening text. Do not ask the player to choose a campaign.",
 ].join(" ");
+
+/**
+ * Host-owned character-setup opener when extension auto-open stays silent.
+ * Semantic copy of plugins/coc-keeper/pi/lib/welcome.ts
+ * `characterSetupOpenInstruction` (server-node cannot import that TS).
+ * SYNC RISK: if welcome.ts opening sequence changes, update this copy.
+ * Prefix is used to hide this user prompt from player-visible session hydration.
+ */
+export function setupCharacterOpeningPrompt({ campaignId, workspace } = {}) {
+  const id = String(campaignId || "");
+  const root = String(workspace || ".");
+  const briefing = readCharacterSetupBriefing({ workspace: root, campaignId: id });
+  const briefingParts = briefing.briefingText
+    ? [
+        "Player-safe character-creation briefing is already inlined below.",
+        "Do not open files, find, ls, or glob for a briefing.",
+        briefing.title ? `Campaign title: ${briefing.title}` : "",
+        "Briefing:",
+        briefing.briefingText,
+      ].filter(Boolean)
+    : [
+        "No player-safe briefing was readable; continue from resume/adopt player-safe facts.",
+        "Do not open files, find, ls, or glob for a briefing.",
+      ];
+  return [
+    SETUP_CHARACTER_OPENING_MARKER,
+    "This selected campaign has no playable investigator yet.",
+    "Do not ask the player to activate COC.",
+    "Fixed opening sequence, no other campaign calls in between:",
+    "first",
+    JSON.stringify({
+      tool: "coc_session_resume",
+      arguments: { root, campaign: id },
+    }),
+    "then immediately",
+    JSON.stringify({
+      tool: "coc_setup_investigator_contract",
+      arguments: { root, campaign: id, campaign_id: id },
+    }),
+    ...briefingParts,
+    "Do NOT call setup.inspect, coc_discover, OCR, or any other campaign operation",
+    "during this opening: the campaign is already selected.",
+    "Emit no player-visible text until every opening tool call above is done;",
+    "stay completely silent between tool calls.",
+    "Your player-visible reply must be immersive coc-character guidance ending in",
+    "exactly one concrete character-creation question (e.g. concept or name).",
+    "Never narrate your workflow. Do not describe this instruction.",
+    "Do not paste module body into the player-visible reply.",
+  ].join(" ");
+}
 
 export function isHandoffExit(code) {
   return Number(code) === HANDOFF_EXIT_CODE;
@@ -120,11 +177,24 @@ export function buildChildEnv({
   workspace,
   repoRoot = DEFAULT_REPO_ROOT,
   campaignId,
+  sessionId,
+  agentDir,
   tableIntent,
   parentEnv = process.env,
 }) {
   const env = { ...parentEnv };
   env.COC_WORKSPACE = path.resolve(workspace);
+  const hostedAgentDir = pickHostedSessionAgentDir({
+    workspace: env.COC_WORKSPACE,
+    agentDir: agentDir || env.PI_AGENT_DIR || "",
+    sessionId,
+  });
+  if (hostedAgentDir) {
+    env.PI_AGENT_DIR = hostedAgentDir;
+    if (!(env.PI_CODING_AGENT_DIR || "").trim()) {
+      env.PI_CODING_AGENT_DIR = hostedAgentDir;
+    }
+  }
   env.COC_PI_ATTACHED_UI = "1";
   env.COC_PI_SCENE_SUPPLY = env.COC_PI_SCENE_SUPPLY || "1";
   env.COC_HOST = "pi";
@@ -323,7 +393,11 @@ export class PiCocRpcHost {
     this.workspace = path.resolve(workspace);
     this.campaignId = campaignId;
     this.sessionId = sessionId || webSessionId(campaignId);
-    this.agentDir = agentDir || process.env.PI_AGENT_DIR || "";
+    this.agentDir = pickHostedSessionAgentDir({
+      workspace: this.workspace,
+      agentDir: agentDir || process.env.PI_AGENT_DIR || "",
+      sessionId: this.sessionId,
+    });
     this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
     this.tableIntent = tableIntent || null;
     this.provider = provider || "";
@@ -344,6 +418,7 @@ export class PiCocRpcHost {
     this.#eventLog = [];
     this.lastExitCode = null;
     this.expectedShutdown = false;
+    this.#setupOpeningPrompted = false;
   }
 
   isHandoffShutdown() {
@@ -354,6 +429,7 @@ export class PiCocRpcHost {
   #listeners;
   #stderr;
   #eventLog;
+  #setupOpeningPrompted;
 
   get openingIntent() {
     return this.uiIntent;
@@ -384,6 +460,36 @@ export class PiCocRpcHost {
     if (!text) return false;
     onSse?.({ event: "delta", data: { text } });
     return true;
+  }
+
+  #hasRecordedVisibleOpening() {
+    for (const event of this.#eventLog) {
+      for (const frame of mapRpcEventToSse(event)) {
+        if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
+          return true;
+        }
+      }
+    }
+    return Boolean(lastVisibleAssistantText({
+      agentDir: this.agentDir,
+      sessionId: this.sessionId,
+    }));
+  }
+
+  async #promptSetupOpeningIfSilent({ onSse, timeoutMs, requireVisibleText, sawVisibleText }) {
+    if (this.tableIntent !== "character-setup") return null;
+    if (sawVisibleText || this.#hasRecordedVisibleOpening()) return null;
+    if (this.#setupOpeningPrompted) return null;
+    this.#setupOpeningPrompted = true;
+    const message = setupCharacterOpeningPrompt({
+      campaignId: this.campaignId,
+      workspace: this.workspace,
+    });
+    const result = await this.prompt(message, { onSse, timeoutMs });
+    if (requireVisibleText && !sawVisibleText) {
+      // prompt() already streamed via onSse; caller tracks sawVisibleText.
+    }
+    return { ...result, opened: true, setupOpeningPrompted: true };
   }
 
   #emit(event) {
@@ -447,6 +553,8 @@ export class PiCocRpcHost {
       workspace: this.workspace,
       repoRoot: this.repoRoot,
       campaignId: this.campaignId,
+      sessionId: this.sessionId,
+      agentDir: this.agentDir,
       tableIntent: this.tableIntent,
     });
     const child = this.spawnFn(this.launcherPath, args, {
@@ -667,19 +775,33 @@ export class PiCocRpcHost {
       }
       return { opened };
     };
-    if (this.settleGeneration > 0 && !this.streaming) {
-      if (requireVisibleText) {
-        this.#replaySse(relay);
-        if (!sawVisibleText) this.#replaySessionAssistant(relay);
+    const maybeSetupOpen = async (openedFallback) => {
+      const injected = await this.#promptSetupOpeningIfSilent({
+        onSse: relay,
+        timeoutMs,
+        sawVisibleText,
+      });
+      if (injected) {
+        if (requireVisibleText && !sawVisibleText) {
+          throw new PiCocRpcError("开桌会话未产出玩家可见文本。", {
+            kind: "pi_coc_opening_not_visible",
+          });
+        }
+        return { opened: true, setupOpeningPrompted: true };
       }
-      return finish(true);
+      return finish(openedFallback);
+    };
+    if (this.settleGeneration > 0 && !this.streaming) {
+      if (requireVisibleText) this.#replaySse(relay);
+      if (!sawVisibleText) this.#replaySessionAssistant(relay);
+      return maybeSetupOpen(true);
     }
     const replayed = this.#replaySse(relay);
     if (this.streaming) {
       await this.#waitSettleAfter(this.settleGeneration, relay, timeoutMs, {
         suppressSilentNotice: requireVisibleText,
       });
-      return finish(true);
+      return maybeSetupOpen(true);
     }
     const intent = await this.waitForUiIntent(45_000);
     if (intent === "auto-open" || this.streaming) {
@@ -696,13 +818,13 @@ export class PiCocRpcHost {
       }
       if (this.abortGeneration > abortAt || this.streaming || this.settleGeneration > startGen) {
         await settled;
-        return finish(true);
+        return maybeSetupOpen(true);
       }
     }
     if (this.#replaySessionAssistant(relay)) {
-      return finish(true);
+      return maybeSetupOpen(true);
     }
-    return finish(replayed);
+    return maybeSetupOpen(replayed);
   }
 
   async prompt(message, { onSse, timeoutMs = 900_000 } = {}) {

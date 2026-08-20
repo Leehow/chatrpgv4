@@ -6,6 +6,17 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { resolveHostedSessionAgentDirs } from "./agent-dir.mjs";
+
+/** Prefix of the server-owned character-setup opener (see pi-coc-rpc.mjs). */
+export const SETUP_CHARACTER_OPENING_MARKER =
+  "Host continuation: character-setup opening.";
+
+export function isHiddenSetupOpeningPrompt(text) {
+  const body = String(text || "").trim();
+  return Boolean(body) && body.includes(SETUP_CHARACTER_OPENING_MARKER);
+}
+
 export function assistantTextFromContent(content) {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
@@ -43,6 +54,7 @@ export function visibleMessagesFromSessionFile(file) {
     if (role !== "assistant" && role !== "user") continue;
     const body = assistantTextFromContent(row.message.content);
     if (!body) continue;
+    if (role === "user" && isHiddenSetupOpeningPrompt(body)) continue;
     const at = typeof row.timestamp === "string" ? Date.parse(row.timestamp) : Number.NaN;
     const entry = {
       role: role === "user" ? "player" : "keeper",
@@ -92,13 +104,55 @@ export function findLatestSessionFile(agentDir, sessionId) {
   return latest;
 }
 
-export function hostedSessionMessages({ agentDir, sessionId }) {
-  const file = findLatestSessionFile(agentDir, sessionId);
-  return file ? visibleMessagesFromSessionFile(file) : [];
+function sessionAgentDirs({ agentDir, agentDirs, workspace }) {
+  if (Array.isArray(agentDirs) && agentDirs.length) return agentDirs;
+  if (workspace) return resolveHostedSessionAgentDirs({ workspace, agentDir });
+  if (agentDir) return [agentDir];
+  return resolveHostedSessionAgentDirs({ agentDir });
 }
 
-export function lastVisibleAssistantText({ agentDir, sessionId }) {
-  const messages = hostedSessionMessages({ agentDir, sessionId });
+export function pickHostedSessionAgentDir({
+  workspace,
+  agentDir,
+  sessionId,
+} = {}) {
+  const dirs = sessionAgentDirs({ agentDir, workspace });
+  if (sessionId) {
+    for (const dir of dirs) {
+      if (findLatestSessionFile(dir, sessionId)) return dir;
+    }
+  }
+  const ws = String(workspace || "").trim();
+  if (ws) {
+    const local = path.join(path.resolve(ws), ".pi", "agent");
+    if (fs.existsSync(local)) return local;
+  }
+  return dirs[0] || "";
+}
+
+export function hostedSessionMessages({ agentDir, agentDirs, workspace, sessionId }) {
+  const dirs = sessionAgentDirs({ agentDir, agentDirs, workspace });
+  let chosen = null;
+  let latestMtime = -1;
+  for (const dir of dirs) {
+    const file = findLatestSessionFile(dir, sessionId);
+    if (!file) continue;
+    let mtime = 0;
+    try {
+      mtime = fs.statSync(file).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (mtime >= latestMtime) {
+      latestMtime = mtime;
+      chosen = file;
+    }
+  }
+  return chosen ? visibleMessagesFromSessionFile(chosen) : [];
+}
+
+export function lastVisibleAssistantText({ agentDir, agentDirs, workspace, sessionId }) {
+  const messages = hostedSessionMessages({ agentDir, agentDirs, workspace, sessionId });
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     if (messages[i].role === "keeper" && messages[i].text) return messages[i].text;
   }

@@ -2,7 +2,7 @@ import type { JsonObject, McpCaller } from "./runtime.ts";
 
 export const CHARGEN_CLERK_ENV = "COC_PI_CHARGEN_CLERK";
 
-export type ChargenClerkMode = "quick_fire" | "pregen";
+export type ChargenClerkMode = "quick_fire" | "era_adaptive" | "pregen";
 
 export interface ChargenClerkBrief {
   name: string;
@@ -81,8 +81,14 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   if (!occupation) {
     throw new Error("coc_chargen_delegate requires occupation_or_concept");
   }
-  if (modeRaw !== "quick_fire" && modeRaw !== "pregen") {
-    throw new Error('coc_chargen_delegate mode must be "quick_fire" or "pregen"');
+  if (
+    modeRaw !== "quick_fire"
+    && modeRaw !== "pregen"
+    && modeRaw !== "era_adaptive"
+  ) {
+    throw new Error(
+      'coc_chargen_delegate mode must be "quick_fire", "era_adaptive", or "pregen"',
+    );
   }
   const brief: ChargenClerkBrief = {
     name,
@@ -167,12 +173,14 @@ export function resolveAssignmentPriority(raw: string | undefined): string[] {
   return [...listed, ...rest];
 }
 
+const CATALOG_SHAPED_SKILL = /^[A-Za-z][A-Za-z0-9 .'/&()-]*$/;
+
 function uniqueSkillNames(names: string[] | undefined): string[] {
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const raw of names ?? []) {
     const name = canonicalizeSkillName(raw);
-    if (!name) continue;
+    if (!name || !CATALOG_SHAPED_SKILL.test(name)) continue;
     const key = name.toLowerCase();
     if (seen.has(key) || key === CREDIT_RATING.toLowerCase()) continue;
     seen.add(key);
