@@ -33,12 +33,14 @@ def test_create_memory_card_writes_markdown_with_frontmatter(tmp_path):
         entities=["ada-king", "corbitt-house", "front-door"],
         tags=["player_interest", "physical_clue"],
         reactivation_cues=["door", "lock", "scratch"],
+        kind="player_preference",
         source_events=["event-042"],
     )
     assert path.exists()
     text = path.read_text(encoding="utf-8")
     assert text.startswith("---\n")
     assert "memory_id: mem-001-door-scratches" in text
+    assert "kind: player_preference" in text
     assert "ada-king" in text
     assert "玩家对门闩划痕非常在意" in text  # body
     assert "player-safe" in str(path)  # privacy dir routing
@@ -51,7 +53,7 @@ def test_create_memory_card_keeper_only_routes_to_separate_dir(tmp_path):
         privacy="keeper_only", salience=0.9,
         summary="Corbitt 埋在地下室（keeper only）。",
         entities=["corbitt"], tags=["secret"],
-        reactivation_cues=["basement"], source_events=[],
+        reactivation_cues=["basement"], kind="fact", source_events=[],
     )
     assert "keeper-only" in str(path)
     assert "player-safe" not in str(path)
@@ -63,12 +65,12 @@ def test_retrieve_memory_cards_scores_by_entity_overlap(tmp_path):
         campaign_dir=camp, memory_id="mem-door", privacy="player_safe",
         salience=0.8, summary="door interest",
         entities=["front-door", "corbitt-house"], tags=["player_interest"],
-        reactivation_cues=["door"], source_events=[])
+        reactivation_cues=["door"], kind="player_preference", source_events=[])
     coc_memory.create_memory_card(
         campaign_dir=camp, memory_id="mem-npc", privacy="player_safe",
         salience=0.5, summary="npc relation",
         entities=["npc-knott"], tags=["npc_relationship"],
-        reactivation_cues=["knott"], source_events=[])
+        reactivation_cues=["knott"], kind="npc_relationship", source_events=[])
     results = coc_memory.retrieve_memory_cards(
         campaign_dir=camp,
         query_entities=["front-door", "corbitt-house"],
@@ -84,7 +86,7 @@ def test_retrieve_excludes_wrong_privacy(tmp_path):
     coc_memory.create_memory_card(
         campaign_dir=camp, memory_id="mem-secret", privacy="keeper_only",
         salience=0.95, summary="secret", entities=["front-door"],
-        tags=["x"], reactivation_cues=["door"], source_events=[])
+        tags=["x"], reactivation_cues=["door"], kind="fact", source_events=[])
     results = coc_memory.retrieve_memory_cards(
         campaign_dir=camp, query_entities=["front-door"],
         query_cues=["door"], query_tags=[], privacy_filter="player_safe", limit=5)
@@ -96,7 +98,8 @@ def test_build_context_pack_writes_markdown(tmp_path):
     coc_memory.create_memory_card(
         campaign_dir=camp, memory_id="mem-door", privacy="player_safe",
         salience=0.8, summary="door interest", entities=["front-door"],
-        tags=["player_interest"], reactivation_cues=["door"], source_events=[])
+        tags=["player_interest"], reactivation_cues=["door"], kind="player_preference",
+        source_events=[])
     cards = coc_memory.retrieve_memory_cards(
         campaign_dir=camp, query_entities=["front-door"],
         query_cues=["door"], query_tags=[], privacy_filter="player_safe", limit=5)

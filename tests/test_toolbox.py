@@ -70,6 +70,7 @@ EXPECTED_NAMESPACES = {
     "mechanics",
     "steward",
     "turn",
+    "memory",
 }
 
 

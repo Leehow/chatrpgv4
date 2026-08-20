@@ -155,6 +155,16 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "context",
     },
+    # memory.* is the KP-facing long-term story memory surface. Writes are
+    # state-contract card mutations on the coc_state domain tool; the search
+    # query lives on coc_context beside the other read projections.
+    "memory": {
+        "audience": "keeper",
+        "phases": ("live_turn",),
+        "contract": "state",
+        "advisory": False,
+        "kp_surface": "state",
+    },
     "threat": {
         "audience": "keeper",
         "phases": ("opening", "live_turn", "pending_finalization"),
@@ -217,6 +227,11 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
 
 # Exact operation overlays. Extra or missing keys versus TOOLS fail closed.
 OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
+    "memory.search": {
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": ("opening", "live_turn", "pending_finalization"),
+    },
     "actions.list": {
         "contract": "none",
         "advisory": False,

@@ -234,6 +234,18 @@ opening procedure is normative in
   or downgraded substitute. Keep distinct information layers and choose
   semantically, never by keyword.
   Operational detail is in the typed-ops reference.
+- **Long-term story memory (advisory, never truth).** `memory.search` /
+  `memory.write` / `memory.resolve_hook` keep campaign-scale continuity:
+  proactively `memory.search` when an NPC reunion occurs, pacing lulls and a
+  callback could land, or the player references old events; filter by
+  structured `kinds`/`statuses`/entities, then judge relevance semantically.
+  Write `unresolved_hook` / `foreshadowing` cards when planting threads,
+  `player_preference` when the player states a durable preference, and
+  `keeper_correction` when a KP mistake is corrected and adopted; close hooks
+  through `memory.resolve_hook` when they pay off. Memory cards are context
+  only — `state.*` / `rules.*` own facts, and keeper-only cards never become
+  player prose without earned play. `director.advise.callback_candidates`
+  surfaces open hooks for the current scene; adopt, modify, or ignore.
 - **No free-prose keyword/regex decisions** for player intent, hostility,
   clue relevance, storylet fit, or similar meaning-bearing choices.
 - **No mandatory Director/Storylet calls.** `director.advise`,

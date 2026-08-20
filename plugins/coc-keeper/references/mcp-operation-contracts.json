@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:efb57e895f79dcddad6f1a19722be148226f298d57a697a1ddbda38c141afb0d",
+  "content_sha256": "sha256:c8451551121d667f2f6844bbc95415d38f83b7ac4f2307fe7e0af8f8351b7e60",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 113,
+  "operation_count": 116,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -802,6 +802,256 @@
         ]
       },
       "summary": "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused."
+    },
+    "memory.resolve_hook": {
+      "access": "mutation",
+      "canonical_operation": "memory.resolve_hook",
+      "description": "Transition an unresolved_hook/foreshadowing card's lifecycle status (resolved/paid_off/abandoned) with resolved_at evidence. Idempotent via decision_id. Canonical operation `memory.resolve_hook`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "memory_id": {
+            "description": "existing hook/foreshadowing card id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "keeper note on how it resolved",
+            "type": "string"
+          },
+          "resolution": {
+            "description": "terminal lifecycle status",
+            "enum": [
+              "resolved",
+              "paid_off",
+              "abandoned"
+            ],
+            "type": "string"
+          },
+          "resolved_at": {
+            "description": "turn/scene reference where the payoff or abandonment happened",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "memory_id",
+          "resolution",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Transition an unresolved_hook/foreshadowing card's lifecycle status (resolved/paid_off/abandoned) with resolved_at evidence. Idempotent via decision_id."
+    },
+    "memory.search": {
+      "access": "query",
+      "canonical_operation": "memory.search",
+      "description": "Retrieve campaign memory cards by structured kind/status/entity/cue overlap. Data for KP semantic judgment; memory is never authoritative truth. Canonical operation `memory.search`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "cues": {
+            "description": "reactivation cues to overlap",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "entities": {
+            "description": "structured entity ids to overlap",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kinds": {
+            "description": "filter by card kind (fact/event/npc_relationship/unresolved_hook/foreshadowing/player_preference/keeper_correction)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "max cards (default 5, max 20)",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "statuses": {
+            "description": "filter hook lifecycle status (open/resolved/paid_off/abandoned)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "description": "structured tags to overlap",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "view": {
+            "description": "privacy view; keeper (default) sees keeper_only cards, results always carry privacy labels",
+            "enum": [
+              "keeper",
+              "player_safe"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Retrieve campaign memory cards by structured kind/status/entity/cue overlap. Data for KP semantic judgment; memory is never authoritative truth."
+    },
+    "memory.write": {
+      "access": "mutation",
+      "canonical_operation": "memory.write",
+      "description": "Write one typed campaign memory card (fact/event/npc_relationship/unresolved_hook/foreshadowing/player_preference/keeper_correction). Idempotent via decision_id. Canonical operation `memory.write`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "entities": {
+            "description": "structured entity ids",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "introduced_at": {
+            "description": "turn/scene reference where this was introduced",
+            "type": "string"
+          },
+          "kind": {
+            "description": "card kind from the closed enum",
+            "type": "string"
+          },
+          "memory_id": {
+            "description": "stable card id (also the filename)",
+            "type": "string"
+          },
+          "possible_payoff": {
+            "description": "keeper note on how this could pay off",
+            "type": "string"
+          },
+          "privacy": {
+            "description": "existing privacy tier; controls card directory and projection",
+            "enum": [
+              "player_safe",
+              "keeper_only",
+              "system_only"
+            ],
+            "type": "string"
+          },
+          "reactivation_cues": {
+            "description": "cues that should resurface this card",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "salience": {
+            "description": "0..1 retrieval weight (default 0.5)",
+            "type": "number"
+          },
+          "scenes": {
+            "description": "related scene ids",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "hook lifecycle status; only for unresolved_hook/foreshadowing (default open)",
+            "type": "string"
+          },
+          "summary": {
+            "description": "short play-language summary body",
+            "type": "string"
+          },
+          "tags": {
+            "description": "structured tags",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign",
+          "memory_id",
+          "kind",
+          "privacy",
+          "summary",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Write one typed campaign memory card (fact/event/npc_relationship/unresolved_hook/foreshadowing/player_preference/keeper_correction). Idempotent via decision_id."
     },
     "narration.brief": {
       "access": "mutation",

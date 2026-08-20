@@ -96,6 +96,15 @@ Start from `session.resume` on the `ready_for_table` channel, then call
 - When the investigator first materially meets a stable NPC, use `npc.reaction`
   (public D100 against the higher of APP or Credit Rating), not a generic
   `rules.roll` or Persuade check. Record the receipt; never reroll-shop.
+- Long-term story memory is advisory context, never truth. Proactively call
+  `memory.search` (on `coc_context`) when an NPC reunion occurs, pacing lulls
+  and an old thread could resurface, or the player references past events;
+  judge relevance semantically. Plant threads with `memory.write`
+  (`unresolved_hook` / `foreshadowing`), record durable player tastes as
+  `player_preference` and adopted corrections as `keeper_correction`, and close
+  paid-off hooks with `memory.resolve_hook` (all on `coc_state`, idempotent via
+  `decision_id`). Keeper-only cards never become player prose without earned
+  play; there is no per-turn memory quota.
 - Skill 3 owns future scene-readiness waits and prefetch. If the opening gate
   previously rejected domain writes, Pi automatically emits one hidden refill
   dispatch for every still-`pending` NPC/scene/rule/clue domain as soon as the

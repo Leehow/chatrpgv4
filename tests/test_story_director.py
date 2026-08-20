@@ -2369,7 +2369,8 @@ def test_payoff_scores_above_zero_when_memory_matches(tmp_path):
         campaign_dir=camp, memory_id="mem-test-door",
         privacy="player_safe", salience=0.8,
         summary="玩家关注门", entities=["scene-1-entity"],
-        tags=["player_interest"], reactivation_cues=["scene-1"], source_events=[])
+        tags=["player_interest"], reactivation_cues=["scene-1"],
+        kind="player_preference", source_events=[])
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
         player_intent="recall", player_intent_class="investigate", rng=random.Random(42))
@@ -2389,12 +2390,14 @@ def test_payoff_discriminates_weak_vs_strong_memory(tmp_path):
     # weak card: single entity match
     coc_memory.create_memory_card(
         campaign_dir=camp, memory_id="mem-weak", privacy="player_safe", salience=0.3,
-        summary="weak", entities=["entity-A"], tags=["x"], reactivation_cues=["cue-A"], source_events=[])
+        summary="weak", entities=["entity-A"], tags=["x"], reactivation_cues=["cue-A"],
+        kind="event", source_events=[])
     # strong card: multiple entity + cue match
     coc_memory.create_memory_card(
         campaign_dir=camp, memory_id="mem-strong", privacy="player_safe", salience=0.9,
         summary="strong", entities=["entity-A", "entity-B", "entity-C"],
-        tags=["player_interest"], reactivation_cues=["cue-A", "cue-B", "cue-C"], source_events=[])
+        tags=["player_interest"], reactivation_cues=["cue-A", "cue-B", "cue-C"],
+        kind="event", source_events=[])
     # query matches both, but strong card has more overlap
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
@@ -2415,7 +2418,8 @@ def test_memory_reads_populated_when_cards_match(tmp_path):
         campaign_dir=camp, memory_id="mem-test-door",
         privacy="player_safe", salience=0.9,
         summary="玩家关注门", entities=["scene-1-entity"],
-        tags=["player_interest"], reactivation_cues=["scene-1"], source_events=[])
+        tags=["player_interest"], reactivation_cues=["scene-1"],
+        kind="player_preference", source_events=[])
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
         player_intent="x", player_intent_class="investigate", rng=random.Random(42))

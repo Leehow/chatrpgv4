@@ -4119,6 +4119,8 @@ def _apply_plan_impl(
     if coc_memory is not None:
         for i, mw in enumerate(plan.get("memory_writes", [])):
             mid = f"mem-{decision_id}-{i}"
+            # Plan-authored writes default to `event` (a turn happening); the
+            # caller may declare any closed CARD_KINDS value explicitly.
             coc_memory.create_memory_card(
                 campaign_dir=campaign_dir, memory_id=mid,
                 privacy=mw.get("privacy", "player_safe"),
@@ -4127,6 +4129,9 @@ def _apply_plan_impl(
                 entities=mw.get("entities", []),
                 tags=mw.get("tags", []),
                 reactivation_cues=mw.get("reactivation_cues", []),
+                kind=str(mw.get("kind") or "event"),
+                status=mw.get("status"),
+                introduced_at=mw.get("introduced_at"),
                 source_events=[decision_id],
             )
 

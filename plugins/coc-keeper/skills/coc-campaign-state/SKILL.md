@@ -33,6 +33,19 @@ unknown ids. That search tool is Keeper-only advisory; never copy its payload or
 are searchable the same way; Pi play has no `combat.spawn` and no live
 `rules.cast` toolbox tool — do not advertise a complete spawn/cast wiring.
 
+Long-term story memory lives under `.coc/campaigns/<id>/memory/` (see
+`../../references/memory-protocol.md`). Ordinary play reads and writes it only
+through the typed memory operations: `memory.search` (query on the context
+surface; structured `kinds`/`statuses`/entity filters, results carry `privacy`
+labels), `memory.write` (typed card write, idempotent via `decision_id`), and
+`memory.resolve_hook` (hook/foreshadowing lifecycle transition with
+`resolved_at` evidence, idempotent via `decision_id`). Every card requires a
+`kind` from the closed enum; cards without one fail validation
+(clean-slate — no migrations) and are reported in `memory/index.json`
+`invalid_cards`. Memory is never authoritative truth: HP, clues, items, time,
+and dice stay with `state.*` / `rules.*`; do not hand-edit live card files
+mid-play.
+
 ## Operations
 
 Use `../../scripts/coc_state.py` for deterministic state operations:

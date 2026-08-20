@@ -151,6 +151,35 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "advisory": false,
     "kp_surface": "subsystem"
   },
+  "memory.resolve_hook": {
+    "audience": "keeper",
+    "phases": [
+      "live_turn"
+    ],
+    "contract": "state",
+    "advisory": false,
+    "kp_surface": "state"
+  },
+  "memory.search": {
+    "audience": "keeper",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
+    ],
+    "contract": "none",
+    "advisory": false,
+    "kp_surface": "context"
+  },
+  "memory.write": {
+    "audience": "keeper",
+    "phases": [
+      "live_turn"
+    ],
+    "contract": "state",
+    "advisory": false,
+    "kp_surface": "state"
+  },
   "narration.brief": {
     "audience": "keeper",
     "phases": [
@@ -1128,9 +1157,9 @@ export const HOST_INVOKE_COMPAT_OPERATIONS = new Set([
   "session.delivery_text",
 ]);
 export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly string[]> = {
-  context: ["actions.list", "clues.query", "epistemic.query", "evidence.record_adoption", "evidence.table_opening", "personal_horror.query", "scene.context", "scene.map", "secrets.briefing", "steward.deliveries", "steward.notebook", "steward.scene_supply", "threat.query"],
+  context: ["actions.list", "clues.query", "epistemic.query", "evidence.record_adoption", "evidence.table_opening", "memory.search", "personal_horror.query", "scene.context", "scene.map", "secrets.briefing", "steward.deliveries", "steward.notebook", "steward.scene_supply", "threat.query"],
   rules: ["rules.build_scale", "rules.cash_assets", "rules.catalog_search", "rules.check", "rules.damage", "rules.dying_check", "rules.first_aid", "rules.luck_spend", "rules.medicine", "rules.opposed", "rules.psychology_observe", "rules.push", "rules.resource_delta", "rules.roll", "rules.roll_dice", "rules.sanity_check", "rules.skill_describe", "rules.social_adjudicate", "rules.weekly_recovery"],
-  state: ["state.advance_time", "state.backstory_corruption_add", "state.belief_apply", "state.cash_semantic", "state.clear_transient_condition", "state.clock_discontinuity", "state.end_session", "state.exceptional_effect", "state.inventory_list", "state.item_grant", "state.item_remove", "state.item_use", "state.mark_safe_rest", "state.move_scene", "state.npc_presence", "state.npc_update", "state.personal_horror_add", "state.personal_horror_mark_woven", "state.promote_scene", "state.record_clue", "state.record_npc_engagement", "state.record_route_completion", "state.set_flag", "state.supersede_settlement", "state.threat_tick", "state.time_appearance", "state.time_marker"],
+  state: ["memory.resolve_hook", "memory.write", "state.advance_time", "state.backstory_corruption_add", "state.belief_apply", "state.cash_semantic", "state.clear_transient_condition", "state.clock_discontinuity", "state.end_session", "state.exceptional_effect", "state.inventory_list", "state.item_grant", "state.item_remove", "state.item_use", "state.mark_safe_rest", "state.move_scene", "state.npc_presence", "state.npc_update", "state.personal_horror_add", "state.personal_horror_mark_woven", "state.promote_scene", "state.record_clue", "state.record_npc_engagement", "state.record_route_completion", "state.set_flag", "state.supersede_settlement", "state.threat_tick", "state.time_appearance", "state.time_marker"],
   npc: ["npc.query", "npc.reaction"],
   turn: ["state.journal", "turn.finalize", "turn.output_context"],
   setup: ["progressive.follow_mentions", "progressive.on_enter_scene", "progressive.opening_bootstrap", "progressive.prepare_opening", "progressive.request_mechanics", "session.resume", "setup.adopt_source_facts", "setup.complete", "setup.inspect", "setup.investigator_contract", "setup.invoke", "setup.quick_start"],

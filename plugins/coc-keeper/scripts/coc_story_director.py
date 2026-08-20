@@ -2895,6 +2895,66 @@ def _derive_memory_entities(ctx: dict[str, Any]) -> list[str]:
     return [e for e in ents if e]
 
 
+_CALLBACK_CANDIDATE_LIMIT = 3
+
+
+def _callback_candidates(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """CALLBACK beat candidates: open hooks/foreshadowing overlapping the scene.
+
+    Purely advisory data retrieval over structured kind/status/entity fields —
+    the KP judges relevance and realization semantically. Never writes state,
+    never forces narration, and absence never blocks a turn.
+    """
+    if coc_memory is None:
+        return []
+    campaign_dir = ctx.get("campaign_dir")
+    if campaign_dir is None:
+        return []
+    entities = list(ctx.get("memory_query_entities") or _derive_memory_entities(ctx))
+    rich = ctx.get("player_intent_rich")
+    if rich and not ctx.get("memory_query_entities"):
+        for ent in rich.get("target_entities") or []:
+            if ent and ent not in entities:
+                entities.append(ent)
+    cues = [c for c in (ctx.get("memory_query_cues") or [ctx.get("player_intent", "")]) if c]
+    cards = coc_memory.retrieve_memory_cards(
+        campaign_dir=Path(campaign_dir),
+        query_entities=[e for e in entities if e],
+        query_cues=cues,
+        query_tags=[],
+        # Director context is Keeper-internal: keeper_only hooks are in scope.
+        privacy_filter="keeper",
+        limit=_CALLBACK_CANDIDATE_LIMIT,
+        kinds=list(coc_memory.HOOK_KINDS),
+        statuses=["open"],
+    )
+    candidates: list[dict[str, Any]] = []
+    for card in cards:
+        overlap = sorted(
+            set(entities) & set(card.get("entities") or [])
+        )
+        candidates.append({
+            "beat": "CALLBACK",
+            "memory_id": card.get("memory_id"),
+            "kind": card.get("kind"),
+            "status": card.get("status"),
+            "privacy": card.get("privacy"),
+            "salience": card.get("salience"),
+            "summary": card.get("body", ""),
+            "possible_payoff": card.get("possible_payoff", ""),
+            "introduced_at": card.get("introduced_at"),
+            "overlap_entities": overlap,
+            "score": card.get("score"),
+            "reason": (
+                f"open {card.get('kind')} card overlaps current scene "
+                + (f"entities {', '.join(overlap)}" if overlap else "cues")
+            ),
+            "authority": "advisory",
+            "hard_gate": False,
+        })
+    return candidates
+
+
 def _disposition_to_tone(disposition: str) -> str:
     return {"helpful": "warm and cooperative",
             "neutral": "guarded but civil",
@@ -4132,6 +4192,10 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
          "reason": "entity/scene match", "use": "PAYOFF" if action == "PAYOFF" else "TONE"}
         for c in mem_cards
     ]
+    # CALLBACK beat candidates: open unresolved_hook / foreshadowing cards
+    # overlapping the current scene. Advisory only — the KP adopts, modifies,
+    # or ignores; no state write and no forced narration.
+    callback_candidates = _callback_candidates(ctx)
 
     time_advance = _derive_time_advance(
         action,
@@ -4172,6 +4236,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "rules_requests": rules_requests,
         "memory_reads": memory_reads,
         "memory_writes": [],
+        "callback_candidates": callback_candidates,
         "director_strategy_state": strategy_result.get("strategy_state") or {},
         "faction_rankings": strategy_result.get("faction_rankings") or [],
         "capability_findings": strategy_result.get("capability_findings") or [],

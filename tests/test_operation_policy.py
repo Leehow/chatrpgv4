@@ -25,7 +25,7 @@ coc_operation_policy = coc_toolbox.coc_operation_policy
 def test_every_registered_operation_has_valid_policy():
     names = sorted(coc_toolbox.TOOLS)
     assert "rules.catalog_search" in names
-    assert len(names) == 113
+    assert len(names) == 116
     policies = coc_operation_policy.policies_for_operations(names)
     assert set(policies) == set(names)
     for name, policy in policies.items():
