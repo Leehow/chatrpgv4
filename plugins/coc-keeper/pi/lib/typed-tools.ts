@@ -90,7 +90,7 @@ export function buildTypedToolCatalog(
       operation,
       label: `COC ${operation}`,
       description: `${operation} Canonical operation; the result envelope is authoritative.`,
-      parameters: contract.inputSchema,
+      parameters: presentedTypedToolParameters(operation, contract.inputSchema),
     };
     byName.set(name, tool);
     byOperation.set(operation, tool);
@@ -129,6 +129,53 @@ export function listTypedOperationTools(catalog = defaultTypedToolCatalog()): Ty
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Model-visible overlay: `setup.adopt_source_facts` still archives
+ * campaign_id+facts, but the typed tool must accept campaign_id alone so the
+ * host can bind the retained exact review card. Live KPs do not copy that
+ * nested payload; rewriting facts stays forbidden.
+ */
+function presentedTypedToolParameters(
+  operation: string,
+  inputSchema: JsonSchema,
+): JsonSchema {
+  if (operation !== "setup.adopt_source_facts") return inputSchema;
+  const cloned = structuredClone(inputSchema);
+  cloned.required = ["campaign_id"];
+  const properties = cloned.properties;
+  if (isPlainObject(properties) && isPlainObject(properties.facts)) {
+    const extra = (
+      "Omit to consume the retained exact opening-source-review card "
+      + "for this campaign_id; do not rewrite facts."
+    );
+    const current = properties.facts.description;
+    properties.facts = {
+      ...properties.facts,
+      description: typeof current === "string" && current
+        ? `${current} ${extra}`
+        : extra,
+    };
+  }
+  return cloned;
+}
+
+/** Bind retained transport facts when the KP omitted them. Never overwrite. */
+export function applyRetainedAdoptSourceFacts(
+  wrappedParams: Record<string, unknown>,
+  retainedFacts: unknown,
+): Record<string, unknown> {
+  if (wrappedParams.operation !== "setup.adopt_source_facts") return wrappedParams;
+  if (!isPlainObject(retainedFacts)) return wrappedParams;
+  const args = isPlainObject(wrappedParams.arguments)
+    ? wrappedParams.arguments
+    : null;
+  if (args === null || isPlainObject(args.facts)) return wrappedParams;
+  return {
+    ...wrappedParams,
+    arguments: { ...args, facts: structuredClone(retainedFacts) },
+  };
 }
 
 /**

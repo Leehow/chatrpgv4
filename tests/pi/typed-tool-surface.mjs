@@ -98,6 +98,32 @@ test("recovery play surface is closure-only", () => {
   assert.ok(!recovery.includes("coc_npc_reaction"));
 });
 
+test("adopt_source_facts presents campaign_id-only and fills retained facts", () => {
+  const archiveRequired = archive.operations["setup.adopt_source_facts"].inputSchema.required;
+  assert.deepEqual(archiveRequired, ["campaign_id", "facts"]);
+  const tool = catalog.byOperation.get("setup.adopt_source_facts");
+  assert.ok(tool);
+  assert.deepEqual(tool.parameters.required, ["campaign_id"]);
+  assert.ok(tool.parameters.properties.facts);
+  const wrapped = typed.wrapTypedToolInvokeParams("coc_setup_adopt_source_facts", {
+    campaign_id: "c1",
+    campaign: "c1",
+  });
+  assert.deepEqual(wrapped, {
+    operation: "setup.adopt_source_facts",
+    campaign: "c1",
+    arguments: { campaign_id: "c1" },
+  });
+  const retained = { schema_version: 1, contract_id: "coc.opening-fast-facts.v1" };
+  const filled = typed.applyRetainedAdoptSourceFacts(wrapped, retained);
+  assert.deepEqual(filled.arguments.facts, retained);
+  const already = typed.applyRetainedAdoptSourceFacts({
+    ...wrapped,
+    arguments: { campaign_id: "c1", facts: { keep: true } },
+  }, retained);
+  assert.deepEqual(already.arguments.facts, { keep: true });
+});
+
 test("exact typed execute wraps the one operation without a second guess", () => {
   const wrapped = typed.wrapTypedToolInvokeParams("coc_rules_roll", {
     campaign: "c1",

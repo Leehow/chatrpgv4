@@ -78,7 +78,6 @@ import {
   inferPhaseFromEnvelope,
   inferPhaseFromError,
   isCanonicalInvokeSurface,
-  modelVisibleAclFailure,
   sessionRoleFromEnv,
   type PlayPhase,
 } from "../lib/domain-tools.ts";
@@ -97,9 +96,9 @@ import {
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
 } from "../lib/recovery-guidance.ts";
 import {
+  applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
   listTypedOperationTools,
-  rewriteModelVisibleHints,
   wrapTypedToolInvokeParams,
 } from "../lib/typed-tools.ts";
 
@@ -243,44 +242,19 @@ function exactKeysMatch(value: JsonObject, expected: string[]): boolean {
     && actual.every((key, index) => key === required[index]);
 }
 
-/** Toolbox/MCP transport fields that must not fail a startup-resume probe. */
-const STARTUP_RESUME_ENVELOPE_EXTRAS = [
-  "hints",
-  "warnings",
-  "attempts",
-  "max_attempts",
-  "retryable",
-  "recovered_after_retry",
-] as const;
-
-function exactKeysMatchAllowing(
-  value: JsonObject,
-  expected: string[],
-  extraAllowed: readonly string[],
-): boolean {
-  const allowed = new Set(extraAllowed);
-  const actual = Object.keys(value).filter((key) => !allowed.has(key)).sort();
-  const required = [...expected].sort();
-  return actual.length === required.length
-    && actual.every((key, index) => key === required[index]);
+/** Gate envelopes may grow additive fields (e.g. `opening_phase`). Cards stay exact. */
+function hasRequiredKeys(value: JsonObject, required: string[]): boolean {
+  return required.every((key) => Object.prototype.hasOwnProperty.call(value, key));
 }
 
-const STARTUP_RESUME_TOOL_IDENTITIES = new Set([
+const OPENING_LIFECYCLE_PHASES = new Set([
+  "module_preparation",
+  "character_creation",
+]);
+const SESSION_RESUME_ENVELOPE_TOOLS = new Set([
   "session.resume",
   "coc_session_resume",
   "coc_invoke",
-]);
-
-function isStartupResumeToolIdentity(toolName: string, invokeName: string): boolean {
-  return STARTUP_RESUME_TOOL_IDENTITIES.has(toolName)
-    && STARTUP_RESUME_TOOL_IDENTITIES.has(invokeName);
-}
-
-const ACCEPTED_INCOMPLETE_OPENING_PHASES = new Set([
-  "opening_source_facts_adoption_required",
-  "opening_source_review_required",
-  "opening_source_materialization",
-  "opening_character_setup_required",
 ]);
 
 function assistantContentMessage(value: unknown): AssistantContentMessage | null {
@@ -853,6 +827,7 @@ export class OpeningTerminalContinuationGate {
     renderedSha256: string;
   } | null = null;
   private readonly openingSetupStates = new Map<string, OpeningSetupState>();
+  private readonly retainedAdoptSourceFacts = new Map<string, JsonObject>();
   private readonly openingSetupAttempts = new Map<string, OpeningSetupAttempt>();
   private openingSetupGenerationSequence = 0;
   private readonly openingSetupLatestIssuedGeneration = new Map<string, number>();
@@ -2959,16 +2934,16 @@ export class OpeningTerminalContinuationGate {
       : this.routeFromGate(returnedGate);
     const exactProjectedResumeError = (
       envelope !== null
-      && exactKeysMatchAllowing(
-        envelope,
-        ["ok", "tool", "error"],
-        STARTUP_RESUME_ENVELOPE_EXTRAS,
-      )
       && envelope.ok === false
-      && envelope.tool === "session.resume"
+      && (
+        envelope.tool === "session.resume"
+        || envelope.tool === "coc_session_resume"
+        || envelope.tool === "coc_invoke"
+      )
       && error !== null
-      && exactKeysMatchAllowing(error, ["code", "details"], ["message"])
       && error.code === "opening_setup_incomplete"
+      && details !== null
+      && details.hard_gate === true
       && details === returnedGate
     );
     const canonicalPreboundProbe = (
@@ -3009,14 +2984,14 @@ export class OpeningTerminalContinuationGate {
       && (
         (
           canonicalCharacterSetupInputMode === "guided_quick_fire"
-          && exactKeysMatch(returnedGate, [
+          && hasRequiredKeys(returnedGate, [
             "schema_version", "status", "hard_gate", "activation_allowed",
             "phase", "campaign_id", "character_setup_policy", "next_operation",
             "instruction",
           ])
         ) || (
           canonicalCharacterSetupInputMode === "kp_guided_era_adaptive"
-          && exactKeysMatch(returnedGate, [
+          && hasRequiredKeys(returnedGate, [
             "schema_version", "status", "hard_gate", "activation_allowed",
             "phase", "campaign_id", "character_setup_policy",
             "character_setup_input_mode", "next_operation", "instruction",
@@ -3037,7 +3012,7 @@ export class OpeningTerminalContinuationGate {
       && this.unboundAttemptIsFresh(attempt)
       && exactProjectedResumeError
       && returnedGate !== null
-      && exactKeysMatch(
+      && hasRequiredKeys(
         returnedGate,
         returnedGate.source_lifecycle_status === "resolver_lost"
           ? [
@@ -3137,6 +3112,11 @@ export class OpeningTerminalContinuationGate {
         };
       }
       route.allowed_actions = [structuredClone(recoveredFactsCard!)];
+      this.rememberReviewedAdoptFacts({
+        status: "reviewed",
+        campaign_id: attempt.campaignId,
+        facts: recoveredFactsArguments.facts,
+      });
       this.initializeOpeningSetupState(
         attempt.campaignId,
         route,
@@ -4229,9 +4209,34 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  rememberReviewedAdoptFacts(receipt: JsonObject): void {
+    if (receipt.status !== "reviewed") return;
+    const campaignId = String(receipt.campaign_id ?? "");
+    if (!campaignId || !validOpeningTransportFacts(receipt.facts)) return;
+    this.retainedAdoptSourceFacts.set(
+      campaignId,
+      structuredClone(receipt.facts),
+    );
+  }
+
+  bindRetainedAdoptSourceFacts(params: JsonObject): JsonObject {
+    const args = objectOrNull(params.arguments);
+    const campaignId = this.setupInvocationCampaignId(params)
+      ?? (
+        typeof args?.campaign_id === "string" && args.campaign_id
+          ? args.campaign_id
+          : null
+      );
+    const retained = campaignId
+      ? this.retainedAdoptSourceFacts.get(campaignId)
+      : undefined;
+    return applyRetainedAdoptSourceFacts(params, retained) as JsonObject;
+  }
+
   observeOpeningSourceReviewTransport(
     receipt: JsonObject,
   ): OpeningSetupRoute | null {
+    this.rememberReviewedAdoptFacts(receipt);
     const campaignId = String(receipt.campaign_id ?? "");
     const state = this.openingSetupStates.get(campaignId);
     if (state === undefined || state.phase !== "source_review") return null;
@@ -7607,8 +7612,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const envelope = objectOrNull(value);
     if (
       envelope === null
-      || envelope.tool !== "session.resume"
       || typeof envelope.ok !== "boolean"
+      || (
+        typeof envelope.tool === "string"
+        && envelope.tool.length > 0
+        && !SESSION_RESUME_ENVELOPE_TOOLS.has(envelope.tool)
+      )
     ) {
       return {
         accepted: false,
@@ -7639,11 +7648,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     const error = objectOrNull(envelope.error);
     const details = objectOrNull(error?.details);
+    const openingPhase = details?.opening_phase;
+    // opening_setup_incomplete on the selected campaign is an opening
+    // lifecycle fact, not a wrong-campaign identity failure. Release the
+    // startup gate when the canonical phase says setup is still in progress
+    // so the KP can follow next_operation.
     if (
       error?.code === "opening_setup_incomplete"
-      && details !== null
-      && typeof details.phase === "string"
-      && ACCEPTED_INCOMPLETE_OPENING_PHASES.has(details.phase)
+      && typeof openingPhase === "string"
+      && OPENING_LIFECYCLE_PHASES.has(openingPhase)
     ) {
       return { accepted: true };
     }
@@ -7663,7 +7676,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const card = objectOrNull(details.next_operation);
     const args = objectOrNull(card?.arguments);
     if (
-      !exactKeysMatch(details, [
+      !hasRequiredKeys(details, [
         "schema_version", "status", "hard_gate", "activation_allowed",
         "phase", "campaign_id", "scenario_id",
         "opening_review_generation", "next_operation", "instruction",
@@ -7739,7 +7752,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   ): JsonObject | null => {
     if (details.character_setup_policy === "kp_guided_era_adaptive") {
       if (
-        !exactKeysMatch(details, [
+        !hasRequiredKeys(details, [
           "schema_version", "status", "hard_gate", "activation_allowed",
           "phase", "campaign_id", "character_setup_policy",
           "character_setup_input_mode", "next_operation", "instruction",
@@ -7771,7 +7784,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       };
     }
     if (
-      !exactKeysMatch(details, [
+      !hasRequiredKeys(details, [
         "schema_version",
         "status",
         "hard_gate",
@@ -7964,7 +7977,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const startupCanonicalFailureProjection = (
     error: unknown,
-    name: string,
+    _name: string,
     params: JsonObject,
   ): StartupCanonicalFailureProjection => {
     if (!(error instanceof CanonicalToolError)) {
@@ -7973,15 +7986,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const envelope = objectOrNull(error.envelope);
     const envelopeError = objectOrNull(envelope?.error);
     const envelopeDetails = objectOrNull(envelopeError?.details);
+    const envelopeTool = typeof envelope?.tool === "string" ? envelope.tool : "";
+    // Identify session.resume by the canonical operation and error code, not
+    // by the host tool name. Typed `coc_session_resume` wraps into
+    // coc_invoke, so CanonicalToolError.toolName is "coc_invoke" while the
+    // registered execute name is "coc_session_resume".
     if (
-      !isStartupResumeToolIdentity(error.toolName, name)
+      params.operation !== "session.resume"
       || envelope === null
       || envelope.ok !== false
-      || envelope.tool !== "session.resume"
+      || !SESSION_RESUME_ENVELOPE_TOOLS.has(envelopeTool)
       || envelopeError === null
       || envelopeError.code !== error.code
       || error.details !== envelopeDetails
-    ) return { kind: "invalid" };
+    ) {
+      return { kind: "invalid" };
+    }
     const code = canonicalFailureClass(error.code);
     let projectedDetails: JsonObject | null = null;
     if (
@@ -8119,6 +8139,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
     }
+    params = openingContinuationGate.bindRetainedAdoptSourceFacts(params);
     const epoch = sessionEpoch;
     const startupResumeError = startupResumeToolError(name, params);
     if (startupResumeError !== null) {
@@ -8179,7 +8200,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             phase: aclPhase,
           });
         } catch { /* acl audit is best effort */ }
-        return result(modelVisibleAclFailure(acl, name));
+        throw new Error(acl.message);
       }
       try {
         pi.appendEntry("coc-tool-telemetry", {
@@ -8357,10 +8378,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           }
         }
         const visible = error instanceof CanonicalToolError
-          ? rewriteModelVisibleHints(attachExpectedSchema(
+          ? attachExpectedSchema(
             modelVisibleCanonicalToolResult(error),
             typeof params.operation === "string" ? params.operation : null,
-          ))
+          )
           : null;
         if (visible === null) throw error;
         value = visible;

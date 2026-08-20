@@ -159,6 +159,22 @@ def test_pi_startup_resume_table_opening():
     assert completed.stdout.strip().endswith("startup-resume-table-opening ok")
 
 
+def test_pi_startup_resume_typed_opening_phase():
+    run_env = dict(os.environ)
+    run_env.pop("PI_SUBAGENT_CHILD", None)
+    completed = subprocess.run(
+        [
+            "node", "--experimental-strip-types",
+            str(ROOT / "tests/pi/startup-resume-typed-opening-phase.mjs"),
+            str(ROOT),
+        ],
+        cwd=ROOT, env=run_env, check=True, capture_output=True, text=True,
+    )
+    assert completed.stdout.strip().endswith(
+        "startup-resume-typed-opening-phase ok"
+    )
+
+
 def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
     result = _node(ROOT / "tests/pi/recovery-kp-guidance.mjs", str(ROOT))
     assert result == {
