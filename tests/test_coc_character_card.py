@@ -364,8 +364,8 @@ def test_render_cards_projects_finance_and_public_dice(tmp_path):
     assert "## 玩家摘要" in markdown
     assert "教育提升检定 1（1D100）：72/70 成功，EDU +1 → 71" in markdown
     assert "幸运（3D6）：掷出 16，幸运值 80" in markdown
-    assert "现金 $70" in markdown
-    assert "资产 $1,750" in markdown
-    assert "消费水平 $10" in markdown
-    assert "## 财力" in markdown
+    assert "建卡现金 $70" in markdown
+    assert "建卡资产 $1,750" in markdown
+    assert "每日免记账额度 $10" in markdown
+    assert "## 建卡财力" in markdown
     assert "$70" in markdown

@@ -213,14 +213,33 @@ def _project_cash(raw: Any, *, workspace: Path | None = None) -> dict[str, Any]:
     }
 
 
-_LIVING_STANDARD_ZH = {
-    "Penniless": "赤贫",
-    "Poor": "贫穷",
-    "Average": "普通",
-    "Wealthy": "富裕",
-    "Rich": "富有",
-    "Super Rich": "超级富豪",
-}
+def _table_chrome(workspace: Path | None, play_language: str) -> dict[str, str]:
+    if workspace is not None:
+        try:
+            coc_language = _load_plugin_module(workspace, "coc_language")
+            return coc_language.table_mechanics_labels(play_language)
+        except Exception:  # noqa: BLE001 - display chrome is best-effort
+            pass
+    return {}
+
+
+def _living_standard_display(
+    value: str,
+    play_language: str,
+    workspace: Path | None = None,
+) -> str:
+    text = value.strip()
+    if workspace is not None:
+        try:
+            coc_language = _load_plugin_module(workspace, "coc_language")
+            return coc_language.living_standard_label(text, play_language)
+        except Exception:  # noqa: BLE001 - keep the canonical English name
+            pass
+    chrome = _table_chrome(workspace, play_language)
+    mapped = chrome.get("living_" + text.replace(" ", "_"))
+    if isinstance(mapped, str) and mapped.strip():
+        return mapped
+    return text
 
 
 def _format_sheet_money(entry: Any) -> str:
@@ -243,34 +262,120 @@ def _format_sheet_money(entry: Any) -> str:
     return f"{formatted} {currency}"
 
 
+def _finance_labels(chrome: dict[str, str], *, current: bool) -> dict[str, str]:
+    spending = chrome.get("spending_level", "Daily unbooked allowance")
+    if current:
+        current_cash = chrome.get("current_cash", "Current cash")
+        return {
+            "assets": chrome.get("current_assets", "Current Assets"),
+            "cash": current_cash,
+            "current_cash": current_cash,
+            "living_standard": chrome.get("living_standard", "Living standard"),
+            "spending_level": spending,
+            "empty_ledger": chrome.get("cash_empty_ledger", "No ledger rows."),
+            "no_record": chrome.get("cash_no_record", "No cash recorded yet."),
+            "no_reason": chrome.get("cash_no_reason", "No reason given"),
+            "pair_sep": chrome.get("pair_sep", ": "),
+        }
+    return {
+        "assets": chrome.get("creation_assets", "Creation Assets"),
+        "cash": chrome.get("creation_cash", "Creation cash"),
+        "living_standard": chrome.get("creation_living_standard", "Creation living standard"),
+        "spending_level": spending,
+        "empty_ledger": chrome.get("cash_empty_ledger", "No ledger rows."),
+        "no_record": chrome.get("cash_no_record", "No cash recorded yet."),
+        "no_reason": chrome.get("cash_no_reason", "No reason given"),
+        "pair_sep": chrome.get("pair_sep", ": "),
+    }
+
+
+def _format_runtime_money(amount: Any, currency: str) -> str:
+    if amount is None or isinstance(amount, bool):
+        return ""
+    if isinstance(amount, dict):
+        return _format_sheet_money(amount) or _format_runtime_money(
+            amount.get("amount"), str(amount.get("currency") or currency)
+        )
+    text = str(amount).strip()
+    if not text:
+        return ""
+    if text.endswith(".00"):
+        text = text[:-3]
+    identity = str(currency or "USD")
+    if identity == "USD":
+        return f"${text}"
+    if identity == "GBP":
+        return f"£{text}"
+    return f"{text} {identity}"
+
+
 def _project_sheet_assets(
     character: dict[str, Any], *,
     play_language: str,
+    workspace: Path | None = None,
 ) -> dict[str, Any] | None:
-    """Chargen asset snapshot for the items tab. Not cash and not inventory."""
+    """Chargen asset snapshot. Not live play finance."""
     raw = character.get("assets")
     display = _format_sheet_money(raw)
     if not display:
         return None
     assert isinstance(raw, dict)
+    chrome = _table_chrome(workspace, play_language)
     out: dict[str, Any] = {
         "amount": raw.get("amount"),
         "currency": str(raw.get("currency") or "USD"),
         "display": display,
+        "current": False,
+        "baseline": True,
+        "labels": _finance_labels(chrome, current=False),
     }
     if raw.get("formula"):
-        out["source"] = (
-            "信用评级换算" if play_language in {"zh-Hans", "zh"} else "Credit Rating"
-        )
+        out["source"] = chrome.get("credit_rating_source", "Credit Rating")
     living = character.get("living_standard")
     if isinstance(living, str) and living.strip():
-        if play_language in {"zh-Hans", "zh"}:
-            out["living_standard"] = _LIVING_STANDARD_ZH.get(living, living)
-        else:
-            out["living_standard"] = living.strip()
+        out["living_standard"] = _living_standard_display(
+            living, play_language, workspace=workspace
+        )
     spend = _format_sheet_money(character.get("spending_level"))
     if spend:
         out["spending_level"] = spend
+    return out
+
+
+def _project_runtime_assets(
+    finance: dict[str, Any], *,
+    play_language: str,
+    workspace: Path | None = None,
+) -> dict[str, Any] | None:
+    """Live Assets / living standard / Spending Level from investigator-state."""
+    currency = str(finance.get("currency") or "USD")
+    assets = finance.get("assets") if isinstance(finance.get("assets"), dict) else {}
+    balances = assets.get("balances") if isinstance(assets, dict) else {}
+    wallet = balances.get(currency) if isinstance(balances, dict) else None
+    amount = None
+    if isinstance(wallet, dict):
+        amount = wallet.get("amount")
+    display = _format_runtime_money(amount, currency)
+    if not display and amount is None:
+        display = _format_runtime_money("0", currency)
+    chrome = _table_chrome(workspace, play_language)
+    out: dict[str, Any] = {
+        "amount": amount,
+        "currency": currency,
+        "display": display,
+        "current": True,
+        "baseline": False,
+        "labels": _finance_labels(chrome, current=True),
+    }
+    living = finance.get("living_standard")
+    if isinstance(living, str) and living.strip():
+        out["living_standard"] = _living_standard_display(
+            living, play_language, workspace=workspace
+        )
+    spend = finance.get("spending_level")
+    spend_display = _format_runtime_money(spend, currency)
+    if spend_display:
+        out["spending_level"] = spend_display
     return out
 
 
@@ -280,6 +385,7 @@ def _display_character(
     play_language: str,
     inventory: dict[str, Any] | None = None,
     cash: dict[str, Any] | None = None,
+    assets: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project one character sheet into player-facing display labels.
 
@@ -528,7 +634,7 @@ def _display_character(
         "equipment": equipment,
         "inventory_items": inventory_items,
         "cash": cash,
-        "assets": _project_sheet_assets(character, play_language=play_language),
+        "assets": assets,
         "localized": sheet is not None,
     }
 
@@ -559,6 +665,7 @@ def display_character(
     character = dict(raw)
     inventory: dict[str, Any] | None = None
     cash: dict[str, Any] | None = None
+    assets: dict[str, Any] | None = None
     if campaign_id:
         state_path = (
             _campaign_dir(workspace, campaign_id)
@@ -577,10 +684,35 @@ def display_character(
             except Exception:  # noqa: BLE001 - inventory is independent of cash
                 inventory = None
             cash = _project_cash(inv_state.get("cash"), workspace=workspace)
+            try:
+                coc_finance = _load_plugin_module(workspace, "coc_finance")
+                finance = coc_finance.normalize_finance(inv_state.get("finance"))
+                assets = _project_runtime_assets(
+                    finance,
+                    play_language=play_language,
+                    workspace=workspace,
+                )
+            except Exception:  # noqa: BLE001 - missing finance is not the sheet
+                assets = None
         else:
             cash = _empty_cash_view()
+    else:
+        assets = _project_sheet_assets(
+            character,
+            play_language=play_language,
+            workspace=workspace,
+        )
+    chrome = _table_chrome(workspace, play_language)
+    if isinstance(cash, dict):
+        cash = dict(cash)
+        cash["labels"] = _finance_labels(chrome, current=True)
     return _display_character(
-        workspace, character, play_language, inventory=inventory, cash=cash
+        workspace,
+        character,
+        play_language,
+        inventory=inventory,
+        cash=cash,
+        assets=assets,
     )
 
 

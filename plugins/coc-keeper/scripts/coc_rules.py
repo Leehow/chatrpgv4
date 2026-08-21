@@ -718,8 +718,16 @@ def manias_table() -> dict[str, Any]:
     return load_rule_table("manias").get("manias", {})
 
 def equipment_table() -> dict[str, Any]:
-    """Return the equipment price list."""
-    return load_rule_table("equipment").get("periods", {})
+    """Return the schema-v2 equipment price list."""
+    data = load_rule_table("equipment")
+    if (
+        not isinstance(data, dict)
+        or data.get("schema_version") != 2
+        or not isinstance(data.get("records"), list)
+        or "periods" in data
+    ):
+        raise ValueError("equipment.json must be schema-v2 records[] without legacy periods")
+    return data
 
 def poisons_table() -> dict[str, Any]:
     """Return the sample poisons."""

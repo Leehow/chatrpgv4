@@ -107,9 +107,15 @@ function SectionTitle({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 function AssetsSection({ assets }: { assets: SheetAssets }) {
+  const labels = assets.labels;
+  const title = labels?.assets
+    || (assets.current ? "Current Assets" : "Creation Assets");
+  const livingLabel = labels?.living_standard || "Living standard";
+  const spendLabel = labels?.spending_level || "Daily unbooked allowance";
+  const sep = labels?.pair_sep || ": ";
   return (
     <section className="panel-section">
-      <SectionTitle icon={<Landmark className="size-3.5" />} text="资产" />
+      <SectionTitle icon={<Landmark className="size-3.5" />} text={title} />
       <div className="mt-2 font-display text-xl leading-none font-semibold tabular-nums text-foreground">
         {assetsHeadline(assets)}
       </div>
@@ -118,8 +124,8 @@ function AssetsSection({ assets }: { assets: SheetAssets }) {
       ) : null}
       {(assets.living_standard || assets.spending_level) && (
         <div className="mt-2 space-y-0.5 text-sm text-foreground/90">
-          {assets.living_standard ? <div>生活水平：{assets.living_standard}</div> : null}
-          {assets.spending_level ? <div>消费水平：{assets.spending_level}</div> : null}
+          {assets.living_standard ? <div>{livingLabel}{sep}{assets.living_standard}</div> : null}
+          {assets.spending_level ? <div>{spendLabel}{sep}{assets.spending_level}</div> : null}
         </div>
       )}
     </section>
@@ -128,9 +134,14 @@ function AssetsSection({ assets }: { assets: SheetAssets }) {
 
 function CashSection({ cash }: { cash: CashDisplay | null }) {
   const ledger = cashLedgerRows(cash);
+  const labels = cash?.labels;
+  const title = labels?.current_cash || labels?.cash || "Current cash";
+  const noReason = labels?.no_reason || "No reason given";
+  const emptyLedger = labels?.empty_ledger || "No ledger rows.";
+  const noRecord = labels?.no_record || "No cash recorded yet.";
   return (
     <section className="panel-section">
-      <SectionTitle icon={<Wallet className="size-3.5" />} text="现金" />
+      <SectionTitle icon={<Wallet className="size-3.5" />} text={title} />
       {hasCashBalances(cash) ? (
         <>
           <div className="mt-2 space-y-1">
@@ -152,7 +163,7 @@ function CashSection({ cash }: { cash: CashDisplay | null }) {
                 .reverse()
                 .map((row, i) => {
                   const sign = row.op === "grant" ? "+" : "−";
-                  const why = row.localized_reason?.trim() || "未提供说明";
+                  const why = row.localized_reason?.trim() || noReason;
                   const when = cashWhenLabel(row);
                   return (
                     <li
@@ -179,11 +190,11 @@ function CashSection({ cash }: { cash: CashDisplay | null }) {
                 })}
             </ul>
           ) : (
-            <p className="mt-2.5 text-xs text-muted-foreground">暂无流水。</p>
+            <p className="mt-2.5 text-xs text-muted-foreground">{emptyLedger}</p>
           )}
         </>
       ) : (
-        <p className="mt-2.5 text-xs text-muted-foreground">尚无现金记录。</p>
+        <p className="mt-2.5 text-xs text-muted-foreground">{noRecord}</p>
       )}
     </section>
   );

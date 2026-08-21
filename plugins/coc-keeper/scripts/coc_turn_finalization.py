@@ -48,7 +48,7 @@ PLAYER_INPUT_HANDLING_VALUES = frozenset({
 MECHANIC_SEGMENT_TYPES = frozenset({
     "public_check", "state_delta", "asset_delta", "exceptional_effect",
 })
-ASSET_EFFECT_KINDS = frozenset({"cash", "item"})
+ASSET_EFFECT_KINDS = frozenset({"cash", "item", "purchase", "assets_liquidate"})
 SEGMENT_TYPE_ORDER = {
     "public_check": 0,
     "state_delta": 1,
@@ -1028,6 +1028,88 @@ def _project_state_deltas(
                 if _exact_int(remaining):
                     item_effect["before"] = remaining + count
                 _add_effect(effects, item_effect)
+        elif tool == "state.purchase" and investigator_id and data.get("changed") is True:
+            item_id = str(data.get("item_id") or "").strip()
+            label = str(data.get("label") or item_id).strip()
+            payment_mode = str(data.get("payment_mode") or "").strip()
+            localized_reason = str(data.get("localized_reason") or "").strip()
+            amount = str(data.get("amount") or "").strip()
+            charged = str(data.get("charged_amount") or "").strip()
+            currency = str(data.get("currency") or "").strip()
+            game_time = _player_safe_game_time(data.get("game_time"))
+            if item_id and label and payment_mode and localized_reason and amount and currency and game_time:
+                effect = {
+                    "schema_version": 1,
+                    "category": "state_delta",
+                    "effect_id": _stable_effect_id(decision_id, "purchase", item_id),
+                    "effect_kind": "purchase",
+                    "investigator_id": investigator_id,
+                    "item_id": item_id,
+                    "label": label,
+                    "payment_mode": payment_mode,
+                    "amount": amount,
+                    "charged_amount": charged or amount,
+                    "currency": currency,
+                    "cash_balance_before": data.get("cash_balance_before"),
+                    "cash_balance_after": data.get("cash_balance_after"),
+                    "localized_reason": localized_reason,
+                    "game_time": game_time,
+                    "source_decision_id": decision_id,
+                }
+                if data.get("unit") is not None:
+                    effect["unit"] = data.get("unit")
+                player_time = _player_safe_player_time(data.get("player_time"))
+                if player_time is None:
+                    nested = game_time.get("player_time")
+                    if isinstance(nested, (dict, str)):
+                        player_time = nested
+                if player_time is not None:
+                    effect["player_time"] = player_time
+                _add_effect(effects, effect)
+        elif tool == "state.assets_liquidate" and investigator_id and data.get("changed") is True:
+            localized_reason = str(data.get("localized_reason") or "").strip()
+            amount = str(data.get("amount") or "").strip()
+            currency = str(data.get("currency") or "").strip()
+            linked = str(data.get("linked_time_decision_id") or "").strip()
+            game_time = _player_safe_game_time(data.get("game_time"))
+            if localized_reason and amount and currency and linked and game_time:
+                if (
+                    data.get("assets_balance_before") is None
+                    or data.get("assets_balance_after") is None
+                    or data.get("cash_balance_before") is None
+                    or data.get("cash_balance_after") is None
+                ):
+                    pass
+                else:
+                    effect = {
+                        "schema_version": 1,
+                        "category": "state_delta",
+                        "effect_id": _stable_effect_id(
+                            decision_id, "assets_liquidate", currency
+                        ),
+                        "effect_kind": "assets_liquidate",
+                        "investigator_id": investigator_id,
+                        "amount": amount,
+                        "currency": currency,
+                        "assets_balance_before": data.get("assets_balance_before"),
+                        "assets_balance_after": data.get("assets_balance_after"),
+                        "cash_balance_before": data.get("cash_balance_before"),
+                        "cash_balance_after": data.get("cash_balance_after"),
+                        "linked_time_decision_id": linked,
+                        "localized_reason": localized_reason,
+                        "game_time": game_time,
+                        "source_decision_id": decision_id,
+                    }
+                    if data.get("unit") is not None:
+                        effect["unit"] = data.get("unit")
+                    player_time = _player_safe_player_time(data.get("player_time"))
+                    if player_time is None:
+                        nested = game_time.get("player_time")
+                        if isinstance(nested, (dict, str)):
+                            player_time = nested
+                    if player_time is not None:
+                        effect["player_time"] = player_time
+                    _add_effect(effects, effect)
         elif tool in {"state.cash_grant", "state.cash_spend"} and investigator_id and data.get("changed") is True:
             effect = _cash_state_delta_effect(
                 decision_id=decision_id,
@@ -1752,18 +1834,90 @@ def _render_state_delta(
             effect.get("player_time"), language,
         )
         phase_l = chrome.get("time_phase", "time of day")
-        if language == "zh-Hans" or language.startswith("zh"):
-            body = f"【{tag}】现金：{sign}{amount} {currency}（{before} → {after}）"
-            if reason:
-                body += f"；{reason}"
-            if time_label:
-                body += f"；{phase_l}：{time_label}"
-            return body
-        body = f"【{tag}】cash: {sign}{amount} {currency} ({before} → {after})"
+        pair_sep = chrome.get("pair_sep", ": ")
+        reason_sep = chrome.get("reason_sep", "; ")
+        template = chrome.get(
+            "cash_delta",
+            "{kind}: {sign}{amount} {currency} ({before} → {after})",
+        )
+        body = f"【{tag}】" + template.format(
+            kind=chrome.get("cash_kind", "cash"),
+            sign=sign,
+            amount=amount,
+            currency=currency,
+            before=before,
+            after=after,
+        )
         if reason:
-            body += f"; {reason}"
+            body += f"{reason_sep}{reason}"
         if time_label:
-            body += f"; {phase_l}: {time_label}"
+            body += f"{reason_sep}{phase_l}{pair_sep}{time_label}"
+        return body
+    if kind == "purchase":
+        reason = str(effect.get("localized_reason") or "").strip()
+        label = effect.get("label")
+        amount = effect.get("amount")
+        charged = effect.get("charged_amount") or amount
+        currency = effect.get("currency")
+        before = effect.get("cash_balance_before")
+        after = effect.get("cash_balance_after")
+        mode = str(effect.get("payment_mode") or "")
+        reason_sep = chrome.get("reason_sep", "; ")
+        if mode == "spending_level":
+            template = chrome.get(
+                "purchase_spending_delta",
+                "{kind}: “{label}” ({spending_level} {amount} {currency}; {cash_unchanged} {after})",
+            )
+            body = f"【{tag}】" + template.format(
+                kind=chrome.get("purchase_kind", "purchase"),
+                label=label,
+                spending_level=chrome.get("spending_level", "Daily unbooked allowance"),
+                amount=amount,
+                currency=currency,
+                cash_unchanged=chrome.get("cash_unchanged", "cash unchanged"),
+                after=after,
+            )
+        else:
+            template = chrome.get(
+                "purchase_cash_delta",
+                "{kind}: “{label}” (-{charged} {currency}, {before} → {after})",
+            )
+            body = f"【{tag}】" + template.format(
+                kind=chrome.get("purchase_kind", "purchase"),
+                label=label,
+                charged=charged,
+                currency=currency,
+                before=before,
+                after=after,
+            )
+        if reason:
+            body += f"{reason_sep}{reason}"
+        return body
+    if kind == "assets_liquidate":
+        reason = str(effect.get("localized_reason") or "").strip()
+        amount = effect.get("amount")
+        currency = effect.get("currency")
+        linked = effect.get("linked_time_decision_id")
+        reason_sep = chrome.get("reason_sep", "; ")
+        template = chrome.get(
+            "liquidate_delta",
+            "{kind}: {assets_word} {assets_before} → {assets_after}; {cash_kind} +{amount} {currency} ({cash_before} → {cash_after}); {time_word} {linked}",
+        )
+        body = f"【{tag}】" + template.format(
+            kind=chrome.get("liquidate_kind", "assets"),
+            assets_word=chrome.get("assets_kind", "Assets"),
+            assets_before=effect.get("assets_balance_before"),
+            assets_after=effect.get("assets_balance_after"),
+            cash_kind=chrome.get("cash_kind", "cash"),
+            amount=amount,
+            currency=currency,
+            cash_before=effect.get("cash_balance_before"),
+            cash_after=effect.get("cash_balance_after"),
+            time_word=chrome.get("time_word", "time"),
+            linked=linked,
+        )
+        if reason:
+            body += f"{reason_sep}{reason}"
         return body
     if kind == "condition":
         if language == "zh-Hans" or language.startswith("zh"):

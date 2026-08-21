@@ -294,12 +294,42 @@ contract above still applies. This is the natural rhythm:
    own balance — never convert or mix FX. ASCII currency codes are
    case-insensitive (`usd`→`USD`); `美元`/`英镑` alias to `USD`/`GBP`.
    Omit `unit` to reuse the recorded unit for that wallet. Query with
-   `state.cash_query`.
-   Player-visible cash lines come from `turn.finalize` only: localized reason
-   plus game/player time, never raw `reason` or `recorded_at`.
+   `state.cash_query`. Current cash, Assets, living standard, and inclusive
+   Spending Level are on `scene.context` `party_investigators[].finance` and
+   `state.finance_query`, never the chargen sheet or
+   `toolbox-asset-heads.json`. Player-visible cash lines come from
+   `turn.finalize` only: localized reason plus game/player time, never raw
+   `reason` or `recorded_at`.
    Do not invent a second finance path, parse sheet cash prose, or spend from
    `rules.cash_assets` / `state.cash_semantic`. Insufficient funds fail
    closed; replay the same `decision_id` to retrieve the settled receipt.
+
+Finance is KP semantic judgment, not a tool order or narrative gate. Choose
+from current runtime numbers, then call at most the operation the fiction
+needs:
+
+- Routine living-standard accommodation, food, and incidental travel: usually
+  narrate with no bookkeeping.
+- Durable item acquisition within the inclusive Spending Level:
+  `state.purchase` with `payment_mode=spending_level`.
+- Ordinary cash purchase: `state.purchase` with `payment_mode=cash`.
+- Optional same-day KP aggregation: `payment_mode=aggregate_cash` with the
+  full combined amount, never only the excess. There is no mandatory daily
+  budget meter.
+- Services or fees with no inventory: use the existing cash path only when
+  bookkeeping is warranted (`state.cash_spend` / `state.cash_grant`).
+- Cash shortfall may lead to a KP-chosen time advance (`state.advance_time`)
+  then `state.assets_liquidate`. Do not auto-change Credit Rating.
+- Loans, hiring, credentials, access, conspicuous status, and social leverage
+  may call for Credit Rating judgment or a check rather than an inventory
+  purchase. Difficulty stays KP semantic. Credit Rating never earns ordinary
+  skill improvement ticks and purchases or liquidation never auto-change it.
+  During the Investigator Development Phase it may change when financial
+  circumstances warrant, by KP judgment and the rules' financial-development
+  procedure.
+
+Never sequential `state.cash_spend` then `state.item_grant` for a buy. Never
+classify items by name or category in code or a keyword list.
 
 If a tool reports a transient transaction or lock failure, retry the same
 call with the same `decision_id` within the toolbox's bounded retry policy.

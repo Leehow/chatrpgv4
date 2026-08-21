@@ -86,16 +86,69 @@ def _record(
     return rec
 
 
+def _equipment_records() -> list[dict[str, Any]]:
+    data = _load_table("equipment")
+    if not isinstance(data, dict) or data.get("schema_version") != 2:
+        raise ValueError("equipment.json must use schema_version 2 records[]")
+    if "periods" in data:
+        raise ValueError("legacy equipment.json periods shape is not supported")
+    records = data.get("records")
+    if not isinstance(records, list):
+        raise ValueError("equipment.json records[] is required")
+    return records
+
+
+def _price_projection(row: dict[str, Any]) -> dict[str, Any]:
+    price = row.get("price") if isinstance(row.get("price"), dict) else {}
+    projection: dict[str, Any] = {
+        "price_id": row.get("price_id"),
+        "era": row.get("era"),
+        "kind": price.get("kind"),
+        "source_display": price.get("source_display"),
+        "currency": price.get("currency"),
+    }
+    for key in ("amount", "min", "max", "unit", "dice", "multiplier", "addend", "reason"):
+        if key in price:
+            projection[key] = price[key]
+    return projection
+
+
+def _weapon_price_index() -> dict[str, list[dict[str, Any]]]:
+    index: dict[str, list[dict[str, Any]]] = {}
+    for row in _equipment_records():
+        if not isinstance(row, dict):
+            continue
+        ref = row.get("entity_ref") or {}
+        if not isinstance(ref, dict):
+            continue
+        if ref.get("kind") != "weapon":
+            continue
+        entity_id = ref.get("entity_id")
+        if not isinstance(entity_id, str) or not entity_id:
+            continue
+        index.setdefault(entity_id, []).append(row)
+    return index
+
+
 def _weapons() -> list[dict[str, Any]]:
     table = _load_table("weapons").get("weapons") or {}
     rows: list[dict[str, Any]] = []
     if not isinstance(table, dict):
         return rows
+    prices = _weapon_price_index()
     for key, row in table.items():
         if not isinstance(row, dict):
             continue
         name = str(row.get("display_name") or key)
         eras = [str(item) for item in row.get("eras") or [] if isinstance(item, str)]
+        params = _pick(row, (
+            "skill", "damage_die", "base_range_yards", "magazine",
+            "malfunction", "impales", "adds_damage_bonus", "damage_type",
+        ))
+        linked = prices.get(str(key)) or []
+        if linked:
+            params["price_ref"] = [str(item.get("price_id")) for item in linked]
+            params["price_projection"] = [_price_projection(item) for item in linked]
         rows.append(_record(
             kind="weapon",
             entity_id=str(key),
@@ -104,45 +157,46 @@ def _weapons() -> list[dict[str, Any]]:
             aliases=[str(key)],
             era=eras,
             summary=_pick(row, ("skill", "damage_die", "uses_per_round")),
-            params=_pick(row, (
-                "skill", "damage_die", "base_range_yards", "magazine",
-                "malfunction", "impales", "adds_damage_bonus", "damage_type",
-            )),
+            params=params,
         ))
     return rows
 
 
 def _items() -> list[dict[str, Any]]:
-    data = _load_table("equipment")
-    periods = data.get("periods") or {}
     rows: list[dict[str, Any]] = []
-    if not isinstance(periods, dict):
-        return rows
-    seen: set[tuple[str, str]] = set()
-    for era_name, items in periods.items():
-        if not isinstance(items, list):
+    for row in _equipment_records():
+        if not isinstance(row, dict):
             continue
-        for row in items:
-            if not isinstance(row, dict):
-                continue
-            name = str(row.get("item") or "")
-            if not name:
-                continue
-            entity_id = _slug(name)
-            dedupe = (entity_id, str(era_name))
-            if dedupe in seen:
-                continue
-            seen.add(dedupe)
-            rows.append(_record(
-                kind="item",
-                entity_id=entity_id,
-                name=name,
-                table="equipment.json",
-                era=[str(era_name)],
-                category=str(row.get("category") or "") or None,
-                summary=_pick(row, ("category", "price")),
-                params=_pick(row, ("category", "price")),
-            ))
+        price_id = str(row.get("price_id") or "")
+        name = str(row.get("name") or "")
+        if not price_id or not name:
+            continue
+        era_name = str(row.get("era") or "")
+        category = str(row.get("category") or "") or None
+        price = row.get("price") if isinstance(row.get("price"), dict) else {}
+        params: dict[str, Any] = {
+            "price_id": price_id,
+            "category": category,
+            "price": price,
+            "provenance": row.get("provenance") or {},
+        }
+        ref = row.get("entity_ref")
+        if isinstance(ref, dict) and ref:
+            params["entity_ref"] = ref
+        rows.append(_record(
+            kind="item",
+            entity_id=price_id,
+            name=name,
+            table="equipment.json",
+            era=[era_name] if era_name else [],
+            category=category,
+            summary={
+                "category": category,
+                "price_kind": price.get("kind"),
+                "source_display": price.get("source_display"),
+            },
+            params=params,
+        ))
     return rows
 
 

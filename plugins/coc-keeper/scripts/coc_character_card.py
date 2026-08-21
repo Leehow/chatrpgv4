@@ -27,6 +27,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import coc_fileio
 import coc_investigator_guard
 import coc_character
+import coc_language
 
 LANGUAGE_SHEET_SUFFIX = {
     "zh-Hans": "zh",
@@ -201,38 +202,35 @@ def _backstory_detail_blocks(character: dict[str, Any], sheet: dict[str, Any], l
     return blocks
 
 
-_LIVING_STANDARD_ZH = {
-    "Penniless": "赤贫",
-    "Poor": "贫穷",
-    "Average": "普通",
-    "Wealthy": "富裕",
-    "Rich": "富有",
-    "Super Rich": "超级富豪",
-}
-
-
 def _finance_amount_text(entry: Any) -> str:
     return coc_character.format_chargen_money_zh(entry)
 
 
-def _finance_rows(character: dict[str, Any]) -> list[tuple[str, str]]:
+def _finance_rows(
+    character: dict[str, Any],
+    language: str = "zh-Hans",
+) -> list[tuple[str, str]]:
+    chrome = coc_language.table_mechanics_labels(language)
     skills = character.get("skills") if isinstance(character.get("skills"), dict) else {}
     credit = skills.get("Credit Rating")
     rows: list[tuple[str, str]] = []
     if isinstance(credit, int) and not isinstance(credit, bool):
-        rows.append(("信用评级", str(credit)))
+        rows.append((chrome.get("creation_credit_rating", "Creation Credit Rating"), str(credit)))
     living = character.get("living_standard")
     if isinstance(living, str) and living.strip():
-        rows.append(("生活水平", _LIVING_STANDARD_ZH.get(living, living)))
+        rows.append((
+            chrome.get("creation_living_standard", "Creation living standard"),
+            coc_language.living_standard_label(living, language),
+        ))
     cash = _finance_amount_text(character.get("cash"))
     if cash:
-        rows.append(("现金", cash))
+        rows.append((chrome.get("creation_cash", "Creation cash"), cash))
     assets = _finance_amount_text(character.get("assets"))
     if assets:
-        rows.append(("资产", assets))
+        rows.append((chrome.get("creation_assets", "Creation Assets"), assets))
     spend = _finance_amount_text(character.get("spending_level"))
     if spend:
-        rows.append(("消费水平", spend))
+        rows.append((chrome.get("spending_level", "Daily unbooked allowance"), spend))
     return rows
 
 
@@ -359,18 +357,23 @@ def render_markdown(
         lines.append("")
 
     creation = _load_creation_beside(source_path)
-    summary = coc_character.build_chargen_player_summary_zh(character, creation)
-    summary_lines = list(summary.get("dice") or []) + list(summary.get("finance") or [])
-    if summary_lines:
-        lines.extend(["## 玩家摘要", ""])
-        for sentence in summary_lines:
-            lines.append(f"- {sentence}")
-        lines.append("")
+    if language in {"zh-Hans", "zh"}:
+        summary = coc_character.build_chargen_player_summary_zh(character, creation)
+        summary_lines = list(summary.get("dice") or []) + list(summary.get("finance") or [])
+        if summary_lines:
+            lines.extend(["## 玩家摘要", ""])
+            for sentence in summary_lines:
+                lines.append(f"- {sentence}")
+            lines.append("")
 
-    finance = _finance_rows(character)
+    chrome = coc_language.table_mechanics_labels(language)
+    finance = _finance_rows(character, language)
     if finance:
-        lines.extend(["## 财力", ""])
-        lines.extend(_markdown_table([["项目", "数值"], *[[label, value] for label, value in finance]]))
+        heading = chrome.get("creation_finance", "Creation finance")
+        item_col = chrome.get("item_column", "Item")
+        value_col = chrome.get("value_column", "Value")
+        lines.extend([f"## {heading}", ""])
+        lines.extend(_markdown_table([[item_col, value_col], *[[label, value] for label, value in finance]]))
         lines.append("")
 
     dice = _public_dice_rows(_load_creation_beside(source_path))
@@ -509,27 +512,30 @@ def render_html(
 
     summary = sheet.get("backstory_summary", "")
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    chrome = coc_language.table_mechanics_labels(language)
     finance_html = "".join(
         f'<div class="meta"><span>{_html(label)}</span><strong>{_html(value)}</strong></div>'
-        for label, value in _finance_rows(character)
+        for label, value in _finance_rows(character, language)
     )
     if finance_html:
+        heading = chrome.get("creation_finance", "Creation finance")
         finance_html = (
             '<section class="section" style="padding: 0 38px 12px;">'
-            "<h2>财力</h2><div class=\"meta-grid\">"
+            f"<h2>{_html(heading)}</h2><div class=\"meta-grid\">"
             f"{finance_html}</div></section>"
         )
-    summary = coc_character.build_chargen_player_summary_zh(
-        character, _load_creation_beside(source_path)
-    )
-    summary_lines = list(summary.get("dice") or []) + list(summary.get("finance") or [])
-    if summary_lines:
-        items = "".join(f"<li>{_html(sentence)}</li>" for sentence in summary_lines)
-        finance_html = (
-            '<section class="section" style="padding: 0 38px 12px;">'
-            f"<h2>玩家摘要</h2><ul>{items}</ul></section>"
-            + finance_html
+    if language in {"zh-Hans", "zh"}:
+        summary = coc_character.build_chargen_player_summary_zh(
+            character, _load_creation_beside(source_path)
         )
+        summary_lines = list(summary.get("dice") or []) + list(summary.get("finance") or [])
+        if summary_lines:
+            items = "".join(f"<li>{_html(sentence)}</li>" for sentence in summary_lines)
+            finance_html = (
+                '<section class="section" style="padding: 0 38px 12px;">'
+                f"<h2>玩家摘要</h2><ul>{items}</ul></section>"
+                + finance_html
+            )
 
     return f"""<!doctype html>
 <html lang="{_html(language)}">

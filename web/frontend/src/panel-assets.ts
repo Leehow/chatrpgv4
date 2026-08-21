@@ -7,6 +7,18 @@ export type SheetAssets = {
   source?: string;
   living_standard?: string;
   spending_level?: string;
+  current?: boolean;
+  baseline?: boolean;
+  labels?: {
+    assets?: string;
+    cash?: string;
+    living_standard?: string;
+    spending_level?: string;
+    empty_ledger?: string;
+    no_record?: string;
+    no_reason?: string;
+    pair_sep?: string;
+  };
 };
 
 export function showsAssetsSection(
@@ -27,6 +39,7 @@ export function hasSheetAssets(
 export function assetsHeadline(assets: SheetAssets): string {
   const display = (assets.display || "").trim();
   const source = (assets.source || "").trim();
+  if (assets.current) return display;
   if (display && source) return `${display} · ${source}`;
   return display;
 }

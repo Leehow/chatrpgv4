@@ -618,15 +618,15 @@ def build_chargen_player_summary_zh(
         parts.append(f"生活水平：{_LIVING_STANDARD_ZH.get(living, living)}")
     cash = format_chargen_money_zh(sheet.get("cash"))
     if cash:
-        parts.append(f"现金 {cash}")
+        parts.append(f"建卡现金 {cash}")
     assets = format_chargen_money_zh(sheet.get("assets"))
     if assets:
-        parts.append(f"资产 {assets}")
+        parts.append(f"建卡资产 {assets}")
     spend = format_chargen_money_zh(sheet.get("spending_level"))
     if spend:
-        parts.append(f"消费水平 {spend}")
+        parts.append(f"每日免记账额度 {spend}")
     if parts:
-        finance.append("财力：" + "；".join(parts))
+        finance.append("建卡财力：" + "；".join(parts))
     return {"dice": dice, "finance": finance}
 
 
@@ -980,12 +980,12 @@ def attach_chargen_roleplay(
         living = str(finance.get("living_standard") or "")
         living_zh = _LIVING_STANDARD_ZH.get(living, living)
         details.append({
-            "label": "财力",
+            "label": "建卡财力",
             "items": [
-                f"生活水平：{living_zh}",
-                f"现金：{_format_finance_amount(finance.get('cash'))}",
-                f"资产：{_format_finance_amount(finance.get('assets'))}",
-                f"消费水平：{_format_finance_amount(finance.get('spending_level'))}",
+                f"建卡生活水平：{living_zh}",
+                f"建卡现金：{_format_finance_amount(finance.get('cash'))}",
+                f"建卡资产：{_format_finance_amount(finance.get('assets'))}",
+                f"每日免记账额度：{_format_finance_amount(finance.get('spending_level'))}",
             ],
         })
     if details:
@@ -1227,9 +1227,13 @@ _LANGUAGE_OTHER_NAME_ALIASES = {
     "english": "English",
     "英语": "English",
     "英文": "English",
+    "spanish": "Spanish",
+    "西班牙语": "Spanish",
+    "西语": "Spanish",
 }
 _LANGUAGE_OTHER_LABEL_ZH = {
     "English": "英语",
+    "Spanish": "西班牙语",
 }
 _LANGUAGE_OTHER_SKILL_RE = re.compile(
     r"^(?:other\s+language|language)\s*\((.+)\)$",
@@ -1852,10 +1856,17 @@ def _kp_guided_localized_skill_errors(
     if set(rendered) != set(skills):
         errors.append("KP-guided era-adaptive localized skills must contain every selected machine skill exactly once")
     catalog = _skill_catalog()
+    own_language = sheet.get("own_language")
     for skill_id, row in rendered.items():
         entry = provenance.get(skill_id)
         if entry is not None:
             expected_label = entry.get("reskinned_name")
+        elif (
+            skill_id == "Language (Own)"
+            and isinstance(own_language, str)
+            and own_language.strip()
+        ):
+            expected_label = f"语言（{own_language.strip()}）"
         else:
             labels = catalog[sources[skill_id]].get("localized_labels")
             expected_label = labels.get("zh-Hans") if isinstance(labels, dict) else None

@@ -127,9 +127,9 @@ def test_skill_and_item_and_hazard_recall() -> None:
     skill = coc_catalog.search_catalog(query="Library Use", kinds=["skill"])
     assert skill["ok"]
     assert any(row["entity_id"] == "Library Use" for row in skill["candidates"])
-    item = coc_catalog.search_catalog(query="Flashlight", kinds=["item"])
+    item = coc_catalog.search_catalog(query="Electric Torch", kinds=["item"])
     assert item["ok"]
-    assert any(row["name"] == "Flashlight" for row in item["candidates"])
+    assert any(row["name"] == "Electric Torch" for row in item["candidates"])
     hazard = coc_catalog.search_catalog(query="drowning", kinds=["hazard"])
     assert hazard["ok"]
     assert any(row["entity_id"] == "drowning" for row in hazard["candidates"])

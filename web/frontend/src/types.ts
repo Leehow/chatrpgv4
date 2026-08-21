@@ -174,6 +174,13 @@ export interface CashView {
   schema_version?: number;
   balances: Record<string, CashBalance>;
   ledger: CashLedgerEntry[];
+  labels?: {
+    current_cash?: string;
+    cash?: string;
+    empty_ledger?: string;
+    no_record?: string;
+    no_reason?: string;
+  };
 }
 
 export interface CharacterSheet {
@@ -202,7 +209,7 @@ export interface CharacterSheet {
   inventory_items?: InventoryItem[] | null;
   /** Live campaign cash ledger; absent/null outside a campaign context. */
   cash?: CashView | null;
-  /** Chargen asset snapshot (not cash, not inventory). */
+  /** Live campaign finance when present; otherwise a labeled chargen snapshot. */
   assets?: {
     amount?: number | string | null;
     currency?: string;
@@ -210,6 +217,18 @@ export interface CharacterSheet {
     source?: string;
     living_standard?: string;
     spending_level?: string;
+    current?: boolean;
+    baseline?: boolean;
+    labels?: {
+      assets?: string;
+      cash?: string;
+      living_standard?: string;
+      spending_level?: string;
+      empty_ledger?: string;
+      no_record?: string;
+      no_reason?: string;
+      pair_sep?: string;
+    };
   } | null;
   localized?: boolean;
 }

@@ -18,6 +18,13 @@ export type CashLedgerRow = {
 export type CashDisplay = {
   balances?: Record<string, CashWallet> | null;
   ledger?: CashLedgerRow[] | null;
+  labels?: {
+    current_cash?: string;
+    cash?: string;
+    empty_ledger?: string;
+    no_record?: string;
+    no_reason?: string;
+  };
 };
 
 /** Cash belongs on the character sheet and the items/equipment tab. */

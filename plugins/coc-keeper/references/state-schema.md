@@ -104,6 +104,11 @@ Campaigns store temporary and scenario-specific state:
 │                                   #   localized_reason, balances, recorded_at,
 │                                   #   game_time). Not sheet cash strings,
 │                                   #   rules.cash_assets, or cash_semantic.
+│                                   # + optional "finance": runtime Assets /
+│                                   #   living standard / inclusive Spending
+│                                   #   Level authority, seeded once from
+│                                   #   chargen. Not the sheet snapshot and
+│                                   #   not toolbox-asset-heads.json.
 ├── scenario/                       # compiled story-graph, clue-graph, npc-agendas,
 │                                   # threat-fronts, pacing-map, improvisation-boundaries
 ├── artifacts/                      # DirectorPlan JSON per decision_id
@@ -236,11 +241,46 @@ as `state_corrupt` with no migration. Character-sheet `cash` prose,
 `state.cash_semantic` never mutate this balance. Absent cash is empty
 balances until the first successful grant. Spend fails closed on
 insufficient funds in that currency. Amounts with more than two decimal
-places are rejected. The investigator-state file also stores
-`operation_receipts` for cash grants and spends; replay repairs the event
-and toolbox ledger from that receipt and never applies the same
-`decision_id` twice. There is no second finance engine and no free-text
-amount parse.
+places are rejected. Direct grant/spend rows use `state.cash_grant` /
+`state.cash_spend`. Composite producers may append the same ledger with
+`tool: state.purchase` on `op: spend` and `tool: state.assets_liquidate`
+on `op: grant`; any other tool name fails closed. Cash `decision_id`
+values remain unique across the whole cash ledger. The investigator-state
+file also stores `operation_receipts` for cash grants and spends; replay
+repairs the event and toolbox ledger from that receipt and never applies
+the same `decision_id` twice. Successful cash mutations expose
+`changed: true` plus `investigator_id` on the toolbox result so
+`turn.finalize` can project each delta exactly once. There is no second
+cash engine and no free-text amount parse.
+
+Runtime finance is a sibling object on the same investigator-state file,
+never the chargen sheet and never `save/toolbox-asset-heads.json` (cash
+integrity heads only). Exact current schema:
+`{schema_version:1, period, currency, living_standard, spending_level
+{amount,currency,unit?}, assets {schema_version:1, balances, ledger},
+receipts {state.purchase:{}, state.assets_liquidate:{}}, seed
+{decision_id,source}}`. Assets ledger ops are `seed` / `adjust`
+(`setup.chargen_run`) and `liquidate` (`state.assets_liquidate`); amounts
+and chain checks match cash. Inclusive Spending Level is a typed current
+amount, not a remaining daily meter. Missing, extra, old-version, or
+broken finance fails closed with no migration and no zero default.
+`state.finance_query` reads this envelope plus current cash. `seed.source`
+must be `chargen-credit-rating`; when Assets exist the initial `seed` ledger
+row must use that same chargen `decision_id`. Receipt `decision_id` values
+are unique across `state.purchase` and `state.assets_liquidate` buckets.
+Each receipt carries `fingerprint` over tool+request and `integrity_digest`
+over schema/tool/decision/request/fingerprint/result. Purchase results are
+closed (`payment_mode` spending_level|cash|aggregate_cash, item, charged
+amount, cash before/after, local_date, settled/settled_by,
+aggregated_from). Liquidation results bind Assets and cash before/after
+plus `linked_time_decision_id`.
+`state.purchase` and `state.assets_liquidate` write investigator-state
+receipts first, then cash heads (when cash moved), events, and the toolbox
+ledger. Exact replay repairs those sidecars from the state receipt; a
+toolbox ledger row without that receipt is corruption. Spending-Level
+purchases write no cash row and stay `settled: false` until an
+`aggregate_cash` decision marks them. Liquidation consumes one positive
+`state.advance_time` decision via `linked_time_decision_id`.
 
 Social disclosure uses this exact order: NPC availability, fact knowledge,
 fact revealability, active reaction, willingness (trust or authored leverage),

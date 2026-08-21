@@ -337,8 +337,9 @@ settled finalization.
 5. **State + close.** Record clues/moves/flags/NPC presence and engagements/
    items/cash/time as the fiction earns them. Story loot, purchases, pay, and
    fees use `state.item_grant` / `state.item_remove` / `state.item_use` and
-   `state.cash_grant` / `state.cash_spend` (query with `state.inventory_list`
-   / `state.cash_query`) **before** the prose that treats the change as real.
+   `state.cash_grant` / `state.cash_spend` / `state.purchase` /
+   `state.assets_liquidate` (query with `state.inventory_list`
+   / `state.cash_query` / `state.finance_query`) **before** the prose that treats the change as real.
    A physical handoff (NPC giving a key, paying coin) is not real until that
    write lands; do not infer items or cash from player or NPC wording.
    Cash writes need audit `reason` plus `localized_reason` in `play_language`;

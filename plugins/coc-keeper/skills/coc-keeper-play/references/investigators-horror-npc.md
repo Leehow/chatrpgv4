@@ -77,11 +77,17 @@ none of this is a hard gate or a mandatory call sequence.
   its history. `npc.query` projects only the requested investigator/NPC pair;
   Director and narration receive it as bounded prompt context, never as a hard
   gate or a secret agenda.
-- **Lifestyle envelope (Credit Rating, p.45-47, p.95-97).** Call
-  `rules.cash_assets` for the tier's cash, assets, and daily spending level.
-  Belongings matching the investigator's station are simply owned — no
-  purchase roll, no bookkeeping until spending exceeds the daily level.
-  Visible means (or their absence) are also social evidence to gatekeepers.
+- **Lifestyle envelope (Credit Rating, p.45-47, p.95-97).** Live cash,
+  Assets, living standard, and inclusive Spending Level are on
+  `scene.context` `party_investigators[].finance` (and `state.finance_query`).
+  `rules.cash_assets` remains the table lookup, not the play purse. Routine
+  living-standard accommodation/food/incidental travel is usually narrated
+  with no bookkeeping. Inclusive Spending Level is not a remaining-budget
+  meter; same-day aggregation is optional KP judgment and, if chosen, charges
+  the full combined amount. Catalog prices are advisory; the KP supplies the
+  effective price. Visible means (or their absence) are also social evidence.
+  Loans, hiring, credentials, access, and conspicuous status may be Credit
+  Rating judgment/check rather than an inventory purchase.
 - **Build and scale (p.33, p.105, p.279).** SIZ/Build tell everyone who is in
   the room — whether they can see over a wall, be lifted, or be thrown. A
   maneuver against a target 3+ Build larger is physically impossible, not
@@ -98,9 +104,10 @@ none of this is a hard gate or a mandatory call sequence.
   current Luck is the legitimate choice.
 
 `scene.context` lists every party member's APP, credit tier, build, age,
-occupation, and active madness under `party_investigators`; `director.advise`
-plans carry `rule_signal_notes` when a notable credit tier or a depleted Luck
-deserves attention.
+occupation, active madness, and compact runtime finance under
+`party_investigators`; `director.advise` plans carry `rule_signal_notes` when
+a notable credit tier or a depleted Luck deserves attention. Finance on that
+brief is advice, never a turn gate.
 
 ### Opening first-impression evidence
 

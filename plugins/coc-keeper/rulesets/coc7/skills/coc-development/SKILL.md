@@ -18,6 +18,14 @@ arithmetic in the host. A successful `state.end_session` synchronously composes
 this operation for linked investigators; the first-class operation remains
 available to replay a structured pending settlement.
 
+Credit Rating never earns ordinary skill improvement ticks.
+`development.json` `never_tick_skills` includes Credit Rating (and Cthulhu
+Mythos). A successful Credit Rating check, a first-impression reaction, or a
+finance outcome does not mark it. Do not invent automatic Credit Rating change
+from purchases or asset liquidation. It may still change during the
+Investigator Development Phase when financial circumstances warrant, by KP
+judgment and the rules' financial-development procedure.
+
 ## Workflow
 
 1. Confirm the ending receipt, investigator identity, and the development

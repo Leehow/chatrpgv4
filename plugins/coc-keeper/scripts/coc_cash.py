@@ -22,6 +22,13 @@ CASH_QUANTUM = Decimal("0.01")
 # Inclusive cents cap: enough for any CoC purse, inside Decimal precision.
 AMOUNT_MAX = Decimal("999999999999.99")
 OPS = frozenset({"grant", "spend"})
+CASH_GRANT_TOOL = "state.cash_grant"
+CASH_SPEND_TOOL = "state.cash_spend"
+CASH_PURCHASE_TOOL = "state.purchase"
+CASH_LIQUIDATE_TOOL = "state.assets_liquidate"
+# Direct cash tools plus the composite producers that will own one cash row.
+CASH_GRANT_PRODUCER_TOOLS = frozenset({CASH_GRANT_TOOL, CASH_LIQUIDATE_TOOL})
+CASH_SPEND_PRODUCER_TOOLS = frozenset({CASH_SPEND_TOOL, CASH_PURCHASE_TOOL})
 CURRENCY_MAX = 16
 # Identity aliases only. Never convert amounts or invent an exchange rate.
 CURRENCY_ALIASES = {
@@ -206,9 +213,7 @@ def _validate_ledger_entry(entry: Any) -> dict[str, Any]:
         raise ValueError("ledger amount must be greater than zero")
     parse_stored_amount(entry["balance_before"])
     parse_stored_amount(entry["balance_after"])
-    expected_tool = f"state.cash_{entry['op']}"
-    if entry["tool"] != expected_tool:
-        raise ValueError("ledger tool does not match op")
+    validate_cash_producer_tool(entry["op"], entry["tool"])
     validate_source(entry["source"])
     validate_reason(entry["reason"])
     validate_reason(entry["localized_reason"])
@@ -306,6 +311,33 @@ def normalize_cash(raw: Any) -> dict[str, Any]:
         "balances": ordered,
         "ledger": ledger,
     }
+
+
+def cash_producer_tools(op: str) -> frozenset[str]:
+    if op == "grant":
+        return CASH_GRANT_PRODUCER_TOOLS
+    if op == "spend":
+        return CASH_SPEND_PRODUCER_TOOLS
+    return frozenset()
+
+
+def validate_cash_producer_tool(op: str, tool: Any) -> str:
+    if not isinstance(tool, str) or not tool or tool != tool.strip():
+        raise ValueError("ledger tool does not match op")
+    if tool not in cash_producer_tools(op):
+        raise ValueError("ledger tool does not match op")
+    return tool
+
+
+def cash_mutation_result(entry: dict[str, Any], investigator_id: str) -> dict[str, Any]:
+    """Toolbox/finalization payload for a settled cash row.
+
+    The cash ledger itself never stores ``changed`` or ``investigator_id``.
+    """
+    data = dict(entry)
+    data["changed"] = True
+    data["investigator_id"] = investigator_id
+    return data
 
 
 def canonical_currency(code: str) -> str:
@@ -407,6 +439,7 @@ def apply_cash(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if op not in OPS:
         raise ValueError("op must be grant or spend")
+    tool = validate_cash_producer_tool(op, tool)
     delta = parse_amount(amount)
     if delta <= 0:
         raise ValueError("amount must be greater than zero")
@@ -511,8 +544,6 @@ class CashHeadsError(ValueError):
 
 
 CASH_ASSET_HEADS_NAME = "toolbox-asset-heads.json"
-CASH_GRANT_TOOL = "state.cash_grant"
-CASH_SPEND_TOOL = "state.cash_spend"
 CHARGEN_CASH_SOURCE = "chargen-credit-rating"
 CHARGEN_CASH_REASON = "investigator creation credit-rating conversion"
 CHARGEN_CASH_LOCALIZED_REASON = "建卡·信用评级换算"

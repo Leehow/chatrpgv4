@@ -72,6 +72,7 @@ coc_scenario_hydration = _load_sibling(
 coc_starter = _load_sibling("coc_starter_runtime_ops", "coc_starter.py")
 coc_state = _load_sibling("coc_state_runtime_ops", "coc_state.py")
 coc_cash = _load_sibling("coc_cash_runtime_ops", "coc_cash.py")
+coc_finance = _load_sibling("coc_finance_runtime_ops", "coc_finance.py")
 coc_time = _load_sibling("coc_time_runtime_ops", "coc_time.py")
 coc_tomes = _load_sibling("coc_tomes_runtime_ops", "coc_tomes.py")
 coc_turn_finalization = _load_sibling(
@@ -5510,6 +5511,155 @@ def _apply_chargen_cash_entry(
     return next_cash
 
 
+def _chargen_has_runtime_finance(sheet: dict[str, Any]) -> bool:
+    if sheet.get("era_adaptive") is True:
+        return False
+    return (
+        isinstance(sheet.get("living_standard"), str)
+        and isinstance(sheet.get("spending_level"), dict)
+    )
+
+
+def _write_investigator_state(state_path: Path, state: dict[str, Any]) -> None:
+    coc_fileio.write_json_atomic(
+        state_path,
+        state,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+
+
+def _seed_chargen_runtime_finance(
+    root: Path,
+    *,
+    campaign_id: str,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    decision_id: str,
+    fingerprint: str,
+) -> None:
+    """Idempotent runtime finance seed, plus setup-only Assets/SL replace."""
+    if not _chargen_has_runtime_finance(sheet):
+        return
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    state_path = coc_state.seed_investigator_state_if_missing(
+        root, campaign_id, investigator_id, sheet=sheet
+    )
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeOperationError(
+            f"investigator finance state is unreadable: {investigator_id}"
+        ) from exc
+    if not isinstance(state, dict):
+        raise RuntimeOperationError(
+            f"investigator finance state is invalid: {investigator_id}"
+        )
+    recorded_at = datetime.now(timezone.utc).isoformat()
+    game_time = coc_time.current_stamp(campaign_dir)
+    period = sheet.get("era") if isinstance(sheet.get("era"), str) else None
+    if not period:
+        try:
+            campaign = json.loads(
+                (campaign_dir / "campaign.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            campaign = None
+        if isinstance(campaign, dict) and isinstance(campaign.get("era"), str):
+            period = campaign.get("era")
+    try:
+        target = coc_finance.seed_finance_from_chargen(
+            sheet=sheet,
+            decision_id=decision_id,
+            recorded_at=recorded_at,
+            game_time=game_time,
+            period=period,
+        )
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    existing_raw = state.get("finance")
+    if existing_raw is None:
+        state["finance"] = target
+        _write_investigator_state(state_path, state)
+        return
+    try:
+        existing = coc_finance.normalize_finance(existing_raw)
+        coc_finance.assert_chargen_finance_provenance(existing, decision_id)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    if (
+        existing["period"] == target["period"]
+        and existing["currency"] == target["currency"]
+        and existing["living_standard"] == target["living_standard"]
+        and existing["spending_level"] == target["spending_level"]
+        and existing["assets"]["balances"] == target["assets"]["balances"]
+    ):
+        return
+    if not _campaign_is_unfinished_setup(root, campaign_id):
+        return
+    aligned = dict(existing)
+    aligned["period"] = target["period"]
+    aligned["currency"] = target["currency"]
+    aligned["living_standard"] = target["living_standard"]
+    aligned["spending_level"] = target["spending_level"]
+    assets = existing["assets"]
+    target_assets = target["assets"]
+    target_amount = coc_finance.assets_wallet_amount(target_assets, target["currency"])
+    current_amount = coc_finance.assets_wallet_amount(assets, target["currency"])
+    if current_amount != target_amount:
+        digest = str(fingerprint).removeprefix("sha256:")[:16]
+        adjust_id = (
+            f"chargen-finance-adjust-{investigator_id}-{digest}-"
+            f"{coc_cash.format_amount(target_amount)}"
+        )
+        delta = target_amount - current_amount
+        if current_amount == 0 and target_amount > 0:
+            op = "seed"
+            adjust_credit = None
+            apply_amount = target_amount
+            row_id = existing["seed"]["decision_id"]
+            row_source = coc_finance.FINANCE_SEED_SOURCE
+            row_reason = coc_finance.FINANCE_SEED_REASON
+            row_localized = coc_finance.FINANCE_SEED_LOCALIZED_REASON
+        else:
+            op = "adjust"
+            adjust_credit = delta > 0
+            apply_amount = delta if delta > 0 else -delta
+            row_id = adjust_id
+            row_source = coc_finance.FINANCE_ADJUST_SOURCE
+            row_reason = coc_finance.FINANCE_ADJUST_REASON
+            row_localized = coc_finance.FINANCE_ADJUST_LOCALIZED_REASON
+        if not any(
+            str(row.get("decision_id") or "") == row_id
+            for row in assets["ledger"]
+        ):
+            try:
+                assets, _entry = coc_finance.apply_assets(
+                    assets,
+                    op=op,
+                    amount=apply_amount,
+                    currency=target["currency"],
+                    unit=None,
+                    source=row_source,
+                    reason=row_reason,
+                    localized_reason=row_localized,
+                    decision_id=row_id,
+                    recorded_at=recorded_at,
+                    game_time=game_time,
+                    tool=coc_finance.FINANCE_SEED_TOOL,
+                    adjust_credit=adjust_credit,
+                )
+            except ValueError as exc:
+                raise RuntimeOperationError(str(exc)) from exc
+    aligned["assets"] = assets
+    try:
+        state["finance"] = coc_finance.normalize_finance(aligned)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    _write_investigator_state(state_path, state)
+
+
 def _seed_chargen_cash_ledger(
     root: Path,
     *,
@@ -5521,84 +5671,90 @@ def _seed_chargen_cash_ledger(
 ) -> None:
     """Idempotent starting-cash grant, plus setup-only auditable replace deltas."""
     starting = _chargen_starting_cash_amount(sheet)
-    if starting is None:
-        return
-    amount, currency = starting
-    target = coc_cash.parse_amount(amount)
-    campaign_dir = root / ".coc" / "campaigns" / campaign_id
-    state_path = coc_state.seed_investigator_state_if_missing(
-        root, campaign_id, investigator_id, sheet=sheet
-    )
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeOperationError(
-            f"investigator cash state is unreadable: {investigator_id}"
-        ) from exc
-    if not isinstance(state, dict):
-        raise RuntimeOperationError(
-            f"investigator cash state is invalid: {investigator_id}"
+    if starting is not None:
+        amount, currency = starting
+        target = coc_cash.parse_amount(amount)
+        campaign_dir = root / ".coc" / "campaigns" / campaign_id
+        state_path = coc_state.seed_investigator_state_if_missing(
+            root, campaign_id, investigator_id, sheet=sheet
         )
-    try:
-        cash = coc_cash.normalize_cash(state.get("cash"))
-    except ValueError as exc:
-        raise RuntimeOperationError(str(exc)) from exc
-    seeded = any(
-        str(row.get("decision_id") or "") == decision_id for row in cash["ledger"]
-    )
-    if not seeded:
-        written = _apply_chargen_cash_entry(
-            campaign_dir=campaign_dir,
-            state_path=state_path,
-            state=state,
-            cash=cash,
-            investigator_id=investigator_id,
-            op="grant",
-            amount=amount,
-            currency=currency,
-            source=coc_cash.CHARGEN_CASH_SOURCE,
-            reason=coc_cash.CHARGEN_CASH_REASON,
-            localized_reason=coc_cash.CHARGEN_CASH_LOCALIZED_REASON,
-            decision_id=decision_id,
-            tool=coc_cash.CASH_GRANT_TOOL,
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeOperationError(
+                f"investigator cash state is unreadable: {investigator_id}"
+            ) from exc
+        if not isinstance(state, dict):
+            raise RuntimeOperationError(
+                f"investigator cash state is invalid: {investigator_id}"
+            )
+        try:
+            cash = coc_cash.normalize_cash(state.get("cash"))
+        except ValueError as exc:
+            raise RuntimeOperationError(str(exc)) from exc
+        seeded = any(
+            str(row.get("decision_id") or "") == decision_id for row in cash["ledger"]
         )
-        if written is not None:
-            cash = written
-    current = _cash_wallet_amount(cash, currency)
-    if current == target:
-        return
-    if not _campaign_is_unfinished_setup(root, campaign_id):
-        return
-    delta = target - current
-    digest = str(fingerprint).removeprefix("sha256:")[:16]
-    adjust_id = (
-        f"chargen-cash-adjust-{investigator_id}-{digest}-"
-        f"{coc_cash.format_amount(target)}"
-    )
-    if any(str(row.get("decision_id") or "") == adjust_id for row in cash["ledger"]):
-        return
-    if delta > 0:
-        op = "grant"
-        tool = coc_cash.CASH_GRANT_TOOL
-        apply_amount = delta
-    else:
-        op = "spend"
-        tool = coc_cash.CASH_SPEND_TOOL
-        apply_amount = -delta
-    _apply_chargen_cash_entry(
-        campaign_dir=campaign_dir,
-        state_path=state_path,
-        state=state,
-        cash=cash,
+        if not seeded:
+            written = _apply_chargen_cash_entry(
+                campaign_dir=campaign_dir,
+                state_path=state_path,
+                state=state,
+                cash=cash,
+                investigator_id=investigator_id,
+                op="grant",
+                amount=amount,
+                currency=currency,
+                source=coc_cash.CHARGEN_CASH_SOURCE,
+                reason=coc_cash.CHARGEN_CASH_REASON,
+                localized_reason=coc_cash.CHARGEN_CASH_LOCALIZED_REASON,
+                decision_id=decision_id,
+                tool=coc_cash.CASH_GRANT_TOOL,
+            )
+            if written is not None:
+                cash = written
+        current = _cash_wallet_amount(cash, currency)
+        if current != target and _campaign_is_unfinished_setup(root, campaign_id):
+            delta = target - current
+            digest = str(fingerprint).removeprefix("sha256:")[:16]
+            adjust_id = (
+                f"chargen-cash-adjust-{investigator_id}-{digest}-"
+                f"{coc_cash.format_amount(target)}"
+            )
+            if not any(
+                str(row.get("decision_id") or "") == adjust_id
+                for row in cash["ledger"]
+            ):
+                if delta > 0:
+                    op = "grant"
+                    tool = coc_cash.CASH_GRANT_TOOL
+                    apply_amount = delta
+                else:
+                    op = "spend"
+                    tool = coc_cash.CASH_SPEND_TOOL
+                    apply_amount = -delta
+                _apply_chargen_cash_entry(
+                    campaign_dir=campaign_dir,
+                    state_path=state_path,
+                    state=state,
+                    cash=cash,
+                    investigator_id=investigator_id,
+                    op=op,
+                    amount=apply_amount,
+                    currency=currency,
+                    source=coc_cash.CHARGEN_CASH_ADJUST_SOURCE,
+                    reason=coc_cash.CHARGEN_CASH_ADJUST_REASON,
+                    localized_reason=coc_cash.CHARGEN_CASH_ADJUST_LOCALIZED_REASON,
+                    decision_id=adjust_id,
+                    tool=tool,
+                )
+    _seed_chargen_runtime_finance(
+        root,
+        campaign_id=campaign_id,
         investigator_id=investigator_id,
-        op=op,
-        amount=apply_amount,
-        currency=currency,
-        source=coc_cash.CHARGEN_CASH_ADJUST_SOURCE,
-        reason=coc_cash.CHARGEN_CASH_ADJUST_REASON,
-        localized_reason=coc_cash.CHARGEN_CASH_ADJUST_LOCALIZED_REASON,
-        decision_id=adjust_id,
-        tool=tool,
+        sheet=sheet,
+        decision_id=decision_id,
+        fingerprint=fingerprint,
     )
 
 

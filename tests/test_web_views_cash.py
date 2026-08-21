@@ -290,16 +290,22 @@ def test_display_character_projects_sheet_assets_not_as_inventory(cash_workspace
     raw["living_standard"] = "Average"
     raw["spending_level"] = {"amount": 10, "currency": "USD"}
     path.write_text(json.dumps(raw, ensure_ascii=False), "utf-8")
-    sheet = web_views.display_character(
+    live = web_views.display_character(
         workspace, inv, "zh-Hans", campaign_id=campaign_id
     )
-    assert sheet is not None
-    assets = sheet["assets"]
+    assert live is not None
+    assert live.get("assets") is None
+    assert "29,500" not in json.dumps(live.get("cash") or {})
+    labels = live.get("equipment") or []
+    assert "$29,500" not in labels
+    baseline = web_views.display_character(workspace, inv, "zh-Hans")
+    assert baseline is not None
+    assets = baseline["assets"]
     assert assets["display"] == "$29,500"
     assert assets["currency"] == "USD"
     assert assets["source"] == "信用评级换算"
+    assert assets["baseline"] is True
+    assert assets["current"] is False
     assert assets["living_standard"] == "普通"
     assert assets["spending_level"] == "$10"
-    assert "29,500" not in json.dumps(sheet.get("cash") or {})
-    labels = sheet.get("equipment") or []
-    assert "$29,500" not in labels
+    assert assets["labels"]["spending_level"] == "每日免记账额度"

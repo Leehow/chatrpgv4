@@ -45,6 +45,13 @@ wallet. Player-visible
 projections show `localized_reason` and game/player time only — never raw
 `reason` or `recorded_at`. Do not treat sheet `cash` strings,
 `rules.cash_assets`, or `state.cash_semantic` as a live spend ledger.
+Current Assets, living standard, and inclusive Spending Level live on the
+same file under `finance`, seeded once from chargen. Query them with
+`state.finance_query` (it also returns current cash). Never treat the sheet
+snapshot or `toolbox-asset-heads.json` as live Assets. Buys use
+`state.purchase` (one write: item plus optional cash). Asset conversion uses
+`state.assets_liquidate` linked to a settled `state.advance_time`. Do not
+simulate a purchase with sequential `state.cash_spend` then `state.item_grant`.
 
 Long-term story memory lives under `.coc/campaigns/<id>/memory/` (see
 `../../references/memory-protocol.md`). Ordinary play reads and writes it only

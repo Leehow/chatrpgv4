@@ -77,6 +77,17 @@ the situations below are the standard triggers, not an exhaustive menu:
   whenever the investigator tries to change an NPC's stance, open a guarded
   door, or extract a confidence, and failure would close or sour that
   approach. Casual small talk with no stakes needs no roll.
+- **Credit Rating as social and financial leverage.** Money opens doors.
+  Loans, hiring help, credentials, access, conspicuous status, and using
+  apparent wealth to achieve a goal may call for Credit Rating judgment or a
+  `rules.roll` against Credit Rating. Difficulty is KP semantic (regular vs
+  hard from stakes and circumstances), never a keyword or item-category map.
+  First impressions may use Credit Rating in place of APP via the pair-bound
+  public `npc.reaction` path. Credit Rating is a gauge of standing, not a
+  tickable skill: never mark an ordinary improvement tick. It may change during
+  the Investigator Development Phase when financial circumstances warrant, by
+  KP judgment and the rules' financial-development procedure. Lifestyle
+  cash/assets/Spending Level are the runtime finance envelope, not this check.
 - **Spot Hidden / Listen and other perception.** Finding what is hidden,
   noticing what is easy to miss, hearing what was not meant to be heard. A
   failed Spot Hidden is "you find nothing yet", never "nothing is there."

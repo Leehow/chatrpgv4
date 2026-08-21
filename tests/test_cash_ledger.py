@@ -497,6 +497,9 @@ def test_item_grant_is_keeper_discoverable():
         "state.cash_grant",
         "state.cash_spend",
         "state.cash_query",
+        "state.finance_query",
+        "state.purchase",
+        "state.assets_liquidate",
     ):
         assert name in live
     described = coc_toolbox._describe("state.item_grant")
@@ -511,6 +514,129 @@ def test_item_grant_is_keeper_discoverable():
     spend_desc = coc_toolbox._describe("state.cash_spend")
     assert spend_desc["params"]["reason"]["required"] is True
     assert spend_desc["params"]["localized_reason"]["required"] is True
+    finance_desc = coc_toolbox._describe("state.finance_query")
+    assert "chargen sheet snapshot" in finance_desc["summary"]
+
+
+def test_cash_grant_exposes_changed_for_finalization(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.cash_grant", {
+        "investigator": inv,
+        "amount": 12,
+        "currency": "USD",
+        "source": "pay",
+        "reason": "visible purse",
+        "localized_reason": "预付",
+        "decision_id": "cash-changed-visible",
+    })
+    assert granted["ok"] is True, granted
+    assert granted["data"]["changed"] is True
+    assert granted["data"]["investigator_id"] == inv
+    replayed = _run(campaign_ws, "state.cash_grant", {
+        "investigator": inv,
+        "amount": 12,
+        "currency": "USD",
+        "source": "pay",
+        "reason": "visible purse",
+        "localized_reason": "预付",
+        "decision_id": "cash-changed-visible",
+    })
+    assert replayed["ok"] is True, replayed
+    assert replayed["data"] == granted["data"]
+    effects = coc_toolbox.coc_turn_finalization._project_state_deltas([
+        {
+            "ok": True,
+            "tool": "state.cash_grant",
+            "args": {"decision_id": "cash-changed-visible", "investigator": inv},
+            "data": granted["data"],
+        }
+    ])
+    assert len(effects) == 1
+    assert effects[0]["effect_kind"] == "cash"
+    assert effects[0]["amount"] == "12.00"
+    assert effects[0]["localized_reason"] == "预付"
+
+
+def test_normalize_accepts_composite_cash_producers():
+    spend = _grant_entry(amount="2.00", before="5.00", after="3.00")
+    spend["op"] = "spend"
+    spend["tool"] = "state.purchase"
+    spend["decision_id"] = "buy-1"
+    purchased = coc_cash.normalize_cash(_seeded(
+        amount="3.00",
+        ledger=[_grant_entry(), spend],
+    ))
+    assert purchased["ledger"][1]["tool"] == "state.purchase"
+    grant = _grant_entry(amount="4.00", before="5.00", after="9.00")
+    grant["tool"] = "state.assets_liquidate"
+    grant["decision_id"] = "liq-1"
+    liquidated = coc_cash.normalize_cash(_seeded(
+        amount="9.00",
+        ledger=[_grant_entry(), grant],
+    ))
+    assert liquidated["ledger"][1]["tool"] == "state.assets_liquidate"
+
+
+def test_normalize_rejects_arbitrary_cash_producer_tool():
+    row = _grant_entry()
+    row["tool"] = "state.item_grant"
+    with pytest.raises(ValueError, match="ledger tool does not match op"):
+        coc_cash.normalize_cash(_seeded(ledger=[row]))
+    spend = _grant_entry(amount="2.00", before="5.00", after="3.00")
+    spend["op"] = "spend"
+    spend["tool"] = "state.assets_liquidate"
+    spend["decision_id"] = "bad-liq-spend"
+    with pytest.raises(ValueError, match="ledger tool does not match op"):
+        coc_cash.normalize_cash(_seeded(amount="3.00", ledger=[_grant_entry(), spend]))
+
+
+def test_apply_cash_accepts_future_composite_producers():
+    next_state, spent = coc_cash.apply_cash(
+        _seeded(),
+        op="spend",
+        amount="1.00",
+        currency="USD",
+        unit=None,
+        source="shop",
+        reason="buy paper",
+        localized_reason="买报",
+        decision_id="purchase-1",
+        recorded_at="2020-01-01T00:00:00+00:00",
+        game_time=_game_time(),
+        tool="state.purchase",
+    )
+    assert spent["tool"] == "state.purchase"
+    assert next_state["balances"]["USD"]["amount"] == "4.00"
+    _next, granted = coc_cash.apply_cash(
+        next_state,
+        op="grant",
+        amount="2.00",
+        currency="USD",
+        unit=None,
+        source="sale",
+        reason="liquidate lot",
+        localized_reason="变现",
+        decision_id="liquidate-1",
+        recorded_at="2020-01-01T00:00:00+00:00",
+        game_time=_game_time(),
+        tool="state.assets_liquidate",
+    )
+    assert granted["tool"] == "state.assets_liquidate"
+    with pytest.raises(ValueError, match="ledger tool does not match op"):
+        coc_cash.apply_cash(
+            _seeded(),
+            op="grant",
+            amount="1.00",
+            currency="USD",
+            unit=None,
+            source="shop",
+            reason="nope",
+            localized_reason="nope",
+            decision_id="bogus-1",
+            recorded_at="2020-01-01T00:00:00+00:00",
+            game_time=_game_time(),
+            tool="state.item_grant",
+        )
 
 
 def test_cash_amount_cap_is_stable_tool_error(campaign_ws):

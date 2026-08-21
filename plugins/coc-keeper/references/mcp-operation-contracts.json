@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b18a5012b64f789c561b2c2d59f0b9f2fdffd7a309cfab31dcfd82b54923ab9f",
+  "content_sha256": "sha256:1429652f839a8085983f0b3924ca0ba4246377086964d1e5c155ae504ff1af44",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 120,
+  "operation_count": 123,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -5013,6 +5013,82 @@
       },
       "summary": "Advance the in-fiction clock (monotonic). Fires due triggers; an imprecise civil clock may also record a source- or fiction-established broad phase reached after the elapsed interval."
     },
+    "state.assets_liquidate": {
+      "access": "mutation",
+      "canonical_operation": "state.assets_liquidate",
+      "description": "Convert runtime Assets into cash after a linked state.advance_time decision. One investigator-state write; no FX and no Credit Rating change. Canonical operation `state.assets_liquidate`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "description": "Assets to convert and cash to credit; same currency, never FX",
+            "type": "number"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "currency": {
+            "description": "wallet identity; never FX",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "linked_time_decision_id": {
+            "description": "settled state.advance_time decision with positive elapsed delta",
+            "type": "string"
+          },
+          "localized_reason": {
+            "description": "player-safe reason in play_language",
+            "type": "string"
+          },
+          "reason": {
+            "description": "audit reason (not player-visible)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source": {
+            "description": "structured method/source id",
+            "type": "string"
+          },
+          "unit": {
+            "description": "optional recorded unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "amount",
+          "currency",
+          "linked_time_decision_id",
+          "source",
+          "reason",
+          "localized_reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Convert runtime Assets into cash after a linked state.advance_time decision. One investigator-state write; no FX and no Credit Rating change."
+    },
     "state.backstory_corruption_add": {
       "access": "mutation",
       "canonical_operation": "state.backstory_corruption_add",
@@ -5736,6 +5812,47 @@
         ]
       },
       "summary": "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice."
+    },
+    "state.finance_query": {
+      "access": "query",
+      "canonical_operation": "state.finance_query",
+      "description": "Read current runtime cash, Assets, living standard, and inclusive Spending Level. Not the chargen sheet snapshot. Canonical operation `state.finance_query`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "limit": {
+            "description": "max trailing cash/assets/receipt rows (default all)",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Read current runtime cash, Assets, living standard, and inclusive Spending Level. Not the chargen sheet snapshot."
     },
     "state.inventory_list": {
       "access": "query",
@@ -6568,6 +6685,137 @@
         ]
       },
       "summary": "Record a formal scene-role promotion (e.g. transit → side_investigation) with module_divergence evidence. Advisory bookkeeping: it changes how later scene.context reads the scene, never forces a transition."
+    },
+    "state.purchase": {
+      "access": "mutation",
+      "canonical_operation": "state.purchase",
+      "description": "Atomically grant a purchased item. spending_level is inclusive and writes no cash row; cash debits this price; aggregate_cash debits prior same-day spending_level prices plus this price. Fails closed before any write on duplicate items or insufficient funds. Canonical operation `state.purchase`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "aggregated_from": {
+            "description": "prior unsettled spending_level decision_ids; required for aggregate_cash",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "amount": {
+            "description": "effective price of this item; KP-supplied, never parsed from display",
+            "type": "number"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "consumable": {
+            "description": "kind=gear only",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "wallet identity; never FX",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "stable item id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "gear | weapon",
+            "type": "string"
+          },
+          "label": {
+            "description": "short display label",
+            "type": "string"
+          },
+          "localized_reason": {
+            "description": "player-safe reason in play_language",
+            "type": "string"
+          },
+          "mechanics_ref": {
+            "description": "campaign-item:<id> or module-item:<id>",
+            "type": "string"
+          },
+          "note": {
+            "description": "where/how obtained",
+            "type": "string"
+          },
+          "payment_mode": {
+            "description": "spending_level | cash | aggregate_cash",
+            "enum": [
+              "spending_level",
+              "cash",
+              "aggregate_cash"
+            ],
+            "type": "string"
+          },
+          "price_ref": {
+            "description": "optional catalog price record id; provenance only",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "kind=gear only",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "audit reason (not player-visible)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source": {
+            "description": "structured source id",
+            "type": "string"
+          },
+          "unit": {
+            "description": "optional recorded unit",
+            "type": "string"
+          },
+          "weapon": {
+            "additionalProperties": true,
+            "description": "full custom weapon spec (kind=weapon)",
+            "type": "object"
+          },
+          "weapon_id": {
+            "description": "catalog/module weapon id (kind=weapon)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "payment_mode",
+          "amount",
+          "currency",
+          "kind",
+          "label",
+          "source",
+          "reason",
+          "localized_reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Atomically grant a purchased item. spending_level is inclusive and writes no cash row; cash debits this price; aggregate_cash debits prior same-day spending_level prices plus this price. Fails closed before any write on duplicate items or insufficient funds."
     },
     "state.record_clue": {
       "access": "mutation",

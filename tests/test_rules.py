@@ -786,7 +786,13 @@ def test_phobias_and_manias_structure():
 
 def test_equipment_and_poisons_and_artifacts():
     eq = coc_rules.equipment_table()
-    assert "1920s" in eq
+    assert eq["schema_version"] == 2
+    assert "periods" not in eq
+    records = eq["records"]
+    assert isinstance(records, list)
+    eras = {row["era"] for row in records if isinstance(row, dict)}
+    assert "1920s" in eras
+    assert "modern" in eras
     po = coc_rules.poisons_table()
     assert len(po) >= 5
     ar = coc_rules.artifacts_table()

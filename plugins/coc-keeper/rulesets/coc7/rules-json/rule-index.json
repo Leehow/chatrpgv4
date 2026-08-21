@@ -615,9 +615,10 @@
       "id": "core.equipment.price_list",
       "category": "equipment",
       "source_table": "equipment.json",
-      "source_note": "Keeper Rulebook Ch.16 Appendices Equipment (pp.388-393). Prices for 1920s and modern eras.",
+      "source_note": "Keeper Rulebook 7e 40th Anniversary Appendix III Equipment Lists (printed pp.396-400, PDF index 408-412) and Table XVII weapon costs (printed pp.401-405, PDF index 413-417). Schema-v2 records[] with structured nominal prices.",
       "numeric": {
-        "periods": [
+        "schema_version": 2,
+        "eras": [
           "1920s",
           "modern"
         ]

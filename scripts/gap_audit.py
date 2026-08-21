@@ -41,7 +41,7 @@ EXPECTED_MIN_COUNTS = {
 # bout-tables and equipment have nested structure; check separately.
 # Table VII/VIII are each exactly 1-10 (1D10 roll).
 EXPECTED_BOUT = {"realtime": 10, "summary": 10}
-EXPECTED_EQUIP = {"1920s": 15, "modern": 15}      # p396-399
+EXPECTED_EQUIP = {"1920s": 300, "modern": 200}      # Appendix III + Table XVII costs
 
 # Missing rule-ids the coverage audit flagged as still-unresolved PARTIAL.
 # These should exist in rule-index.json for the audit to pass.
@@ -93,11 +93,25 @@ def audit_data_counts(root: Path) -> list[str]:
     # equipment
     try:
         equip = _load_table(root, "equipment")
-        periods = equip.get("periods", {}) if isinstance(equip, dict) else {}
-        for period, exp in EXPECTED_EQUIP.items():
-            actual = len(periods.get(period, []))
-            if actual < exp:
-                gaps.append(f"[A] equipment.json [{period}]: {actual}/{exp}")
+        records = equip.get("records") if isinstance(equip, dict) else None
+        if (
+            not isinstance(equip, dict)
+            or equip.get("schema_version") != 2
+            or not isinstance(records, list)
+            or "periods" in equip
+        ):
+            gaps.append("[A] equipment.json: not schema-v2 records[]")
+        else:
+            counts: dict[str, int] = {}
+            for row in records:
+                if not isinstance(row, dict):
+                    continue
+                era = str(row.get("era") or "")
+                counts[era] = counts.get(era, 0) + 1
+            for period, exp in EXPECTED_EQUIP.items():
+                actual = counts.get(period, 0)
+                if actual < exp:
+                    gaps.append(f"[A] equipment.json [{period}]: {actual}/{exp}")
     except (FileNotFoundError, json.JSONDecodeError) as e:
         gaps.append(f"[A] equipment.json: UNREADABLE ({e})")
     return gaps
