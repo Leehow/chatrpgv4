@@ -61,6 +61,7 @@ import { loadUserPrefs, resolveUserPrefsPath, saveUserPrefs } from "./user-prefs
 import { loadWebSearchKeysView, saveWebSearchApiKeys } from "./web-search-keys.mjs";
 import { loadOcrTokenView, saveOcrToken } from "./ocr-secrets.mjs";
 import { cancelLogin, loginSnapshot, respondLoginPrompt, startProviderLogin } from "./provider-login.mjs";
+import { deleteSourceBundle } from "./source-bundles.mjs";
 
 /**
  * Arm the canonical Pi source-lifecycle lanes for the pi-coc RPC child this
@@ -571,6 +572,11 @@ async function handleBootstrap(_req, res) {
     const lib = await sidecar.request("list_library_modules", {});
     result.result.library_modules = Array.isArray(lib?.modules) ? lib.modules : [];
   }
+  sendJson(res, 200, result);
+}
+
+async function handleDeleteSourceBundle(_req, res, bundleId) {
+  const result = deleteSourceBundle(WORKSPACE, bundleId);
   sendJson(res, 200, result);
 }
 
@@ -1869,6 +1875,17 @@ async function route(req, res) {
     if (urlPath === "/api/user-prefs") return handleSaveUserPrefs(req, res);
     if (urlPath === "/api/web-search-keys") return handleSaveWebSearchKeys(req, res);
     if (urlPath === "/api/ocr-token") return handleSaveOcrToken(req, res);
+    throw httpError(404, "not found");
+  }
+
+  if (method === "DELETE") {
+    if (
+      parts.length === 3
+      && parts[0] === "api"
+      && parts[1] === "source-bundles"
+    ) {
+      return handleDeleteSourceBundle(req, res, parts[2]);
+    }
     throw httpError(404, "not found");
   }
 

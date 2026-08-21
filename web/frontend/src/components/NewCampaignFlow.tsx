@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ChevronDown,
   ChevronLeft,
   FileText,
   Library,
@@ -7,6 +8,7 @@ import {
   Package,
   ScrollText,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { BootstrapResult, PdfUploadResult } from "../types";
+import type { BootstrapResult, PdfUploadResult, SourceBundle } from "../types";
+import { deleteSourceBundle } from "../api";
 import {
   uploadAndIngestPdfFile,
   uploadAndIngestPdfFromPath,
@@ -98,8 +101,6 @@ const MODE_CARDS: Array<{
   },
 ];
 
-const EMPTY = "__empty__";
-
 /** Common CoC eras the player can declare at PDF 开局. */
 /** Sentinel: omit era from campaign.create so the opening-source review
  * establishes it from the module's own facts (avoids declared-vs-source
@@ -140,6 +141,8 @@ export function NewCampaignFlow({
   const [uploadInfo, setUploadInfo] = useState<PdfUploadResult | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [startMsg, setStartMsg] = useState<string | null>(null);
+  const [bundleClearMsg, setBundleClearMsg] = useState<string | null>(null);
+  const [bundleClearBusy, setBundleClearBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Parse can legitimately take minutes on a big module; a visible elapsed
@@ -234,6 +237,23 @@ export function NewCampaignFlow({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, initialPdfPath, initialPdfFile]);
+
+  const handleClearSourceBundle = async (bundle: SourceBundle) => {
+    if (bundleClearBusy) return;
+    setBundleClearMsg(null);
+    setBundleClearBusy(bundle.bundle_id);
+    try {
+      await deleteSourceBundle(bundle.bundle_id);
+      if (bundlePath === bundle.path) {
+        setBundlePath("");
+      }
+      if (onBootstrapRefresh) await onBootstrapRefresh();
+    } catch (e) {
+      setBundleClearMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBundleClearBusy(null);
+    }
+  };
 
   const handlePdfFile = async (file: File | null) => {
     if (!file) return;
@@ -606,37 +626,35 @@ export function NewCampaignFlow({
                   {uploadMsg}
                 </p>
               )}
-              <Field label="PDF 源包">
-                <Select
-                  value={bundlePath || EMPTY}
-                  onValueChange={(v) => {
-                    const next = v === EMPTY ? "" : v;
+              <div className="block">
+                <span className="mb-1.5 block text-xs font-medium tracking-wide text-muted-foreground">
+                  PDF 源包
+                </span>
+                <SourceBundlePicker
+                  bundles={bundles}
+                  value={bundlePath}
+                  disabled={uploadBusy || Boolean(bundleClearBusy)}
+                  clearingId={bundleClearBusy}
+                  onSelect={(next) => {
                     setBundlePath(next);
                     const b = bundles.find((x) => x.path === next);
                     if (b && !title) setTitle(b.title || b.bundle_id);
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择已有 PDF 源包…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={EMPTY}>（不选择）</SelectItem>
-                    {bundles.map((b) => (
-                      <SelectItem key={b.bundle_id} value={b.path}>
-                        {b.title || b.bundle_id}
-                        {typeof b.page_count === "number"
-                          ? ` · ${b.page_count} 页`
-                          : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onClear={(b) => {
+                    void handleClearSourceBundle(b);
+                  }}
+                />
+                {bundleClearMsg && (
+                  <p className="mt-1.5 rounded-lg border border-destructive/40 bg-destructive-soft px-3 py-2 text-xs text-destructive">
+                    {bundleClearMsg}
+                  </p>
+                )}
                 {selectedBundle && (
                   <p className="mt-1.5 break-all text-xs text-muted-foreground">
                     <code>{selectedBundle.location_hint || selectedBundle.path}</code>
                   </p>
                 )}
-              </Field>
+              </div>
               <Field label="故事年代">
                 <Select value={era} onValueChange={setEra}>
                   <SelectTrigger>
@@ -725,6 +743,132 @@ export function NewCampaignFlow({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function bundleOptionLabel(b: SourceBundle) {
+  const title = b.title || b.bundle_id;
+  return typeof b.page_count === "number" ? `${title} · ${b.page_count} 页` : title;
+}
+
+function SourceBundlePicker({
+  bundles,
+  value,
+  disabled,
+  clearingId,
+  onSelect,
+  onClear,
+}: {
+  bundles: SourceBundle[];
+  value: string;
+  disabled?: boolean;
+  clearingId: string | null;
+  onSelect: (path: string) => void;
+  onClear: (bundle: SourceBundle) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = bundles.find((b) => b.path === value) ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50",
+          !selected && "text-muted-foreground",
+        )}
+      >
+        <span className="min-w-0 truncate">
+          {selected ? bundleOptionLabel(selected) : "选择已有 PDF 源包…"}
+        </span>
+        <ChevronDown className="size-4 shrink-0 opacity-50" />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={!value}
+            className="flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-left text-sm outline-hidden hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              onSelect("");
+              setOpen(false);
+            }}
+          >
+            （不选择）
+          </button>
+          {bundles.map((b) => (
+            <div
+              key={b.bundle_id}
+              className="flex w-full items-center gap-1 rounded-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <button
+                type="button"
+                role="option"
+                aria-selected={value === b.path}
+                className="min-w-0 flex-1 cursor-default truncate px-2 py-1.5 text-left text-sm outline-hidden"
+                onClick={() => {
+                  onSelect(b.path);
+                  setOpen(false);
+                }}
+              >
+                {bundleOptionLabel(b)}
+              </button>
+              <button
+                type="button"
+                title="清除此解析结果"
+                aria-label="清除此解析结果"
+                disabled={disabled || clearingId === b.bundle_id}
+                className="mr-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onClear(b);
+                }}
+              >
+                {clearingId === b.bundle_id ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <X className="size-3.5" />
+                )}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

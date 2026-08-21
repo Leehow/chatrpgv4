@@ -206,6 +206,15 @@ export function fetchBootstrap(): Promise<BootstrapResponse> {
   return request<BootstrapResponse>("/api/bootstrap");
 }
 
+/** Remove one workspace parse cache: `.coc/source-bundles/<bundle_id>/`. */
+export function deleteSourceBundle(
+  bundleId: string,
+): Promise<{ ok: boolean; bundle_id: string }> {
+  return request(`/api/source-bundles/${encodeURIComponent(bundleId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function createCampaign(
   payload:
     | {
