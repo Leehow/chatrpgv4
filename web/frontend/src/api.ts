@@ -50,6 +50,29 @@ export type UserPrefs = {
   visionModel?: string;
 };
 
+export type WebSearchKeyProvider = {
+  id: string;
+  name: string;
+  keyField: string;
+};
+
+export type WebSearchKeysView = {
+  keys: Record<string, boolean>;
+  providers: WebSearchKeyProvider[];
+};
+
+export function fetchWebSearchKeys(): Promise<WebSearchKeysView> {
+  return request<WebSearchKeysView>("/api/web-search-keys");
+}
+
+export function saveWebSearchKeys(keys: Record<string, string>): Promise<WebSearchKeysView> {
+  return request<WebSearchKeysView>("/api/web-search-keys", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keys }),
+  });
+}
+
 export function fetchUserPrefs(): Promise<UserPrefs> {
   return request<UserPrefs>("/api/user-prefs");
 }

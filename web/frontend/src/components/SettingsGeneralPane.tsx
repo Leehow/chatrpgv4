@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { ModelsResponse } from "../types";
+import { WebSearchKeysPane } from "./WebSearchKeysPane";
 
 export type VisionSelection = {
   enabled: boolean;
@@ -141,6 +142,7 @@ export function SettingsGeneralPane({
           ))}
         </select>
       </label>
+      <WebSearchKeysPane />
     </div>
   );
 }

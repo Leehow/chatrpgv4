@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   campaignListExtras,
@@ -438,6 +439,7 @@ test("tableTranscriptMessages keeps every public roll in a finalization group", 
     roll_id: "san", roll: 70, display_skill: "理智", kind: "sanity_check",
     outcome: "failure", target: 30, passed: false,
     san_before: 30, san_after: 26, san_delta: -4,
+    san_loss: 4, san_loss_expression: "1D6", san_loss_resolution: undefined,
   });
   assert.equal(keeper.content_blocks[0].sanity.check_roll_id, "san");
   assert.equal(keeper.content_blocks[0].sanity.loss_roll_id, "loss");
@@ -639,7 +641,18 @@ test("supportedThinkingLevels mirrors the pi rule", () => {
   );
 });
 
-test("modelsPayload resolves thinkingLevels with catalog fallback", () => {
+function piAiCatalogDataDir() {
+  return path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../runtime/adapters/keeper/node_modules/@earendil-works/pi-ai/dist/providers/data",
+  );
+}
+
+test("modelsPayload resolves thinkingLevels with catalog fallback", (t) => {
+  if (!fs.existsSync(path.join(piAiCatalogDataDir(), "deepseek.json"))) {
+    t.skip("keeper pi-ai catalog not vendored in this worktree");
+    return;
+  }
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-models-"));
   process.env.PI_AGENT_DIR = agentDir;
   try {
@@ -677,7 +690,11 @@ test("modelsPayload resolves thinkingLevels with catalog fallback", () => {
   }
 });
 
-test("modelsPayload resolves the second xai model with exact Grok 4.6 levels", () => {
+test("modelsPayload resolves the second xai model with exact Grok 4.6 levels", (t) => {
+  if (!fs.existsSync(path.join(piAiCatalogDataDir(), "xai.json"))) {
+    t.skip("keeper pi-ai catalog not vendored in this worktree");
+    return;
+  }
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-xai-models-"));
   process.env.PI_AGENT_DIR = agentDir;
   try {
@@ -739,10 +756,17 @@ test("modelsPayload overlays JellyToken DeepSeek V4 Flash thinking levels", () =
   }
 });
 
-test("supportedThinkingLevels matches pi-ai's own resolver on catalog models", async () => {
-  const { getSupportedThinkingLevels } = await import(
-    "../../../runtime/adapters/keeper/node_modules/@earendil-works/pi-ai/dist/models.js"
+test("supportedThinkingLevels matches pi-ai's own resolver on catalog models", async (t) => {
+  const catalogModels = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../runtime/adapters/keeper/node_modules/@earendil-works/pi-ai/dist/models.js",
   );
+  // Isolated git worktrees do not carry runtime/adapters/keeper/node_modules.
+  if (!fs.existsSync(catalogModels)) {
+    t.skip("keeper pi-ai catalog not vendored in this worktree");
+    return;
+  }
+  const { getSupportedThinkingLevels } = await import(catalogModels);
   const cases = [
     ["deepseek", "deepseek-v4-flash"],
     ["deepseek", "deepseek-v4-pro"],
