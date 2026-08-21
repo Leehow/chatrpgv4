@@ -8535,20 +8535,26 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     const completedWaits = (sceneSupplyWaits.get(waitKey) ?? 0) + 1;
     sceneSupplyWaits.set(waitKey, completedWaits);
+    // A wait that can never end is worse than an admitted block: the player
+    // spends turn after turn on a loading line. After MAX_SOURCE_WAITS the
+    // gate says so, and the KP tells the player instead of looping.
+    const isBlocked = decision.action === "blocked";
     const content = {
       schema_version: 1,
-      contract_id: "coc.pi-scene-supply-wait.v1",
+      contract_id: isBlocked
+        ? "coc.pi-scene-supply-blocked.v1"
+        : "coc.pi-scene-supply-wait.v1",
       audience: "keeper_only",
       scene_id: sceneId,
       campaign_id: campaignId,
       completed_waits: completedWaits,
-      player_wait_text: decision.playerWaitText,
+      ...(isBlocked ? {} : { player_wait_text: decision.playerWaitText }),
       source_cache_path: supply.source_cache_path,
       instruction: decision.instruction,
     };
     try {
       pi.sendMessage({
-        customType: "coc-scene-supply-wait",
+        customType: isBlocked ? "coc-scene-supply-blocked" : "coc-scene-supply-wait",
         content: JSON.stringify(content),
         display: false,
         details: content,
@@ -8561,13 +8567,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ok: false,
         tool: "state.move_scene",
         error: {
-          code: "scene_supply_pending",
-          message: "destination SceneBundle is not ready; wait for steward-scene before moving",
+          code: isBlocked ? "scene_supply_blocked" : "scene_supply_pending",
+          message: isBlocked
+            ? "destination SceneBundle never arrived and no source-bound fallback exists; "
+              + "tell the player this place stays closed instead of repeating the loading line"
+            : "destination SceneBundle is not ready; wait for steward-scene before moving",
         },
         data: {
           scene_supply: supply,
-          player_wait_text: decision.playerWaitText,
-          retry_policy: "dispatch_or_resume steward-scene, await completion, retry once; then source-bound minimal fallback only",
+          ...(isBlocked ? {} : { player_wait_text: decision.playerWaitText }),
+          retry_policy: isBlocked
+            ? "stop waiting: keep the destination unestablished, say so in fiction, offer open leads"
+            : "call coc_dispatch_source_work with the steward-scene task, await completion, "
+              + "retry once; then source-bound minimal fallback only",
         },
       },
     };

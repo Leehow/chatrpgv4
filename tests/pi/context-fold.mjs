@@ -126,6 +126,54 @@ const tinyResultKept = tiny.stats().folded_results === 0
   && tiny.stats().pending_chars === 0
   && tinyRun.messages.filter(isStub).length === 0;
 
+// --- Closed-turn reasoning is dropped; the live turn keeps its own. ---
+// Providers that return `reasoning_content` get every earlier trace echoed
+// back on each later call; measured at 59.5% of a live DeepSeek context.
+const think = (n, chars, at) => ({
+  role: "assistant", model: "m",
+  content: [
+    { type: "thinking", thinking: "思".repeat(chars) },
+    { type: "text", text: `叙事 ${n}` },
+  ],
+  usage: {}, stopReason: "stop", timestamp: at,
+});
+const thinkingHistory = [
+  { ...player("回合 1"), timestamp: 1001 }, think(1, 30000, 1002),
+  { ...player("回合 2"), timestamp: 1003 }, think(2, 30000, 1004),
+  { ...player("回合 3"), timestamp: 1005 },
+];
+const tf = mod.createContextFold({ enabled: true, thresholdTokens: 5000 });
+const thinkingRun = tf.apply(thinkingHistory);
+const hasThinking = (m) => Array.isArray(m.content)
+  && m.content.some((part) => part.type === "thinking");
+const thinkingFolded = tf.stats().epochs === 1
+  && tf.stats().folded_thinking_chars === 60000
+  && tf.stats().folded_results === 0
+  && !thinkingRun.messages.some(hasThinking)
+  && thinkingRun.messages.filter(
+    (m) => Array.isArray(m.content) && m.content.some((p) => p.text === "叙事 1"),
+  ).length === 1;
+
+// The live turn's reasoning survives the same call.
+const liveThinking = tf.apply([...thinkingHistory, think(3, 5000, 1006)]);
+const liveThinkingKept = hasThinking(liveThinking.messages.at(-1))
+  && !hasThinking(liveThinking.messages[1]);
+
+// Watermark is monotonic and byte-stable: an already-folded message renders
+// identically on every later call, which is what the prefix cache needs.
+const laterThinking = tf.apply([
+  ...thinkingHistory, think(3, 5000, 1006), { ...player("回合 4"), timestamp: 1008 },
+]);
+const thinkingStable = JSON.stringify(laterThinking.messages[1])
+  === JSON.stringify(thinkingRun.messages[1]);
+
+// A message without a timestamp is never treated as old.
+const stampless = mod.createContextFold({ enabled: true, thresholdTokens: 1 });
+stampless.apply(thinkingHistory);
+const noStamp = { role: "assistant", model: "m", content: [{ type: "thinking", thinking: "x".repeat(50) }] };
+const stamplessRun = stampless.apply([...thinkingHistory, noStamp]);
+const stamplessKept = hasThinking(stamplessRun.messages.at(-1));
+
 // --- Kill switch and settings. ---
 const off = mod.createContextFold({ enabled: false, thresholdTokens: 1 });
 const offRun = off.apply(history);
@@ -155,6 +203,10 @@ process.stdout.write(JSON.stringify({
   monotonic,
   stubShape,
   tinyResultKept,
+  thinkingFolded,
+  liveThinkingKept,
+  thinkingStable,
+  stamplessKept,
   detailsKept,
   proseKept,
   disabled,

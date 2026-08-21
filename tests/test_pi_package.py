@@ -482,6 +482,13 @@ def test_pi_context_fold_collapses_closed_turn_tool_results_cache_stably():
     assert result["stubShape"] is True
     # A stub costs ~200 chars; folding a shorter receipt would spend context.
     assert result["tinyResultKept"] is True
+    # Closed-turn reasoning is echoed back on every later call by providers that
+    # return reasoning_content (59.5% of a live DeepSeek context), so it folds
+    # too — by a monotonic timestamp watermark, never the running turn's own.
+    assert result["thinkingFolded"] is True
+    assert result["liveThinkingKept"] is True
+    assert result["thinkingStable"] is True
+    assert result["stamplessKept"] is True
     assert result["detailsKept"] is True
     assert result["proseKept"] is True
     assert result["disabled"] is True

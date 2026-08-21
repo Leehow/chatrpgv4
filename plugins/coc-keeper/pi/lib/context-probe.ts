@@ -57,7 +57,7 @@ export type ContextFoldProjection = {
   closed_turns: number;
   /** Folded tool round trips behind the boundary. */
   folded_tool_results: number;
-  /** Closed-turn tool argument + tool result chars. */
+  /** Closed-turn tool result chars (tool arguments are never folded). */
   tool_chars: number;
   /** Closed-turn thinking chars. */
   thinking_chars: number;
@@ -235,10 +235,11 @@ function classify(scans: readonly MessageScan[]): ContextClassChars {
 /**
  * Project one epoch fold at the current turn boundary.
  *
- * The fold keeps every user message and every line of KP prose, and replaces
- * closed-turn tool arguments, tool results, and thinking with stubs. Nothing
- * inside the current turn is touched: those results are the live inputs of the
- * remaining model calls of this turn.
+ * Scope matches `lib/context-fold.ts` exactly, so the projection never
+ * promises more than the fold delivers: closed-turn tool results and closed-turn
+ * reasoning are evictable; player input, KP prose, and tool call arguments are
+ * not. Nothing inside the current turn is touched — those results are the live
+ * inputs of the remaining model calls of this turn.
  */
 function projectFold(scans: readonly MessageScan[], totalChars: number): ContextFoldProjection {
   let boundary: number | null = null;
@@ -257,7 +258,7 @@ function projectFold(scans: readonly MessageScan[], totalChars: number): Context
     const scan = scans[index];
     if (scan.role === "user") closedTurns += 1;
     if (scan.is_tool_result) foldedToolResults += 1;
-    toolChars += scan.tool_call_chars + scan.tool_result_chars;
+    toolChars += scan.tool_result_chars;
     thinkingChars += scan.thinking_chars;
   }
   const evictable = toolChars + thinkingChars;

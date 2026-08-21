@@ -1,13 +1,17 @@
 /**
- * Epoch context fold — collapse closed-turn tool results, keep the prefix cache.
+ * Epoch context fold — collapse closed-turn payloads, keep the prefix cache.
  *
- * A tool result is the live input of the model calls that follow it *inside its
- * own turn*: the KP narrates the roll, the scene projection, the NPC state it
+ * Two things go stale at a turn boundary. A tool result is the live input of
+ * the model calls that follow it *inside its own turn*: the KP narrates the roll, the scene projection, the NPC state it
  * just read. Once `turn.finalize` closes that turn, the payload is dead weight —
  * the next turn's authority comes from `state.*` / scene projections /
  * `session.resume`, never from rereading old JSON in the transcript. Measured on
  * real sessions, closed-turn tool results are 85–91% of the model-visible
- * context while KP prose is under 2%.
+ * context while KP prose is under 2%. Reasoning traces go stale the same way
+ * and can be larger still: providers that return `reasoning_content` get it
+ * echoed back on every later call, measured at 59.5% of a live DeepSeek
+ * context. Both are folded here; KP prose, player input, and tool call
+ * arguments are left exactly as they are.
  *
  * The constraint that shapes the design is prefix caching. This host runs at
  * ~96% cache-read hit rate on automatic prefix caching with no pinnable
@@ -54,11 +58,13 @@ export type ContextFoldStats = {
   epochs: number;
   /** Tool results currently folded. */
   folded_results: number;
-  /** Original model-visible chars replaced by stubs. */
+  /** Original model-visible tool-result chars replaced by stubs. */
   folded_chars: number;
+  /** Closed-turn reasoning chars dropped from the context. */
+  folded_thinking_chars: number;
   /** Chars the stubs cost instead. */
   stub_chars: number;
-  /** Closed-turn tool result chars not folded yet (the next epoch's pile). */
+  /** Closed-turn tool result + reasoning chars not folded yet. */
   pending_chars: number;
   /** Results folded by the call that just ran; 0 on every other call. */
   folded_this_call: number;
@@ -87,6 +93,19 @@ function resultChars(message: unknown): number {
       } catch {
         // Unserializable parts are not counted; they are also never folded.
       }
+    }
+  }
+  return chars;
+}
+
+/** Reasoning chars an assistant message still carries. */
+function thinkingChars(message: unknown): number {
+  const content = (message as { content?: unknown } | null)?.content;
+  if (!Array.isArray(content)) return 0;
+  let chars = 0;
+  for (const part of content) {
+    if ((part as { type?: unknown } | null)?.type === "thinking") {
+      chars += textOf((part as { thinking?: unknown }).thinking).length;
     }
   }
   return chars;
@@ -161,8 +180,16 @@ export function createContextFold(
 ): ContextFold {
   /** toolCallId -> frozen stub content. Monotonic; entries are never removed. */
   const stubs = new Map<string, { type: "text"; text: string }[]>();
+  /**
+   * Reasoning is dropped rather than stubbed, so it needs no per-message
+   * record — only a monotonic timestamp watermark. Every assistant message at
+   * or below it renders without thinking blocks, on every later call, which is
+   * what keeps the folded prefix byte-stable. The watermark never moves back.
+   */
+  let thinkingWatermark = 0;
   let epochs = 0;
   let foldedChars = 0;
+  let foldedThinkingChars = 0;
   let stubChars = 0;
   let pendingChars = 0;
   let foldedThisCall = 0;
@@ -173,6 +200,7 @@ export function createContextFold(
     epochs,
     folded_results: stubs.size,
     folded_chars: foldedChars,
+    folded_thinking_chars: foldedThinkingChars,
     stub_chars: stubChars,
     pending_chars: pendingChars,
     folded_this_call: foldedThisCall,
@@ -186,6 +214,21 @@ export function createContextFold(
   const isToolResult = (message: unknown): boolean => (
     (message as { role?: unknown } | null)?.role === "toolResult"
   );
+
+  const timestampOf = (message: unknown): number => {
+    const at = (message as { timestamp?: unknown } | null)?.timestamp;
+    return typeof at === "number" && Number.isFinite(at) ? at : 0;
+  };
+
+  const withoutThinking = (message: unknown): unknown => {
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) return message;
+    const kept = content.filter(
+      (part) => (part as { type?: unknown } | null)?.type !== "thinking",
+    );
+    if (kept.length === content.length) return message;
+    return { ...(message as Record<string, unknown>), content: kept };
+  };
 
   return {
     stats: snapshot,
@@ -210,9 +253,16 @@ export function createContextFold(
       // prefix never changes underneath the calls of the turn using it.
       const atTurnBoundary = boundary === messages.length - 1;
       const closed: { index: number; id: string; chars: number }[] = [];
+      // Reasoning still riding along from closed turns, plus the newest
+      // timestamp the watermark would have to reach to drop it.
+      let staleThinking = 0;
+      let nextWatermark = thinkingWatermark;
       let pile = 0;
       for (let index = 0; index < Math.max(0, boundary); index += 1) {
         const message = messages[index];
+        const at = timestampOf(message);
+        if (at > nextWatermark) nextWatermark = at;
+        if (at > thinkingWatermark) staleThinking += thinkingChars(message);
         if (!isToolResult(message)) continue;
         const id = idOf(message);
         if (id === null || stubs.has(id)) continue;
@@ -221,24 +271,36 @@ export function createContextFold(
         closed.push({ index, id, chars });
         pile += chars;
       }
-      pendingChars = pile;
+      pendingChars = pile + staleThinking;
 
-      if (atTurnBoundary && closed.length > 0 && estimateTokens(pile) > settings.thresholdTokens) {
+      if (
+        atTurnBoundary
+        && (closed.length > 0 || staleThinking > 0)
+        && estimateTokens(pendingChars) > settings.thresholdTokens
+      ) {
         for (const entry of closed) {
           const text = stubText(messages[entry.index], entry.chars);
           stubs.set(entry.id, [{ type: "text", text }]);
           foldedChars += entry.chars;
           stubChars += text.length;
         }
+        thinkingWatermark = nextWatermark;
+        foldedThinkingChars += staleThinking;
         foldedThisCall = closed.length;
         epochs += 1;
         pendingChars = 0;
       }
 
-      if (stubs.size === 0) {
+      if (stubs.size === 0 && thinkingWatermark === 0) {
         return { messages: messages as unknown[], stats: snapshot() };
       }
       const projected = messages.map((message) => {
+        // A missing timestamp is never treated as "old"; only a real stamp at
+        // or below the watermark loses its reasoning.
+        const at = timestampOf(message);
+        if (at > 0 && at <= thinkingWatermark) {
+          message = withoutThinking(message);
+        }
         if (!isToolResult(message)) return message;
         const id = idOf(message);
         const stub = id === null ? undefined : stubs.get(id);

@@ -67,12 +67,12 @@ const accounting = first.messages === 8
 // Fold projection: only the two closed turns are foldable. The live turn's
 // tool result (2000 chars) is the current call's own input and must survive.
 const fold = first.fold;
-const journalArgsChars = JSON.stringify({ operation: "state.journal", campaign: "probe" }).length;
+// Scope matches the shipped fold: tool results and reasoning, never the tool
+// call arguments, which stay in the context.
 const foldShape = fold.turn_boundary_index === 6
   && fold.closed_turns === 2
   && fold.folded_tool_results === 2
   && fold.tool_chars === 4000 + 6000 + 2 * "coc_state_journal".length
-    + 2 * ("coc_state_journal".length + journalArgsChars)
   && fold.thinking_chars === 800
   && fold.evictable_chars === fold.tool_chars + fold.thinking_chars
   && fold.stub_chars === 2 * mod.STUB_CHARS

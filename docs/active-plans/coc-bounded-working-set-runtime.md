@@ -420,11 +420,16 @@ fold projection, and observed prefix stability into the turn telemetry
 `details` — ~48% of tool-result message bytes and never sent to the provider —
 is excluded, so probe numbers track what the provider is actually billed for.
 
-`lib/context-fold.ts` then acts on the measurement, for tool results only:
+`lib/context-fold.ts` then acts on the measurement:
 
 - Closed-turn tool results (everything before the last player message) fold to
-  a stub; the running turn's results are never touched, because they are the
-  live inputs of that turn's remaining model calls.
+  a stub, and closed-turn reasoning is dropped by a monotonic timestamp
+  watermark. The running turn's results and reasoning are never touched,
+  because they are the live inputs of that turn's remaining model calls.
+- Reasoning is folded because providers returning `reasoning_content` have it
+  echoed back on every later call: 1.6% of a recorded Grok context but 55.7%
+  of a live DeepSeek one, which is why the model choice changes which half of
+  the context dominates.
 - A fold opens only on the first model call of a turn and only when the
   unfolded pile crosses `PI_COC_CONTEXT_FOLD_TOKENS` (default 20k est_tokens),
   so most turns stay pure appends and keep hitting the prefix cache. This is an
@@ -446,9 +451,8 @@ fold and prices baseline against threshold variants under one cache model
 (surviving chars are cache reads, everything else fresh), so the threshold is
 chosen from history rather than guessed. Replaying the 695-call
 `rpc-play-session` transcript at the 20k default: 21 folds, effective tokens
-−71.7%, peak context 171k instead of 693k. On the 152-call
-`memory-playtest-20260820` transcript: 4 folds, −57.2%, peak 45k instead of
-132k.
+−73.5%, peak context 160k instead of 693k. On the live DeepSeek playtest
+transcript (55.7% reasoning): 3 folds, −52.2%, peak 40k instead of 95k.
 The curve is flat between 5k and 20k, so the default takes the fewer folds.
 
 What component coverage cannot answer is whether the KP still plays well

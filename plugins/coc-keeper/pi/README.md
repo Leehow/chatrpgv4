@@ -214,12 +214,18 @@ The shape is dictated by prefix caching (automatic, no pinnable breakpoints,
 ~96% hit rate here): a rewrite inside the prefix invalidates everything after
 it, so this is an **epoch fold**, not a sliding window.
 
+- Folds closed-turn **tool results** (to stubs) and closed-turn **reasoning**
+  (dropped outright). Providers that return `reasoning_content` get every
+  earlier trace echoed back on each later call — measured at 59.5% of a live
+  DeepSeek context — so it goes stale exactly like a tool payload. Player
+  input, KP prose, and tool call arguments are never touched.
 - Folds only on the first model call of a turn, never mid-turn; the running
-  turn's own results are always intact.
+  turn's own results and reasoning are always intact.
 - Folds only when the unfolded closed-turn pile crosses the threshold, so most
   turns are pure appends and keep hitting cache.
-- Each stub is frozen under its `toolCallId`: identical bytes on every later
-  call, and folding never reverses. Results under `MIN_FOLD_CHARS` (400) are
+- Each stub is frozen under its `toolCallId`, and reasoning is dropped by a
+  monotonic timestamp watermark: identical bytes on every later call, and
+  folding never reverses. Results under `MIN_FOLD_CHARS` (400) are
   left alone because a stub costs more than they do.
 - The stub is structural — tool, canonical operation, ok/error,
   `full_result_sha256`, folded size, and a re-read note. It never summarizes
