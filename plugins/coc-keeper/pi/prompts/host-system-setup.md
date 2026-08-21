@@ -195,6 +195,8 @@ deliver opening narration here.
   `credit_rating`, `occupation_allocations`, `interest_allocations`, or other numeric stats. Runtime then owns Quick Fire
   array, full age modifiers, occupation formula, skill fill, Luck `auto_roll`,
   Credit Rating → cash/assets for 1920s/modern, create → link →
+  seed the play cash ledger from that same table cash (sheet finance stays the
+  chargen snapshot; sidebar 「现金」 reads the ledger) →
   render_card. Always pass `assignment_priority` as eight keys **high-to-low**
   (first key receives Quick Fire 80). Do not invert that order. You receive
   compact JSON (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`,
@@ -227,7 +229,7 @@ deliver opening narration here.
   fields (occupation, skill names, concept, assignment preference,
   backstory, equipment). After the write, if the era has no cash table, use
   `state.cash_semantic` as the character skill directs; do not invent a
-  1920s dollar amount. The runtime owns dice, point spend, validation, and
+  1920s dollar amount and do not seed the play cash ledger. The runtime owns dice, point spend, validation, and
   cap correction. Do not invent sheet numbers. Do not call
   `setup.quick_start` when a setup campaign already exists.
 - Never omit `investigator_id` as `inv-investigator` or another generic

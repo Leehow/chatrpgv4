@@ -1,8 +1,9 @@
 """Campaign-local runtime cash ledger for investigator play.
 
-Starting sheet ``cash`` strings and ``rules.cash_assets`` / ``state.cash_semantic``
-remain chargen/read-only. Live grants and spends write only this structure on
-``save/investigator-state/<id>.json["cash"]``. Callers pass structured amount,
+Starting sheet ``cash`` / ``assets`` / ``spending_level`` remain the chargen
+snapshot. ``setup.chargen_run`` may seed this ledger once from the same
+1920s/modern table result. Live grants and spends then write only this
+structure on ``save/investigator-state/<id>.json["cash"]``. Callers pass structured amount,
 currency, source id, reason, and player-safe localized_reason; this module
 never parses free prose. Schema v2 is multi-currency with no FX.
 
@@ -503,3 +504,134 @@ class InsufficientFunds(ValueError):
         self.amount = amount
         self.currency = currency
         self.held = dict(held or {})
+
+
+class CashHeadsError(ValueError):
+    """Asset-head file or row cannot be reconciled with the cash ledger."""
+
+
+CASH_ASSET_HEADS_NAME = "toolbox-asset-heads.json"
+CASH_GRANT_TOOL = "state.cash_grant"
+CASH_SPEND_TOOL = "state.cash_spend"
+CHARGEN_CASH_SOURCE = "chargen-credit-rating"
+CHARGEN_CASH_REASON = "investigator creation credit-rating conversion"
+CHARGEN_CASH_LOCALIZED_REASON = "建卡·信用评级换算"
+
+
+def cash_head_key(investigator_id: str) -> str:
+    return f"cash:investigator:{investigator_id}"
+
+
+def cash_head_record(entry: dict[str, Any], revision_after: int) -> dict[str, Any]:
+    return {
+        "tool": str(entry["tool"]),
+        "decision_id": str(entry["decision_id"]),
+        "revision_after": int(revision_after),
+    }
+
+
+def attach_cash_receipt(state: dict[str, Any], entry: dict[str, Any]) -> None:
+    receipts = state.get("operation_receipts")
+    if receipts is None:
+        receipts = {}
+        state["operation_receipts"] = receipts
+    if not isinstance(receipts, dict):
+        raise ValueError("cash operation receipts are invalid")
+    tool = str(entry["tool"])
+    bucket = receipts.get(tool)
+    if bucket is None:
+        bucket = {}
+        receipts[tool] = bucket
+    if not isinstance(bucket, dict):
+        raise ValueError("cash operation receipts are invalid")
+    decision_id = str(entry["decision_id"])
+    bucket[decision_id] = {
+        "tool": tool,
+        "decision_id": decision_id,
+        "op": entry["op"],
+    }
+
+
+def assert_cash_receipts(state: dict[str, Any], cash: dict[str, Any]) -> None:
+    ledger = cash.get("ledger") or []
+    if not ledger:
+        return
+    receipts = state.get("operation_receipts")
+    if not isinstance(receipts, dict):
+        raise ValueError("cash operation receipts are missing")
+    for row in ledger:
+        tool = str(row.get("tool") or "")
+        decision_id = str(row.get("decision_id") or "")
+        bucket = receipts.get(tool)
+        if not isinstance(bucket, dict) or decision_id not in bucket:
+            raise ValueError("cash operation receipts do not cover the ledger")
+
+
+def cash_heads_status(
+    document: dict[str, Any] | None,
+    investigator_id: str,
+    cash: dict[str, Any],
+) -> str:
+    """Return ok, missing, stale, or corrupt for this investigator cash head."""
+    ledger = cash.get("ledger") or []
+    if not ledger:
+        return "ok"
+    if document is None:
+        return "missing"
+    heads = document.get("heads") if isinstance(document, dict) else None
+    if not isinstance(heads, dict):
+        return "corrupt"
+    head = heads.get(cash_head_key(investigator_id))
+    if not isinstance(head, dict):
+        return "missing"
+    decision_id = str(head.get("decision_id") or "")
+    tool = str(head.get("tool") or "")
+    if not any(
+        str(row.get("decision_id") or "") == decision_id
+        and str(row.get("tool") or "") == tool
+        for row in ledger
+    ):
+        return "corrupt"
+    latest = ledger[-1]
+    if (
+        tool == str(latest.get("tool") or "")
+        and decision_id == str(latest.get("decision_id") or "")
+        and head.get("revision_after") == len(ledger)
+    ):
+        return "ok"
+    return "stale"
+
+
+def request_matches_cash_entry(
+    entry: dict[str, Any],
+    *,
+    op: str,
+    amount: Any,
+    currency: str,
+    unit: str | None,
+    source: str,
+    reason: str,
+    localized_reason: str,
+    tool: str,
+) -> bool:
+    if str(entry.get("op") or "") != op or str(entry.get("tool") or "") != tool:
+        return False
+    if (
+        str(entry.get("source") or "") != source
+        or str(entry.get("reason") or "") != reason
+        or str(entry.get("localized_reason") or "") != localized_reason
+    ):
+        return False
+    try:
+        if parse_amount(entry.get("amount")) != parse_amount(amount):
+            return False
+        if canonical_currency(str(entry.get("currency") or "")) != canonical_currency(
+            currency
+        ):
+            return False
+    except ValueError:
+        return False
+    entry_unit = entry.get("unit")
+    if unit is None:
+        return "unit" not in entry or entry_unit is None
+    return entry_unit == unit

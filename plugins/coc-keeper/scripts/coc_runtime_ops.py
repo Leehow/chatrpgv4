@@ -71,6 +71,8 @@ coc_scenario_hydration = _load_sibling(
 )
 coc_starter = _load_sibling("coc_starter_runtime_ops", "coc_starter.py")
 coc_state = _load_sibling("coc_state_runtime_ops", "coc_state.py")
+coc_cash = _load_sibling("coc_cash_runtime_ops", "coc_cash.py")
+coc_time = _load_sibling("coc_time_runtime_ops", "coc_time.py")
 coc_tomes = _load_sibling("coc_tomes_runtime_ops", "coc_tomes.py")
 coc_turn_finalization = _load_sibling(
     "coc_turn_finalization_runtime_ops", "coc_turn_finalization.py"
@@ -5370,6 +5372,138 @@ def _load_chargen_commits(campaign_dir: Path) -> dict[str, Any]:
     return data
 
 
+def _chargen_starting_cash_amount(
+    sheet: dict[str, Any],
+) -> tuple[Any, str] | None:
+    if sheet.get("era_adaptive") is True:
+        return None
+    cash = sheet.get("cash")
+    if not isinstance(cash, dict):
+        return None
+    amount = cash.get("amount")
+    currency = cash.get("currency") or "USD"
+    if amount is None or isinstance(amount, bool):
+        return None
+    if not isinstance(currency, str) or not currency.strip():
+        return None
+    try:
+        parsed = coc_cash.parse_amount(amount)
+    except ValueError:
+        return None
+    if parsed <= 0:
+        return None
+    return amount, currency.strip()
+
+
+def _write_chargen_cash_head(
+    campaign_dir: Path,
+    investigator_id: str,
+    entry: dict[str, Any],
+    revision_after: int,
+) -> None:
+    path = campaign_dir / "save" / coc_cash.CASH_ASSET_HEADS_NAME
+    document: dict[str, Any] = {"schema_version": 1, "heads": {}}
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            raw = None
+        if isinstance(raw, dict) and isinstance(raw.get("heads"), dict):
+            document = raw
+            document["schema_version"] = 1
+    heads = document.setdefault("heads", {})
+    if not isinstance(heads, dict):
+        heads = {}
+        document["heads"] = heads
+    heads[coc_cash.cash_head_key(investigator_id)] = coc_cash.cash_head_record(
+        entry, revision_after
+    )
+    coc_fileio.write_json_atomic(
+        path,
+        document,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+
+
+def _seed_chargen_cash_ledger(
+    root: Path,
+    *,
+    campaign_id: str,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    decision_id: str,
+) -> None:
+    """Idempotent starting-cash grant on the play ledger. Same decision_id as create+link."""
+    starting = _chargen_starting_cash_amount(sheet)
+    if starting is None:
+        return
+    amount, currency = starting
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    state_path = coc_state.seed_investigator_state_if_missing(
+        root, campaign_id, investigator_id, sheet=sheet
+    )
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeOperationError(
+            f"investigator cash state is unreadable: {investigator_id}"
+        ) from exc
+    if not isinstance(state, dict):
+        raise RuntimeOperationError(
+            f"investigator cash state is invalid: {investigator_id}"
+        )
+    try:
+        cash = coc_cash.normalize_cash(state.get("cash"))
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    existing = next(
+        (
+            row
+            for row in cash["ledger"]
+            if str(row.get("decision_id") or "") == decision_id
+        ),
+        None,
+    )
+    if existing is not None:
+        return
+    try:
+        next_cash, entry = coc_cash.apply_cash(
+            cash,
+            op="grant",
+            amount=amount,
+            currency=currency,
+            unit=None,
+            source=coc_cash.CHARGEN_CASH_SOURCE,
+            reason=coc_cash.CHARGEN_CASH_REASON,
+            localized_reason=coc_cash.CHARGEN_CASH_LOCALIZED_REASON,
+            decision_id=decision_id,
+            recorded_at=datetime.now(timezone.utc).isoformat(),
+            game_time=coc_time.current_stamp(campaign_dir),
+            tool=coc_cash.CASH_GRANT_TOOL,
+        )
+    except coc_cash.DuplicateCashDecision:
+        return
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    state["cash"] = next_cash
+    try:
+        coc_cash.attach_cash_receipt(state, entry)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    coc_fileio.write_json_atomic(
+        state_path,
+        state,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    _write_chargen_cash_head(
+        campaign_dir, investigator_id, entry, len(next_cash["ledger"])
+    )
+
+
 def _commit_chargen_create_and_link(
     root: Path,
     *,
@@ -5416,6 +5550,13 @@ def _commit_chargen_create_and_link(
             )
             if linked.get("status") != "PASS":
                 raise RuntimeOperationError("campaign.link_investigator did not pass")
+        _seed_chargen_cash_ledger(
+            root,
+            campaign_id=campaign_id,
+            investigator_id=investigator_id,
+            sheet=sheet,
+            decision_id=decision_id,
+        )
         return previous, {"status": "PASS", "state_refs": []}, True
     create_payload: dict[str, Any] = {
         "campaign_id": campaign_id,
@@ -5461,6 +5602,13 @@ def _commit_chargen_create_and_link(
         indent=2,
         ensure_ascii=False,
         trailing_newline=True,
+    )
+    _seed_chargen_cash_ledger(
+        root,
+        campaign_id=campaign_id,
+        investigator_id=investigator_id,
+        sheet=sheet,
+        decision_id=decision_id,
     )
     return receipt, created, False
 

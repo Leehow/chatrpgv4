@@ -181,7 +181,15 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   only campaign-local KP bookkeeping with `kp_guided`/`cash_semantic`
   provenance; it cannot alter rule tables or claim a rules-derived cash amount.
   Do not call `state.cash_semantic` for `1920s`/`modern`; the sheet already
-  holds the table result.
+  holds the table result. Sheet `cash`/`assets`/`spending_level` is the chargen
+  snapshot (card lore). The campaign cash ledger (`state.cash_grant` /
+  `state.cash_spend` / `state.cash_query`) is the play-time purse the sidebar
+  reads. `setup.chargen_run` create+link seeds that ledger once from the same
+  1920s/modern table cash, with `localized_reason` 建卡·信用评级换算,
+  idempotent on the commit `decision_id`. Era-adaptive (no table) does not seed
+  the ledger: keep prose via `state.cash_semantic`, and only after opening may
+  the KP grant a numeric first entry if play needs one. Pregen and
+  `setup.quick_start` still leave the ledger empty.
 - **Confirmation craft.** After presenting the complete investigator, close in the Keeper's own voice and invite confirmation, in campaign `play_language` (default `zh-Hans`). Recommended substance: 「哪里想改，直接说；如果确定，请回复『确定』，我们开始游戏。」 The wording may follow the table's tone. When the player corrects, jokes, hedges, or asks a follow-up, treat the sheet as not yet settled: apply the change, re-show what moved, and ask again in passing. Do not take a correction or a joke as the final nod. This is Keeper craft (should / 应当 / 习惯上); the KP judges meaning. It is not a tool-enforced or blocking gate.
 - After the player confirms the final parameters, reuse the canonical
   `setup.invoke` card already returned by setup inspection and construct its
