@@ -1305,6 +1305,26 @@ export default function App() {
     if (sid) void api.abortTurn(sid).catch(() => undefined);
   }, [session]);
 
+  /** 章鱼 Logo：回到候场首页。仅退出当前视图（与「删除当前战役」的
+   *  本地清理同构）：中断本地流、清空本地会话状态；战役数据不动，
+   *  在途回合在服务端照常结算，重新打开战役即可看到。已在首页时幂等。 */
+  const goHome = useCallback(() => {
+    turnAbortRef.current?.abort();
+    setSession(null);
+    setState(null);
+    setTransition(initialTransitionState);
+    setMessages([]);
+    setToolSteps([]);
+    setKpThinking("");
+    setLiveUsage(null);
+    liveUsageRef.current = null;
+    setError(null);
+    setCreating(false);
+    setPdfImportPath(null);
+    setPdfImportFile(null);
+    localStorage.removeItem(LS.campaign);
+  }, []);
+
   // --- Campaign admin (rename / trash / restore) — semantics live in the
   // bridge + runtime; these wrappers refresh projections and reset the local
   // session when the active campaign itself goes to the trash.
@@ -1383,7 +1403,15 @@ export default function App() {
           });
         },
       }
-    : null;
+    : bootstrap
+      ? null // bootstrap 已回来但确无预置剧本：不提供一键开局
+      : {
+          // bootstrap 还在路上：乐观渲染（卡片立即可见，可点前禁用），
+          // 避免桌面桥启动慢时「开一局游戏」迟退几秒才出现。
+          hint: "正在载入内置模组…… · 开局后由 KP 引导创建调查员",
+          disabled: true,
+          run: () => undefined,
+        };
 
   // Same readiness semantics as GuidedStart: the default provider or any
   // authed provider counts (the model menu can switch between them). Null
@@ -1496,17 +1524,16 @@ export default function App() {
         </Button>
         {/* Phones: brand text stays off so toolbar icons fit. */}
         <div className="flex min-w-0 items-center gap-2.5">
-          {/* 章鱼印记：点击重新进入首次开始引导。仅本会话内强制显示，
-              不改写「先跳过」的持久化记录。 */}
+          {/* 章鱼印记：回到候场首页（退出当前战役视图，不动任何数据）。 */}
           <button
             type="button"
             className={cn(
               "brand-seal hidden shrink-0 cursor-pointer border-0 bg-transparent p-0 transition-transform duration-150 hover:scale-110 md:inline-block",
               isDesktop && "app-no-drag",
             )}
-            title="回到开始引导"
-            aria-label="回到开始引导"
-            onClick={() => setGuided(true)}
+            title="回到候场首页"
+            aria-label="回到候场首页"
+            onClick={goHome}
           />
           <span className="hidden font-display text-[1.35rem] font-bold tracking-[0.08em] text-foreground md:inline">
             <span className="text-primary">Pi</span> Keeper
@@ -1667,6 +1694,11 @@ export default function App() {
               quickStart={quickStart}
               setupPending={setupPending}
               modelsReady={aiReady}
+              onImportPdf={(file) => {
+                setPdfImportPath(null);
+                setPdfImportFile(file);
+                setCreating(true);
+              }}
               onConfigureModels={() => setSettingsOpen(true)}
               onSend={send}
               onStop={stop}

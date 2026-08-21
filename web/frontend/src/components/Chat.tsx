@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Banknote, Brain, Crosshair, Dices, HeartPulse, KeyRound, Loader2, Pencil, Shield, Square, Swords } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Banknote, Brain, Crosshair, Dices, FileUp, HeartPulse, KeyRound, Loader2, Pencil, Shield, Square, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -38,12 +38,15 @@ import {
 } from "../session-transition";
 import { presentSanityCard } from "../mechanic-effects";
 import { selectRollGroupView } from "../roll-layout";
+import { isWaitingPdfFile } from "../waiting-pdf-import";
 
 /** One-click default game offered on the waiting screen: preset starter +
  *  KP-guided investigator creation, straight into play. */
 export interface QuickStartAction {
   /** Player-facing one-liner of what will be created (scenario · source). */
   hint: string;
+  /** Not-yet-loaded placeholder (bootstrap in flight): visible but inert. */
+  disabled?: boolean;
   run: () => void;
 }
 
@@ -68,6 +71,9 @@ interface Props {
   /** Model readiness once the provider list has loaded (null = loading);
    * false swaps the quick-start button for a configure-models guide. */
   modelsReady?: boolean | null;
+  /** Waiting-screen PDF pick/drop: same pdf 开局 handoff as the guide's
+   *  welcome screen (App routes both into NewCampaignFlow's pdf mode). */
+  onImportPdf?: (file: File) => void;
   /** Opens the in-app 编辑模型 overlay. */
   onConfigureModels?: () => void;
   onSend: (text: string, playerIntent?: PlayerIntent) => void;
@@ -1191,6 +1197,7 @@ export function Chat({
   quickStart = null,
   setupPending = false,
   modelsReady = null,
+  onImportPdf,
   onConfigureModels,
   onSend,
   onStop,
@@ -1228,6 +1235,67 @@ export function Chat({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
+  // 候场页 PDF 开局：与引导页 welcome 同一条链路（isWaitingPdfFile 校验 →
+  // onImportPdf → App 的 pdfImportFile → NewCampaignFlow pdf 模式）。
+  const [pdfDragOver, setPdfDragOver] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState<string | null>(null);
+  const pdfFileRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
+  const takePdfFile = (file: File | null) => {
+    if (!file) return;
+    if (!isWaitingPdfFile(file)) {
+      setPdfNotice("只支持 PDF 模组文件。");
+      return;
+    }
+    setPdfNotice(null);
+    onImportPdf?.(file);
+  };
+
+  // Whole-page PDF drop while the waiting screen owns the view. In a live
+  // campaign the transcript stays the drop-free surface it always was.
+  useEffect(() => {
+    if (connected || error || !onImportPdf) return;
+    const onDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepth.current += 1;
+      setPdfDragOver(true);
+    };
+    const onDragOver = (e: DragEvent) => e.preventDefault();
+    const onDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setPdfDragOver(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepth.current = 0;
+      setPdfDragOver(false);
+      takePdfFile(e.dataTransfer?.files?.[0] ?? null);
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- takePdfFile only closes over onImportPdf
+  }, [connected, error, onImportPdf]);
+
+  const pdfDropOverlay =
+    pdfDragOver &&
+    !connected &&
+    !error && (
+      <div className="pointer-events-none fixed inset-0 z-50 m-6 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-primary/5 text-center">
+        <FileUp className="size-8 text-primary" />
+        <div className="text-sm font-medium text-foreground">松开以导入模组 PDF</div>
+        <div className="text-xs text-muted-foreground">将进入 PDF 开局并自动开始解析</div>
+      </div>
+    );
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !nearBottomRef.current) return;
@@ -1251,6 +1319,7 @@ export function Chat({
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col bg-background">
+      {pdfDropOverlay}
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
@@ -1316,31 +1385,62 @@ export function Chat({
                       )}
                     </div>
                   ) : (
-                    quickStart && (
+                    <div className="mt-5 flex flex-wrap items-stretch justify-center gap-3">
+                      {quickStart && (
+                        <button
+                          type="button"
+                          onClick={quickStart.run}
+                          disabled={busy || quickStart.disabled}
+                          className={cn(
+                            "group flex flex-col items-center gap-1.5 rounded-2xl border border-primary/40 bg-primary/5 px-8 py-4 text-center",
+                            "transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md",
+                            "disabled:pointer-events-none disabled:opacity-60",
+                          )}
+                        >
+                          <span className="flex items-center gap-2 text-base font-semibold text-foreground">
+                            {busy ? (
+                              <Loader2 className="size-4 animate-spin text-primary" />
+                            ) : (
+                              <Dices className="size-4 text-primary transition-transform group-hover:rotate-12" />
+                            )}
+                            {busy ? "开局中…" : "开一局游戏"}
+                          </span>
+                          <span className="max-w-md text-xs leading-relaxed text-muted-foreground">
+                            {quickStart.hint}
+                          </span>
+                        </button>
+                      )}
+                      <input
+                        ref={pdfFileRef}
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="sr-only"
+                        onChange={(e) => {
+                          takePdfFile(e.target.files?.[0] ?? null);
+                          e.target.value = "";
+                        }}
+                      />
                       <button
                         type="button"
-                        onClick={quickStart.run}
+                        onClick={() => pdfFileRef.current?.click()}
                         disabled={busy}
                         className={cn(
-                          "group mt-5 flex flex-col items-center gap-1.5 rounded-2xl border border-primary/40 bg-primary/5 px-8 py-4 text-center",
+                          "group flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card px-8 py-4 text-center",
                           "transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md",
                           "disabled:pointer-events-none disabled:opacity-60",
                         )}
                       >
                         <span className="flex items-center gap-2 text-base font-semibold text-foreground">
-                          {busy ? (
-                            <Loader2 className="size-4 animate-spin text-primary" />
-                          ) : (
-                            <Dices className="size-4 text-primary transition-transform group-hover:rotate-12" />
-                          )}
-                          {busy ? "开局中…" : "开一局游戏"}
+                          <FileUp className="size-4 text-primary transition-transform group-hover:-translate-y-0.5" />
+                          上传 PDF 模组
                         </span>
                         <span className="max-w-md text-xs leading-relaxed text-muted-foreground">
-                          {quickStart.hint}
+                          用自己的跑团 PDF：本地解析后即可开局
                         </span>
                       </button>
-                    )
+                    </div>
                   )}
+                  {pdfNotice && <p className="mt-3 text-xs text-warning">{pdfNotice}</p>}
                   <p className="text-xs text-muted-foreground/70">
                     这是 pi-coc 的桌面。KP 与 TUI 是同一个宿主。
                   </p>
