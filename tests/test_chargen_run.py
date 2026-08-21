@@ -1499,3 +1499,102 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
         item for item in (envelope.get("warnings") or [])
         if "Language (English)" in item and "不一致" in item
     ]
+
+
+def _dilettante_args(campaign_id: str, investigator_id: str) -> dict:
+    return _chargen_args(
+        campaign_id,
+        investigator_id,
+        occupation_name="Dilettante",
+        occupation_label="名流",
+        occupation_skill_names=[
+            "Art and Craft (Fine Art)", "Firearms (Handgun)", "Ride",
+            "Charm", "Spot Hidden", "Listen", "History",
+        ],
+    )
+
+
+def test_chargen_run_cash_ledger_increases_on_setup_replace(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-cash-up")
+    first = coc_toolbox.run_tool(
+        "setup.chargen_run", tmp_path, None, _chargen_args(campaign_id, "ada-up"),
+    )
+    assert first["ok"] is True, first
+    first_luck = first["data"]["result"]["derived"]["luck"]
+    first_rolls = list(first["data"]["result"]["roll_ids"])
+    first_sheet, first_creation = _stored_investigator(tmp_path, "ada-up")
+    first_cash = coc_toolbox.coc_cash.format_amount(first_sheet["cash"]["amount"])
+    second = coc_toolbox.run_tool(
+        "setup.chargen_run", tmp_path, None, _dilettante_args(campaign_id, "ada-up"),
+    )
+    assert second["ok"] is True, second
+    assert second["data"]["result"]["derived"]["luck"] == first_luck
+    assert first_rolls[0] in second["data"]["result"]["roll_ids"]
+    assert first_creation["luck_roll_receipt"]["roll_id"] == json.loads(
+        (tmp_path / ".coc" / "investigators" / "ada-up" / "creation.json").read_text(
+            encoding="utf-8"
+        )
+    )["luck_roll_receipt"]["roll_id"]
+    stored, _ = _stored_investigator(tmp_path, "ada-up")
+    target = coc_toolbox.coc_cash.format_amount(stored["cash"]["amount"])
+    assert target != first_cash
+    cash = _investigator_runtime_state(tmp_path, campaign_id, "ada-up")["cash"]
+    assert cash["balances"]["USD"]["amount"] == target
+    assert len(cash["ledger"]) == 2
+    assert cash["ledger"][0]["localized_reason"] == "建卡·信用评级换算"
+    assert cash["ledger"][1]["op"] == "grant"
+    assert cash["ledger"][1]["localized_reason"] == "建卡重跑·信用评级差额调整"
+    assert cash["ledger"][1]["source"] == "chargen-credit-rating-adjust"
+    summary = second["data"]["result"]["player_summary_zh"]
+    finance = " ".join(summary.get("finance") or [])
+    assert target.replace(".00", "") in finance.replace(",", "") or (
+        stored["cash"]["amount"] is not None
+    )
+    replay = coc_toolbox.run_tool(
+        "setup.chargen_run", tmp_path, None, _dilettante_args(campaign_id, "ada-up"),
+    )
+    assert replay["ok"] is True, replay
+    replayed = _investigator_runtime_state(tmp_path, campaign_id, "ada-up")["cash"]
+    assert len(replayed["ledger"]) == 2
+    assert replayed["balances"]["USD"]["amount"] == target
+
+
+def test_chargen_run_cash_ledger_decreases_on_setup_replace(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-cash-down")
+    first = coc_toolbox.run_tool(
+        "setup.chargen_run", tmp_path, None, _dilettante_args(campaign_id, "ada-down"),
+    )
+    assert first["ok"] is True, first
+    first_luck = first["data"]["result"]["derived"]["luck"]
+    first_rolls = list(first["data"]["result"]["roll_ids"])
+    first_sheet, first_creation = _stored_investigator(tmp_path, "ada-down")
+    first_cash = coc_toolbox.coc_cash.format_amount(first_sheet["cash"]["amount"])
+    second = coc_toolbox.run_tool(
+        "setup.chargen_run", tmp_path, None, _chargen_args(campaign_id, "ada-down"),
+    )
+    assert second["ok"] is True, second
+    assert second["data"]["result"]["derived"]["luck"] == first_luck
+    assert first_rolls[0] in second["data"]["result"]["roll_ids"]
+    assert first_creation["edu_improvement_rolls"][0]["check_receipt"]["roll_id"] == json.loads(
+        (tmp_path / ".coc" / "investigators" / "ada-down" / "creation.json").read_text(
+            encoding="utf-8"
+        )
+    )["edu_improvement_rolls"][0]["check_receipt"]["roll_id"]
+    stored, _ = _stored_investigator(tmp_path, "ada-down")
+    target = coc_toolbox.coc_cash.format_amount(stored["cash"]["amount"])
+    assert target != first_cash
+    cash = _investigator_runtime_state(tmp_path, campaign_id, "ada-down")["cash"]
+    assert cash["balances"]["USD"]["amount"] == target
+    assert len(cash["ledger"]) == 2
+    assert cash["ledger"][1]["op"] == "spend"
+    assert cash["ledger"][1]["localized_reason"] == "建卡重跑·信用评级差额调整"
+    assert cash["ledger"][1]["amount"] == coc_toolbox.coc_cash.format_amount(
+        coc_toolbox.coc_cash.parse_amount(first_cash) - coc_toolbox.coc_cash.parse_amount(target)
+    )
+    replay = coc_toolbox.run_tool(
+        "setup.chargen_run", tmp_path, None, _chargen_args(campaign_id, "ada-down"),
+    )
+    assert replay["ok"] is True, replay
+    replayed = _investigator_runtime_state(tmp_path, campaign_id, "ada-down")["cash"]
+    assert len(replayed["ledger"]) == 2
+    assert replayed["balances"]["USD"]["amount"] == target

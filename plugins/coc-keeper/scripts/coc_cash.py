@@ -516,6 +516,9 @@ CASH_SPEND_TOOL = "state.cash_spend"
 CHARGEN_CASH_SOURCE = "chargen-credit-rating"
 CHARGEN_CASH_REASON = "investigator creation credit-rating conversion"
 CHARGEN_CASH_LOCALIZED_REASON = "建卡·信用评级换算"
+CHARGEN_CASH_ADJUST_SOURCE = "chargen-credit-rating-adjust"
+CHARGEN_CASH_ADJUST_REASON = "investigator creation credit-rating delta"
+CHARGEN_CASH_ADJUST_LOCALIZED_REASON = "建卡重跑·信用评级差额调整"
 
 
 def cash_head_key(investigator_id: str) -> str:
