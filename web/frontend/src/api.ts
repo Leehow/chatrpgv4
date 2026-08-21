@@ -73,6 +73,22 @@ export function saveWebSearchKeys(keys: Record<string, string>): Promise<WebSear
   });
 }
 
+export type OcrTokenView = {
+  configured: boolean;
+};
+
+export function fetchOcrToken(): Promise<OcrTokenView> {
+  return request<OcrTokenView>("/api/ocr-token");
+}
+
+export function saveOcrToken(token: string): Promise<OcrTokenView> {
+  return request<OcrTokenView>("/api/ocr-token", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+}
+
 export function fetchUserPrefs(): Promise<UserPrefs> {
   return request<UserPrefs>("/api/user-prefs");
 }

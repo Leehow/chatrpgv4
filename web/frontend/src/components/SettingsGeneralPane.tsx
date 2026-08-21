@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { ModelsResponse } from "../types";
+import { OcrSecretsPane } from "./OcrSecretsPane";
 import { WebSearchKeysPane } from "./WebSearchKeysPane";
 
 export type VisionSelection = {
@@ -143,6 +144,7 @@ export function SettingsGeneralPane({
         </select>
       </label>
       <WebSearchKeysPane />
+      <OcrSecretsPane />
     </div>
   );
 }

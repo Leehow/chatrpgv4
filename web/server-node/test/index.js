@@ -5,6 +5,7 @@ import "./agent-dir.test.mjs";
 import "./character-setup-briefing.test.mjs";
 import "./model-editor.test.mjs";
 import "./model-thinking.test.mjs";
+import "./ocr-secrets.test.mjs";
 import "./pdf-from-path.test.mjs";
 import "./pi-coc-rpc.test.mjs";
 import "./pi-session-text.test.mjs";

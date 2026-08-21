@@ -59,6 +59,7 @@ import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./
 import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
 import { loadUserPrefs, resolveUserPrefsPath, saveUserPrefs } from "./user-prefs.mjs";
 import { loadWebSearchKeysView, saveWebSearchApiKeys } from "./web-search-keys.mjs";
+import { loadOcrTokenView, saveOcrToken } from "./ocr-secrets.mjs";
 import { cancelLogin, loginSnapshot, respondLoginPrompt, startProviderLogin } from "./provider-login.mjs";
 
 /**
@@ -496,6 +497,15 @@ function handleWebSearchKeys(_req, res) {
 async function handleSaveWebSearchKeys(req, res) {
   const body = await readJsonBody(req);
   sendJson(res, 200, saveWebSearchApiKeys(resolveProductAgentDir(), body));
+}
+
+function handleOcrToken(_req, res) {
+  sendJson(res, 200, loadOcrTokenView());
+}
+
+async function handleSaveOcrToken(req, res) {
+  const body = await readJsonBody(req);
+  sendJson(res, 200, saveOcrToken(body));
 }
 
 async function handleStartModelLogin(req, res) {
@@ -1789,6 +1799,7 @@ async function route(req, res) {
     if (urlPath === "/api/bootstrap") return handleBootstrap(req, res);
     if (urlPath === "/api/user-prefs") return handleUserPrefs(req, res);
     if (urlPath === "/api/web-search-keys") return handleWebSearchKeys(req, res);
+    if (urlPath === "/api/ocr-token") return handleOcrToken(req, res);
     if (
       parts.length === 4 &&
       parts[0] === "api" &&
@@ -1857,6 +1868,7 @@ async function route(req, res) {
     if (urlPath === "/api/model-editor") return handleSaveModelEditor(req, res);
     if (urlPath === "/api/user-prefs") return handleSaveUserPrefs(req, res);
     if (urlPath === "/api/web-search-keys") return handleSaveWebSearchKeys(req, res);
+    if (urlPath === "/api/ocr-token") return handleSaveOcrToken(req, res);
     throw httpError(404, "not found");
   }
 
