@@ -1,11 +1,16 @@
 /**
- * Official xAI Grok Imagine client for pi-coc host portrait generation.
+ * xAI / PipiUI-host portrait image client for pi-coc.
  *
- * POST https://api.x.ai/v1/images/generations only. Credentials: XAI_API_KEY
- * then product agent `auth.json` xai access/key. Never PIPIUI_GROK_RELAY,
- * coding relay, or ~/.pi unless that is the product agent dir.
+ * Routing:
+ * 1. Explicit XAI_API_KEY → official POST https://api.x.ai/v1/images/generations
+ * 2. PipiUI host with a loopback Grok Imagine relay → host-native channel
+ *    (PIPIUI_GROK_RELAY or http://127.0.0.1:18891/v1), model grok-imagine-image-quality
+ * 3. Product auth.json xai `key` (not OAuth access) → official
  *
- * HTTP contract for later UI (image bytes stay on disk, never in JSON):
+ * OAuth access/token is never used as an official image API key.
+ * Relay bases must be loopback. Never log Bearer, keys, or prompts.
+ *
+ * HTTP contract (image bytes stay on disk, never in JSON):
  *
  * POST /api/portraits/generate ← {@link GeneratePortraitBody}
  * POST /api/portraits/generate → {@link GeneratePortraitResult}
@@ -13,6 +18,7 @@
  * Does not write character.json / portrait metadata.
  */
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 
 import { resolveProductAgentDir } from "./agent-dir.mjs";
@@ -20,7 +26,11 @@ import { campaignDir } from "./projections.mjs";
 
 export const XAI_IMAGES_GENERATIONS_URL = "https://api.x.ai/v1/images/generations";
 export const DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image-2.0";
+export const DEFAULT_PIPIUI_GROK_RELAY = "http://127.0.0.1:18891/v1";
+export const DEFAULT_PIPIUI_RELAY_MODEL = "grok-imagine-image-quality";
 export const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 60_000;
+export const DEFAULT_XAI_CONNECT_TIMEOUT_MS = 10_000;
+export const RELAY_PROBE_TIMEOUT_MS = 800;
 export const MAX_IMAGE_PROMPT_CHARS = 8000;
 export const CAMPAIGN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 export const PORTRAIT_EXT_RE = /\.(png|jpe?g|webp)$/i;
@@ -40,6 +50,7 @@ export const ALLOWED_ASPECT_RATIOS = Object.freeze([
 
 const AUTH_NAME = "auth.json";
 const MAX_B64_CHARS = 20 * 1024 * 1024;
+const RELAY_BEARER = "local";
 
 export class XaiImageError extends Error {
   /**
@@ -85,6 +96,8 @@ export function safeImageLogFields(fields = {}) {
       lower.includes("token")
       || lower.includes("authorization")
       || lower.includes("secret")
+      || lower.includes("prompt")
+      || lower.includes("bearer")
       || lower === "key"
       || lower === "b64"
       || lower === "b64_json"
@@ -124,6 +137,13 @@ export function tokenFromXaiEntry(entry, now = Date.now()) {
   return trimKey(obj.key) || trimKey(obj.apiKey) || trimKey(obj.api_key);
 }
 
+/** Official Imagine accepts API keys only — never OAuth access/token. */
+export function officialXaiApiKeyFromEntry(entry) {
+  const obj = asObject(entry);
+  if (!obj) return "";
+  return trimKey(obj.key) || trimKey(obj.apiKey) || trimKey(obj.api_key);
+}
+
 function readJsonFile(file) {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -139,8 +159,17 @@ function xaiAuthEntry(authRaw) {
   return asObject(nested?.xai) || asObject(root.xai);
 }
 
+function productAgentDir({ env, agentDir } = {}) {
+  return trimKey(agentDir)
+    || resolveProductAgentDir({
+      agentDir: env?.PI_AGENT_DIR,
+      userData: env?.COC_DESKTOP_USER_DATA,
+    });
+}
+
 /**
  * XAI_API_KEY wins, else product agent auth.json xai access (unexpired) or key.
+ * OAuth access is not an official image key; use {@link resolveOfficialXaiApiKey}.
  * @returns {{ token: string, source: "env" | "auth.json" | "none" }}
  */
 export function resolveXaiToken({
@@ -150,15 +179,169 @@ export function resolveXaiToken({
 } = {}) {
   const fromEnv = trimKey(env?.XAI_API_KEY);
   if (fromEnv) return { token: fromEnv, source: "env" };
-  const dir = trimKey(agentDir)
-    || resolveProductAgentDir({
-      agentDir: env?.PI_AGENT_DIR,
-      userData: env?.COC_DESKTOP_USER_DATA,
-    });
+  const dir = productAgentDir({ env, agentDir });
   const entry = xaiAuthEntry(readJsonFile(path.join(dir, AUTH_NAME)));
   const token = tokenFromXaiEntry(entry, now);
   if (token) return { token, source: "auth.json" };
   return { token: "", source: "none" };
+}
+
+/**
+ * Explicit env key or auth.json `key` only. Ignores OAuth access/token.
+ * @returns {{ token: string, source: "env" | "auth.json" | "none" }}
+ */
+export function resolveOfficialXaiApiKey({
+  env = process.env,
+  agentDir,
+} = {}) {
+  const fromEnv = trimKey(env?.XAI_API_KEY);
+  if (fromEnv) return { token: fromEnv, source: "env" };
+  const dir = productAgentDir({ env, agentDir });
+  const key = officialXaiApiKeyFromEntry(xaiAuthEntry(readJsonFile(path.join(dir, AUTH_NAME))));
+  if (key) return { token: key, source: "auth.json" };
+  return { token: "", source: "none" };
+}
+
+export function isPipiUiHost(env = process.env) {
+  const e = env || {};
+  return Boolean(
+    trimKey(e.PIPIUI_GROK_RELAY)
+    || trimKey(e.PIPIUI_HOST_PROTOCOL)
+    || trimKey(e.PIPIUI_BRIDGE_PORT)
+    || trimKey(e.PIPIUI_PI_PATH)
+    || trimKey(e.PIPIUI_SESSION_CAPABILITY),
+  );
+}
+
+export function isLoopbackHttpUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || ""));
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (parsed.username || parsed.password) return false;
+  const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+export function pipiUiGrokRelayBase(env = process.env) {
+  const explicit = trimKey(env?.PIPIUI_GROK_RELAY);
+  if (explicit) {
+    if (!isLoopbackHttpUrl(explicit)) {
+      throw imageError(400, "图像中继必须是本机地址。", "RELAY_NOT_LOOPBACK");
+    }
+    return explicit.replace(/\/+$/, "");
+  }
+  if (isPipiUiHost(env)) return DEFAULT_PIPIUI_GROK_RELAY;
+  return "";
+}
+
+export function grokRelayGenerationsUrl(base) {
+  const b = String(base || "").replace(/\/+$/, "");
+  if (/\/images\/generations$/i.test(b)) return b;
+  return `${b}/images/generations`;
+}
+
+function safeUrlForLog(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    parsed.search = "";
+    parsed.hash = "";
+    parsed.username = "";
+    parsed.password = "";
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+export function probePipiUiGrokRelay(base, {
+  timeoutMs = RELAY_PROBE_TIMEOUT_MS,
+  probeImpl,
+} = {}) {
+  if (typeof probeImpl === "function") {
+    return Promise.resolve(probeImpl(base)).then(Boolean);
+  }
+  if (!isLoopbackHttpUrl(base)) return Promise.resolve(false);
+  let parsed;
+  try {
+    parsed = new URL(base);
+  } catch {
+    return Promise.resolve(false);
+  }
+  const port = parsed.port
+    ? Number(parsed.port)
+    : (parsed.protocol === "https:" ? 443 : 80);
+  if (!Number.isInteger(port) || port <= 0) return Promise.resolve(false);
+  const host = parsed.hostname === "localhost" ? "127.0.0.1" : parsed.hostname;
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : RELAY_PROBE_TIMEOUT_MS);
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Prefer explicit official key, else PipiUI loopback relay, else auth.json key.
+ * OAuth access never selects official Imagine.
+ */
+export async function resolveXaiImageTransport({
+  env = process.env,
+  agentDir,
+  probeImpl,
+} = {}) {
+  const official = resolveOfficialXaiApiKey({ env, agentDir });
+  if (official.source === "env") {
+    return {
+      backend: "official",
+      url: XAI_IMAGES_GENERATIONS_URL,
+      token: official.token,
+      model: DEFAULT_XAI_IMAGE_MODEL,
+      tokenSource: official.source,
+    };
+  }
+  const relayBase = pipiUiGrokRelayBase(env);
+  if (relayBase) {
+    const reachable = await probePipiUiGrokRelay(relayBase, { probeImpl });
+    if (!reachable) {
+      throw imageError(503, "当前宿主图像通道不可用，无法生成头像。", "RELAY_UNAVAILABLE");
+    }
+    return {
+      backend: "pipiui-relay",
+      url: grokRelayGenerationsUrl(relayBase),
+      token: RELAY_BEARER,
+      model: DEFAULT_PIPIUI_RELAY_MODEL,
+      tokenSource: "relay",
+    };
+  }
+  if (official.token) {
+    return {
+      backend: "official",
+      url: XAI_IMAGES_GENERATIONS_URL,
+      token: official.token,
+      model: DEFAULT_XAI_IMAGE_MODEL,
+      tokenSource: official.source,
+    };
+  }
+  throw imageError(
+    401,
+    "未配置 xAI 密钥，无法生成头像。",
+    "NO_IMAGE_BACKEND",
+  );
 }
 
 export function parseGeneratePortraitBody(body) {
@@ -310,8 +493,92 @@ function combineSignals(userSignal, timeoutMs) {
   return { signal: ac.signal, cleanup };
 }
 
+
+
+function firstImageRow(parsed) {
+  const obj = asObject(parsed);
+  if (!obj) return {};
+  if (Array.isArray(obj.data)) return asObject(obj.data[0]) || {};
+  if (asObject(obj.data)) return obj.data;
+  return obj;
+}
+
+function decodeB64Image(b64) {
+  const raw = trimKey(b64).replace(/\s+/g, "");
+  if (!raw) throw imageError(502, "xAI image generation returned no b64 image");
+  if (raw.length > MAX_B64_CHARS) throw imageError(502, "xAI image generation payload is too large");
+  let bytes;
+  try {
+    bytes = Buffer.from(raw, "base64");
+  } catch {
+    throw imageError(502, "xAI image generation returned invalid b64");
+  }
+  if (!bytes.length) throw imageError(502, "xAI image generation returned empty image");
+  return { bytes, b64: raw };
+}
+
+async function bytesFromImageUrl(imageUrl, {
+  fetchImpl,
+  signal,
+  timeoutMs,
+  secrets,
+} = {}) {
+  const raw = trimKey(imageUrl);
+  if (!raw) return null;
+  if (/^data:image\//i.test(raw)) {
+    const match = raw.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i);
+    if (!match) throw imageError(502, "xAI image generation returned invalid data URI");
+    const decoded = decodeB64Image(match[2]);
+    return { ...decoded, mimeType: match[1] };
+  }
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw imageError(502, "xAI image generation returned invalid image URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw imageError(502, "xAI image generation returned unsupported image URL");
+  }
+  const combined = combineSignals(signal, timeoutMs);
+  let response;
+  try {
+    response = await fetchImpl(raw, { method: "GET", signal: combined.signal });
+  } catch (err) {
+    if (combined.signal.aborted || err?.name === "AbortError" || err?.code === "ABORT_ERR") {
+      throw abortError(combined.signal);
+    }
+    throw imageError(502, redactSecrets(err?.message || "xAI image download network error", secrets));
+  } finally {
+    combined.cleanup();
+  }
+  if (!response.ok) {
+    throw imageError(statusForHttp(response.status), "xAI image download failed");
+  }
+  const headerMime = trimKey(
+    typeof response.headers?.get === "function"
+      ? response.headers.get("content-type")
+      : response.headers?.["content-type"],
+  ).split(";")[0];
+  let bytes;
+  if (typeof response.arrayBuffer === "function") {
+    bytes = Buffer.from(await response.arrayBuffer());
+  } else if (typeof response.bytes === "function") {
+    bytes = Buffer.from(await response.bytes());
+  } else {
+    const text = await response.text();
+    bytes = Buffer.from(text, "binary");
+  }
+  if (!bytes.length) throw imageError(502, "xAI image generation returned empty image");
+  return {
+    bytes,
+    b64: bytes.toString("base64"),
+    mimeType: headerMime || mimeFromPath(parsed.pathname),
+  };
+}
+
 /**
- * Call official Imagine and return decoded bytes. Does not write files.
+ * Call Imagine (official or host relay) and return decoded bytes. Does not write files.
  * @returns {Promise<{ bytes: Buffer, b64: string, mimeType: string, model: string }>}
  */
 export async function requestXaiImageGeneration({
@@ -321,21 +588,26 @@ export async function requestXaiImageGeneration({
   aspectRatio,
   signal,
   timeoutMs = DEFAULT_XAI_IMAGE_TIMEOUT_MS,
+  connectTimeoutMs = DEFAULT_XAI_CONNECT_TIMEOUT_MS,
   fetchImpl = globalThis.fetch,
   log = defaultLog,
+  url = XAI_IMAGES_GENERATIONS_URL,
 } = {}) {
   const secret = trimKey(token);
   if (!secret) throw imageError(401, "xAI API key is not configured");
   const payload = buildImagineRequest({ prompt, model, aspectRatio });
-  const combined = combineSignals(signal, timeoutMs);
+  const totalMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_XAI_IMAGE_TIMEOUT_MS;
+  const combined = combineSignals(signal, totalMs);
   log("xai_image_request", {
-    url: XAI_IMAGES_GENERATIONS_URL,
+    url: safeUrlForLog(url) || XAI_IMAGES_GENERATIONS_URL,
     model: payload.model,
     n: payload.n,
   });
   let response;
+  let rawText = "";
   try {
-    response = await fetchImpl(XAI_IMAGES_GENERATIONS_URL, {
+    void connectTimeoutMs;
+    response = await fetchImpl(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${secret}`,
@@ -344,6 +616,7 @@ export async function requestXaiImageGeneration({
       body: JSON.stringify(payload),
       signal: combined.signal,
     });
+    rawText = await response.text();
   } catch (err) {
     if (combined.signal.aborted || err?.name === "AbortError" || err?.code === "ABORT_ERR") {
       throw abortError(combined.signal);
@@ -352,7 +625,6 @@ export async function requestXaiImageGeneration({
   } finally {
     combined.cleanup();
   }
-  const rawText = await response.text();
   const redacted = redactSecrets(rawText, [secret]);
   if (!response.ok) {
     const status = statusForHttp(response.status);
@@ -365,21 +637,29 @@ export async function requestXaiImageGeneration({
   } catch {
     throw imageError(502, "xAI image generation returned invalid JSON");
   }
-  const row = asObject(parsed)?.data?.[0] || asObject(parsed)?.data || asObject(parsed);
+  const row = firstImageRow(parsed);
   const b64 = trimKey(row?.b64_json) || trimKey(row?.b64);
-  if (!b64) throw imageError(502, "xAI image generation returned no b64 image");
-  if (b64.length > MAX_B64_CHARS) throw imageError(502, "xAI image generation payload is too large");
-  let bytes;
-  try {
-    bytes = Buffer.from(b64, "base64");
-  } catch {
-    throw imageError(502, "xAI image generation returned invalid b64");
+  if (b64) {
+    const decoded = decodeB64Image(b64);
+    return {
+      bytes: decoded.bytes,
+      b64: decoded.b64,
+      mimeType: mimeFromResponse(row, ""),
+      model: payload.model,
+    };
   }
-  if (!bytes.length) throw imageError(502, "xAI image generation returned empty image");
+  const imageUrl = trimKey(row?.url) || trimKey(asObject(parsed)?.url);
+  if (!imageUrl) throw imageError(502, "xAI image generation returned no b64 image");
+  const downloaded = await bytesFromImageUrl(imageUrl, {
+    fetchImpl,
+    signal,
+    timeoutMs: totalMs,
+    secrets: [secret],
+  });
   return {
-    bytes,
-    b64,
-    mimeType: mimeFromResponse(row, ""),
+    bytes: downloaded.bytes,
+    b64: downloaded.b64,
+    mimeType: downloaded.mimeType || mimeFromResponse(row, ""),
     model: payload.model,
   };
 }
@@ -406,27 +686,32 @@ export async function generateCampaignPortrait({
   model,
   signal,
   timeoutMs,
+  connectTimeoutMs,
   env = process.env,
   agentDir,
   fetchImpl,
   now,
   log = defaultLog,
+  probeImpl,
 } = {}) {
+  void now;
   const resolved = resolvePortraitOutputPath({ workspace, campaignId, outputPath });
-  const { token, source } = resolveXaiToken({ env, agentDir, now });
-  if (!token) throw imageError(401, "xAI API key is not configured");
+  const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl });
   log("xai_image_generate", {
     campaign_id: campaignId,
-    token_source: source,
+    token_source: transport.tokenSource,
+    backend: transport.backend,
     output_dir: path.dirname(resolved),
   });
   const image = await requestXaiImageGeneration({
     prompt,
-    token,
-    model,
+    token: transport.token,
+    model: model || transport.model,
+    url: transport.url,
     aspectRatio,
     signal,
     timeoutMs,
+    connectTimeoutMs,
     fetchImpl,
     log,
   });

@@ -8,14 +8,21 @@ import { fileURLToPath } from "node:url";
 
 import {
   ALLOWED_ASPECT_RATIOS,
+  DEFAULT_PIPIUI_GROK_RELAY,
+  DEFAULT_PIPIUI_RELAY_MODEL,
   DEFAULT_XAI_IMAGE_MODEL,
   XAI_IMAGES_GENERATIONS_URL,
   XaiImageError,
   buildImagineRequest,
   generateCampaignPortrait,
+  grokRelayGenerationsUrl,
+  isLoopbackHttpUrl,
   parseGeneratePortraitBody,
+  pipiUiGrokRelayBase,
   redactSecrets,
+  resolveOfficialXaiApiKey,
   resolvePortraitOutputPath,
+  resolveXaiImageTransport,
   resolveXaiToken,
   runGeneratePortraitHttp,
   safeImageLogFields,
@@ -421,4 +428,212 @@ test("parseGeneratePortraitBody rejects empty prompt and bad aspect", () => {
       }),
     /aspect_ratio/,
   );
+});
+
+test("explicit XAI_API_KEY beats host relay", async () => {
+  const transport = await resolveXaiImageTransport({
+    env: { XAI_API_KEY: SECRET, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+    probeImpl: () => {
+      throw new Error("probe should not run when env key is set");
+    },
+  });
+  assert.equal(transport.backend, "official");
+  assert.equal(transport.url, XAI_IMAGES_GENERATIONS_URL);
+  assert.equal(transport.tokenSource, "env");
+  assert.equal(transport.model, DEFAULT_XAI_IMAGE_MODEL);
+});
+
+test("OAuth access is not an official image API key", () => {
+  const agentDir = tempDir("coc-xai-oauth-official-");
+  try {
+    writeAuth(agentDir, {
+      access: "oauth-access-token-xx",
+      expires: Date.now() + 60_000,
+    });
+    const official = resolveOfficialXaiApiKey({
+      env: { PI_AGENT_DIR: agentDir },
+      agentDir,
+    });
+    assert.equal(official.source, "none");
+    assert.equal(official.token, "");
+    const legacy = resolveXaiToken({ env: { PI_AGENT_DIR: agentDir }, agentDir });
+    assert.equal(legacy.token, "oauth-access-token-xx");
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("PipiUI host with OAuth uses loopback relay, not official", async () => {
+  const agentDir = tempDir("coc-xai-relay-");
+  try {
+    writeAuth(agentDir, {
+      access: "oauth-access-token-xx",
+      expires: Date.now() + 60_000,
+    });
+    const transport = await resolveXaiImageTransport({
+      env: { PI_AGENT_DIR: agentDir, PIPIUI_HOST_PROTOCOL: "1" },
+      agentDir,
+      probeImpl: (base) => {
+        assert.equal(base, DEFAULT_PIPIUI_GROK_RELAY);
+        return true;
+      },
+    });
+    assert.equal(transport.backend, "pipiui-relay");
+    assert.equal(transport.url, grokRelayGenerationsUrl(DEFAULT_PIPIUI_GROK_RELAY));
+    assert.equal(transport.token, "local");
+    assert.equal(transport.model, DEFAULT_PIPIUI_RELAY_MODEL);
+    assert.equal(transport.tokenSource, "relay");
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("OAuth-only without host relay fails closed immediately", async () => {
+  const agentDir = tempDir("coc-xai-oauth-none-");
+  try {
+    writeAuth(agentDir, {
+      access: "oauth-access-token-xx",
+      expires: Date.now() + 60_000,
+    });
+    await assert.rejects(
+      () => resolveXaiImageTransport({
+        env: { PI_AGENT_DIR: agentDir },
+        agentDir,
+      }),
+      (err) => {
+        assert.equal(err instanceof XaiImageError, true);
+        assert.equal(err.status, 401);
+        assert.equal(err.code, "NO_IMAGE_BACKEND");
+        return true;
+      },
+    );
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("unreachable host relay fails immediately without official fetch", async () => {
+  const calls = [];
+  await assert.rejects(
+    () => resolveXaiImageTransport({
+      env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+      probeImpl: () => false,
+    }),
+    (err) => {
+      assert.equal(err.status, 503);
+      assert.equal(err.code, "RELAY_UNAVAILABLE");
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("relay base must be loopback", () => {
+  assert.equal(isLoopbackHttpUrl("http://127.0.0.1:18891/v1"), true);
+  assert.equal(isLoopbackHttpUrl("http://localhost:18891/v1"), true);
+  assert.equal(isLoopbackHttpUrl("http://[::1]:18891/v1"), true);
+  assert.equal(isLoopbackHttpUrl("https://api.x.ai/v1"), false);
+  assert.equal(isLoopbackHttpUrl("http://evil.example/v1"), false);
+  assert.throws(
+    () => pipiUiGrokRelayBase({ PIPIUI_GROK_RELAY: "https://api.x.ai/v1" }),
+    (err) => err.code === "RELAY_NOT_LOOPBACK",
+  );
+});
+
+test("auth.json key can still use official when not on PipiUI", async () => {
+  const agentDir = tempDir("coc-xai-auth-key-");
+  try {
+    writeAuth(agentDir, { key: "auth-json-key-value-xx" });
+    const transport = await resolveXaiImageTransport({
+      env: { PI_AGENT_DIR: agentDir },
+      agentDir,
+    });
+    assert.equal(transport.backend, "official");
+    assert.equal(transport.token, "auth-json-key-value-xx");
+    assert.equal(transport.tokenSource, "auth.json");
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("relay generation writes portrait from b64 without leaking secrets or prompt", async () => {
+  const workspace = tempDir("coc-xai-relay-ws-");
+  const logs = [];
+  const prompt = "confirmed appearance: unique-prompt-token-zz";
+  try {
+    const campaignId = makeCampaign(workspace);
+    const calls = [];
+    const result = await generateCampaignPortrait({
+      workspace,
+      campaignId,
+      prompt,
+      outputPath: "tmp/portraits/pending.png",
+      env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+      probeImpl: () => true,
+      fetchImpl: mockImagine(calls),
+      log: (event, fields) => logs.push({ event, ...fields }),
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://127.0.0.1:18891/v1/images/generations");
+    assert.equal(calls[0].init.headers.Authorization, "Bearer local");
+    const sent = JSON.parse(calls[0].init.body);
+    assert.equal(sent.model, DEFAULT_PIPIUI_RELAY_MODEL);
+    assert.equal(result.model, DEFAULT_PIPIUI_RELAY_MODEL);
+    const dump = JSON.stringify(logs);
+    assert.equal(dump.includes("Bearer"), false);
+    assert.equal(dump.includes("local"), false);
+    assert.equal(dump.includes(prompt), false);
+    assert.equal(dump.includes("unique-prompt-token-zz"), false);
+    assert.equal(
+      JSON.stringify(safeImageLogFields({
+        prompt,
+        Authorization: "Bearer local",
+        token: "local",
+        backend: "pipiui-relay",
+      })).includes("unique-prompt-token-zz"),
+      false,
+    );
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("relay url response is downloaded", async () => {
+  const workspace = tempDir("coc-xai-url-");
+  try {
+    const campaignId = makeCampaign(workspace);
+    const calls = [];
+    await generateCampaignPortrait({
+      workspace,
+      campaignId,
+      prompt: "a face",
+      outputPath: "tmp/portraits/url.png",
+      env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+      probeImpl: () => true,
+      fetchImpl: async (url, init) => {
+        calls.push({ url, method: init?.method });
+        if (init?.method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            headers: { get: () => "image/png" },
+            async arrayBuffer() {
+              return PNG_BYTES;
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+        return jsonResponse(200, { data: [{ url: "https://cdn.example/img.png" }] });
+      },
+      log() {},
+    });
+    assert.equal(calls[0].url, "http://127.0.0.1:18891/v1/images/generations");
+    assert.equal(calls[1].url, "https://cdn.example/img.png");
+    const dest = path.join(workspace, ".coc", "campaigns", campaignId, "tmp", "portraits", "url.png");
+    assert.equal(fs.readFileSync(dest).equals(PNG_BYTES), true);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });

@@ -60,6 +60,10 @@ test("button label switches after a persisted portrait", () => {
 test("portrait errors and cancel are Chinese", () => {
   assert.equal(mapPortraitError(new Error("xAI API key is not configured"), false), "未配置 xAI 密钥，无法生成头像。");
   assert.equal(mapPortraitError(new Error("timed out"), false), "头像生成超时，请稍后重试。");
+  assert.equal(
+    mapPortraitError(new Error("当前宿主图像通道不可用，无法生成头像。"), false),
+    "当前宿主图像通道不可用，无法生成头像。",
+  );
   assert.equal(mapPortraitError(new Error("nope"), true), "已取消");
   assert.equal(
     mapPortraitError(new Error("anthropic 暂不支持图像生成，请改选支持出图的供应商或模型。"), false),
