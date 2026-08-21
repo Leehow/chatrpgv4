@@ -1291,3 +1291,78 @@ def test_chargen_key_connection_feeds_san_self_help(tmp_path: Path) -> None:
     assert ev["key_connection"]["backstory_field"] == "significant_people"
     assert ev["key_connection"]["summary"] == _KEY_CONNECTION["summary"]
     assert "san_delta" in ev
+
+
+def _investigator_runtime_state(
+    tmp_path: Path, campaign_id: str, investigator_id: str
+) -> dict:
+    path = (
+        tmp_path
+        / ".coc"
+        / "campaigns"
+        / campaign_id
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_chargen_run_seeds_play_cash_ledger_once(tmp_path: Path) -> None:
+    from runtime.sdk import web_views
+
+    campaign_id = _create_campaign(tmp_path, "chargen-cash-seed")
+    args = _chargen_args(campaign_id, "ada-cash")
+    first = coc_toolbox.run_tool("setup.chargen_run", tmp_path, None, args)
+    assert first["ok"] is True, first
+    stored, _creation = _stored_investigator(tmp_path, "ada-cash")
+    sheet_cash = stored["cash"]
+    expected_amount = coc_toolbox.coc_cash.format_amount(sheet_cash["amount"])
+    currency = str(sheet_cash["currency"])
+    decision_id = first["data"]["result"]["decision_id"]
+    state = _investigator_runtime_state(tmp_path, campaign_id, "ada-cash")
+    cash = state["cash"]
+    assert cash["schema_version"] == 2
+    assert cash["balances"][currency]["amount"] == expected_amount
+    assert len(cash["ledger"]) == 1
+    row = cash["ledger"][0]
+    assert row["op"] == "grant"
+    assert row["decision_id"] == decision_id
+    assert row["source"] == "chargen-credit-rating"
+    assert row["localized_reason"] == "建卡·信用评级换算"
+    assert row["amount"] == expected_amount
+    assert row["currency"] == currency
+    replay = coc_toolbox.run_tool("setup.chargen_run", tmp_path, None, args)
+    assert replay["ok"] is True, replay
+    replayed = _investigator_runtime_state(tmp_path, campaign_id, "ada-cash")
+    assert len(replayed["cash"]["ledger"]) == 1
+    assert replayed["cash"]["balances"][currency]["amount"] == expected_amount
+    view = web_views.display_character(
+        tmp_path, "ada-cash", "zh-Hans", campaign_id=campaign_id
+    )
+    assert view is not None
+    assert view["cash"]["balances"][currency]["amount"] == expected_amount
+    assert view["cash"]["ledger"][0]["localized_reason"] == "建卡·信用评级换算"
+
+
+def test_chargen_run_era_adaptive_does_not_seed_cash_ledger(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-ww1-cash", era="ww1")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "ww1-cash",
+            "name": "Ada Lark",
+            "occupation_name": "Journalist",
+            "occupation_label": "记者",
+            "luck": {"mode": "auto_roll"},
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    stored, _creation = _stored_investigator(tmp_path, "ww1-cash")
+    assert "cash" not in stored
+    state = _investigator_runtime_state(tmp_path, campaign_id, "ww1-cash")
+    cash = state.get("cash")
+    assert cash in (None, {}) or cash.get("ledger") in (None, [])

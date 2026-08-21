@@ -121,6 +121,7 @@ coc_subsystem_executor = _load_sibling(
     "coc_subsystem_executor_toolbox", "coc_subsystem_executor.py"
 )
 coc_inventory = _load_sibling("coc_inventory", "coc_inventory.py")
+coc_cash = _load_sibling("coc_cash", "coc_cash.py")
 coc_mechanics = _load_sibling("coc_mechanics_toolbox", "coc_mechanics.py")
 coc_action_resolver = _load_sibling(
     "coc_action_resolver_toolbox", "coc_action_resolver.py"
@@ -23340,9 +23341,256 @@ def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
     }, [], []
 
 
+def _cash_asset_heads_path(ctx: Ctx) -> Path:
+    return ctx.campaign_dir / "save" / coc_cash.CASH_ASSET_HEADS_NAME
+
+
+def _read_cash_asset_heads(ctx: Ctx) -> dict[str, Any] | None:
+    path = _cash_asset_heads_path(ctx)
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ToolError("state_corrupt", "cash asset heads are unreadable") from exc
+    if not isinstance(raw, dict) or not isinstance(raw.get("heads"), dict):
+        raise ToolError("state_corrupt", "cash asset heads are invalid")
+    return raw
+
+
+def _write_cash_asset_head(
+    ctx: Ctx,
+    investigator_id: str,
+    entry: dict[str, Any],
+    revision_after: int,
+) -> None:
+    path = _cash_asset_heads_path(ctx)
+    try:
+        document = _read_cash_asset_heads(ctx)
+    except ToolError:
+        document = None
+    if document is None:
+        document = {"schema_version": 1, "heads": {}}
+    heads = document.setdefault("heads", {})
+    if not isinstance(heads, dict):
+        heads = {}
+        document["heads"] = heads
+    document["schema_version"] = 1
+    heads[coc_cash.cash_head_key(investigator_id)] = coc_cash.cash_head_record(
+        entry, revision_after
+    )
+    coc_state.write_json_atomic(path, document)
+
+
+def _load_normalized_cash(state: dict[str, Any]) -> dict[str, Any]:
+    try:
+        cash = coc_cash.normalize_cash(state.get("cash"))
+        coc_cash.assert_cash_receipts(state, cash)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    return cash
+
+
+def _cash_heads_gate(
+    ctx: Ctx,
+    investigator_id: str,
+    cash: dict[str, Any],
+    *,
+    repair_latest: dict[str, Any] | None = None,
+) -> None:
+    try:
+        document = _read_cash_asset_heads(ctx)
+    except ToolError:
+        if repair_latest is None:
+            raise
+        document = None
+    status = coc_cash.cash_heads_status(document, investigator_id, cash)
+    if status == "ok":
+        return
+    latest = (cash.get("ledger") or [None])[-1] if cash.get("ledger") else None
+    can_repair = (
+        repair_latest is not None
+        and isinstance(latest, dict)
+        and str(latest.get("decision_id") or "") == str(repair_latest.get("decision_id") or "")
+        and str(latest.get("tool") or "") == str(repair_latest.get("tool") or "")
+        and status in {"missing", "stale"}
+    )
+    if can_repair and isinstance(latest, dict):
+        _write_cash_asset_head(ctx, investigator_id, latest, len(cash["ledger"]))
+        return
+    raise ToolError("state_corrupt", "cash asset heads do not match the ledger")
+
+
+def _cash_mutate(ctx: Ctx, args: dict[str, Any], *, op: str, tool_name: str):
+    decision_id = str(args["decision_id"])
+    investigator_id = _resolve_investigator(ctx, args)
+    amount = args.get("amount")
+    currency = args.get("currency")
+    source = args.get("source")
+    reason = args.get("reason")
+    localized_reason = args.get("localized_reason")
+    unit = args.get("unit") if "unit" in args else None
+    if unit is not None and not isinstance(unit, str):
+        raise ToolError("invalid_param", "unit must be a string when supplied")
+    state = ctx.inv_state(investigator_id)
+    cash = _load_normalized_cash(state)
+    existing = next(
+        (
+            row
+            for row in cash["ledger"]
+            if str(row.get("decision_id") or "") == decision_id
+        ),
+        None,
+    )
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if existing is not None:
+        if not coc_cash.request_matches_cash_entry(
+            existing,
+            op=op,
+            amount=amount,
+            currency=str(currency or ""),
+            unit=unit,
+            source=str(source or ""),
+            reason=str(reason or ""),
+            localized_reason=str(localized_reason or ""),
+            tool=tool_name,
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' already exists in the cash ledger",
+            )
+        _cash_heads_gate(ctx, investigator_id, cash, repair_latest=existing)
+        if prior is None:
+            ctx.ledger_record(decision_id, tool_name, existing)
+        return existing, [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    if prior is not None:
+        raise ToolError(
+            "state_corrupt",
+            f"cash ledger is missing settled decision_id '{decision_id}'",
+        )
+    _cash_heads_gate(ctx, investigator_id, cash)
+    try:
+        next_cash, entry = coc_cash.apply_cash(
+            cash,
+            op=op,
+            amount=amount,
+            currency=str(currency or ""),
+            unit=unit,
+            source=str(source or ""),
+            reason=str(reason or ""),
+            localized_reason=str(localized_reason or ""),
+            decision_id=decision_id,
+            recorded_at=_now_iso(),
+            game_time=coc_time.current_stamp(ctx.campaign_dir),
+            tool=tool_name,
+        )
+    except coc_cash.InsufficientFunds as exc:
+        raise ToolError(
+            "insufficient_funds",
+            str(exc),
+            details={
+                "balance": exc.balance,
+                "amount": exc.amount,
+                "currency": exc.currency,
+                "held": exc.held,
+            },
+        ) from exc
+    except coc_cash.DuplicateCashDecision as exc:
+        raise ToolError("idempotency_conflict", str(exc)) from exc
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    state["cash"] = next_cash
+    try:
+        coc_cash.attach_cash_receipt(state, entry)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    ctx.save_inv_state(investigator_id, state)
+    _write_cash_asset_head(ctx, investigator_id, entry, len(next_cash["ledger"]))
+    ctx.log_event({
+        "event_type": f"cash_{op}",
+        "investigator_id": investigator_id,
+        "decision_id": decision_id,
+        "amount": entry["amount"],
+        "currency": entry["currency"],
+        "op": op,
+    })
+    ctx.ledger_record(decision_id, tool_name, entry)
+    return entry, [], []
+
+
+@tool(
+    "state.cash_query",
+    "Read the investigator's runtime cash ledger (schema v2 balances + recent rows). Not the chargen sheet snapshot.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "limit": {"type": "integer", "desc": "max trailing ledger rows (default all)"},
+    },
+    access="query",
+    read_domains=("party",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+    execution_class="serial_campaign",
+)
+def _tool_state_cash_query(ctx: Ctx, args: dict[str, Any]):
+    investigator_id = _resolve_investigator(ctx, args)
+    state = ctx.inv_state(investigator_id)
+    cash = _load_normalized_cash(state)
+    _cash_heads_gate(ctx, investigator_id, cash)
+    ledger = list(cash.get("ledger") or [])
+    limit = args.get("limit")
+    if limit is not None:
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or limit < 1
+        ):
+            raise ToolError("invalid_param", "limit must be an integer >= 1")
+        ledger = ledger[-limit:]
+    return {
+        "schema_version": cash.get("schema_version") or coc_cash.CASH_SCHEMA_VERSION,
+        "balances": cash.get("balances") or {},
+        "ledger": ledger,
+    }, [], []
+
+
+_CASH_WRITE_PARAMS = {
+    "investigator": {"type": "string", "desc": "investigator id"},
+    "amount": {"type": "number", "required": True, "desc": "positive amount at most 2 decimal places"},
+    "currency": {"type": "string", "required": True, "desc": "wallet identity (USD/GBP or aliases; never FX)"},
+    "unit": {"type": "string", "desc": "optional recorded unit; omit to reuse the wallet unit"},
+    "source": {"type": "string", "required": True, "desc": "structured source id"},
+    "reason": {"type": "string", "required": True, "desc": "audit reason (not player-visible)"},
+    "localized_reason": {"type": "string", "required": True, "desc": "player-safe reason in play_language"},
+    "decision_id": {"type": "string", "desc": "idempotency key"},
+}
+
+
+@tool(
+    "state.cash_grant",
+    "Credit the investigator runtime cash ledger before narrating. Idempotent on decision_id. Do not treat sheet cash as this purse.",
+    _CASH_WRITE_PARAMS,
+)
+def _tool_state_cash_grant(ctx: Ctx, args: dict[str, Any]):
+    return _cash_mutate(ctx, args, op="grant", tool_name="state.cash_grant")
+
+
+@tool(
+    "state.cash_spend",
+    "Debit the investigator runtime cash ledger before narrating. Fails closed on insufficient funds. Idempotent on decision_id.",
+    _CASH_WRITE_PARAMS,
+)
+def _tool_state_cash_spend(ctx: Ctx, args: dict[str, Any]):
+    return _cash_mutate(ctx, args, op="spend", tool_name="state.cash_spend")
+
+
 @tool(
     "state.item_grant",
-    "Grant an item or weapon earned in play. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon.",
+    "Grant an item or weapon earned in play before narrating. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon.",
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "desc": "NPC actor id (exactly one of investigator/npc_id)"},
@@ -28437,6 +28685,8 @@ _MUTATING_TOOLS = frozenset({
     "state.set_flag",
     "state.clear_transient_condition",
     "state.item_grant",
+    "state.cash_grant",
+    "state.cash_spend",
     "state.item_remove",
     "state.record_npc_engagement",
     "state.record_route_completion",
