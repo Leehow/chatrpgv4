@@ -1443,3 +1443,41 @@ def test_chargen_run_projects_luck_and_backstory_to_sidebar(tmp_path: Path) -> N
     assert "编辑部" in hook["items"][0]
     own = next(row for row in view["skills"] if row["key"] == "Language (Own)")
     assert own["label"] == "语言（英语）"
+    sidecar = _investigator_runtime_state(tmp_path, campaign_id, "ada-panel")
+    assert "backstory" not in sidecar
+    assert sidecar.get("current_luck") == stored["derived"]["Luck"]
+
+
+def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-en")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-en",
+            own_language="国语",
+            interest_skill_names=[
+                "Other Language (English)",
+                "Occult",
+                "First Aid",
+                "Stealth",
+            ],
+        ),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, creation = _stored_investigator(tmp_path, "ada-en")
+    assert "Language (English)" in stored["skills"]
+    occ = creation["skill_budget"]["occupation_points"]["allocations"]
+    interest = creation["skill_budget"]["personal_interest_points"]["allocations"]
+    expected = 1 + occ.get("Language (English)", 0) + interest.get("Language (English)", 0)
+    assert stored["skills"]["Language (English)"] == expected
+    assert expected > 1
+    labels = {
+        row["key"]: row["label"]
+        for row in stored["player_facing_sheet_zh"]["skills"]
+        if isinstance(row, dict)
+    }
+    assert labels["Language (English)"] == "语言（英语）"
+    assert labels["Language (Own)"] == "语言（国语）"

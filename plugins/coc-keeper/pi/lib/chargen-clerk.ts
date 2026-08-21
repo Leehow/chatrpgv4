@@ -262,6 +262,10 @@ const SKILL_CANONICAL: Record<string, string> = {
   "art and craft (photography)": "Art and Craft (Photography)",
   "own language": "Language (Own)",
   "language (own)": "Language (Own)",
+  english: "Language (English)",
+  "other language (english)": "Language (English)",
+  "language (english)": "Language (English)",
+  "英语": "Language (English)",
 };
 
 export function canonicalizeSkillName(name: string): string {
