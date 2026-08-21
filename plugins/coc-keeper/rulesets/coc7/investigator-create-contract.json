@@ -221,6 +221,10 @@
           "key_connection": {
             "$ref": "#/$defs/chargen_key_connection"
           },
+          "own_language": {
+            "$ref": "#/$defs/chargen_prose",
+            "description": "Concrete own-language name in play_language. Machine skill key stays Language (Own)."
+          },
           "occupation": {
             "$ref": "#/$defs/name"
           },

@@ -270,6 +270,7 @@ export const chargenDelegateSchema = {
     mode: { type: "string", enum: ["quick_fire", "era_adaptive", "pregen"] },
     pregen_id: { type: "string" },
     occupation_label: { type: "string", minLength: 1 },
+    own_language: { type: "string", minLength: 1 },
     backstory: {
       type: "object",
       additionalProperties: false,

@@ -48,6 +48,7 @@ CHARGEN_RUN_ALLOWED = CHARGEN_RUN_REQUIRED | frozenset({
     "equipment",
     "key_connection",
     "occupation_label",
+    "own_language",
 })
 CHARGEN_SHEET_FINANCE_FIELDS = (
     "cash", "assets", "spending_level", "living_standard",
@@ -56,6 +57,7 @@ CHARGEN_FINANCE_AMOUNT_KEYS = ("amount", "currency", "formula")
 CHARGEN_QUICK_FIRE_SHEET_PROPERTIES = frozenset({
     "id", "name", "age", "era", "occupation", "skills",
     "player_facing_sheet_zh", "backstory", "equipment", "key_connection",
+    "own_language",
     *CHARGEN_SHEET_FINANCE_FIELDS,
 })
 CHARGEN_KP_FORBIDDEN_NUMERIC_FIELDS = frozenset({
@@ -349,9 +351,14 @@ def materialize_quick_fire_create_sheet(
         raise ValueError(
             "guided Quick Fire requires sheet.player_facing_sheet_zh"
         )
+    own_language = materialized.get("own_language")
+    own_name = own_language if isinstance(own_language, str) and own_language.strip() else None
     materialized["player_facing_sheet_zh"] = {
         **player_sheet,
-        "skills": _localized_skill_rows(expected_skills),
+        "skills": _localized_skill_rows(
+            expected_skills,
+            own_language=own_name.strip() if own_name else None,
+        ),
     }
     return materialized
 
@@ -764,6 +771,44 @@ def chargen_player_occupation_label(
     )
 
 
+def normalize_chargen_own_language(own_language: Any) -> str | None:
+    if own_language is None:
+        return None
+    if isinstance(own_language, bool) or isinstance(own_language, (int, float)):
+        raise ChargenRunError(
+            "own_language",
+            "own_language must be prose; KP must not submit numbers",
+        )
+    if not isinstance(own_language, str) or not own_language.strip():
+        raise ChargenRunError(
+            "own_language",
+            "own_language must be a non-empty play_language name",
+        )
+    return own_language.strip()
+
+
+def chargen_default_own_language(era: str) -> str | None:
+    """Thin table default when KP omits own_language. Not a locale parser."""
+    if str(era or "").strip() in {"1920s", "modern"}:
+        return "英语"
+    return None
+
+
+def own_language_skill_label(own_language: str) -> str:
+    return f"语言（{own_language}）"
+
+
+def apply_own_language_skill_label(
+    player_sheet: dict[str, Any], own_language: str
+) -> None:
+    rows = player_sheet.get("skills")
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if isinstance(row, dict) and row.get("key") == "Language (Own)":
+            row["label"] = own_language_skill_label(own_language)
+
+
 def attach_chargen_roleplay(
     sheet: dict[str, Any],
     *,
@@ -771,6 +816,7 @@ def attach_chargen_roleplay(
     equipment: Any = None,
     key_connection: Any = None,
     occupation_label: Any = None,
+    own_language: Any = None,
     era: str = "",
 ) -> dict[str, Any]:
     """Persist KP prose plus rules-owned cash. Does not invent narrative."""
@@ -791,6 +837,11 @@ def attach_chargen_roleplay(
                 expected={"required_field": field},
             )
         attached["key_connection"] = normalized_key
+    resolved_own = normalize_chargen_own_language(own_language)
+    if resolved_own is None:
+        resolved_own = chargen_default_own_language(era)
+    if resolved_own:
+        attached["own_language"] = resolved_own
     skills = attached.get("skills") if isinstance(attached.get("skills"), dict) else {}
     credit = skills.get("Credit Rating")
     finance = None
@@ -817,16 +868,22 @@ def attach_chargen_roleplay(
     if attached.get("age") is not None:
         player_sheet["age"] = attached["age"]
     details: list[dict[str, Any]] = []
+    star_field = normalized_key["backstory_field"] if normalized_key else None
     if normalized_backstory:
         for key in CHARGEN_BACKSTORY_ALLOWED:
             if key not in normalized_backstory:
                 continue
             raw = normalized_backstory[key]
             items = raw if isinstance(raw, list) else [raw]
-            details.append({
-                "label": _BACKSTORY_ZH_LABELS.get(key, key),
+            label = _BACKSTORY_ZH_LABELS.get(key, key)
+            block: dict[str, Any] = {
+                "field": key,
+                "label": f"{label} ★" if key == star_field else label,
                 "items": list(items),
-            })
+            }
+            if key == star_field:
+                block["starred"] = True
+            details.append(block)
     if normalized_equipment:
         details.append({"label": "随身物品", "items": list(normalized_equipment)})
     if normalized_key:
@@ -866,6 +923,8 @@ def attach_chargen_roleplay(
                     break
         if summary_source:
             player_sheet["backstory_summary"] = str(summary_source)
+    if resolved_own:
+        apply_own_language_skill_label(player_sheet, resolved_own)
     attached["player_facing_sheet_zh"] = player_sheet
     return attached
 
@@ -989,7 +1048,14 @@ def validate_character_create_sheet(
                 errors.append(
                     "guided Quick Fire player_facing_sheet_zh.skills must be a list"
                 )
-            elif localized_skills != _localized_skill_rows(expected_skills):
+            elif localized_skills != _localized_skill_rows(
+                expected_skills,
+                own_language=(
+                    str(sheet.get("own_language")).strip()
+                    if isinstance(sheet.get("own_language"), str)
+                    else None
+                ) or None,
+            ):
                 errors.append(
                     "guided Quick Fire localized skills must be the canonical "
                     "zh-Hans catalog projection of the reconciled machine skills"
@@ -1700,9 +1766,13 @@ def _kp_guided_era_adaptive_errors(
     return errors
 
 
-def _localized_skill_rows(skills: dict[str, int]) -> list[dict[str, Any]]:
+def _localized_skill_rows(
+    skills: dict[str, int],
+    *,
+    own_language: str | None = None,
+) -> list[dict[str, Any]]:
     catalog = _skill_catalog()
-    return [
+    rows = [
         {
             "key": skill_id,
             "label": str(
@@ -1715,6 +1785,9 @@ def _localized_skill_rows(skills: dict[str, int]) -> list[dict[str, Any]]:
         }
         for skill_id, value in skills.items()
     ]
+    if own_language:
+        apply_own_language_skill_label({"skills": rows}, own_language)
+    return rows
 
 
 def _canonical_skill_identity(key: str, catalog: dict[str, dict]) -> str:

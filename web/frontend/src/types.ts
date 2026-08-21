@@ -184,6 +184,14 @@ export interface CharacterSheet {
   birthplace?: string;
   characteristics?: DisplayValue[];
   derived?: Record<string, number | string>;
+  /** Canonical derived Luck; also present as derived.Luck. */
+  luck?: number | null;
+  backstory?: {
+    field?: string;
+    label: string;
+    items: string[];
+    starred?: boolean;
+  }[];
   skills?: DisplayValue[];
   weapons?: Weapon[];
   equipment?: string[];
