@@ -93,23 +93,33 @@ COC 共享内核（`plugins/coc-keeper/**`）也不承载任何 OAuth/图像传�
 ### 安装（一次性）
 
 ```bash
-# 从 PipiUI bundled runtime / 显式路径安装到本仓 .pi/coc-agent（原子 stage-swap，
-# 只复制构建产物与 manifest，校验 id/version/agent/dist/index.js 哈希）
+# 从 PipiUI bundle / 显式路径安装到本仓 .pi/coc-agent（原子 stage-swap，
+# 只复制构建产物与 manifest；校验 manifest id/version、canonical
+# agent/dist/index.js + agent/dist/host.js（拒绝 symlink / 非法入口 /
+# realpath 逃逸），并遵守包内 pipiui-host-receipt.json 的完整 sha256 钉住）
 node web/server-node/grok-build-extension.mjs install \
-  --source /path/to/pipiui/Electron/resources/runtime/extensions/grok-build-oauth
-node web/server-node/grok-build-extension.mjs status   # 查看安装/配置状态
+  --source "/path/to/PipiUI.app/Contents/Resources/pipiui-runtime/extensions/grok-build-oauth"
+node web/server-node/grok-build-extension.mjs status   # 安装/验证/终端配置/compat 状态
 ```
+
+安装会写入逐文件 sha256 receipt（`.install-receipt.json`）：每次运行时解析
+（spawn 挂载 / 动态 import）都会重新验证 installed tree 与 receipt 的
+id/version/逐文件 hash，多出文件、篡改或 symlink 替换都会拒绝加载。
+安装同时原子创建/修订 repo-local `.pi/coc-agent/settings.json` 的官方
+`extensions` entry（fresh checkout 直接创建与 pi-coc 引导相同形状的 settings，
+其它键原样保留）；找不到源时以非 0 退出并打印安装指令。
 
 不传 `--source` 时按序解析：`GROK_BUILD_OAUTH_PACKAGE` 环境变量 → PipiUI
 bundled runtime（`PIPIUI_REPO_ROOT` 或同级 `../pipiui` checkout）→ 已安装的
-repo-local 目录（幂等重配）。
+repo-local 目录（验证后幂等重配）。
 
 ### 三个消费面
 
 1. **Web/Electron RPC 新会话**：`pi-coc-rpc.mjs` 装配时若宿主
    `PIPIUI_MOUNTED_EXTENSIONS` 已含 `grok-build-oauth` 则不重复挂载；否则把
    repo-local `agent/dist/index.js` 作为 `--extension` 追加。会话内模型工具
-   `image_gen` / `image_edit` 即来自 canonical 扩展。
+   `image_gen`（`POST {base}/images/generations`）/ `image_edit`
+   （`POST {base}/images/edits`）即来自 canonical 扩展。
 2. **Terminal pi-coc**：安装器把入口写进 repo-local
    `.pi/coc-agent/settings.json` 的官方 `extensions` 键（Pi 0.84.2 无
    `pipiui-extension.json` manifest 发现；其它设置项原样保留，原子写，幂等）。
@@ -120,19 +130,25 @@ repo-local 目录（幂等重配）。
    `auth.json` 投影。OAuth 凭证只存 Pi auth（`auth.json`），不进 COC
    campaign/state、不进 UI prefs。
 
-### 头像路由（兼容消费者）
+### 头像路由（canonical host 入口 + 兼容层）
 
-`/api/portraits/generate` 的 xai 家族路由已迁移为兼容消费者：优先使用已安装
-`grok-build-oauth` 工件的 credential broker（提前刷新、401 单次重试、跨进程锁
-均留在单一源包）+ Pi auth 的 `grok-build` OAuth 凭证直调官方
-`POST {base}/images/generations`；不可用时依序回退旧路径（`XAI_API_KEY` →
-PipiUI loopback relay → auth.json `xai` key），回退传输标记
-`compatFallback: true`（relay 另标 `deprecated`）。
+`/api/portraits/generate` 的 xai 家族路由优先动态 import 已安装构建产物
+manifest 声明的 `host.entry = agent/dist/host.js`，调用其稳定 host API
+（`createGrokBuildHostLibrary`）：broker 提前刷新、401 单次强刷重试、跨进程
+锁、advisory tier gate、`resolution=1k`、稳定 `x-grok-session-id`、typed
+bytes+metadata 结果全部来自单一源包，本仓不复刻请求逻辑。
+
+**兼容回退门（deprecated，默认关）**：仅当用户在
+`.pi/coc-agent/extensions/grok-build-oauth.settings.json` 显式设置
+`"ext.grok-build-oauth.compatFallback": true`（或宿主注入同名快照 env）时，
+canonical 不可用才回退旧路径（`XAI_API_KEY` → PipiUI loopback relay →
+auth.json `xai` key），回退传输标记 `deprecated: true`。门关闭时这些旧通道
+**绝不**被使用，并提示 `/login grok-build`。
 
 **RPC 升级边界**：当前 pi 0.84.2 没有 `invokeExtension` RPC，服务端无法热调
-在会话扩展的 `image_gen` 工具，因此头像 HTTP 路由不伪造热调用、保留直连实现；
-待 pi 提供 `invokeExtension`（或等价扩展调用 RPC）后，应把该路由收敛为对已挂载
-`grok-build-oauth` 的委托，并最终删除 relay 兼容层（spec D8 移除条件）。
+在会话扩展的 `image_gen` 工具；host 入口库是当前唯一非会话 canonical 路径。
+待 pi 提供 `invokeExtension`（或等价扩展调用 RPC）后，可把该路由收敛为对已
+挂载 `grok-build-oauth` 的委托，并最终删除 relay 兼容层（spec D8 移除条件）。
 
 ### 扩展设置快照（无密钥）
 

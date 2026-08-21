@@ -26,6 +26,10 @@ import {
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+const COMPAT = {
+  PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH: JSON.stringify({ "ext.grok-build-oauth.compatFallback": true }),
+};
+
 function tempDir(label) {
   return fs.mkdtempSync(path.join(os.tmpdir(), label));
 }
@@ -244,7 +248,7 @@ test("generatePortraitBytes xAI uses host relay instead of OAuth official", asyn
       model: DEFAULT_XAI_IMAGE_MODEL,
     },
     prompt: "look",
-    env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+    env: { ...COMPAT, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
     probeImpl: () => true,
     fetchImpl: async (url, init) => {
       calls.push({ url, auth: init.headers.Authorization });

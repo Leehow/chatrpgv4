@@ -14,8 +14,7 @@ import { requestJellyTokenImageGeneration, isJellyTokenImageProvider } from "./p
 import {
   DEFAULT_XAI_IMAGE_MODEL,
   XaiImageError,
-  requestXaiImageGeneration,
-  resolveXaiImageTransport,
+  generateXaiFamilyPortraitBytes,
   tokenFromXaiEntry,
 } from "./xai-image.mjs";
 
@@ -403,24 +402,27 @@ export async function generatePortraitBytes({
     throw imageError(400, unsupportedMessage(route?.provider));
   }
   if (route.family === PORTRAIT_FAMILY_XAI) {
-    const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl, signal, repoRoot });
-    log?.("xai_image_route", {
-      backend: transport.backend,
-      token_source: transport.tokenSource,
-      model: transport.model,
-    });
-    return requestXaiImageGeneration({
+    const image = await generateXaiFamilyPortraitBytes({
       prompt,
-      token: transport.token,
-      model: transport.model,
-      url: transport.url,
       aspectRatio,
       signal,
+      fetchImpl,
+      env,
+      agentDir,
+      repoRoot,
       timeoutMs,
       connectTimeoutMs,
-      fetchImpl,
+      probeImpl,
       log,
     });
+    return {
+      bytes: image.bytes,
+      mimeType: image.mimeType,
+      model: image.model,
+      backend: image.backend,
+      ...(image.canonical ? { canonical: true } : {}),
+      ...(image.deprecated ? { deprecated: true } : {}),
+    };
   }
   if (route.family === PORTRAIT_FAMILY_OPENAI) {
     return requestOpenAIImageGeneration({
