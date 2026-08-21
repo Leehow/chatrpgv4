@@ -203,6 +203,8 @@ export const HOST_PI_EXTENSION_RELS = Object.freeze([
 
 const WEB_SEARCH_KEY_ENV = Object.freeze({
   exaApiKey: "EXA_API_KEY",
+  tavilyApiKey: "TAVILY_API_KEY",
+  perplexityApiKey: "PERPLEXITY_API_KEY",
   searxngApiKey: "SEARXNG_API_KEY",
 });
 
@@ -246,6 +248,22 @@ function pushUniqueDir(dirs, value) {
   if (!dirs.includes(resolved)) dirs.push(resolved);
 }
 
+function routingFromConfig(config) {
+  const routing = config.searchRouting;
+  if (routing && typeof routing === "object" && !Array.isArray(routing) && Array.isArray(routing.providers)) {
+    const providers = routing.providers
+      .map((id) => String(id || "").trim())
+      .filter(Boolean);
+    if (providers.length) return providers.join(",");
+  }
+  const pin = typeof config.provider === "string" && config.provider.trim()
+    ? config.provider.trim()
+    : typeof config.searchProvider === "string" && config.searchProvider.trim()
+      ? config.searchProvider.trim()
+      : "";
+  return pin;
+}
+
 /** Inject *ApiKey from web-search.json. Never overwrite an already-set env secret. */
 export function injectWebSearchKeysIntoEnv(env, { keyDirs = [] } = {}) {
   const next = env && typeof env === "object" ? env : {};
@@ -256,6 +274,10 @@ export function injectWebSearchKeysIntoEnv(env, { keyDirs = [] } = {}) {
       if (!value) continue;
       if (String(next[name] || "").trim()) continue;
       next[name] = value;
+    }
+    if (!String(next.WEB_SEARCH_ROUTING || "").trim()) {
+      const routing = routingFromConfig(config);
+      if (routing) next.WEB_SEARCH_ROUTING = routing;
     }
   }
   return next;

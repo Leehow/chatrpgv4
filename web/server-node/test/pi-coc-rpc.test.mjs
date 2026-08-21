@@ -380,6 +380,67 @@ test("buildChildEnv injects EXA_API_KEY from web-search.json and does not overwr
   }
 });
 
+test("buildChildEnv injects Tavily and Perplexity keys plus routing without echoing secrets in args", () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-web-search-tvly-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-web-search-tvly-ws-"));
+  const tavilySecret = "tvly-child-secret-not-for-logs";
+  const pplxSecret = "pplx-child-secret-not-for-logs";
+  try {
+    fs.writeFileSync(
+      path.join(agentDir, "web-search.json"),
+      `${JSON.stringify({
+        tavilyApiKey: tavilySecret,
+        perplexityApiKey: pplxSecret,
+        searchRouting: { providers: ["tavily", "perplexity", "exa"] },
+        workflow: "none",
+      }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    const env = buildChildEnv({
+      workspace,
+      repoRoot: "/tmp/missing-repo",
+      campaignId: "haunting-1",
+      agentDir,
+      parentEnv: { PATH: "/usr/bin", HOME: "/tmp", PI_AGENT_DIR: agentDir },
+      userPrefs: {},
+    });
+    assert.equal(env.TAVILY_API_KEY, tavilySecret);
+    assert.equal(env.PERPLEXITY_API_KEY, pplxSecret);
+    assert.equal(env.WEB_SEARCH_ROUTING, "tavily,perplexity,exa");
+    const pinned = buildChildEnv({
+      workspace,
+      repoRoot: "/tmp/missing-repo",
+      campaignId: "haunting-1",
+      agentDir,
+      parentEnv: {
+        PATH: "/usr/bin",
+        HOME: "/tmp",
+        PI_AGENT_DIR: agentDir,
+        TAVILY_API_KEY: "parent-tavily",
+        PERPLEXITY_API_KEY: "parent-pplx",
+      },
+      userPrefs: {},
+    });
+    assert.equal(pinned.TAVILY_API_KEY, "parent-tavily");
+    assert.equal(pinned.PERPLEXITY_API_KEY, "parent-pplx");
+    const args = buildPiCocArgs({
+      campaignId: "haunting-1",
+      sessionId: "web-haunting-1",
+      repoRoot: REPO_ROOT,
+    });
+    const argsText = JSON.stringify(args);
+    assert.equal(argsText.includes(tavilySecret), false);
+    assert.equal(argsText.includes(pplxSecret), false);
+    const view = injectWebSearchKeysIntoEnv({}, { keyDirs: [agentDir] });
+    assert.equal(view.TAVILY_API_KEY, tavilySecret);
+    assert.equal(view.PERPLEXITY_API_KEY, pplxSecret);
+    assert.equal(view.WEB_SEARCH_ROUTING, "tavily,perplexity,exa");
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("PiCocRpcHost start passes existing host extension paths into spawn args", () => {
   let captured;
   const child = fakeChild();

@@ -30,15 +30,17 @@ export const WEB_SEARCH_CONFIG_NAME = "web-search.json";
 export const WEB_SEARCH_DEFAULTS_MARKER = ".coc-web-search-defaults-v1.json";
 export const DEFAULT_WEB_SEARCH_WORKFLOW = "none";
 
-/** v1 catalog: Exa required; openai/searxng optional. Explicit-only providers stay off this list. */
+/** v1 catalog: Exa first; tavily/perplexity/openai/searxng optional. Explicit-only providers stay off this list. */
 export const WEB_SEARCH_KEY_PROVIDERS = Object.freeze([
   Object.freeze({ id: "exa", name: "Exa", keyField: "exaApiKey" }),
+  Object.freeze({ id: "tavily", name: "Tavily", keyField: "tavilyApiKey" }),
+  Object.freeze({ id: "perplexity", name: "Perplexity", keyField: "perplexityApiKey" }),
   Object.freeze({ id: "openai", name: "OpenAI", keyField: "openaiApiKey" }),
   Object.freeze({ id: "searxng", name: "SearXNG", keyField: "searxngApiKey" }),
 ]);
 
 export const DEFAULT_SEARCH_ROUTING = Object.freeze({
-  providers: Object.freeze(["exa", "searxng", "openai"]),
+  providers: Object.freeze(["exa", "tavily", "perplexity", "searxng", "openai"]),
   fallbackOn: Object.freeze(["quota", "transient", "network", "invalid-response"]),
 });
 

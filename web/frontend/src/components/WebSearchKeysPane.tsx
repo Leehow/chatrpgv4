@@ -5,13 +5,15 @@ import * as api from "../api";
 import type { WebSearchKeyProvider, WebSearchKeysView } from "../api";
 
 const HINT_TEXT =
-  "填写服务 API Key 后优先使用该搜索源；已填写密钥的服务会排到搜索路由前面。Exa 可直接配置。已保存的密钥不会回显，只显示是否已配置。";
+  "填写服务 API Key 后优先使用该搜索源；已填写密钥的服务会排到搜索路由前面。可配置 Exa、Tavily、Perplexity。已保存的密钥不会回显，只显示是否已配置。";
 
 function emptyView(): WebSearchKeysView {
   return {
     keys: {},
     providers: [
       { id: "exa", name: "Exa", keyField: "exaApiKey" },
+      { id: "tavily", name: "Tavily", keyField: "tavilyApiKey" },
+      { id: "perplexity", name: "Perplexity", keyField: "perplexityApiKey" },
       { id: "openai", name: "OpenAI", keyField: "openaiApiKey" },
       { id: "searxng", name: "SearXNG", keyField: "searxngApiKey" },
     ],
@@ -88,7 +90,7 @@ export function WebSearchKeysPane() {
   return (
     <div className="flex flex-col gap-3 border-t border-border pt-4" data-testid="web-search-keys-pane">
       <div>
-        <p className="text-sm font-medium">Web 搜索 / Exa</p>
+        <p className="text-sm font-medium">Web 搜索</p>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{HINT_TEXT}</p>
       </div>
       {loading ? (

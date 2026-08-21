@@ -64,7 +64,16 @@ test("server.mjs wires GET and PUT /api/web-search-keys", () => {
 test("v1 providers require Exa and never auto-insert explicit-only sources", () => {
   assert.equal(WEB_SEARCH_KEY_PROVIDERS[0].id, "exa");
   assert.equal(WEB_SEARCH_KEY_PROVIDERS[0].keyField, "exaApiKey");
+  assert.deepEqual(
+    WEB_SEARCH_KEY_PROVIDERS.map((p) => p.id),
+    ["exa", "tavily", "perplexity", "openai", "searxng"],
+  );
+  assert.deepEqual(
+    WEB_SEARCH_KEY_PROVIDERS.map((p) => p.keyField),
+    ["exaApiKey", "tavilyApiKey", "perplexityApiKey", "openaiApiKey", "searxngApiKey"],
+  );
   assert.equal(DEFAULT_SEARCH_ROUTING.providers[0], "exa");
+  assert.deepEqual(DEFAULT_SEARCH_ROUTING.providers, ["exa", "tavily", "perplexity", "searxng", "openai"]);
   assert.ok(DEFAULT_SEARCH_ROUTING.providers.includes("searxng"));
   assert.ok(DEFAULT_SEARCH_ROUTING.providers.includes("openai"));
   for (const blocked of ["anysearch", "xai", "brightdata", "serpbase"]) {
@@ -102,6 +111,28 @@ test("PUT stores *ApiKey and GET never echoes the secret", () => {
   fs.rmSync(agentDir, { recursive: true, force: true });
 });
 
+test("PUT tavily and perplexity keys expose public booleans only", () => {
+  const agentDir = tempAgentDir("coc-web-search-tvly-");
+  const tavilySecret = `tvly_${process.pid}_secret`;
+  const pplxSecret = `pplx_${process.pid}_secret`;
+  const view = saveWebSearchApiKeys(agentDir, {
+    keys: { tavilyApiKey: tavilySecret, perplexityApiKey: pplxSecret },
+  });
+  assert.equal(view.keys.tavilyApiKey, true);
+  assert.equal(view.keys.perplexityApiKey, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(view, "tavilyApiKey"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(view, "perplexityApiKey"), false);
+  assertNoSecretInPublic(view, tavilySecret);
+  assertNoSecretInPublic(view, pplxSecret);
+  assertNoSecretInPublic(loadWebSearchKeysView(agentDir), tavilySecret);
+  const disk = readConfig(agentDir);
+  assert.equal(disk.tavilyApiKey, tavilySecret);
+  assert.equal(disk.perplexityApiKey, pplxSecret);
+  assert.deepEqual(disk.searchRouting.providers[0], "tavily");
+  assert.ok(disk.searchRouting.providers.includes("perplexity"));
+  fs.rmSync(agentDir, { recursive: true, force: true });
+});
+
 test("empty string deletes a key and unknown fields are rejected", () => {
   const agentDir = tempAgentDir("coc-web-search-del-");
   const secret = `tok_${process.pid}_b`;
@@ -123,7 +154,7 @@ test("empty string deletes a key and unknown fields are rejected", () => {
 test("keyed providers reorder ahead of Exa default without inserting explicit-only ids", () => {
   const secret = `tok_${process.pid}_c`;
   const reordered = reorderProvidersForKeyPriority({ openaiApiKey: secret, brightdataApiKey: secret });
-  assert.deepEqual(reordered, ["openai", "exa", "searxng"]);
+  assert.deepEqual(reordered, ["openai", "exa", "tavily", "perplexity", "searxng"]);
   assert.equal(reordered.includes("brightdata"), false);
   assert.equal(reorderProvidersForKeyPriority({}), null);
 });
@@ -182,7 +213,7 @@ test("PUT preserves unrelated fields and reorders when unpinned", () => {
   const disk = readConfig(agentDir);
   assert.equal(disk.note, "keep");
   assert.equal(disk.firecrawlBaseUrl, "https://crawl.example");
-  assert.deepEqual(disk.searchRouting.providers, ["openai", "exa", "searxng"]);
+  assert.deepEqual(disk.searchRouting.providers, ["openai", "exa", "tavily", "perplexity", "searxng"]);
   fs.rmSync(agentDir, { recursive: true, force: true });
 });
 
@@ -256,6 +287,17 @@ async function getHttpServer() {
 after(() => {
   httpServer?.close();
   if (httpServer?.agentDir) fs.rmSync(httpServer.agentDir, { recursive: true, force: true });
+});
+
+test("settings pane lists Tavily and Perplexity without secret echo placeholders", () => {
+  const pane = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../frontend/src/components/WebSearchKeysPane.tsx"),
+    "utf8",
+  );
+  assert.match(pane, /tavilyApiKey/);
+  assert.match(pane, /perplexityApiKey/);
+  assert.match(pane, /已配置/);
+  assert.doesNotMatch(pane, /tavilyApiKey:\s*view/);
 });
 
 test("GET /api/web-search-keys defaults to empty configured map", async () => {
