@@ -700,6 +700,12 @@ def test_chargen_run_persists_backstory_equipment_and_cash(tmp_path: Path) -> No
     assert "随身物品" in markdown
     assert "记者" in markdown
     assert "Journalist" not in markdown
+    assert "## 财力" in markdown
+    assert "现金" in markdown
+    assert "消费水平" in markdown
+    assert str(expected["cash"]["amount"]) in markdown
+    assert "## 公开骰" in markdown
+    assert "建卡幸运" in markdown
 
 
 def test_chargen_run_applies_full_age_modifiers(tmp_path: Path) -> None:

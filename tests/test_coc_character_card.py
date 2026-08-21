@@ -309,3 +309,55 @@ def test_character_card_script_is_directly_executable():
     mode = SCRIPT_PATH.stat().st_mode
 
     assert mode & stat.S_IXUSR
+
+
+def test_render_cards_projects_finance_and_public_dice(tmp_path):
+    card_script = _load_card_script()
+    campaign_path = tmp_path / "campaign.json"
+    character_path = tmp_path / "character.json"
+    campaign_path.write_text(json.dumps({"title": "The Haunting"}), encoding="utf-8")
+    character_path.write_text(
+        json.dumps(
+            {
+                "id": "ada",
+                "name": "Ada",
+                "skills": {"Credit Rating": 33},
+                "cash": {"amount": 66, "currency": "USD", "formula": "CR x 2"},
+                "assets": {"amount": 1650, "currency": "USD"},
+                "spending_level": {"amount": 10, "currency": "USD"},
+                "living_standard": "Average",
+                "player_facing_sheet_zh": {
+                    "display_name": "艾达",
+                    "occupation": "记者",
+                    "skills": [],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    character_path.with_name("creation.json").write_text(
+        json.dumps({
+            "luck_roll_total": 9,
+            "edu_improvement_rolls": [{"roll": 74, "improvement_roll": 8}],
+        }),
+        encoding="utf-8",
+    )
+    result = card_script.render_cards(
+        character_path,
+        campaign_path,
+        tmp_path / "cards",
+        repo_root=tmp_path,
+        language="zh-Hans",
+        html_mode="never",
+    )
+    markdown = (tmp_path / result["markdown_path"]).read_text(encoding="utf-8")
+    assert "## 财力" in markdown
+    assert "信用评级" in markdown
+    assert "33" in markdown
+    assert "现金" in markdown
+    assert "66 USD" in markdown
+    assert "普通" in markdown
+    assert "## 公开骰" in markdown
+    assert "建卡幸运" in markdown
+    assert "教育提升检定" in markdown
