@@ -321,9 +321,15 @@ def test_render_cards_projects_finance_and_public_dice(tmp_path):
             {
                 "id": "ada",
                 "name": "Ada",
+                "age": 32,
                 "skills": {"Credit Rating": 33},
-                "cash": {"amount": 66, "currency": "USD", "formula": "CR x 2"},
-                "assets": {"amount": 1650, "currency": "USD"},
+                "characteristics": {
+                    "STR": 40, "CON": 50, "SIZ": 50, "DEX": 50,
+                    "APP": 60, "INT": 80, "POW": 60, "EDU": 71,
+                },
+                "derived": {"Luck": 80},
+                "cash": {"amount": 70, "currency": "USD", "formula": "CR x 2"},
+                "assets": {"amount": 1750, "currency": "USD"},
                 "spending_level": {"amount": 10, "currency": "USD"},
                 "living_standard": "Average",
                 "player_facing_sheet_zh": {
@@ -338,8 +344,11 @@ def test_render_cards_projects_finance_and_public_dice(tmp_path):
     )
     character_path.with_name("creation.json").write_text(
         json.dumps({
-            "luck_roll_total": 9,
-            "edu_improvement_rolls": [{"roll": 74, "improvement_roll": 8}],
+            "characteristic_assignment_order": [
+                "INT", "EDU", "POW", "APP", "DEX", "CON", "SIZ", "STR",
+            ],
+            "luck_roll_total": 16,
+            "edu_improvement_rolls": [{"roll": 72, "improvement_roll": 1}],
         }),
         encoding="utf-8",
     )
@@ -352,12 +361,11 @@ def test_render_cards_projects_finance_and_public_dice(tmp_path):
         html_mode="never",
     )
     markdown = (tmp_path / result["markdown_path"]).read_text(encoding="utf-8")
+    assert "## 玩家摘要" in markdown
+    assert "教育提升检定 1（1D100）：72/70 成功，EDU +1 → 71" in markdown
+    assert "幸运（3D6）：掷出 16，幸运值 80" in markdown
+    assert "现金 $70" in markdown
+    assert "资产 $1,750" in markdown
+    assert "消费水平 $10" in markdown
     assert "## 财力" in markdown
-    assert "信用评级" in markdown
-    assert "33" in markdown
-    assert "现金" in markdown
-    assert "66 USD" in markdown
-    assert "普通" in markdown
-    assert "## 公开骰" in markdown
-    assert "建卡幸运" in markdown
-    assert "教育提升检定" in markdown
+    assert "$70" in markdown

@@ -26,6 +26,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import coc_fileio
 import coc_investigator_guard
+import coc_character
 
 LANGUAGE_SHEET_SUFFIX = {
     "zh-Hans": "zh",
@@ -211,13 +212,7 @@ _LIVING_STANDARD_ZH = {
 
 
 def _finance_amount_text(entry: Any) -> str:
-    if not isinstance(entry, dict):
-        return ""
-    amount = entry.get("amount")
-    if amount is None:
-        return "无"
-    currency = str(entry.get("currency") or "USD")
-    return f"{amount} {currency}"
+    return coc_character.format_chargen_money_zh(entry)
 
 
 def _finance_rows(character: dict[str, Any]) -> list[tuple[str, str]]:
@@ -361,6 +356,15 @@ def render_markdown(
             ]
         )
         lines.extend(_markdown_table(rows))
+        lines.append("")
+
+    creation = _load_creation_beside(source_path)
+    summary = coc_character.build_chargen_player_summary_zh(character, creation)
+    summary_lines = list(summary.get("dice") or []) + list(summary.get("finance") or [])
+    if summary_lines:
+        lines.extend(["## 玩家摘要", ""])
+        for sentence in summary_lines:
+            lines.append(f"- {sentence}")
         lines.append("")
 
     finance = _finance_rows(character)
@@ -514,6 +518,17 @@ def render_html(
             '<section class="section" style="padding: 0 38px 12px;">'
             "<h2>财力</h2><div class=\"meta-grid\">"
             f"{finance_html}</div></section>"
+        )
+    summary = coc_character.build_chargen_player_summary_zh(
+        character, _load_creation_beside(source_path)
+    )
+    summary_lines = list(summary.get("dice") or []) + list(summary.get("finance") or [])
+    if summary_lines:
+        items = "".join(f"<li>{_html(sentence)}</li>" for sentence in summary_lines)
+        finance_html = (
+            '<section class="section" style="padding: 0 38px 12px;">'
+            f"<h2>玩家摘要</h2><ul>{items}</ul></section>"
+            + finance_html
         )
 
     return f"""<!doctype html>

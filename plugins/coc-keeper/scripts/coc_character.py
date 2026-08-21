@@ -501,6 +501,128 @@ def chargen_luck_rolls_keep_highest(age: int) -> int:
     return max(1, int(coc_rules.age_adjustment(age).get("luck_rolls_keep_highest", 1)))
 
 
+def format_chargen_money_zh(entry: Any) -> str:
+    if not isinstance(entry, dict):
+        return ""
+    amount = entry.get("amount")
+    if amount is None:
+        return "无"
+    currency = str(entry.get("currency") or "USD")
+    if isinstance(amount, bool):
+        return ""
+    if isinstance(amount, float) and amount.is_integer():
+        amount = int(amount)
+    if isinstance(amount, int):
+        formatted = f"{amount:,}"
+    else:
+        formatted = str(amount)
+    if currency == "USD":
+        return f"${formatted}"
+    return f"{formatted} {currency}"
+
+
+def _edu_before_improvement_checks(creation: dict[str, Any], age: int | None) -> int | None:
+    order = creation.get("characteristic_assignment_order")
+    if not isinstance(order, list):
+        return None
+    try:
+        chars = quick_fire_array_characteristics(order)
+    except ChargenRunError:
+        return None
+    edu = int(chars["EDU"])
+    if age is None:
+        return edu
+    try:
+        adjustment = coc_rules.age_adjustment(age)
+    except ValueError:
+        return edu
+    edu = max(0, edu - int(adjustment.get("edu_reduction", 0)))
+    return edu
+
+
+def build_chargen_player_summary_zh(
+    sheet: dict[str, Any],
+    creation: dict[str, Any] | None,
+) -> dict[str, list[str]]:
+    """Deterministic zh-Hans sentences for KP to copy verbatim."""
+    dice: list[str] = []
+    finance: list[str] = []
+    creation = creation if isinstance(creation, dict) else {}
+    age = sheet.get("age")
+    if isinstance(age, bool) or not isinstance(age, int):
+        age = None
+    candidates = creation.get("luck_roll_candidates")
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    luck_value = derived.get("Luck")
+    if isinstance(candidates, list) and candidates:
+        totals: list[int] = []
+        for index, row in enumerate(candidates, start=1):
+            if not isinstance(row, dict):
+                continue
+            total = row.get("total")
+            if isinstance(total, int) and not isinstance(total, bool):
+                totals.append(total)
+                dice.append(f"幸运（3D6）第{index}次：掷出 {total}")
+        if totals:
+            kept = max(totals)
+            if isinstance(luck_value, int) and not isinstance(luck_value, bool):
+                dice.append(f"幸运取高 {kept}，幸运值 {luck_value}")
+            else:
+                dice.append(f"幸运取高 {kept}，幸运值 {kept * 5}")
+    else:
+        luck_total = creation.get("luck_roll_total")
+        if isinstance(luck_total, int) and not isinstance(luck_total, bool):
+            if isinstance(luck_value, int) and not isinstance(luck_value, bool):
+                dice.append(f"幸运（3D6）：掷出 {luck_total}，幸运值 {luck_value}")
+            else:
+                dice.append(f"幸运（3D6）：掷出 {luck_total}，幸运值 {luck_total * 5}")
+    edu = _edu_before_improvement_checks(creation, age)
+    for index, record in enumerate(creation.get("edu_improvement_rolls") or [], start=1):
+        if not isinstance(record, dict):
+            continue
+        roll = record.get("roll")
+        if not isinstance(roll, int) or isinstance(roll, bool):
+            continue
+        target = edu if isinstance(edu, int) else None
+        if target is None:
+            dice.append(f"教育提升检定 {index}（1D100）：掷出 {roll}")
+            continue
+        success = roll > target
+        if success:
+            improve = record.get("improvement_roll")
+            if not isinstance(improve, int) or isinstance(improve, bool):
+                improve = 0
+            next_edu = min(99, target + improve)
+            dice.append(
+                f"教育提升检定 {index}（1D100）：{roll}/{target} 成功，EDU +{improve} → {next_edu}"
+            )
+            edu = next_edu
+        else:
+            dice.append(
+                f"教育提升检定 {index}（1D100）：{roll}/{target} 失败，EDU 仍为 {target}"
+            )
+    skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+    credit = skills.get("Credit Rating")
+    parts: list[str] = []
+    if isinstance(credit, int) and not isinstance(credit, bool):
+        parts.append(f"信用评级 {credit}")
+    living = sheet.get("living_standard")
+    if isinstance(living, str) and living.strip():
+        parts.append(f"生活水平：{_LIVING_STANDARD_ZH.get(living, living)}")
+    cash = format_chargen_money_zh(sheet.get("cash"))
+    if cash:
+        parts.append(f"现金 {cash}")
+    assets = format_chargen_money_zh(sheet.get("assets"))
+    if assets:
+        parts.append(f"资产 {assets}")
+    spend = format_chargen_money_zh(sheet.get("spending_level"))
+    if spend:
+        parts.append(f"消费水平 {spend}")
+    if parts:
+        finance.append("财力：" + "；".join(parts))
+    return {"dice": dice, "finance": finance}
+
+
 def _chargen_prose_string(value: Any, *, field: str) -> str:
     if isinstance(value, bool) or isinstance(value, (int, float)):
         raise ChargenRunError(

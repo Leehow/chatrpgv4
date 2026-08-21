@@ -703,9 +703,13 @@ def test_chargen_run_persists_backstory_equipment_and_cash(tmp_path: Path) -> No
     assert "## 财力" in markdown
     assert "现金" in markdown
     assert "消费水平" in markdown
-    assert str(expected["cash"]["amount"]) in markdown
-    assert "## 公开骰" in markdown
-    assert "建卡幸运" in markdown
+    cash_text = coc_character.format_chargen_money_zh(expected["cash"])
+    assert cash_text in markdown
+    assert "## 玩家摘要" in markdown
+    summary = envelope["data"]["result"]["player_summary_zh"]
+    assert summary["finance"]
+    assert cash_text in summary["finance"][0]
+    assert any("幸运" in line for line in summary["dice"])
 
 
 def test_chargen_run_applies_full_age_modifiers(tmp_path: Path) -> None:
@@ -861,6 +865,8 @@ def test_chargen_run_edu_check_failure_keeps_edu(tmp_path: Path) -> None:
     kinds = {row["kind"] for row in envelope["data"]["result"]["dice_receipts"]}
     assert "edu_check" in kinds
     assert "luck" in kinds
+    fail_text = "\n".join(envelope["data"]["result"]["player_summary_zh"]["dice"])
+    assert f"{int(record['roll'])}/70 失败，EDU 仍为 70" in fail_text
 
 
 def test_chargen_run_edu_check_success_applies_1d10(tmp_path: Path) -> None:
@@ -897,6 +903,13 @@ def test_chargen_run_edu_check_success_applies_1d10(tmp_path: Path) -> None:
     assert saved["operation"]["purpose"] == "investigator_creation_characteristic"
     assert saved["operation"]["expression"] == "1D10"
     assert any(row["kind"] == "edu_improve" for row in envelope["data"]["result"]["dice_receipts"])
+    edu = stored["characteristics"]["EDU"]
+    occ = creation["skill_budget"]["occupation_points"]["allocations"]
+    interest = creation["skill_budget"]["personal_interest_points"]["allocations"]
+    own_add = int(occ.get("Language (Own)", 0)) + int(interest.get("Language (Own)", 0))
+    assert stored["skills"]["Language (Own)"] == edu + own_add
+    summary_text = "\n".join(envelope["data"]["result"]["player_summary_zh"]["dice"])
+    assert f"{int(record['roll'])}/70 成功，EDU +{int(record['improvement_roll'])} → {edu}" in summary_text
 
 
 def test_chargen_run_teen_keeps_highest_of_two_luck_rolls(tmp_path: Path) -> None:

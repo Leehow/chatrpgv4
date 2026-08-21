@@ -198,11 +198,11 @@ deliver opening narration here.
   render_card. Always pass `assignment_priority` as eight keys **high-to-low**
   (first key receives Quick Fire 80). Do not invert that order. You receive
   compact JSON (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`,
-  `dice_receipts`). Present that written card as the current written sheet,
-  not as table opening: read `card_path` (six dimensions, 财力 rows, 公开骰 if
-  present) and also speak every `dice_receipts` row in zh-Hans (what was
-  rolled, purpose, total) plus 信用评级→现金/资产/消费水平 from the card.
-  Do not substitute 「以卡内为准」 for those numbers. Invite
+  `dice_receipts`, `player_summary_zh`). Present that written card as the
+  current written sheet, not as table opening. Copy `player_summary_zh` and
+  the card's 「## 玩家摘要」 sentences **verbatim** (every dice judgment and
+  every cash/assets/spending number). Do not paraphrase, omit, invert
+  成功/失败, or substitute 「以卡内为准」. Invite
   specific later-turn revisions (one thing at a time). After any accepted
   change, call `coc_chargen_delegate` **once** with the same `investigator_id`
   so runtime re-runs Quick Fire and covers the same card; Luck stays
