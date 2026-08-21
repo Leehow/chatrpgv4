@@ -6986,6 +6986,101 @@ def renew_host_work_leases(
     }
 
 
+def _host_work_request_projection(
+    request: dict[str, Any],
+    path: Path,
+    *,
+    include_closed: bool,
+) -> dict[str, Any] | None:
+    """Project one already-validated host-work row without changing it."""
+    status = str(request.get("status") or "open")
+    if status == "quarantined":
+        if not include_closed:
+            return None
+        return {
+            "job_id": request.get("job_id"),
+            "asset_root_id": request.get("asset_root_id"),
+            "status": "quarantined",
+            "dispatch_state": "quarantined",
+            "operational_class": "stale",
+            "quarantine_reason": request.get("quarantine_reason"),
+            "rejected_evidence_sha256": request.get("rejected_evidence_sha256"),
+            "rejected_evidence_path": request.get("rejected_evidence_path"),
+            "path": str(path),
+        }
+    if not include_closed and status in HOST_WORK_CLOSED_STATUSES:
+        return None
+    requested_indices = list(request.get("requested_pdf_indices") or [])
+    source_scope_known = bool(requested_indices)
+    work_level = request["work_level"]
+    projected = {
+        "job_id": request.get("job_id"),
+        "asset_root_id": request.get("asset_root_id"),
+        "kind": request.get("kind"),
+        "target_id": request.get("target_id"),
+        "priority": request.get("priority"),
+        "reason": request.get("reason"),
+        "status": status,
+        "created_at": request.get("created_at"),
+        "source_pdf": request.get("source_pdf"),
+        "source_id": request.get("source_id"),
+        "file_sha256": request.get("file_sha256"),
+        "requested_pdf_indices": requested_indices,
+        "request_purpose": request.get("request_purpose"),
+        "requested_source_scope": request.get("requested_source_scope"),
+        "source_scope_signature": request.get("source_scope_signature"),
+        "cached_page_refs": (
+            list(request.get("cached_page_refs") or [])
+            if source_scope_known else []
+        ),
+        "source_scope_status": (
+            request.get("source_scope_status")
+            or ("known" if source_scope_known else "unknown")
+        ),
+        "cached_scope_complete": request.get("cached_scope_complete"),
+        "batch_subjects": list(request.get("batch_subjects") or []),
+        "source_aspect": request.get("source_aspect") or "body",
+        "deadline_class": request.get("deadline_class") or "next_turn_hot",
+        "work_level": work_level,
+        "work_group_id": request.get("work_group_id"),
+        "consumer_refs": json.loads(json.dumps(request.get("consumer_refs") or [])),
+        "consumer_state": (
+            request.get("consumer_state")
+            or ("stale" if status == "superseded" else "legacy_unowned")
+        ),
+        "stale_consumer_refs": json.loads(
+            json.dumps(request.get("stale_consumer_refs") or [])
+        ),
+        "stale_reason": request.get("stale_reason"),
+        "dispatch_state": request.get("dispatch_state") or "awaiting_scope",
+        "operational_class": host_work_operational_class(request),
+        "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
+        "executor_id": request.get("executor_id"),
+        "lease_id": request.get("lease_id"),
+        "leased_at": request.get("leased_at"),
+        "lease_expires_at": request.get("lease_expires_at"),
+        "fulfilled_at": request.get("fulfilled_at"),
+        "fulfilled_entity": (
+            json.loads(json.dumps(request.get("fulfilled_entity")))
+            if isinstance(request.get("fulfilled_entity"), dict)
+            else None
+        ),
+        "fulfillment_operation": {
+            "tool": "progressive.fulfill_host_work",
+            "args": {
+                "worker_result": "<exact completed child results[i] object>",
+                "host_task_timing": "<exact host task metadata when available>",
+            },
+        },
+        "path": str(path),
+    }
+    if work_level == "current_dependency":
+        projected["dependency_ref"] = json.loads(
+            json.dumps(request["dependency_ref"])
+        )
+    return projected
+
+
 def _list_host_work_requests_unlocked(
     workspace: Path,
     asset_root_id: str,
@@ -6993,7 +7088,8 @@ def _list_host_work_requests_unlocked(
     include_closed: bool = False,
     limit: int | None = 8,
     invalid_job_ids: list[str] | None = None,
-) -> list[dict[str, Any]]:
+    mutating: bool = True,
+) -> tuple[list[dict[str, Any]], bool]:
     """Return a bounded, deterministic projection of durable host handoffs.
 
     Queue ``done`` rows are a negative cache, not proof that semantic parsing
@@ -7002,134 +7098,94 @@ def _list_host_work_requests_unlocked(
     """
     work_dir = _module_dir(workspace, asset_root_id) / "host-work"
     if not work_dir.is_dir():
-        return []
+        return [], True
+    try:
+        before_directory_stat = work_dir.stat()
+        paths = sorted(work_dir.glob("*.json"))
+    except OSError:
+        return [], False
     rows: list[dict[str, Any]] = []
+    facts_complete = True
     now = datetime.now(timezone.utc)
-    for path in sorted(work_dir.glob("*.json")):
+    for path in paths:
         try:
             raw_bytes = path.read_bytes()
         except OSError:
+            facts_complete = False
             continue
         try:
             request = json.loads(raw_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            _quarantine_host_work_request(
+            if not mutating:
+                facts_complete = False
+                continue
+            rejected = _quarantine_host_work_request(
                 workspace, asset_root_id, path, raw_bytes,
                 reason=f"invalid_json:{type(exc).__name__}",
             )
+            if invalid_job_ids is not None:
+                invalid_job_ids.append(str(rejected["job_id"]))
             continue
         if not isinstance(request, dict):
-            _quarantine_host_work_request(
+            if not mutating:
+                facts_complete = False
+                continue
+            rejected = _quarantine_host_work_request(
                 workspace, asset_root_id, path, raw_bytes,
                 reason="host_work_request_not_object",
             )
+            if invalid_job_ids is not None:
+                invalid_job_ids.append(str(rejected["job_id"]))
             continue
-        status = str(request.get("status") or "open")
         try:
             validate_host_work_request_shape(request)
         except ModuleAssetsError as exc:
-            _quarantine_host_work_request(
+            if not mutating:
+                facts_complete = False
+                continue
+            rejected = _quarantine_host_work_request(
                 workspace, asset_root_id, path, raw_bytes,
                 reason=str(exc),
             )
+            if invalid_job_ids is not None:
+                invalid_job_ids.append(str(rejected["job_id"]))
             continue
-        if status == "quarantined":
-            if include_closed:
-                rows.append({
-                    "job_id": request.get("job_id"),
-                    "asset_root_id": request.get("asset_root_id"),
-                    "status": "quarantined",
-                    "dispatch_state": "quarantined",
-                    "operational_class": "stale",
-                    "quarantine_reason": request.get("quarantine_reason"),
-                    "rejected_evidence_sha256": request.get(
-                        "rejected_evidence_sha256"
-                    ),
-                    "rejected_evidence_path": request.get(
-                        "rejected_evidence_path"
-                    ),
-                    "path": str(path),
-                })
-            continue
-        if status not in HOST_WORK_CLOSED_STATUSES and _refresh_host_work_lifecycle(
-            workspace, asset_root_id, request, now=now,
-        ):
-            _write_json(path, request)
-            status = str(request.get("status") or "open")
-        if not include_closed and status in HOST_WORK_CLOSED_STATUSES:
-            continue
-        requested_indices = list(request.get("requested_pdf_indices") or [])
-        source_scope_known = bool(requested_indices)
-        deadline_class = request.get("deadline_class") or "next_turn_hot"
-        work_level = request["work_level"]
-        projected = {
-            "job_id": request.get("job_id"),
-            "asset_root_id": request.get("asset_root_id"),
-            "kind": request.get("kind"),
-            "target_id": request.get("target_id"),
-            "priority": request.get("priority"),
-            "reason": request.get("reason"),
-            "status": status,
-            "created_at": request.get("created_at"),
-            "source_pdf": request.get("source_pdf"),
-            "source_id": request.get("source_id"),
-            "file_sha256": request.get("file_sha256"),
-            "requested_pdf_indices": requested_indices,
-            "request_purpose": request.get("request_purpose"),
-            "requested_source_scope": request.get("requested_source_scope"),
-            "source_scope_signature": request.get("source_scope_signature"),
-            "cached_page_refs": (
-                list(request.get("cached_page_refs") or [])
-                if source_scope_known else []
-            ),
-            "source_scope_status": (
-                request.get("source_scope_status")
-                or ("known" if source_scope_known else "unknown")
-            ),
-            "cached_scope_complete": request.get("cached_scope_complete"),
-            "batch_subjects": list(request.get("batch_subjects") or []),
-            "source_aspect": request.get("source_aspect") or "body",
-            "deadline_class": deadline_class,
-            "work_level": work_level,
-            "work_group_id": request.get("work_group_id"),
-            "consumer_refs": json.loads(json.dumps(
-                request.get("consumer_refs") or []
-            )),
-            "consumer_state": (
-                request.get("consumer_state")
-                or ("stale" if status == "superseded" else "legacy_unowned")
-            ),
-            "stale_consumer_refs": json.loads(json.dumps(
-                request.get("stale_consumer_refs") or []
-            )),
-            "stale_reason": request.get("stale_reason"),
-            "dispatch_state": request.get("dispatch_state") or "awaiting_scope",
-            "operational_class": host_work_operational_class(request),
-            "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
-            "executor_id": request.get("executor_id"),
-            "lease_id": request.get("lease_id"),
-            "leased_at": request.get("leased_at"),
-            "lease_expires_at": request.get("lease_expires_at"),
-            "fulfilled_at": request.get("fulfilled_at"),
-            "fulfilled_entity": (
-                json.loads(json.dumps(request.get("fulfilled_entity")))
-                if isinstance(request.get("fulfilled_entity"), dict)
-                else None
-            ),
-            "fulfillment_operation": {
-                "tool": "progressive.fulfill_host_work",
-                "args": {
-                    "worker_result": "<exact completed child results[i] object>",
-                    "host_task_timing": "<exact host task metadata when available>",
-                },
-            },
-            "path": str(path),
-        }
-        if work_level == "current_dependency":
-            projected["dependency_ref"] = json.loads(
-                json.dumps(request["dependency_ref"])
-            )
-        rows.append(projected)
+        # Pure inspection reports only durable facts.  Do not even refresh an
+        # in-memory copy: cache/lease/consumer reconciliation is materializing
+        # lifecycle work, and a parallel reader must fail closed on facts it
+        # cannot establish without that reconciliation.
+        projected_request = request
+        lifecycle_changed = False
+        if mutating:
+            try:
+                lifecycle_changed = (
+                    str(projected_request.get("status") or "open")
+                    not in HOST_WORK_CLOSED_STATUSES
+                    and _refresh_host_work_lifecycle(
+                        workspace, asset_root_id, projected_request, now=now,
+                    )
+                )
+            except (OSError, ValueError, ModuleAssetsError):
+                raise
+        if lifecycle_changed:
+            _write_json(path, projected_request)
+        projected = _host_work_request_projection(
+            projected_request, path, include_closed=include_closed,
+        )
+        if projected is not None:
+            rows.append(projected)
+    if not mutating:
+        try:
+            after_directory_stat = work_dir.stat()
+        except OSError:
+            facts_complete = False
+        else:
+            if (
+                before_directory_stat.st_ino != after_directory_stat.st_ino
+                or before_directory_stat.st_mtime_ns != after_directory_stat.st_mtime_ns
+                or before_directory_stat.st_ctime_ns != after_directory_stat.st_ctime_ns
+            ):
+                facts_complete = False
     rows.sort(
         key=lambda row: (
             -int(row.get("priority") or 0),
@@ -7137,9 +7193,9 @@ def _list_host_work_requests_unlocked(
             str(row.get("job_id") or ""),
         )
     )
-    if limit is None:
-        return rows
-    return rows[:max(0, int(limit))]
+    if limit is not None:
+        rows = rows[:max(0, int(limit))]
+    return rows, facts_complete
 
 
 def list_host_work_requests(
@@ -7153,7 +7209,7 @@ def list_host_work_requests(
     module_root = _module_dir(workspace, asset_root_id)
     invalid_job_ids: list[str] = []
     with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
-        rows = _list_host_work_requests_unlocked(
+        rows, _facts_complete = _list_host_work_requests_unlocked(
             workspace,
             asset_root_id,
             include_closed=include_closed,
@@ -7164,6 +7220,30 @@ def list_host_work_requests(
         workspace, asset_root_id, invalid_job_ids,
     )
     return rows
+
+
+def inspect_host_work_requests_pure(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    include_closed: bool = False,
+    limit: int | None = 8,
+) -> list[dict[str, Any]] | None:
+    """Read one lifecycle decision without creating, refreshing, or repairing.
+
+    This intentionally takes no advisory lock: acquiring the ordinary lifecycle
+    lock can create ``host-work.lock``.  A malformed, unreadable, or otherwise
+    incomplete snapshot returns ``None`` so a parallel caller must stay gated
+    rather than treating missing facts as permission to proceed.
+    """
+    rows, facts_complete = _list_host_work_requests_unlocked(
+        workspace,
+        asset_root_id,
+        include_closed=include_closed,
+        limit=limit,
+        mutating=False,
+    )
+    return rows if facts_complete else None
 
 
 def get_host_work_request(

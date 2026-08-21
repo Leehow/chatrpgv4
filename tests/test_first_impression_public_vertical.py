@@ -649,5 +649,5 @@ def test_state_delta_preserves_canonical_tool_call_order(tmp_path: Path) -> None
     assert time_chain == [(40, 160, 120)]
     assert output["composition_mode"] == "causal_paragraph_placements"
     assert set(output["placement_segment_types"]) == {
-        "public_check", "state_delta", "exceptional_effect",
+        "public_check", "state_delta", "asset_delta", "exceptional_effect",
     }

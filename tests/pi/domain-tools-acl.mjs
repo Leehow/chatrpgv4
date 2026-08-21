@@ -474,6 +474,19 @@ assert.equal(
 );
 assert.equal(
   mod.playPhaseFromResumeData(
+    {
+      mode: "table_opening",
+      campaign_id: probeCampaign,
+      next_operations: ["evidence.table_opening"],
+      current_turn: { rows: [{ tool: "setup.complete", ok: true }] },
+    },
+    { workspaceRoot: probeRoot },
+  ),
+  "live_turn",
+  "persisted turn-0 opening must beat a stale opening next-operation",
+);
+assert.equal(
+  mod.playPhaseFromResumeData(
     { mode: "table_opening", campaign_id: "still-fresh" },
     { workspaceRoot: probeRoot },
   ),

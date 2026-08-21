@@ -521,6 +521,27 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
     budget = creation["skill_budget"]["occupation_points"]
     assert budget["budget"] == budget["spent"] == sum(budget["allocations"].values())
     assert budget["budget"] > 0
+    selected = {
+        skill_id
+        for account in creation["skill_budget"].values()
+        for skill_id in account["allocations"]
+    } | {"Dodge", "Language (Own)", "Cthulhu Mythos"}
+    assert set(stored["skills"]) == selected
+    assert "Drive Auto" not in stored["skills"]
+    assert "Electrical Repair" not in stored["skills"]
+    assert "Firearms (Handgun)" not in stored["skills"]
+    assert "Operate Heavy Machinery" not in stored["skills"]
+    assert stored["skill_provenance"]["Credit Rating"] == {
+        "original_name": "Credit Rating",
+        "reskinned_name": "地位与财力",
+        "era_adaptive": True,
+    }
+    credit_row = next(
+        row
+        for row in stored["player_facing_sheet_zh"]["skills"]
+        if row["key"] == "Credit Rating"
+    )
+    assert credit_row["label"] == "地位与财力"
 
 
 def test_chargen_run_ww1_unrecognized_skill_is_structured_error(tmp_path: Path) -> None:

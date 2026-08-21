@@ -16,7 +16,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from threading import Event
+from threading import Barrier, Event, Lock
 
 import pytest
 
@@ -773,6 +773,126 @@ os.execv(sys.executable, [sys.executable, *sys.argv[3:]])
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=5)
+
+
+def test_campaign_lock_shared_reads_overlap_and_writes_remain_exclusive(
+    tmp_path: Path,
+):
+    campaign_dir = tmp_path / "campaign"
+    readers_ready = Barrier(2)
+    both_reading = Event()
+    release_reads = Event()
+    reader_count = 0
+    count_lock = Lock()
+
+    def shared_reader() -> None:
+        nonlocal reader_count
+        readers_ready.wait(timeout=2)
+        with coc_toolbox.coc_fileio.campaign_lock(
+            campaign_dir, mode="shared", wait_seconds=2,
+        ):
+            with count_lock:
+                reader_count += 1
+                if reader_count == 2:
+                    both_reading.set()
+            assert release_reads.wait(2)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(shared_reader) for _ in range(2)]
+        assert both_reading.wait(2), "shared readers did not overlap"
+        release_reads.set()
+        for future in futures:
+            future.result(timeout=2)
+
+    writer_entered = Event()
+    release_writer = Event()
+    late_reader_entered = Event()
+
+    def writer() -> None:
+        with coc_toolbox.coc_fileio.campaign_lock(campaign_dir, wait_seconds=2):
+            writer_entered.set()
+            assert release_writer.wait(2)
+
+    def late_reader() -> None:
+        assert writer_entered.wait(2)
+        with coc_toolbox.coc_fileio.campaign_lock(
+            campaign_dir, mode="shared", wait_seconds=2,
+        ):
+            late_reader_entered.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        writer_future = pool.submit(writer)
+        assert writer_entered.wait(2)
+        reader_future = pool.submit(late_reader)
+        assert not late_reader_entered.wait(0.1), "read crossed active writer"
+        release_writer.set()
+        writer_future.result(timeout=2)
+        reader_future.result(timeout=2)
+    assert late_reader_entered.is_set()
+
+
+def test_setup_phase_inner_campaign_uses_its_shared_campaign_lock(
+    campaign_ws, monkeypatch,
+):
+    locks: list[tuple[Path, str]] = []
+
+    @contextmanager
+    def recorded_lock(campaign_dir, **kwargs):
+        locks.append((Path(campaign_dir), str(kwargs.get("mode", "exclusive"))))
+        yield Path(campaign_dir) / ".campaign.lock"
+
+    monkeypatch.setattr(coc_toolbox.coc_fileio, "campaign_lock", recorded_lock)
+    result = coc_toolbox.run_tool(
+        "setup.phase",
+        campaign_ws["workspace"],
+        "unrelated-outer-campaign",
+        {"campaign_id": campaign_ws["campaign_id"]},
+    )
+
+    assert result["ok"] is True, result
+    assert result["data"]["campaign_id"] == campaign_ws["campaign_id"]
+    assert locks == [(campaign_ws["campaign_dir"], "shared")]
+
+
+def test_run_tool_lock_dispatch_uses_execution_class_only(campaign_ws, monkeypatch):
+    modes: list[str] = []
+
+    @contextmanager
+    def recorded_lock(_campaign_dir, **kwargs):
+        modes.append(str(kwargs.get("mode", "exclusive")))
+        yield campaign_ws["campaign_dir"] / ".campaign.lock"
+
+    def handler(_ctx, _args):
+        return {"observed": True}, [], []
+
+    parallel_name = "test.parallel_read_lock_dispatch"
+    unknown_name = "test.unknown_lock_dispatch"
+    coc_toolbox.TOOLS[parallel_name] = {
+        "name": parallel_name,
+        "summary": "test only",
+        "params": {},
+        "needs_campaign": True,
+        "strict_read_only": True,
+        "execution_class": "parallel_read",
+        "handler": handler,
+    }
+    coc_toolbox.TOOLS[unknown_name] = {
+        "name": unknown_name,
+        "summary": "test only",
+        "params": {},
+        "needs_campaign": True,
+        "strict_read_only": True,
+        "execution_class": "not-a-class",
+        "handler": handler,
+    }
+    monkeypatch.setattr(coc_toolbox.coc_fileio, "campaign_lock", recorded_lock)
+    try:
+        assert _run(campaign_ws, parallel_name)["ok"] is True
+        assert _run(campaign_ws, unknown_name)["ok"] is True
+    finally:
+        coc_toolbox.TOOLS.pop(parallel_name, None)
+        coc_toolbox.TOOLS.pop(unknown_name, None)
+    assert modes == ["shared", "exclusive"]
 
 
 # --------------------------------------------------------------------------- #
@@ -3913,11 +4033,13 @@ def test_pending_journal_allows_scene_context_before_finalization(campaign_ws):
     assert finalized["data"]["rendered_text"]
 
 
-def test_inventory_list_is_classified_as_query():
+def test_inventory_list_remains_a_query_but_is_campaign_serial():
     spec = coc_toolbox.TOOLS["state.inventory_list"]
     assert spec["access"] == "query"
     assert spec["write_domains"] == ()
     assert spec["recovery_domains"] == ()
+    assert spec["strict_read_only"] is True
+    assert spec["execution_class"] == "serial_campaign"
     assert "state.inventory_list" not in coc_toolbox._MUTATING_TOOLS
     assert coc_toolbox.coc_turn_manifest.is_post_journal_read_tool(
         "state.inventory_list"
@@ -3932,6 +4054,76 @@ def test_inventory_list_is_classified_as_query():
         coc_toolbox.coc_turn_manifest.is_post_journal_read_tool(name)
         for name in query_tools
     )
+
+
+def test_inventory_list_missing_state_uses_exclusive_campaign_lock(
+    campaign_ws, monkeypatch,
+):
+    """The query seeds missing investigator state, so it must never share a lock."""
+    lock_modes: list[str] = []
+
+    @contextmanager
+    def recorded_lock(_campaign_dir, **kwargs):
+        lock_modes.append(str(kwargs.get("mode", "exclusive")))
+        yield campaign_ws["campaign_dir"] / ".campaign.lock"
+
+    state_path = (
+        campaign_ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    state_path.unlink(missing_ok=True)
+    monkeypatch.setattr(coc_toolbox.coc_fileio, "campaign_lock", recorded_lock)
+
+    listed = _run(
+        campaign_ws,
+        "state.inventory_list",
+        {"investigator": campaign_ws["investigator_id"]},
+    )
+
+    assert listed["ok"] is True, listed
+    assert state_path.is_file()
+    assert lock_modes == ["exclusive"]
+
+
+def test_parallel_read_candidates_only_append_atomic_audit_receipts(campaign_ws):
+    """Reviewed parallel reads leave state/RNG/receipts untouched except audit JSONL."""
+    log_path = campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    before_log_rows = _read_jsonl(log_path)
+    before_files = _game_file_bytes(campaign_ws["campaign_dir"])
+    before_files.pop(Path("logs/toolbox-calls.jsonl"), None)
+
+    calls = 16
+
+    def invoke(index: int) -> dict:
+        if index % 2:
+            return coc_toolbox.run_tool(
+                "rules.skill_describe",
+                campaign_ws["workspace"],
+                campaign_ws["campaign_id"],
+                {"skill": "Library Use", "include_selection_policy": False},
+            )
+        return coc_toolbox.run_tool(
+            "setup.phase",
+            campaign_ws["workspace"],
+            campaign_ws["campaign_id"],
+            {},
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(invoke, range(calls)))
+    assert all(result["ok"] is True for result in results), results
+
+    after_files = _game_file_bytes(campaign_ws["campaign_dir"])
+    after_files.pop(Path("logs/toolbox-calls.jsonl"), None)
+    assert after_files == before_files
+
+    appended = _read_jsonl(log_path)[len(before_log_rows):]
+    assert len(appended) == calls
+    assert {row["tool"] for row in appended} == {
+        "rules.skill_describe", "setup.phase",
+    }
+    assert sum(row["tool"] == "rules.skill_describe" for row in appended) == calls // 2
+    assert sum(row["tool"] == "setup.phase" for row in appended) == calls // 2
 
 
 def test_pending_journal_allows_inventory_list_before_finalization(campaign_ws):
@@ -9943,6 +10135,126 @@ def test_combat_tool_routes_owned_firearm_without_illegal_melee_defense(campaign
     assert attack_events[0]["turn"]["defense_kind"] == "none"
 
 
+def test_rules_roll_rejects_firearm_attack_without_generic_skill_alias(campaign_ws):
+    blocked = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Firearms",
+            "decision_id": "illegal-firearms-alias",
+            "difficulty": "regular",
+            "goal": "shoot the shadow",
+            "stakes": {
+                "on_success": "the shot lands",
+                "on_failure": "the shot misses",
+            },
+            "difficulty_basis": "keeper_judgment",
+        },
+    )
+    assert blocked["ok"] is False
+    assert blocked["error"]["code"] == "use_combat_resolve"
+    blocked_rifle = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Firearms (Rifle)",
+            "decision_id": "illegal-firearms-rifle",
+            "difficulty": "regular",
+            "goal": "shoot the shadow",
+            "stakes": {
+                "on_success": "the shot lands",
+                "on_failure": "the shot misses",
+            },
+            "difficulty_basis": "keeper_judgment",
+        },
+    )
+    assert blocked_rifle["ok"] is False
+    assert blocked_rifle["error"]["code"] == "use_combat_resolve"
+
+
+def test_combat_resolve_maps_inventory_rifle_item_id_to_sheet_skill(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    character_path = (
+        campaign_ws["coc_root"] / "investigators" / investigator_id / "character.json"
+    )
+    sheet = json.loads(character_path.read_text(encoding="utf-8"))
+    sheet.setdefault("skills", {})["Firearms (Rifle/Shotgun)"] = 25
+    sheet["skills"]["Firearms (Handgun)"] = 5
+    _write_json(character_path, sheet)
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": investigator_id,
+        "kind": "weapon",
+        "label": "卡卡诺步枪",
+        "item_id": "weapon-carcano-rifle",
+        "weapon_id": "30_06_bolt_action_rifle",
+        "decision_id": "grant-carcano-rifle",
+    })
+    assert granted["ok"] is True, granted
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "move-rifle-combat"},
+    )
+    assert moved["ok"] is True, moved
+    unknown = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "target_npc_id": "well-shadow",
+            "investigator": investigator_id,
+            "weapon_id": "weapon-carcano-rifle",
+            "decision_id": "shot-unknown-shadow",
+            "seed": 3,
+        },
+    )
+    assert unknown["ok"] is False
+    assert unknown["error"]["code"] == "unknown_combat_target"
+    resolved = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "affordance_id": "conventional-assault",
+            "investigator": investigator_id,
+            "weapon_id": "weapon-carcano-rifle",
+            "decision_id": "shot-carcano-corbitt",
+            "seed": 3,
+        },
+    )
+    assert resolved["ok"] is True, resolved
+    attack_events = [
+        event
+        for event in resolved["data"]["events"]
+        if event.get("event_type") == "combat_turn_resolved"
+        and (event.get("turn") or {}).get("actor_id") == investigator_id
+    ]
+    assert attack_events
+    turn = attack_events[0]["turn"]
+    assert turn["resolution_hint"] == "firearm_attack"
+    participant = next(
+        row for row in resolved["data"]["combat"]["participants"]
+        if row["actor_id"] == investigator_id
+    )
+    assert participant["firearms_skill"] == 25
+    owned_ids = {
+        str(row.get("weapon_id"))
+        for row in participant.get("weapons") or []
+        if isinstance(row, dict)
+    }
+    assert "30_06_bolt_action_rifle" in owned_ids
+    ammo = resolved["data"]["player_state_receipt"]["loaded_ammunition"]
+    assert ammo
+    rifle_ammo = [
+        row for row in ammo
+        if row.get("weapon_id") == "30_06_bolt_action_rifle"
+    ]
+    assert rifle_ammo
+    assert rifle_ammo[0]["change"] == -1
+    assert rifle_ammo[0]["after"] == rifle_ammo[0]["before"] - 1
+    assert turn.get("roll_id")
+
+
 def test_combat_resolve_uses_one_guarded_character_snapshot_for_all_consumers(
     campaign_ws, monkeypatch
 ):
@@ -10678,6 +10990,19 @@ def test_rules_cash_assets_lookup_and_validation(tmp_path):
 
 
 def test_npc_reaction_is_public_deterministic_and_npc_bound(campaign_ws):
+    realization_schema = coc_toolbox.TOOLS[
+        "state.record_npc_engagement"
+    ]["params"]["first_impression_realization"]
+    assert realization_schema["required_fields"] == [
+        "observable_manner",
+        "causal_explanation",
+        "boundary_preserved",
+        "opportunity_or_friction",
+    ]
+    assert all(
+        realization_schema["properties"][field]["type"] == "string"
+        for field in realization_schema["required_fields"]
+    )
     args = {
         "npc_id": "npc-test-clerk",
         "npc_display_name": "测试档案员",
@@ -13435,6 +13760,69 @@ def test_opening_bootstrap_watch_conflict_is_byte_preserving(
     assert _opening_state_bytes_without_audit(ws["workspace"]) == before
 
 
+def test_skeleton_reprojection_skips_deep_pack_for_different_selected_scope(
+    tmp_path: Path, monkeypatch,
+):
+    """A reusable deep pack must not poison a different L0 page window."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(1,))
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    skeleton = deepcopy(ws["skeleton"])
+    skeleton["locations"][0].pop("source_span", None)
+    assets.put_skeleton(ws["workspace"], ws["asset_root_id"], skeleton)
+    root_info = coc_toolbox.coc_module_project.resolve_opening_preparation_root(
+        ws["workspace"], ws["campaign_id"],
+    )
+    old_scope = assets.validate_opening_source_window(
+        ws["workspace"],
+        ws["asset_root_id"],
+        bundle_sha256=root_info["bundle_sha256"],
+        pdf_indices=[0],
+    )
+    scope = assets.validate_opening_source_window(
+        ws["workspace"],
+        ws["asset_root_id"],
+        bundle_sha256=root_info["bundle_sha256"],
+        pdf_indices=[1],
+    )
+    refs = assets._cached_source_refs(
+        ws["workspace"],
+        ws["asset_root_id"],
+        {"source_refs": list(old_scope["page_refs"])},
+        field="test_l0_direct",
+    )
+    reusable_pack = coc_toolbox.coc_module_project.build_l0_direct_opening_pack(
+        {"opening_hooks": [{
+            "id": "hook-player",
+            "audience": "player",
+            "text": "A source-bound opening hook.",
+        }]},
+        location_id="opening",
+        title="Opening",
+        source_refs=refs,
+        scope_pdf_indices=[0],
+    )
+    reusable_pack["parse_state"] = "deep"
+    assets.put_entity(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "opening",
+        reusable_pack,
+    )
+
+    projected = coc_toolbox.coc_module_project.project_skeleton_to_campaign(
+        ws["workspace"],
+        ws["campaign_id"],
+        ws["asset_root_id"],
+        opening_start_location_id="opening",
+        opening_source_scope=scope,
+    )
+
+    assert projected["scene_count"] == 1
+    assert projected["reapplied_deep_entities"] == []
+
+
 @pytest.mark.parametrize("failed_phase", ["skeleton", "projection", "source_request"])
 def test_opening_bootstrap_retries_each_durable_phase(
     tmp_path: Path, monkeypatch, failed_phase: str,
@@ -13791,6 +14179,7 @@ def test_pi_current_empty_party_resume_emits_guided_character_discriminator(
         "hard_gate": True,
         "activation_allowed": False,
         "phase": "opening_character_setup_required",
+        "opening_phase": "character_creation",
         "campaign_id": ws["campaign_id"],
         "character_setup_policy": "guided_quick_fire",
         "next_operation": None,
@@ -18401,6 +18790,236 @@ def _pending_opening_watch(ws: dict, *, age_seconds: float) -> None:
         "status": "pending",
     }
     _write_json(path, scenario)
+
+
+def _module_asset_tree_bytes(module_root: Path) -> dict[Path, bytes]:
+    """Capture every durable module-asset artifact, including lifecycle metadata."""
+    return {
+        path.relative_to(module_root): path.read_bytes()
+        for path in module_root.rglob("*")
+        if path.is_file()
+    }
+
+
+def test_parallel_read_opening_gate_inspects_pending_host_work_without_writing(
+    tmp_path: Path, monkeypatch,
+):
+    """Parallel reads run the full gate, but never repair its host-work inputs."""
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    _pending_opening_watch(ws, age_seconds=6000)
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    module_root = assets._module_dir(ws["workspace"], ws["asset_root_id"])
+    host_work = module_root / "host-work"
+    host_work.mkdir(parents=True, exist_ok=True)
+    expired_path = host_work / "job-expired.json"
+    _write_json(expired_path, {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": "job-expired",
+        "kind": "partial_opening",
+        "target_id": "opening",
+        "work_level": "bounded_warm",
+        "dispatch_state": "leased",
+        "lease_id": "expired-opening-lease",
+        "lease_expires_at": (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+        "executor_id": "source-coordinator:expired",
+        "requested_pdf_indices": [0],
+        "cached_scope_complete": True,
+    })
+    invalid_path = host_work / "job-invalid.json"
+    invalid_path.write_bytes(b'{"schema_version":2,"job_id":"job-invalid"')
+    queue_path = module_root / "parse-queue.json"
+    queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    queue["done"].append({
+        "job_id": "job-invalid",
+        "kind": "partial_opening",
+        "target_id": "opening",
+        "priority": 1,
+        "reason": "fixture requeue after invalid host-work",
+        "enqueued_at": datetime.now(timezone.utc).isoformat(),
+        "work_level": "bounded_warm",
+        "requested_source_scope": {"pdf_indices": [0]},
+    })
+    _write_json(queue_path, queue)
+    before = _module_asset_tree_bytes(module_root)
+    assert not (module_root / "host-work.lock").exists()
+
+    skill = _run(ws, "rules.skill_describe", {
+        "skill": "Library Use", "include_selection_policy": False,
+    })
+    phase = _run(ws, "setup.phase")
+
+    # setup.phase is ACL-authorized to report the lifecycle. skill_describe is
+    # not; both nevertheless traversed the same pure gate before returning.
+    assert skill["ok"] is False
+    assert skill["error"]["code"] == "opening_setup_incomplete"
+    assert phase["ok"] is True, phase
+    assert phase["data"]["detail"]["module_preparation"]["sub_phase"] == (
+        "opening_source_materialization"
+    )
+    assert _module_asset_tree_bytes(module_root) == before
+    assert not (module_root / "host-work.lock").exists()
+
+    # A serial operation takes the old materializing path even though the
+    # opening ACL then blocks the operation itself.
+    serial = _run(ws, "scene.map")
+    assert serial["ok"] is False
+    assert serial["error"]["code"] == "opening_setup_incomplete"
+    expired = json.loads(expired_path.read_text(encoding="utf-8"))
+    assert expired["dispatch_state"] == "legacy_unowned"
+    assert "lease_id" not in expired
+    assert "last_lease_expired_at" in expired
+    invalid = json.loads(invalid_path.read_text(encoding="utf-8"))
+    assert invalid["status"] == "quarantined"
+    refreshed_queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    assert any(row["job_id"] == "job-invalid" for row in refreshed_queue["pending"])
+    assert all(row["job_id"] != "job-invalid" for row in refreshed_queue["done"])
+
+
+def _project_partial_opening_to_current_receipt(ws: dict) -> str:
+    """Build the current receipt whose freshness must inspect host-work."""
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    job_id = boot["data"]["source_work"]["job_id"]
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": job_id,
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["data"]["automatic_projection"][0]["status"] == "complete"
+    scenario = json.loads(
+        (ws["campaign_dir"] / "scenario" / "scenario.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert isinstance(scenario.get("opening_projection_receipt"), dict)
+    assert isinstance(scenario.get("opening_projection_source_binding"), dict)
+    return job_id
+
+
+@pytest.mark.parametrize("lifecycle_case", ["pending", "stale", "malformed"])
+def test_parallel_reads_keep_current_projection_host_work_pure(
+    tmp_path: Path, monkeypatch, lifecycle_case: str,
+):
+    """Current-receipt freshness must not materialize lifecycle observation."""
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    _project_partial_opening_to_current_receipt(ws)
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    module_root = assets._module_dir(ws["workspace"], ws["asset_root_id"])
+    host_work = module_root / "host-work"
+    fixture_path = host_work / f"job-{lifecycle_case}.json"
+    queue_path = module_root / "parse-queue.json"
+
+    if lifecycle_case == "malformed":
+        fixture_path.write_bytes(b'{"schema_version":2,"job_id":"job-malformed"')
+        queue = json.loads(queue_path.read_text(encoding="utf-8"))
+        queue["done"].append({
+            "job_id": "job-malformed",
+            "kind": "deepen_location",
+            "target_id": "opening",
+            "priority": 1,
+            "reason": "fixture requeue after malformed current projection work",
+            "enqueued_at": datetime.now(timezone.utc).isoformat(),
+            "work_level": "bounded_warm",
+            "requested_source_scope": {"pdf_indices": [0]},
+        })
+        _write_json(queue_path, queue)
+    else:
+        request = {
+            "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+            "job_id": f"job-{lifecycle_case}",
+            "kind": "deepen_location",
+            "target_id": lifecycle_case,
+            "work_level": "bounded_warm",
+            "requested_pdf_indices": [0],
+            "cached_scope_complete": lifecycle_case != "pending",
+        }
+        if lifecycle_case == "stale":
+            request.update({
+                "dispatch_state": "leased",
+                "lease_id": "expired-current-projection-lease",
+                "lease_expires_at": (
+                    datetime.now(timezone.utc) - timedelta(seconds=1)
+                ).isoformat(),
+                "executor_id": "source-coordinator:expired",
+            })
+        _write_json(fixture_path, request)
+
+    before = _module_asset_tree_bytes(module_root)
+    host_work_lock_exists = (module_root / "host-work.lock").exists()
+    if lifecycle_case == "malformed":
+        scenario = json.loads(
+            (ws["campaign_dir"] / "scenario" / "scenario.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        readiness = coc_toolbox.coc_module_project.opening_pack_readiness(
+            ws["workspace"],
+            ws["asset_root_id"],
+            "opening",
+            required_source_scope=scenario[
+                "opening_projection_source_binding"
+            ]["source_scope"],
+            host_work_mode="pure_read",
+        )
+        assert any(
+            row["code"] == "opening_host_work_snapshot_unknown"
+            for row in readiness["blocking"]
+        )
+    skill = _run(ws, "rules.skill_describe", {
+        "skill": "Library Use", "include_selection_policy": False,
+    })
+    phase = _run(ws, "setup.phase")
+
+    # Both entry points take the same pure derivation (including setup.phase's
+    # handler rerun). Incomplete malformed evidence fails closed; it never
+    # bypasses the established opening ACL.
+    if lifecycle_case == "malformed":
+        assert skill["ok"] is False
+        assert skill["error"]["code"] == "opening_setup_incomplete"
+        assert phase["ok"] is True, phase
+        assert phase["data"]["detail"]["module_preparation"]["sub_phase"] == (
+            "opening_source_materialization"
+        )
+    else:
+        assert skill["ok"] is True, skill
+        assert phase["ok"] is True, phase
+    assert _module_asset_tree_bytes(module_root) == before
+    assert (module_root / "host-work.lock").exists() is host_work_lock_exists
+
+    # The same freshness chain remains materializing for a serial operation.
+    _run(ws, "scene.map")
+    if lifecycle_case == "pending":
+        refreshed = json.loads(fixture_path.read_text(encoding="utf-8"))
+        assert refreshed["cached_scope_complete"] is True
+        assert refreshed["cached_page_refs"]
+        assert refreshed["dispatch_state"] == "legacy_unowned"
+        assert refreshed["consumer_state"] == "legacy_unowned"
+    elif lifecycle_case == "stale":
+        refreshed = json.loads(fixture_path.read_text(encoding="utf-8"))
+        assert refreshed["dispatch_state"] == "legacy_unowned"
+        assert "lease_id" not in refreshed
+        assert "last_lease_expired_at" in refreshed
+    else:
+        quarantined = json.loads(fixture_path.read_text(encoding="utf-8"))
+        assert quarantined["status"] == "quarantined"
+        refreshed_queue = json.loads(queue_path.read_text(encoding="utf-8"))
+        assert any(row["job_id"] == "job-malformed" for row in refreshed_queue["pending"])
+        assert all(row["job_id"] != "job-malformed" for row in refreshed_queue["done"])
 
 
 def test_pending_watch_with_no_live_owner_re_arms_the_bootstrap(

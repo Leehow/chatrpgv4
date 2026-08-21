@@ -64,6 +64,11 @@ PI_MODEL = "xai/grok-4.5"
 OPENING_TEXT_MODEL = "deepseek/deepseek-v4-flash"
 PI_THINKING = "low"
 PI_TOOLS = "read,bash,write"
+# Opening extraction consumes already-materialized Markdown and must return
+# its receipt on stdout. Giving this child `write` caused two real runs to
+# save a valid extraction_result.json instead, leaving stdout non-JSON and
+# falsely producing extractor_invalid_output.
+OPENING_TEXT_TOOLS = "read"
 MAX_FACT_EVIDENCE_PAGES = 8
 OPENING_FACT_VALUE_LIMITS = {
     "era": 128,
@@ -199,7 +204,40 @@ def _pdf_inspector_request(
         ):
             if key in task:
                 request[key] = task[key]
+        if "opening_locator_pdf_indices" in request:
+            request["opening_locator_pdf_indices"] = (
+                _earliest_contiguous_page_run(
+                    request["opening_locator_pdf_indices"]
+                )
+            )
     return request
+
+
+def _earliest_contiguous_page_run(indices: Any) -> list[int]:
+    """Return the earliest authored run without crossing skipped image pages.
+
+    Locator bundles may legitimately omit image-only pages that await OCR.  The
+    opening slice must itself be contiguous, but that does not make the whole
+    locator bundle invalid.  Keep the earliest available run so opening review
+    stays near the front of the scenario and never silently jumps across an
+    unreviewed image-page gap.
+    """
+    if not isinstance(indices, list) or not indices:
+        _fail("opening locator page scope is empty")
+    if any(
+        not isinstance(index, int) or isinstance(index, bool) or index < 0
+        for index in indices
+    ):
+        _fail("opening locator page scope is invalid")
+    normalized = sorted(set(indices))
+    if len(normalized) != len(indices):
+        _fail("opening locator page scope is invalid")
+    run = [normalized[0]]
+    for index in normalized[1:]:
+        if index != run[-1] + 1:
+            break
+        run.append(index)
+    return run
 
 
 def _try_external_pdf_router(
@@ -1794,9 +1832,26 @@ def _opening_text_prompt(
         "task.fact_evidence_pdf_indices; source answers use minimal "
         "{source_id,pdf_index} source_refs with source_id exactly "
         "task.source_id and unresolved answers use minimal "
-        "inspected_source_refs for pages actually checked. Never use a "
+        "inspected_source_refs for pages actually checked. Every "
+        "source_refs or inspected_source_refs array MUST "
+        "contain 1 to 3 unique refs and never more than three; "
+        "content_flags is not an exception. Never cite a page outside "
+        "task.fact_evidence_pdf_indices. Never use a "
         "campaign era, default era, title hint, or task placeholder as "
-        "evidence. Return concise values only: no source text, excerpts, "
+        "evidence. The opening fact era is the investigators' native/start era "
+        "used for character creation at the first player-facing scene, not "
+        "merely the calendar era of the main destination or hidden scenario "
+        "events. If authored investigators begin in one era and are transported "
+        "to another (for example 1890s travelers entering a medieval town), "
+        "era.value must be the origin/start era and the destination year belongs "
+        "in module_meta.era and the summary. For a resolved era, era.value MUST "
+        "be exactly one canonical era key semantically supported by the cited "
+        "source: prehistoric, "
+        "roman, medieval, early_modern, 1890s, ww1, 1920s, 1930s, 1970s, or "
+        "modern. For example, a scenario set in the Roman Empire uses roman; "
+        "preserve an exact authored year or fuller label in module_meta.era "
+        "and player_safe_summary rather than putting free prose in era.value. "
+        "Return concise values only: no source text, excerpts, "
         "manifest body, or reasoning. For failed, source_bundle_path=null, "
         "failure_class is non-empty, and facts=null and module_init_l0=null.\n"
         + json.dumps(extraction, ensure_ascii=False, separators=(",", ":"))
@@ -2252,19 +2307,14 @@ def _materialize_opening_bundle(
         }
     bound_indices = list(int(index) for index in private["allowed_pdf_indices"])
     bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
-    if (
-        [int(row["pdf_index"]) for row in bundle.get("pages", [])]
-        != bound_indices
-        or not 1 <= len(bound_indices) <= 3
-        or bound_indices
-        != list(range(bound_indices[0], bound_indices[0] + len(bound_indices)))
-    ):
-        _fail(
-            "opening fallback bound window is not a contiguous 1..3 page scope"
-        )
+    if [int(row["pdf_index"]) for row in bundle.get("pages", [])] != bound_indices:
+        _fail("opening fallback bound source page scope drift")
+    window = _earliest_contiguous_page_run(bound_indices)
+    selected = window[: min(3, len(window))]
+    fact_evidence = window[: min(MAX_FACT_EVIDENCE_PAGES, len(window))]
     return {
-        "selected_opening_pdf_indices": list(bound_indices),
-        "fact_evidence_pdf_indices": list(bound_indices),
+        "selected_opening_pdf_indices": selected,
+        "fact_evidence_pdf_indices": fact_evidence,
         "bundle": bundle,
         "source": "preseed",
     }
@@ -2298,7 +2348,7 @@ def _run_opening_text_extractor(
         "--mode", "text", "-p", "--no-session",
         "--no-extensions", "--no-skills", "--no-prompt-templates",
         "--no-context-files", "--approve",
-        "--tools", PI_TOOLS,
+        "--tools", OPENING_TEXT_TOOLS,
         "--model", _opening_text_model(),
         "--thinking", PI_THINKING,
         _opening_text_prompt(task, materialized),

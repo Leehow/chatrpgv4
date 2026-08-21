@@ -242,10 +242,13 @@ process.stdout.write(JSON.stringify({
     && setupOpen.includes('"campaign":"startup-campaign"')
     && setupOpen.includes('"campaign_id":"startup-campaign"')
     && setupOpen.includes("coc-character")
-    // Startup gate compatibility: resume first, contract immediately after.
+    // Startup gate compatibility: resume first, then follow the typed source
+    // gate before the contract becomes legal.
     && setupOpen.indexOf('"operation":"session.resume"') !== -1
     && setupOpen.indexOf('"operation":"session.resume"')
       < setupOpen.indexOf('"operation":"setup.investigator_contract"')
+    && setupOpen.includes("error.details.next_operation exactly")
+    && setupOpen.includes("character_creation_unblocked=true")
     && setupOpen.includes("Do NOT call setup.inspect")
     && setupOpen.includes("exactly one concrete character-creation question")
     && setupOpen.includes("Never narrate your workflow")

@@ -12,6 +12,14 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import type { Actor, GameState } from "../types";
 import { safeDisplayText } from "../safe-display";
+import {
+  cashLedgerRows,
+  cashWhenLabel,
+  hasCashBalances,
+  showsCashSection,
+  type CashDisplay,
+  type PanelView,
+} from "../panel-cash";
 
 interface Props {
   state: GameState | null;
@@ -22,8 +30,6 @@ interface Props {
   /** Consume one charge of a consumable (state.item_use via the bridge). */
   onUseItem?: (itemId: string) => void | Promise<void>;
 }
-
-type PanelView = "all" | "character" | "items" | "time";
 
 /** Static Tailwind classes per resource — never build class names dynamically
  *  (purge safety). */
@@ -92,6 +98,70 @@ function SectionTitle({ icon, text }: { icon: React.ReactNode; text: string }) {
     </h3>
   );
 }
+
+function CashSection({ cash }: { cash: CashDisplay | null }) {
+  const ledger = cashLedgerRows(cash);
+  return (
+    <section className="panel-section">
+      <SectionTitle icon={<Wallet className="size-3.5" />} text="现金" />
+      {hasCashBalances(cash) ? (
+        <>
+          <div className="mt-2 space-y-1">
+            {Object.entries(cash!.balances!).map(([code, wallet]) => (
+              <div key={code} className="flex items-baseline gap-2">
+                <span className="font-display text-xl leading-none font-semibold tabular-nums text-foreground">
+                  {wallet.amount}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {code}{wallet.unit ? ` · ${wallet.unit}` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+          {ledger.length ? (
+            <ul className="mt-2.5 space-y-1.5">
+              {ledger
+                .slice()
+                .reverse()
+                .map((row, i) => {
+                  const sign = row.op === "grant" ? "+" : "−";
+                  const why = row.localized_reason?.trim() || "未提供说明";
+                  const when = cashWhenLabel(row);
+                  return (
+                    <li
+                      key={row.decision_id || `cash-row-${i}`}
+                      className="flex items-start justify-between gap-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <span className="tabular-nums text-foreground/90">
+                          {sign}
+                          {row.amount}
+                          {row.currency ? ` ${row.currency}` : ""}
+                        </span>
+                        <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                          {why}
+                        </div>
+                        {when ? (
+                          <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground/80">
+                            {when}
+                          </div>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+            </ul>
+          ) : (
+            <p className="mt-2.5 text-xs text-muted-foreground">暂无流水。</p>
+          )}
+        </>
+      ) : (
+        <p className="mt-2.5 text-xs text-muted-foreground">尚无现金记录。</p>
+      )}
+    </section>
+  );
+}
+
 
 /** Shared panel content — reused by the xl fixed column and the narrow-screen Sheet. */
 export function PanelContent({
@@ -166,9 +236,9 @@ export function PanelContent({
           <Badge variant="secondary" className="rounded-full font-normal">
             第 {state.turn_number ?? 0} 回合
           </Badge>
-          {(state.active_scene_label || state.active_scene_id) && (
+          {state.active_scene_label && (
             <Badge variant="secondary" className="rounded-full font-normal">
-              场景 {state.active_scene_label || state.active_scene_id}
+              场景 {state.active_scene_label}
             </Badge>
           )}
           {state.tension_level && (
@@ -294,71 +364,8 @@ export function PanelContent({
         </Card>
       )}
 
-      {/* 现金 — after HP/SAN/MP/attributes, before the long skill list */}
-      {(view === "all" || view === "character" || view === "items") && !setupPending && (
-      <section className="panel-section">
-        <SectionTitle icon={<Wallet className="size-3.5" />} text="现金" />
-        {cash && Object.keys(cash.balances || {}).length ? (
-          <>
-            <div className="mt-2 space-y-1">
-              {Object.entries(cash.balances).map(([code, wallet]) => (
-                <div key={code} className="flex items-baseline gap-2">
-                  <span className="font-display text-xl leading-none font-semibold tabular-nums text-foreground">
-                    {wallet.amount}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {code}{wallet.unit ? ` · ${wallet.unit}` : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-            {cash.ledger.length ? (
-              <ul className="mt-2.5 space-y-1.5">
-                {cash.ledger
-                  .slice()
-                  .reverse()
-                  .map((row, i) => {
-                    const sign = row.op === "grant" ? "+" : "−";
-                    const why = row.localized_reason?.trim() || "未提供说明";
-                    const playerTime = row.player_time;
-                    const when =
-                      (typeof playerTime === "string" && playerTime.trim())
-                      || (playerTime && typeof playerTime === "object"
-                        && (playerTime.display_label || playerTime.display || "").trim())
-                      || (row.game_time?.display || "").trim();
-                    return (
-                      <li
-                        key={row.decision_id || `cash-row-${i}`}
-                        className="flex items-start justify-between gap-2 text-sm"
-                      >
-                        <div className="min-w-0">
-                          <span className="tabular-nums text-foreground/90">
-                            {sign}
-                            {row.amount}
-                            {row.currency ? ` ${row.currency}` : ""}
-                          </span>
-                          <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                            {why}
-                          </div>
-                          {when ? (
-                            <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground/80">
-                              {when}
-                            </div>
-                          ) : null}
-                        </div>
-                      </li>
-                    );
-                  })}
-              </ul>
-            ) : (
-              <p className="mt-2.5 text-xs text-muted-foreground">暂无流水。</p>
-            )}
-          </>
-        ) : (
-          <p className="mt-2.5 text-xs text-muted-foreground">尚无现金记录。</p>
-        )}
-      </section>
-      )}
+      {/* 现金 — 角色 tab 与物品 tab 共用同一 CashSection；物品 tab 中置于装备列表之前 */}
+      {showsCashSection(view, setupPending) && <CashSection cash={cash} />}
 
       {/* 技能 */}
       {(view === "all" || view === "character") && !setupPending && skills.length > 0 && (
@@ -396,6 +403,7 @@ export function PanelContent({
                 <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
                   {w.damage ?? ""}
                   {w.skill_label ? ` · ${w.skill_label}` : ""}
+                  {w.range !== undefined && w.range !== null && w.range !== "" ? ` · 射程 ${w.range}` : ""}
                   {w.ammo !== undefined && w.ammo !== null ? ` · 弹药 ${w.ammo}` : ""}
                 </div>
               </div>

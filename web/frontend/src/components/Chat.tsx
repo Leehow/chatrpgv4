@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Banknote, Brain, Crosshair, Dices, FileUp, HeartPulse, KeyRound, Loader2, Pencil, Shield, Square, Swords, UploadCloud } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Banknote, Brain, Crosshair, Dices, HeartPulse, KeyRound, Loader2, Pencil, Shield, Square, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -8,31 +8,36 @@ import { Markdown } from "./Markdown";
 import { ModelMenu } from "./ModelMenu";
 import { ThinkingMenu } from "./ThinkingMenu";
 import { toolToStatus, trailToCurrentStatus } from "../toolStatus";
-import { presentMechanicEffects, presentRollGroupEffects } from "../mechanic-effects";
-import { selectRollGroupView } from "../roll-layout";
-import { contentBlockFallbackText, safeDisplayText } from "../safe-display";
 import type {
   CashChangeDisplay,
   ChatMessage,
   ItemChangeDisplay,
-  CombatPayload,
-  DamagePayload,
   KeeperContentBlock,
-  MechanicEffect,
   ModelsResponse,
-  OpposedPayload,
   PendingChoice,
   PlayerIntent,
   RollDisplay,
   SanityPayload,
   ToolStep,
 } from "../types";
+import { contentBlockFallbackText, safeDisplayText } from "../safe-display";
+import {
+  cashTitle,
+  cashWhenLabel,
+  currencyBalances,
+  itemActionLabel,
+  itemTitle,
+  itemTone,
+  itemWeaponLine,
+} from "../present-asset-changes";
 import {
   COMPOSER_PLACEHOLDER,
   INTERLUDE_COPY,
   STALLED_COPY,
   type TransitionPhase,
 } from "../session-transition";
+import { presentSanityCard } from "../mechanic-effects";
+import { selectRollGroupView } from "../roll-layout";
 
 /** One-click default game offered on the waiting screen: preset starter +
  *  KP-guided investigator creation, straight into play. */
@@ -58,8 +63,6 @@ interface Props {
   sceneLabel?: string | null;
   /** Shown mid-screen while waiting (not connected); null hides the button. */
   quickStart?: QuickStartAction | null;
-  /** Waiting-screen PDF pick/drop: App opens NewCampaignFlow pdf mode. */
-  onImportPdf?: (file: File) => void;
   /** Investigator-less table: empty copy is character-setup, not first action. */
   setupPending?: boolean;
   /** Model readiness once the provider list has loaded (null = loading);
@@ -521,9 +524,9 @@ const MODIFIER_LABELS: Record<string, string> = {
   vs_prone_ranged: "对倒地目标远程",
 };
 
-function rollTitle(roll: RollDisplay, combatRole?: string | null, damage?: DamagePayload | null): string {
-  if (damage || combatRole === "damage") {
-    return damage?.source === "fight_back" ? "反击伤害" : "伤害结算";
+function rollTitle(roll: RollDisplay): string {
+  if (roll.combat_role === "damage" || roll.damage_source === "fight_back") {
+    return roll.damage_source === "fight_back" ? "反击伤害" : "伤害结算";
   }
   const settlementTitle = roll.outcome ? SETTLEMENT_TITLES[roll.outcome] : undefined;
   if (settlementTitle) return settlementTitle;
@@ -538,30 +541,18 @@ function rollTitle(roll: RollDisplay, combatRole?: string | null, damage?: Damag
   return `${checkLabel}${roll.npc_display_name ? ` · ${roll.npc_display_name}` : ""}`;
 }
 
-function RollRoleIcon({
-  roll,
-  combatRole,
-  damage,
-}: {
-  roll: RollDisplay;
-  combatRole?: string | null;
-  damage?: DamagePayload | null;
-}) {
-  if (combatRole === "attack") return <Swords className="size-4" />;
-  if (combatRole === "attack_reroll") return <Crosshair className="size-4" />;
-  if (combatRole === "defense") return <Shield className="size-4" />;
-  if (combatRole === "damage" || damage || roll.kind === "san_loss") return <HeartPulse className="size-4" />;
+function RollRoleIcon({ roll }: { roll: RollDisplay }) {
+  if (roll.combat_role === "attack") return <Swords className="size-4" />;
+  if (roll.combat_role === "attack_reroll") return <Crosshair className="size-4" />;
+  if (roll.combat_role === "defense") return <Shield className="size-4" />;
+  if (roll.combat_role === "damage" || roll.kind === "san_loss") return <HeartPulse className="size-4" />;
   return <Dices className="size-4" />;
 }
 
-function DiceReceipt({ text, roll, compact = false, damage = null, combatRole = null, combat = null, effects = null }: {
+function DiceReceipt({ text, roll, compact = false }: {
   text: string;
   roll?: RollDisplay | null;
   compact?: boolean;
-  damage?: DamagePayload | null;
-  combatRole?: string | null;
-  combat?: CombatPayload | null;
-  effects?: MechanicEffect[] | null;
 }) {
 
   if (!roll) {
@@ -580,8 +571,8 @@ function DiceReceipt({ text, roll, compact = false, damage = null, combatRole = 
    *  they render without the success/failure tint. */
   const isSettlement = !roll.achieved_level
     && Boolean(roll.outcome && roll.outcome in SETTLEMENT_OUTCOME_LABELS);
-  const title = rollTitle(roll, combatRole, damage);
-  const die = damage?.damage_expression || roll.die || roll.die_expression || roll.expression || (target != null ? "1D100" : "骰点");
+  const title = rollTitle(roll);
+  const die = roll.damage_expression || roll.die || roll.die_expression || roll.expression || (target != null ? "1D100" : "骰点");
   const difficulty = DIFFICULTY_LABELS[roll.difficulty || roll.required_level || ""];
   const governingLabel = roll.governing_attribute === "app"
     ? "外貌"
@@ -597,44 +588,42 @@ function DiceReceipt({ text, roll, compact = false, damage = null, combatRole = 
           : null,
       ].filter(Boolean).join(" · ")
     : "";
-  const attackModifiers = combat?.attack_modifiers || {};
-  const combatBonus = typeof attackModifiers.bonus === "number" ? attackModifiers.bonus : 0;
-  const combatPenalty = typeof attackModifiers.penalty === "number" ? attackModifiers.penalty : 0;
-  const showAttackModifiers = !combatRole || combatRole === "attack" || combatRole === "attack_reroll";
+  const combatBonus = typeof roll.attack_modifiers?.bonus === "number" ? roll.attack_modifiers.bonus : 0;
+  const combatPenalty = typeof roll.attack_modifiers?.penalty === "number" ? roll.attack_modifiers.penalty : 0;
+  const showAttackModifiers = !roll.combat_role || roll.combat_role === "attack" || roll.combat_role === "attack_reroll";
   const modifierParams = showAttackModifiers ? [
       (roll.bonus || combatBonus) ? `奖励骰 ${roll.bonus || combatBonus}` : null,
       (roll.penalty || combatPenalty) ? `惩罚骰 ${roll.penalty || combatPenalty}` : null,
     ].filter(Boolean).join(" · ") : "";
-  const combatModifiers = showAttackModifiers ? Object.entries(attackModifiers)
+  const combatModifiers = showAttackModifiers ? Object.entries(roll.attack_modifiers || {})
     .filter(([key, value]) => Boolean(value) && key in MODIFIER_LABELS)
     .map(([key]) => MODIFIER_LABELS[key]) : [];
-  const combatRoleLabel = combatRole ? COMBAT_ROLE_LABELS[combatRole] : null;
-  const defense = combat?.defense_kind ? DEFENSE_LABELS[combat.defense_kind] || combat.defense_kind : null;
-  const damageParams = damage?.raw_damage != null
+  const combatRole = roll.combat_role ? COMBAT_ROLE_LABELS[roll.combat_role] : null;
+  const defense = roll.defense_kind ? DEFENSE_LABELS[roll.defense_kind] || roll.defense_kind : null;
+  const sanParams = roll.san_before != null && roll.san_after != null
+    ? `理智 ${roll.san_before} → ${roll.san_after}${roll.san_delta != null ? `（${roll.san_delta}）` : ""}`
+    : "";
+  const damageParams = roll.raw_damage != null
     ? [
-        `原始伤害 ${damage.raw_damage}`,
-        damage.armor_absorbed ? `护甲吸收 ${damage.armor_absorbed}` : null,
-        damage.hp_before != null && damage.hp_after != null ? `生命 ${damage.hp_before} → ${damage.hp_after}` : null,
+        `原始伤害 ${roll.raw_damage}`,
+        roll.armor_absorbed ? `护甲吸收 ${roll.armor_absorbed}` : null,
+        roll.hp_before != null && roll.hp_after != null ? `生命 ${roll.hp_before} → ${roll.hp_after}` : null,
       ].filter(Boolean).join(" · ")
     : "";
-  const effectParams = (effects || [])
-    .map((effect) => effect.player_visible_impact)
-    .filter(Boolean)
-    .join(" · ");
   return (
     <div
       className={cn("dice-receipt", compact && "is-compact")}
       aria-label={text}
       data-result={hasOutcome ? (passed ? "success" : "failure") : "amount"}
     >
-      <div className="dice-receipt-icon"><RollRoleIcon roll={roll} combatRole={combatRole} damage={damage} /></div>
+      <div className="dice-receipt-icon"><RollRoleIcon roll={roll} /></div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <div>
             <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-foreground">
               <span>{title}</span>
-              {combatRoleLabel && <span className="dice-role-chip">{combatRoleLabel}</span>}
-              {defense && combatRole !== "damage" && <span className="dice-role-chip is-defense">{defense}</span>}
+              {combatRole && <span className="dice-role-chip">{combatRole}</span>}
+              {defense && roll.combat_role !== "damage" && <span className="dice-role-chip is-defense">{defense}</span>}
             </div>
             <div className="text-[11px] tracking-wide text-muted-foreground">
               {die}{difficulty ? ` · ${difficulty}难度` : ""}{roll.pushed ? " · 推骰" : ""}
@@ -655,9 +644,9 @@ function DiceReceipt({ text, roll, compact = false, damage = null, combatRole = 
             )}
           </div>
         </div>
-        {(firstImpressionParams || modifierParams || damageParams || effectParams || combatModifiers.length > 0) && (
+        {(firstImpressionParams || modifierParams || sanParams || damageParams || combatModifiers.length > 0) && (
           <div className="dice-parameters">
-            {[firstImpressionParams, modifierParams, damageParams, effectParams, combatModifiers.join(" · ")]
+            {[firstImpressionParams, modifierParams, sanParams, damageParams, combatModifiers.join(" · ")]
               .filter(Boolean).join(" · ")}
           </div>
         )}
@@ -684,28 +673,33 @@ function rollPassed(roll: RollDisplay): boolean {
   return !["failure", "fumble"].includes(roll.achieved_level || roll.outcome || "failure");
 }
 
-function MechanicEffectsLine({
-  lines,
-  effects,
+function SanityCheckReceipt({
+  check,
+  loss,
+  sanity,
 }: {
-  lines?: string[];
-  effects?: MechanicEffect[] | null;
+  check: RollDisplay;
+  loss?: RollDisplay;
+  sanity?: SanityPayload;
 }) {
-  const shown = lines ?? presentMechanicEffects(effects);
-  if (!shown.length) return null;
-  return <div className="dice-parameters">{shown.join(" · ")}</div>;
-}
-
-function SanityCheckReceipt({ sanity, effects = null }: { sanity: SanityPayload; effects?: MechanicEffect[] | null }) {
-  const check = sanity.check;
-  const loss = sanity.loss ?? undefined;
   const passed = rollPassed(check);
   const target = check.target ?? check.effective_target ?? check.base_target;
-  const before = sanity.san_before;
-  const after = sanity.san_after;
-  const amount = sanity.san_loss ?? (before != null && after != null ? before - after : loss?.roll);
-  const lossExpression = sanity.san_loss_expression || loss?.die_expression || loss?.die || "—";
-  const source = sanity.source || check.source;
+  const numbers = presentSanityCard(
+    sanity ?? {
+      check_roll_id: check.roll_id,
+      check,
+      loss: loss ?? null,
+      san_before: check.san_before,
+      san_after: check.san_after,
+      san_loss: check.san_loss,
+      san_loss_expression: check.san_loss_expression,
+    },
+    loss,
+  );
+  const before = numbers.before;
+  const after = numbers.after;
+  const amount = numbers.amount;
+  const lossExpression = numbers.lossExpression || "—";
   return (
     <section className="san-receipt" aria-label="理智检定" data-result={passed ? "success" : "failure"}>
       <header className="san-header">
@@ -726,8 +720,7 @@ function SanityCheckReceipt({ sanity, effects = null }: { sanity: SanityPayload;
           <span className="san-meter"><small>理智变化</small><b>{before ?? "—"} <i>→</i> {after ?? "—"}</b></span>
         </div>
       </div>
-      {source && <p className="san-source">触发：{source}</p>}
-      <MechanicEffectsLine effects={effects} />
+      {check.source && <p className="san-source">触发：{check.source}</p>}
     </section>
   );
 }
@@ -774,22 +767,14 @@ function PercentileModifierBreakdown({ roll }: { roll: RollDisplay }) {
   );
 }
 
-function CombatRollSide({
-  roll,
-  side,
-  defenseKind = null,
-}: {
-  roll: RollDisplay;
-  side: "attack" | "defense";
-  defenseKind?: string | null;
-}) {
+function CombatRollSide({ roll, side }: { roll: RollDisplay; side: "attack" | "defense" }) {
   const target = roll.effective_target ?? roll.required_target ?? roll.target ?? roll.base_target;
   const passed = roll.passed ?? roll.success ?? false;
   const rawSkill = roll.display_skill || roll.characteristic || roll.skill;
   const skill = (rawSkill && (ROLL_SUBJECT_LABELS[rawSkill] || rawSkill))
     || (side === "attack" ? "攻击检定" : "防御检定");
-  const defense = side === "defense" && defenseKind
-    ? DEFENSE_LABELS[defenseKind] || defenseKind
+  const defense = side === "defense" && roll.defense_kind
+    ? DEFENSE_LABELS[roll.defense_kind] || roll.defense_kind
     : null;
   return (
     <article className={cn("opposed-side", side === "attack" ? "is-attack" : "is-defense")}>
@@ -819,25 +804,10 @@ function opposedWinner(outcome?: string | null): "attack" | "defense" | "none" {
   return "none";
 }
 
-function opposedVerdict(
-  attack: RollDisplay,
-  defense: RollDisplay,
-  outcome?: string | null,
-  defenseKind?: string | null,
-  mode: "combat" | "opposed" = "combat",
-): string {
+function opposedVerdict(attack: RollDisplay, defense: RollDisplay): string {
+  const outcome = attack.opposed_outcome || defense.opposed_outcome;
   const attackLevel = rollOutcomeLabel(attack);
   const defenseLevel = rollOutcomeLabel(defense);
-  if (mode === "opposed") {
-    if (outcome === "investigator" || outcome === "attacker_higher" || outcome === "attacker_wins") {
-      return `己方${attackLevel}高于对方${defenseLevel}，因此己方胜出。`;
-    }
-    if (outcome === "opponent" || outcome === "defender_higher" || outcome === "defender_wins") {
-      return `对方${defenseLevel}高于己方${attackLevel}，因此对方胜出。`;
-    }
-    if (outcome === "none" || outcome === "both_fail") return "双方检定均失败，对抗没有分出胜负。";
-    return `己方${attackLevel}；对方${defenseLevel}。`;
-  }
   if (outcome === "tie_defender_wins") {
     return `双方同为${attackLevel}；闪避同级时防守方胜出，因此攻击落空。`;
   }
@@ -848,42 +818,18 @@ function opposedVerdict(
     return `攻击方${attackLevel}高于防守方${defenseLevel}，因此攻击方胜出。`;
   }
   if (outcome === "defender_higher" || outcome === "defender_wins") {
-    const effect = defenseKind === "fight_back" ? "并可造成反击伤害" : "因此避开攻击";
+    const effect = attack.defense_kind === "fight_back" ? "并可造成反击伤害" : "因此避开攻击";
     return `防守方${defenseLevel}高于攻击方${attackLevel}，${effect}。`;
   }
   if (outcome === "both_fail") return "双方检定均失败，攻击没有命中。";
   return `攻击方${attackLevel}；防守方${defenseLevel}。`;
 }
 
-function CombatOpposedReceipt({
-  attack,
-  defense,
-  combat = null,
-  opposed = null,
-  effectLines = [],
-}: {
-  attack: RollDisplay;
-  defense: RollDisplay;
-  combat?: CombatPayload | null;
-  opposed?: OpposedPayload | null;
-  effectLines?: string[];
-}) {
-  const mode = opposed && !combat ? "opposed" : "combat";
-  const defenseKind = combat?.defense_kind || null;
-  const outcome = combat?.opposed_outcome || opposed?.winner || null;
-  const winner = mode === "opposed"
-    ? (outcome === "investigator" || outcome === "attacker_wins" ? "attack"
-      : outcome === "opponent" || outcome === "defender_wins" ? "defense"
-        : opposedWinner(outcome))
-    : opposedWinner(outcome);
-  const title = mode === "opposed"
-    ? "对抗检定"
-    : `近战对抗 · ${DEFENSE_LABELS[defenseKind || "dodge"] || defenseKind || "对抗"}`;
-  const resultLabel = winner === "attack"
-    ? (mode === "opposed" ? "己方胜出" : "攻击方胜出")
-    : winner === "defense"
-      ? (mode === "opposed" ? "对方胜出" : "防守方胜出")
-      : (mode === "opposed" ? "未分胜负" : "攻击落空");
+function CombatOpposedReceipt({ attack, defense }: { attack: RollDisplay; defense: RollDisplay }) {
+  const defenseKind = attack.defense_kind || defense.defense_kind || "dodge";
+  const winner = opposedWinner(attack.opposed_outcome || defense.opposed_outcome);
+  const title = `近战对抗 · ${DEFENSE_LABELS[defenseKind] || defenseKind}`;
+  const resultLabel = winner === "attack" ? "攻击方胜出" : winner === "defense" ? "防守方胜出" : "攻击落空";
   return (
     <section className="combat-opposed" aria-label={title} data-winner={winner}>
       <header className="combat-opposed-header">
@@ -891,25 +837,59 @@ function CombatOpposedReceipt({
         <b>{resultLabel}</b>
       </header>
       <div className="combat-opposed-body">
-        <CombatRollSide roll={attack} side="attack" defenseKind={defenseKind} />
+        <CombatRollSide roll={attack} side="attack" />
         <div className="opposed-vs" aria-hidden="true">VS</div>
-        <CombatRollSide roll={defense} side="defense" defenseKind={defenseKind} />
+        <CombatRollSide roll={defense} side="defense" />
       </div>
       <div className="combat-verdict">
         <span>判定</span>
-        <p>{opposedVerdict(attack, defense, outcome, defenseKind, mode)}</p>
+        <p>{opposedVerdict(attack, defense)}</p>
       </div>
-      <MechanicEffectsLine lines={effectLines} />
     </section>
   );
 }
 
-function GenericRollGroup({ text, rolls, effects = null }: {
-  text: string;
-  rolls: RollDisplay[];
-  effects?: MechanicEffect[] | null;
-}) {
-  if (!rolls.length) return <DiceReceipt text={text} effects={effects} />;
+function DiceReceiptGroup({ text, rolls }: { text: string; rolls: RollDisplay[] }) {
+  if (!rolls.length) return <DiceReceipt text={text} />;
+  const sanity = rolls.find((roll) => roll.kind === "sanity_check");
+  if (sanity) {
+    const sanLoss = rolls.find((roll) => roll.kind === "san_loss");
+    const remaining = rolls.filter((roll) => roll !== sanity && roll !== sanLoss);
+    return (
+      <div className="san-resolution-stack">
+        <SanityCheckReceipt
+          check={sanity}
+          loss={sanLoss}
+          sanity={{
+            check_roll_id: sanity.roll_id,
+            check: sanity,
+            loss: sanLoss ?? null,
+            san_before: sanity.san_before,
+            san_after: sanity.san_after,
+            san_loss: sanity.san_loss,
+            san_loss_expression: sanity.san_loss_expression,
+          }}
+        />
+        {remaining.length > 0 && <DiceReceiptGroup text={text} rolls={remaining} />}
+      </div>
+    );
+  }
+  const attack = rolls.find((roll) => roll.combat_role === "attack");
+  const defense = rolls.find((roll) => roll.combat_role === "defense");
+  const isMeleeOpposed = Boolean(
+    attack && defense && (attack.defense_kind || defense.defense_kind) !== "dive_for_cover",
+  );
+  if (attack && defense && isMeleeOpposed) {
+    const remaining = rolls.filter((roll) => roll !== attack && roll !== defense);
+    return (
+      <div className="combat-resolution-stack">
+        <CombatOpposedReceipt attack={attack} defense={defense} />
+        {remaining.map((roll, index) => (
+          <DiceReceipt key={roll.roll_id || index} text={text} roll={roll} compact />
+        ))}
+      </div>
+    );
+  }
   return (
     <section className="dice-receipt-group" aria-label="公开结算">
       <header className="dice-group-header">
@@ -918,166 +898,16 @@ function GenericRollGroup({ text, rolls, effects = null }: {
       </header>
       <div className="dice-group-rows">
         {rolls.map((roll, index) => (
-          <DiceReceipt key={roll.roll_id || index} text={text} roll={roll} compact effects={index === 0 ? effects : null} />
+          <DiceReceipt key={roll.roll_id || index} text={text} roll={roll} compact />
         ))}
       </div>
     </section>
   );
 }
 
-function meleeOpposed(combat: CombatPayload): boolean {
-  return Boolean(
-    combat.attack && combat.defense && combat.defense_kind !== "dive_for_cover",
-  );
-}
-
-function DiceReceiptGroup({ block }: { block: Extract<KeeperContentBlock, { type: "roll_group" }> }) {
-  const view = selectRollGroupView(block);
-  const effectLines = presentRollGroupEffects(view);
-  if (view.kind === "sanity") {
-    return (
-      <div className="san-resolution-stack">
-        <SanityCheckReceipt sanity={view.sanity} effects={effectsVisibleRaw(view, effectLines)} />
-        {view.remaining.length > 0 && (
-          <GenericRollGroup text={view.text} rolls={view.remaining} />
-        )}
-      </div>
-    );
-  }
-  if (view.kind === "combat") {
-    const combat = view.combat;
-    const shotIds = new Set((combat.shots || []).map((shot) => shot.attack_roll_id));
-    const volleyIds = new Set((combat.volleys || []).map((volley) => volley.attack_roll_id));
-    const coveredAttack = Boolean(
-      combat.attack && (shotIds.has(combat.attack.roll_id) || volleyIds.has(combat.attack.roll_id)),
-    );
-    return (
-      <div className="combat-resolution-stack">
-        {meleeOpposed(combat) ? (
-          <CombatOpposedReceipt
-            attack={combat.attack!}
-            defense={combat.defense!}
-            combat={combat}
-            effectLines={effectLines}
-          />
-        ) : combat.attack && !coveredAttack ? (
-          <DiceReceipt
-            text={view.text}
-            roll={combat.attack}
-            compact
-            combatRole="attack"
-            combat={combat}
-          />
-        ) : null}
-        {combat.attack_reroll && (
-          <DiceReceipt text={view.text} roll={combat.attack_reroll} compact combatRole="attack_reroll" combat={combat} />
-        )}
-        {!meleeOpposed(combat) && combat.defense && (
-          <DiceReceipt text={view.text} roll={combat.defense} compact combatRole="defense" combat={combat} />
-        )}
-        {(combat.shots || []).map((shot, index) => (
-          <div key={shot.attack_roll_id || index}>
-            {shot.attack && (
-              <DiceReceipt text={view.text} roll={shot.attack} compact combatRole="attack" combat={combat} />
-            )}
-            {shot.damage && (
-              <DiceReceipt text={view.text} roll={shot.damage.roll} compact damage={shot.damage} combatRole="damage" />
-            )}
-          </div>
-        ))}
-        {(combat.volleys || []).map((volley, index) => (
-          <div key={volley.attack_roll_id || index}>
-            {volley.attack && (
-              <DiceReceipt text={view.text} roll={volley.attack} compact combatRole="attack" combat={combat} />
-            )}
-            {(volley.damages || []).map((damage) => (
-              <DiceReceipt
-                key={damage.damage_roll_id}
-                text={view.text}
-                roll={damage.roll}
-                compact
-                damage={damage}
-                combatRole="damage"
-              />
-            ))}
-          </div>
-        ))}
-        {combat.damage && !shotIds.size && !volleyIds.size && (
-          <DiceReceipt text={view.text} roll={combat.damage.roll} compact damage={combat.damage} combatRole="damage" />
-        )}
-        {combat.fight_back_damage && (
-          <DiceReceipt
-            text={view.text}
-            roll={combat.fight_back_damage.roll}
-            compact
-            damage={combat.fight_back_damage}
-            combatRole="damage"
-          />
-        )}
-        {!meleeOpposed(combat) && <MechanicEffectsLine lines={effectLines} />}
-        {view.remaining.map((roll, index) => (
-          <DiceReceipt key={roll.roll_id || index} text={view.text} roll={roll} compact />
-        ))}
-      </div>
-    );
-  }
-  if (view.kind === "opposed") {
-    return (
-      <div className="combat-resolution-stack">
-        <CombatOpposedReceipt
-          attack={view.opposed.left}
-          defense={view.opposed.right}
-          opposed={view.opposed}
-          effectLines={effectLines}
-        />
-        {view.remaining.map((roll, index) => (
-          <DiceReceipt key={roll.roll_id || index} text={view.text} roll={roll} compact />
-        ))}
-      </div>
-    );
-  }
-  if (view.kind === "damage") {
-    return (
-      <div className="combat-resolution-stack">
-        <DiceReceipt
-          text={view.text}
-          roll={view.damage.roll}
-          compact
-          damage={view.damage}
-          combatRole="damage"
-          effects={view.effects}
-        />
-        {view.remaining.map((roll, index) => (
-          <DiceReceipt key={roll.roll_id || index} text={view.text} roll={roll} compact />
-        ))}
-      </div>
-    );
-  }
-  return <GenericRollGroup text={view.text} rolls={view.rolls} effects={view.effects} />;
-}
-
-function effectsVisibleRaw(view: ReturnType<typeof selectRollGroupView>, lines: string[]): MechanicEffect[] {
-  if (!lines.length) return [];
-  return (view.effects || []).filter((effect) => {
-    const line = presentMechanicEffects([effect])[0];
-    return Boolean(line && lines.includes(line));
-  });
-}
-
-function cashWhenLabel(change: CashChangeDisplay): string {
-  const playerTime = change.player_time;
-  if (typeof playerTime === "string" && playerTime.trim()) return playerTime.trim();
-  if (playerTime && typeof playerTime === "object") {
-    const label = (playerTime.display_label || playerTime.display || "").trim();
-    if (label) return label;
-  }
-  const display = change.game_time?.display;
-  return typeof display === "string" ? display.trim() : "";
-}
-
 function CashReceipt({ change }: { change: CashChangeDisplay }) {
   const gain = change.direction === "gain";
-  const title = gain ? `获得 ${change.amount} ${change.currency}` : `支出 ${change.amount} ${change.currency}`;
+  const title = cashTitle(change);
   const why = change.localized_reason?.trim() || "未提供说明";
   const when = cashWhenLabel(change);
   return (
@@ -1105,25 +935,12 @@ function CashReceipt({ change }: { change: CashChangeDisplay }) {
   );
 }
 
-function itemTone(action: string): "gain" | "spend" | "use" {
-  if (action === "acquired" || action === "grant") return "gain";
-  if (action === "lost" || action === "remove") return "spend";
-  return "use";
-}
-
-function itemActionLabel(action: string): string {
-  if (action === "acquired" || action === "grant") return "获得";
-  if (action === "lost" || action === "remove") return "失去";
-  if (action === "consumed") return "用尽";
-  return "使用";
-}
-
 function ItemReceipt({ change }: { change: ItemChangeDisplay }) {
   const tone = itemTone(change.action);
   const verb = itemActionLabel(change.action);
-  const qty = change.quantity ?? change.delta;
-  const title = qty != null && qty !== "" ? `${verb}「${change.label}」×${qty}` : `${verb}「${change.label}」`;
+  const title = itemTitle(change);
   const remaining = change.remaining ?? change.after;
+  const weaponLine = itemWeaponLine(change);
   return (
     <div
       className={cn("dice-receipt cash-receipt", tone === "gain" ? "is-gain" : tone === "spend" ? "is-spend" : "is-use")}
@@ -1139,21 +956,13 @@ function ItemReceipt({ change }: { change: ItemChangeDisplay }) {
             {verb}
           </span>
         </div>
+        {weaponLine ? <p className="dice-parameters">{weaponLine}</p> : null}
         {remaining != null && remaining !== "" ? (
           <p className="dice-parameters">剩余 {remaining}</p>
         ) : null}
       </div>
     </div>
   );
-}
-
-function currencyBalances(changes: CashChangeDisplay[]): { currency: string; after: string }[] {
-  const last = new Map<string, string>();
-  for (const change of changes) {
-    if (change.after == null || change.after === "") continue;
-    last.set(change.currency, String(change.after));
-  }
-  return [...last.entries()].map(([currency, after]) => ({ currency, after }));
 }
 
 function AssetChangesCard({
@@ -1191,14 +1000,79 @@ function AssetChangesCard({
   );
 }
 
-function CashReceiptGroup({ changes }: { changes: CashChangeDisplay[] }) {
-  return <AssetChangesCard cashChanges={changes} itemChanges={[]} />;
+function rollsFromBlock(block: KeeperContentBlock): RollDisplay[] {
+  if (block.type === "roll_group") return block.rolls;
+  if (block.type === "roll" && block.roll) return [block.roll];
+  return [];
 }
 
+function rollBlockText(block: KeeperContentBlock): string {
+  return block.type === "roll_group" || block.type === "roll" ? block.text : "";
+}
+
+/** Combat attack and response are often separated by one causal prose beat in
+ * the authoritative finalization. Pair them at the response position so each
+ * public roll stays visible exactly once while the opposed result reads as one
+ * settlement. */
 function KeeperContentBlocks({ blocks }: { blocks: KeeperContentBlock[] }) {
+  const attackByDefenseIndex = new Map<number, RollDisplay>();
+  const pairedAttackIds = new Set<string>();
+  const availableAttacks: RollDisplay[] = [];
+
+  blocks.forEach((block, index) => {
+    const rolls = rollsFromBlock(block);
+    for (const roll of rolls) {
+      if (roll.combat_role === "attack") availableAttacks.push(roll);
+    }
+    const defense = rolls.find((roll) => roll.combat_role === "defense");
+    if (!defense) return;
+    if (rolls.some((roll) => roll.combat_role === "attack")) return;
+    const attack = [...availableAttacks].reverse().find((candidate) => {
+      if (pairedAttackIds.has(candidate.roll_id)) return false;
+      const defenseKind = candidate.defense_kind || defense.defense_kind;
+      return defenseKind !== "dive_for_cover" && Boolean(candidate.opposed_outcome || defense.opposed_outcome);
+    });
+    if (attack) {
+      attackByDefenseIndex.set(index, attack);
+      pairedAttackIds.add(attack.roll_id);
+    }
+  });
+
   return blocks.map((block, index) => {
+    const rolls = rollsFromBlock(block);
+    const externalAttack = attackByDefenseIndex.get(index);
+    if (externalAttack) {
+      const defense = rolls.find((roll) => roll.combat_role === "defense")!;
+      const remaining = rolls.filter((roll) => roll !== defense);
+      return (
+        <div className="combat-resolution-stack" key={`combat-pair:${externalAttack.roll_id}:${defense.roll_id}`}>
+          <CombatOpposedReceipt attack={externalAttack} defense={defense} />
+          {remaining.map((roll, rollIndex) => (
+            <DiceReceipt key={roll.roll_id || rollIndex} text={rollBlockText(block)} roll={roll} compact />
+          ))}
+        </div>
+      );
+    }
+
+    if (pairedAttackIds.size && rolls.some((roll) => pairedAttackIds.has(roll.roll_id))) {
+      const remaining = rolls.filter((roll) => !pairedAttackIds.has(roll.roll_id));
+      if (!remaining.length) return null;
+      return <DiceReceiptGroup key={`remaining:${index}`} text={rollBlockText(block)} rolls={remaining} />;
+    }
+
     if (block.type === "roll_group") {
-      return <DiceReceiptGroup key={`roll-group:${block.source_ids.join(":")}:${index}`} block={block} />;
+      const view = selectRollGroupView(block);
+      if (view.kind === "sanity") {
+        return (
+          <div className="san-resolution-stack" key={`roll-group:${block.source_ids.join(":")}:${index}`}>
+            <SanityCheckReceipt check={view.sanity.check} loss={view.sanity.loss ?? undefined} sanity={view.sanity} />
+            {view.remaining.length > 0 && (
+              <DiceReceiptGroup text={view.text} rolls={view.remaining} />
+            )}
+          </div>
+        );
+      }
+      return <DiceReceiptGroup key={`roll-group:${block.source_ids.join(":")}:${index}`} text={block.text} rolls={block.rolls} />;
     }
     if (block.type === "roll") {
       return <DiceReceipt key={`roll:${block.source_ids.join(":")}:${index}`} text={block.text} roll={block.roll} />;
@@ -1213,7 +1087,13 @@ function KeeperContentBlocks({ blocks }: { blocks: KeeperContentBlock[] }) {
       );
     }
     if (block.type === "cash") {
-      return <CashReceiptGroup key={`cash:${block.source_ids.join(":")}:${index}`} changes={block.changes} />;
+      return (
+        <AssetChangesCard
+          key={`cash:${block.source_ids.join(":")}:${index}`}
+          cashChanges={block.changes || []}
+          itemChanges={[]}
+        />
+      );
     }
     const fallback = contentBlockFallbackText(block);
     return fallback ? <Markdown key={`prose:${index}`} text={fallback} /> : null;
@@ -1309,7 +1189,6 @@ export function Chat({
   pendingChoice,
   sceneLabel,
   quickStart = null,
-  onImportPdf,
   setupPending = false,
   modelsReady = null,
   onConfigureModels,
@@ -1332,14 +1211,6 @@ export function Chat({
   const nearBottomRef = useRef(true);
   /** Drives the 「回到底部」 jump button; mirrors nearBottomRef as state. */
   const [atBottom, setAtBottom] = useState(true);
-  const [pdfDragOver, setPdfDragOver] = useState(false);
-  const pdfFileRef = useRef<HTMLInputElement>(null);
-  const takePdfFile = (file: File | null) => {
-    if (!file || !onImportPdf) return;
-    const name = file.name.toLowerCase();
-    if (file.type !== "application/pdf" && !name.endsWith(".pdf")) return;
-    onImportPdf(file);
-  };
   const toolTrail = useMemo(() => toolSteps.map((s) => s.label), [toolSteps]);
   const statusLine = trailToCurrentStatus(toolTrail);
   const handleScroll = () => {
@@ -1445,109 +1316,30 @@ export function Chat({
                       )}
                     </div>
                   ) : (
-                    <div className="mt-5 flex w-full max-w-md flex-col items-center gap-3">
-                      <input
-                        ref={pdfFileRef}
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        hidden
-                        onChange={(e) => {
-                          takePdfFile(e.target.files?.[0] ?? null);
-                          e.target.value = "";
-                        }}
-                      />
-                      <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-start">
-                        {quickStart && (
-                          <button
-                            type="button"
-                            onClick={quickStart.run}
-                            disabled={busy}
-                            className={cn(
-                              "group flex flex-1 flex-col items-center gap-1.5 rounded-2xl border border-primary/40 bg-primary/5 px-6 py-4 text-center",
-                              "transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md",
-                              "disabled:pointer-events-none disabled:opacity-60",
-                            )}
-                          >
-                            <span className="flex items-center gap-2 text-base font-semibold text-foreground">
-                              {busy ? (
-                                <Loader2 className="size-4 animate-spin text-primary" />
-                              ) : (
-                                <Dices className="size-4 text-primary transition-transform group-hover:rotate-12" />
-                              )}
-                              {busy ? "开局中…" : "开一局游戏"}
-                            </span>
-                            <span className="max-w-md text-xs leading-relaxed text-muted-foreground">
-                              {quickStart.hint}
-                            </span>
-                          </button>
+                    quickStart && (
+                      <button
+                        type="button"
+                        onClick={quickStart.run}
+                        disabled={busy}
+                        className={cn(
+                          "group mt-5 flex flex-col items-center gap-1.5 rounded-2xl border border-primary/40 bg-primary/5 px-8 py-4 text-center",
+                          "transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md",
+                          "disabled:pointer-events-none disabled:opacity-60",
                         )}
-                        {onImportPdf && (
-                          <button
-                            type="button"
-                            onClick={() => pdfFileRef.current?.click()}
-                            disabled={busy}
-                            className={cn(
-                              "group flex flex-1 flex-col items-center gap-1.5 rounded-2xl border border-primary/40 bg-primary/5 px-6 py-4 text-center",
-                              "transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md",
-                              "disabled:pointer-events-none disabled:opacity-60",
-                            )}
-                          >
-                            <span className="flex items-center gap-2 text-base font-semibold text-foreground">
-                              <FileUp className="size-4 text-primary" />
-                              上传模组 PDF
-                            </span>
-                            <span className="max-w-md text-xs leading-relaxed text-muted-foreground">
-                              解析后进入 PDF 开局（选调查员与年代）
-                            </span>
-                          </button>
-                        )}
-                      </div>
-                      {onImportPdf && (
-                        <div
-                          className={cn(
-                            "flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-colors",
-                            pdfDragOver
-                              ? "border-primary bg-primary/5"
-                              : "border-primary/40 bg-primary/5 hover:border-primary/60",
-                            busy && "pointer-events-none opacity-60",
+                      >
+                        <span className="flex items-center gap-2 text-base font-semibold text-foreground">
+                          {busy ? (
+                            <Loader2 className="size-4 animate-spin text-primary" />
+                          ) : (
+                            <Dices className="size-4 text-primary transition-transform group-hover:rotate-12" />
                           )}
-                          onDragEnter={(e) => {
-                            e.preventDefault();
-                            setPdfDragOver(true);
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            setPdfDragOver(true);
-                          }}
-                          onDragLeave={(e) => {
-                            e.preventDefault();
-                            setPdfDragOver(false);
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            setPdfDragOver(false);
-                            takePdfFile(e.dataTransfer.files?.[0] ?? null);
-                          }}
-                          onClick={() => pdfFileRef.current?.click()}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              pdfFileRef.current?.click();
-                            }
-                          }}
-                        >
-                          <UploadCloud className="size-8 text-muted-foreground" />
-                          <div className="text-sm font-medium text-foreground">
-                            {pdfDragOver ? "松开以导入模组 PDF" : "把模组 PDF 拖到这里"}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            也可以点击选择文件；走与新战役相同的解析开局
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                          {busy ? "开局中…" : "开一局游戏"}
+                        </span>
+                        <span className="max-w-md text-xs leading-relaxed text-muted-foreground">
+                          {quickStart.hint}
+                        </span>
+                      </button>
+                    )
                   )}
                   <p className="text-xs text-muted-foreground/70">
                     这是 pi-coc 的桌面。KP 与 TUI 是同一个宿主。
@@ -1570,10 +1362,10 @@ export function Chat({
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    回到战役继续上次对话。
+                    这场战役还没有公开的对话记录。
                   </p>
                   <p className="text-xs text-muted-foreground/70">
-                    公开记录尚未投影到本页时，在下方接着回答守秘人上一句提问即可。
+                    在下方输入你的第一个行动，例如「我走向那栋房子，打量周围」。
                   </p>
                 </>
               )}
@@ -1613,7 +1405,7 @@ export function Chat({
             );
           })()}
 
-          {connected && busy && kpThinking.length > 0 && (
+          {connected && busy && thinking !== "off" && kpThinking.length > 0 && (
             <ThinkingFeed text={kpThinking} />
           )}
 

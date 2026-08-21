@@ -23,12 +23,19 @@ const fakePi = {
 main.default(fakePi, {
   coordinatorEnabled: () => false,
   createClient: () => ({
-    async callTool(name, params) {
+    async callToolWithTransportMeta(name, params) {
       clientCalls.push({ name, params });
       return {
-        ok: true,
-        tool: params.operation,
-        data: { status: "PASS" },
+        value: {
+          ok: true,
+          tool: params.operation,
+          data: { status: "PASS" },
+        },
+        transport: {
+          request_id: `req-${clientCalls.length}`,
+          attempts: 1,
+          reconnect_attempts: 0,
+        },
       };
     },
     async close() {},
@@ -64,6 +71,18 @@ const exactFactsArguments = {
     content_flags: unresolved,
   },
 };
+const retainedGate = new main.OpeningTerminalContinuationGate();
+retainedGate.rememberReviewedAdoptFacts({
+  status: "reviewed",
+  campaign_id: campaign,
+  facts: exactFactsArguments.facts,
+});
+const retainedRecovered = retainedGate.bindRetainedAdoptSourceFacts({
+  operation: "setup.adopt_source_facts",
+  campaign,
+  arguments: '{"campaign_id":',
+});
+const retainedNormalized = main.normalizePiCocInvokeArguments(retainedRecovered);
 const invoke = tools.get("coc_invoke");
 const stringResult = await invoke.execute(
   "xai-stringified-exact-card",
@@ -123,6 +142,9 @@ process.stdout.write(JSON.stringify({
   objectPathIdentityUnchanged: clientCalls[1].params.arguments === nativeArguments,
   stringResultOk: JSON.parse(stringResult.content[0].text).ok,
   objectResultOk: JSON.parse(objectResult.content[0].text).ok,
+  malformedRetainedAdoptRecovered:
+    JSON.stringify(retainedNormalized.arguments)
+      === JSON.stringify(exactFactsArguments),
   clientCallCount: clientCalls.length,
   rejected,
 }));

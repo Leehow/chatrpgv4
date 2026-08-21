@@ -15,7 +15,6 @@ import {
   pickHostedSessionAgentDir,
   SETUP_CHARACTER_OPENING_MARKER,
 } from "./pi-session-text.mjs";
-import { readCharacterSetupBriefing } from "./character-setup-briefing.mjs";
 
 export { SETUP_CHARACTER_OPENING_MARKER, isHiddenSetupOpeningPrompt } from "./pi-session-text.mjs";
 
@@ -24,56 +23,53 @@ export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
 /** Setup session exit that means re-exec as play (pi-coc launcher contract). */
 export const HANDOFF_EXIT_CODE = 42;
 
+// Pi extensions may schedule a hidden follow-up from an `agent_end` callback.
+// RPC emits `agent_settled` before that callback's queued turn emits its next
+// `agent_start`, so treating the first settled frame as terminal briefly makes
+// the browser editable while the same host is already starting more work.
+// Keep the stream open across that micro-gap and close only after a short,
+// genuinely idle window.
+export const AGENT_SETTLE_QUIESCENCE_MS = 100;
+
 /** Host-owned continuation for a respawned play RPC child. */
 export const PLAY_TABLE_OPENING_PROMPT = [
   "Host continuation after setup.complete / ready_for_table handoff.",
   "You are the play-role Keeper for this already-selected campaign.",
-  "First call session.resume on this campaign, then evidence.table_opening,",
-  "then deliver the player-visible formal opening from that receipt.",
+  "First call session.resume on this campaign.",
+  "If coc_evidence_table_opening remains visible after resume, call it and",
+  "deliver only the player-visible formal opening from that receipt.",
+  "If that typed tool is absent, the opening is already persisted: do not call",
+  "or replay it; wait for the player or continue the buffered player action.",
   "Do not invent opening text. Do not ask the player to choose a campaign.",
 ].join(" ");
 
 /**
  * Host-owned character-setup opener when extension auto-open stays silent.
- * Semantic copy of plugins/coc-keeper/pi/lib/welcome.ts
- * `characterSetupOpenInstruction` (server-node cannot import that TS).
- * SYNC RISK: if welcome.ts opening sequence changes, update this copy.
- * Prefix is used to hide this user prompt from player-visible session hydration.
+ * Fresh Web bind (`status=setup`, no investigator) still owns a canonical
+ * campaign generation. Resume is the single authority for whether source
+ * review/adoption or character creation comes next.
+ * Reopen of an already-played generation uses PLAY_TABLE_OPENING_PROMPT.
+ * Prefix hides this user prompt from player-visible session hydration.
  */
 export function setupCharacterOpeningPrompt({ campaignId, workspace } = {}) {
   const id = String(campaignId || "");
   const root = String(workspace || ".");
-  const briefing = readCharacterSetupBriefing({ workspace: root, campaignId: id });
-  const briefingParts = briefing.briefingText
-    ? [
-        "Player-safe character-creation briefing is already inlined below.",
-        "Do not open files, find, ls, or glob for a briefing.",
-        briefing.title ? `Campaign title: ${briefing.title}` : "",
-        "Briefing:",
-        briefing.briefingText,
-      ].filter(Boolean)
-    : [
-        "No player-safe briefing was readable; continue from resume/adopt player-safe facts.",
-        "Do not open files, find, ls, or glob for a briefing.",
-      ];
   return [
     SETUP_CHARACTER_OPENING_MARKER,
     "This selected campaign has no playable investigator yet.",
     "Do not ask the player to activate COC.",
-    "Fixed opening sequence, no other campaign calls in between:",
-    "first",
+    "The campaign is already selected in this host request.",
+    "Fixed opening sequence, no other campaign calls in between: first",
     JSON.stringify({
       tool: "coc_session_resume",
       arguments: { root, campaign: id },
     }),
-    "then immediately",
-    JSON.stringify({
-      tool: "coc_setup_investigator_contract",
-      arguments: { root, campaign: id, campaign_id: id },
-    }),
-    ...briefingParts,
-    "Do NOT call setup.inspect, coc_discover, OCR, or any other campaign operation",
-    "during this opening: the campaign is already selected.",
+    "then follow error.details.next_operation exactly when resume reports the",
+    "source-review/adoption gate. Do not call investigator_contract until the",
+    "adoption receipt says character_creation_unblocked=true. Once unblocked,",
+    "call coc_setup_investigator_contract for this campaign and read its exact",
+    "character_creation.briefing_path once (no find/ls/glob), if one exists.",
+    "Do NOT call setup.inspect, coc_discover, OCR, or another campaign probe.",
     "Emit no player-visible text until every opening tool call above is done;",
     "stay completely silent between tool calls.",
     "Your player-visible reply must be immersive coc-character guidance ending in",
@@ -156,8 +152,33 @@ export function resolvePiCliJs(repoRoot = DEFAULT_REPO_ROOT) {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
-export function sessionOpeningFlags({ spawned, hasInvestigator }) {
-  const characterSetup = !hasInvestigator;
+/**
+ * Authoritative table intent from the campaign's `opening_phase` projection
+ * (the plugin's derive_opening_phase / coc_session_role.py authority).
+ * Returns null when the projection is unavailable so the caller can ask
+ * coc_session_role.py directly — never investigator-file scanning.
+ */
+export function tableIntentFromOpeningPhase(openingPhase) {
+  const role =
+    openingPhase && typeof openingPhase === "object"
+      ? openingPhase.session_role
+      : null;
+  if (role === "play") return "continue";
+  if (role === "setup") return "character-setup";
+  return null;
+}
+
+/**
+ * Frontend attach hints for one session bind. `character_setup` is true only
+ * when the authoritative opening phase says `character_creation`; when the
+ * projection is unavailable the coc_session_role-derived tableIntent decides.
+ * Investigator-file existence never enters this decision.
+ */
+export function sessionOpeningFlags({ spawned, phase, tableIntent } = {}) {
+  const characterSetup =
+    phase != null
+      ? phase === "character_creation"
+      : tableIntent === "character-setup";
   return {
     character_setup: characterSetup,
     host_opening: Boolean(spawned),
@@ -292,6 +313,37 @@ export function parseSetupHandoffEvent(event) {
   };
 }
 
+function toolEventFrame(phase, event) {
+  const data = { phase, tool: toolLabel(event) };
+  // Pi core keeps this id on the execution event even when parallel calls end
+  // out of order. Older event producers omit it; their SSE shape is unchanged.
+  if (typeof event.toolCallId === "string" && event.toolCallId) {
+    data.tool_call_id = event.toolCallId;
+  }
+  // Scheduler receipts are host-only telemetry. Do not leak queue/execution
+  // metadata into the player-facing SSE stream.
+  return { event: "tool", data };
+}
+
+function containsOpeningSourceReviewGate(value, depth = 0) {
+  if (depth > 8 || value == null) return false;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text.startsWith("{") && !text.startsWith("[")) return false;
+    try {
+      return containsOpeningSourceReviewGate(JSON.parse(text), depth + 1);
+    } catch {
+      return false;
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => containsOpeningSourceReviewGate(item, depth + 1));
+  }
+  if (typeof value !== "object") return false;
+  if (value.phase === "opening_source_review_required") return true;
+  return Object.values(value).some((item) => containsOpeningSourceReviewGate(item, depth + 1));
+}
+
 export function mapRpcEventToSse(event) {
   if (!event || typeof event !== "object") return [];
   const handoff = parseSetupHandoffEvent(event);
@@ -325,7 +377,8 @@ export function mapRpcEventToSse(event) {
     const ame = event.assistantMessageEvent;
     if (ame && typeof ame === "object") {
       if (ame.type === "text_delta" && typeof ame.delta === "string" && ame.delta) {
-        out.push({ event: "delta", data: { text: ame.delta } });
+        const text = stripPlayerEnvelopeMarkers(ame.delta);
+        if (text) out.push({ event: "delta", data: { text } });
       } else if (
         ame.type === "thinking_delta"
         && typeof ame.delta === "string"
@@ -336,11 +389,32 @@ export function mapRpcEventToSse(event) {
     }
     return out;
   }
+  if (type === "message_end") {
+    const message = event.message;
+    if (!message || message.role !== "assistant") return [];
+    const text = Array.isArray(message.content)
+      ? message.content
+        .filter((part) => part?.type === "text" && typeof part.text === "string")
+        .map((part) => part.text)
+        .join("")
+      : typeof message.content === "string"
+        ? message.content
+        : "";
+    // A keeper-only follow-up may contain thinking/tool work but no
+    // player-visible text. It must not erase the completed narration emitted
+    // by the preceding lifecycle turn.
+    const visibleText = stripPlayerEnvelopeMarkers(text).trim();
+    if (!visibleText) return [];
+    return [
+      { event: "delta_reset", data: {} },
+      { event: "delta", data: { text: visibleText } },
+    ];
+  }
   if (type === "tool_execution_start") {
-    return [{ event: "tool", data: { phase: "start", tool: toolLabel(event) } }];
+    return [toolEventFrame("start", event)];
   }
   if (type === "tool_execution_end") {
-    return [{ event: "tool", data: { phase: "end", tool: toolLabel(event) } }];
+    return [toolEventFrame("end", event)];
   }
   if (type === "agent_end") {
     // pi settles a turn even when the model call failed (stopReason "error");
@@ -365,6 +439,10 @@ export function mapRpcEventToSse(event) {
     return [];
   }
   return [];
+}
+
+function stripPlayerEnvelopeMarkers(text) {
+  return String(text || "").replace(/\[\/?in_game\]/gi, "");
 }
 
 export class PiCocRpcError extends Error {
@@ -409,6 +487,7 @@ export class PiCocRpcHost {
     this.closed = false;
     this.streaming = false;
     this.settleGeneration = 0;
+    this.lastSettledAt = 0;
     this.abortGeneration = 0;
     this.uiIntent = null; // "auto-open" | "idle" | null
     this.lastUsage = null;
@@ -418,6 +497,7 @@ export class PiCocRpcHost {
     this.#eventLog = [];
     this.lastExitCode = null;
     this.expectedShutdown = false;
+    this.openingSourceReviewPending = false;
     this.#setupOpeningPrompted = false;
   }
 
@@ -453,23 +533,24 @@ export class PiCocRpcHost {
   }
 
   #replaySessionAssistant(onSse) {
-    const text = lastVisibleAssistantText({
+    const text = stripPlayerEnvelopeMarkers(lastVisibleAssistantText({
       agentDir: this.agentDir,
       sessionId: this.sessionId,
-    });
+    })).trim();
     if (!text) return false;
     onSse?.({ event: "delta", data: { text } });
     return true;
   }
 
   #hasRecordedVisibleOpening() {
+    let visibleText = "";
     for (const event of this.#eventLog) {
       for (const frame of mapRpcEventToSse(event)) {
-        if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
-          return true;
-        }
+        if (frame?.event === "delta_reset") visibleText = "";
+        if (frame?.event === "delta") visibleText += String(frame.data?.text || "");
       }
     }
+    if (visibleText.trim()) return true;
     return Boolean(lastVisibleAssistantText({
       agentDir: this.agentDir,
       sessionId: this.sessionId,
@@ -497,13 +578,35 @@ export class PiCocRpcHost {
     if (this.#eventLog.length > 4000) {
       this.#eventLog.splice(0, this.#eventLog.length - 2000);
     }
-    if (event?.type === "agent_start") this.streaming = true;
+    if (
+      event?.type === "agent_start"
+      && this.openingSourceReviewPending
+      && this.settleGeneration > 0
+    ) {
+      this.openingSourceReviewPending = false;
+    }
+    if (event?.type === "agent_start") {
+      this.streaming = true;
+      this.lastSettledAt = 0;
+    }
     if (event?.type === "agent_settled") {
       this.streaming = false;
       this.settleGeneration += 1;
+      this.lastSettledAt = Date.now();
     }
     if (event?.type === "message_update" && event.usage) {
       this.lastUsage = event.usage;
+    }
+    if (
+      event?.type === "tool_execution_end"
+      && containsOpeningSourceReviewGate(event.result)
+    ) {
+      this.openingSourceReviewPending = true;
+    }
+    if (event?.customType === "coc-opening-source-review-lifecycle") {
+      const status = event.data?.status ?? event.details?.status;
+      if (status === "submitted") this.openingSourceReviewPending = true;
+      else if (typeof status === "string" && status) this.openingSourceReviewPending = false;
     }
     for (const listener of this.#listeners) {
       try {
@@ -700,7 +803,12 @@ export class PiCocRpcHost {
       let sawHandoff = false;
       let timer = null;
       const notifyIfSilent = () => {
-        if (suppressSilentNotice || sawPlayerText || sawError) return;
+        if (
+          suppressSilentNotice
+          || this.openingSourceReviewPending
+          || sawPlayerText
+          || sawError
+        ) return;
         onSse?.({
           event: "notice",
           data: {
@@ -723,6 +831,8 @@ export class PiCocRpcHost {
         for (const frame of mapRpcEventToSse(event)) {
           if (frame.event === "delta" && String(frame.data?.text || "").trim()) {
             sawPlayerText = true;
+          } else if (frame.event === "delta_reset") {
+            sawPlayerText = false;
           } else if (frame.event === "error") {
             sawError = true;
           } else if (frame.event === "coc_setup_handoff") {
@@ -731,14 +841,18 @@ export class PiCocRpcHost {
           }
           onSse?.(frame);
         }
-        if (this.settleGeneration > startGen) settle({ handoff: sawHandoff });
+        // Do not resolve directly from the `agent_settled` listener. A hidden
+        // follow-up may be queued by the extension in the same lifecycle turn.
       });
-      if (this.settleGeneration > startGen) {
-        settle({ handoff: sawHandoff });
-        return;
-      }
       timer = setInterval(() => {
-        if (this.settleGeneration > startGen) {
+        const quietFor = this.lastSettledAt > 0
+          ? Date.now() - this.lastSettledAt
+          : 0;
+        if (
+          this.settleGeneration > startGen
+          && !this.streaming
+          && quietFor >= AGENT_SETTLE_QUIESCENCE_MS
+        ) {
           settle({ handoff: sawHandoff });
         } else if (this.abortGeneration > abortAt) {
           finish(this.#abortedError());
@@ -751,8 +865,30 @@ export class PiCocRpcHost {
         } else if (Date.now() > deadline) {
           finish(new PiCocRpcError("pi-coc turn timed out", { kind: "pi_coc_rpc_timeout" }));
         }
-      }, 200);
+      }, 20);
     });
+  }
+
+  async #waitForQueuedFollowUp(onSse, timeoutMs, options = {}) {
+    if (
+      this.streaming
+      || this.settleGeneration === 0
+      || this.lastSettledAt === 0
+    ) return;
+    const observedGeneration = this.settleGeneration;
+    const remaining = AGENT_SETTLE_QUIESCENCE_MS
+      - (Date.now() - this.lastSettledAt);
+    if (remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remaining));
+    }
+    if (this.streaming || this.settleGeneration > observedGeneration) {
+      await this.#waitSettleAfter(
+        observedGeneration,
+        onSse,
+        timeoutMs,
+        options,
+      );
+    }
   }
 
   async attachOpening({
@@ -764,6 +900,8 @@ export class PiCocRpcHost {
     const relay = (frame) => {
       if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
         sawVisibleText = true;
+      } else if (frame?.event === "delta_reset") {
+        sawVisibleText = false;
       }
       onSse?.(frame);
     };
@@ -776,6 +914,35 @@ export class PiCocRpcHost {
       return { opened };
     };
     const maybeSetupOpen = async (openedFallback) => {
+      if (this.openingSourceReviewPending) {
+        const baseGeneration = this.settleGeneration;
+        const deadline = Date.now() + timeoutMs;
+        while (this.openingSourceReviewPending && !this.closed && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        if (this.openingSourceReviewPending) {
+          throw new PiCocRpcError("模组源事实评审超时。", {
+            kind: "pi_coc_source_review_timeout",
+          });
+        }
+        const followUpDeadline = Math.min(deadline, Date.now() + 10_000);
+        while (
+          !this.streaming
+          && this.settleGeneration === baseGeneration
+          && !this.closed
+          && Date.now() < followUpDeadline
+        ) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        if (this.streaming) {
+          await this.#waitSettleAfter(baseGeneration, relay, Math.max(1, deadline - Date.now()), {
+            suppressSilentNotice: requireVisibleText,
+          });
+        } else if (this.settleGeneration > baseGeneration) {
+          this.#replaySse(relay);
+        }
+        if (sawVisibleText) return finish(true);
+      }
       const injected = await this.#promptSetupOpeningIfSilent({
         onSse: relay,
         timeoutMs,
@@ -791,6 +958,11 @@ export class PiCocRpcHost {
       }
       return finish(openedFallback);
     };
+    if (this.settleGeneration > 0 && !this.streaming) {
+      await this.#waitForQueuedFollowUp(relay, timeoutMs, {
+        suppressSilentNotice: requireVisibleText,
+      });
+    }
     if (this.settleGeneration > 0 && !this.streaming) {
       if (requireVisibleText) this.#replaySse(relay);
       if (!sawVisibleText) this.#replaySessionAssistant(relay);

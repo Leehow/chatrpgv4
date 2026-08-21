@@ -137,6 +137,7 @@ coc_compiled_archive = _load_sibling(
 coc_operation_policy = _load_sibling(
     "coc_operation_policy_toolbox", "coc_operation_policy.py"
 )
+coc_opening_phase = _load_sibling("coc_opening_phase", "coc_opening_phase.py")
 coc_memory = _load_sibling("coc_memory", "coc_memory.py")
 
 SCENARIO_FILES = (
@@ -205,8 +206,22 @@ class ToolError(ValueError):
 class Ctx:
     """Resolved campaign context shared by tool handlers."""
 
-    def __init__(self, root: Path, campaign_id: str | None):
+    def __init__(
+        self,
+        root: Path,
+        campaign_id: str | None,
+        *,
+        execution_class: str = "serial_campaign",
+    ):
         self.root = root
+        self.execution_class = (
+            execution_class
+            if isinstance(execution_class, str)
+            and execution_class in {
+                "parallel_read", "serial_campaign", "serial_global",
+            }
+            else "serial_campaign"
+        )
         self.coc_root = root / ".coc"
         self.campaign_id = campaign_id
         if campaign_id:
@@ -1066,6 +1081,7 @@ def tool(
     response_mode: str = "full",
     audit_mode: str = "full",
     strict_read_only: bool = False,
+    execution_class: str = "serial_campaign",
 ):
     if access not in {"query", "mutation"}:
         raise ValueError(f"invalid tool access mode: {access}")
@@ -1080,6 +1096,14 @@ def tool(
             "strict_read_only requires query access, empty write/recovery "
             "domains, full response mode, and reference audit mode"
         )
+    # Scheduling is fail-closed: only a reviewed read may opt into parallel
+    # execution; absent or unrecognized declarations remain campaign-serial.
+    if execution_class not in {
+        "parallel_read", "serial_campaign", "serial_global",
+    }:
+        execution_class = "serial_campaign"
+    if execution_class == "parallel_read" and not strict_read_only:
+        raise ValueError("parallel_read requires strict_read_only")
     def deco(fn: Callable[[Ctx, dict[str, Any]], tuple[Any, list[str], list[str]]]):
         TOOLS[name] = {
             "name": name,
@@ -1095,6 +1119,7 @@ def tool(
             "response_mode": response_mode,
             "audit_mode": audit_mode,
             "strict_read_only": bool(strict_read_only),
+            "execution_class": execution_class,
             "handler": fn,
         }
         return fn
@@ -1170,9 +1195,16 @@ def _log_tool_call(
         record["turn_number"] = None
     try:
         log_path = ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
-        coc_state.append_jsonl(log_path, record)
-        return log_path.stat().st_size
-    except OSError:
+        # `parallel_read` has no gameplay write authority, but its durable
+        # Keeper-internal audit receipt must not be dropped or interleaved.
+        # This dedicated append lock is intentionally independent of the
+        # campaign state lock so concurrent reads remain concurrent.
+        with coc_fileio.audit_append_lock(
+            log_path, wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
+        ):
+            coc_state.append_jsonl(log_path, record)
+            return log_path.stat().st_size
+    except (OSError, coc_fileio.CampaignLockError):
         return None
 
 
@@ -1296,6 +1328,72 @@ _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS = frozenset({
     "investigator.render_card",
 })
 
+# The lifecycle phase query is a pure read of the same derivation the gate
+# itself used, so it is legal in every blocked sub-phase: a host that cannot
+# ask "where am I" is forced to guess or rescan the workspace.
+_PI_OPENING_PHASE_QUERY_OPERATIONS = frozenset({"setup.phase"})
+
+
+def _opening_host_work_mode(execution_class: Any) -> str:
+    """Choose observation only from the canonical execution classification."""
+    return "pure_read" if execution_class == "parallel_read" else "mutating"
+
+# One table keyed by the derived module_preparation sub-phase (plus the
+# character-setup discriminator). This replaces the per-branch rejection
+# constructions the gate family used to grow one at a time.
+#
+#   operations       — always-legal canonical operation names
+#   setup_kinds      — legal ``setup.invoke`` kinds
+#   chargen_dice     — "quick_fire_only": only the Quick Fire 3D6 contract;
+#                      "policy_scoped": also the era-adaptive dice contract
+#                      when the gate carries that character-setup policy
+#                      (B2 moves this into the investigator contract data)
+#   era_adaptive_cash— allow ``state.cash_semantic`` under era-adaptive chargen
+#   exact_next_operation_only — only the gate's own sealed card may run
+_OPENING_SETUP_ACL_BLOCK_ALL: dict[str, Any] = {
+    "operations": frozenset(),
+    "setup_kinds": frozenset(),
+    "chargen_dice": None,
+    "era_adaptive_cash": False,
+    "exact_next_operation_only": False,
+}
+_OPENING_SETUP_ACL_CHARACTER_SETUP: dict[str, Any] = {
+    "operations": _PI_OPENING_SETUP_ALLOWED_OPERATIONS,
+    "setup_kinds": _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS,
+    "chargen_dice": "policy_scoped",
+    "era_adaptive_cash": True,
+    "exact_next_operation_only": False,
+}
+_OPENING_SETUP_ACL: dict[str, dict[str, Any]] = {
+    coc_opening_phase.SUB_PHASE_CONTRACT_INVALID: _OPENING_SETUP_ACL_BLOCK_ALL,
+    coc_opening_phase.SUB_PHASE_REVIEW_FAILED: _OPENING_SETUP_ACL_BLOCK_ALL,
+    coc_opening_phase.SUB_PHASE_REVIEW_REQUIRED: {
+        "operations": frozenset({
+            "setup.adopt_source_facts",
+            "setup.investigator_contract",
+            "rules.cash_assets",
+        }),
+        "setup_kinds": _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS,
+        "chargen_dice": "quick_fire_only",
+        "era_adaptive_cash": False,
+        "exact_next_operation_only": False,
+    },
+    coc_opening_phase.SUB_PHASE_FACTS_ADOPTION_REQUIRED: {
+        "operations": frozenset(),
+        "setup_kinds": frozenset(),
+        "chargen_dice": None,
+        "era_adaptive_cash": False,
+        "exact_next_operation_only": True,
+    },
+    coc_opening_phase.SUB_PHASE_MATERIALIZATION: (
+        _OPENING_SETUP_ACL_CHARACTER_SETUP
+    ),
+    coc_opening_phase.SUB_PHASE_SELECTION: _OPENING_SETUP_ACL_CHARACTER_SETUP,
+    coc_opening_phase.SUB_PHASE_CHARACTER_SETUP_REQUIRED: (
+        _OPENING_SETUP_ACL_CHARACTER_SETUP
+    ),
+}
+
 
 def _pi_opening_source_contract_error_gate(
     campaign_id: str,
@@ -1303,6 +1401,7 @@ def _pi_opening_source_contract_error_gate(
     code: str,
     message: str,
     asset_root_id: str | None = None,
+    opening_phase: str = coc_opening_phase.PHASE_MODULE_PREPARATION,
 ) -> dict[str, Any]:
     """Keep a persisted Pi source binding fail-closed when it cannot resolve."""
     return {
@@ -1310,7 +1409,8 @@ def _pi_opening_source_contract_error_gate(
         "status": "blocked",
         "hard_gate": True,
         "activation_allowed": False,
-        "phase": "opening_source_contract_invalid",
+        "phase": coc_opening_phase.SUB_PHASE_CONTRACT_INVALID,
+        "opening_phase": str(opening_phase),
         "campaign_id": str(campaign_id),
         **({"asset_root_id": asset_root_id} if asset_root_id else {}),
         "source_contract_error": {
@@ -1326,6 +1426,46 @@ def _pi_opening_source_contract_error_gate(
     }
 
 
+def _pi_opening_character_setup_envelope(
+    derived: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Format the character-setup discriminator from the phase derivation."""
+    character_setup = derived["detail"]["character_setup"]
+    if not character_setup.get("resume_gate_required"):
+        return None
+    campaign_id = str(derived["campaign_id"])
+    input_mode = character_setup.get("input_mode")
+    envelope: dict[str, Any] = {
+        "schema_version": 1,
+        "status": "blocked",
+        "hard_gate": True,
+        "activation_allowed": False,
+        "phase": coc_opening_phase.SUB_PHASE_CHARACTER_SETUP_REQUIRED,
+        "opening_phase": derived["phase"],
+        "campaign_id": campaign_id,
+    }
+    if input_mode == "kp_guided_era_adaptive":
+        envelope.update({
+            "character_setup_policy": "kp_guided_era_adaptive",
+            "character_setup_input_mode": input_mode,
+            "next_operation": None,
+            "instruction": (
+                "complete one KP-guided era-adaptive investigator creation and "
+                "exact campaign link before opening play"
+            ),
+        })
+        return envelope
+    envelope.update({
+        "character_setup_policy": "guided_quick_fire",
+        "next_operation": None,
+        "instruction": (
+            "complete one guided Quick Fire investigator creation and exact "
+            "campaign link before opening play"
+        ),
+    })
+    return envelope
+
+
 def _pi_opening_character_setup_gate(
     campaign_dir: Path,
     campaign_id: str,
@@ -1334,75 +1474,14 @@ def _pi_opening_character_setup_gate(
 
     This is deliberately narrower than the general opening gate. It is emitted
     only for ``session.resume`` after the caller has already proved the
-    source-bound opening projection current.
+    source-bound opening projection current. The condition itself now comes
+    from the single phase derivation.
     """
-    try:
-        campaign_state = coc_state.load_campaign_state(campaign_dir)
-        if campaign_state.get("status") == "ready_for_table":
-            return None
-    except (OSError, ValueError):
-        pass
-    if not coc_module_project.campaign_is_pristine_for_opening(campaign_dir):
-        return None
-    party_path = campaign_dir / "party.json"
-    try:
-        party_mode = party_path.lstat().st_mode
-    except FileNotFoundError:
-        party_mode = None
-    except OSError:
-        return None
-    if party_mode is not None:
-        if not stat.S_ISREG(party_mode):
-            return None
-        try:
-            party = json.loads(party_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return None
-        if (
-            not isinstance(party, dict)
-            or party.get("schema_version") != 1
-            or party.get("campaign_id") != campaign_id
-            or party.get("investigator_ids") != []
-            or party.get("active_investigator_ids") != []
-        ):
-            return None
-    try:
-        campaign = coc_state.load_campaign_state(campaign_dir)
-        input_mode = coc_runtime_ops.guided_character_creation_input_mode(
-            str(campaign.get("era") or "")
-        )
-    except (OSError, ValueError):
-        return None
-    if input_mode == "kp_guided_era_adaptive":
-        return {
-            "schema_version": 1,
-            "status": "blocked",
-            "hard_gate": True,
-            "activation_allowed": False,
-            "phase": "opening_character_setup_required",
-            "campaign_id": campaign_id,
-            "character_setup_policy": "kp_guided_era_adaptive",
-            "character_setup_input_mode": input_mode,
-            "next_operation": None,
-            "instruction": (
-                "complete one KP-guided era-adaptive investigator creation and "
-                "exact campaign link before opening play"
-            ),
-        }
-    return {
-        "schema_version": 1,
-        "status": "blocked",
-        "hard_gate": True,
-        "activation_allowed": False,
-        "phase": "opening_character_setup_required",
-        "campaign_id": campaign_id,
-        "character_setup_policy": "guided_quick_fire",
-        "next_operation": None,
-        "instruction": (
-            "complete one guided Quick Fire investigator creation and exact "
-            "campaign link before opening play"
-        ),
-    }
+    campaign_dir = Path(campaign_dir)
+    root = campaign_dir.parents[2]
+    return _pi_opening_character_setup_envelope(
+        coc_opening_phase.derive_opening_phase(root, campaign_id)
+    )
 
 
 def _pi_opening_character_setup_complete(
@@ -1410,34 +1489,10 @@ def _pi_opening_character_setup_complete(
     campaign_id: str,
 ) -> bool:
     """Return true only for one structurally current non-empty party link."""
-    party_path = campaign_dir / "party.json"
-    try:
-        party_mode = party_path.lstat().st_mode
-        if not stat.S_ISREG(party_mode):
-            return False
-        party = json.loads(party_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return False
-    if (
-        not isinstance(party, dict)
-        or party.get("schema_version") != 1
-        or party.get("campaign_id") != campaign_id
-    ):
-        return False
-    investigator_ids = party.get("investigator_ids")
-    active_ids = party.get("active_investigator_ids")
-    return bool(
-        isinstance(investigator_ids, list)
-        and investigator_ids
-        and all(isinstance(value, str) and value for value in investigator_ids)
-        and isinstance(active_ids, list)
-        and active_ids
-        and all(isinstance(value, str) and value for value in active_ids)
-        and set(active_ids).issubset(set(investigator_ids))
-    )
+    return coc_opening_phase._party_is_linked(Path(campaign_dir), campaign_id)
 
 
-_PLACEHOLDER_CREATION_METHODS = frozenset({"complete_sheet_placeholder"})
+_PLACEHOLDER_CREATION_METHODS = coc_state.PLACEHOLDER_CREATION_METHODS
 
 
 def _campaign_has_confirmed_investigator(
@@ -1448,32 +1503,11 @@ def _campaign_has_confirmed_investigator(
 
     Electron/web links ``complete_sheet_placeholder`` so the UI has a sheet
     during guided creation. That party row is not character-creation completion.
+    One shared predicate lives in ``coc_state``.
     """
-    if not _pi_opening_character_setup_complete(campaign_dir, campaign_id):
-        return False
-    party_path = campaign_dir / "party.json"
-    try:
-        party = json.loads(party_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    investigator_ids = party.get("investigator_ids")
-    if not isinstance(investigator_ids, list):
-        return False
-    investigators_root = campaign_dir.parent.parent / "investigators"
-    for investigator_id in investigator_ids:
-        if not isinstance(investigator_id, str) or not investigator_id:
-            continue
-        creation_path = investigators_root / investigator_id / "creation.json"
-        try:
-            creation = json.loads(creation_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return True
-        if not isinstance(creation, dict):
-            return True
-        method = str(creation.get("method") or "")
-        if method not in _PLACEHOLDER_CREATION_METHODS:
-            return True
-    return False
+    return coc_state.campaign_has_confirmed_investigator(
+        Path(campaign_dir), campaign_id,
+    )
 
 
 def _character_creation_resume_projection(
@@ -1542,94 +1576,65 @@ def _pi_opening_setup_gate(
     campaign_id: str | None,
     *,
     include_character_setup: bool = False,
+    host_work_mode: str = "mutating",
 ) -> dict[str, Any] | None:
-    """Return the persisted Pi opening gate until source projection is fresh."""
+    """Return the persisted Pi opening gate until source projection is fresh.
+
+    Single decision source: ``coc_opening_phase.derive_opening_phase``. This
+    function only formats that derivation into the persisted gate envelope.
+    ``host_work_mode="pure_read"`` changes only lifecycle observation; role,
+    session, ACL, secrecy, and availability checks still use this full gate.
+    Starter campaigns are no longer short-circuited before the machine runs —
+    they simply derive a satisfied ``module_preparation`` and therefore expose
+    no source gate, which is the behavior they always had.
+    """
     if str(os.environ.get("COC_HOST") or "").lower() != "pi" or not campaign_id:
         return None
     campaign_dir = root / ".coc" / "campaigns" / str(campaign_id)
     if not campaign_dir.is_dir():
         return None
-    scenario_path = campaign_dir / "scenario" / "scenario.json"
-    try:
-        loaded_scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        loaded_scenario = {}
-    except (json.JSONDecodeError, OSError) as exc:
-        return _pi_opening_source_contract_error_gate(
-            str(campaign_id),
-            code="opening_scenario_metadata_invalid",
-            message=str(exc),
-        )
-    if not isinstance(loaded_scenario, dict):
-        return _pi_opening_source_contract_error_gate(
-            str(campaign_id),
-            code="opening_scenario_metadata_invalid",
-            message="campaign scenario metadata must be an object",
-        )
-    scenario = loaded_scenario
-    scenario_source = (
-        scenario.get("source")
-        if isinstance(scenario.get("source"), dict)
-        else {}
+    derived = coc_opening_phase.derive_opening_phase(
+        root,
+        str(campaign_id),
+        host_work_mode=host_work_mode,
     )
-    top_provenance = scenario.get("opening_source_provenance")
-    nested_provenance = scenario_source.get("opening_source_provenance")
-    if (
-        top_provenance is not None
-        and nested_provenance is not None
-        and top_provenance != nested_provenance
-    ):
+    preparation = derived["detail"]["module_preparation"]
+    sub_phase = preparation["sub_phase"]
+    if sub_phase is None:
+        # Module preparation is satisfied. Only a source-bound campaign whose
+        # current projection is fresh may still be sent back to character
+        # setup, and only when the caller asked for that discriminator.
+        # A starter resume is character setup but not a hard gate: it succeeds
+        # and carries the player-safe ``character_creation`` projection.
+        if include_character_setup and preparation["source_gated"]:
+            return _pi_opening_character_setup_envelope(derived)
+        return None
+    campaign_id = str(campaign_id)
+    opening_phase = derived["phase"]
+    if sub_phase == coc_opening_phase.SUB_PHASE_CONTRACT_INVALID:
+        error = preparation["contract_error"] or {}
         return _pi_opening_source_contract_error_gate(
-            str(campaign_id),
-            code="opening_source_provenance_mismatch",
-            message=(
-                "top-level and nested opening source provenance disagree"
-            ),
+            campaign_id,
+            code=str(error.get("code") or "opening_source_contract_invalid"),
+            message=str(error.get("message") or ""),
+            asset_root_id=error.get("asset_root_id"),
+            opening_phase=opening_phase,
         )
-    opening_source_provenance = str(
-        top_provenance
-        if top_provenance is not None
-        else nested_provenance
-        if nested_provenance is not None
-        else ""
-    ).strip()
-    failure_receipt = scenario.get("opening_source_review_failure")
-    if failure_receipt is not None:
-        try:
-            validated_failure = (
-                coc_runtime_ops._validate_opening_source_review_fulfillment(
-                    root, failure_receipt, expected_status="failed",
-                )
-            )
-        except coc_runtime_ops.RuntimeOperationError as exc:
-            return _pi_opening_source_contract_error_gate(
-                str(campaign_id),
-                code="opening_source_review_failure_invalid",
-                message=str(exc),
-            )
+    if sub_phase == coc_opening_phase.SUB_PHASE_REVIEW_FAILED:
         return {
             "schema_version": 1,
             "status": "failed",
             "hard_gate": True,
             "activation_allowed": False,
-            "phase": "opening_source_review_failed",
-            "campaign_id": str(campaign_id),
-            "source_provenance": opening_source_provenance,
+            "phase": coc_opening_phase.SUB_PHASE_REVIEW_FAILED,
+            "opening_phase": opening_phase,
+            "campaign_id": campaign_id,
+            "source_provenance": preparation["source_provenance"],
             "required_source_owner": "coc-opening-source-coordinator",
-            "character_setup_complete": _pi_opening_character_setup_complete(
-                campaign_dir, str(campaign_id),
+            "character_setup_complete": bool(
+                derived["detail"]["character_setup"]["party_linked"]
             ),
-            "source_review_failure": {
-                **validated_failure["failure"],
-                "coordinator_task_identity_sha256": validated_failure[
-                    "coordinator_task_identity_sha256"
-                ],
-                "receipt_sha256": (
-                    coc_runtime_ops._opening_review_receipt_digest(
-                        validated_failure
-                    )
-                ),
-            },
+            "source_review_failure": deepcopy(preparation["review_failure"]),
             "next_operation": None,
             "instruction": (
                 "the canonical opening source coordinator terminated without "
@@ -1637,32 +1642,25 @@ def _pi_opening_setup_gate(
                 "project, mutate play, or narrate from the locator hint"
             ),
         }
-    if opening_source_provenance == "selection_hint_only_not_provenance":
-        try:
-            pending_review = coc_runtime_ops._validate_opening_review_task(
-                scenario, expected_status="pending",
-            )
-        except coc_runtime_ops.RuntimeOperationError as exc:
-            return _pi_opening_source_contract_error_gate(
-                str(campaign_id),
-                code="opening_source_review_task_invalid",
-                message=str(exc),
-            )
-        character_setup_complete = _pi_opening_character_setup_complete(
-            campaign_dir, str(campaign_id),
-        )
+    if sub_phase == coc_opening_phase.SUB_PHASE_REVIEW_REQUIRED:
+        review_task = preparation["review_task"] or {}
         return {
             "schema_version": 1,
             "status": "blocked",
             "hard_gate": True,
             "activation_allowed": False,
-            "phase": "opening_source_review_required",
-            "campaign_id": str(campaign_id),
-            "scenario_id": pending_review["scenario_id"],
-            "source_provenance": opening_source_provenance,
+            "phase": coc_opening_phase.SUB_PHASE_REVIEW_REQUIRED,
+            "opening_phase": opening_phase,
+            "campaign_id": campaign_id,
+            "scenario_id": review_task.get("scenario_id"),
+            "source_provenance": preparation["source_provenance"],
             "required_source_owner": "coc-opening-source-coordinator",
-            "opening_review_generation": pending_review["generation"],
-            "character_setup_complete": character_setup_complete,
+            "opening_review_generation": review_task.get(
+                "opening_review_generation"
+            ),
+            "character_setup_complete": bool(
+                derived["detail"]["character_setup"]["party_linked"]
+            ),
             "next_operation": None,
             "instruction": (
                 "retain this fast locator only as spoiler-free character "
@@ -1672,134 +1670,38 @@ def _pi_opening_setup_gate(
                 "table-opening evidence, scene mutation, or narration"
             ),
         }
-    if opening_source_provenance not in {
-        "", "coordinator_reviewed_playable_opening",
-    }:
-        return _pi_opening_source_contract_error_gate(
-            str(campaign_id),
-            code="opening_source_provenance_invalid",
-            message="persisted opening source provenance is unsupported",
-        )
-    if opening_source_provenance == "coordinator_reviewed_playable_opening":
-        try:
-            coc_runtime_ops._validate_opening_source_review_fulfillment(
-                root,
-                scenario.get("opening_source_review_receipt"),
-                expected_status="reviewed",
-            )
-        except coc_runtime_ops.RuntimeOperationError as exc:
-            return _pi_opening_source_contract_error_gate(
-                str(campaign_id),
-                code="opening_source_review_receipt_invalid",
-                message=str(exc),
-            )
-        if scenario.get("opening_source_facts_transport") is not None:
-            try:
-                transport = (
-                    coc_runtime_ops._validate_opening_source_facts_transport(
-                        root, str(campaign_id),
-                    )
-                )
-            except coc_runtime_ops.RuntimeOperationError:
-                return _pi_opening_source_contract_error_gate(
-                    str(campaign_id),
-                    code="opening_source_facts_transport_invalid",
-                    message=(
-                        "the pending opening source facts transport does not "
-                        "match the current reviewed source"
-                    ),
-                )
-            if transport is not None:
-                next_operation = {
-                    "operation": "setup.adopt_source_facts",
-                    "invoke_via": "coc_invoke",
-                    "campaign": str(campaign_id),
-                    "arguments": {
-                        "campaign_id": str(campaign_id),
-                        "facts": deepcopy(transport["facts"]),
-                    },
-                }
-                return {
-                    "schema_version": 1,
-                    "status": "blocked",
-                    "hard_gate": True,
-                    "activation_allowed": False,
-                    "phase": "opening_source_facts_adoption_required",
-                    "campaign_id": str(campaign_id),
-                    "scenario_id": transport["scenario_id"],
-                    "opening_review_generation": transport[
-                        "opening_review_generation"
-                    ],
-                    "next_operation": next_operation,
-                    "instruction": (
-                        "invoke this exact sealed setup.adopt_source_facts "
-                        "card before opening selection or character setup"
-                    ),
-                }
-    persisted_root_id = str(
-        scenario.get("progressive_asset_root_id")
-        or scenario.get("source_cache_asset_root_id")
-        or ""
-    ).strip()
-    has_persisted_source_binding = bool(
-        persisted_root_id
-        or str(scenario_source.get("bundle_sha256") or "").strip()
-    )
-    try:
-        root_info = coc_module_project.resolve_opening_preparation_root(
-            root, str(campaign_id),
-        )
-    except coc_module_project.OpeningPreparationError as exc:
-        if has_persisted_source_binding:
-            return _pi_opening_source_contract_error_gate(
-                str(campaign_id),
-                code=exc.code,
-                message=exc.message,
-                asset_root_id=persisted_root_id or None,
-            )
-        return None
-    asset_root_id = str(root_info["asset_root_id"])
-    binding = coc_module_project.current_opening_projection_source_binding(
-        campaign_dir,
-    )
-    receipt = coc_module_project.current_opening_projection_receipt(campaign_dir)
-    if isinstance(binding, dict) and isinstance(receipt, dict):
-        source_scope = binding.get("source_scope")
-        start_location_id = str(binding.get("start_location_id") or "")
-        if (
-            binding.get("asset_root_id") == asset_root_id
-            and start_location_id
-            and isinstance(source_scope, dict)
-            and coc_module_project.opening_projection_state_is_fresh(
-                root,
-                campaign_dir,
-                asset_root_id,
-                start_location_id,
-                source_scope,
-            )
-        ):
-            return (
-                _pi_opening_character_setup_gate(
-                    campaign_dir,
-                    str(campaign_id),
-                )
-                if include_character_setup
-                else None
-            )
-    watch = (
-        scenario.get("opening_projection_watch")
-        if isinstance(scenario.get("opening_projection_watch"), dict)
-        else None
-    )
-    if watch is not None:
-        watch_status = str(watch.get("status") or "pending")
+    if sub_phase == coc_opening_phase.SUB_PHASE_FACTS_ADOPTION_REQUIRED:
+        transport = preparation["facts_transport"] or {}
+        return {
+            "schema_version": 1,
+            "status": "blocked",
+            "hard_gate": True,
+            "activation_allowed": False,
+            "phase": coc_opening_phase.SUB_PHASE_FACTS_ADOPTION_REQUIRED,
+            "opening_phase": opening_phase,
+            "campaign_id": campaign_id,
+            "scenario_id": transport.get("scenario_id"),
+            "opening_review_generation": transport.get(
+                "opening_review_generation"
+            ),
+            "next_operation": deepcopy(derived["next_operation"]),
+            "instruction": (
+                "invoke this exact sealed setup.adopt_source_facts "
+                "card before opening selection or character setup"
+            ),
+        }
+    asset_root_id = str(preparation["asset_root_id"] or "")
+    if sub_phase == coc_opening_phase.SUB_PHASE_MATERIALIZATION:
+        watch = preparation["watch"] or {}
+        watch_status = str(preparation["watch_status"] or "pending")
         gate = {
             "schema_version": 1,
             "status": "blocked",
             "hard_gate": True,
             "activation_allowed": False,
-            "phase": "opening_source_materialization",
-            "campaign_id": str(campaign_id),
+            "phase": coc_opening_phase.SUB_PHASE_MATERIALIZATION,
+            "opening_phase": opening_phase,
+            "campaign_id": campaign_id,
             "asset_root_id": asset_root_id,
             "source_lifecycle_status": watch_status,
             "next_operation": None,
@@ -1845,7 +1747,12 @@ def _pi_opening_setup_gate(
                 "move a scene, or narrate an opening first"
             )
         elif watch_status == "pending":
-            lost_kind = _opening_watch_lost_kind(root, asset_root_id, watch)
+            lost_kind = _opening_watch_lost_kind(
+                root,
+                asset_root_id,
+                watch,
+                pure_read=(host_work_mode == "pure_read"),
+            )
             if lost_kind is not None and (
                 coc_module_project.campaign_is_pristine_for_opening(campaign_dir)
             ):
@@ -1923,8 +1830,9 @@ def _pi_opening_setup_gate(
         "status": "blocked",
         "hard_gate": True,
         "activation_allowed": False,
-        "phase": "opening_selection",
-        "campaign_id": str(campaign_id),
+        "phase": coc_opening_phase.SUB_PHASE_SELECTION,
+        "opening_phase": opening_phase,
+        "campaign_id": campaign_id,
         "asset_root_id": asset_root_id,
         "next_operation": next_operation,
         "instruction": (
@@ -1935,84 +1843,87 @@ def _pi_opening_setup_gate(
     }
 
 
+def _quick_fire_chargen_dice(args: dict[str, Any]) -> bool:
+    """The Quick Fire 3D6 characteristic contract, purpose-bound."""
+    allowed = {"expression", "decision_id", "purpose", "reason"}
+    return bool(
+        set(args) <= allowed
+        and {"expression", "decision_id", "purpose"} <= set(args)
+        and args.get("expression") == "3D6"
+        and args.get("purpose") in _CHARGEN_DICE_PURPOSES
+        and (
+            "reason" not in args
+            or args.get("reason") is None
+            or isinstance(args.get("reason"), str)
+        )
+        and bool(str(args.get("decision_id") or "").strip())
+    )
+
+
+def _era_adaptive_chargen_dice(args: dict[str, Any]) -> bool:
+    """The era-adaptive KP-guided characteristic dice contract.
+
+    B2 moves this into the investigator contract data so the two built-in
+    modules stop forking here; this milestone only routes it through the table.
+    """
+    return bool(
+        set(args) <= {"expression", "decision_id", "reason"}
+        and {"expression", "decision_id"} <= set(args)
+        and args.get("expression") in {"3D6", "2D6+6"}
+        and (
+            "reason" not in args
+            or args.get("reason") is None
+            or isinstance(args.get("reason"), str)
+        )
+        and bool(str(args.get("decision_id") or "").strip())
+    )
+
+
 def _pi_opening_setup_operation_allowed(
     name: str,
     args: dict[str, Any],
     gate: dict[str, Any] | None = None,
 ) -> bool:
-    if (
-        isinstance(gate, dict)
-        and gate.get("phase") in {
-            "opening_source_contract_invalid",
-            "opening_source_review_failed",
-        }
-    ):
-        return False
-    if (
-        isinstance(gate, dict)
-        and gate.get("phase")
-        == "opening_source_facts_adoption_required"
-    ):
-        return (
-            name == "setup.adopt_source_facts"
-            and args == gate.get("next_operation", {}).get("arguments")
+    """Decide one operation against the single per-phase allow table."""
+    gate = gate if isinstance(gate, dict) else {}
+    if name in _PI_OPENING_PHASE_QUERY_OPERATIONS:
+        return True
+    row = _OPENING_SETUP_ACL.get(
+        str(gate.get("phase") or ""),
+        _OPENING_SETUP_ACL_CHARACTER_SETUP,
+    )
+    if row["exact_next_operation_only"]:
+        next_operation = gate.get("next_operation")
+        expected = (
+            next_operation.get("operation")
+            if isinstance(next_operation, dict)
+            else None
         )
-    if (
-        isinstance(gate, dict)
-        and gate.get("phase") == "opening_source_review_required"
-    ):
-        if name == "setup.invoke":
-            kind = str(args.get("kind") or "")
-            if kind in _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS:
-                return True
-            return False
-        if name == "rules.roll_dice":
-            return _pi_opening_setup_operation_allowed(name, args)
-        return name in {
-            "setup.adopt_source_facts",
-            "setup.investigator_contract",
-            "rules.cash_assets",
-        }
+        expected_arguments = (
+            next_operation.get("arguments")
+            if isinstance(next_operation, dict)
+            else None
+        )
+        return bool(name == expected and args == expected_arguments)
     if name == "rules.roll_dice":
-        allowed = {"expression", "decision_id", "purpose", "reason"}
-        quick_fire_chargen = (
-            set(args) <= allowed
-            and {"expression", "decision_id", "purpose"} <= set(args)
-            and args.get("expression") == "3D6"
-            and args.get("purpose") in _CHARGEN_DICE_PURPOSES
-            and (
-                "reason" not in args
-                or args.get("reason") is None
-                or isinstance(args.get("reason"), str)
-            )
-            and bool(str(args.get("decision_id") or "").strip())
-        )
-        if quick_fire_chargen:
+        mode = row["chargen_dice"]
+        if mode is None:
+            return False
+        if _quick_fire_chargen_dice(args):
             return True
-        return (
-            isinstance(gate, dict)
+        return bool(
+            mode == "policy_scoped"
             and gate.get("character_setup_policy") == "kp_guided_era_adaptive"
-            and set(args) <= {"expression", "decision_id", "reason"}
-            and {"expression", "decision_id"} <= set(args)
-            and args.get("expression") in {"3D6", "2D6+6"}
-            and (
-                "reason" not in args
-                or args.get("reason") is None
-                or isinstance(args.get("reason"), str)
-            )
-            and bool(str(args.get("decision_id") or "").strip())
+            and _era_adaptive_chargen_dice(args)
         )
     if name == "state.cash_semantic":
-        return (
-            isinstance(gate, dict)
+        return bool(
+            row["era_adaptive_cash"]
             and gate.get("character_setup_policy") == "kp_guided_era_adaptive"
         )
-    if name in _PI_OPENING_SETUP_ALLOWED_OPERATIONS:
-        return True
-    return (
-        name == "setup.invoke"
-        and str(args.get("kind") or "") in _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS
-    )
+    if name == "setup.invoke":
+        return str(args.get("kind") or "") in row["setup_kinds"]
+    return name in row["operations"]
 
 
 def _opening_projection_pacing_available(
@@ -2081,6 +1992,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             if close:
                 message += "; did you mean: " + ", ".join(close)
         return {"ok": False, "tool": name, "error": {"code": "unknown_tool", "message": message}}
+    execution_class = spec.get("execution_class", "serial_campaign")
+
     def failure(
         code: str, message: str, *, details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -2094,12 +2007,34 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             envelope["error"]["details"] = deepcopy(details)
         return envelope
 
+    # setup.phase intentionally accepts its campaign selector inside arguments
+    # for setup callers. Resolve it before Ctx/lock dispatch so this wrapper
+    # cannot make a campaign read run unlocked (or lock an unrelated outer
+    # campaign). The inner selector has always been the handler's authority.
+    if name == "setup.phase" and args.get("campaign_id") not in (None, ""):
+        nested_campaign_id = args.get("campaign_id")
+        if (
+            not isinstance(nested_campaign_id, str)
+            or _SAFE_ID.fullmatch(nested_campaign_id.strip()) is None
+        ):
+            return failure(
+                "invalid_param", "setup.phase campaign_id must be a stable safe id",
+            )
+        campaign_id = nested_campaign_id.strip()
+
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
+            # The registry, not a host-side tool-name list, selects whether
+            # opening lifecycle observation may materialize durable state.
+            # Unknown classes remain mutating/serial by the decorator's
+            # fail-closed normalization.
             opening_setup_gate = _pi_opening_setup_gate(
                 ctx.root,
                 ctx.campaign_id,
                 include_character_setup=(name == "session.resume"),
+                host_work_mode=_opening_host_work_mode(
+                    ctx.execution_class
+                ),
             )
             if (
                 opening_setup_gate is not None
@@ -2452,7 +2387,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             "recovered_after_retry": False,
         })
         try:
-            ctx = Ctx(root, campaign_id)
+            ctx = Ctx(root, campaign_id, execution_class=execution_class)
         except (ToolError, ValueError, FileNotFoundError):
             ctx = None
         if ctx is not None:
@@ -2468,7 +2403,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
         # recovery writes.  Rebuild the context so a retry cannot reuse stale
         # scenario, state, or roll-id caches from the failed attempt.
         try:
-            ctx = Ctx(root, campaign_id)
+            ctx = Ctx(root, campaign_id, execution_class=execution_class)
         except ToolError as exc:
             envelope = failure(exc.code, exc.message)
             ctx = None
@@ -2479,11 +2414,16 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
         if ctx is not None and ctx.campaign_dir is None:
             envelope = execute_transaction(ctx)
         elif ctx is not None:
+            # Only the registry's canonical reviewed classification may take a
+            # shared campaign lock. Missing, invalid, or future classes stay
+            # exclusive so a hand-edited/unknown tool cannot become concurrent.
+            lock_kwargs: dict[str, Any] = {
+                "wait_seconds": _TOOL_TRANSACTION_WAIT_SECONDS,
+            }
+            if execution_class == "parallel_read":
+                lock_kwargs["mode"] = "shared"
             try:
-                with coc_fileio.campaign_lock(
-                    ctx.campaign_dir,
-                    wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
-                ):
+                with coc_fileio.campaign_lock(ctx.campaign_dir, **lock_kwargs):
                     try:
                         if not spec.get("strict_read_only"):
                             coc_turn_manifest.recover_table_opening_boundary(
@@ -6583,7 +6523,18 @@ def _investigator_combat_profile(
                 max(1, int(characteristics.get("DEX", 50)) // 2),
             )
         ),
-        "firearms_skill": int(skills.get("Firearms (Handgun)", 0)),
+        "firearms_skill": int(
+            max(
+                (
+                    int(skills[key])
+                    for key in skills
+                    if isinstance(key, str) and key.startswith("Firearms")
+                ),
+                default=int(skills.get("Firearms (Handgun)", 0) or 0),
+            )
+            if isinstance(skills, dict)
+            else 0
+        ),
         "has_ready_firearm": False,
         "build": int(damage["build"]),
         "damage_bonus": str(damage["damage_bonus"]),
@@ -6722,6 +6673,14 @@ def _canonical_skill_selector(
     stripped = str(skill).strip()
     if not stripped:
         return ""
+    compact = _compact_skill_fold(stripped)
+    if compact.startswith("firearms") or compact.startswith("fighting"):
+        raise ToolError(
+            "use_combat_resolve",
+            "attacks and firearm shots must use combat.resolve with an owned "
+            "weapon_id or inventory item_id; do not roll Firearms/Fighting via "
+            "rules.roll or narrate hit/damage without a combat receipt",
+        )
     sheet = ctx.sheet(investigator_id)
     skills = sheet.get("skills") or {}
     if not isinstance(skills, dict):
@@ -7919,6 +7878,54 @@ def _tool_setup_inspect(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "setup.phase",
+    "Read the single derived opening lifecycle phase for one campaign: "
+    "module_preparation, character_creation, ready_for_table, or active, with "
+    "the source sub-phase detail, the canonical next operation, and any "
+    "blocking reason. Use this instead of inferring setup progress from files, "
+    "party listings, or failed-call envelopes.",
+    {
+        "campaign_id": {
+            "type": "string",
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "desc": "campaign to derive; defaults to the current campaign",
+        },
+    },
+    needs_campaign=False,
+    access="query",
+    read_domains=("setup",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+    execution_class="parallel_read",
+)
+def _tool_setup_phase(ctx: Ctx, args: dict[str, Any]):
+    unsupported = sorted(set(args) - {"campaign_id"})
+    if unsupported:
+        raise ToolError(
+            "invalid_param",
+            "setup.phase has unsupported fields: " + ", ".join(unsupported),
+        )
+    campaign_id = str(args.get("campaign_id") or ctx.campaign_id or "").strip()
+    if not campaign_id:
+        raise ToolError(
+            "invalid_param",
+            "setup.phase requires campaign_id or a current campaign",
+        )
+    derived = coc_opening_phase.derive_opening_phase(
+        ctx.root,
+        campaign_id,
+        host_work_mode=_opening_host_work_mode(ctx.execution_class),
+    )
+    return derived, [], [
+        "this is the single opening lifecycle authority; follow "
+        "next_operation when present instead of re-deriving setup progress",
+    ]
+
+
+@tool(
     "setup.quick_start",
     "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans.",
     {
@@ -9021,6 +9028,13 @@ def _tool_rules_resource_delta(ctx: Ctx, args: dict[str, Any]):
         },
     },
     needs_campaign=False,
+    access="query",
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+    execution_class="parallel_read",
 )
 def _tool_rules_skill_describe(ctx: Ctx, args: dict[str, Any]):
     try:
@@ -9251,7 +9265,7 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "rules.roll",
-    "Contextual percentile skill/characteristic check. Requires an explicit goal, stakes, difficulty, and structured difficulty basis; returns distinct required and achieved levels.",
+    "Contextual percentile skill/characteristic check for NON-COMBAT tasks. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
@@ -11859,7 +11873,7 @@ def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "combat.resolve",
-    "Execute one authored or KP-selected emergent combat beat through CombatSession, including reaction-specific ties, combat.json, and canonical roll evidence.",
+    "Execute one authored or KP-selected combat beat. Required for every player attack, shot, Dodge, or Fight Back. Never substitute rules.roll or unrolled hit/damage prose. weapon_id may be catalog id or inventory item_id; skill is taken from the owned weapon + sheet. Without a present target_npc_id or combat affordance, fail closed — do not narrate a hit.",
     {
         "affordance_id": {
             "type": "string",
@@ -11867,12 +11881,12 @@ def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
         },
         "target_npc_id": {
             "type": "string",
-            "desc": "present stable NPC id for an emergent attack (alternative to affordance_id)",
+            "desc": "present stable NPC/combatant id. Required for emergent shots. A vague threat with no id is not a legal target; do not invent hit/damage.",
         },
         "investigator": {"type": "string", "desc": "investigator id"},
         "weapon_id": {
             "type": "string",
-            "desc": "stable owned weapon id for a structured_player_selection route",
+            "desc": "owned catalog weapon_id or inventory item_id (e.g. weapon-carcano-rifle); gateway maps to mechanics and sheet Firearms skill",
         },
         "weapon_effect_ids": {
             "type": "array",
@@ -11925,7 +11939,10 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         )
     if not isinstance(pending, dict) and bool(affordance_id) == bool(target_npc_id):
         raise ToolError(
-            "invalid_param", "provide exactly one of affordance_id or target_npc_id",
+            "unknown_combat_target",
+            "provide exactly one present target_npc_id or combat affordance_id; "
+            "a vague threat is not a legal combatant. Do not narrate hit, damage, "
+            "or ammunition spend until combat.resolve settles a canonical target.",
         )
     if isinstance(pending, dict):
         # A pending attack already freezes both actors, weapon and command
@@ -11960,8 +11977,10 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         )
         if not present:
             raise ToolError(
-                "npc_not_present",
-                f"NPC {target_npc_id!r} is not present in the active scene",
+                "unknown_combat_target",
+                f"NPC {target_npc_id!r} is not a present canonical combatant in the "
+                f"active scene. Call npc/scene/mechanics tools to obtain an id, or tell "
+                f"the player the target cannot be confirmed. Do not narrate hit or damage.",
             )
         generated = _runtime_generated_npc_mechanics(ctx, target_npc_id)
         agenda = _npc_by_id(ctx.npc_agendas, target_npc_id) or {}
@@ -12073,24 +12092,46 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "weapon_effect_ids must be non-empty strings")
     if len(selected_effect_ids) != len(set(selected_effect_ids)):
         raise ToolError("invalid_param", "weapon_effect_ids must be unique")
+    catalog = coc_subsystem_executor.coc_combat.resolve_module_weapons(None)
+    owned_rows = [
+        row for row in (investigator_profile.get("weapons") or [])
+        if isinstance(row, dict) and row.get("weapon_id")
+    ]
+    for row in owned_rows:
+        catalog_row = catalog.get(str(row.get("weapon_id") or ""))
+        if isinstance(catalog_row, dict):
+            if not str(row.get("skill") or "").strip():
+                row["skill"] = catalog_row.get("skill")
+            if row.get("magazine") is None and catalog_row.get("magazine") is not None:
+                row["magazine"] = catalog_row.get("magazine")
+            if not str(row.get("damage") or row.get("damage_die") or "").strip():
+                row["damage"] = catalog_row.get("damage") or catalog_row.get("damage_die")
     selected_weapon_id = str(args.get("weapon_id") or "").strip()
+    owned_row = coc_inventory.resolve_owned_weapon(owned_rows, selected_weapon_id)
+    if owned_row is None and not selected_weapon_id:
+        owned_row = coc_inventory.unique_owned_firearm(owned_rows)
+    if owned_row is not None:
+        selected_weapon_id = str(owned_row.get("weapon_id") or selected_weapon_id)
+        args = {**args, "weapon_id": selected_weapon_id}
+        sheet_skill = coc_inventory.sheet_skill_for_weapon_skill(
+            character_snapshot.get("skills") if isinstance(character_snapshot, dict) else None,
+            str(owned_row.get("skill") or ""),
+        )
+        if sheet_skill is not None:
+            investigator_profile["firearms_skill"] = int(sheet_skill[1])
     if selected_weapon_id and selected_weapon_id != "unarmed":
         # Investigator attacks require inventory/sheet ownership. Catalog
         # membership only proves the id is a valid parameter, never possession.
         # NPC/monster profile weapons are resolved from actor authority later.
-        owned_rows = [
-            row for row in (investigator_profile.get("weapons") or [])
-            if isinstance(row, dict) and row.get("weapon_id")
-        ]
         owned = {str(row.get("weapon_id")) for row in owned_rows}
-        catalog = coc_subsystem_executor.coc_combat.resolve_module_weapons(None)
-        owned_row = next(
-            (
-                row for row in owned_rows
-                if str(row.get("weapon_id") or "") == selected_weapon_id
-            ),
-            None,
-        )
+        if owned_row is None:
+            owned_row = next(
+                (
+                    row for row in owned_rows
+                    if str(row.get("weapon_id") or "") == selected_weapon_id
+                ),
+                None,
+            )
         complete_custom = (
             isinstance(owned_row, dict)
             and str(owned_row.get("skill") or "").strip()
@@ -14594,6 +14635,13 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         if (
             isinstance(campaign_row, dict)
             and campaign_row.get("status") == "ready_for_table"
+            and not _table_transcript_rows(ctx)
+            and not str(
+                _read_optional_json(
+                    ctx.campaign_dir / "save" / "turn-source-cursor.json", {}
+                ).get("last_finalized_turn_id")
+                or ""
+            ).strip()
             and data.get("mode") not in {
                 "pending_finalization", "already_acknowledged",
             }
@@ -15032,12 +15080,23 @@ def _opening_watch_age_seconds(watch: dict[str, Any]) -> float | None:
 def _opening_watch_open_host_work(
     root: Path,
     asset_root_id: str,
+    *,
+    pure_read: bool = False,
 ) -> list[dict[str, Any]] | None:
     assets_module = coc_module_project.coc_module_assets
     try:
-        rows = assets_module.list_host_work_requests(
-            root, asset_root_id, include_closed=False, limit=None,
-        )
+        if pure_read:
+            rows = assets_module.inspect_host_work_requests_pure(
+                root, asset_root_id, include_closed=False, limit=None,
+            )
+            # An incomplete pure snapshot is never evidence that the opening
+            # lifecycle owner is gone. Keep the existing gate blocked instead.
+            if rows is None:
+                return None
+        else:
+            rows = assets_module.list_host_work_requests(
+                root, asset_root_id, include_closed=False, limit=None,
+            )
     except Exception:
         return None
     return [row for row in rows if isinstance(row, dict)]
@@ -15047,6 +15106,8 @@ def _opening_watch_lost_kind(
     root: Path,
     asset_root_id: str,
     watch: dict[str, Any],
+    *,
+    pure_read: bool = False,
 ) -> str | None:
     """Classify a stuck pending opening watch, or None while waiting is honest.
 
@@ -15068,7 +15129,9 @@ def _opening_watch_lost_kind(
     age = _opening_watch_age_seconds(watch)
     if age is None:
         return None
-    rows = _opening_watch_open_host_work(root, asset_root_id)
+    rows = _opening_watch_open_host_work(
+        root, asset_root_id, pure_read=pure_read,
+    )
     if rows is None:
         return None
     assets_module = coc_module_project.coc_module_assets
@@ -15369,7 +15432,7 @@ def _fit_opening_data_budget(
 
 @tool(
     "progressive.prepare_opening",
-    "Experimental strict read-only planner for one source-authored opening. "
+    "Experimental campaign-serial planner for one source-authored opening. "
     "With no real opening selector, its first call returns the existing bounded "
     "complete opening_page_candidates catalog when source selection is needed; "
     "semantically select from that catalog and never guess page indices. It "
@@ -15410,7 +15473,8 @@ def _fit_opening_data_budget(
     recovery_domains=(),
     response_mode="full",
     audit_mode="reference",
-    strict_read_only=True,
+    strict_read_only=False,
+    execution_class="serial_campaign",
 )
 def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
     if ctx.campaign_dir is None:
@@ -16203,7 +16267,11 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
                     "opening_skeleton_store_failed", str(exc),
                 ) from exc
         projected = coc_module_project.project_skeleton_to_campaign(
-            ctx.root, str(ctx.campaign_id), root_info["asset_root_id"],
+            ctx.root,
+            str(ctx.campaign_id),
+            root_info["asset_root_id"],
+            opening_start_location_id=location_id,
+            opening_source_scope=scope,
         )
     except coc_module_project.OpeningPreparationError as exc:
         raise ToolError(exc.code, exc.message) from exc
@@ -20122,6 +20190,7 @@ def _route_operation_cards(
                     "route_ref": {"scene_id": scene_id, "route_id": route_id},
                 },
                 "missing_arguments": ["decision_id"],
+                "before_prose_state_write": "state.record_clue",
             }
             for clue_id in clue_ids
         ]
@@ -20177,6 +20246,18 @@ def _route_operation_cards(
             },
             "prefilled_arguments": prefilled,
             "missing_arguments": ["decision_id"],
+        })
+    for clue_id in clue_ids:
+        cards.append({
+            "operation": "state.record_clue",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "clue_id": clue_id,
+                "method": "authored_route_after_check",
+                "route_ref": {"scene_id": scene_id, "route_id": route_id},
+            },
+            "missing_arguments": ["decision_id"],
+            "before_prose_state_write": "state.record_clue",
         })
     return cards
 
@@ -20562,6 +20643,7 @@ def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
         "the returned route cards are the bounded authored source for this action; do not reread story-graph, clue-graph, module assets, tool logs, or old finalization examples",
         "authored roll gates are cited rule advice, not a mandatory pipeline — accept, override with a reason, or ignore",
         "direct_delivery means the authored route grants its clue/handout without a roll; invoke the prefilled state.record_clue cards and narrate the actual discovery",
+        "clue-bearing success must call state.record_clue before player-visible prose",
         "push_or_context_change is a soft anti-roll-fishing reminder; it never rejects a player action or prevents the KP from honoring a deliberately chosen new check",
         "narrative_opportunity is one stable optional Storylet candidate, not a random-event quota; record adoption only when its substance actually reaches play",
         "a player-declared fact never satisfies a roll gate by itself; resolve the check with rules.roll before recording its clue",
@@ -23175,6 +23257,8 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
     recovery_domains=(),
     response_mode="full",
     audit_mode="reference",
+    strict_read_only=True,
+    execution_class="serial_campaign",
 )
 def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
     npc_id = str(args.get("npc_id") or "").strip()
@@ -23860,6 +23944,18 @@ def _pending_npc_engagement_exact_replay(
         "first_impression_realization": {
             "type": "object",
             "desc": "required for a new schema-v2 receipt: exactly {observable_manner, causal_explanation, boundary_preserved, opportunity_or_friction}; semantic KP judgment grounded in persona/agenda/relationship/scene/conduct",
+            "properties": {
+                "observable_manner": {"type": "string"},
+                "causal_explanation": {"type": "string"},
+                "boundary_preserved": {"type": "string"},
+                "opportunity_or_friction": {"type": "string"},
+            },
+            "required_fields": [
+                "observable_manner",
+                "causal_explanation",
+                "boundary_preserved",
+                "opportunity_or_friction",
+            ],
         },
         "route_completion": {
             "type": "object",
@@ -28377,6 +28473,7 @@ def _describe(name: str) -> dict[str, Any]:
         ),
         "response_mode": spec.get("response_mode", "full"),
         "audit_mode": spec.get("audit_mode", "full"),
+        "execution_class": spec.get("execution_class", "serial_campaign"),
         "policy": operation_policy(name),
         "params": spec["params"],
     }
@@ -28388,6 +28485,7 @@ def list_tools() -> list[dict[str, Any]]:
             "name": n,
             "summary": TOOLS[n]["summary"],
             "access": TOOLS[n].get("access", "mutation"),
+            "execution_class": TOOLS[n].get("execution_class", "serial_campaign"),
             "policy": operation_policy(n),
         }
         for n in sorted(TOOLS)

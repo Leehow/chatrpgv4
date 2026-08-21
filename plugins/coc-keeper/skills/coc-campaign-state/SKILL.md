@@ -33,6 +33,19 @@ unknown ids. That search tool is Keeper-only advisory; never copy its payload or
 are searchable the same way; Pi play has no `combat.spawn` and no live
 `rules.cast` toolbox tool — do not advertise a complete spawn/cast wiring.
 
+Runtime cash is the same investigator-state file under `cash` (schema v2:
+per-currency `balances` + ledger). Ordinary play credits, debits, and reads
+it only through `state.cash_grant` / `state.cash_spend` / `state.cash_query`.
+Each write needs audit `reason` and player-safe `localized_reason` in the
+active `play_language`. The tool stamps `game_time`; do not store or pass
+wall-clock time as player text. Currencies never convert. ASCII currency codes are case-insensitive
+(`usd`→`USD`); `美元`/`英镑` (and `dollar`/`pound`) are identity aliases for
+`USD`/`GBP`, not FX. Omit `unit` to reuse the recorded unit for that
+wallet. Player-visible
+projections show `localized_reason` and game/player time only — never raw
+`reason` or `recorded_at`. Do not treat sheet `cash` strings,
+`rules.cash_assets`, or `state.cash_semantic` as a live spend ledger.
+
 Long-term story memory lives under `.coc/campaigns/<id>/memory/` (see
 `../../references/memory-protocol.md`). Ordinary play reads and writes it only
 through the typed memory operations: `memory.search` (query on the context

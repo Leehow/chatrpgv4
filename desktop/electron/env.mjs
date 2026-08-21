@@ -128,9 +128,9 @@ export function freePort() {
   });
 }
 
-/** Default bridge port. The UI loads from http://127.0.0.1:<port>/ and
- *  localStorage is origin-scoped, so a stable port is what keeps model /
- *  appearance / last-campaign preferences across app restarts. */
+/** Default bridge port. Model / thinking prefs live in
+ *  coc-desktop-settings.json via /api/user-prefs so they survive a port
+ *  change and another browser; localStorage is only a same-origin cache. */
 export const DESKTOP_BRIDGE_PORT = 8790;
 
 /** Prefer the stable port so the UI origin survives restarts; fall back to

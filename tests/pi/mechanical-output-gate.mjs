@@ -80,6 +80,15 @@ const proseGate = new main.OpeningTerminalContinuationGate();
 proseGate.markExternalUserInput();
 const proseDecision = proseGate.acceptVisibleAssistantFinal(pureProse);
 
+const unsettledProseGate = new main.OpeningTerminalContinuationGate();
+unsettledProseGate.markExternalUserInput();
+const unsettledProseDecision = unsettledProseGate.acceptVisibleAssistantFinal(
+  pureProse,
+  true,
+);
+const unsettledProseEnvelope = unsettledProseGate
+  .takeMechanicalOutputGateEnvelope();
+
 // Receipts are same-epoch bound: a new player turn must re-earn them.
 const staleGate = new main.OpeningTerminalContinuationGate();
 staleGate.markExternalUserInput(); // epoch 1
@@ -222,6 +231,13 @@ process.stdout.write(JSON.stringify({
     boundReleased: boundDecision === true,
     boundEnvelopeEmpty: boundEnvelope === null,
     proseReleased: proseDecision === true,
+    unsettledProseIntercepted: unsettledProseDecision === false,
+    unsettledProseEnvelope: {
+      kind: unsettledProseEnvelope?.kind,
+      action: unsettledProseEnvelope?.action,
+      hasInstruction: typeof unsettledProseEnvelope?.instruction === "string"
+        && unsettledProseEnvelope.instruction.includes("turn.finalize"),
+    },
     staleEpochIntercepted: staleDecision === false,
     staleEpochUncoveredClasses: (staleEnvelope?.uncovered_markers ?? [])
       .map((m) => m.class),

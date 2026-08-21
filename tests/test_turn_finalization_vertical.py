@@ -70,6 +70,430 @@ def test_luck_delta_uses_play_language() -> None:
     ) == "【变化】幸运：55 → 46（-9）"
 
 
+def test_item_use_projects_count_and_remaining_once() -> None:
+    rows = coc_turn_finalization._project_state_deltas([{
+        "ok": True,
+        "tool": "state.item_use",
+        "args": {"decision_id": "use-bandage", "investigator": "hero"},
+        "data": {
+            "investigator_id": "hero",
+            "item_id": "bandage",
+            "label": "绷带",
+            "count": 1,
+            "remaining": 2,
+            "outcome": "decremented",
+            "changed": True,
+        },
+    }])
+    assert len(rows) == 1
+    effect = rows[0]
+    assert effect["effect_kind"] == "item"
+    assert effect["action"] == "used"
+    assert effect["count"] == 1
+    assert effect["remaining"] == 2
+    rendered = coc_turn_finalization._render_state_delta(
+        effect, play_language="zh-Hans",
+    )
+    assert rendered == "【变化】物品：使用「绷带」×1（剩余 2）"
+    consumed = coc_turn_finalization._project_state_deltas([{
+        "ok": True,
+        "tool": "state.item_use",
+        "args": {"decision_id": "use-last", "investigator": "hero"},
+        "data": {
+            "investigator_id": "hero",
+            "item_id": "bandage",
+            "label": "绷带",
+            "count": 1,
+            "remaining": 0,
+            "outcome": "consumed",
+            "changed": True,
+        },
+    }])
+    assert len(consumed) == 1
+    assert consumed[0]["remaining"] == 0
+    assert coc_turn_finalization._render_state_delta(
+        consumed[0], play_language="zh-Hans",
+    ) == "【变化】物品：用尽「绷带」×1（剩余 0）"
+
+
+def test_cash_deltas_are_per_currency_and_player_safe() -> None:
+    game_time = {
+        "elapsed_minutes": 30,
+        "display": "1920-08-15 10:30",
+        "player_time": {
+            "phase": "morning",
+            "appearance_mode": "normal",
+            "display_label": None,
+        },
+    }
+    rows = coc_turn_finalization._project_state_deltas([
+        {
+            "ok": True,
+            "tool": "state.cash_grant",
+            "args": {"decision_id": "cash-usd", "investigator": "hero"},
+            "data": {
+                "investigator_id": "hero",
+                "changed": True,
+                "op": "grant",
+                "amount": "20.00",
+                "currency": "USD",
+                "balance_before": "0.00",
+                "balance_after": "20.00",
+                "reason": "audit-advance-from-knott",
+                "localized_reason": "预付调查费",
+                "recorded_at": "2026-04-08T12:00:00+00:00",
+                "game_time": game_time,
+            },
+        },
+        {
+            "ok": True,
+            "tool": "state.cash_grant",
+            "args": {"decision_id": "cash-gbp", "investigator": "hero"},
+            "data": {
+                "investigator_id": "hero",
+                "changed": True,
+                "op": "grant",
+                "amount": "5.00",
+                "currency": "GBP",
+                "unit": "pound",
+                "balance_before": "0.00",
+                "balance_after": "5.00",
+                "reason": "audit-sterling-tip",
+                "localized_reason": "伦敦线人酬金",
+                "recorded_at": "2026-04-08T12:01:00+00:00",
+                "game_time": game_time,
+            },
+        },
+        {
+            "ok": True,
+            "tool": "state.cash_spend",
+            "args": {"decision_id": "cash-usd-cab", "investigator": "hero"},
+            "data": {
+                "investigator_id": "hero",
+                "changed": True,
+                "op": "spend",
+                "amount": "1.50",
+                "currency": "USD",
+                "balance_before": "20.00",
+                "balance_after": "18.50",
+                "reason": "audit-taxi-fare",
+                "localized_reason": "去波士顿街的车费",
+                "recorded_at": "2026-04-08T12:02:00+00:00",
+                "game_time": game_time,
+            },
+        },
+    ])
+    assert [row["currency"] for row in rows] == ["USD", "GBP", "USD"]
+    assert [row["balance_before"] for row in rows] == ["0.00", "0.00", "20.00"]
+    assert [row["balance_after"] for row in rows] == ["20.00", "5.00", "18.50"]
+    assert rows[0]["localized_reason"] == "预付调查费"
+    assert rows[0]["game_time"]["elapsed_minutes"] == 30
+    assert rows[0]["player_time"]["phase"] == "morning"
+    for row in rows:
+        assert "reason" not in row
+        assert "recorded_at" not in row
+        dumped = json.dumps(row, ensure_ascii=False)
+        assert "audit-" not in dumped
+        assert "2026-04-08T12" not in dumped
+    rendered = coc_turn_finalization._render_state_delta(
+        rows[0], play_language="zh-Hans",
+    )
+    assert rendered == "【变化】现金：+20.00 USD（0.00 → 20.00）；预付调查费；时段：早上"
+    assert "audit-advance-from-knott" not in rendered
+    assert "2026-04-08" not in rendered
+    spend = coc_turn_finalization._render_state_delta(
+        rows[2], play_language="zh-Hans",
+    )
+    assert spend == "【变化】现金：-1.50 USD（20.00 → 18.50）；去波士顿街的车费；时段：早上"
+
+
+def test_cash_game_time_projection_redacts_private_fields() -> None:
+    game_time = {
+        "elapsed_minutes": 45,
+        "display": "1920-08-15 10:45",
+        "display_sub": "上午",
+        "local_datetime": "1920-08-15T10:45:00",
+        "location_id": "secret-house-basement",
+        "civil_segment_id": "civil-hidden-anchor",
+        "provenance": {
+            "kind": "cash-gt-malicious-provenance",
+            "source_ref": "prov:cash-gt-source-ref-zx9",
+            "secret": "prov-cash-gt-nested-secret-qw7",
+        },
+        "player_time": {
+            "phase": "morning",
+            "appearance_mode": "normal",
+            "display_label": None,
+            "source_ref": "module:haunting/page-12",
+            "secret": "hidden-phase-token",
+            "provenance": {
+                "kind": "cash-pt-malicious-provenance",
+                "source_ref": "prov:cash-pt-source-ref-lm4",
+                "secret": "prov-cash-pt-nested-secret-vb2",
+            },
+        },
+    }
+    rows = coc_turn_finalization._project_state_deltas([{
+        "ok": True,
+        "tool": "state.cash_grant",
+        "args": {"decision_id": "cash-redact", "investigator": "hero"},
+        "data": {
+            "investigator_id": "hero",
+            "changed": True,
+            "op": "grant",
+            "amount": "20.00",
+            "currency": "USD",
+            "balance_before": "0.00",
+            "balance_after": "20.00",
+            "reason": "audit-private",
+            "localized_reason": "预付调查费",
+            "recorded_at": "2026-04-08T12:00:00+00:00",
+            "game_time": game_time,
+        },
+    }])
+    assert len(rows) == 1
+    effect = rows[0]
+    assert effect["localized_reason"] == "预付调查费"
+    assert effect["game_time"]["elapsed_minutes"] == 45
+    assert effect["game_time"]["display"] == "1920-08-15 10:45"
+    assert effect["game_time"]["display_sub"] == "上午"
+    assert effect["game_time"]["local_datetime"] == "1920-08-15T10:45:00"
+    assert effect["player_time"]["phase"] == "morning"
+    assert "location_id" not in effect["game_time"]
+    assert "provenance" not in effect["game_time"]
+    assert "source_ref" not in effect["game_time"].get("player_time", {})
+    assert "provenance" not in effect["game_time"].get("player_time", {})
+    assert "source_ref" not in effect["player_time"]
+    assert "secret" not in effect["player_time"]
+    assert "provenance" not in effect["player_time"]
+    rendered = coc_turn_finalization._render_state_delta(
+        effect, play_language="zh-Hans",
+    )
+    assert "预付调查费" in rendered
+    bundle = {"public_check": [], "state_delta": rows, "exceptional_effect": []}
+    segments, rendered_text, _ = coc_turn_finalization.compose_segments(
+        "他收下信封。",
+        bundle,
+        [{
+            "after_paragraph": 0,
+            "segment_type": "state_delta",
+            "source_ids": [effect["effect_id"]],
+        }],
+        play_language="zh-Hans",
+    )
+    receipt = {
+        "bundle": bundle,
+        "segments": segments,
+        "rendered_text": rendered_text,
+    }
+    dumped = json.dumps({"effect": effect, **receipt}, ensure_ascii=False)
+    for leaked in (
+        "secret-house-basement",
+        "civil-hidden-anchor",
+        "module:haunting/page-12",
+        "hidden-phase-token",
+        "location_id",
+        "source_ref",
+        "audit-private",
+        "provenance",
+        "cash-gt-malicious-provenance",
+        "prov:cash-gt-source-ref-zx9",
+        "prov-cash-gt-nested-secret-qw7",
+        "cash-pt-malicious-provenance",
+        "prov:cash-pt-source-ref-lm4",
+        "prov-cash-pt-nested-secret-vb2",
+    ):
+        assert leaked not in dumped
+        assert leaked not in rendered
+        assert leaked not in rendered_text
+        assert leaked not in json.dumps(effect, ensure_ascii=False)
+        assert leaked not in json.dumps(segments, ensure_ascii=False)
+    assert "预付调查费" in dumped
+    assert "45" in dumped
+    assert "1920-08-15 10:45" in dumped
+    assert any(seg["segment_type"] == "asset_delta" for seg in segments)
+    assert not any(
+        seg["segment_type"] == "state_delta" for seg in segments
+    )
+
+
+def _cash_call(decision_id: str, *, action: str, amount: str, before: str, after: str, reason: str) -> dict:
+    game_time = {
+        "elapsed_minutes": 30,
+        "display": "1920-08-15 10:30",
+        "player_time": {
+            "phase": "morning",
+            "appearance_mode": "normal",
+            "display_label": None,
+        },
+    }
+    return {
+        "ok": True,
+        "tool": f"state.cash_{action}",
+        "args": {"decision_id": decision_id, "investigator": "hero"},
+        "data": {
+            "investigator_id": "hero",
+            "changed": True,
+            "op": action,
+            "amount": amount,
+            "currency": "USD",
+            "balance_before": before,
+            "balance_after": after,
+            "reason": f"audit-{decision_id}",
+            "localized_reason": reason,
+            "game_time": game_time,
+        },
+    }
+
+
+def test_unlinked_cash_and_item_compose_as_asset_delta() -> None:
+    rows = coc_turn_finalization._project_state_deltas([
+        _cash_call("cash-grant", action="grant", amount="20.00", before="0.00", after="20.00", reason="预付调查费"),
+        _cash_call("cash-spend", action="spend", amount="1.50", before="20.00", after="18.50", reason="车费"),
+        {
+            "ok": True,
+            "tool": "state.item_grant",
+            "args": {"decision_id": "item-key", "investigator": "hero"},
+            "data": {
+                "investigator_id": "hero",
+                "changed": True,
+                "item_id": "house-key",
+                "label": "钥匙",
+                "present_before": False,
+                "present_after": True,
+                "quantity": 1,
+            },
+        },
+    ])
+    assert [row["effect_kind"] for row in rows] == ["cash", "cash", "item"]
+    assert rows[2]["action"] == "acquired"
+    assert rows[2]["quantity"] == 1
+    assert "reason" not in rows[2]
+    bundle = {"public_check": [], "state_delta": rows, "exceptional_effect": []}
+    segments, rendered, placements = coc_turn_finalization.compose_segments(
+        "他收下信封和钥匙。",
+        bundle,
+        [{
+            "after_paragraph": 0,
+            "segment_type": "state_delta",
+            "source_ids": [row["effect_id"] for row in rows],
+        }],
+        play_language="zh-Hans",
+    )
+    asset_segs = [seg for seg in segments if seg["segment_type"] == "asset_delta"]
+    other_delta = [seg for seg in segments if seg["segment_type"] == "state_delta"]
+    assert len(asset_segs) == 1
+    assert other_delta == []
+    assert [row["segment_type"] for row in placements] == ["asset_delta"]
+    fiction = "\n".join(seg["text"] for seg in segments if seg["segment_type"] == "fiction")
+    assert "【变化】" not in fiction
+    assert "【变化】" in asset_segs[0]["text"]
+    assert "钥匙" in asset_segs[0]["text"]
+    assert "audit-cash-grant" not in rendered
+
+
+def test_mixed_hp_and_assets_split_asset_delta() -> None:
+    rows = coc_turn_finalization._project_state_deltas([
+        {
+            "ok": True,
+            "tool": "rules.damage",
+            "args": {"decision_id": "hp-hit", "investigator": "hero"},
+            "data": {
+                "investigator_id": "hero",
+                "hp_before": 12,
+                "hp_after": 9,
+                "player_facing": True,
+            },
+        },
+        _cash_call("cash-grant", action="grant", amount="5.00", before="0.00", after="5.00", reason="打赏"),
+        {
+            "ok": True,
+            "tool": "state.item_grant",
+            "args": {"decision_id": "item-key", "investigator": "hero"},
+            "data": {
+                "investigator_id": "hero",
+                "changed": True,
+                "item_id": "house-key",
+                "label": "钥匙",
+            },
+        },
+    ])
+    kinds = [row["effect_kind"] for row in rows]
+    assert "scalar" in kinds and "cash" in kinds and "item" in kinds
+    bundle = {"public_check": [], "state_delta": rows, "exceptional_effect": []}
+    hp_id = next(row["effect_id"] for row in rows if row["effect_kind"] == "scalar")
+    asset_ids = [row["effect_id"] for row in rows if row["effect_kind"] in {"cash", "item"}]
+    segments, _rendered, _placements = coc_turn_finalization.compose_segments(
+        "他擦去血迹。",
+        bundle,
+        [{
+            "after_paragraph": 0,
+            "segment_type": "state_delta",
+            "source_ids": [row["effect_id"] for row in rows],
+        }],
+        play_language="zh-Hans",
+    )
+    state_segs = [seg for seg in segments if seg["segment_type"] == "state_delta"]
+    asset_segs = [seg for seg in segments if seg["segment_type"] == "asset_delta"]
+    assert len(state_segs) == 1
+    assert state_segs[0]["source_ids"] == [hp_id]
+    assert "HP" in state_segs[0]["text"] or "生命" in state_segs[0]["text"]
+    assert "现金" not in state_segs[0]["text"]
+    assert "钥匙" not in state_segs[0]["text"]
+    assert len(asset_segs) == 1
+    assert set(asset_segs[0]["source_ids"]) == set(asset_ids)
+    assert "现金" in asset_segs[0]["text"]
+    assert "钥匙" in asset_segs[0]["text"]
+
+
+def test_roll_linked_asset_stays_out_of_unlinked_asset_repeat() -> None:
+    cash_rows = coc_turn_finalization._project_state_deltas([
+        _cash_call("cash-linked", action="spend", amount="1.50", before="20.00", after="18.50", reason="赌注"),
+    ])
+    hp_rows = coc_turn_finalization._project_state_deltas([
+        {
+            "ok": True,
+            "tool": "rules.damage",
+            "args": {"decision_id": "hp-hit", "investigator": "hero"},
+            "data": {
+                "investigator_id": "hero",
+                "hp_before": 12,
+                "hp_after": 9,
+                "player_facing": True,
+            },
+        },
+    ])
+    cash_id = cash_rows[0]["effect_id"]
+    hp_id = hp_rows[0]["effect_id"]
+    bundle = {
+        "public_check": [],
+        "state_delta": hp_rows + cash_rows,
+        "exceptional_effect": [],
+    }
+    sources = coc_turn_finalization._mechanic_source_lines(bundle, play_language="zh-Hans")
+    assert cash_id in sources["asset_delta"]
+    assert cash_id not in sources["state_delta"]
+    assert hp_id in sources["state_delta"]
+    segments, rendered, _ = coc_turn_finalization.compose_segments(
+        "他擦去血迹。",
+        bundle,
+        [{
+            "after_paragraph": 0,
+            "segment_type": "state_delta",
+            "source_ids": [hp_id, cash_id],
+        }],
+        play_language="zh-Hans",
+    )
+    asset_ids = [
+        sid
+        for seg in segments
+        if seg["segment_type"] == "asset_delta"
+        for sid in seg["source_ids"]
+    ]
+    assert asset_ids.count(cash_id) == 1
+    assert rendered.count("1.50") == 1
+
+
 def test_same_broad_phase_keeps_exact_advance_out_of_player_delta() -> None:
     rows = coc_turn_finalization._project_state_deltas([{
         "ok": True,

@@ -162,3 +162,27 @@ test("multipart upload still registers identically after the refactor", async ()
     json.result.stored_path.startsWith(path.join(workspace, ".coc", "uploads", "pdfs")),
   );
 });
+
+test("multipart upload decodes the browser's UTF-8 filename bytes", async () => {
+  const { base } = await getServer();
+  const boundary = "----coc-browser-utf8";
+  const filename = "[COC模组翻译]他们也没想太多.pdf";
+  const header = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n`
+      + "Content-Type: application/pdf\r\n\r\n",
+    "utf8",
+  );
+  const body = Buffer.concat([
+    header,
+    FAKE_PDF,
+    Buffer.from(`\r\n--${boundary}--\r\n`, "latin1"),
+  ]);
+  const response = await fetch(`${base}/api/uploads/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body,
+  });
+  const json = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(json.result.filename, filename);
+});

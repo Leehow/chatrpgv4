@@ -97,6 +97,13 @@ Campaigns store temporary and scenario-specific state:
 │                                   #   quantity: N (state.item_use spends charges,
 │                                   #   the entry leaves the inventory at zero),
 │                                   #   lost_weapon_ids[] for sheet weapons lost
+│                                   # + optional "cash": runtime cash ledger v2 —
+│                                   #   schema_version 2, balances{CODE:{amount,
+│                                   #   unit?}}, mixed ledger[] (decision_id, op,
+│                                   #   amount, currency, source, reason,
+│                                   #   localized_reason, balances, recorded_at,
+│                                   #   game_time). Not sheet cash strings,
+│                                   #   rules.cash_assets, or cash_semantic.
 ├── scenario/                       # compiled story-graph, clue-graph, npc-agendas,
 │                                   # threat-fronts, pacing-map, improvisation-boundaries
 ├── artifacts/                      # DirectorPlan JSON per decision_id
@@ -207,6 +214,33 @@ runtime truth (idempotent replay). Consumable gear entries carry
 and removes the entry at zero, so a spent bandage is really gone. Permanent
 library write-back happens only at development settlement (see
 `inventory-history.jsonl` above).
+
+Runtime cash is campaign-local on the same investigator-state file. Play
+grants and spends use `state.cash_grant` / `state.cash_spend` /
+`state.cash_query` with a structured amount, currency, source id, internal
+`reason`, player-safe `localized_reason` (current `play_language`), and
+`decision_id`. The toolbox stamps `game_time`; callers never pass wall-clock
+time. Player-facing finalization projects `localized_reason` plus
+`game_time`/`player_time` only — never raw `reason` or `recorded_at`. Schema v2 is
+`{schema_version:2, balances:{USD:{amount}, GBP:{amount, unit?}}, ledger}`.
+Each currency has independent before/after and insufficient_funds. There is
+no FX. ASCII currency codes are case-insensitive (`usd`→`USD`); identity
+aliases such as `美元`/`美金`/`dollar` map to `USD` and `英镑`/`pound` to
+`GBP` without converting amounts. Omitting `unit` reuses the recorded unit
+for that wallet; a different unit fails closed. Mixed-currency ledgers are allowed. The ledger is the audit trail;
+rows carry `recorded_at` (wall audit) and `game_time` (canonical campaign
+stamp from toolbox/`coc_time.current_stamp`). Old single-wallet
+`{amount,currency,seeded}` shapes and player-facing `ts` rows are rejected
+as `state_corrupt` with no migration. Character-sheet `cash` prose,
+`rules.cash_assets` lifestyle lookup, and starting-only
+`state.cash_semantic` never mutate this balance. Absent cash is empty
+balances until the first successful grant. Spend fails closed on
+insufficient funds in that currency. Amounts with more than two decimal
+places are rejected. The investigator-state file also stores
+`operation_receipts` for cash grants and spends; replay repairs the event
+and toolbox ledger from that receipt and never applies the same
+`decision_id` twice. There is no second finance engine and no free-text
+amount parse.
 
 Social disclosure uses this exact order: NPC availability, fact knowledge,
 fact revealability, active reaction, willingness (trust or authored leverage),

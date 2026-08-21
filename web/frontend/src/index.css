@@ -276,29 +276,25 @@
   border-spacing: 0;
 }
 
-/* KP 选项列表：纸面便签式条目，编号醒目，不做成现代 IM 气泡 */
+/* KP 列表：紧凑纸面排版——信息型列表（建卡草稿、线索摘要等）一行一条，
+ * 不再逐条套便签卡片把整段内容碎成一叠表单条。编号选项保留黄铜数字
+ * 圆点，圆点列表用黄铜中点，维持卷宗气质。 */
 .keeper-message .prose :where(ol, ul) {
   list-style: none;
   padding-left: 0;
-  margin: 0.95rem 0;
+  margin: 0.45rem 0 0.55rem;
   display: grid;
-  gap: 0.55rem;
+  gap: 0.12rem;
 }
 
 .keeper-message .prose :where(ol, ul) > li {
   position: relative;
   margin: 0;
-  padding: 0.62rem 0.85rem 0.62rem 2.35rem;
-  border-radius: 0.42rem;
-  border: 1px solid color-mix(in oklab, var(--brass) 28%, var(--border));
-  border-left: 3px solid color-mix(in oklab, var(--brass) 68%, var(--primary) 20%);
-  background: color-mix(in oklab, var(--card) 86%, var(--brass) 4%);
-  transition: background 140ms ease, border-color 140ms ease;
+  padding: 0.05rem 0 0.05rem 1.6rem;
 }
 
-.keeper-message .prose :where(ol, ul) > li:hover {
-  background: color-mix(in oklab, var(--card) 78%, var(--brass) 8%);
-  border-color: color-mix(in oklab, var(--brass) 42%, var(--border));
+.keeper-message .prose li :where(ol, ul) {
+  margin: 0.12rem 0 0.16rem;
 }
 
 .keeper-message .prose ol {
@@ -312,17 +308,17 @@
 .keeper-message .prose ol > li::before {
   content: counter(keeper-option);
   position: absolute;
-  left: 0.62rem;
-  top: 0.58rem;
+  left: 0.05rem;
+  top: calc((1.9em - 1.1rem) / 2 + 0.05rem);
   display: grid;
   place-items: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
+  min-width: 1.1rem;
+  height: 1.1rem;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--background) 70%, var(--brass) 16%);
+  background: color-mix(in oklab, var(--background) 62%, var(--brass) 20%);
   color: var(--primary);
   font-family: var(--font-sans);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
   font-variant-numeric: lining-nums tabular-nums;
   line-height: 1;
@@ -331,10 +327,13 @@
 .keeper-message .prose ul > li::before {
   content: "·";
   position: absolute;
-  left: 0.85rem;
-  top: 0.48rem;
+  left: 0.42rem;
+  top: 0.05rem;
+  height: 1.9em;
+  display: grid;
+  place-items: center;
   color: var(--brass);
-  font-size: 1.15rem;
+  font-size: 1.2rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -415,6 +414,52 @@
 .dice-role-chip.is-defense {
   border-color: color-mix(in oklab, var(--info) 50%, var(--border));
   color: var(--info);
+}
+
+.dice-role-chip.is-gain,
+.cash-receipt.is-gain {
+  border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
+}
+
+.dice-role-chip.is-gain {
+  color: var(--primary);
+}
+
+.dice-role-chip.is-spend {
+  border-color: color-mix(in oklab, var(--destructive) 50%, var(--border));
+  color: var(--destructive);
+}
+
+.cash-receipt.is-spend {
+  border-color: color-mix(in oklab, var(--destructive) 45%, var(--border));
+  background: color-mix(in oklab, var(--card) 90%, var(--destructive) 4%);
+}
+
+.cash-receipt.is-gain {
+  background: color-mix(in oklab, var(--card) 90%, var(--primary) 5%);
+}
+
+.dice-role-chip.is-use,
+.cash-receipt.is-use {
+  border-color: color-mix(in oklab, var(--border) 80%, var(--muted-foreground) 20%);
+}
+
+.dice-role-chip.is-use {
+  color: var(--muted-foreground);
+}
+
+.cash-receipt.is-use {
+  background: color-mix(in oklab, var(--card) 94%, var(--muted-foreground) 4%);
+}
+
+.asset-balance-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+  padding: 0.45rem 0.9rem 0.55rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
 }
 
 .dice-receipt-icon {
@@ -832,9 +877,16 @@
   max-width: calc(100vw - 2rem);
 }
 
-/* xl 起常驻角色面板占右侧 20rem，浮窗左移避让 */
+/* xl: 右栏总内联。md–xl: 仅 hasChatContent / data-right-inline=md 时偏移。<md 不偏。 */
 @media (min-width: 1280px) {
-  .combat-overlay { right: 21.5rem; }
+  .combat-overlay {
+    right: calc(var(--right-panel-width, 20rem) + 1.5rem);
+  }
+}
+@media (min-width: 768px) and (max-width: 1279.98px) {
+  [data-right-inline="md"] .combat-overlay {
+    right: calc(var(--right-panel-width, 20rem) + 1.5rem);
+  }
 }
 
 .combat-overlay .initiative-header { padding: 0.6rem 0.8rem; }

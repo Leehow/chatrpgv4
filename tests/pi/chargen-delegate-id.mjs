@@ -45,6 +45,7 @@ const calls = [];
 const brief = parseChargenClerkBrief({
   name,
   occupation_or_concept: "私家侦探",
+  age: 32,
   investigator_id: "inv-investigator",
 });
 const result = await runChargenInProcess({
@@ -66,8 +67,13 @@ const result = await runChargenInProcess({
 });
 assert.equal(calls.length, 1);
 assert.equal(calls[0].op, "setup.chargen_run");
+assert.equal(calls[0].args.age, 32);
 assert.notEqual(calls[0].args.investigator_id, "inv-investigator");
 assert.equal(result.investigator_id, calls[0].args.investigator_id);
+assert.throws(
+  () => parseChargenClerkBrief({ name, occupation_or_concept: "私家侦探", age: 14 }),
+  /age must be an integer from 15 to 89/,
+);
 
 const explicitCalls = [];
 await runChargenInProcess({
@@ -183,6 +189,21 @@ const revised = planChargenSkillLists(parseChargenClerkBrief({
 }));
 assert.deepEqual(revised.interest_skill_names.slice(0, 2), ["Stealth", "Listen"]);
 assert.ok(revised.interest_skill_names.length >= 5);
+
+const romanAdaptive = planChargenSkillLists(parseChargenClerkBrief({
+  name: "马库斯·瓦莱里乌斯",
+  occupation_or_concept: "罗马军团文书兼谈判官",
+  mode: "era_adaptive",
+  assignment_priority: "INT EDU POW APP DEX CON SIZ STR",
+  occupation_skill_names: [
+    "Persuade", "Law", "History", "Appraise",
+    "Language (Own)", "Listen", "Spot Hidden", "Ride",
+  ],
+  interest_skill_names: ["Natural World", "Navigate", "First Aid", "Occult"],
+}));
+assert.equal(romanAdaptive.occupation_skill_names.includes("Mechanical Repair"), false);
+assert.equal(romanAdaptive.interest_skill_names.includes("Mechanical Repair"), false);
+assert.equal(romanAdaptive.interest_skill_names.includes("Accounting"), false);
 
 process.stdout.write(JSON.stringify({
   ok: true,

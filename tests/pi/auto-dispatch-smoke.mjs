@@ -976,6 +976,10 @@ function mainExtensionHarness(responseForCall, options = {}) {
       calls.push({ name, params });
       return responseForCall(name, params);
     },
+    callToolWithTransportMeta: async (name, params) => ({
+      value: await fakeClient.callTool(name, params),
+      transport: null,
+    }),
     close: async () => {},
   };
   main.default(fakePi, {
@@ -2426,7 +2430,9 @@ async function exerciseFailureDrain(mode) {
   check("persistent scene materialization failure terminalizes once at the bounded attempt cap",
     exhausted.materializeCalls === 2
     && exhausted.hidden.filter((entry) => entry.context?.reason === "scene_priority_terminal").length === 1
-    && exhausted.hidden.every((entry) => entry.context?.scene_priority?.hard_gate === false));
+    && exhausted.hidden.every((entry) => entry.context?.scene_priority?.hard_gate === false)
+    && exhausted.hidden.some((entry) => entry.context?.reason === "scene_priority_terminal"
+      && entry.options?.triggerTurn === true));
   await recovered.supply.shutdown();
   await exhausted.supply.shutdown();
 }
@@ -2773,6 +2779,7 @@ async function exerciseFailureDrain(mode) {
     && repairReadiness?.value?.semantic_compile?.status === "failed"
     && terminal?.message?.display === false
     && terminal?.message?.details?.scene_priority?.hard_gate === false
+    && terminal?.options?.triggerTurn === true
     && terminal?.message?.details?.audience === "keeper_only");
   await harness.shutdown();
 }
@@ -3421,13 +3428,13 @@ async function exerciseFailureDrain(mode) {
     role: "assistant",
     content: [{
       type: "text",
-      text: "请选择调查员的特征值生成方式。",
+      text: "雾气贴着泰晤士河漫上石阶。你希望先决定这位调查员靠什么本领在伦敦立足，还是先告诉我名字？",
     }],
   });
-  check("structured character setup provenance permits its player prompt",
+  check("structured character setup provenance preserves immersive KP guidance",
     characterPrompt.content.some((part) => (
       part.type === "text"
-      && part.text === "请选择调查员的特征值生成方式，并继续确认职业与技能。"
+      && part.text === "雾气贴着泰晤士河漫上石阶。你希望先决定这位调查员靠什么本领在伦敦立足，还是先告诉我名字？"
     )));
 
   const canonicalSetupCalls = [
@@ -4143,10 +4150,7 @@ async function exerciseFailureDrain(mode) {
   );
   check("minimal-error projected contract remains a canonical owned receipt",
     contractObserved.accepted === true
-    && replacementIs(
-      gate.acceptVisibleAssistantFinal("模型自拟的创建方式说明。"),
-      "请选择调查员的特征值生成方式，并继续确认职业与技能。",
-    ));
+    && gate.acceptVisibleAssistantFinal("模型自拟的沉浸式创建方式说明。") === true);
 
   const blockedDetours = [
     {
@@ -10705,6 +10709,10 @@ process.stdout.write(JSON.stringify({
       }
       return directTakeoverResult(coordinatorTask("coord-extension-race"));
     },
+    callToolWithTransportMeta: async (name, params) => ({
+      value: await fakeClient.callTool(name, params),
+      transport: null,
+    }),
     close: async () => { closeCalls += 1; },
   };
   const fakeManager = {

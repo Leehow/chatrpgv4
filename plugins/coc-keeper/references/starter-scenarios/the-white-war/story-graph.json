@@ -94,9 +94,21 @@
         "reached_austrian_loopholes"
       ],
       "available_clues": [
-        "clue-saddle-eerily-quiet"
+        "clue-saddle-eerily-quiet",
+        "clue-hasty-abandonment"
       ],
       "npc_ids": [],
+      "affordances": [
+        {
+          "id": "scout-austrian-line-from-saddle",
+          "cue": "从鞍部掩体观察奥军阵地前缘的靴印、枪眼与坑洞。",
+          "grants_clue_ids": [
+            "clue-hasty-abandonment"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        }
+      ],
       "pressure_moves": [
         "any gunshot in the open is Terror-Inducing",
         "every 5 min in the open costs a Fatigue point",

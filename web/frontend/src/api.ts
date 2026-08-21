@@ -32,6 +32,33 @@ export function fetchModels(): Promise<ModelsResponse> {
   return request<ModelsResponse>("/api/models");
 }
 
+export type UserLayoutPrefs = {
+  leftSidebarWidth?: number;
+  rightSidebarWidth?: number;
+  leftSidebarCollapsed?: boolean;
+  rightSidebarCollapsed?: boolean;
+};
+
+export type UserPrefs = {
+  provider?: string;
+  model?: string;
+  thinking?: string;
+  appearance?: string;
+  layout?: UserLayoutPrefs;
+};
+
+export function fetchUserPrefs(): Promise<UserPrefs> {
+  return request<UserPrefs>("/api/user-prefs");
+}
+
+export function saveUserPrefs(payload: Partial<UserPrefs>): Promise<UserPrefs> {
+  return request<UserPrefs>("/api/user-prefs", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export type ModelEditorState = {
   oauthProviders: { id: string; label: string; note: string; methods: string[] }[];
   presets: {
@@ -252,6 +279,37 @@ export function ingestPdf(payload: {
   });
 }
 
+export type PdfIngestStatusPhase =
+  | "window1_in_progress"
+  | "ready"
+  | "background_in_progress"
+  | "background_complete"
+  | "unknown";
+
+export type PdfIngestStatus = {
+  file_sha256: string;
+  phase: PdfIngestStatusPhase;
+  bundle_id: string | null;
+  page_count: number | null;
+  rendered_pdf_indices: number[] | null;
+  background_pdf_indices: number[] | null;
+};
+
+/** Discrete ingest phase. 404 / network failures return null (silent). */
+export async function fetchPdfIngestStatus(
+  fileSha256: string,
+): Promise<PdfIngestStatus | null> {
+  try {
+    const data = await request<{
+      ok: boolean;
+      result: PdfIngestStatus;
+    }>(`/api/uploads/pdf/ingest-status?file_sha256=${encodeURIComponent(fileSha256)}`);
+    return data?.result ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Rename a campaign (title only; identity stays campaign_id-keyed). */
 export function renameCampaign(
   campaignId: string,
@@ -353,6 +411,7 @@ export interface TurnHandlers {
     state: GameState;
     /** Keeper worker usage for the settled turn, from runtime telemetry. */
     usage?: { input_tokens?: number | null; output_tokens?: number | null } | null;
+    message?: TranscriptMessage;
   }) => void;
   onError?: (message: string) => void;
   /** Advisory transparency notice (e.g. a turn settled with no visible text). */
@@ -381,7 +440,7 @@ export async function streamTurn(
   playerIntent: PlayerIntent | undefined,
   handlers: TurnHandlers,
   signal?: AbortSignal,
-  options?: { attach?: boolean },
+  options?: { attach?: boolean; liveId?: string },
 ): Promise<void> {
   let resp: Response;
   try {
@@ -394,6 +453,7 @@ export async function streamTurn(
         model,
         thinking,
         ...(options?.attach ? { attach: true } : {}),
+        ...(!options?.attach && options?.liveId ? { live_id: options.liveId } : {}),
         ...(playerIntent ? { player_intent: playerIntent } : {}),
       }),
       signal,
@@ -466,6 +526,7 @@ export async function streamTurn(
             events: RuntimeEvent[];
             state: GameState;
             usage?: { input_tokens?: number | null; output_tokens?: number | null } | null;
+            message?: TranscriptMessage;
           },
         );
       } else if (event === "error") {

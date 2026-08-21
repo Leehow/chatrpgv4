@@ -23,6 +23,7 @@ export function safeDisplayText(value: unknown): string {
 /** Body text for a content_block that is not a specialized receipt type. */
 export function contentBlockFallbackText(block: unknown): string {
   if (!block || typeof block !== "object") return safeDisplayText(block);
+  if (isStructuredContentBlock(block)) return "";
   const rec = block as { type?: unknown; text?: unknown };
   if (typeof rec.text === "string") return rec.text;
   if (rec.text != null) return safeDisplayText(rec.text);

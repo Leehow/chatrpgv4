@@ -6,8 +6,11 @@ import path from "node:path";
 
 import {
   campaignListExtras,
+  characterSetupPendingFromOpeningPhase,
+  investigatorIdFromParty,
   combatInitiativeDisplay,
   modelsPayload,
+  resolveModelsDefault,
   resolveThinkingMeta,
   supportedThinkingLevels,
   discoveredCluesDisplay,
@@ -17,12 +20,92 @@ import {
   resolvePlaySceneId,
   tableTranscriptMessages,
   localizeTerms,
+  listSourceBundles,
   resolvedLocalizedTerms,
   tensionDisplayLabel,
   zhDigits,
   zhHourPhrase,
   zhSmallNumber,
 } from "../projections.mjs";
+
+test("listSourceBundles reports the PDF page count rather than rendered-page count", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-source-bundle-"));
+  const bundleDir = path.join(ws, ".coc", "source-bundles", "bundle-1");
+  fs.mkdirSync(bundleDir, { recursive: true });
+  fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify({
+    source: {
+      path: "/tmp/模组.pdf",
+      page_count: 20,
+      file_sha256: "a".repeat(64),
+    },
+    pages: Array.from({ length: 19 }, (_, pdf_index) => ({ pdf_index })),
+  }));
+  try {
+    const [bundle] = listSourceBundles(ws);
+    assert.equal(bundle.page_count, 20);
+    assert.equal(bundle.title, "模组.pdf");
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("character_setup_pending reads the opening_phase projection only", () => {
+  // Confirmed investigator: setup is done regardless of phase spelling.
+  assert.equal(
+    characterSetupPendingFromOpeningPhase({
+      phase: "active",
+      session_role: "play",
+      character_setup_confirmed: true,
+    }),
+    false,
+  );
+  assert.equal(
+    characterSetupPendingFromOpeningPhase({
+      phase: "ready_for_table",
+      session_role: "play",
+      character_setup_confirmed: true,
+    }),
+    false,
+  );
+  // Placeholder-investigator drift case: investigator files exist on disk but
+  // the phase authority says character creation is unconfirmed — still pending.
+  assert.equal(
+    characterSetupPendingFromOpeningPhase({
+      phase: "character_creation",
+      session_role: "setup",
+      character_setup_confirmed: false,
+    }),
+    true,
+  );
+  // Missing projection fails closed: never render a placeholder as a sheet.
+  assert.equal(characterSetupPendingFromOpeningPhase(null), true);
+  assert.equal(characterSetupPendingFromOpeningPhase(undefined), true);
+  assert.equal(characterSetupPendingFromOpeningPhase("active"), true);
+});
+
+test("investigatorIdFromParty prefers active party ids over leftover drafts", () => {
+  assert.equal(
+    investigatorIdFromParty({
+      investigator_ids: ["inv-pending-d30eedee", "inv-x18759ce5-d30eedee"],
+      active_investigator_ids: ["inv-x18759ce5-d30eedee"],
+    }),
+    "inv-x18759ce5-d30eedee",
+  );
+  assert.equal(
+    investigatorIdFromParty({
+      investigator_ids: ["inv-pending-d30eedee"],
+      active_investigator_ids: [],
+    }),
+    "inv-pending-d30eedee",
+  );
+  assert.equal(investigatorIdFromParty(null), null);
+  assert.equal(
+    investigatorIdFromParty({
+      active_investigator_ids: ["web-char-setup-draft"],
+    }),
+    null,
+  );
+});
 
 test("zhDigits spells years digit-by-digit", () => {
   assert.equal(zhDigits(1920), "一九二〇");
@@ -354,6 +437,7 @@ test("tableTranscriptMessages keeps every public roll in a finalization group", 
   assert.deepEqual(keeper.content_blocks[0].rolls[0], {
     roll_id: "san", roll: 70, display_skill: "理智", kind: "sanity_check",
     outcome: "failure", target: 30, passed: false,
+    san_before: 30, san_after: 26, san_delta: -4,
   });
   assert.equal(keeper.content_blocks[0].sanity.check_roll_id, "san");
   assert.equal(keeper.content_blocks[0].sanity.loss_roll_id, "loss");
@@ -496,6 +580,26 @@ test("tableTranscriptMessages exposes opening presented rolls without marker lea
   ]);
 });
 
+test("tableTranscriptMessages strips a prose-only opening envelope", () => {
+  const ws = makeWorkspace();
+  const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(logsDir, "table-transcript.jsonl"),
+    JSON.stringify({
+      role: "keeper",
+      text: "[in_game]\n纯叙事开场。\n你要做什么？[/in_game]",
+      turn: 0,
+      finalization_id: null,
+      presented_roll_ids: [],
+    }) + "\n",
+  );
+
+  const messages = tableTranscriptMessages(ws, "c1");
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].text, "纯叙事开场。\n你要做什么？");
+});
+
 test("enrichTranscriptFromEvents backdates by telemetry totals", () => {
   const ws = makeWorkspace();
   const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
@@ -594,6 +698,41 @@ test("modelsPayload resolves the second xai model with exact Grok 4.6 levels", (
     const payload = modelsPayload();
     const grok46 = payload.providers.xai.models.find((entry) => entry.id === "grok-4.6");
     assert.deepEqual(grok46.thinkingLevels, ["off", "minimal", "low", "medium", "high"]);
+  } finally {
+    delete process.env.PI_AGENT_DIR;
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("modelsPayload overlays JellyToken DeepSeek V4 Flash thinking levels", () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-jt-models-"));
+  process.env.PI_AGENT_DIR = agentDir;
+  try {
+    fs.writeFileSync(
+      path.join(agentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          jellytoken: {
+            name: "JellyToken",
+            baseUrl: "https://aiservice.jellytoken.com/v1",
+            models: [
+              { id: "deepseek-v4-flash", name: "deepseek-v4-flash" },
+              { id: "glm-5.2", name: "GLM 5.2" },
+            ],
+          },
+        },
+      }),
+    );
+    const payload = modelsPayload();
+    const byId = Object.fromEntries(
+      payload.providers.jellytoken.models.map((m) => [m.id, m.thinkingLevels]),
+    );
+    assert.deepEqual(byId["deepseek-v4-flash"], [
+      "off", "low", "medium", "high", "xhigh", "max",
+    ]);
+    assert.deepEqual(byId["glm-5.2"], [
+      "off", "low", "medium", "high", "xhigh", "max",
+    ]);
   } finally {
     delete process.env.PI_AGENT_DIR;
     fs.rmSync(agentDir, { recursive: true, force: true });
@@ -945,4 +1084,158 @@ test("mixed cash and item effects render one asset changes card without prose du
   assert.equal(proseText.includes("【变化】"), false);
   assert.equal(proseText.includes("现金变动"), false);
   assert.equal(proseText.includes("钥匙变动"), false);
+});
+
+test("item change card carries structured weapon params without 【变化】 prose", () => {
+  const ws = makeWorkspace();
+  const logsDir = path.join(ws, ".coc/campaigns/c1/logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const prose = "他把卡卡诺步枪背到肩上。";
+  const receipt = "【变化】物品：获得「卡卡诺步枪」";
+  const rendered = `${prose}\n\n${receipt}`;
+  fs.writeFileSync(
+    path.join(logsDir, "table-transcript.jsonl"),
+    JSON.stringify({ role: "keeper", text: rendered, turn: 1, finalization_id: "fin-rifle" }) + "\n",
+  );
+  fs.writeFileSync(
+    path.join(logsDir, "turn-finalizations.jsonl"),
+    JSON.stringify({
+      finalization_id: "fin-rifle",
+      rendered_text: rendered,
+      segments: [
+        { segment_type: "fiction", source_ids: [], text: prose },
+        { segment_type: "state_delta", source_ids: ["item-rifle"], text: receipt },
+      ],
+      bundle: {
+        state_delta: [{
+          effect_id: "item-rifle",
+          effect_kind: "item",
+          item_id: "mannlicher_carcano_rifle",
+          label: "卡卡诺步枪",
+          action: "acquired",
+          source_decision_id: "dec-rifle",
+          weapon: {
+            weapon_id: "mannlicher_carcano_rifle",
+            damage: "1D12+2",
+            skill: "Firearms (Rifle)",
+            range: 150,
+            ammo: 6,
+          },
+        }],
+      },
+    }) + "\n",
+  );
+
+  const keeper = tableTranscriptMessages(ws, "c1")[0];
+  const asset = keeper.content_blocks.filter((block) => block.type === "asset_changes");
+  assert.equal(asset.length, 1);
+  assert.equal(asset[0].item_changes[0].weapon.damage, "1D12+2");
+  assert.equal(asset[0].item_changes[0].weapon.ammo, 6);
+  assert.equal(keeper.content_blocks.some((block) => block.type === "prose" && block.text.includes("【变化】")), false);
+});
+
+const XAI_PROVIDERS = {
+  xai: {
+    models: [{ id: "grok-4.3" }, { id: "grok-4.6" }],
+  },
+};
+
+test("resolveModelsDefault prefers a saved selection over catalog first entry", () => {
+  assert.deepEqual(
+    resolveModelsDefault(XAI_PROVIDERS, [
+      { provider: "xai", model: "grok-4.6" },
+      { provider: "coding-relay", model: "gpt-5.6-luna" },
+    ]),
+    { provider: "xai", model: "grok-4.6" },
+  );
+});
+
+test("resolveModelsDefault skips empty or unknown saved models then uses first catalog entry", () => {
+  assert.deepEqual(
+    resolveModelsDefault(XAI_PROVIDERS, [
+      { provider: "", model: "" },
+      { provider: "xai", model: "missing" },
+      { provider: "coding-relay", model: "gpt-5.6-luna" },
+    ]),
+    { provider: "xai", model: "grok-4.3" },
+  );
+});
+
+test("modelsPayload default reads user-prefs over Pi settings.json", () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "coc-models-prefs-"));
+  const agentDir = path.join(userData, "pi-agent");
+  fs.mkdirSync(agentDir);
+  fs.writeFileSync(
+    path.join(agentDir, "models.json"),
+    JSON.stringify({
+      providers: {
+        xai: {
+          name: "xAI",
+          models: [
+            { id: "grok-4.3", name: "Grok 4.3" },
+            { id: "grok-4.6", name: "Grok 4.6" },
+          ],
+        },
+      },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(agentDir, "settings.json"),
+    JSON.stringify({ defaultProvider: "xai", defaultModel: "grok-4.3" }),
+  );
+  fs.writeFileSync(
+    path.join(userData, "coc-desktop-settings.json"),
+    JSON.stringify({ provider: "xai", model: "grok-4.6" }),
+  );
+  const prevAgent = process.env.PI_AGENT_DIR;
+  const prevData = process.env.COC_DESKTOP_USER_DATA;
+  process.env.PI_AGENT_DIR = agentDir;
+  process.env.COC_DESKTOP_USER_DATA = userData;
+  try {
+    assert.deepEqual(modelsPayload().default, { provider: "xai", model: "grok-4.6" });
+  } finally {
+    if (prevAgent === undefined) delete process.env.PI_AGENT_DIR;
+    else process.env.PI_AGENT_DIR = prevAgent;
+    if (prevData === undefined) delete process.env.COC_DESKTOP_USER_DATA;
+    else process.env.COC_DESKTOP_USER_DATA = prevData;
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test("modelsPayload default falls back to Pi settings when user-prefs model is empty", () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "coc-models-pi-"));
+  const agentDir = path.join(userData, "pi-agent");
+  fs.mkdirSync(agentDir);
+  fs.writeFileSync(
+    path.join(agentDir, "models.json"),
+    JSON.stringify({
+      providers: {
+        xai: {
+          name: "xAI",
+          models: [
+            { id: "grok-4.3", name: "Grok 4.3" },
+            { id: "grok-4.6", name: "Grok 4.6" },
+          ],
+        },
+      },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(agentDir, "settings.json"),
+    JSON.stringify({ defaultProvider: "xai", defaultModel: "grok-4.6" }),
+  );
+  fs.writeFileSync(path.join(userData, "coc-desktop-settings.json"), "{}\n");
+  const prevAgent = process.env.PI_AGENT_DIR;
+  const prevData = process.env.COC_DESKTOP_USER_DATA;
+  process.env.PI_AGENT_DIR = agentDir;
+  process.env.COC_DESKTOP_USER_DATA = userData;
+  try {
+    assert.deepEqual(modelsPayload().default, { provider: "xai", model: "grok-4.6" });
+  } finally {
+    if (prevAgent === undefined) delete process.env.PI_AGENT_DIR;
+    else process.env.PI_AGENT_DIR = prevAgent;
+    if (prevData === undefined) delete process.env.COC_DESKTOP_USER_DATA;
+    else process.env.COC_DESKTOP_USER_DATA = prevData;
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
 });

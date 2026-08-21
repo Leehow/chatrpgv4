@@ -255,12 +255,101 @@ def effective_weapons(
         if wid is None:
             continue
         spec = deepcopy(weapon)
+        spec.setdefault("weapon_id", wid)
+        item_id = entry.get("item_id")
+        if isinstance(item_id, str) and item_id.strip():
+            spec["item_id"] = item_id.strip()
         if wid in positions:
             merged[positions[wid]] = spec
         else:
             positions[wid] = len(merged)
             merged.append(spec)
     return merged
+
+
+def _compact_skill_fold(name: Any) -> str:
+    return re.sub(r"[\s_./-]+", "", str(name or "")).casefold()
+
+
+_FIREARM_SKILL_FAMILIES = (
+    (("rifle", "shotgun", "rifleshotgun"), "Firearms (Rifle/Shotgun)"),
+    (("handgun", "pistol"), "Firearms (Handgun)"),
+    (("smg",), "Firearms (SMG)"),
+    (("machinegun", "mg"), "Firearms (Machine Gun)"),
+)
+
+
+def sheet_skill_for_weapon_skill(
+    skills: dict[str, Any] | None,
+    catalog_skill: str | None,
+) -> tuple[str, int] | None:
+    """Map a catalog weapon skill onto the investigator sheet."""
+    if not isinstance(skills, dict):
+        return None
+    label = str(catalog_skill or "").strip()
+    if not label:
+        return None
+    if label in skills:
+        return label, int(skills[label])
+    compact = _compact_skill_fold(label)
+    exact = [
+        key for key in skills
+        if isinstance(key, str) and _compact_skill_fold(key) == compact
+    ]
+    if len(exact) == 1:
+        return exact[0], int(skills[exact[0]])
+    family: str | None = None
+    if compact.startswith("firearms"):
+        rest = compact[len("firearms"):]
+        if rest:
+            for tokens, canonical in _FIREARM_SKILL_FAMILIES:
+                if rest in tokens or any(token in rest for token in tokens):
+                    family = canonical
+                    break
+    if family is None:
+        return None
+    if family in skills:
+        return family, int(skills[family])
+    folded = _compact_skill_fold(family)
+    matches = [
+        key for key in skills
+        if isinstance(key, str) and _compact_skill_fold(key) == folded
+    ]
+    if len(matches) == 1:
+        return matches[0], int(skills[matches[0]])
+    return None
+
+
+def resolve_owned_weapon(
+    weapons: list[Any] | None,
+    selector: str,
+) -> dict[str, Any] | None:
+    wanted = str(selector or "").strip()
+    if not wanted:
+        return None
+    owned = [
+        row for row in (weapons or [])
+        if isinstance(row, dict) and row.get("weapon_id")
+    ]
+    for row in owned:
+        if str(row.get("weapon_id") or "") == wanted:
+            return row
+    for row in owned:
+        if str(row.get("item_id") or "") == wanted:
+            return row
+    return None
+
+
+def unique_owned_firearm(weapons: list[Any] | None) -> dict[str, Any] | None:
+    firearms = [
+        row for row in (weapons or [])
+        if isinstance(row, dict)
+        and str(row.get("weapon_id") or "") not in {"", "unarmed"}
+        and str(row.get("skill") or "").startswith("Firearms")
+    ]
+    if len(firearms) == 1:
+        return firearms[0]
+    return None
 
 
 def grant_entry(

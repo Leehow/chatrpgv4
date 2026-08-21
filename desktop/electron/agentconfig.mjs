@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { resolvePayloadModule } from "./payload-module.mjs";
+
+const { applyKnownThinking } = await import(
+  resolvePayloadModule("web/server-node/known-thinking.mjs")
+);
+
 // Provider configuration writer for the desktop app's own pi agent dir.
 // Writes the same artifacts pi itself uses (models.json providers entry +
 // auth.json api_key entry, file 0600 / dir 0700), so the model dropdown
@@ -316,7 +322,7 @@ export async function upsertProvider(agentDir, input, { fetchImpl } = {}) {
       if (Number.isFinite(m.maxTokens) && m.maxTokens > 0) {
         out.maxTokens = m.maxTokens;
       }
-      return out;
+      return applyKnownThinking({ providerId: id, baseUrl }, out);
     }),
   };
   const previous = doc.providers[id];

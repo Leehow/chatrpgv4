@@ -853,6 +853,26 @@ def test_source_start_clock_applies_without_redundant_module_era(tmp_path: Path)
     assert time_state["clock"]["timezone"] == "Europe/Samara"
 
 
+def test_fast_source_era_without_clock_keeps_raw_pdf_time_unanchored(
+    tmp_path: Path,
+):
+    camp = _make_campaign(tmp_path)
+
+    project.adopt_source_era(camp, "1920s")
+
+    campaign = json.loads((camp / "campaign.json").read_text(encoding="utf-8"))
+    time_state = json.loads(
+        (camp / "save" / "time-state.json").read_text(encoding="utf-8")
+    )
+    assert campaign["era"] == "1920s"
+    assert campaign["era_source"] == "authored"
+    assert time_state["clock"]["calendar_mode"] == "relative"
+    assert time_state["clock"]["local_datetime"] is None
+    assert time_state["clock"]["local_date"] is None
+    assert time_state["clock"]["display"] == ""
+    assert time_state["clock"]["time_precision"] == "unknown"
+
+
 def test_source_start_clock_preserves_authored_phase_without_inventing_date(
     tmp_path: Path,
 ):
@@ -1239,6 +1259,43 @@ def test_selected_opening_projection_freshness_ignores_unrelated_and_local_rows(
     assert project.opening_projection_state_is_fresh(
         tmp_path, camp, "prog-demo", "opening", ready["source_scope"],
     ) is True
+
+
+def test_later_deep_opening_merge_reuses_persisted_selected_source_window(
+    tmp_path: Path,
+):
+    ready = _ready_selected_opening_projection(tmp_path)
+    camp = ready["campaign_dir"]
+
+    # Reproduce the normal post-opening scene-entry/background merge.  The
+    # skeleton locator is intentionally wider than the selected one-page
+    # projection; the durable projection binding remains the authority.
+    skeleton = project.coc_module_assets.get_skeleton(tmp_path, "prog-demo")
+    assert isinstance(skeleton, dict)
+    opening = next(
+        row for row in skeleton["locations"]
+        if row["location_id"] == "opening"
+    )
+    opening["source_page_indices"] = [0, 1, 2, 3]
+    opening.pop("source_refs", None)
+    project.coc_module_assets.put_skeleton(tmp_path, "prog-demo", skeleton)
+
+    ir = project.load_campaign_ir(camp)
+    scene = next(
+        row for row in ir["story-graph.json"]["scenes"]
+        if row["scene_id"] == "opening"
+    )
+    scene["player_safe_summary"] = "Later source-backed deep merge."
+    project.write_ir_to_campaign(camp, ir, asset_root_id="prog-demo")
+
+    persisted = project.load_campaign_ir(camp)
+    persisted_scene = next(
+        row for row in persisted["story-graph.json"]["scenes"]
+        if row["scene_id"] == "opening"
+    )
+    assert persisted_scene["player_safe_summary"] == (
+        "Later source-backed deep merge."
+    )
 
 
 def test_selected_opening_projection_repairs_stale_pristine_slice(

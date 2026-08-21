@@ -36,3 +36,15 @@ test("content block that is the receipt object itself still yields a string", ()
   assert.equal(typeof shown, "string");
   assert.match(shown, /战地记者/);
 });
+
+test("asset_changes fallback is empty so Chat never stringifies the block", () => {
+  const block = {
+    type: "asset_changes",
+    source_ids: ["item-1"],
+    cash_changes: [],
+    item_changes: [{ effect_id: "item-1", item_id: "k", label: "钥匙", action: "acquired" }],
+    count: 1,
+  };
+  assert.equal(isStructuredContentBlock(block), true);
+  assert.equal(contentBlockFallbackText(block), "");
+});

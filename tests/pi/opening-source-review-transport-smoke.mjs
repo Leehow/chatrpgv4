@@ -214,13 +214,14 @@ assert.deepEqual(hiddenFollowUp, {
   schema_version: 1,
   status: "reviewed",
   campaign_id: "campaign-a",
+  instruction:
+    "Call next_operation.invoke_via exactly with next_operation.arguments now. "
+    + "Do not emit player-visible text or begin character creation until that tool returns ok.",
   next_operation: {
     operation: "setup.adopt_source_facts",
-    invoke_via: "coc_invoke",
-    campaign: "campaign-a",
+    invoke_via: "coc_setup_adopt_source_facts",
     arguments: {
       campaign_id: "campaign-a",
-      facts,
     },
   },
 });

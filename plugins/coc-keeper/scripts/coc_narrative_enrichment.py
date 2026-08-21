@@ -38,6 +38,7 @@ coc_storylets = _load_optional_sibling("coc_storylets", "coc_storylets.py")
 coc_language = _load_optional_sibling("coc_language", "coc_language.py")
 coc_rules = _load_optional_sibling("coc_narrative_rules", "coc_rules.py")
 coc_combat = _load_optional_sibling("coc_narrative_combat", "coc_combat.py")
+coc_inventory = _load_optional_sibling("coc_narrative_inventory", "coc_inventory.py")
 coc_rulesets = _load_optional_sibling("coc_rulesets", "coc_rulesets.py")
 coc_mechanics = _load_optional_sibling("coc_narrative_mechanics", "coc_mechanics.py")
 
@@ -1134,16 +1135,28 @@ def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     if coc_combat is not None:
         merged_weapons = coc_combat.resolve_module_weapons(module_weapons)
         weapon = merged_weapons.get(weapon_id)
-        owned_weapons = {
-            str(row.get("weapon_id")): deepcopy(row)
+        owned_list = [
+            deepcopy(row)
             for row in investigator.get("weapons", []) or []
             if isinstance(row, dict) and row.get("weapon_id")
+        ]
+        owned_weapons = {
+            str(row.get("weapon_id")): row for row in owned_list
         }
         owned_weapon_ids = set(owned_weapons)
+        if (
+            weapon_id not in owned_weapon_ids
+            and coc_inventory is not None
+        ):
+            mapped = coc_inventory.resolve_owned_weapon(owned_list, weapon_id)
+            if mapped is not None:
+                weapon_id = str(mapped.get("weapon_id") or weapon_id)
         fixed_weapon = operation.get("investigator_weapon_id") == weapon_id
         owned_weapon = owned_weapons.get(weapon_id)
         if owned_weapon is not None:
-            parent_id = str(owned_weapon.get("extends") or "")
+            parent_id = str(
+                owned_weapon.get("extends") or owned_weapon.get("weapon_id") or ""
+            )
             parent = merged_weapons.get(parent_id) if parent_id else weapon
             weapon = {
                 **(deepcopy(parent) if isinstance(parent, dict) else {}),
@@ -1183,12 +1196,22 @@ def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             investigator["weapons"] = [{"weapon_id": weapon_id, **deepcopy(weapon)}]
             if weapon.get("magazine") is not None:
                 investigator["has_ready_firearm"] = True
-                investigator["firearms_skill"] = max(
-                    int(investigator.get("firearms_skill", 0)),
-                    int((ctx.get("character") or {}).get("skills", {}).get(
-                        weapon.get("skill"), investigator.get("firearms_skill", 0)
-                    )),
-                )
+                skills = (ctx.get("character") or {}).get("skills") or {}
+                mapped_skill = None
+                if coc_inventory is not None:
+                    mapped_skill = coc_inventory.sheet_skill_for_weapon_skill(
+                        skills if isinstance(skills, dict) else None,
+                        str(weapon.get("skill") or ""),
+                    )
+                if mapped_skill is not None:
+                    investigator["firearms_skill"] = int(mapped_skill[1])
+                else:
+                    investigator["firearms_skill"] = max(
+                        int(investigator.get("firearms_skill", 0)),
+                        int(skills.get(
+                            weapon.get("skill"), investigator.get("firearms_skill", 0)
+                        ) if isinstance(skills, dict) else investigator.get("firearms_skill", 0)),
+                    )
         elif weapon_id != "unarmed":
             # A semantic weapon declaration must never be silently resolved as
             # unarmed.  Fail closed until the character sheet owns that stable

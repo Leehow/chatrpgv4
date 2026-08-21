@@ -4,14 +4,26 @@ export const PLAY_PHASES = ["cold_start","opening","live_turn","pending_finaliza
 export type PlayPhase = typeof PLAY_PHASES[number];
 export const KP_SURFACES = ["context","rules","state","npc","turn","setup","advice","subsystem","none"] as const;
 export type KpSurface = typeof KP_SURFACES[number];
-export type OperationPolicy = { audience: string; phases: readonly string[]; contract: string; advisory: boolean; kp_surface: KpSurface };
+export const EXECUTION_CLASSES = ["parallel_read", "serial_campaign", "serial_global"] as const;
+export type ExecutionClass = typeof EXECUTION_CLASSES[number];
+export type OperationPolicy = { audience: string; phases: readonly string[]; contract: string; advisory: boolean; kp_surface: KpSurface; execution_class?: ExecutionClass | string };
+/** Consumer for canonical toolbox execution_class; absent/unknown values fail closed. */
+export function executionClassForPolicy(policy: Pick<OperationPolicy, "execution_class"> | undefined): ExecutionClass {
+  return policy?.execution_class === "parallel_read" || policy?.execution_class === "serial_global"
+    ? policy.execution_class
+    : "serial_campaign";
+}
 /** Pi dual-session role. Canonical caller: domain-tools sessionRoleFromEnv / evaluateExecuteAcl. Consumer: execute-time ACL + tool visibility. */
 export const SESSION_ROLES = ["setup", "play"] as const;
 export type SessionRole = typeof SESSION_ROLES[number];
 /** Shared across setup|play. Audience alone cannot mark these: setup.inspect is audience=setup, session.resume is audience=host. Chargen dice/read-face rules are audience=keeper but required in the setup session. Consumer: sessionRolesForPolicy. */
 export const SESSION_ROLE_SHARED_OPERATIONS = new Set<string>([
   "setup.inspect",
+  "setup.phase",
   "session.resume",
+  "progressive.prepare_opening",
+  "progressive.opening_bootstrap",
+  "evidence.table_opening",
   "rules.roll_dice",
   "rules.cash_assets",
   "rules.skill_describe",
@@ -551,7 +563,8 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     ],
     "contract": "rules",
     "advisory": false,
-    "kp_surface": "rules"
+    "kp_surface": "rules",
+    "execution_class": "parallel_read"
   },
   "rules.social_adjudicate": {
     "audience": "keeper",
@@ -702,6 +715,17 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "advisory": false,
     "kp_surface": "setup"
   },
+  "setup.chargen_run": {
+    "audience": "setup",
+    "phases": [
+      "cold_start",
+      "opening",
+      "live_turn"
+    ],
+    "contract": "none",
+    "advisory": false,
+    "kp_surface": "setup"
+  },
   "setup.inspect": {
     "audience": "setup",
     "phases": [
@@ -712,6 +736,18 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "contract": "none",
     "advisory": false,
     "kp_surface": "setup"
+  },
+  "setup.phase": {
+    "audience": "setup",
+    "phases": [
+      "cold_start",
+      "opening",
+      "live_turn"
+    ],
+    "contract": "none",
+    "advisory": false,
+    "kp_surface": "setup",
+    "execution_class": "parallel_read"
   },
   "setup.investigator_contract": {
     "audience": "setup",
@@ -1162,7 +1198,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
   state: ["memory.resolve_hook", "memory.write", "state.advance_time", "state.backstory_corruption_add", "state.belief_apply", "state.cash_semantic", "state.clear_transient_condition", "state.clock_discontinuity", "state.end_session", "state.exceptional_effect", "state.inventory_list", "state.item_grant", "state.item_remove", "state.item_use", "state.mark_safe_rest", "state.move_scene", "state.npc_presence", "state.npc_update", "state.personal_horror_add", "state.personal_horror_mark_woven", "state.promote_scene", "state.record_clue", "state.record_npc_engagement", "state.record_route_completion", "state.set_flag", "state.supersede_settlement", "state.threat_tick", "state.time_appearance", "state.time_marker"],
   npc: ["npc.query", "npc.reaction"],
   turn: ["state.journal", "turn.finalize", "turn.output_context"],
-  setup: ["progressive.follow_mentions", "progressive.on_enter_scene", "progressive.opening_bootstrap", "progressive.prepare_opening", "progressive.request_mechanics", "session.resume", "setup.adopt_source_facts", "setup.complete", "setup.inspect", "setup.investigator_contract", "setup.invoke", "setup.quick_start"],
+  setup: ["progressive.follow_mentions", "progressive.on_enter_scene", "progressive.opening_bootstrap", "progressive.prepare_opening", "progressive.request_mechanics", "session.resume", "setup.adopt_source_facts", "setup.chargen_run", "setup.complete", "setup.inspect", "setup.investigator_contract", "setup.invoke", "setup.phase", "setup.quick_start"],
   advice: ["actions.advise", "director.advise", "narration.brief", "narration.review", "npc.advise", "storylets.suggest"],
   subsystem: ["chase.context", "chase.execute", "combat.context", "combat.end", "combat.resolve", "mechanics.ensure", "sanity.context", "sanity.execute"],
 };

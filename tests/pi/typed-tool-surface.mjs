@@ -89,6 +89,20 @@ test("setup/play hide generic wrappers; unset role keeps them (legacy)", () => {
   assert.ok(!setup.includes("coc_npc_reaction"));
 });
 
+test("setup role exposes the complete canonical opening handoff chain", () => {
+  const openingSetup = domain.activeToolsForPhase("opening", "setup");
+  for (const name of [
+    "coc_progressive_prepare_opening",
+    "coc_progressive_opening_bootstrap",
+    "coc_evidence_table_opening",
+    "coc_setup_complete",
+  ]) assert.ok(openingSetup.includes(name), name);
+  assert.deepEqual(
+    catalog.byOperation.get("progressive.prepare_opening").parameters.required,
+    [],
+  );
+});
+
 test("recovery play surface is closure-only", () => {
   const recovery = domain.activeToolsForPhase("recovery", "play");
   assert.ok(recovery.includes("coc_session_resume"));
@@ -107,7 +121,6 @@ test("adopt_source_facts presents campaign_id-only and fills retained facts", ()
   assert.ok(tool.parameters.properties.facts);
   const wrapped = typed.wrapTypedToolInvokeParams("coc_setup_adopt_source_facts", {
     campaign_id: "c1",
-    campaign: "c1",
   });
   assert.deepEqual(wrapped, {
     operation: "setup.adopt_source_facts",

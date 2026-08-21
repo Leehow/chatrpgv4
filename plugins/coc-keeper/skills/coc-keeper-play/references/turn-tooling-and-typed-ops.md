@@ -284,6 +284,22 @@ contract above still applies. This is the natural rhythm:
    the fiction spends it, call `state.item_use` — the charge count drops and
    at zero the item leaves the inventory. `state.item_use` rejects
    non-consumables: losing or spending those is `state.item_remove`.
+   Cash is the same rule: when the fiction pays, is paid, loots coin, or
+   spends a fee, call `state.cash_grant` or `state.cash_spend` **before** the
+   prose treats the purse as changed. Required: structured `amount`,
+   `currency`, `source` id, internal audit `reason`, and player-safe
+   `localized_reason` written fully in the current `play_language` (`zh-Hans`:
+   complete Chinese, not the audit string). The tool stamps campaign
+   `game_time`; never pass wall-clock / `recorded_at`. Each currency has its
+   own balance — never convert or mix FX. ASCII currency codes are
+   case-insensitive (`usd`→`USD`); `美元`/`英镑` alias to `USD`/`GBP`.
+   Omit `unit` to reuse the recorded unit for that wallet. Query with
+   `state.cash_query`.
+   Player-visible cash lines come from `turn.finalize` only: localized reason
+   plus game/player time, never raw `reason` or `recorded_at`.
+   Do not invent a second finance path, parse sheet cash prose, or spend from
+   `rules.cash_assets` / `state.cash_semantic`. Insufficient funds fail
+   closed; replay the same `decision_id` to retrieve the settled receipt.
 
 If a tool reports a transient transaction or lock failure, retry the same
 call with the same `decision_id` within the toolbox's bounded retry policy.

@@ -85,6 +85,41 @@ def _load_pdf_adapter(name: str):
     return module
 
 
+def test_operation_policy_execution_class_consumes_canonical_export():
+    script = """
+import { pathToFileURL } from 'node:url';
+const policy = await import(pathToFileURL(process.argv[1]).href);
+const parallel = Object.entries(policy.OPERATION_POLICY)
+  .filter(([, value]) => policy.executionClassForPolicy(value) === 'parallel_read')
+  .map(([name]) => name).sort();
+console.log(JSON.stringify({
+  parallel,
+  missing: policy.executionClassForPolicy(undefined),
+  unknown: policy.executionClassForPolicy({ execution_class: 'unknown' }),
+  dangerous: policy.executionClassForPolicy(policy.OPERATION_POLICY['turn.finalize']),
+}));
+"""
+    completed = subprocess.run(
+        [
+            "node", "--experimental-strip-types", "--input-type=module", "-e",
+            script, str(PLUGIN / "pi/lib/operation-policy.ts"),
+        ],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    exported = json.loads(completed.stdout)
+    toolbox = _load_toolbox()
+    canonical_parallel = sorted(
+        name for name, spec in toolbox.TOOLS.items()
+        if spec["execution_class"] == "parallel_read"
+    )
+    assert exported == {
+        "parallel": canonical_parallel,
+        "missing": "serial_campaign",
+        "unknown": "serial_campaign",
+        "dangerous": "serial_campaign",
+    }
+
+
 def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "@chatrpg/coc-keeper-pi"
@@ -2107,6 +2142,7 @@ def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
         "objectPathIdentityUnchanged": True,
         "stringResultOk": True,
         "objectResultOk": True,
+        "malformedRetainedAdoptRecovered": True,
         "clientCallCount": 2,
         "rejected": {
             "malformed": (
@@ -4520,6 +4556,7 @@ def test_pdf_skill_adapter_opening_extractor_parses_bare_json(
     def fake_session(args, *, timeout, cwd, shutdown=None, env=None):
         calls.append("session")
         assert args[args.index("--model") + 1] == "deepseek/deepseek-v4-flash"
+        assert args[args.index("--tools") + 1] == "read"
         assert env and env.get("PATH")
         return subprocess.CompletedProcess(
             args, 0, json.dumps(receipt), "",
@@ -4808,6 +4845,63 @@ def test_pdf_skill_adapter_opening_router_materializes_split_bundle(
     assert request["reusable_bound_source"] == {"source_bundle_path": "bound"}
     assert request["manifest_producer_literal"] == "codex-pdf-skill"
     assert request["source"]["file_sha256"] == task["source"]["file_sha256"]
+
+
+def test_pdf_skill_adapter_opening_router_stops_at_first_image_page_gap(
+    tmp_path: Path, monkeypatch,
+):
+    """Skipped image-only pages do not invalidate the whole opening review.
+
+    The router receives the earliest contiguous native-text run; later parsed
+    pages remain reusable bound evidence for progressive preparation.
+    """
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_router_gap_test")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_dir = (
+        workspace / ".tmp" / "coc-opening-source-review" / "camp" / "reviewed"
+    )
+    bundle_dir.mkdir(parents=True)
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    task = _opening_producer_component_task(workspace, bundle_dir, pdf)
+    task["opening_locator_pdf_indices"] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13]
+    request = adapter._pdf_inspector_request("opening_review", task)
+
+    assert request["opening_locator_pdf_indices"] == [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert task["opening_locator_pdf_indices"] == [
+        2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13,
+    ]
+
+
+def test_pdf_skill_adapter_opening_fallback_uses_first_contiguous_run(
+    monkeypatch,
+):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_fallback_gap_test")
+    monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
+    task = {"source_bundle_path": "/bound"}
+    private = {
+        "allowed_pdf_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13],
+    }
+    bundle = {
+        "pages": [
+            {"pdf_index": index}
+            for index in private["allowed_pdf_indices"]
+        ],
+    }
+
+    class _Bundle:
+        @staticmethod
+        def load_host_bundle(_path):
+            return bundle
+
+    materialized = adapter._materialize_opening_bundle(
+        task, private, _Bundle(), {}, adapter._ShutdownFlag(),
+    )
+
+    assert materialized["source"] == "preseed"
+    assert materialized["selected_opening_pdf_indices"] == [2, 3, 4]
+    assert materialized["fact_evidence_pdf_indices"] == [2, 3, 4, 5, 6, 7, 8, 9]
 
 
 def test_pdf_skill_adapter_opening_router_rejects_invalid_split(
@@ -5398,6 +5492,32 @@ def test_opening_producer_task_does_not_launder_placeholder_era(
     ] is False
     assert task["module_init_l0_schema"]["secrecy"] == "keeper_only"
     assert task["module_init_l0_schema"]["additional_properties_allowed"] is True
+
+
+def test_opening_extractor_uses_investigator_start_era_for_time_travel() -> None:
+    adapter = _load_pdf_adapter("coc_pdf_adapter_start_era_prompt_test")
+    task = {
+        "workspace_root": "/tmp/workspace",
+        "campaign_id": "time-travel",
+        "scenario_id": "time-travel",
+        "source": {"source_id": "pdf:time-travel"},
+        "title": "Time Travel",
+        "play_language": "zh-Hans",
+        "source_bundle_path": "/tmp/source-bundle",
+        "opening_fast_facts_schema": {},
+        "module_init_l0_schema": {},
+    }
+    materialized = {
+        "selected_opening_pdf_indices": [3],
+        "fact_evidence_pdf_indices": [3],
+        "bundle": {"pages": [{
+            "pdf_index": 3, "markdown_path": "pages/0003.md",
+        }]},
+    }
+    prompt = adapter._opening_text_prompt(task, materialized)
+    assert "investigators' native/start era" in prompt
+    assert "1890s travelers entering a medieval town" in prompt
+    assert "destination year belongs in module_meta.era" in prompt
 
 
 def _splice_page(pdf_index, body):

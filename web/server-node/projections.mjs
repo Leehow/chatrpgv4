@@ -10,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveProductAgentDir } from "./agent-dir.mjs";
+import { knownThinkingMeta } from "./known-thinking.mjs";
+import { loadUserPrefs, resolveUserPrefsPath } from "./user-prefs.mjs";
 import {
   buildCombatIndex,
   buildEffectIndex,
@@ -55,6 +57,112 @@ export function campaignListExtras(workspace, campaignId) {
     }
   }
   return { investigator_name, last_active_at };
+}
+
+function machineGeneratedCampaignTitle(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return (
+    /\.pdf$/i.test(text)
+    || /^[0-9a-f]{16,64}__?/i.test(text)
+    || /^pdf[-_]/i.test(text)
+  );
+}
+
+function displayTitlePart(value) {
+  return typeof value === "string"
+    ? value
+      .replace(/[\r\n]+/g, " ")
+      .replace(/\s*[-–—]\s*/g, "·")
+      .replace(/\s+/g, " ")
+      .trim()
+    : "";
+}
+
+function protagonistTitlePart(value) {
+  const text = displayTitlePart(value);
+  if (!text) return "";
+  return text.split(/[·・•\s]+/).filter(Boolean)[0] || text;
+}
+
+function openingStageTitle(openingPhase, campaignStatus) {
+  const phase = typeof openingPhase?.phase === "string"
+    ? openingPhase.phase
+    : "";
+  if (phase === "module_preparation") return "模组准备";
+  if (phase === "character_creation") return "建卡";
+  if (phase === "ready_for_table") return "开场";
+  if (phase === "active") return "调查中";
+  const status = String(campaignStatus || "").trim();
+  if (status === "setup") return "建卡";
+  if (status === "ready_for_table") return "开场";
+  if (status === "active") return "调查中";
+  if (["completed", "ended", "closed"].includes(status)) return "结局";
+  return "开场准备";
+}
+
+/**
+ * Automatic title from the existing isolated opening extractor agent. Only
+ * its two player-safe module-name fields cross the sealed L0 boundary. A
+ * human-renamed campaign remains an exact override.
+ */
+export function campaignDisplayTitle(
+  workspace,
+  campaignId,
+  { openingPhase = null, activeSceneLabel = null, investigatorName = null } = {},
+) {
+  const dir = campaignDir(workspace, campaignId);
+  const campaign = readJsonFile(path.join(dir, "campaign.json"));
+  const current = typeof campaign?.title === "string" ? campaign.title.trim() : "";
+  if (current && !machineGeneratedCampaignTitle(current)) return current;
+
+  const moduleInit = readJsonFile(path.join(dir, "save", "module-init.json"));
+  const moduleMeta = moduleInit?.l0?.module_meta;
+  const moduleTitle = (
+    displayTitlePart(moduleMeta?.title_zh)
+    || displayTitlePart(moduleMeta?.title_en)
+    || "模组解析中"
+  );
+  const sceneOrStage = (
+    displayTitlePart(activeSceneLabel)
+    || openingStageTitle(openingPhase, campaign?.status)
+  );
+  const protagonist = protagonistTitlePart(investigatorName);
+  return [moduleTitle, sceneOrStage, protagonist].filter(Boolean).join("-");
+}
+
+/**
+ * Character-setup pending is read from the authoritative `opening_phase`
+ * projection (plugin derive_opening_phase), never from investigator-file
+ * scanning: a linked placeholder sheet is not a confirmed investigator.
+ * A missing projection fails closed as pending so placeholder numbers are
+ * never rendered as a real character.
+ */
+export function characterSetupPendingFromOpeningPhase(openingPhase) {
+  if (!openingPhase || typeof openingPhase !== "object") return true;
+  return openingPhase.character_setup_confirmed !== true;
+}
+
+const SETUP_DRAFT_INVESTIGATOR_ID = "web-char-setup-draft";
+
+/**
+ * Id-selection only: which investigator sheet to project.
+ * Prefers party.active_investigator_ids so a leftover chargen draft
+ * (alphabetically earlier `inv-pending-*` state file) cannot steal the
+ * sidebar. Never used for lifecycle / tableIntent.
+ */
+export function investigatorIdFromParty(
+  party,
+  { draftId = SETUP_DRAFT_INVESTIGATOR_ID } = {},
+) {
+  if (!party || typeof party !== "object") return null;
+  const active = party.active_investigator_ids;
+  const all = party.investigator_ids;
+  const pool = Array.isArray(active) && active.length ? active : all;
+  if (!Array.isArray(pool)) return null;
+  for (const id of pool) {
+    if (typeof id === "string" && id.trim() && id !== draftId) return id.trim();
+  }
+  return null;
 }
 
 export function readJsonFile(file) {
@@ -539,11 +647,13 @@ function publicRollDisplay(record, terms = null) {
     "display_skill", "skill", "characteristic", "npc_display_name", "kind",
     "difficulty", "required_level", "achieved_level", "outcome", "die",
     "expression", "die_expression", "governing_attribute", "reason", "source",
+    "san_loss_expression", "san_loss_resolution",
   ];
   const integerFields = [
     "target", "base_target", "effective_target", "required_target", "bonus",
     "penalty", "bonus_penalty_dice", "app", "credit_rating", "governing_value",
     "final_total", "total", "units", "unmodified_roll",
+    "san_before", "san_after", "san_delta", "san_loss",
   ];
   const booleanFields = ["passed", "success", "pushed"];
   for (const field of stringFields) {
@@ -697,6 +807,13 @@ function openingContentBlocks(transcriptRow, rollsById) {
   return blocks;
 }
 
+function stripInGameEnvelope(text) {
+  return String(text || "")
+    .replace(/^\s*\[in_game\]\s*/i, "")
+    .replace(/\s*\[\/in_game\]\s*$/i, "")
+    .trim();
+}
+
 function attachTranscriptIdentity(entry, row) {
   if (typeof row?.finalization_id === "string" && row.finalization_id) {
     entry.finalization_id = row.finalization_id;
@@ -762,7 +879,12 @@ export function tableTranscriptMessages(workspace, campaignId) {
       out.push(entry);
     }
     if (keeper) {
-      const entry = { role: "keeper", text: String(keeper.text || "").trim() };
+      const entry = {
+        role: "keeper",
+        text: keeper.finalization_id
+          ? String(keeper.text || "").trim()
+          : stripInGameEnvelope(keeper.text),
+      };
       attachTranscriptIdentity(entry, keeper);
       const finalizationId = keeper.finalization_id;
       if (typeof finalizationId === "string" && finalizationId) {
@@ -853,9 +975,11 @@ export function listSourceBundles(workspace) {
     let pageCount = null;
     let fileSha256 = null;
     if (manifest && typeof manifest === "object") {
-      if (Array.isArray(manifest.pages)) pageCount = manifest.pages.length;
       const source = manifest.source;
       if (source && typeof source === "object") {
+        if (Number.isInteger(source.page_count) && source.page_count > 0) {
+          pageCount = source.page_count;
+        }
         const sp = source.path || source.original_path;
         if (typeof sp === "string" && sp.trim()) {
           sourcePdf = sp.trim();
@@ -863,6 +987,9 @@ export function listSourceBundles(workspace) {
         }
         const sha = source.file_sha256;
         if (typeof sha === "string" && sha.length === 64) fileSha256 = sha.toLowerCase();
+      }
+      if (pageCount === null && Array.isArray(manifest.pages)) {
+        pageCount = manifest.pages.length;
       }
       if (typeof manifest.title === "string" && manifest.title.trim()) {
         title = manifest.title.trim();
@@ -939,14 +1066,47 @@ function piCatalogEntry(providerId, modelId) {
   return byModel.get(modelId) ?? null;
 }
 
-/** Effective thinking metadata for one models.json model entry: entry fields
- *  win (pi's applyModelOverride order), built-in catalog fills the gaps. */
-export function resolveThinkingMeta(providerId, entry) {
+/** Effective thinking metadata for one models.json model entry: a user-tuned
+ *  thinkingLevelMap wins, then the gateway overlay (jellytoken etc.), then
+ *  Pi's built-in catalog. */
+export function resolveThinkingMeta(providerId, entry, providerCfg = {}) {
   const catalog = piCatalogEntry(providerId, entry.id);
+  const known = knownThinkingMeta({
+    providerId,
+    baseUrl: providerCfg.baseUrl,
+    modelId: entry.id,
+  });
+  if (entry.thinkingLevelMap && typeof entry.thinkingLevelMap === "object") {
+    return {
+      reasoning: entry.reasoning ?? known?.reasoning ?? catalog?.reasoning ?? false,
+      thinkingLevelMap: entry.thinkingLevelMap,
+    };
+  }
+  if (known) {
+    return { reasoning: known.reasoning, thinkingLevelMap: known.thinkingLevelMap };
+  }
   return {
     reasoning: entry.reasoning ?? catalog?.reasoning ?? false,
-    thinkingLevelMap: entry.thinkingLevelMap ?? catalog?.thinkingLevelMap,
+    thinkingLevelMap: catalog?.thinkingLevelMap,
   };
+}
+
+/** First catalog-valid candidate wins; otherwise first listed model. */
+export function resolveModelsDefault(providers, candidates = []) {
+  for (const candidate of candidates) {
+    const provider = String(candidate?.provider || "").trim();
+    const model = String(candidate?.model || "").trim();
+    if (!provider || !model) continue;
+    const models = providers[provider]?.models;
+    if (Array.isArray(models) && models.some((entry) => entry?.id === model)) {
+      return { provider, model };
+    }
+  }
+  for (const [name, cfg] of Object.entries(providers || {})) {
+    const first = cfg?.models?.[0]?.id;
+    if (first) return { provider: name, model: first };
+  }
+  return { provider: "coding-relay", model: "gpt-5.6-luna" };
 }
 
 export function modelsPayload() {
@@ -968,7 +1128,7 @@ export function modelsPayload() {
       .map((m) => ({
         id: m.id,
         label: String(m.name || m.id),
-        thinkingLevels: supportedThinkingLevels(resolveThinkingMeta(name, m)),
+        thinkingLevels: supportedThinkingLevels(resolveThinkingMeta(name, m, cfg)),
       }));
     if (models.length) {
       providers[name] = {
@@ -978,13 +1138,12 @@ export function modelsPayload() {
       };
     }
   }
-  let def = { provider: "coding-relay", model: "gpt-5.6-luna" };
-  const providerIds = new Set((providers[def.provider]?.models || []).map((m) => m.id));
-  if (!providers[def.provider] || !providerIds.has(def.model)) {
-    for (const [name, cfg] of Object.entries(providers)) {
-      def = { provider: name, model: cfg.models[0].id };
-      break;
-    }
-  }
+  const prefs = loadUserPrefs(resolveUserPrefsPath());
+  const piSettings = readJsonFile(path.join(agentDir, "settings.json"));
+  const def = resolveModelsDefault(providers, [
+    { provider: prefs.provider, model: prefs.model },
+    { provider: piSettings?.defaultProvider, model: piSettings?.defaultModel },
+    { provider: "coding-relay", model: "gpt-5.6-luna" },
+  ]);
   return { providers, default: def };
 }

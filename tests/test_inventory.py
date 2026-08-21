@@ -7,9 +7,11 @@ development-settlement write-back into the investigator library.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import random
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -75,6 +77,20 @@ def test_effective_weapons_merges_sheet_gains_and_losses():
     by_id = {row["weapon_id"]: row for row in merged}
     assert by_id["revolver_38"]["damage"] == "1D10+1"
     assert list(by_id) == ["revolver_38", "revolver_45"]
+    assert by_id["revolver_45"]["item_id"] == "revolver_45"
+
+
+def test_sheet_skill_maps_catalog_rifle_label_without_generic_alias():
+    skills = {"Firearms (Rifle/Shotgun)": 25, "Firearms (Handgun)": 5}
+    mapped = coc_inventory.sheet_skill_for_weapon_skill(skills, "Firearms (rifle)")
+    assert mapped == ("Firearms (Rifle/Shotgun)", 25)
+    assert coc_inventory.sheet_skill_for_weapon_skill(skills, "Firearms") is None
+    owned = [
+        {"weapon_id": "30_06_bolt_action_rifle", "item_id": "weapon-carcano-rifle"},
+        {"weapon_id": "unarmed"},
+    ]
+    row = coc_inventory.resolve_owned_weapon(owned, "weapon-carcano-rifle")
+    assert row["weapon_id"] == "30_06_bolt_action_rifle"
 
 
 def test_grant_entry_is_idempotent_and_replaces():
@@ -543,12 +559,12 @@ def test_inventory_settlement_writes_library_sheet_and_history(tmp_path):
                 "kind": "weapon",
                 "label": "Serrated knife",
                 "weapon": {
-                    "weapon_id": "knife_custom",
-                    "skill": "Fighting (Brawl)",
-                    "damage": "1D4+2",
-                    "adds_damage_bonus": True,
-                    "impales": True,
-                },
+                "weapon_id": "knife_custom",
+                "skill": "Fighting (Brawl)",
+                "damage": "1D4+2",
+                "adds_damage_bonus": True,
+                "impales": True,
+            },
             },
             {"item_id": "lantern", "kind": "gear", "label": "Storm lantern"},
         ],
@@ -906,3 +922,750 @@ def test_item_use_rejects_non_consumables(campaign_ws):
         "decision_id": "use-zero",
     })
     assert bad_count["ok"] is False
+
+
+def _operation_event_id(tool_name: str, decision_id: str) -> str:
+    encoded = json.dumps(
+        [str(tool_name), str(decision_id)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"tool-operation-v1:{hashlib.sha256(encoded).hexdigest()[:32]}"
+
+
+def _ledger_key(tool_name: str, decision_id: str) -> str:
+    return json.dumps(
+        [str(tool_name), str(decision_id)], ensure_ascii=False, separators=(",", ":")
+    )
+
+
+def _event_count(ws, event_id: str) -> int:
+    events_path = ws["campaign_dir"] / "logs" / "events.jsonl"
+    if not events_path.is_file():
+        return 0
+    count = 0
+    for line in events_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if str(row.get("event_id") or "") == event_id:
+            count += 1
+    return count
+
+
+def _strip_toolbox_tail(ws, tool_name: str, decision_id: str) -> str:
+    event_id = _operation_event_id(tool_name, decision_id)
+    key = _ledger_key(tool_name, decision_id)
+    ledger_path = ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    assert key in ledger["entries"]
+    del ledger["entries"][key]
+    ledger_path.write_text(
+        json.dumps(ledger, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    events_path = ws["campaign_dir"] / "logs" / "events.jsonl"
+    if events_path.is_file():
+        kept = []
+        removed = 0
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if str(row.get("event_id") or "") == event_id:
+                removed += 1
+                continue
+            kept.append(line)
+        assert removed == 1
+        events_path.write_text(
+            ("\n".join(kept) + ("\n" if kept else "")), encoding="utf-8"
+        )
+    assert _event_count(ws, event_id) == 0
+    return event_id
+
+
+def test_item_grant_interrupted_replay_does_not_duplicate(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-crash",
+    })
+    assert granted["ok"] is True, granted
+    event_id = _strip_toolbox_tail(campaign_ws, "state.item_grant", "grant-crash")
+    replayed = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-crash",
+    })
+    assert replayed["ok"] is True, replayed
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    lanterns = [row for row in listed["data"]["items"] if row["item_id"] == "lantern"]
+    assert len(lanterns) == 1
+    assert _event_count(campaign_ws, event_id) == 1
+
+
+def test_item_remove_interrupted_replay_does_not_remove_again(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-before-remove",
+    })
+    assert granted["ok"] is True, granted
+    removed = _run(campaign_ws, "state.item_remove", {
+        "investigator": inv,
+        "item_id": "lantern",
+        "reason": "left behind",
+        "decision_id": "remove-crash",
+    })
+    assert removed["ok"] is True, removed
+    assert removed["data"]["changed"] is True
+    assert removed["data"]["outcome"] == "removed_entry"
+    assert removed["data"]["present_after"] is False
+    event_id = _strip_toolbox_tail(campaign_ws, "state.item_remove", "remove-crash")
+    replayed = _run(campaign_ws, "state.item_remove", {
+        "investigator": inv,
+        "item_id": "lantern",
+        "reason": "left behind",
+        "decision_id": "remove-crash",
+    })
+    assert replayed["ok"] is True, replayed
+    assert replayed["data"]["changed"] is True
+    assert replayed["data"]["outcome"] == "removed_entry"
+    assert replayed["data"]["present_after"] is False
+    assert replayed["data"]["outcome"] != "not_found"
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert all(row["item_id"] != "lantern" for row in listed["data"]["items"])
+    assert _event_count(campaign_ws, event_id) == 1
+    again = _run(campaign_ws, "state.item_remove", {
+        "investigator": inv,
+        "item_id": "lantern",
+        "reason": "left behind",
+        "decision_id": "remove-crash",
+    })
+    assert again["ok"] is True, again
+    assert again["data"] == replayed["data"]
+    assert again["data"]["changed"] is True
+    assert again["data"]["outcome"] == "removed_entry"
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert all(row["item_id"] != "lantern" for row in listed["data"]["items"])
+    assert _event_count(campaign_ws, event_id) == 1
+
+
+def test_item_grant_replay_rejects_rolled_back_inventory(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-rollback",
+    })
+    assert granted["ok"] is True, granted
+    path = campaign_ws["campaign_dir"] / "save" / "investigator-state" / f"{inv}.json"
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["inventory"]["entries"] = [
+        row for row in state["inventory"]["entries"] if row.get("item_id") != "lantern"
+    ]
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    replayed = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-rollback",
+    })
+    assert replayed["ok"] is False
+    assert replayed["error"]["code"] == "state_corrupt"
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def test_item_use_interrupted_replay_does_not_double_consume(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "bandages",
+        "label": "Bandages",
+        "consumable": True,
+        "quantity": 2,
+        "decision_id": "grant-use-crash",
+    })
+    used = _run(campaign_ws, "state.item_use", {
+        "investigator": inv,
+        "item_id": "bandages",
+        "decision_id": "use-crash",
+    })
+    assert used["ok"] is True, used
+    assert used["data"]["remaining"] == 1
+    event_id = _strip_toolbox_tail(campaign_ws, "state.item_use", "use-crash")
+    replayed = _run(campaign_ws, "state.item_use", {
+        "investigator": inv,
+        "item_id": "bandages",
+        "decision_id": "use-crash",
+    })
+    assert replayed["ok"] is True, replayed
+    assert replayed["data"]["remaining"] == 1
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    bandages = [row for row in listed["data"]["items"] if row["item_id"] == "bandages"]
+    assert bandages[0]["quantity"] == 1
+    assert _event_count(campaign_ws, event_id) == 1
+
+
+def test_item_grant_weapon_profile_conflict(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    first = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "weapon",
+        "label": "Custom blade",
+        "weapon": {
+            "weapon_id": "knife_custom",
+            "skill": "Fighting (Brawl)",
+            "damage": "1D4+2",
+            "adds_damage_bonus": True,
+            "impales": True,
+        },
+        "decision_id": "grant-profile",
+    })
+    assert first["ok"] is True, first
+    conflict = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "weapon",
+        "label": "Custom blade",
+        "weapon": {
+            "weapon_id": "knife_custom",
+            "skill": "Fighting (Brawl)",
+            "damage": "1D8",
+            "adds_damage_bonus": True,
+            "impales": True,
+        },
+        "decision_id": "grant-profile",
+    })
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    weapons = [row for row in listed["data"]["weapons"] if row.get("weapon_id") == "knife_custom"]
+    assert len(weapons) == 1
+    assert weapons[0]["damage"] == "1D4+2"
+
+
+def test_item_use_replay_rejects_restored_charges(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "bandages",
+        "label": "Bandages",
+        "consumable": True,
+        "quantity": 2,
+        "decision_id": "grant-use-restore",
+    })
+    used = _run(campaign_ws, "state.item_use", {
+        "investigator": inv,
+        "item_id": "bandages",
+        "decision_id": "use-restore",
+    })
+    assert used["ok"] is True, used
+    path = campaign_ws["campaign_dir"] / "save" / "investigator-state" / f"{inv}.json"
+    state = json.loads(path.read_text(encoding="utf-8"))
+    for row in state["inventory"]["entries"]:
+        if row.get("item_id") == "bandages":
+            row["quantity"] = 2
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    replayed = _run(campaign_ws, "state.item_use", {
+        "investigator": inv,
+        "item_id": "bandages",
+        "decision_id": "use-restore",
+    })
+    assert replayed["ok"] is False
+    assert replayed["error"]["code"] == "state_corrupt"
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def test_item_earlier_decisions_replay_after_later_mutation(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "bandages",
+        "label": "Bandages",
+        "consumable": True,
+        "quantity": 2,
+        "decision_id": "grant-early",
+    })
+    used = _run(campaign_ws, "state.item_use", {
+        "investigator": inv,
+        "item_id": "bandages",
+        "decision_id": "use-later",
+    })
+    extra = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-later",
+    })
+    assert granted["ok"] and used["ok"] and extra["ok"]
+    replay_grant = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "bandages",
+        "label": "Bandages",
+        "consumable": True,
+        "quantity": 2,
+        "decision_id": "grant-early",
+    })
+    replay_use = _run(campaign_ws, "state.item_use", {
+        "investigator": inv,
+        "item_id": "bandages",
+        "decision_id": "use-later",
+    })
+    assert replay_grant["ok"] is True, replay_grant
+    assert replay_use["ok"] is True, replay_use
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    items = {row["item_id"]: row for row in listed["data"]["items"]}
+    assert items["bandages"]["quantity"] == 1
+    assert "lantern" in items
+    removed = _run(campaign_ws, "state.item_remove", {
+        "investigator": inv,
+        "item_id": "lantern",
+        "reason": "later remove",
+        "decision_id": "remove-later",
+    })
+    assert removed["ok"] is True
+    replay_remove = _run(campaign_ws, "state.item_remove", {
+        "investigator": inv,
+        "item_id": "lantern",
+        "reason": "later remove",
+        "decision_id": "remove-later",
+    })
+    assert replay_remove["ok"] is True
+    replay_grant_again = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "bandages",
+        "label": "Bandages",
+        "consumable": True,
+        "quantity": 2,
+        "decision_id": "grant-early",
+    })
+    assert replay_grant_again["ok"] is True
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    items = {row["item_id"]: row for row in listed["data"]["items"]}
+    assert items["bandages"]["quantity"] == 1
+    assert "lantern" not in items
+
+
+def test_item_replay_fails_closed_when_newer_receipt_outlives_rollback(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-keep",
+    })
+    path = campaign_ws["campaign_dir"] / "save" / "investigator-state" / f"{inv}.json"
+    before_second = json.loads(path.read_text(encoding="utf-8"))
+    _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "key",
+        "label": "Brass key",
+        "decision_id": "grant-newer",
+    })
+    after_second = json.loads(path.read_text(encoding="utf-8"))
+    rolled = deepcopy(before_second)
+    rolled["operation_receipts"] = after_second["operation_receipts"]
+    rolled["inventory_revision"] = after_second.get("inventory_revision")
+    path.write_text(json.dumps(rolled, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    replayed = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-keep",
+    })
+    assert replayed["ok"] is False
+    assert replayed["error"]["code"] == "state_corrupt"
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def test_item_npc_owner_identity_is_isolated(campaign_ws):
+    first = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "walter-corbitt",
+        "kind": "gear",
+        "item_id": "corbitt-key",
+        "label": "Rusted key",
+        "decision_id": "npc-a-grant-1",
+    })
+    second = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "npc-steven-knott",
+        "kind": "gear",
+        "item_id": "knott-card",
+        "label": "Calling card",
+        "decision_id": "npc-b-grant-1",
+    })
+    assert first["ok"] is True, first
+    assert second["ok"] is True, second
+    more_a = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "walter-corbitt",
+        "kind": "gear",
+        "item_id": "corbitt-book",
+        "label": "Ledger",
+        "decision_id": "npc-a-grant-2",
+    })
+    assert more_a["ok"] is True, more_a
+    replay_b = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "npc-steven-knott",
+        "kind": "gear",
+        "item_id": "knott-card",
+        "label": "Calling card",
+        "decision_id": "npc-b-grant-1",
+    })
+    replay_a = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "walter-corbitt",
+        "kind": "gear",
+        "item_id": "corbitt-key",
+        "label": "Rusted key",
+        "decision_id": "npc-a-grant-1",
+    })
+    assert replay_b["ok"] is True, replay_b
+    assert replay_a["ok"] is True, replay_a
+    listed_a = _run(campaign_ws, "state.inventory_list", {"npc_id": "walter-corbitt"})
+    listed_b = _run(campaign_ws, "state.inventory_list", {"npc_id": "npc-steven-knott"})
+    a_labels = listed_a["data"]["gear"]
+    b_labels = listed_b["data"]["gear"]
+    assert "Rusted key" in a_labels and "Ledger" in a_labels
+    assert "Calling card" in b_labels
+    assert "Ledger" not in b_labels
+    assert "Calling card" not in a_labels
+
+
+def test_item_source_receipt_truncation_fails_closed(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    first = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-keep-src",
+    })
+    second = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "key",
+        "label": "Brass key",
+        "decision_id": "grant-newer-src",
+    })
+    assert first["ok"] and second["ok"]
+    path = campaign_ws["campaign_dir"] / "save" / "investigator-state" / f"{inv}.json"
+    after_first = None
+    # Rebuild first-only source/inventory while leaving toolbox ledger intact.
+    after_second = json.loads(path.read_text(encoding="utf-8"))
+    receipts = after_second.get("operation_receipts") or {}
+    grant_receipts = dict(receipts.get("state.item_grant") or {})
+    grant_receipts.pop("grant-newer-src", None)
+    receipts["state.item_grant"] = grant_receipts
+    after_second["operation_receipts"] = receipts
+    after_second["inventory"]["entries"] = [
+        row for row in after_second["inventory"]["entries"] if row.get("item_id") != "key"
+    ]
+    after_second["inventory_revision"] = 1
+    path.write_text(json.dumps(after_second, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    replayed = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-keep-src",
+    })
+    assert replayed["ok"] is False
+    assert replayed["error"]["code"] == "state_corrupt"
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def test_item_npc_query_fails_closed_on_rollback(campaign_ws):
+    granted = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "walter-corbitt",
+        "kind": "gear",
+        "item_id": "corbitt-key",
+        "label": "Rusted key",
+        "decision_id": "npc-query-grant",
+    })
+    assert granted["ok"] is True, granted
+    path = campaign_ws["campaign_dir"] / "save" / "npc-state.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    receipts = document.get("operation_receipts") or {}
+    grant_receipts = dict(receipts.get("state.item_grant") or {})
+    grant_receipts.pop("npc-query-grant", None)
+    receipts["state.item_grant"] = grant_receipts
+    document["operation_receipts"] = receipts
+    items = document.get("items") or {}
+    npc_items = dict(items.get("walter-corbitt") or {})
+    npc_items["gear"] = [
+        label for label in (npc_items.get("gear") or []) if label != "Rusted key"
+    ]
+    items["walter-corbitt"] = npc_items
+    document["items"] = items
+    revisions = dict(document.get("inventory_revisions") or {})
+    revisions["walter-corbitt"] = 0
+    document["inventory_revisions"] = revisions
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    listed = _run(campaign_ws, "state.inventory_list", {"npc_id": "walter-corbitt"})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def _flood_toolbox_ledger(ws, count: int = 320) -> None:
+    path = ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    ledger = json.loads(path.read_text(encoding="utf-8"))
+    for index in range(count):
+        decision_id = f"flood-{index:04d}"
+        key = json.dumps(
+            ["state.set_flag", decision_id], ensure_ascii=False, separators=(",", ":")
+        )
+        ledger["entries"][key] = {
+            "entry_schema_version": 2,
+            "tool": "state.set_flag",
+            "decision_id": decision_id,
+            "ts": f"2099-01-01T00:00:00.{index:06d}+00:00",
+            "data": {"flag_id": decision_id},
+        }
+    path.write_text(json.dumps(ledger, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def test_asset_heads_survive_toolbox_ledger_trim(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-before-flood",
+    })
+    cash = _run(campaign_ws, "state.cash_grant", {
+        "investigator": inv,
+        "amount": 4,
+        "currency": "USD",
+        "source": "float",
+        "reason": "before flood",
+        "localized_reason": "开场零钱",
+        "decision_id": "cash-before-flood",
+    })
+    assert granted["ok"] and cash["ok"]
+    _flood_toolbox_ledger(campaign_ws)
+    later = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "key",
+        "label": "Brass key",
+        "decision_id": "grant-after-flood",
+    })
+    assert later["ok"] is True, later
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is True, listed
+    ids = {row["item_id"] for row in listed["data"]["items"]}
+    assert {"lantern", "key"} <= ids
+    queried = _run(campaign_ws, "state.cash_query", {"investigator": inv})
+    assert queried["ok"] is True, queried
+    assert queried["data"]["balances"]["USD"]["amount"] == "4.00"
+    spent = _run(campaign_ws, "state.cash_spend", {
+        "investigator": inv,
+        "amount": 1,
+        "currency": "USD",
+        "source": "fee",
+        "reason": "after flood",
+        "localized_reason": "事后车费",
+        "decision_id": "cash-after-flood",
+    })
+    assert spent["ok"] is True, spent
+
+
+def test_malformed_asset_heads_fail_closed(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "grant-before-bad-heads",
+    })
+    path = campaign_ws["campaign_dir"] / "save" / "toolbox-asset-heads.json"
+    path.write_text("{}\n", encoding="utf-8")
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+    queried = _run(campaign_ws, "state.cash_query", {"investigator": inv})
+    assert queried["ok"] is False
+    assert queried["error"]["code"] == "state_corrupt"
+
+
+def _patch_inventory_head(ws, owner_kind, owner_id, **changes):
+    path = ws["campaign_dir"] / "save" / "toolbox-asset-heads.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    key = f"inventory:{owner_kind}:{owner_id}"
+    document["heads"][key].update(changes)
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def test_inventory_head_tool_tamper_fails_closed(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "inv-head-tool",
+    })
+    assert granted["ok"] is True, granted
+    ok = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert ok["ok"] is True
+    _patch_inventory_head(campaign_ws, "investigator", inv, tool="state.item_remove")
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def test_inventory_head_decision_id_tamper_fails_closed(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "inv-head-id",
+    })
+    assert granted["ok"] is True, granted
+    _patch_inventory_head(
+        campaign_ws, "investigator", inv, decision_id="inv-other-id"
+    )
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def test_inventory_head_old_or_foreign_provenance_fails_closed(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    first = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "inv-head-old",
+    })
+    second = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "key",
+        "label": "Brass key",
+        "decision_id": "inv-head-new",
+    })
+    npc = _run(campaign_ws, "state.item_grant", {
+        "npc_id": "walter-corbitt",
+        "kind": "gear",
+        "item_id": "corbitt-key",
+        "label": "Rusted key",
+        "decision_id": "npc-head-foreign",
+    })
+    assert first["ok"] and second["ok"] and npc["ok"]
+    _patch_inventory_head(
+        campaign_ws,
+        "investigator",
+        inv,
+        tool="state.item_grant",
+        decision_id="inv-head-old",
+    )
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+    _patch_inventory_head(
+        campaign_ws,
+        "investigator",
+        inv,
+        tool="state.item_grant",
+        decision_id="npc-head-foreign",
+    )
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is False
+    assert listed["error"]["code"] == "state_corrupt"
+
+
+def test_item_replay_repairs_missing_or_stale_head(campaign_ws):
+    inv = campaign_ws["investigator_id"]
+    first = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "lantern",
+        "label": "Storm lantern",
+        "decision_id": "inv-head-repair-1",
+    })
+    second = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "key",
+        "label": "Brass key",
+        "decision_id": "inv-head-repair-2",
+    })
+    assert first["ok"] and second["ok"]
+    path = campaign_ws["campaign_dir"] / "save" / "toolbox-asset-heads.json"
+    key = f"inventory:investigator:{inv}"
+    heads = json.loads(path.read_text(encoding="utf-8"))
+    latest = deepcopy(heads["heads"][key])
+    stale = deepcopy(latest)
+    stale["revision_after"] = 1
+    stale["decision_id"] = "inv-head-repair-1"
+    del heads["heads"][key]
+    path.write_text(json.dumps(heads, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    assert _run(campaign_ws, "state.inventory_list", {"investigator": inv})["ok"] is False
+    replay_missing = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "key",
+        "label": "Brass key",
+        "decision_id": "inv-head-repair-2",
+    })
+    assert replay_missing["ok"] is True, replay_missing
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is True
+    ids = {row["item_id"] for row in listed["data"]["items"]}
+    assert {"lantern", "key"} <= ids
+    assert json.loads(path.read_text(encoding="utf-8"))["heads"][key]["decision_id"] == (
+        "inv-head-repair-2"
+    )
+    heads = json.loads(path.read_text(encoding="utf-8"))
+    heads["heads"][key] = stale
+    path.write_text(json.dumps(heads, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    replay_stale = _run(campaign_ws, "state.item_grant", {
+        "investigator": inv,
+        "kind": "gear",
+        "item_id": "key",
+        "label": "Brass key",
+        "decision_id": "inv-head-repair-2",
+    })
+    assert replay_stale["ok"] is True, replay_stale
+    listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert listed["ok"] is True
+    ids = {row["item_id"] for row in listed["data"]["items"]}
+    assert {"lantern", "key"} <= ids
+    repaired = json.loads(path.read_text(encoding="utf-8"))["heads"][key]
+    assert repaired["decision_id"] == "inv-head-repair-2"
+    assert repaired["revision_after"] == 2
+    _patch_inventory_head(campaign_ws, "investigator", inv, tool="state.item_remove")
+    tampered = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
+    assert tampered["ok"] is False
+    assert tampered["error"]["code"] == "state_corrupt"

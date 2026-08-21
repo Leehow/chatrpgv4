@@ -383,6 +383,7 @@ def test_display_character_without_campaign_is_sheet_only(item_workspace) -> Non
         character = resp["result"]["character"]
         assert character is not None
         assert character["inventory_items"] is None
+        assert character["cash"] is None
         assert character["equipment"]
     finally:
         client.close()

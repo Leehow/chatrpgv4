@@ -22,6 +22,8 @@ import type { JsonObject } from "./runtime.ts";
 
 export const MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE = "coc-mechanical-output-gate";
 
+export const SETTLED_OUTPUT_GATE_CUSTOM_TYPE = "coc-settled-output-gate";
+
 export const MECHANICAL_OUTPUT_GATE_INSTRUCTION = (
   "你的上一条输出包含正式机械标记（【明骰】／掷骰：N／SAN·HP 数值转移），"
   + "但本回合没有对应的权威收据，已被门禁拦截、未送达玩家。"
@@ -30,6 +32,14 @@ export const MECHANICAL_OUTPUT_GATE_INSTRUCTION = (
   + "roll_id，结算与 SAN/HP 落账走 state.* 并取得 decision_id——"
   + "再按收据数字渲染正式标记；禁止凭叙述编造或推算骰点与数值变动。"
   + "执行完成后重新输出即可放行。"
+);
+
+export const SETTLED_OUTPUT_GATE_INSTRUCTION = (
+  "你的上一条玩家可见正文没有本回合的 turn.finalize 权威收据，已被门禁拦截、"
+  + "未送达玩家。不要重掷、不要改写已经产生的规则或状态收据，也不要重新结算"
+  + "玩家行动。现在按现有收据与当前玩家原文依次完成 state.journal、"
+  + "turn.output_context、turn.finalize；最后只输出 turn.finalize 返回的 exact "
+  + "rendered_text。即使本回合没有公开骰或数值变化，也必须走同一个结算边界。"
 );
 
 export type MechanicalMarkerClass = "dice" | "resource";
@@ -105,5 +115,18 @@ export function buildMechanicalOutputGateEnvelope(
     uncovered_markers: uncoveredMarkers,
     action: "execute_then_render",
     instruction: MECHANICAL_OUTPUT_GATE_INSTRUCTION,
+  };
+}
+
+export function buildSettledOutputGateEnvelope(
+  playerTurnEpoch: number,
+): JsonObject {
+  return {
+    schema_version: 1,
+    kind: "settled_output_gate",
+    status: "intercepted",
+    player_turn_epoch: playerTurnEpoch,
+    action: "journal_context_finalize_exact",
+    instruction: SETTLED_OUTPUT_GATE_INSTRUCTION,
   };
 }

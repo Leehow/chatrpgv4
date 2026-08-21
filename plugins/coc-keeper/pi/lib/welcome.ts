@@ -95,8 +95,7 @@ export function characterSetupOpenInstruction(
     "The first player-visible turn is coc-character guidance in play_language (zh-Hans).",
     "Do not start the scenario scene, do not portray module NPCs as if the party exists,",
     "and do not treat this as a continuation of play.",
-    "Fixed opening sequence, no other campaign calls in between:",
-    "first",
+    "The first campaign operation must be",
     JSON.stringify({
       tool: "coc_setup",
       arguments: {
@@ -106,7 +105,12 @@ export function characterSetupOpenInstruction(
         arguments: {},
       },
     }),
-    "then immediately",
+    "If session.resume returns opening_setup_incomplete, follow",
+    "error.details.next_operation exactly before any other setup call.",
+    "Source review may require setup.review_source_facts and",
+    "setup.adopt_source_facts. Do not call setup.investigator_contract until",
+    "the authoritative adoption result says character_creation_unblocked=true.",
+    "Only after character creation is unblocked, call",
     JSON.stringify({
       tool: "coc_setup",
       arguments: {
@@ -146,6 +150,10 @@ export function tableOpenInstruction(
       "After that resume succeeds: if data.mode is awaiting_player and",
       "evidence.table_opening already exists, do not call evidence.table_opening",
       "or any coc_evidence_table_opening alias, and do not invent new opening prose.",
+      "If coc_evidence_table_opening is absent after resume, the persisted turn-0",
+      "opening already exists even if an older envelope still says table_opening:",
+      "do not call or replay it. Continue any current player action in this same",
+      "reply without asking the player to repeat or reconfirm it.",
       "At most replay existing session.delivery_text / delivery.exact_text.",
       "Wait for the player.",
     ].join(" ");
@@ -310,9 +318,7 @@ export function registerCocWelcome(
             ? {}
             : {
                 startup_campaign_id: startupCampaignId,
-                first_campaign_operation: intent === "character-setup"
-                  ? "setup.investigator_contract"
-                  : "session.resume",
+                first_campaign_operation: "session.resume",
               }),
         },
       },
@@ -407,9 +413,7 @@ export function registerCocWelcome(
           details: {
             schema_version: 1,
             campaign_id: startupCampaignId,
-            first_campaign_operation: intent === "character-setup"
-              ? "setup.investigator_contract"
-              : "session.resume",
+            first_campaign_operation: "session.resume",
           },
         },
         { triggerTurn: false },

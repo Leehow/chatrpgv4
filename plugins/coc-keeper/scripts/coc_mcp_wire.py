@@ -1597,6 +1597,12 @@ def _project_resume(data: Any, *, tight: bool) -> Any:
                 "operation_opportunities",
                 "compiled_archive_recovery",
                 "next_operations",
+                # Opening-lifecycle discriminator: a resume that still owes
+                # character creation carries this player-safe projection, and
+                # the Pi extension keeps the setup tool surface only when it
+                # survives the wire.  Dropping it deadlocks guided chargen.
+                "character_creation",
+                "opening_gate",
             ),
         ),
         "delivery": _compact_delivery(data.get("delivery"), tight=tight),

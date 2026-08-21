@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { listPiCatalogProviders, morePiProviders } from "./pi-catalog.mjs";
 import { resolveProductAgentDir, resolveProductSettingsPath } from "./agent-dir.mjs";
+import { applyKnownThinking } from "./known-thinking.mjs";
 import { normalizeHiddenProviderIds } from "./provider-visibility.mjs";
 
 // Main-window 编辑模型 editor. Reads the same featured cards and
@@ -339,7 +340,7 @@ export async function saveApiKeyProvider(agentDir, input, { fetchImpl } = {}) {
       if (m.reasoning === true) out.reasoning = true;
       if (m.compat && typeof m.compat === "object") out.compat = m.compat;
       if (m.thinkingLevelMap && typeof m.thinkingLevelMap === "object") out.thinkingLevelMap = m.thinkingLevelMap;
-      return out;
+      return applyKnownThinking({ providerId: id, baseUrl }, out);
     });
   if (!PROVIDER_ID_RE.test(id)) errors.push("提供方 ID 只能是小写字母、数字与连字符");
   if (!apiKey.trim()) errors.push("API Key 不能为空");
@@ -352,7 +353,9 @@ export async function saveApiKeyProvider(agentDir, input, { fetchImpl } = {}) {
       fetchImpl,
     });
     if (fetched.ok && fetched.models?.length) {
-      models = fetched.models.map((mid) => ({ id: mid, name: mid }));
+      models = fetched.models.map((mid) =>
+        applyKnownThinking({ providerId: id, baseUrl }, { id: mid, name: mid }),
+      );
     } else {
       errors.push("至少需要一个模型 ID");
     }

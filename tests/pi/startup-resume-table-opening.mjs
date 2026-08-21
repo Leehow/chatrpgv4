@@ -35,14 +35,21 @@ function harness(responseForCall, startupCampaignId, workspaceRoot = root) {
   };
   main.default(fakePi, {
     coordinatorEnabled: async () => false,
-    createClient: () => ({
-      callTool: async (name, params) => {
+    createClient: () => {
+      const callTool = async (name, params) => {
         if (name === "coc_capabilities") return { ok: true, host: "pi" };
         calls.push({ name, params });
         return responseForCall(name, params);
-      },
-      close: async () => {},
-    }),
+      };
+      return {
+        callTool,
+        callToolWithTransportMeta: async (name, params) => ({
+          value: await callTool(name, params),
+          transport: null,
+        }),
+        close: async () => {},
+      };
+    },
     startupCampaignId: () => startupCampaignId,
     welcomeAgentDir,
     launchCoordinator: () => ({

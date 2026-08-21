@@ -50,3 +50,28 @@ test("upsertProvider preserves richer fields on earlier model entries", async ()
   const grok46 = after.providers.xai.models.find((m) => m.id === "grok-4.6");
   assert.equal(grok46.contextWindow, 1000000);
 });
+
+test("upsertProvider stamps JellyToken DeepSeek V4 Flash thinking metadata", async () => {
+  const dir = tmpAgentDir();
+  const result = await upsertProvider(dir, {
+    id: "jellytoken",
+    label: "JellyToken",
+    api: "openai-completions",
+    baseUrl: "https://aiservice.jellytoken.com/v1",
+    apiKey: "sk-test",
+    models: [
+      { id: "deepseek-v4-flash", name: "deepseek-v4-flash" },
+      { id: "glm-5.2", name: "GLM 5.2" },
+    ],
+  });
+  assert.equal(result.ok, true);
+  const doc = JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf8"));
+  const flash = doc.providers.jellytoken.models.find((m) => m.id === "deepseek-v4-flash");
+  const glm = doc.providers.jellytoken.models.find((m) => m.id === "glm-5.2");
+  assert.equal(flash.reasoning, true);
+  assert.equal(flash.compat.thinkingFormat, "deepseek");
+  assert.equal(flash.thinkingLevelMap.max, "max");
+  assert.equal(glm.reasoning, true);
+  assert.equal(glm.compat.thinkingFormat, "deepseek");
+  assert.equal(glm.thinkingLevelMap.xhigh, "xhigh");
+});

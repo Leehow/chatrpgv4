@@ -402,6 +402,10 @@ def test_opening_prompt_carries_chargen_deltas_and_module_meta_shape_rules(
     )
     assert "use [] when the source names none -- never null" in prompt
     assert "Do not expose full source text in L0" in prompt
+    assert "Every source_refs or inspected_source_refs array MUST contain 1 to 3" in prompt
+    assert "content_flags is not an exception" in prompt
+    assert "era.value MUST be exactly one canonical era key" in prompt
+    assert "roman" in prompt
 
 
 

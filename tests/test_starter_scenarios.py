@@ -54,6 +54,20 @@ def test_starter_investigation_affordances_bind_exact_clues_structurally():
         "clue-basalt-shaft-no-echo", "clue-drag-marks-into-shaft",
     ]
 
+    saddle = scene("the-white-war", "crossing-saddle")
+    saddle_routes = {row["id"]: row for row in saddle["affordances"]}
+    assert saddle_routes["scout-austrian-line-from-saddle"]["grants_clue_ids"] == [
+        "clue-hasty-abandonment",
+    ]
+    assert "clue-hasty-abandonment" in saddle["available_clues"]
+
+    austrian = scene("the-white-war", "austrian-positions")
+    austrian_routes = {row["id"]: row for row in austrian["affordances"]}
+    assert austrian_routes["observe-positions-through-glass"]["grants_clue_ids"] == [
+        "clue-hasty-abandonment",
+        "clue-guns-turned-inward",
+    ]
+
 
 def test_haunting_canonical_clues_do_not_launder_invented_bonus_facts():
     graph = json.loads((

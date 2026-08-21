@@ -254,6 +254,36 @@ test("saveApiKeyProvider fetches OpenAI-style /models when no model ID is given"
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("saveApiKeyProvider stamps JellyToken DeepSeek V4 Flash thinking metadata", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "coc-jt-stamp-"));
+  const agentDir = path.join(root, "pi-agent");
+  const saved = await saveApiKeyProvider(
+    agentDir,
+    {
+      id: "jellytoken",
+      apiKey: "sk-secret",
+      label: "JellyToken",
+      baseUrl: "https://aiservice.jellytoken.com/v1",
+      models: [
+        { id: "deepseek-v4-flash", name: "deepseek-v4-flash" },
+        { id: "glm-5.2", name: "GLM 5.2" },
+      ],
+    },
+  );
+  assert.equal(saved.ok, true);
+  const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+  const flash = models.providers.jellytoken.models.find((m) => m.id === "deepseek-v4-flash");
+  const glm = models.providers.jellytoken.models.find((m) => m.id === "glm-5.2");
+  assert.equal(flash.reasoning, true);
+  assert.equal(flash.compat.thinkingFormat, "deepseek");
+  assert.equal(flash.thinkingLevelMap.xhigh, "xhigh");
+  assert.equal(flash.thinkingLevelMap.max, "max");
+  assert.equal(glm.reasoning, true);
+  assert.equal(glm.compat.thinkingFormat, "deepseek");
+  assert.equal(glm.thinkingLevelMap.xhigh, "xhigh");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("save adds xai to hidden when both method cards are hidden", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "coc-model-editor-"));
   const settingsPath = path.join(root, "coc-desktop-settings.json");

@@ -151,7 +151,7 @@ export function CharCreatorWizard({
         ? pointBuy.INT
         : undefined;
 
-  const sceneLabel = state?.active_scene_label || state?.active_scene_id || "";
+  const sceneLabel = state?.active_scene_label || "";
   const timeLabel = state?.time?.display || "";
 
   const methodNeedsConfig =

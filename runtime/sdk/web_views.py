@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from runtime.sdk.weapon_display import enrich_weapon_row, load_weapon_presets
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -71,11 +73,152 @@ def campaign_compat(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
     return {"exists": True, "schema_version": schema, "compatible": compatible}
 
 
+# Fields copied from the campaign-local cash ledger (same shape as
+# ``state.cash_query`` / ``coc_cash``). Never invent keys or parse prose.
+_CASH_LEDGER_PUBLIC = (
+    "decision_id",
+    "op",
+    "amount",
+    "currency",
+    "unit",
+    "balance_before",
+    "balance_after",
+    "localized_reason",
+    "game_time",
+    "player_time",
+)
+_CASH_LEDGER_AUDIT = frozenset({"source", "reason", "tool", "recorded_at"})
+_CASH_GAME_TIME_PUBLIC = ("elapsed_minutes", "display", "day_phase", "player_time")
+_CASH_PLAYER_TIME_PUBLIC = ("phase", "appearance_mode", "display_label")
+_CASH_LEDGER_RECENT = 12
+
+
+def _empty_cash_view() -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "balances": {},
+        "ledger": [],
+    }
+
+
+def _project_player_time(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in _CASH_PLAYER_TIME_PUBLIC:
+        if key not in raw:
+            continue
+        value = raw[key]
+        if value is None:
+            out[key] = None
+        elif isinstance(value, str):
+            out[key] = value
+    return out or None
+
+
+def _project_game_time(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, Any] = {}
+    elapsed = raw.get("elapsed_minutes")
+    if isinstance(elapsed, int) and not isinstance(elapsed, bool) and elapsed >= 0:
+        out["elapsed_minutes"] = elapsed
+    display = raw.get("display")
+    if isinstance(display, str):
+        out["display"] = display
+    day_phase = raw.get("day_phase")
+    if isinstance(day_phase, str) and day_phase:
+        out["day_phase"] = day_phase
+    player_time = _project_player_time(raw.get("player_time"))
+    if player_time is not None:
+        out["player_time"] = player_time
+    return out or None
+
+
+def _project_cash_ledger_row(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    op = row.get("op")
+    if op not in {"grant", "spend"}:
+        return None
+    amount = row.get("amount")
+    if not isinstance(amount, str) or not amount:
+        return None
+    out: dict[str, Any] = {"op": op, "amount": amount}
+    for key in _CASH_LEDGER_PUBLIC:
+        if key in {"op", "amount", "game_time", "player_time"}:
+            continue
+        if key not in row:
+            continue
+        value = row[key]
+        if isinstance(value, str) and value:
+            out[key] = value
+    game_time = _project_game_time(row.get("game_time"))
+    if game_time is not None:
+        out["game_time"] = game_time
+    player_time = _project_player_time(row.get("player_time"))
+    if player_time is None and game_time is not None:
+        player_time = game_time.get("player_time") if isinstance(
+            game_time.get("player_time"), dict
+        ) else None
+    if player_time is not None:
+        out["player_time"] = player_time
+    for leaked in _CASH_LEDGER_AUDIT:
+        out.pop(leaked, None)
+    return out
+
+
+def _project_cash(raw: Any, *, workspace: Path | None = None) -> dict[str, Any]:
+    """Read-only cash view from investigator-state ``cash`` (cash_query source).
+
+    Prefer ``coc_cash.normalize_cash`` when the plugin module exists so the
+    projection stays aligned with ``state.cash_query``. Missing or corrupt
+    ledgers become the empty view; the panel must not crash.
+    """
+    if workspace is not None:
+        try:
+            coc_cash = _load_plugin_module(workspace, "coc_cash")
+        except Exception:  # noqa: BLE001 - older plugin trees lack the module
+            coc_cash = None
+        if coc_cash is not None:
+            try:
+                normalized = coc_cash.normalize_cash(raw)
+            except Exception:  # noqa: BLE001 - corrupt ledger is an empty view
+                return _empty_cash_view()
+            ledger = [
+                projected
+                for row in (normalized.get("ledger") or [])
+                if (projected := _project_cash_ledger_row(row)) is not None
+            ]
+            return {
+                "schema_version": normalized.get("schema_version") or 2,
+                "balances": normalized.get("balances") or {},
+                "ledger": ledger[-_CASH_LEDGER_RECENT:],
+            }
+    if raw is None or not isinstance(raw, dict):
+        return _empty_cash_view()
+    if raw.get("schema_version") != 2 or not isinstance(raw.get("balances"), dict):
+        return _empty_cash_view()
+    ledger: list[dict[str, Any]] = []
+    ledger_raw = raw.get("ledger")
+    if isinstance(ledger_raw, list):
+        for row in ledger_raw:
+            projected = _project_cash_ledger_row(row)
+            if projected is not None:
+                ledger.append(projected)
+    return {
+        "schema_version": 2,
+        "balances": raw.get("balances") or {},
+        "ledger": ledger[-_CASH_LEDGER_RECENT:],
+    }
+
+
 def _display_character(
     workspace: Path,
     character: dict[str, Any],
     play_language: str,
     inventory: dict[str, Any] | None = None,
+    cash: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project one character sheet into player-facing display labels.
 
@@ -89,6 +232,8 @@ def _display_character(
     given, weapons and items reflect live play: granted gear/weapons appear,
     recorded losses drop out, and ``inventory_items`` carries the structured
     parameters (quantity/consumable/note) the sidebar renders and acts on.
+    When ``cash`` is given (same investigator-state file as ``state.cash_query``),
+    the panel receives the current balance and recent ledger rows.
     """
     coc_language = _load_plugin_module(workspace, "coc_language")
     suffix = {"zh-Hans": "zh", "zh": "zh"}.get(play_language)
@@ -176,6 +321,7 @@ def _display_character(
             if wid and isinstance(label, str) and label.strip():
                 entry_weapon_labels[wid] = label.strip()
     weapons: list[dict[str, Any]] = []
+    _weapon_presets = load_weapon_presets()
     for weapon in weapon_rows:
         if not isinstance(weapon, dict):
             continue
@@ -187,17 +333,21 @@ def _display_character(
                 str(weapon["skill"]), play_language, terms=terms
             )
         weapons.append(
-            {
-                "label": pf_weapon.get("label")
-                or entry_weapon_labels.get(weapon_id)
-                or weapon.get("label")
-                or weapon.get("name")
-                or weapon.get("weapon_id"),
-                "skill_label": skill,
-                "damage": weapon.get("damage"),
-                "range": weapon.get("range"),
-                "ammo": pf_weapon.get("ammo_capacity", weapon.get("ammo")),
-            }
+            enrich_weapon_row(
+                {
+                    "weapon_id": weapon_id,
+                    "label": pf_weapon.get("label")
+                    or entry_weapon_labels.get(weapon_id)
+                    or weapon.get("label")
+                    or weapon.get("name")
+                    or weapon.get("weapon_id"),
+                    "skill_label": skill,
+                    "damage": weapon.get("damage"),
+                    "range": weapon.get("range") or weapon.get("range_yards"),
+                    "ammo": pf_weapon.get("ammo_capacity", weapon.get("ammo") or weapon.get("ammo_per_clip")),
+                },
+                presets=_weapon_presets,
+            )
         )
 
     raw_derived = character.get("derived")
@@ -278,6 +428,7 @@ def _display_character(
         "weapons": weapons,
         "equipment": equipment,
         "inventory_items": inventory_items,
+        "cash": cash,
         "localized": sheet is not None,
     }
 
@@ -307,6 +458,7 @@ def display_character(
         return None
     character = dict(raw)
     inventory: dict[str, Any] | None = None
+    cash: dict[str, Any] | None = None
     if campaign_id:
         state_path = (
             _campaign_dir(workspace, campaign_id)
@@ -319,9 +471,17 @@ def display_character(
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             inv_state = None
         if isinstance(inv_state, dict):
-            coc_inventory = _load_plugin_module(workspace, "coc_inventory")
-            inventory = coc_inventory.normalize_inventory(inv_state)
-    return _display_character(workspace, character, play_language, inventory=inventory)
+            try:
+                coc_inventory = _load_plugin_module(workspace, "coc_inventory")
+                inventory = coc_inventory.normalize_inventory(inv_state)
+            except Exception:  # noqa: BLE001 - inventory is independent of cash
+                inventory = None
+            cash = _project_cash(inv_state.get("cash"), workspace=workspace)
+        else:
+            cash = _empty_cash_view()
+    return _display_character(
+        workspace, character, play_language, inventory=inventory, cash=cash
+    )
 
 
 def list_library_modules(workspace: Path | str) -> list[dict[str, Any]]:
@@ -414,7 +574,27 @@ def project_campaign_state(
     actor_id = investigator_id.strip() if isinstance(investigator_id, str) else None
     if actor_id == "":
         actor_id = None
-    return public_state.build_public_state(workspace, campaign_id, actor_id)
+    projected = public_state.build_public_state(workspace, campaign_id, actor_id)
+    projected["opening_phase"] = _project_opening_phase(workspace, campaign_id)
+    return projected
+
+
+def _project_opening_phase(
+    workspace: Path, campaign_id: str
+) -> dict[str, Any] | None:
+    """Single opening-lifecycle phase for the UI.
+
+    The browser must not re-derive setup progress from directory scans; this is
+    the same plugin derivation the Keeper gate and ``setup.complete`` consume.
+    """
+    try:
+        coc_opening_phase = _load_plugin_module(workspace, "coc_opening_phase")
+    except Exception:  # noqa: BLE001 - projection stays renderable without it
+        return None
+    try:
+        return coc_opening_phase.opening_phase_projection(workspace, campaign_id)
+    except Exception:  # noqa: BLE001 - a corrupt campaign is not a UI crash
+        return None
 
 
 def public_transcript_base(

@@ -1087,6 +1087,24 @@ def _validate_changed_opening_sources_before_write(
     skeleton = coc_module_assets.get_skeleton(workspace, str(asset_root_id))
     if not isinstance(skeleton, dict):
         return
+    # After the selected opening has been projected, every later IR writer
+    # (scene entry, detached deep-pack merge, NPC/clue enrichment) must reuse
+    # that exact durable source window.  Falling back to the broader skeleton
+    # locator can reject a perfectly valid selected one-page opening when the
+    # locator itself spans more than three pages.
+    durable_binding = (
+        scenario.get("opening_projection_source_binding")
+        if isinstance(scenario.get("opening_projection_source_binding"), dict)
+        else {}
+    )
+    durable_start_id = str(
+        durable_binding.get("start_location_id") or ""
+    ).strip()
+    durable_scope = (
+        durable_binding.get("source_scope")
+        if isinstance(durable_binding.get("source_scope"), dict)
+        else None
+    )
     for candidate in opening_start_candidates(skeleton):
         start_id = candidate["location_id"]
         scene = candidate_scenes.get(start_id)
@@ -1102,6 +1120,10 @@ def _validate_changed_opening_sources_before_write(
         ):
             scope = coc_module_assets.validate_opening_source_scope(
                 workspace, str(asset_root_id), opening_source_scope,
+            )
+        elif durable_scope is not None and start_id == durable_start_id:
+            scope = coc_module_assets.validate_opening_source_scope(
+                workspace, str(asset_root_id), durable_scope,
             )
         else:
             scope = resolve_opening_source_window(
@@ -1728,6 +1750,7 @@ def opening_pack_readiness(
     required_npc_ids: list[str] | None = None,
     required_secret_ids: list[str] | None = None,
     required_source_scope: dict[str, Any] | None = None,
+    host_work_mode: str = "mutating",
 ) -> dict[str, Any]:
     """Return deterministic structural readiness for one selected start pack."""
     blockers: list[dict[str, Any]] = []
@@ -1823,9 +1846,25 @@ def opening_pack_readiness(
                 pack
             )
             job_id = str((ingest_receipt or {}).get("job_id") or "").strip()
-            requests = coc_module_assets.list_host_work_requests(
-                workspace, asset_root_id, include_closed=True, limit=None,
-            )
+            host_work_facts_complete = True
+            if host_work_mode == "pure_read":
+                requests = coc_module_assets.inspect_host_work_requests_pure(
+                    workspace, asset_root_id, include_closed=True, limit=None,
+                )
+                if requests is None:
+                    # Never repair or reinterpret incomplete lifecycle input on
+                    # a parallel read.  The caller must retain its existing
+                    # opening gate until a serial materialization observes it.
+                    host_work_facts_complete = False
+                    requests = []
+                    blockers.append({
+                        "code": "opening_host_work_snapshot_unknown",
+                        "entity_id": start_location_id,
+                    })
+            else:
+                requests = coc_module_assets.list_host_work_requests(
+                    workspace, asset_root_id, include_closed=True, limit=None,
+                )
             request = next(
                 (
                     row for row in requests
@@ -1876,7 +1915,7 @@ def opening_pack_readiness(
                     )
                 except coc_module_assets.ModuleAssetsError:
                     exact_partial = False
-            if not exact_partial:
+            if not exact_partial and host_work_facts_complete:
                 blockers.append({
                     "code": "opening_partial_binding_invalid",
                     "entity_id": start_location_id,
@@ -2165,6 +2204,8 @@ def _repository_qualified_opening_inputs(
     asset_root_id: str,
     start_location_id: str,
     required_source_scope: dict[str, Any],
+    *,
+    host_work_mode: str = "mutating",
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Load and authenticate the current opening pack from durable state."""
     try:
@@ -2224,6 +2265,7 @@ def _repository_qualified_opening_inputs(
         root_id,
         start_id,
         required_source_scope=canonical_scope,
+        host_work_mode=host_work_mode,
     )
     if not readiness.get("ready"):
         blockers = [
@@ -2249,6 +2291,8 @@ def build_opening_projection_payload(
     asset_root_id: str,
     start_location_id: str,
     required_source_scope: dict[str, Any],
+    *,
+    host_work_mode: str = "mutating",
 ) -> dict[str, Any]:
     pack, source_binding, _canonical_scope = (
         _repository_qualified_opening_inputs(
@@ -2256,6 +2300,7 @@ def build_opening_projection_payload(
             asset_root_id,
             start_location_id,
             required_source_scope,
+            host_work_mode=host_work_mode,
         )
     )
     location = _opening_location_projection_record(pack)
@@ -2359,7 +2404,23 @@ def adopt_source_era(campaign_dir: Path, era: str) -> dict[str, Any]:
     player-facing setup briefing that was rendered while the period was unknown.
     """
     campaign_dir = Path(campaign_dir)
-    _sync_campaign_era_clock_from_meta(campaign_dir, {"era": era})
+    # Fast source facts establish the campaign era, not a scenario-specific
+    # civil date.  Keep a raw-PDF campaign unanchored until the progressive
+    # skeleton supplies source-backed start_clock evidence; borrowing the
+    # generic 1920s epoch here produces visible contradictions such as a
+    # January 1925 clock beside an authored April 1926/1927 opening.
+    _sync_campaign_era_clock_from_meta(campaign_dir, {
+        "era": era,
+        "start_clock": {
+            "calendar_mode": "relative",
+            "local_datetime": None,
+            "local_date": None,
+            "timezone": None,
+            "display": "",
+            "time_precision": "unknown",
+            "day_phase_hint": None,
+        },
+    })
     camp = _load_json(campaign_dir / "campaign.json", {})
     return {
         "era": str(camp.get("era") or "") if isinstance(camp, dict) else "",
@@ -3431,6 +3492,8 @@ def opening_projection_state_is_fresh(
     asset_root_id: str,
     start_location_id: str,
     required_source_scope: dict[str, Any],
+    *,
+    host_work_mode: str = "mutating",
 ) -> bool:
     """Require durable binding, five-field receipt, and source slice agreement.
 
@@ -3448,6 +3511,7 @@ def opening_projection_state_is_fresh(
             asset_root_id,
             start_location_id,
             required_source_scope,
+            host_work_mode=host_work_mode,
         )
         receipt = opening_projection_receipt(
             asset_root_id, start_location_id, payload,
@@ -3687,7 +3751,11 @@ def drain_opening_projection_watches(
             # Projection writers use the same canonical scenario lock. The
             # watch attempt itself never writes a pre-attempt scenario copy.
             project_skeleton_to_campaign(
-                workspace, campaign_id, asset_root_id,
+                workspace,
+                campaign_id,
+                asset_root_id,
+                opening_start_location_id=start_location_id,
+                opening_source_scope=canonical_scope,
             )
             projection = project_selected_opening(
                 workspace,
@@ -3937,6 +4005,9 @@ def _reapply_stored_deep_packs(
     workspace: Path,
     asset_root_id: str,
     ir: dict[str, Any],
+    *,
+    opening_start_location_id: str | None = None,
+    opening_source_scope: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Re-merge deep entity packs from the store after a skeleton re-projection.
 
@@ -3963,6 +4034,23 @@ def _reapply_stored_deep_packs(
             continue
         if pack.get("evidence_gap"):
             continue
+        # A reusable deep opening may have been compiled for a different page
+        # window than the one selected for this campaign.  Do not temporarily
+        # project that incompatible slice while bootstrap is preparing the
+        # exact selected L0/source pack; the normal selected-opening write will
+        # replace it immediately after this sparse projection.
+        if (
+            kind == "location"
+            and entity_id == opening_start_location_id
+            and opening_source_scope is not None
+            and not opening_pack_readiness(
+                workspace,
+                asset_root_id,
+                entity_id,
+                required_source_scope=opening_source_scope,
+            ).get("ready")
+        ):
+            continue
         ir = merge_deep_entity_into_ir(ir, kind, pack)
         reapplied.append(f"{kind}:{entity_id}")
     return ir, reapplied
@@ -3972,14 +4060,29 @@ def project_skeleton_to_campaign(
     workspace: Path,
     campaign_id: str,
     asset_root_id: str,
+    *,
+    opening_start_location_id: str | None = None,
+    opening_source_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     skeleton = coc_module_assets.get_skeleton(workspace, asset_root_id)
     if not skeleton:
         raise ModuleProjectError("skeleton.json missing; put_skeleton first")
     ir = project_skeleton_to_ir(skeleton)
-    ir, reapplied = _reapply_stored_deep_packs(workspace, asset_root_id, ir)
+    ir, reapplied = _reapply_stored_deep_packs(
+        workspace,
+        asset_root_id,
+        ir,
+        opening_start_location_id=opening_start_location_id,
+        opening_source_scope=opening_source_scope,
+    )
     campaign_dir = _campaign_dir(workspace, campaign_id)
-    paths = write_ir_to_campaign(campaign_dir, ir, asset_root_id=asset_root_id)
+    paths = write_ir_to_campaign(
+        campaign_dir,
+        ir,
+        asset_root_id=asset_root_id,
+        opening_start_location_id=opening_start_location_id,
+        opening_source_scope=opening_source_scope,
+    )
     return {
         "campaign_id": campaign_id,
         "asset_root_id": asset_root_id,

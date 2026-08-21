@@ -25,8 +25,9 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { classifyToolCall } from "./domain-tools.ts";
+import type { McpTransportMeta } from "./runtime.ts";
 
-export const TURN_TELEMETRY_SCHEMA_VERSION = 3;
+export const TURN_TELEMETRY_SCHEMA_VERSION = 4;
 
 export type TelemetryUsage = {
   input: number;
@@ -91,6 +92,8 @@ export type ToolCallStep = {
   args_bytes: number | null;
   result_bytes: number | null;
   is_error: boolean;
+  /** Internal MCP scheduler receipt; never copied into tool content. */
+  transport: McpTransportMeta | null;
   start: TelemetryMark;
   end: TelemetryMark;
 };
@@ -357,6 +360,7 @@ type ActiveTurn = {
     transportTool: string | null;
     canonicalOperation: string | null;
     argsBytes: number | null;
+    transport: McpTransportMeta | null;
   }>;
   modelCalls: number;
   turnIndex: number | null;
@@ -367,6 +371,8 @@ export type TurnTelemetry = {
   sessionTotals(): { turns: number; wall_ms: number; model_ms: number; tool_ms: number };
   isSummaryEnabled(): boolean;
   setSummaryEnabled(enabled: boolean): void;
+  /** Attach the MCP-only scheduling receipt to the matching host tool call. */
+  recordTransportMeta(toolCallId: string, meta: McpTransportMeta | null): void;
 };
 
 export function registerTurnTelemetry(
@@ -688,6 +694,7 @@ export function registerTurnTelemetry(
       transportTool: classified.transport_tool,
       canonicalOperation: classified.canonical_operation,
       argsBytes: byteLength(typed?.args),
+      transport: null,
     });
   });
 
@@ -720,6 +727,7 @@ export function registerTurnTelemetry(
       args_bytes: entry?.argsBytes ?? null,
       result_bytes: byteLength(typed?.result),
       is_error: typed?.isError === true,
+      transport: entry?.transport ?? null,
       start: entry?.start ?? end,
       end,
     });
@@ -728,6 +736,12 @@ export function registerTurnTelemetry(
   pi.on("agent_end", async (_event: unknown, ctx: ExtensionContext | undefined) => {
     await finalizeTurn(ctx, false);
   });
+
+  const recordTransportMeta = (toolCallId: string, meta: McpTransportMeta | null) => {
+    if (!meta || !active) return;
+    const entry = active.openTools.get(toolCallId);
+    if (entry) entry.transport = meta;
+  };
 
   const sessionTotals = () => {
     let wallMs = 0;
@@ -785,6 +799,7 @@ export function registerTurnTelemetry(
     setSummaryEnabled: (enabled: boolean) => {
       summaryEnabled = enabled;
     },
+    recordTransportMeta,
   };
 }
 

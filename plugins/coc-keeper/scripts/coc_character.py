@@ -1637,11 +1637,38 @@ def build_era_adaptive_chargen_payload(
         "skill_point_formula": formula,
         "formula_reason": formula_reason,
     }
+    # The deterministic helper above materializes the package-owned 1920s
+    # standard sheet so it can reuse its allocation arithmetic.  That full
+    # catalog is not an era-neutral investigator sheet: carrying it forward
+    # leaks entries such as Drive Auto, firearms, and Electrical Repair into
+    # Roman/medieval play.  The era-adaptive contract instead makes the live
+    # KP choose the occupation and interest skills semantically.  Preserve
+    # exactly those selected rows plus the three rules-level core rows; omit
+    # every unselected 1920s default.
+    selected_skill_ids = {
+        skill_id
+        for account in creation_qf["skill_budget"].values()
+        for skill_id in account["allocations"]
+    } | {"Dodge", "Language (Own)", "Cthulhu Mythos"}
     skills = {
         key: int(value)
         for key, value in (_sheet.get("skills") or {}).items()
-        if isinstance(value, int) and not isinstance(value, bool)
+        if key in selected_skill_ids
+        and isinstance(value, int)
+        and not isinstance(value, bool)
     }
+    skill_provenance: dict[str, dict[str, Any]] = {}
+    if "Credit Rating" in skills:
+        skill_provenance["Credit Rating"] = {
+            "original_name": "Credit Rating",
+            "reskinned_name": "地位与财力",
+            "era_adaptive": True,
+        }
+    localized_rows = _localized_skill_rows(skills)
+    for row in localized_rows:
+        provenance = skill_provenance.get(str(row.get("key") or ""))
+        if provenance is not None:
+            row["label"] = provenance["reskinned_name"]
     sheet = {
         "id": investigator_id,
         "name": name,
@@ -1653,10 +1680,10 @@ def build_era_adaptive_chargen_payload(
         "characteristics": characteristics,
         "derived": derived,
         "skills": skills,
-        "skill_provenance": {},
+        "skill_provenance": skill_provenance,
         "player_facing_sheet_zh": {
             "display_name": name,
-            "skills": _localized_skill_rows(skills),
+            "skills": localized_rows,
         },
     }
     creation = {

@@ -4870,6 +4870,27 @@ def _install_kp_guided_era_adaptive_contract_branch(
     ]
 
 
+_OPENING_PHASE_MODULE: Any | None = None
+
+
+def _opening_phase_module():
+    """Lazy handle on the single opening-phase derivation.
+
+    Loaded lazily because ``coc_opening_phase`` reads this module's persisted
+    source-contract validators; importing it at module scope would cycle.
+    """
+    global _OPENING_PHASE_MODULE
+    if _OPENING_PHASE_MODULE is None:
+        import sys
+
+        _OPENING_PHASE_MODULE = sys.modules.get(
+            "coc_opening_phase"
+        ) or _load_sibling(
+            "coc_opening_phase_runtime_ops", "coc_opening_phase.py",
+        )
+    return _OPENING_PHASE_MODULE
+
+
 def _opening_projection_ref(campaign_dir: Path) -> dict[str, Any] | None:
     receipt = coc_module_project.current_opening_projection_receipt(campaign_dir)
     if isinstance(receipt, dict):
@@ -4947,42 +4968,23 @@ def _execute_campaign_complete(
             code=exc.code,
             details=exc.to_dict(),
         ) from exc
-    import coc_toolbox
-    if not coc_toolbox._campaign_has_confirmed_investigator(
-        campaign_dir, campaign_id,
-    ):
+    # Single lifecycle authority: the derived opening phase owns both blocking
+    # conditions (confirmed chargen, source readiness) so this handler never
+    # re-assembles them from files.
+    derived = _opening_phase_module().derive_opening_phase(root, campaign_id)
+    detail = derived["detail"]
+    chargen_blocker = detail["character_setup"]["blocking_reason"]
+    if chargen_blocker is not None:
         raise RuntimeOperationError(
-            "character setup is incomplete; a confirmed investigator is required",
-            code="character_setup_incomplete",
+            chargen_blocker["message"],
+            code=chargen_blocker["code"],
         )
-    readiness = coc_module_project.opening_source_readiness(campaign_dir)
-    state = str(readiness.get("state") or "")
-    if state == coc_module_project.OPENING_SOURCE_FAILED:
+    source_blocker = detail["module_preparation"]["blocking_reason"]
+    if source_blocker is not None:
         raise RuntimeOperationError(
-            "the bound source opening failed to parse and project",
-            code="opening_source_failed",
-            details={"readiness": readiness},
-        )
-    if state == coc_module_project.OPENING_SOURCE_NOT_PREPARED:
-        raise RuntimeOperationError(
-            "this campaign is source-bound but no opening projection was ever prepared",
-            code="opening_source_not_prepared",
-            details={"readiness": readiness},
-        )
-    if state == coc_module_project.OPENING_SOURCE_PENDING:
-        raise RuntimeOperationError(
-            "the background source parse has not projected the opening yet",
-            code="opening_source_pending",
-            details={"readiness": readiness},
-        )
-    if state not in {
-        coc_module_project.OPENING_SOURCE_NOT_GATED,
-        coc_module_project.OPENING_SOURCE_READY,
-    }:
-        raise RuntimeOperationError(
-            "the background source parse has not projected the opening yet",
-            code="opening_source_pending",
-            details={"readiness": readiness},
+            source_blocker["message"],
+            code=source_blocker["code"],
+            details=source_blocker.get("details"),
         )
     party = json.loads((campaign_dir / "party.json").read_text(encoding="utf-8"))
     investigator_ids = [

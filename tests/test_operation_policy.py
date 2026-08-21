@@ -24,8 +24,7 @@ coc_operation_policy = coc_toolbox.coc_operation_policy
 
 def test_every_registered_operation_has_valid_policy():
     names = sorted(coc_toolbox.TOOLS)
-    assert "rules.catalog_search" in names
-    assert len(names) == 116
+    assert len(names) == 117
     policies = coc_operation_policy.policies_for_operations(names)
     assert set(policies) == set(names)
     for name, policy in policies.items():
@@ -38,6 +37,45 @@ def test_every_registered_operation_has_valid_policy():
         assert public["advisory"] is True or public["advisory"] is False
         attached = coc_toolbox.TOOLS[name]["policy"]
         assert coc_operation_policy.public_policy(attached) == public
+
+
+def test_execution_class_is_explicit_exported_and_fails_closed():
+    allowed = {"parallel_read", "serial_campaign", "serial_global"}
+    assert {spec["execution_class"] for spec in coc_toolbox.TOOLS.values()} <= allowed
+    assert {
+        name for name, spec in coc_toolbox.TOOLS.items()
+        if spec["execution_class"] == "parallel_read"
+    } == {"rules.skill_describe", "setup.phase"}
+    for name in (
+        "npc.reaction",
+        "progressive.prepare_opening",
+        "state.inventory_list",
+        "rules.roll",
+        "rules.roll_dice",
+        "state.journal",
+        "state.move_scene",
+        "setup.complete",
+        "turn.finalize",
+    ):
+        assert coc_toolbox.TOOLS[name]["execution_class"] == "serial_campaign"
+    assert coc_toolbox._describe("setup.phase")["execution_class"] == "parallel_read"
+    listed = {row["name"]: row for row in coc_toolbox.list_tools()}
+    assert listed["progressive.prepare_opening"]["execution_class"] == "serial_campaign"
+
+    with pytest.raises(ValueError, match="parallel_read requires strict_read_only"):
+        coc_toolbox.tool(
+            "test.invalid_parallel_read", "test", {}, access="query",
+            execution_class="parallel_read",
+        )
+
+    @coc_toolbox.tool("test.unknown_execution_class", "test", {}, access="query", execution_class="unknown")
+    def _unknown_execution_class(_ctx, _args):
+        return {}, [], []
+
+    try:
+        assert coc_toolbox.TOOLS["test.unknown_execution_class"]["execution_class"] == "serial_campaign"
+    finally:
+        del coc_toolbox.TOOLS["test.unknown_execution_class"]
 
 
 def test_exception_map_must_match_registry_exactly():
@@ -140,6 +178,33 @@ def test_pending_finalization_is_encoded_on_repair_ops():
     } <= pending
     assert "state.move_scene" not in pending
     assert "rules.roll" not in pending
+
+
+def test_recovery_exposes_turn_closure_without_new_mutations():
+    recovery = set(coc_toolbox.query_operations(phase="recovery"))
+    assert {
+        "turn.finalize",
+        "turn.output_context",
+        "state.journal",
+        "session.resume",
+        "state.supersede_settlement",
+    } <= recovery
+    for name in (
+        "rules.roll",
+        "rules.social_adjudicate",
+        "state.move_scene",
+        "state.promote_scene",
+        "state.item_grant",
+        "state.cash_semantic",
+        "state.exceptional_effect",
+        "evidence.table_opening",
+        "progressive.on_enter_scene",
+    ):
+        assert name not in recovery, name
+    if "state.cash_grant" in coc_toolbox.TOOLS:
+        assert "state.cash_grant" not in recovery
+    if "state.cash_spend" in coc_toolbox.TOOLS:
+        assert "state.cash_spend" not in recovery
 
 
 def test_kp_can_consume_steward_scene_supply():

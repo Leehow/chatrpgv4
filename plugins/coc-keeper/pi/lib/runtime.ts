@@ -8,6 +8,22 @@ import { fileURLToPath } from "node:url";
 export type JsonObject = Record<string, unknown>;
 export type McpCaller = (name: string, args: JsonObject, signal?: AbortSignal) => Promise<JsonObject>;
 
+/** Internal scheduler receipt; it is never included in model-facing content. */
+export type McpTransportMeta = {
+  request_id: string | number | null;
+  execution_class: string;
+  queue_ms: number;
+  execute_ms: number;
+  parallel_read_width: number;
+  active_count: number;
+  fallback_reason: string | null;
+};
+
+export type McpToolCallResult = {
+  value: JsonObject;
+  transport: McpTransportMeta | null;
+};
+
 export const MAX_BYTES = 256 * 1024;
 // How many work groups one coordinator may claim in a single pass.  This used
 // to be 4, conflated with how many leaf processes may run at once, which
@@ -2003,6 +2019,32 @@ function sourcePackRepairDiagnostics(
   });
 }
 
+function parseMcpTransportMeta(value: unknown): McpTransportMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const meta = value as JsonObject;
+  const requestId = meta.request_id;
+  const executionClass = meta.execution_class;
+  const queueMs = meta.queue_ms;
+  const executeMs = meta.execute_ms;
+  const width = meta.parallel_read_width;
+  const activeCount = meta.active_count;
+  const fallbackReason = meta.fallback_reason;
+  if ((typeof requestId !== "string" && typeof requestId !== "number" && requestId !== null)
+    || typeof executionClass !== "string"
+    || !Number.isFinite(queueMs) || !Number.isFinite(executeMs)
+    || !Number.isInteger(width) || !Number.isInteger(activeCount)
+    || (typeof fallbackReason !== "string" && fallbackReason !== null)) return null;
+  return {
+    request_id: requestId,
+    execution_class: executionClass,
+    queue_ms: Math.max(0, queueMs),
+    execute_ms: Math.max(0, executeMs),
+    parallel_read_width: Math.max(1, width),
+    active_count: Math.max(1, activeCount),
+    fallback_reason: fallbackReason,
+  };
+}
+
 export function formatMcpTransportError(errorValue: unknown): string {
   if (errorValue && typeof errorValue === "object" && !Array.isArray(errorValue)) {
     const err = errorValue as JsonObject;
@@ -2021,8 +2063,13 @@ export class McpJsonlClient {
   private stderr = "";
   private nextId = 1;
   private starting: Promise<void> | null = null;
-  private pending = new Map<number, { resolve: (value: JsonObject) => void; reject: (error: Error) => void }>();
-  // Head-of-line hang detection. The MCP child is strictly FIFO, so only the
+  private pending = new Map<number, {
+    resolve: (value: { result: JsonObject; transport: McpTransportMeta | null }) => void;
+    reject: (error: Error) => void;
+  }>();
+  // A serial fallback still makes only one server call active; with T3 reads
+  // can complete out of order, so the timer remains a liveness guard rather
+  // than evidence of execution concurrency.
   // oldest pending request can be in service; younger requests are queued
   // server-side and their waiting is normal, not a hang. One timer watches
   // the head request only: if it gets no response within timeoutMs the child
@@ -2074,7 +2121,10 @@ export class McpJsonlClient {
         this.pending.delete(message.id as number);
         this.armHangTimer();
         if (message.error) pending.reject(new Error(formatMcpTransportError(message.error)));
-        else pending.resolve(asObject(message.result, "MCP result"));
+        else pending.resolve({
+          result: asObject(message.result, "MCP result"),
+          transport: parseMcpTransportMeta(message.coc_transport),
+        });
       }
     } catch (error) { this.failAll(error as Error); void this.close(); }
   }
@@ -2117,7 +2167,29 @@ export class McpJsonlClient {
       this.starting = null;
     }
   }
-  private direct(method: string, params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
+  private sendCancellation(requestId: number) {
+    const child = this.child;
+    if (!child || child.stdin.destroyed) return;
+    try {
+      // MCP cancellation is a notification, so it cannot be confused with a
+      // tool response. The server settles the original id with -32800 when it
+      // was still queued; active Python work is best-effort and its eventual
+      // response is suppressed there.
+      child.stdin.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId, reason: "client_aborted" },
+      })}\n`);
+    } catch {
+      // The child error/exit handlers settle sibling requests. An abort must
+      // remain isolated even if its cancellation frame cannot be written.
+    }
+  }
+  private direct(
+    method: string,
+    params: JsonObject,
+    signal?: AbortSignal,
+  ): Promise<{ result: JsonObject; transport: McpTransportMeta | null }> {
     if (!this.child) return Promise.reject(new Error("MCP child unavailable"));
     // A signal aborted while this request waited on startup is honored before
     // the write; an abort listener registered now would never see it.
@@ -2125,10 +2197,11 @@ export class McpJsonlClient {
     const id = this.nextId++;
     return new Promise((resolvePromise, rejectPromise) => {
       const abort = () => {
-        // Abort isolates this request; the child stays up for its siblings.
-        // The FIFO child may still execute the aborted request, in which case
-        // its response is discarded above as an unknown id.
-        this.pending.delete(id);
+        // Remove locally before rejecting, then forward MCP cancellation for
+        // this exact id. The server can prevent queued mutations from starting;
+        // active Python calls remain best-effort and cannot resolve another id.
+        if (!this.pending.delete(id)) return;
+        this.sendCancellation(id);
         this.armHangTimer();
         rejectPromise(new Error("MCP request aborted"));
       };
@@ -2141,13 +2214,20 @@ export class McpJsonlClient {
       this.child!.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
   }
-  async request(method: string, params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
+  async requestWithTransportMeta(
+    method: string,
+    params: JsonObject,
+    signal?: AbortSignal,
+  ): Promise<{ result: JsonObject; transport: McpTransportMeta | null }> {
     // Parallel dispatch: requests are written immediately, in call order, and
-    // matched to responses by id. One complete JSONL frame per write() keeps
-    // frames atomic and ordered on the child's stdin, so the FIFO server sees
-    // exactly the call order the model emitted.
+    // matched to responses by id. Server completions may be out of order; the
+    // response's request id remains bound to its internal timing receipt.
     await this.ensure();
     return this.direct(method, params, signal);
+  }
+  async request(method: string, params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
+    await this.ensure();
+    return (await this.direct(method, params, signal)).result;
   }
   // Client-side cache for static tool results. When a tool returns immutable
   // data with a content hash (e.g. coc_discover's schema archive), subsequent
@@ -2158,6 +2238,14 @@ export class McpJsonlClient {
   private staticCache = new Map<string, { sha: string; result: JsonObject }>();
 
   async callTool(name: string, args: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
+    return (await this.callToolWithTransportMeta(name, args, signal)).value;
+  }
+
+  async callToolWithTransportMeta(
+    name: string,
+    args: JsonObject,
+    signal?: AbortSignal,
+  ): Promise<McpToolCallResult> {
     // Build a cache key from tool name + sorted args (excluding since_* params).
     const cacheKey = this._staticCacheKey(name, args);
     if (cacheKey) {
@@ -2167,18 +2255,24 @@ export class McpJsonlClient {
         // payload. This is what the LLM sees in tool_result — a few bytes
         // instead of thousands of chars of identical schema data.
         return {
-          ok: true,
-          tool: name,
-          data: {
-            not_modified: true,
-            content_sha256: cached.sha,
-            hint: "this static result was already delivered earlier in this session; reuse the prior output",
-          },
-        } as unknown as JsonObject;
+          value: {
+            ok: true,
+            tool: name,
+            data: {
+              not_modified: true,
+              content_sha256: cached.sha,
+              hint: "this static result was already delivered earlier in this session; reuse the prior output",
+            },
+          } as unknown as JsonObject,
+          transport: null,
+        };
       }
     }
 
-    const result = await this.request("tools/call", { name, arguments: args }, signal);
+    const response = await this.requestWithTransportMeta(
+      "tools/call", { name, arguments: args }, signal,
+    );
+    const result = response.result;
     let envelope: JsonObject | null = null;
     try {
       envelope = asObject(result.structuredContent, "MCP structuredContent");
@@ -2217,7 +2311,7 @@ export class McpJsonlClient {
       const sha = this._extractContentSha(envelope);
       if (sha) this.staticCache.set(cacheKey, { sha, result: envelope });
     }
-    return envelope;
+    return { value: envelope, transport: response.transport };
   }
 
   /** Build a dedup cache key for tools that return static data.

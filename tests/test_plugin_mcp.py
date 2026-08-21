@@ -1158,6 +1158,8 @@ def test_wire_passes_sealed_source_facts_adoption_card_verbatim(
     exactKeys(card, [operation, invoke_via, campaign, arguments]) validation
     in projectStartupSourceFactsAdoption: the adopt card could then never be
     delivered through any canonical path (session.resume gate projection).
+    Additive gate fields such as opening_phase are allowed; the card itself
+    must stay exact.
     """
     server = _load_server()
     monkeypatch.setenv("COC_HOST", "pi")

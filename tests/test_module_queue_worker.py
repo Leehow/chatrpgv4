@@ -2104,10 +2104,14 @@ def test_legacy_host_work_is_quarantined_without_l1_inference_or_evidence_loss(
     )
     assert base64.b64decode(evidence["raw_base64"]) == raw
     queue = assets.list_queue(tmp_path, "qw-demo")
-    assert all(
-        row["job_id"] != queued["job"]["job_id"]
-        for row in queue["pending"]
+    replacement = next(
+        row for row in queue["pending"]
+        if row["job_id"] == queued["job"]["job_id"]
     )
+    # The canonical queue, not the invalid L1-shaped host-work row, supplies
+    # the retry. Its default remains near-term and cannot infer a dependency.
+    assert replacement["work_level"] == "near_term"
+    assert "dependency_ref" not in replacement
 
 
 def test_malformed_host_work_is_quarantined_append_only(tmp_path: Path):

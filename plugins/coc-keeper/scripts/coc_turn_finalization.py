@@ -46,11 +46,74 @@ PLAYER_INPUT_HANDLING_VALUES = frozenset({
     "abstract_completed", "specific_preserved", "not_applicable",
 })
 MECHANIC_SEGMENT_TYPES = frozenset({
-    "public_check", "state_delta", "exceptional_effect",
+    "public_check", "state_delta", "asset_delta", "exceptional_effect",
 })
+ASSET_EFFECT_KINDS = frozenset({"cash", "item"})
+SEGMENT_TYPE_ORDER = {
+    "public_check": 0,
+    "state_delta": 1,
+    "asset_delta": 2,
+    "exceptional_effect": 3,
+}
+_CASH_GAME_TIME_PUBLIC = (
+    "elapsed_minutes", "display", "display_sub", "local_datetime", "day_phase",
+)
+_CASH_PLAYER_TIME_PUBLIC = (
+    "phase", "appearance_mode", "display_label", "display",
+)
 MECHANICS_PLACEMENT_FIELDS = frozenset({
     "after_paragraph", "segment_type", "source_ids",
 })
+
+
+def _is_asset_effect(effect: dict[str, Any]) -> bool:
+    return str(effect.get("effect_kind") or "") in ASSET_EFFECT_KINDS
+
+
+def _placement_source_identity(
+    segment_type: str,
+    source_id: str,
+    sources: dict[str, dict[str, str]],
+) -> tuple[str, str] | None:
+    if source_id in sources.get(segment_type, {}):
+        return (segment_type, source_id)
+    if segment_type == "state_delta" and source_id in sources.get("asset_delta", {}):
+        return ("asset_delta", source_id)
+    return None
+
+
+def _expand_asset_placements(
+    placements: list[dict[str, Any]],
+    sources: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    expanded: list[dict[str, Any]] = []
+    for row in placements:
+        if row["segment_type"] != "state_delta":
+            expanded.append(row)
+            continue
+        rest: list[str] = []
+        assets: list[str] = []
+        for source_id in row["source_ids"]:
+            identity = _placement_source_identity(
+                "state_delta", source_id, sources,
+            )
+            if identity and identity[0] == "asset_delta":
+                assets.append(source_id)
+            else:
+                rest.append(source_id)
+        if rest:
+            expanded.append({
+                "after_paragraph": row["after_paragraph"],
+                "segment_type": "state_delta",
+                "source_ids": rest,
+            })
+        if assets:
+            expanded.append({
+                "after_paragraph": row["after_paragraph"],
+                "segment_type": "asset_delta",
+                "source_ids": assets,
+            })
+    return expanded
 class TurnContractError(ValueError):
     def __init__(
         self,
@@ -357,25 +420,31 @@ def _valid_finalization_contract(
         return False
     if "\n\n".join(segment["text"] for segment in segments) != row["rendered_text"]:
         return False
+    source_lines: dict[str, dict[str, str]] = {}
     try:
         play_language = _infer_play_language_from_rendered(
             str(row.get("rendered_text") or "")
         )
+        source_lines = _mechanic_source_lines(
+            row["bundle"], play_language=play_language
+        )
         expected_sources = {
             (segment_type, source_id)
-            for segment_type, values in _mechanic_source_lines(
-                row["bundle"], play_language=play_language
-            ).items()
+            for segment_type, values in source_lines.items()
             for source_id in values
         }
     except (KeyError, TypeError, TurnContractError):
         return False
+    remapped_seen: set[tuple[str, str]] = set()
+    for segment_type, source_id in seen_sources:
+        identity = _placement_source_identity(segment_type, source_id, source_lines)
+        remapped_seen.add(identity or (segment_type, source_id))
     if allow_legacy_context_effect:
         legacy_sources = _legacy_context_effect_sources(row["bundle"])
         if legacy_sources is None:
             return False
         expected_sources.update(legacy_sources)
-    if seen_sources != expected_sources:
+    if remapped_seen != expected_sources:
         return False
     if (
         row.get("coverage_sha256") != canonical_digest(row["coverage"])
@@ -653,6 +722,84 @@ def _project_player_state_receipt(
         })
 
 
+def _player_safe_player_time(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in _CASH_PLAYER_TIME_PUBLIC:
+        if key not in raw:
+            continue
+        value = raw[key]
+        if value is None or isinstance(value, str):
+            out[key] = value
+    return out or None
+
+
+def _player_safe_game_time(raw: Any) -> dict[str, Any] | None:
+    """Player-visible cash clock. Never copy location_id, source_ref, or provenance."""
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, Any] = {}
+    elapsed = raw.get("elapsed_minutes")
+    if isinstance(elapsed, int) and not isinstance(elapsed, bool) and elapsed >= 0:
+        out["elapsed_minutes"] = elapsed
+    for key in _CASH_GAME_TIME_PUBLIC:
+        if key == "elapsed_minutes":
+            continue
+        value = raw.get(key)
+        if isinstance(value, str):
+            out[key] = value
+    player_time = _player_safe_player_time(raw.get("player_time"))
+    if player_time is not None:
+        out["player_time"] = player_time
+    return out or None
+
+
+def _cash_state_delta_effect(
+    *,
+    decision_id: str,
+    investigator_id: str,
+    action: str,
+    data: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Player-safe cash delta: one currency row, never audit reason/wall time."""
+    amount = str(data.get("amount") or "").strip()
+    currency = str(data.get("currency") or "").strip()
+    localized_reason = str(data.get("localized_reason") or "").strip()
+    before = data.get("balance_before")
+    after = data.get("balance_after")
+    game_time = _player_safe_game_time(data.get("game_time"))
+    if not amount or not currency or not localized_reason:
+        return None
+    if before is None or after is None or game_time is None:
+        return None
+    player_time = _player_safe_player_time(data.get("player_time"))
+    if player_time is None:
+        nested = game_time.get("player_time")
+        if isinstance(nested, (dict, str)):
+            player_time = nested
+    effect: dict[str, Any] = {
+        "schema_version": 1,
+        "category": "state_delta",
+        "effect_id": _stable_effect_id(decision_id, "cash", currency),
+        "effect_kind": "cash",
+        "investigator_id": investigator_id,
+        "action": action,
+        "amount": amount,
+        "currency": currency,
+        "balance_before": before,
+        "balance_after": after,
+        "localized_reason": localized_reason,
+        "game_time": game_time,
+        "source_decision_id": decision_id,
+    }
+    if data.get("unit") is not None:
+        effect["unit"] = data.get("unit")
+    if player_time is not None:
+        effect["player_time"] = player_time
+    return effect
+
+
 def _superseded_roll_ids(campaign_dir: Path) -> set[str]:
     """Roll ids marked superseded/voided so player-facing deltas can hide them."""
     hidden: set[str] = set()
@@ -834,7 +981,7 @@ def _project_state_deltas(
             item_id = str(data.get("item_id") or "").strip()
             label = str(data.get("label") or item_id).strip()
             if item_id and label:
-                _add_effect(effects, {
+                item_effect: dict[str, Any] = {
                     "schema_version": 1,
                     "category": "state_delta",
                     "effect_id": _stable_effect_id(decision_id, "item", item_id),
@@ -843,10 +990,53 @@ def _project_state_deltas(
                     "item_id": item_id,
                     "label": label,
                     "action": action,
-                    "present_before": action == "lost",
-                    "present_after": action == "acquired",
+                    "present_before": bool(data.get("present_before", action == "lost")),
+                    "present_after": bool(data.get("present_after", action == "acquired")),
                     "source_decision_id": decision_id,
-                })
+                }
+                quantity = data.get("quantity")
+                if _exact_int(quantity):
+                    item_effect["quantity"] = quantity
+                    item_effect["delta"] = quantity if action == "acquired" else -quantity
+                _add_effect(effects, item_effect)
+        elif tool == "state.item_use" and investigator_id and data.get("changed") is True:
+            item_id = str(data.get("item_id") or "").strip()
+            label = str(data.get("label") or item_id).strip()
+            outcome = str(data.get("outcome") or "").strip()
+            action = "consumed" if outcome == "consumed" else "used"
+            count = data.get("count")
+            remaining = data.get("remaining")
+            if item_id and label and _exact_int(count) and remaining is not None:
+                item_effect = {
+                    "schema_version": 1,
+                    "category": "state_delta",
+                    "effect_id": _stable_effect_id(decision_id, "item", item_id),
+                    "effect_kind": "item",
+                    "investigator_id": investigator_id,
+                    "item_id": item_id,
+                    "label": label,
+                    "action": action,
+                    "count": count,
+                    "quantity": count,
+                    "delta": -count,
+                    "remaining": remaining,
+                    "after": remaining,
+                    "present_before": True,
+                    "present_after": outcome == "decremented",
+                    "source_decision_id": decision_id,
+                }
+                if _exact_int(remaining):
+                    item_effect["before"] = remaining + count
+                _add_effect(effects, item_effect)
+        elif tool in {"state.cash_grant", "state.cash_spend"} and investigator_id and data.get("changed") is True:
+            effect = _cash_state_delta_effect(
+                decision_id=decision_id,
+                investigator_id=investigator_id,
+                action="grant" if tool.endswith("grant") else "spend",
+                data=data,
+            )
+            if effect:
+                _add_effect(effects, effect)
         elif tool == "state.clear_transient_condition" and investigator_id:
             _project_conditions(
                 effects,
@@ -1531,11 +1721,50 @@ def _render_state_delta(
         )
         return f"【{tag}】rest: completed a safe full sleep{reset}"
     if kind == "item":
+        action_key = str(effect.get("action") or "")
+        if action_key in {"used", "consumed"}:
+            count = effect.get("count")
+            remaining = effect.get("remaining")
+            if language == "zh-Hans" or language.startswith("zh"):
+                action = "用尽" if action_key == "consumed" else "使用"
+                return (
+                    f"【{tag}】物品：{action}「{effect['label']}」×{count}"
+                    f"（剩余 {remaining}）"
+                )
+            action = "used up" if action_key == "consumed" else "used"
+            return (
+                f"【{tag}】item: {action} “{effect['label']}” ×{count}"
+                f" (remaining {remaining})"
+            )
         if language == "zh-Hans" or language.startswith("zh"):
-            action = "获得" if effect["action"] == "acquired" else "失去"
+            action = "获得" if action_key == "acquired" else "失去"
             return f"【{tag}】物品：{action}「{effect['label']}」"
-        action = "gained" if effect["action"] == "acquired" else "lost"
+        action = "gained" if action_key == "acquired" else "lost"
         return f"【{tag}】item: {action} “{effect['label']}”"
+    if kind == "cash":
+        amount = effect.get("amount")
+        currency = effect.get("currency")
+        before = effect.get("balance_before")
+        after = effect.get("balance_after")
+        sign = "+" if effect.get("action") == "grant" else "-"
+        reason = str(effect.get("localized_reason") or "").strip()
+        time_label = coc_language.player_time_label(
+            effect.get("player_time"), language,
+        )
+        phase_l = chrome.get("time_phase", "time of day")
+        if language == "zh-Hans" or language.startswith("zh"):
+            body = f"【{tag}】现金：{sign}{amount} {currency}（{before} → {after}）"
+            if reason:
+                body += f"；{reason}"
+            if time_label:
+                body += f"；{phase_l}：{time_label}"
+            return body
+        body = f"【{tag}】cash: {sign}{amount} {currency} ({before} → {after})"
+        if reason:
+            body += f"; {reason}"
+        if time_label:
+            body += f"; {phase_l}: {time_label}"
+        return body
     if kind == "condition":
         if language == "zh-Hans" or language.startswith("zh"):
             action = "新增" if effect["action"] == "added" else "解除"
@@ -1943,7 +2172,8 @@ def _mechanic_source_lines(
             raw, play_language=language, terms=terms
         )
     for effect in bundle.get("state_delta") or []:
-        sources["state_delta"][str(effect["effect_id"])] = _render_state_delta(
+        bucket = "asset_delta" if _is_asset_effect(effect) else "state_delta"
+        sources[bucket][str(effect["effect_id"])] = _render_state_delta(
             effect, play_language=language
         )
     for effect in bundle.get("exceptional_effect") or []:
@@ -2024,8 +2254,10 @@ def _normalize_mechanics_placements(
                 f"mechanics_placements[{index}].source_ids is invalid",
             )
         for source_id in source_ids:
-            identity = (str(segment_type), source_id)
-            if source_id not in sources[str(segment_type)]:
+            identity = _placement_source_identity(
+                str(segment_type), source_id, sources,
+            )
+            if identity is None:
                 raise TurnContractError(
                     "unknown_mechanics_source",
                     f"{segment_type}:{source_id} is not in this turn's mechanics bundle",
@@ -2042,6 +2274,7 @@ def _normalize_mechanics_placements(
             "source_ids": list(source_ids),
         })
         previous_paragraph = after
+    normalized = _expand_asset_placements(normalized, sources)
     expected = {
         (segment_type, source_id)
         for segment_type, rows in sources.items()
@@ -2102,15 +2335,10 @@ def _default_mechanics_placements(
             (result_indices[0] - 1, "public_check"), []
         ).append(source_id)
     final_paragraph = len(paragraphs) - 1
-    for segment_type in ("state_delta", "exceptional_effect"):
+    for segment_type in ("state_delta", "asset_delta", "exceptional_effect"):
         source_ids = list(sources[segment_type])
         if source_ids:
             grouped[(final_paragraph, segment_type)] = source_ids
-    segment_order = {
-        "public_check": 0,
-        "state_delta": 1,
-        "exceptional_effect": 2,
-    }
     return [
         {
             "after_paragraph": after,
@@ -2119,7 +2347,7 @@ def _default_mechanics_placements(
         }
         for (after, segment_type), source_ids in sorted(
             grouped.items(),
-            key=lambda item: (item[0][0], segment_order[item[0][1]]),
+            key=lambda item: (item[0][0], SEGMENT_TYPE_ORDER[item[0][1]]),
         )
     ]
 
@@ -2335,15 +2563,10 @@ def _collect_default_placements(
             (result_indices[0] - 1, "public_check"), []
         ).append(source_id)
     final_paragraph = len(paragraphs) - 1
-    for segment_type in ("state_delta", "exceptional_effect"):
+    for segment_type in ("state_delta", "asset_delta", "exceptional_effect"):
         source_ids = list(sources[segment_type])
         if source_ids:
             grouped[(final_paragraph, segment_type)] = source_ids
-    segment_order = {
-        "public_check": 0,
-        "state_delta": 1,
-        "exceptional_effect": 2,
-    }
     requested = [
         {
             "after_paragraph": after,
@@ -2352,7 +2575,7 @@ def _collect_default_placements(
         }
         for (after, segment_type), source_ids in sorted(
             grouped.items(),
-            key=lambda item: (item[0][0], segment_order[item[0][1]]),
+            key=lambda item: (item[0][0], SEGMENT_TYPE_ORDER[item[0][1]]),
         )
     ]
     return requested, violations
@@ -2421,8 +2644,10 @@ def _collect_placements_violations(
             continue
         keep_ids: list[str] = []
         for source_id in source_ids:
-            identity = (str(segment_type), source_id)
-            if source_id not in sources[str(segment_type)]:
+            identity = _placement_source_identity(
+                str(segment_type), source_id, sources,
+            )
+            if identity is None:
                 add(
                     "unknown_mechanics_source",
                     f"{segment_type}:{source_id} is not in this turn's mechanics bundle",
@@ -2436,12 +2661,14 @@ def _collect_placements_violations(
                 continue
             seen.add(identity)
             keep_ids.append(source_id)
-        normalized.append({
-            "after_paragraph": after,
-            "segment_type": str(segment_type),
-            "source_ids": keep_ids,
-        })
+        if keep_ids:
+            normalized.append({
+                "after_paragraph": after,
+                "segment_type": str(segment_type),
+                "source_ids": keep_ids,
+            })
         previous_paragraph = after
+    normalized = _expand_asset_placements(normalized, sources)
     expected = {
         (segment_type, source_id)
         for segment_type, rows in sources.items()

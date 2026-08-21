@@ -106,6 +106,15 @@ tick(100);
 emit("tool_execution_start", {
   toolCallId: "t1", toolName: "coc_invoke", args: toolArgs,
 });
+telemetry.recordTransportMeta("t1", {
+  request_id: 42,
+  execution_class: "parallel_read",
+  queue_ms: 3,
+  execute_ms: 112400,
+  parallel_read_width: 4,
+  active_count: 2,
+  fallback_reason: null,
+});
 tick(112400);
 emit("tool_execution_end", {
   toolCallId: "t1", toolName: "coc_invoke", isError: false, result: { ok: true, rolls: [] },
@@ -178,10 +187,10 @@ try {
     ok: true,
     hasTimingCommand: commands.has("timing"),
     sessionLineFirst: sessionLine?.record === "session"
-      && sessionLine.schema_version === 3 && sessionLine.mode === "tui"
+      && sessionLine.schema_version === 4 && sessionLine.mode === "tui"
       && sessionLine.thinking_level === "off",
     recordShape: record !== null && record.record === "turn"
-      && record.schema_version === 3 && record.host === "pi-coc"
+      && record.schema_version === 4 && record.host === "pi-coc"
       && record.mode === "tui" && record.thinking_level === "off",
     sessionLabeled: record?.session === "telemetry-smoke",
     promptExcerpt: record?.prompt_excerpt === "我推门进去看看门后有什么",
@@ -222,7 +231,10 @@ try {
       && tool?.tool_call_id === "t1"
       && tool?.tool_name === "coc_invoke"
       && tool?.args_bytes === JSON.stringify(toolArgs).length
-      && tool?.result_bytes === JSON.stringify({ ok: true, rolls: [] }).length,
+      && tool?.result_bytes === JSON.stringify({ ok: true, rolls: [] }).length
+      && tool?.transport?.request_id === 42
+      && tool?.transport?.active_count === 2
+      && tool?.transport?.fallback_reason === null,
     contextUsage: record?.context_usage?.tokens === 84000
       && record?.context_usage?.context_window === 200000
       && record?.context_usage?.percent === 42,

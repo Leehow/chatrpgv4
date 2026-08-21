@@ -136,6 +136,17 @@ def test_resolve_baiduocr_python_ignores_env_without_requests(monkeypatch):
     assert any(c[0] == "python3.11-good" for c in calls)
 
 
+def test_ocr_python_candidates_cover_reduced_macos_gui_path():
+    adapter = _load_adapter()
+
+    assert "/opt/homebrew/opt/python@3.11/bin/python3.11" in (
+        adapter._OCR_PYTHON_CANDIDATES
+    )
+    assert "/Applications/Xcode.app/Contents/Developer/usr/bin/python3" in (
+        adapter._OCR_PYTHON_CANDIDATES
+    )
+
+
 def test_op_fast_reports_missing_requests_explicitly(monkeypatch, tmp_path):
     adapter = _load_adapter()
     if hasattr(adapter._resolve_baiduocr_python, "_cached"):

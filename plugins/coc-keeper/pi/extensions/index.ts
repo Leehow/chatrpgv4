@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   mkdir,
   readdir,
@@ -29,6 +30,7 @@ import {
   validateCoordinatorTask,
   type ChildRun,
   type JsonObject,
+  type McpTransportMeta,
   type PrivateLaunchContext,
 } from "../lib/runtime.ts";
 import {
@@ -40,8 +42,10 @@ import {
 } from "./coordinator.ts";
 import {
   buildMechanicalOutputGateEnvelope,
+  buildSettledOutputGateEnvelope,
   detectMechanicalMarkers,
   MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
+  SETTLED_OUTPUT_GATE_CUSTOM_TYPE,
   mechanicalMarkerClassesUncovered,
   type MechanicalMarker,
 } from "../lib/mechanical-output-gate.ts";
@@ -59,7 +63,7 @@ import {
   type KeeperBriefing,
 } from "../lib/keeper-briefing.ts";
 import { registerCocHud } from "../lib/hud.ts";
-import { registerTurnTelemetry } from "../lib/turn-telemetry.ts";
+import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry.ts";
 import {
   registerCocWelcome,
   STARTUP_RESUME_CUSTOM_TYPE,
@@ -89,6 +93,7 @@ import {
   parseChargenClerkBrief,
   runChargenInProcess,
   shouldRegisterChargenDelegate,
+  type ChargenClerkBrief,
 } from "../lib/chargen-clerk.ts";
 import { extraToolsForSessionRole } from "../lib/session-role-tools.ts";
 import {
@@ -99,6 +104,7 @@ import {
   applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
   listTypedOperationTools,
+  typedToolNameForOperation,
   wrapTypedToolInvokeParams,
 } from "../lib/typed-tools.ts";
 
@@ -171,17 +177,97 @@ const mapSupplySchema = {
   },
   required: ["operation"], additionalProperties: false,
 } as const;
-const chargenDelegateSchema = {
+function coc7ChargenCatalog(): {
+  skillIds: string[];
+  zhHansSkillLabels: Record<string, string>;
+} {
+  const rulesPath = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../rulesets/coc7/rules-json/skills.json",
+  );
+  const parsed = JSON.parse(readFileSync(rulesPath, "utf8"));
+  const skills = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as JsonObject).skills
+    : null;
+  if (!skills || typeof skills !== "object" || Array.isArray(skills)) {
+    throw new Error("canonical COC7 skill catalog is unavailable for chargen tool schema");
+  }
+  const skillIds = Object.keys(skills)
+    .filter((name) => name !== "Credit Rating" && name !== "Cthulhu Mythos")
+    .sort();
+  const zhHansSkillLabels = Object.fromEntries(
+    Object.entries(skills).flatMap(([name, value]) => {
+      const skill = value && typeof value === "object" && !Array.isArray(value)
+        ? value as JsonObject
+        : null;
+      const labels = skill && skill.localized_labels
+        && typeof skill.localized_labels === "object"
+        && !Array.isArray(skill.localized_labels)
+        ? skill.localized_labels as JsonObject
+        : null;
+      const label = labels?.["zh-Hans"];
+      return typeof label === "string" && label.trim()
+        ? [[name, label.trim()]]
+        : [];
+    }),
+  );
+  return { skillIds, zhHansSkillLabels };
+}
+
+const COC7_CHARGEN_CATALOG = coc7ChargenCatalog();
+const CHARGEN_SKILL_IDS = COC7_CHARGEN_CATALOG.skillIds;
+
+function zhHansPlayerTerms(): Record<string, string> {
+  const termsPath = fileURLToPath(
+    new URL("../../scripts/default_localized_terms.json", import.meta.url),
+  );
+  const parsed = JSON.parse(readFileSync(termsPath, "utf8"));
+  const terms = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as JsonObject)["zh-Hans"]
+    : null;
+  if (!terms || typeof terms !== "object" || Array.isArray(terms)) {
+    throw new Error("zh-Hans player-facing terms are unavailable");
+  }
+  return Object.fromEntries(
+    Object.entries(terms)
+      .filter((entry): entry is [string, string] => (
+        typeof entry[1] === "string" && entry[1].trim().length > 0
+      )),
+  );
+}
+
+const ZH_HANS_PLAYER_TERMS = zhHansPlayerTerms();
+
+function zhHansChargenSkillLabel(canonicalName: string): string {
+  if (canonicalName === "Language (Own)") return "母语";
+  const localized = COC7_CHARGEN_CATALOG.zhHansSkillLabels[canonicalName]
+    ?? ZH_HANS_PLAYER_TERMS[canonicalName];
+  if (localized) return localized;
+  if (
+    canonicalName.startsWith("Language (")
+    || canonicalName.startsWith("Other Language (")
+  ) return "外语";
+  return canonicalName;
+}
+
+export const chargenDelegateSchema = {
   type: "object",
   properties: {
     name: { type: "string", minLength: 1 },
     occupation_or_concept: { type: "string", minLength: 1 },
+    age: { type: "integer", minimum: 15, maximum: 89 },
     assignment_priority: { type: "string" },
     interest_allocation_intent: { type: "string" },
-    occupation_skill_names: { type: "array", items: { type: "string" } },
-    interest_skill_names: { type: "array", items: { type: "string" } },
+    occupation_skill_names: {
+      type: "array",
+      items: { type: "string", enum: CHARGEN_SKILL_IDS },
+    },
+    interest_skill_names: {
+      type: "array",
+      items: { type: "string", enum: CHARGEN_SKILL_IDS },
+    },
     investigator_id: { type: "string" },
-    mode: { type: "string", enum: ["quick_fire", "pregen"] },
+    mode: { type: "string", enum: ["quick_fire", "era_adaptive", "pregen"] },
     pregen_id: { type: "string" },
   },
   required: ["name", "occupation_or_concept"],
@@ -242,6 +328,15 @@ function exactKeysMatch(value: JsonObject, expected: string[]): boolean {
     && actual.every((key, index) => key === required[index]);
 }
 
+export function openingHandoffOperationForSessionRole(
+  role: "setup" | "play" | null,
+): "setup.complete" | "evidence.table_opening" {
+  // The setup specialist prepares the source-backed projection and hands it
+  // off.  Only the play specialist records/delivers the player-visible table
+  // opening after its mandatory session.resume.
+  return role === "setup" ? "setup.complete" : "evidence.table_opening";
+}
+
 /** Gate envelopes may grow additive fields (e.g. `opening_phase`). Cards stay exact. */
 function hasRequiredKeys(value: JsonObject, required: string[]): boolean {
   return required.every((key) => Object.prototype.hasOwnProperty.call(value, key));
@@ -250,6 +345,7 @@ function hasRequiredKeys(value: JsonObject, required: string[]): boolean {
 const OPENING_LIFECYCLE_PHASES = new Set([
   "module_preparation",
   "character_creation",
+  "opening_selection",
 ]);
 const SESSION_RESUME_ENVELOPE_TOOLS = new Set([
   "session.resume",
@@ -316,13 +412,6 @@ type CanonicalModuleInitPrivateContext = {
   l0: JsonObject;
   instruction: string;
 };
-const SAFE_CHARACTER_SETUP_PROMPT = (
-  "建卡尚未完成。请按 coc-character 流程立即推进，不要再次向玩家索要职业、特征或技能确认："
-  + "若本轮尚未取得当前战役的 setup.investigator_contract，则先调用它以获得 payload_schema；"
-  + "若已取得当前 contract，则直接使用其 payload_schema、玩家已选择的预设与守秘 L0 资料调用 "
-  + "setup.invoke（kind: investigator.create）创建调查员。不得猜测字段或预设数值；创建后继续按保留路由链接调查员。"
-);
-
 /**
  * Resolve exact player-safe briefing bytes only from a successful canonical
  * setup receipt. The setup digest binds the public source inputs; the exact
@@ -676,6 +765,15 @@ type VisibleAssistantFinalDecision =
       replacementText: string;
       triggerSetupContinuation?: boolean;
     };
+
+export function shouldTriggerOpeningSetupContinuation(
+  decision: VisibleAssistantFinalDecision,
+): boolean {
+  return decision === false || (
+    typeof decision === "object"
+    && decision.triggerSetupContinuation === true
+  );
+}
 type QueuedVisibleAssistantDisposition = {
   disposition: VisibleAssistantDisposition;
   dispatchKey?: string;
@@ -845,6 +943,10 @@ export class OpeningTerminalContinuationGate {
     replacementTextSha256: string | null;
     source: string;
   } | null = null;
+  private pendingChargenPlayerSummary: {
+    campaignId: string;
+    text: string;
+  } | null = null;
   private readonly openingSetupContinuationQueued = new Set<string>();
   private readonly openingSetupTerminalBlockers = new Map<
     string,
@@ -861,6 +963,80 @@ export class OpeningTerminalContinuationGate {
     const id = campaignId.trim();
     if (!id) return this.hasActiveOpeningSetup();
     return this.openingSetupStates.has(id) || this.pendingBindExistsForCampaign(id);
+  }
+
+  // setup.chargen_run commits create + link atomically. Its successful result
+  // is therefore a canonical completion receipt even though the delegate
+  // reaches MCP without passing through observeOpeningSetupInvocation.
+  observeChargenDelegateCompletion(
+    campaignId: string,
+    value: unknown,
+    brief?: ChargenClerkBrief,
+  ): boolean {
+    const state = this.openingSetupStates.get(campaignId);
+    const result = objectOrNull(value);
+    if (
+      state === undefined
+      || result?.ok !== true
+      || typeof result.investigator_id !== "string"
+      || !result.investigator_id.trim()
+    ) return false;
+
+    state.characterSetupComplete = true;
+    const characteristics = objectOrNull(result.characteristics) ?? {};
+    const derived = objectOrNull(result.derived) ?? {};
+    const skillTop = Array.isArray(result.skill_top)
+      ? result.skill_top
+        .map((entry) => objectOrNull(entry))
+        .filter((entry): entry is JsonObject => entry !== null)
+        .filter((entry) => typeof entry.name === "string" && Number.isInteger(entry.value))
+        .slice(0, 8)
+        .map((entry) => `${zhHansChargenSkillLabel(entry.name as string)} ${entry.value}`)
+      : [];
+    const characteristicText = ["STR", "DEX", "CON", "POW", "APP", "EDU", "SIZ", "INT"]
+      .filter((key) => Number.isInteger(characteristics[key]))
+      .map((key) => `${ZH_HANS_PLAYER_TERMS[key] ?? key} ${characteristics[key]}`)
+      .join("；");
+    const derivedText = [
+      ["生命值", derived.hp],
+      ["魔法值", derived.mp],
+      [ZH_HANS_PLAYER_TERMS.SAN ?? "理智", derived.san],
+      [ZH_HANS_PLAYER_TERMS.LUCK ?? "幸运", derived.luck],
+    ]
+      .filter((entry) => Number.isInteger(entry[1]))
+      .map((entry) => `${entry[0]} ${entry[1]}`)
+      .join("；");
+    if (brief !== undefined) {
+      this.pendingChargenPlayerSummary = {
+        campaignId,
+        text: [
+          `角色卡已生成：${brief.name}（${brief.age ?? "年龄未指定"}岁，${brief.occupation_or_concept}）。`,
+          characteristicText ? `特征：${characteristicText}。` : "",
+          derivedText ? `派生数值：${derivedText}。` : "",
+          skillTop.length ? `主要技能：${skillTop.join("；")}。` : "",
+          "你想调整角色卡，还是确认打开游戏桌？",
+        ].filter(Boolean).join("\n\n"),
+      };
+    }
+    if (state.phase === "reviewed") {
+      this.armOpeningSelectionRoute(state);
+    } else if (state.phase === "ready") {
+      this.armOpeningEvidenceRoute(state);
+    } else if (
+      state.phase === "projection"
+      && state.backgroundTerminalReceipt?.status === "fulfilled"
+    ) {
+      this.armOpeningProjectionRoute(state);
+    }
+    this.recordOpeningSetupAudit({
+      status: "transitioned",
+      transition: "chargen_delegate_character_setup_complete",
+      campaign_id: campaignId,
+      investigator_id: result.investigator_id,
+      generation: state.generation,
+      revision: state.revision,
+    });
+    return true;
   }
 
   private openingSetupStateForTranscript(): OpeningSetupState | null {
@@ -1457,6 +1633,14 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private characterConversationAllowed(state: OpeningSetupState): boolean {
+    // Character mechanics may overlap private source work, but the player's
+    // guided conversation must wait until source facts establish the era.
+    // Otherwise a generic model example can become the first visible setup
+    // prompt before the authored period is known.
+    return ["reviewed", "projection", "ready"].includes(state.phase);
+  }
+
   private openingSetupCharacterInvocation(
     params: JsonObject,
     state: OpeningSetupState,
@@ -1717,7 +1901,11 @@ export class OpeningTerminalContinuationGate {
     if (operation === "setup.adopt_source_facts") {
       const result = objectOrNull(objectOrNull(envelope?.data)?.result);
       if (result?.character_creation_unblocked === true) {
-        return "来源事实与建卡最小包已绑定并通过校验；现在可以读取调查员构建契约。";
+        // Adoption is a private setup transition, not a player-facing table
+        // beat. Authorize an exact empty replacement so the continuation can
+        // call investigator_contract and only its guided question becomes
+        // visible.
+        return "";
       }
       if (result?.module_init_ready === false) {
         return "来源事实已记录，但建卡最小包 L0 尚未就绪；不要猜测预设卡、年代修正、开场钩子或手册。";
@@ -1860,6 +2048,13 @@ export class OpeningTerminalContinuationGate {
   }
 
   private armOpeningEvidenceRoute(state: OpeningSetupState): void {
+    if (
+      openingHandoffOperationForSessionRole(sessionRoleFromEnv())
+      === "setup.complete"
+    ) {
+      this.armSetupCompleteRoute(state);
+      return;
+    }
     state.phase = "opening_evidence";
     state.route = {
       ...state.route,
@@ -1899,6 +2094,38 @@ export class OpeningTerminalContinuationGate {
         + "progressive.prepare_opening card before projection or narration"
       ),
     };
+    state.continuationReleaseOwner = null;
+    this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+  }
+
+  private armSetupCompleteRoute(state: OpeningSetupState): void {
+    state.phase = "ready";
+    state.route = {
+      ...state.route,
+      phase: "opening_setup_complete_required",
+      next_operation: {
+        schema_version: 1,
+        operation: "setup.complete",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {
+          campaign_id: state.route.campaign_id,
+        },
+        missing_arguments: ["decision_id"],
+        hard_gate: true,
+        authority: "canonical_setup",
+        reason: (
+          "The source-backed opening projection and investigator are current; "
+          + "hand the campaign to the play-role Keeper now."
+        ),
+      },
+      allowed_actions: undefined,
+      instruction: (
+        "invoke this exact retained setup.complete card now; do not call any "
+        + "rules, cash, skill, scene, or other exploratory tool first"
+      ),
+    };
+    state.revision += 1;
+    state.activationCard = null;
     state.continuationReleaseOwner = null;
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
   }
@@ -2863,6 +3090,9 @@ export class OpeningTerminalContinuationGate {
           sourceReviewRequired ? "source_review" : "selection",
           attempt,
         );
+        // opening_selection is derived only after the linked investigator is
+        // confirmed; retain that persisted lifecycle fact in the Pi gate.
+        if (!sourceReviewRequired) initialized.characterSetupComplete = true;
         if (
           canonicalVisibleOutput?.campaignId === attempt.campaignId
           && canonicalVisibleOutput.sourceKind === "scenario.bind_pdf"
@@ -3226,12 +3456,15 @@ export class OpeningTerminalContinuationGate {
       };
     }
     if (state === undefined && canonicalPreboundProbe) {
-      this.initializeOpeningSetupState(
+      const initialized = this.initializeOpeningSetupState(
         attempt.campaignId,
         preboundRoute,
         "selection",
         attempt,
       );
+      // The canonical opening_selection phase is authoritative evidence that
+      // chargen has already created and linked the investigator.
+      initialized.characterSetupComplete = true;
       this.finalizeOpeningSetupAttempt(invocationId);
       this.recordOpeningSetupAudit({
         status: "transitioned",
@@ -3438,10 +3671,13 @@ export class OpeningTerminalContinuationGate {
             )
         );
         if (
-          setupArgs?.kind === "campaign.render_briefing"
-          && (
+          operation === "setup.investigator_contract"
+          || (
+            setupArgs?.kind === "campaign.render_briefing"
+            && (
             canonicalVisibleOutput !== null
             || retainedBindBriefing !== null
+            )
           )
         ) {
           this.authorizeOpeningSetupConversationalOutput(
@@ -3478,14 +3714,23 @@ export class OpeningTerminalContinuationGate {
     if (operation === "evidence.table_opening") {
       this.finalizeOpeningSetupAttempt(invocationId);
       if (this.exactTableOpeningReceipt(envelope)) {
-        const modelProjection = this.projectOpeningActivation(
-          envelope!,
-          state.activationCard,
-        );
-        this.clearOpeningSetupRoute(
-          attempt.campaignId,
-          state.generation,
-        );
+        let modelProjection: JsonObject;
+        if (sessionRoleFromEnv() === "setup") {
+          this.armSetupCompleteRoute(state);
+          modelProjection = this.projectOpeningEvidenceRoute(
+            envelope!,
+            state.route,
+          );
+        } else {
+          modelProjection = this.projectOpeningActivation(
+            envelope!,
+            state.activationCard,
+          );
+          this.clearOpeningSetupRoute(
+            attempt.campaignId,
+            state.generation,
+          );
+        }
         return {
           accepted: true,
           dispatchAllowed: false,
@@ -3503,6 +3748,25 @@ export class OpeningTerminalContinuationGate {
         accepted: false,
         dispatchAllowed: false,
         reason: "opening_table_evidence_invalid",
+      };
+    }
+    if (operation === "setup.complete") {
+      this.finalizeOpeningSetupAttempt(invocationId);
+      if (envelope?.ok === true) {
+        this.clearOpeningSetupRoute(
+          attempt.campaignId,
+          state.generation,
+        );
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "opening_setup_handoff_complete",
+        };
+      }
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "opening_setup_handoff_failed",
       };
     }
     if (operation === "progressive.prepare_opening") {
@@ -3783,7 +4047,7 @@ export class OpeningTerminalContinuationGate {
       state === null
       || state.route.next_operation === null
       || (
-        state.phase === "projection"
+        (state.phase === "projection" || state.phase === "selection")
         && !state.characterSetupComplete
       )
       || this.openingSetupContinuationQueued.has(state.route.campaign_id)
@@ -3794,6 +4058,30 @@ export class OpeningTerminalContinuationGate {
     }
     this.openingSetupContinuationQueued.add(state.route.campaign_id);
     return state.route;
+  }
+
+  openingTableDecisionContext(): JsonObject | null {
+    const state = this.openingSetupStateForTranscript();
+    if (
+      state === null
+      || !state.characterSetupComplete
+      || state.phase !== "selection"
+      || state.route.next_operation?.operation !== "progressive.prepare_opening"
+    ) return null;
+    return {
+      schema_version: 1,
+      campaign_id: state.route.campaign_id,
+      phase: state.route.phase,
+      player_decision_required: true,
+      instruction: (
+        "Judge the player's latest message semantically. If they confirm opening "
+        + "the table, invoke the exact retained next_operation now with the "
+        + "model-visible typed tool named typed_tool. If they ask "
+        + "to revise the investigator, do not invoke it; handle the revision in setup."
+      ),
+      typed_tool: typedToolNameForOperation("progressive.prepare_opening"),
+      next_operation: structuredClone(state.route.next_operation),
+    };
   }
 
   clearOpeningSetupRoute(
@@ -4230,7 +4518,46 @@ export class OpeningTerminalContinuationGate {
     const retained = campaignId
       ? this.retainedAdoptSourceFacts.get(campaignId)
       : undefined;
+    // The review transport already sealed the only source-facts payload this
+    // transition may consume.  Some model/provider combinations still
+    // stringify the generic gateway's nested arguments and can emit malformed
+    // JSON for this large card.  Once the retained card and campaign identity
+    // agree, discard that untrusted transport spelling and rebuild the small
+    // canonical arguments object.  This is intentionally limited to the
+    // retained adopt transition; arbitrary malformed invoke arguments remain
+    // rejected by normalizePiCocInvokeArguments.
+    if (
+      params.operation === "setup.adopt_source_facts"
+      && campaignId
+      && retained !== undefined
+      && typeof params.arguments === "string"
+    ) {
+      return {
+        ...params,
+        campaign: campaignId,
+        arguments: {
+          campaign_id: campaignId,
+          facts: structuredClone(retained),
+        },
+      };
+    }
     return applyRetainedAdoptSourceFacts(params, retained) as JsonObject;
+  }
+
+  bindRetainedOpeningRoute(params: JsonObject): JsonObject {
+    if (typeof params.operation !== "string" || typeof params.campaign === "string") {
+      return params;
+    }
+    const state = this.openingSetupStateForTranscript();
+    if (
+      state === null
+      || !state.characterSetupComplete
+      || state.route.next_operation?.operation !== params.operation
+    ) return params;
+    return {
+      ...params,
+      campaign: state.route.campaign_id,
+    };
   }
 
   observeOpeningSourceReviewTransport(
@@ -4964,12 +5291,23 @@ export class OpeningTerminalContinuationGate {
 
   acceptVisibleAssistantFinal(
     visibleText: string,
+    requireFinalization = false,
   ): VisibleAssistantFinalDecision {
     // Only the transcript gate's confirmed tool-free assistant final reaches
     // this method. Streaming starts/updates and tool-bearing finals cannot
     // consume host provenance.
     const disposition = this.queuedVisibleDispositions.shift()?.disposition;
     const openingState = this.openingSetupStateForTranscript();
+    if (
+      openingState !== null
+      && openingState.characterSetupComplete
+      && this.pendingChargenPlayerSummary?.campaignId
+        === openingState.route.campaign_id
+    ) {
+      const replacementText = this.pendingChargenPlayerSummary.text;
+      this.pendingChargenPlayerSummary = null;
+      return { replacementText };
+    }
     const terminalBlocker = openingState === null
       ? null
       : this.openingSetupTerminalBlockers.get(
@@ -4993,6 +5331,13 @@ export class OpeningTerminalContinuationGate {
       this.openingSetupStates.size > 0
       || this.pendingBindExists()
     ) {
+      if (
+        openingState !== null
+        && !openingState.characterSetupComplete
+        && !this.characterConversationAllowed(openingState)
+      ) {
+        return false;
+      }
       if (
         openingState !== null
         && this.openingSetupAuthorizationMatches(openingState)
@@ -5037,13 +5382,13 @@ export class OpeningTerminalContinuationGate {
         && !openingState.characterSetupComplete
         && this.characterSetupAllowed(openingState)
       ) {
-        // Character creation remains available, but arbitrary model prose
-        // cannot acquire source authority from the phase alone. A successful
-        // canonical setup receipt above exact-replaces its one owned output.
-        return {
-          replacementText: SAFE_CHARACTER_SETUP_PROMPT,
-          triggerSetupContinuation: true,
-        };
+        if (!this.characterConversationAllowed(openingState)) return false;
+        // Guided character creation is a player conversation owned by the
+        // live KP. The setup host prompt keeps it to one natural question at
+        // a time and the typed chargen delegate owns the eventual confirmed
+        // write; this transcript boundary must not expose host/tool
+        // instructions by replacing the KP's player-facing question.
+        return true;
       }
       return false;
     }
@@ -5133,6 +5478,12 @@ export class OpeningTerminalContinuationGate {
           this.playerTurnEpoch,
           uncoveredMechanical,
         )
+      );
+      return false;
+    }
+    if (requireFinalization) {
+      this.pendingMechanicalOutputGateEnvelope = (
+        buildSettledOutputGateEnvelope(this.playerTurnEpoch)
       );
       return false;
     }
@@ -5256,6 +5607,7 @@ export class OpeningTerminalContinuationGate {
     this.openingSetupGenerationSequence = 0;
     this.openingSetupAgentTurn = 0;
     this.openingSetupAudits = [];
+    this.pendingChargenPlayerSummary = null;
     for (const decision of this.pending.values()) decision.resolve(false);
     this.pending.clear();
     this.states.clear();
@@ -5286,8 +5638,8 @@ export function registerPlayerTranscriptGate(
     if (!assistant) return;
     if (!assistant.content.some((part) => part.type === "toolCall")) {
       const visibleText = visibleAssistantText(assistant);
-      if (visibleText !== null) {
-        const decision = onVisibleAssistantFinal?.(visibleText);
+      {
+        const decision = onVisibleAssistantFinal?.(visibleText ?? "");
         if (decision === false) {
           return { message: withoutAssistantText(event.message) };
         }
@@ -5608,7 +5960,9 @@ export function deliverMechanicalOutputGateInstruction(
   } catch { /* mechanical gate audit is best effort */ }
   try {
     pi.sendMessage({
-      customType: MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
+      customType: envelope.kind === "settled_output_gate"
+        ? SETTLED_OUTPUT_GATE_CUSTOM_TYPE
+        : MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
       content: JSON.stringify(envelope),
       display: false,
       details: envelope,
@@ -6113,13 +6467,14 @@ export function openingSourceReviewTerminalFollowUp(
       schema_version: 1,
       status: "reviewed",
       campaign_id: receipt.campaign_id,
+      instruction:
+        "Call next_operation.invoke_via exactly with next_operation.arguments now. "
+        + "Do not emit player-visible text or begin character creation until that tool returns ok.",
       next_operation: {
         operation: "setup.adopt_source_facts",
-        invoke_via: "coc_invoke",
-        campaign: receipt.campaign_id,
+        invoke_via: "coc_setup_adopt_source_facts",
         arguments: {
           campaign_id: receipt.campaign_id,
-          facts: receipt.facts,
         },
       },
     };
@@ -7121,6 +7476,7 @@ type StartupResumeGate = {
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
   let mcp: McpJsonlClient | null = null;
+  let turnTelemetry: TurnTelemetry | null = null;
   let sessionEpoch = 0;
   let sessionClosing = true;
   let sourceProducerStates = new Map<string, JsonObject>();
@@ -8136,10 +8492,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;
+    // Bind the host-retained source-facts card before generic JSON-string
+    // normalization so the exact setup transition can recover from a
+    // provider's malformed double-encoding without relaxing other tools.
+    params = openingContinuationGate.bindRetainedAdoptSourceFacts(params);
     if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
     }
-    params = openingContinuationGate.bindRetainedAdoptSourceFacts(params);
+    params = openingContinuationGate.bindRetainedOpeningRoute(params);
     const epoch = sessionEpoch;
     const startupResumeError = startupResumeToolError(name, params);
     if (startupResumeError !== null) {
@@ -8237,13 +8597,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       preparedSceneSupply = preflight.supply;
     }
     let value: unknown;
+    let transportMeta: McpTransportMeta | null = null;
+    const gatewayResult = (visible: JsonObject) => {
+      const rendered = result(visible);
+      // `details` travels only in Pi's internal tool-execution event. Its
+      // model-facing `content` remains the exact canonical envelope.
+      return transportMeta === null
+        ? rendered
+        : { ...rendered, details: { ...visible, coc_transport: transportMeta } };
+    };
     let scenePriorityHandled = false;
     try {
-      value = await client(ctx).callTool(
+      const call = await client(ctx).callToolWithTransportMeta(
         isCanonicalInvokeSurface(name) ? "coc_invoke" : name,
         params,
         signal,
       );
+      value = call.value;
+      transportMeta = call.transport;
+      turnTelemetry?.recordTransportMeta(_id, transportMeta);
       if (
         preparedSceneSupply !== null
         && params.operation === "state.move_scene"
@@ -8498,6 +8870,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         );
         if (disposition.accepted) {
           startupResumeGate = null;
+          applyKpActiveTools();
         } else {
           terminalizeStartupResume(disposition.failureClass);
         }
@@ -8595,7 +8968,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             );
           } catch { /* audit is best effort */ }
           flushOpeningSetupAudits();
-          return result(value);
+          return gatewayResult(value as JsonObject);
         }
         if (dispatchKey) {
           let projectionParams: JsonObject;
@@ -8913,7 +9286,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         } catch { /* recovery-guidance audit is best effort */ }
       }
     }
-    return result(value);
+    return gatewayResult(value as JsonObject);
   };
   pi.registerTool({
     name: "coc_capabilities", label: "COC capabilities",
@@ -9026,6 +9399,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         + "(e.g. Library Use), not bilingual descriptions; the wrapper expands "
         + "occupation and interest support so both budgets fit. Do not ask the "
         + "player to add or drop skills to balance points. "
+        + "Always pass the player's confirmed age when they supplied one. "
         + "assignment_priority is eight characteristic keys high-to-low; first receives 80. "
         + "Call at most once per player turn; do not retry or guess formulas "
         + "on failure. After a numeric card, same-id setup revision is allowed "
@@ -9051,12 +9425,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (!campaignId) {
           throw new Error("coc_chargen_delegate requires PI_COC_CAMPAIGN_ID");
         }
-        return result(await runChargenInProcess({
+        const charged = await runChargenInProcess({
           campaignId,
           brief,
           callTool: (name, args, toolSignal) => client(ctx).callTool(name, args, toolSignal),
           signal,
-        }));
+        });
+        if (openingContinuationGate.observeChargenDelegateCompletion(
+          campaignId,
+          charged,
+          brief,
+        )) applyKpActiveTools();
+        return result(charged);
       },
     });
   }
@@ -9093,7 +9473,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     ?? null
   );
   if (telemetryAgentDir !== null) {
-    registerTurnTelemetry(pi, { agentDir: telemetryAgentDir });
+    turnTelemetry = registerTurnTelemetry(pi, { agentDir: telemetryAgentDir });
   }
   const agentDir = (
     overrides.welcomeAgentDir
@@ -9145,6 +9525,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       const decision = openingContinuationGate.acceptVisibleAssistantFinal(
         visibleText,
+        kpPlayPhase === "live_turn"
+          || kpPlayPhase === "pending_finalization"
+          || kpPlayPhase === "ending",
       );
       const deliveredBlocker = (
         openingContinuationGate.takeDeliveredOpeningSetupTerminalBlocker()
@@ -9163,14 +9546,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           openingContinuationGate.takeMechanicalOutputGateEnvelope(),
         );
       }
-      if (
-        decision === false
-        || decision === true
-        || (
-          typeof decision === "object"
-          && decision.triggerSetupContinuation === true
-        )
-      ) {
+      if (shouldTriggerOpeningSetupContinuation(decision)) {
         const route = (
           openingContinuationGate.requiredOpeningSetupContinuation()
         );
@@ -9202,48 +9578,65 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     epoch: () => sessionEpoch,
     injectedPaths: injectedPlayerPdfPaths,
   });
+  pi.on("message_start", (event) => {
+    if (userMessageText(event.message) === null) return;
+    const context = openingContinuationGate.openingTableDecisionContext();
+    if (context === null) return;
+    pi.sendMessage({
+      customType: "coc-opening-table-player-decision",
+      content: JSON.stringify(context),
+      display: false,
+      details: context,
+    }, { deliverAs: "steer" });
+  });
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();
   });
-  pi.on("agent_end", async () => {
+  pi.on("agent_end", () => {
     openingContinuationGate.markAgentEnd();
-    // Resolving a pending terminal wake resumes its original publisher in the
-    // preceding microtask. Let that send commit or mark an exact retry before
-    // claiming retries at this post-tool lifecycle boundary.
-    await Promise.resolve();
-    const ownedContinuedDispatches = supplyCoordinator.terminalDedupe();
-    for (
-      const retry of openingContinuationGate
-        .takeCurrentDependencyDeliveryRetries()
-    ) {
-      const terminalStatus = typeof retry.receipt.status === "string"
-        ? retry.receipt.status.trim()
-        : "";
-      const continuationContext = (
-        openingContinuationGate.coordinatorContinuationContext(
-          retry.dispatchKey,
-          terminalStatus,
-        )
-      );
-      await publishCoordinatorTerminal(
-        pi,
-        retry.receipt,
-        ownedContinuedDispatches,
-        (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
-        () => continuationContext,
-        (dispatchKey) => (
-          openingContinuationGate.rollbackCurrentDependencyDelivery(
-            dispatchKey,
-          )
-        ),
-        (dispatchKey) => (
-          openingContinuationGate.markCurrentDependencyTerminalDelivered(
-            dispatchKey,
-          )
-        ),
-        false,
-      );
-    }
+    // Terminal-delivery retries are bookkeeping recovery, not part of the
+    // player turn's settlement boundary. Run them after this lifecycle hook
+    // returns so a stalled retry cannot keep RPC/UI input locked forever.
+    queueMicrotask(() => {
+      void (async () => {
+        const ownedContinuedDispatches = supplyCoordinator.terminalDedupe();
+        for (
+          const retry of openingContinuationGate
+            .takeCurrentDependencyDeliveryRetries()
+        ) {
+          const terminalStatus = typeof retry.receipt.status === "string"
+            ? retry.receipt.status.trim()
+            : "";
+          const continuationContext = (
+            openingContinuationGate.coordinatorContinuationContext(
+              retry.dispatchKey,
+              terminalStatus,
+            )
+          );
+          await publishCoordinatorTerminal(
+            pi,
+            retry.receipt,
+            ownedContinuedDispatches,
+            (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+            () => continuationContext,
+            (dispatchKey) => (
+              openingContinuationGate.rollbackCurrentDependencyDelivery(
+                dispatchKey,
+              )
+            ),
+            (dispatchKey) => (
+              openingContinuationGate.markCurrentDependencyTerminalDelivered(
+                dispatchKey,
+              )
+            ),
+            false,
+          );
+        }
+      })().catch(() => {
+        // Retry publication is already durable and will be reconsidered by the
+        // next natural lifecycle boundary. It must never break live play.
+      });
+    });
   });
   pi.on("session_start", async (event, ctx) => {
     sceneSupplyWaits.clear();

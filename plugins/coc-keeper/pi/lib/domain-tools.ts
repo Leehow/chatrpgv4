@@ -127,16 +127,102 @@ export type AclDecision =
     operation: string;
     canonical_operation: string;
   }
-  | { ok: false; code: string; message: string };
+  | {
+    ok: false;
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+    hints?: string[];
+  };
+
+const ACL_SUGGESTION_CAP = 12;
+
+function aclDenied(
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+  hints?: string[],
+): AclDecision {
+  return { ok: false, code, message, details, hints };
+}
+
+function operationsLegalOnSurface(
+  phase: PlayPhase,
+  surface: Exclude<KpSurface, "none"> | "none",
+): string[] {
+  if (surface === "none") return [];
+  const names: string[] = [];
+  for (const [operation, policy] of Object.entries(OPERATION_POLICY)) {
+    if (policy.kp_surface !== surface) continue;
+    if (!policy.phases.includes(phase)) continue;
+    if (
+      policy.audience === "source_worker"
+      || policy.audience === "audit"
+      || SOURCE_WORKER_LIFECYCLE_OPERATIONS.has(operation)
+    ) continue;
+    names.push(operation);
+  }
+  names.sort();
+  return names;
+}
+
+function phaseForbidden(
+  operation: string,
+  policy: typeof OPERATION_POLICY[string],
+  phase: PlayPhase,
+): AclDecision {
+  const legal = operationsLegalOnSurface(phase, policy.kp_surface);
+  const shown = legal.slice(0, ACL_SUGGESTION_CAP);
+  return aclDenied(
+    "phase_forbidden",
+    `operation ${operation} is not allowed in phase ${phase}`,
+    {
+      operation,
+      phase,
+      allowed_phases: [...policy.phases],
+      currently_legal_on_this_surface: shown,
+    },
+    [
+      `this operation is legal in: ${policy.phases.join(", ")}`,
+      shown.length > 0
+        ? `currently legal on this surface: ${shown.join(", ")}`
+        : "no operations on this surface are legal in the current phase",
+    ],
+  );
+}
 
 function roleForbidden(operation: string, policy: typeof OPERATION_POLICY[string]): AclDecision | null {
   const role = sessionRoleFromEnv();
   if (!role) return null;
   if (operationAllowedForSessionRole(operation, policy, role)) return null;
+  const allowedRoles = sessionRolesForPolicy(operation, policy);
+  return aclDenied(
+    "role_forbidden",
+    `operation ${operation} is not allowed in session role ${role}`,
+    { operation, role, allowed_roles: [...allowedRoles] },
+    [
+      allowedRoles.length > 0
+        ? `this operation belongs to session role ${allowedRoles.join(" / ")}`
+        : "this operation is not on the setup or play KP surface",
+    ],
+  );
+}
+
+export function modelVisibleAclFailure(
+  acl: Extract<AclDecision, { ok: false }>,
+  toolName: string,
+): Record<string, unknown> {
   return {
     ok: false,
-    code: "role_forbidden",
-    message: `operation ${operation} is not allowed in session role ${role}`,
+    isError: true,
+    tool: toolName,
+    error: {
+      code: acl.code,
+      message: acl.message,
+      retryable: false,
+      ...(acl.details ? { details: acl.details } : {}),
+    },
+    hints: acl.hints ?? [],
   };
 }
 
@@ -149,22 +235,24 @@ export function evaluateExecuteAcl(args: {
   const operation = (args.operation.trim() || typedOperation || "");
   const policy = OPERATION_POLICY[operation];
   if (!policy) {
-    return {
-      ok: false,
-      code: "unknown_operation",
-      message: `unknown canonical operation: ${operation}`,
-    };
+    return aclDenied(
+      "unknown_operation",
+      `unknown canonical operation: ${operation}`,
+      { operation },
+      ["use a typed operation tool whose name maps to an archive contract"],
+    );
   }
   if (
     policy.audience === "source_worker"
     || policy.audience === "audit"
     || SOURCE_WORKER_LIFECYCLE_OPERATIONS.has(operation)
   ) {
-    return {
-      ok: false,
-      code: "private_lifecycle_operation",
-      message: "canonical operation is reserved for the private source coordinator lifecycle",
-    };
+    return aclDenied(
+      "private_lifecycle_operation",
+      "canonical operation is reserved for the private source coordinator lifecycle",
+      { operation },
+      ["do not call private source-coordinator operations from the live KP path"],
+    );
   }
   if (policy.kp_surface === "none") {
     const compat = (
@@ -172,18 +260,15 @@ export function evaluateExecuteAcl(args: {
       && HOST_INVOKE_COMPAT_OPERATIONS.has(operation)
     );
     if (!compat) {
-      return {
-        ok: false,
-        code: "host_private_operation",
-        message: `operation ${operation} is not on the live KP domain surface`,
-      };
+      return aclDenied(
+        "host_private_operation",
+        `operation ${operation} is not on the live KP domain surface`,
+        { operation },
+        ["use a typed operation tool on the live KP surface; do not call coc_invoke for host-private ops"],
+      );
     }
     if (!policy.phases.includes(args.phase)) {
-      return {
-        ok: false,
-        code: "phase_forbidden",
-        message: `operation ${operation} is not allowed in phase ${args.phase}`,
-      };
+      return phaseForbidden(operation, policy, args.phase);
     }
     const compatRoleDenied = roleForbidden(operation, policy);
     if (compatRoleDenied) return compatRoleDenied;
@@ -197,29 +282,27 @@ export function evaluateExecuteAcl(args: {
   }
   const expectedTool = TOOL_BY_SURFACE[policy.kp_surface];
   if (typedOperation && typedOperation !== operation) {
-    return {
-      ok: false,
-      code: "domain_mismatch",
-      message: `operation ${operation} belongs to ${expectedTool}, not ${args.toolName}`,
-    };
+    return aclDenied(
+      "domain_mismatch",
+      `operation ${operation} belongs to ${expectedTool}, not ${args.toolName}`,
+      { operation, expected_tool: expectedTool, tool: args.toolName },
+      [`call the typed tool for ${operation}, not ${args.toolName}`],
+    );
   }
   if (
     args.toolName !== HIDDEN_COMPAT_INVOKE
     && args.toolName !== expectedTool
     && typedOperation !== operation
   ) {
-    return {
-      ok: false,
-      code: "domain_mismatch",
-      message: `operation ${operation} belongs to ${expectedTool}, not ${args.toolName}`,
-    };
+    return aclDenied(
+      "domain_mismatch",
+      `operation ${operation} belongs to ${expectedTool}, not ${args.toolName}`,
+      { operation, expected_tool: expectedTool, tool: args.toolName },
+      [`call ${expectedTool} or the typed tool for ${operation}`],
+    );
   }
   if (!policy.phases.includes(args.phase)) {
-    return {
-      ok: false,
-      code: "phase_forbidden",
-      message: `operation ${operation} is not allowed in phase ${args.phase}`,
-    };
+    return phaseForbidden(operation, policy, args.phase);
   }
   const roleDenied = roleForbidden(operation, policy);
   if (roleDenied) return roleDenied;
@@ -462,9 +545,17 @@ export function playPhaseFromResumeData(
   // ready_for_table resumes keep mode=table_opening even after opening/play.
   // Do not map every table_opening to live_turn: a fresh handoff stays opening.
   if (mode === "table_opening") {
-    if (hostLocalTableStarted(data, context) || resumeSignalsStartedTable(data)) {
+    // Canonical recovery evidence beats the coarse host-local transcript
+    // probe. A real played turn/finalization is live even if an older bridge
+    // still emits a stale opening next-operation.
+    if (resumeSignalsStartedTable(data)) {
       return "live_turn";
     }
+    // Setup can already have committed and delivered the turn-0 opening before
+    // setup.complete.  That persisted transcript is stronger evidence than a
+    // stale ready_for_table next-operation: exposing the opening tool again
+    // makes it fail with opening_already_started and encourages duplicate prose.
+    if (hostLocalTableStarted(data, context)) return "live_turn";
     return "opening";
   }
   if (resumeSignalsIncompleteOpening(data, mode)) return "opening";
@@ -640,5 +731,5 @@ export const DOMAIN_TOOL_DESCRIPTIONS: Record<DomainToolName, string> = {
   coc_turn: "Build output context, journal, or hash-bound turn.finalize.",
   coc_setup: "Campaign inspect/create, opening, resume, and source-facts setup.",
   coc_advice: "Optional advisory Director/narration/action suggestions. Never a gate.",
-  coc_subsystem: "Enter or advance combat, chase, sanity, or mechanics.ensure.",
+  coc_subsystem: "Enter or advance combat, chase, sanity, or mechanics.ensure. Player attacks and shots require combat.resolve; never substitute rules.roll.",
 };

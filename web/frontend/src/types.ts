@@ -133,6 +133,47 @@ export interface InventoryItem {
   source?: "sheet" | "campaign";
 }
 
+/** One row from the campaign-local cash ledger (state.cash_query). */
+/** Player-safe campaign clock fragment on a cash row. */
+export interface CashPlayerTime {
+  phase?: string;
+  appearance_mode?: string;
+  display_label?: string | null;
+  display?: string;
+}
+
+export interface CashGameTime {
+  elapsed_minutes?: number;
+  display?: string;
+  day_phase?: string;
+  player_time?: CashPlayerTime;
+}
+
+export interface CashLedgerEntry {
+  op: "grant" | "spend";
+  amount: string;
+  currency?: string;
+  unit?: string;
+  localized_reason?: string;
+  decision_id?: string;
+  balance_before?: string;
+  balance_after?: string;
+  game_time?: CashGameTime;
+  player_time?: CashPlayerTime | string;
+}
+
+export interface CashBalance {
+  amount: string;
+  unit?: string;
+}
+
+/** Live cash purses + recent ledger; absent/null outside a campaign. */
+export interface CashView {
+  schema_version?: number;
+  balances: Record<string, CashBalance>;
+  ledger: CashLedgerEntry[];
+}
+
 export interface CharacterSheet {
   name?: string;
   occupation?: string;
@@ -149,6 +190,8 @@ export interface CharacterSheet {
   /** Live campaign-merged inventory; absent/null outside a campaign context
    *  (then `equipment` is the sheet-only fallback). */
   inventory_items?: InventoryItem[] | null;
+  /** Live campaign cash ledger; absent/null outside a campaign context. */
+  cash?: CashView | null;
   localized?: boolean;
 }
 
@@ -243,8 +286,26 @@ export interface CombatInitiative {
   rows: CombatInitiativeRow[];
 }
 
+/** Player-safe opening lifecycle projection (single phase authority: the
+ *  plugin's derive_opening_phase; the UI reads it and never re-derives). */
+export interface OpeningPhaseInfo {
+  schema_version: number;
+  phase: "module_preparation" | "character_creation" | "ready_for_table" | "active";
+  campaign_status: string | null;
+  session_role: "setup" | "play";
+  module_preparation_satisfied: boolean;
+  module_preparation_sub_phase: string | null;
+  source_gated: boolean;
+  character_setup_confirmed: boolean;
+  character_setup_policy: string | null;
+  next_operation: string | null;
+  blocking_reason_code: string | null;
+}
+
 export interface GameState {
   campaign_id: string;
+  /** Module-stage/location-protagonist title from player-safe projections. */
+  display_title?: string | null;
   play_language?: string | null;
   active_scene_id?: string | null;
   /** Player-facing scene label from story-graph (display_name / localized). */
@@ -259,8 +320,10 @@ export interface GameState {
   actors: Actor[];
   pending_choice?: PendingChoice | null;
   character?: CharacterSheet | null;
-  /** True while the linked investigator is the setup draft shell (creation
-   *  guided in chat; its placeholder numbers are not a real sheet). */
+  /** Authoritative opening lifecycle phase (server-side projection). */
+  opening_phase?: OpeningPhaseInfo | null;
+  /** True until the opening phase reports a confirmed investigator (derived
+   *  server-side from opening_phase; placeholder sheets stay pending). */
   character_setup_pending?: boolean;
   /** Host session role for this campaign (setup table vs play table). */
   session_role?: "setup" | "play" | null;
@@ -298,6 +361,14 @@ export interface TranscriptMessage {
   text: string;
   /** Ordered, hash-verified player output projected from turn finalization. */
   content_blocks?: KeeperContentBlock[];
+  /** Canonical turn-finalization id when the row is hash-bound. */
+  finalization_id?: string;
+  /** Stable table-transcript row id when present. */
+  entry_id?: string;
+  /** Campaign turn index from table-transcript, when present. */
+  turn?: number | string;
+  /** Client-issued live turn token echoed by the web settle payload. */
+  live_id?: string;
   /** Epoch ms (local projection of log wall-clock). */
   at?: number;
   /** ISO timestamp from campaign logs when available. */
@@ -332,12 +403,6 @@ export interface RollDisplay {
   app?: number;
   credit_rating?: number;
   governing_value?: number;
-  san_before?: number;
-  san_after?: number;
-  san_delta?: number;
-  san_loss?: number;
-  san_loss_expression?: string;
-  san_loss_resolution?: string;
   source?: string;
   final_total?: number;
   total?: number;
@@ -353,6 +418,13 @@ export interface RollDisplay {
   units?: number;
   /** The first tens die before applying a bonus or penalty die. */
   unmodified_roll?: number;
+  /** Optional flat compat fields (legacy receipts / Chat layout). */
+  san_before?: number;
+  san_after?: number;
+  san_delta?: number;
+  san_loss?: number;
+  san_loss_expression?: string;
+  san_loss_resolution?: string;
   combat_role?: "attack" | "defense" | "attack_reroll" | "damage";
   action?: string | null;
   defense_kind?: string | null;
@@ -370,10 +442,157 @@ export interface RollDisplay {
   armor_after?: number;
 }
 
+export type RollGroupLayout = "check" | "sanity" | "opposed" | "combat" | "damage";
+
+export interface SanityPayload {
+  check_roll_id: string;
+  loss_roll_id?: string;
+  check: RollDisplay;
+  loss?: RollDisplay | null;
+  san_before?: number;
+  san_after?: number;
+  san_delta?: number;
+  san_loss?: number;
+  san_loss_expression?: string;
+  san_loss_resolution?: string;
+  source?: string;
+}
+
+export interface OpposedPayload {
+  left: RollDisplay;
+  right: RollDisplay;
+  winner?: string | null;
+  decision_id?: string;
+}
+
+export interface DamagePayload {
+  damage_roll_id: string;
+  roll: RollDisplay;
+  source?: "fight_back" | string | null;
+  damage_expression?: string;
+  raw_damage?: number;
+  armor_absorbed?: number;
+  hp_before?: number;
+  hp_delta?: number;
+  hp_after?: number;
+  armor_before?: number;
+  armor_after?: number;
+}
+
+export interface CombatShotPayload {
+  shot?: number;
+  attack_roll_id: string;
+  damage_roll_id?: string;
+  outcome?: string | null;
+  attack?: RollDisplay | null;
+  damage?: DamagePayload | null;
+}
+
+export interface CombatVolleyPayload {
+  volley?: number;
+  attack_roll_id: string;
+  damage_roll_ids: string[];
+  outcome?: string | null;
+  hits?: number;
+  attack?: RollDisplay | null;
+  damages?: DamagePayload[];
+}
+
+export interface CombatPayload {
+  turn_id?: string | null;
+  action?: string | null;
+  defense_kind?: string | null;
+  opposed_outcome?: string | null;
+  combat_outcome?: string | null;
+  attack_modifiers?: Record<string, boolean | number>;
+  attack_roll_id?: string | null;
+  defense_roll_id?: string | null;
+  attack?: RollDisplay | null;
+  defense?: RollDisplay | null;
+  attack_reroll?: RollDisplay | null;
+  damage?: DamagePayload | null;
+  fight_back_damage?: DamagePayload | null;
+  shots?: CombatShotPayload[];
+  volleys?: CombatVolleyPayload[];
+}
+
+/** Structured cash settlement from turn.finalize asset/state delta (never prose). */
+export interface CashChangeDisplay {
+  effect_id: string;
+  source_decision_id?: string;
+  amount: string;
+  currency: string;
+  direction: "gain" | "spend";
+  after?: string;
+  localized_reason?: string;
+  game_time?: CashGameTime;
+  player_time?: CashPlayerTime | string;
+}
+
+export interface ItemChangeDisplay {
+  effect_id: string;
+  source_decision_id?: string;
+  item_id: string;
+  label: string;
+  action: string;
+  quantity?: string | number;
+  delta?: string | number;
+  before?: number;
+  after?: string | number;
+  remaining?: number;
+  present_before?: boolean;
+  present_after?: boolean;
+  localized_reason?: string;
+  game_time?: CashGameTime;
+  weapon?: {
+    weapon_id?: string;
+    damage?: string;
+    skill?: string;
+    range?: string | number;
+    ammo?: string | number;
+    label?: string;
+  };
+}
+
+export interface MechanicEffect {
+  category: "state_delta" | "exceptional_effect";
+  effect_id?: string;
+  event_id?: string;
+  effect_kind?: string;
+  resource?: string;
+  before?: number;
+  after?: number;
+  delta?: number;
+  direction?: string;
+  player_visible_impact?: string;
+  condition?: string;
+  action?: string;
+  source_roll_id?: string;
+}
+
 export type KeeperContentBlock =
   | { type: "prose"; text: string }
   | { type: "roll"; text: string; source_ids: string[]; roll?: RollDisplay | null }
-  | { type: "roll_group"; text: string; source_ids: string[]; rolls: RollDisplay[] };
+  | {
+      type: "roll_group";
+      text: string;
+      source_ids: string[];
+      rolls: RollDisplay[];
+      layout?: RollGroupLayout;
+      sanity?: SanityPayload;
+      opposed?: OpposedPayload;
+      combat?: CombatPayload;
+      damage?: DamagePayload;
+      effects?: MechanicEffect[];
+    }
+  | { type: "cash"; text: string; source_ids: string[]; changes: CashChangeDisplay[] }
+  | {
+      type: "asset_changes";
+      source_ids: string[];
+      cash_changes: CashChangeDisplay[];
+      item_changes: ItemChangeDisplay[];
+      count: number;
+    };
 
 /** Wall-clock metadata attached by the web client (not campaign canon). */
 export type MessageTiming = {
@@ -386,7 +605,7 @@ export type MessageTiming = {
 };
 
 export type ChatMessage =
-  | ({ kind: "player"; text: string } & MessageTiming)
+  | ({ kind: "player"; text: string; turn?: number | string; entryId?: string } & MessageTiming)
   | ({
       kind: "keeper";
       text: string;
@@ -397,6 +616,10 @@ export type ChatMessage =
       streaming?: boolean;
       usage?: TokenUsage;
       contentBlocks?: KeeperContentBlock[];
+      finalizationId?: string;
+      entryId?: string;
+      turn?: number | string;
+      liveId?: string;
     } & MessageTiming)
   | ({ kind: "note"; text: string; tone?: "error" | "info" } & MessageTiming);
 

@@ -12,7 +12,8 @@ import { CombatOverlay } from "./components/CombatOverlay";
 import { GuidedStart } from "./components/GuidedStart";
 import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
 import { Panel, PanelContent } from "./components/Panel";
-import { ResizeGutter, SidebarLayout, useResizableSidebarWidth } from "./components/SidebarLayout";
+import { SidebarLayout } from "./components/SidebarLayout";
+import { hydrateModelSelection, shouldPersistModelPrefs } from "./model-prefs";
 import { effectiveThinkingLevel } from "./model-thinking";
 import {
   ACTIVE_CAMPAIGN_KEY,
@@ -27,7 +28,15 @@ import {
   isHandoffEvent,
   reduceTransition,
 } from "./session-transition";
-import { applySettledKeeperMessage } from "./transcript-merge";
+import {
+  SIDEBAR_LEFT_BOUNDS,
+  SIDEBAR_RIGHT_BOUNDS,
+  hasLocalLayoutKeys,
+  resolveHydratedCollapsed,
+  resolveHydratedWidth,
+  responsiveSidebarClasses,
+  shouldUploadLayoutFallback,
+} from "./sidebar-layout";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -88,10 +97,11 @@ function transcriptMessages(messages: TranscriptMessage[]): ChatMessage[] {
 }
 
 function sameTranscriptMessage(left: ChatMessage, right: ChatMessage): boolean {
+  const normalizedText = (value: string) => value.replace(/\r\n/g, "\n").trim();
   return (
     left.kind === right.kind &&
     (left.kind === "player" || left.kind === "keeper") &&
-    left.text === right.text
+    normalizedText(left.text) === normalizedText(right.text)
   );
 }
 
@@ -140,7 +150,26 @@ function replaceMessagesFromTranscript(
     if (matched < next.length) {
       return [...merged.slice(0, lastMatched + 1), ...next.slice(matched)];
     }
+    // A freshly spawned RPC host can settle its startup continuation before
+    // the browser attaches.  attachOpening then replays the last assistant
+    // message while the same canonical table message has already been
+    // hydrated above.  Drop only those exact leading replay clones; a real
+    // repeated turn is retained once it exists in the canonical transcript.
+    const authoritativeLast = next[next.length - 1];
     const staleTail = merged.slice(lastMatched + 1);
+    let replayCloneCount = 0;
+    while (
+      replayCloneCount < staleTail.length
+      && sameTranscriptMessage(staleTail[replayCloneCount], authoritativeLast)
+    ) {
+      replayCloneCount += 1;
+    }
+    if (replayCloneCount > 0) {
+      return [
+        ...merged.slice(0, lastMatched + 1),
+        ...staleTail.slice(replayCloneCount),
+      ];
+    }
     if (
       staleTail.length > 0 &&
       staleTail.every(
@@ -221,6 +250,16 @@ export default function App() {
   const applyGameState = useCallback((nextState: GameState | null | undefined) => {
     if (!nextState || nextState.error) return;
     setState(nextState);
+    if (nextState.display_title) {
+      setBootstrap((prev) => prev == null ? prev : ({
+        ...prev,
+        campaigns: prev.campaigns.map((campaign) => (
+          campaign.campaign_id === nextState.campaign_id
+            ? { ...campaign, title: nextState.display_title }
+            : campaign
+        )),
+      }));
+    }
     setTransition((prev) =>
       reduceTransition(prev, {
         kind: "campaign_status",
@@ -241,23 +280,24 @@ export default function App() {
   /* Pure UI state (layout only — no effect on the session state machine). */
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [rightPanelWidth, setRightPanelWidth] = useState(320);
-  const leftSheet = useResizableSidebarWidth({
-    side: "left",
-    storageKey: LS.sheetLeft,
-    defaultWidth: 320,
-    minWidth: 240,
-    maxWidth: 480,
-  });
-  const rightSheet = useResizableSidebarWidth({
-    side: "right",
-    storageKey: LS.sheetRight,
-    defaultWidth: 320,
-    minWidth: 240,
-    maxWidth: 480,
-  });
-  const leftSheetWidth = Math.min(leftSheet.width, typeof window !== "undefined" ? window.innerWidth - 24 : leftSheet.width);
-  const rightSheetWidth = Math.min(rightSheet.width, typeof window !== "undefined" ? window.innerWidth - 24 : rightSheet.width);
+  const [rightPanelWidth, setRightPanelWidth] = useState<number>(SIDEBAR_RIGHT_BOUNDS.defaultWidth);
+  const [layoutPreferred, setLayoutPreferred] = useState<{ leftW?: number; rightW?: number; leftC?: boolean; rightC?: boolean }>({});
+  const layoutRemoteLoaded = useRef(false);
+  const layoutUploaded = useRef(false);
+  const modelFallbackUploaded = useRef(false);
+  const [modelPrefsReady, setModelPrefsReady] = useState(false);
+  const [modelPrefsWritable, setModelPrefsWritable] = useState(false);
+  // 响应式断点锚定在"已入座"（session 存在），而不是消息数组的瞬时长度：
+  // 切战役/空转录/删除当前战役都会把 messages 短暂清空，若以它为锚，
+  // 768–1280px 窗宽下左栏会在游戏进行中自己弹出又缩回。
+  const hasChatContent = messages.length > 0 || session != null;
+  const sidebarClasses = responsiveSidebarClasses(hasChatContent);
+  const sessionTitle =
+    session == null
+      ? null
+      : state?.display_title ||
+        bootstrap?.campaigns?.find((c) => c.campaign_id === session.campaign_id)?.title ||
+        session.campaign_id;
   const [creating, setCreating] = useState(false);
   /** First-run guided start; auto-entered for a workspace without campaigns. */
   const [guided, setGuided] = useState(false);
@@ -265,7 +305,6 @@ export default function App() {
   /** Desktop「导入 PDF 模组…」handoff: a shell-provided local path awaiting
    *  registration inside NewCampaignFlow's pdf mode. */
   const [pdfImportPath, setPdfImportPath] = useState<string | null>(null);
-  const [pdfImportFile, setPdfImportFile] = useState<File | null>(null);
   const pdfImportHandledRef = useRef<string | null>(null);
   /** Desktop fatal notice (bridge died): styled in-app modal, not a native box. */
   const [fatal, setFatal] = useState<{ title: string; message: string; detail?: string } | null>(null);
@@ -356,6 +395,89 @@ export default function App() {
       .fetchBootstrap()
       .then((resp) => setBootstrap(resp.result))
       .catch((e) => setError(friendlyError(String(e.message ?? e))));
+    api
+      .fetchUserPrefs()
+      .then((disk) => {
+        layoutRemoteLoaded.current = true;
+        const layout = disk.layout && typeof disk.layout === "object" ? disk.layout : undefined;
+        const remoteHasLayout = Boolean(layout && Object.keys(layout).length);
+        const leftW = resolveHydratedWidth({
+          remote: layout?.leftSidebarWidth,
+          storedRaw: localStorage.getItem(`${LS.sidebarLeft}.width`),
+          fallback: SIDEBAR_LEFT_BOUNDS.defaultWidth,
+          min: SIDEBAR_LEFT_BOUNDS.minWidth,
+          max: SIDEBAR_LEFT_BOUNDS.maxWidth,
+        });
+        const rightW = resolveHydratedWidth({
+          remote: layout?.rightSidebarWidth,
+          storedRaw: localStorage.getItem(`${LS.sidebarRight}.width`),
+          fallback: SIDEBAR_RIGHT_BOUNDS.defaultWidth,
+          min: SIDEBAR_RIGHT_BOUNDS.minWidth,
+          max: SIDEBAR_RIGHT_BOUNDS.maxWidth,
+        });
+        const leftC = resolveHydratedCollapsed({
+          remote: layout?.leftSidebarCollapsed,
+          storedRaw: localStorage.getItem(`${LS.sidebarLeft}.collapsed`),
+          fallback: false,
+        });
+        const rightC = resolveHydratedCollapsed({
+          remote: layout?.rightSidebarCollapsed,
+          storedRaw: localStorage.getItem(`${LS.sidebarRight}.collapsed`),
+          fallback: false,
+        });
+        setLayoutPreferred({ leftW, rightW, leftC, rightC });
+        const hasLocal =
+          hasLocalLayoutKeys(localStorage, `${LS.sidebarLeft}.width`, `${LS.sidebarLeft}.collapsed`) ||
+          hasLocalLayoutKeys(localStorage, `${LS.sidebarRight}.width`, `${LS.sidebarRight}.collapsed`);
+        const uploadLayout = shouldUploadLayoutFallback({
+          remoteLoaded: true,
+          remoteHasLayout,
+          hasLocalLayout: hasLocal,
+          alreadyUploaded: layoutUploaded.current,
+        });
+        const hydrated = hydrateModelSelection({
+          remoteProvider: disk.provider,
+          remoteModel: disk.model,
+          remoteThinking: disk.thinking,
+          localProvider: localStorage.getItem(LS.provider),
+          localModel: localStorage.getItem(LS.model),
+          localThinking: localStorage.getItem(LS.thinking),
+        });
+        if (hydrated.provider) setProvider(hydrated.provider);
+        if (hydrated.model) setModel(hydrated.model);
+        if (hydrated.thinking) setThinking(hydrated.thinking);
+        const uploadModel = hydrated.shouldUpload && !modelFallbackUploaded.current;
+        if (uploadLayout) layoutUploaded.current = true;
+        if (uploadModel) modelFallbackUploaded.current = true;
+        const prefsPatch: api.UserPrefs = {};
+        if (uploadLayout) {
+          prefsPatch.layout = {
+            leftSidebarWidth: leftW,
+            rightSidebarWidth: rightW,
+            leftSidebarCollapsed: leftC,
+            rightSidebarCollapsed: rightC,
+          };
+        }
+        if (uploadModel) {
+          prefsPatch.provider = hydrated.provider;
+          prefsPatch.model = hydrated.model;
+          if (hydrated.thinking) prefsPatch.thinking = hydrated.thinking;
+        }
+        if (Object.keys(prefsPatch).length) {
+          void api.saveUserPrefs(prefsPatch).catch(() => undefined);
+        }
+        setModelPrefsWritable(true);
+        setModelPrefsReady(true);
+      })
+      .catch(() => {
+        layoutRemoteLoaded.current = false;
+        setModelPrefsWritable(false);
+        setModelPrefsReady(true);
+      });
+  }, []);
+
+  const persistLayout = useCallback((patch: api.UserLayoutPrefs) => {
+    void api.saveUserPrefs({ layout: patch }).catch(() => undefined);
   }, []);
 
   // Desktop pushes app:modelsChanged after a provider login / save writes
@@ -374,8 +496,10 @@ export default function App() {
   }, []);
 
   // Reconcile persisted / default model selection once the model list lands.
+  // Wait for user-prefs so a stale per-browser localStorage cannot beat the
+  // shared disk selection and then write itself back.
   useEffect(() => {
-    if (!models) return;
+    if (!models || !modelPrefsReady) return;
     const providerOk = provider && models.providers[provider];
     const nextProvider = providerOk ? provider : models.default.provider;
     const modelList = models.providers[nextProvider]?.models ?? [];
@@ -392,7 +516,7 @@ export default function App() {
       setProvider(nextProvider);
       setModel(nextModel);
     }
-  }, [models]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [models, modelPrefsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const thinkingLevels =
     models?.providers[provider]?.models.find((entry) => entry.id === model)?.thinkingLevels;
@@ -409,7 +533,24 @@ export default function App() {
     if (provider) localStorage.setItem(LS.provider, provider);
     if (model) localStorage.setItem(LS.model, model);
     if (effectiveThinking) localStorage.setItem(LS.thinking, effectiveThinking);
-  }, [provider, model, effectiveThinking]);
+    if (
+      !shouldPersistModelPrefs({
+        prefsReady: modelPrefsReady,
+        prefsWritable: modelPrefsWritable,
+        provider,
+        model,
+      })
+    ) {
+      return;
+    }
+    void api
+      .saveUserPrefs({
+        provider,
+        model,
+        thinking: effectiveThinking,
+      })
+      .catch(() => undefined);
+  }, [provider, model, effectiveThinking, modelPrefsReady, modelPrefsWritable]);
 
   useEffect(() => {
     localStorage.setItem(LS.appearance, appearance);
@@ -451,19 +592,18 @@ export default function App() {
         setSession(info);
         applyGameState(info.state);
         const sameCampaign = !session || session.campaign_id === campaignId;
-        let hydrated = false;
         try {
           const t = await api.fetchTranscript(info.session_id);
           if (openGen !== openGenRef.current) return null;
-          const applied = replaceMessagesFromTranscript(setMessages, t.messages, sameCampaign);
-          hydrated = Boolean(
-            applied
-            && (t.messages || []).some((row) => row.role === "keeper" && String(row.text || "").trim()),
-          );
+          replaceMessagesFromTranscript(setMessages, t.messages, sameCampaign);
         } catch {
           replaceMessagesFromTranscript(setMessages, [], sameCampaign);
         }
-        const shouldAttach = Boolean(info.host_opening && !hydrated);
+        // Every newly spawned pi-coc host must be attached until its startup
+        // resume/setup chain genuinely settles. Historical transcript text is
+        // display hydration only; it is not evidence that this new RPC child
+        // finished session.resume or setup→play handoff.
+        const shouldAttach = Boolean(info.host_opening);
         if (!shouldAttach) {
           setBusy(false);
           return info;
@@ -536,6 +676,21 @@ export default function App() {
                 return next;
               });
             },
+            onDeltaReset: () => {
+              settledText = "";
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.kind === "keeper" && last.streaming) {
+                  next[next.length - 1] = {
+                    ...last,
+                    text: "",
+                    startedAt: last.startedAt ?? inputAt,
+                  };
+                }
+                return next;
+              });
+            },
             onThinking: (chunk) => {
               setKpThinking((prev) => (prev + chunk).slice(-8000));
             },
@@ -544,9 +699,8 @@ export default function App() {
               liveUsageRef.current = value;
               setLiveUsage(value);
             },
-            onTurn: ({ events, state: nextState, message }) => {
+            onTurn: ({ events, state: nextState }) => {
               if (openGen !== openGenRef.current) return;
-              setMessages((prev) => applySettledKeeperMessage(prev, message));
               if (nextState && !nextState.error) applyGameState(nextState);
               for (const ev of events || []) {
                 if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
@@ -631,10 +785,21 @@ export default function App() {
         } catch {
           /* attach already applied turn state */
         }
-        setMessages((prev) => prev.filter((row) =>
-          row.text !== "正在打开建卡引导……"
-          && row.text !== "正在打开 pi-coc 桌面……"
-        ));
+        setMessages((prev) => {
+          const withoutOpeningChrome = prev.filter((row) =>
+            row.text !== "正在打开建卡引导……"
+            && row.text !== "正在打开 pi-coc 桌面……"
+          );
+          // attachOpening may replay the already-hydrated last assistant
+          // response when a restored host has no new visible startup text.
+          // Its browser-local completion is effectively instantaneous; remove
+          // only that adjacent replay clone after the attach has fully settled.
+          return withoutOpeningChrome.filter((row, index, rows) => {
+            if (index === 0 || row.kind !== "keeper") return true;
+            if (row.durationMs == null || row.durationMs >= 1_000) return true;
+            return !sameTranscriptMessage(rows[index - 1], row);
+          });
+        });
         campaignSyncRef.current?.publish(info.campaign_id, info.session_id, true);
         setBusy(false);
         return info;
@@ -797,7 +962,6 @@ export default function App() {
       try {
         const next = await api.useItem(active.session_id, itemId);
         setState(next);
-        campaignSyncRef.current?.publish(active.campaign_id, active.session_id, true);
       } catch (e) {
         setError(friendlyError(e instanceof Error ? e.message : String(e)));
       }
@@ -858,7 +1022,6 @@ export default function App() {
       // Wall-clock from this user input until the whole turn settles (tools +
       // narration). Not SSE token drip duration.
       const inputAt = Date.now();
-      const liveId = crypto.randomUUID();
       setMessages((prev) => [
         ...prev,
         playerMessage(text, inputAt),
@@ -868,7 +1031,6 @@ export default function App() {
           streaming: true,
           startedAt: inputAt,
           at: inputAt,
-          liveId,
         },
       ]);
       let settledText = "";
@@ -939,7 +1101,7 @@ export default function App() {
           liveUsageRef.current = value;
           setLiveUsage(value);
         },
-        onTurn: ({ events, state: nextState, usage, message }) => {
+        onTurn: ({ events, state: nextState, usage }) => {
           const narration = events
             .filter(
               (e) =>
@@ -953,11 +1115,10 @@ export default function App() {
           // Update text now; duration is closed only after the SSE stream ends
           // so we measure input → all content delivered, not mid-stream.
           setMessages((prev) => {
-            const next = applySettledKeeperMessage(prev, message, liveId);
+            const next = [...prev];
             for (let i = next.length - 1; i >= 0; i--) {
               const row = next[i];
               if (row.kind !== "keeper") continue;
-              if (row.liveId && row.liveId !== liveId) continue;
               const live = liveUsageRef.current;
               const settledUsage =
                 live && (live.input != null || live.output != null)
@@ -972,7 +1133,7 @@ export default function App() {
                     : undefined;
               next[i] = {
                 ...row,
-                ...(narration ? { text: narration } : {}),
+                text: narration || row.text || settledText,
                 startedAt: row.startedAt ?? inputAt,
                 ...(settledUsage ? { usage: settledUsage } : {}),
               };
@@ -1021,8 +1182,7 @@ export default function App() {
           ]);
         },
       },
-      controller.signal,
-      { liveId });
+      controller.signal);
       const stopped = controller.signal.aborted;
       turnAbortRef.current = null;
       // Authoritative close: stream fully finished (turn event + end).
@@ -1071,7 +1231,6 @@ export default function App() {
         // The streamed narration remains usable when transcript refresh is
         // temporarily unavailable; the top-bar refresh can retry later.
       }
-      campaignSyncRef.current?.publish(active.campaign_id, active.session_id, true);
       setBusy(false);
     },
     [session, busy, provider, model, effectiveThinking, applyGameState, noteHandoff, transition.phase],
@@ -1186,7 +1345,6 @@ export default function App() {
         close();
         // Manual「＋ 新战役」must not inherit a previously imported PDF path.
         setPdfImportPath(null);
-        setPdfImportFile(null);
         setCreating(true);
       }}
       onRename={renameCampaign}
@@ -1198,7 +1356,8 @@ export default function App() {
 
   return (
     <div
-      className="flex h-dvh flex-col"
+      className="flex h-dvh min-w-0 flex-col"
+      data-right-inline={hasChatContent ? "md" : "xl"}
       style={{ ["--right-panel-width" as string]: `${rightPanelWidth}px` } as CSSProperties}
     >
       {fatal && (
@@ -1259,14 +1418,14 @@ export default function App() {
       )}
       <header
         className={cn(
-          "flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card/70 px-3 backdrop-blur md:px-4",
+          "relative flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card/70 px-3 backdrop-blur md:px-4",
           isDesktop && "app-drag pl-20 md:pl-20",
         )}
       >
         <Button
           variant="ghost"
           size="icon"
-          className={cn("md:hidden", isDesktop && "app-no-drag")}
+          className={cn("shrink-0", sidebarClasses.leftSheetTrigger, isDesktop && "app-no-drag")}
           onClick={() => setNavOpen(true)}
           title="战役列表"
         >
@@ -1279,6 +1438,14 @@ export default function App() {
             <span className="text-primary">Pi</span> Keeper
           </span>
         </div>
+        {sessionTitle ? (
+          <span
+            className="pointer-events-none absolute left-1/2 top-1/2 max-w-[calc(100%-8.5rem)] -translate-x-1/2 -translate-y-1/2 truncate text-center text-sm text-muted-foreground sm:max-w-[calc(100%-11rem)] md:max-w-[14rem] lg:max-w-[22rem]"
+            title={sessionTitle}
+          >
+            {sessionTitle}
+          </span>
+        ) : null}
         <div className={cn("ml-auto flex shrink-0 items-center gap-1.5", isDesktop && "app-no-drag")}>
           {session && (
             <Button
@@ -1304,7 +1471,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="icon"
-            className="xl:hidden"
+            className={cn("shrink-0", sidebarClasses.rightSheetTrigger)}
             onClick={() => setPanelOpen(true)}
             title="角色面板"
           >
@@ -1330,29 +1497,26 @@ export default function App() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
-        {/* ≥ md：固定战役侧栏 */}
+      <div className="flex min-h-0 min-w-0 flex-1">
         <SidebarLayout
           side="left"
           storageKey={LS.sidebarLeft}
-          defaultWidth={256}
-          minWidth={180}
-          maxWidth={480}
-          className="hidden md:block border-r border-border bg-sidebar"
+          defaultWidth={SIDEBAR_LEFT_BOUNDS.defaultWidth}
+          minWidth={SIDEBAR_LEFT_BOUNDS.minWidth}
+          maxWidth={SIDEBAR_LEFT_BOUNDS.maxWidth}
+          preferredWidth={layoutPreferred.leftW}
+          preferredCollapsed={layoutPreferred.leftC}
+          className={cn(sidebarClasses.leftColumn, "border-r border-border bg-sidebar")}
+          onWidthCommit={(width) => persistLayout({ leftSidebarWidth: width })}
+          onCollapsedChange={(collapsed) => persistLayout({ leftSidebarCollapsed: collapsed })}
         >
           {sidebarContent(() => undefined)}
         </SidebarLayout>
 
-        {/* < md：左侧抽屉 */}
         <Sheet open={navOpen} onOpenChange={setNavOpen}>
-          <SheetContent
-            side="left"
-            className={cn("p-0", leftSheet.dragging && "transition-none")}
-            style={{ width: leftSheetWidth, maxWidth: leftSheetWidth }}
-          >
+          <SheetContent side="left" className="w-80 max-w-[calc(100vw-1.5rem)] p-0">
             <SheetTitle className="sr-only">战役卷宗</SheetTitle>
             {sidebarContent(() => setNavOpen(false))}
-            <ResizeGutter side="left" gutterHandlers={leftSheet.gutterHandlers} dragging={leftSheet.dragging} />
           </SheetContent>
         </Sheet>
 
@@ -1376,9 +1540,8 @@ export default function App() {
             <NewCampaignFlow
               bootstrap={bootstrap}
               busy={busy}
-              initialMode={pdfImportPath || pdfImportFile ? "pdf" : undefined}
+              initialMode={pdfImportPath ? "pdf" : undefined}
               initialPdfPath={pdfImportPath}
-              initialPdfFile={pdfImportFile}
               onCreate={(args) => {
                 void createCampaign(args).then((info) => {
                   if (!info) setCreating(false);
@@ -1386,7 +1549,6 @@ export default function App() {
               }}
               onBack={() => {
                 setPdfImportPath(null);
-                setPdfImportFile(null);
                 setCreating(false);
               }}
               onBootstrapRefresh={async () => {
@@ -1404,13 +1566,8 @@ export default function App() {
               connected={!!session}
               error={error}
               pendingChoice={state?.pending_choice}
-              sceneLabel={state?.active_scene_label || state?.active_scene_id || null}
+              sceneLabel={state?.active_scene_label || null}
               quickStart={quickStart}
-              onImportPdf={(file) => {
-                setPdfImportPath(null);
-                setPdfImportFile(file);
-                setCreating(true);
-              }}
               setupPending={setupPending}
               modelsReady={aiReady}
               onConfigureModels={() => setEditModelsOpen(true)}
@@ -1436,15 +1593,18 @@ export default function App() {
             />
           )}
 
-          {/* ≥ xl：常驻角色面板 */}
           <SidebarLayout
             side="right"
             storageKey={LS.sidebarRight}
-            defaultWidth={320}
-            minWidth={240}
-            maxWidth={560}
-            className="hidden xl:block border-l border-border bg-sidebar"
+            defaultWidth={SIDEBAR_RIGHT_BOUNDS.defaultWidth}
+            minWidth={SIDEBAR_RIGHT_BOUNDS.minWidth}
+            maxWidth={SIDEBAR_RIGHT_BOUNDS.maxWidth}
+            preferredWidth={layoutPreferred.rightW}
+            preferredCollapsed={layoutPreferred.rightC}
+            className={cn(sidebarClasses.rightColumn, "border-l border-border bg-sidebar")}
             onWidthChange={setRightPanelWidth}
+            onWidthCommit={(width) => persistLayout({ rightSidebarWidth: width })}
+            onCollapsedChange={(collapsed) => persistLayout({ rightSidebarCollapsed: collapsed })}
           >
             <Panel
               state={state}
@@ -1455,14 +1615,8 @@ export default function App() {
           </SidebarLayout>
         </main>
 
-        {/* < xl：角色面板右侧抽屉 */}
         <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
-          <SheetContent
-            side="right"
-            className={cn("overflow-y-auto px-4 py-5", rightSheet.dragging && "transition-none")}
-            style={{ width: rightSheetWidth, maxWidth: rightSheetWidth }}
-          >
-            <ResizeGutter side="right" gutterHandlers={rightSheet.gutterHandlers} dragging={rightSheet.dragging} />
+          <SheetContent side="right" className="w-80 max-w-[calc(100vw-1.5rem)] overflow-y-auto px-4 py-5">
             <SheetTitle className="font-display text-lg font-semibold">
               角色卷宗
             </SheetTitle>

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 delete process.env.PI_SUBAGENT_CHILD;
+process.env.COC_PI_SESSION_ROLE = "setup";
 const root = path.resolve(process.argv[2] || process.cwd());
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-typed-opening-"));
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
@@ -17,6 +18,7 @@ function harness(responseForCall, startupCampaignId) {
   const registered = new Map();
   const handlers = new Map();
   const sent = [];
+  const activeToolSnapshots = [];
   const fakePi = {
     registerTool: (tool) => registered.set(tool.name, tool),
     registerCommand: () => {},
@@ -30,16 +32,18 @@ function harness(responseForCall, startupCampaignId) {
     sendMessage: (message, options) => {
       sent.push({ message, options });
     },
-    setActiveTools: () => {},
+    setActiveTools: (tools) => activeToolSnapshots.push([...tools]),
     getThinkingLevel: () => "off",
   };
   main.default(fakePi, {
     coordinatorEnabled: async () => false,
     createClient: () => ({
-      callTool: async (name, params) => {
-        if (name === "coc_capabilities") return { ok: true, host: "pi" };
-        return responseForCall(name, params);
-      },
+      callToolWithTransportMeta: async (name, params) => ({
+        value: name === "coc_capabilities"
+          ? { ok: true, host: "pi" }
+          : await responseForCall(name, params),
+        transport: null,
+      }),
       close: async () => {},
     }),
     startupCampaignId: () => startupCampaignId,
@@ -71,6 +75,7 @@ function harness(responseForCall, startupCampaignId) {
   return {
     registered,
     sent,
+    activeToolSnapshots,
     ctx,
     async start() {
       await handlers.get("session_start").at(-1)({ reason: "startup" }, ctx);
@@ -322,5 +327,53 @@ if (contract.ok !== true) {
   throw new Error(`investigator_contract blocked after opening resume: ${JSON.stringify(contract)}`);
 }
 await review.shutdown();
+
+// A persisted opening_selection phase is a canonical lifecycle state after
+// chargen has linked the investigator. Startup must retain its exact prepare
+// card instead of terminalizing the resume as an invalid mode.
+const selectionCampaign = "typed-opening-selection-campaign";
+const selectionGate = {
+  schema_version: 1,
+  status: "blocked",
+  hard_gate: true,
+  activation_allowed: false,
+  phase: "opening_selection",
+  opening_phase: "opening_selection",
+  campaign_id: selectionCampaign,
+  next_operation: {
+    operation: "progressive.prepare_opening",
+    invoke_via: "coc_invoke",
+    prefilled_arguments: {},
+    missing_arguments: [],
+    hard_gate: true,
+    authority: "canonical_setup",
+  },
+  instruction: "resume from persisted selection",
+};
+const selection = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected ${name}:${params.operation}`);
+  }
+  throwResumeGate(selectionGate);
+}, selectionCampaign);
+await selection.start();
+const selectionResume = await invokeTyped(
+  selection,
+  "coc_session_resume",
+  "selection-resume",
+  { root, campaign: selectionCampaign },
+);
+if (selectionResume.error?.code !== "opening_setup_incomplete") {
+  throw new Error(`selection resume terminalized: ${JSON.stringify(selectionResume)}`);
+}
+if (selection.sent.some((entry) => (
+  entry.message?.customType === "coc-startup-resume-blocker"
+))) {
+  throw new Error("opening_selection resume published a startup blocker");
+}
+if (!selection.activeToolSnapshots.at(-1)?.includes("coc_progressive_prepare_opening")) {
+  throw new Error("opening_selection resume did not restore the setup opening tool surface");
+}
+await selection.shutdown();
 
 console.log("startup-resume-typed-opening-phase ok");

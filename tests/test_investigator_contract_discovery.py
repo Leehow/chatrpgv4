@@ -67,6 +67,7 @@ def test_pi_opening_character_setup_gate_selects_era_contract_route(
         "hard_gate": True,
         "activation_allowed": False,
         "phase": "opening_character_setup_required",
+        "opening_phase": "character_creation",
         "campaign_id": "standard-gate",
         "character_setup_policy": "guided_quick_fire",
         "next_operation": None,

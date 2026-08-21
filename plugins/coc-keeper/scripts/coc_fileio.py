@@ -10,12 +10,14 @@ sessions from corrupting one campaign directory.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import stat
 import tempfile
 import time
 from contextlib import contextmanager
+from threading import Condition, Lock
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -230,6 +232,124 @@ def _unreadable_lock_is_stale(lock_path: Path, *, stale_minutes: float) -> bool:
     return time.time() - modified_at > float(stale_minutes) * 60.0
 
 
+class _ProcessCampaignRWLock:
+    """Small process-local companion to the cross-process flock lock."""
+
+    def __init__(self) -> None:
+        self._condition = Condition()
+        self._readers = 0
+        self._writer = False
+
+    def acquire(self, *, shared: bool, deadline: float) -> None:
+        with self._condition:
+            while self._writer or (not shared and self._readers):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise CampaignLockError("campaign lock held in this process")
+                self._condition.wait(remaining)
+            if shared:
+                self._readers += 1
+            else:
+                self._writer = True
+
+    def release(self, *, shared: bool) -> None:
+        with self._condition:
+            if shared:
+                self._readers -= 1
+            else:
+                self._writer = False
+            self._condition.notify_all()
+
+
+_PROCESS_CAMPAIGN_LOCKS: dict[str, _ProcessCampaignRWLock] = {}
+_PROCESS_CAMPAIGN_LOCKS_GUARD = Lock()
+
+
+def _process_campaign_lock(campaign_dir: Path) -> _ProcessCampaignRWLock:
+    key = os.fspath(campaign_dir.resolve())
+    with _PROCESS_CAMPAIGN_LOCKS_GUARD:
+        return _PROCESS_CAMPAIGN_LOCKS.setdefault(key, _ProcessCampaignRWLock())
+
+
+def _campaign_rwlock_path(campaign_dir: Path) -> Path:
+    """Keep the flock inode outside campaign evidence/state projections."""
+    digest = hashlib.sha256(os.fspath(campaign_dir.resolve()).encode("utf-8")).hexdigest()
+    return Path(tempfile.gettempdir()) / "coc-campaign-rwlocks" / f"{digest}.lock"
+
+
+def _audit_append_lock_path(log_path: Path) -> Path:
+    """Stable cross-process lock inode for one append-only audit stream."""
+    digest = hashlib.sha256(os.fspath(log_path.resolve()).encode("utf-8")).hexdigest()
+    return Path(tempfile.gettempdir()) / "coc-audit-append-locks" / f"{digest}.lock"
+
+
+@contextmanager
+def audit_append_lock(
+    log_path: Path,
+    *,
+    wait_seconds: float = 5.0,
+    poll_seconds: float = 0.01,
+) -> Iterator[Path]:
+    """Serialize one audit append without upgrading the campaign state lock.
+
+    The process-local companion prevents same-process thread interleaving;
+    the descriptor-owned flock serializes independent MCP/toolbox processes.
+    Its inode deliberately lives outside campaign evidence so retaining an
+    audit receipt never rewrites gameplay state, cache, RNG, or receipts.
+    """
+    log_path = Path(log_path)
+    wait_seconds = max(0.0, float(wait_seconds))
+    process_lock = _process_campaign_lock(_audit_append_lock_path(log_path))
+    deadline = time.monotonic() + wait_seconds
+    process_lock.acquire(shared=False, deadline=deadline)
+    try:
+        with advisory_file_lock(
+            _audit_append_lock_path(log_path),
+            wait_seconds=wait_seconds,
+            poll_seconds=poll_seconds,
+        ):
+            yield log_path
+    finally:
+        process_lock.release(shared=False)
+
+
+def _flock_campaign_rwlock(
+    lock_path: Path,
+    *,
+    shared: bool,
+    deadline: float,
+    poll_seconds: float,
+) -> int:
+    """Acquire the stable kernel lock; callers always close the descriptor."""
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError as exc:
+        raise CampaignLockError(f"could not open campaign rw lock {lock_path}: {exc}") from exc
+    operation = (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB
+    try:
+        while True:
+            try:
+                fcntl.flock(descriptor, operation)
+                return descriptor
+            except (BlockingIOError, OSError) as exc:
+                if time.monotonic() >= deadline:
+                    raise CampaignLockError(
+                        f"campaign rw lock busy at {lock_path}"
+                    ) from exc
+                time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _release_flock(descriptor: int) -> None:
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
 @contextmanager
 def campaign_lock(
     campaign_dir: Path,
@@ -237,71 +357,112 @@ def campaign_lock(
     stale_minutes: float = 30.0,
     wait_seconds: float = 0.0,
     poll_seconds: float = 0.05,
+    mode: str = "exclusive",
 ) -> Iterator[Path]:
-    """Advisory exclusive lock for one campaign directory.
+    """Campaign shared-read/exclusive-write lock, fail-closed by default.
 
-    Uses ``O_CREAT|O_EXCL`` on ``.campaign.lock`` with ``{pid, acquired_at}``.
-    Stale locks (dead pid or older than ``stale_minutes``) are removed and
-    re-acquired. Intended for top-level turn entry (e.g. ``run_live_turn``),
-    not every helper write. By default acquisition remains fail-closed. A
-    positive ``wait_seconds`` lets top-level CLI transactions queue briefly
-    behind another process. A lock held by this process still fails
-    immediately so accidentally nested entry points cannot self-deadlock.
+    ``mode='shared'`` is for an explicitly reviewed ``parallel_read`` only.
+    Every other value, unsupported shared-lock platform, or lock error falls
+    back to (or fails as) the legacy exclusive path.  The legacy marker stays
+    authoritative for stale-lock recovery; the stable flock inode coordinates
+    readers with writers across processes.
     """
     campaign_dir = Path(campaign_dir)
     campaign_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = campaign_dir / ".campaign.lock"
-    payload = {
-        "pid": os.getpid(),
-        "acquired_at": time.time(),
-    }
     wait_seconds = max(0.0, float(wait_seconds))
     poll_seconds = max(0.001, float(poll_seconds))
     deadline = time.monotonic() + wait_seconds
-    while True:
+    shared = mode == "shared" and hasattr(fcntl, "LOCK_SH")
+    process_lock = _process_campaign_lock(campaign_dir)
+    process_lock.acquire(shared=shared, deadline=deadline)
+    lock_path = campaign_dir / ".campaign.lock"
+    rwlock_path = _campaign_rwlock_path(campaign_dir)
+
+    if shared:
+        descriptor: int | None = None
         try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            existing = _read_lock_payload(lock_path)
-            payload_valid = _lock_payload_is_valid(existing)
-            unreadable_and_fresh = not payload_valid and not _unreadable_lock_is_stale(
-                lock_path, stale_minutes=stale_minutes
-            )
-            valid_and_fresh = payload_valid and not _lock_is_stale(
-                existing, stale_minutes=stale_minutes
-            )
-            if unreadable_and_fresh or valid_and_fresh:
-                holder = existing.get("pid") if payload_valid else "unknown"
-                held_by_this_process = (
-                    payload_valid and int(holder or 0) == os.getpid()
-                )
-                if held_by_this_process or time.monotonic() >= deadline:
-                    raise CampaignLockError(
-                        f"campaign lock held by pid={holder} at {lock_path}"
-                    ) from None
+            # A marker can be created just before a writer acquires flock. Check
+            # both sides of LOCK_SH so a reader never crosses that write entry.
+            while lock_path.exists():
+                if time.monotonic() >= deadline:
+                    raise CampaignLockError(f"campaign lock held at {lock_path}")
                 time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
+            descriptor = _flock_campaign_rwlock(
+                rwlock_path, shared=True, deadline=deadline, poll_seconds=poll_seconds,
+            )
+            if lock_path.exists():
+                _release_flock(descriptor)
+                descriptor = None
+                if time.monotonic() >= deadline:
+                    raise CampaignLockError(f"campaign lock held at {lock_path}")
+                # Re-enter through the same bounded path rather than reading
+                # while a writer has announced itself.
+                while lock_path.exists():
+                    if time.monotonic() >= deadline:
+                        raise CampaignLockError(f"campaign lock held at {lock_path}")
+                    time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
+                descriptor = _flock_campaign_rwlock(
+                    rwlock_path, shared=True, deadline=deadline, poll_seconds=poll_seconds,
+                )
+            yield lock_path
+        finally:
+            if descriptor is not None:
+                _release_flock(descriptor)
+            process_lock.release(shared=True)
+        return
+
+    payload = {"pid": os.getpid(), "acquired_at": time.time()}
+    descriptor = None
+    marker_acquired = False
+    try:
+        while True:
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                existing = _read_lock_payload(lock_path)
+                payload_valid = _lock_payload_is_valid(existing)
+                unreadable_and_fresh = not payload_valid and not _unreadable_lock_is_stale(
+                    lock_path, stale_minutes=stale_minutes
+                )
+                valid_and_fresh = payload_valid and not _lock_is_stale(
+                    existing, stale_minutes=stale_minutes
+                )
+                if unreadable_and_fresh or valid_and_fresh:
+                    holder = existing.get("pid") if payload_valid else "unknown"
+                    held_by_this_process = payload_valid and int(holder or 0) == os.getpid()
+                    if held_by_this_process or time.monotonic() >= deadline:
+                        raise CampaignLockError(
+                            f"campaign lock held by pid={holder} at {lock_path}"
+                        ) from None
+                    time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
+                    continue
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except FileNotFoundError:
+                    continue
+                except OSError as exc:
+                    raise CampaignLockError(
+                        f"could not clear stale campaign lock at {lock_path}: {exc}"
+                    ) from exc
                 continue
             try:
-                lock_path.unlink(missing_ok=True)
-            except FileNotFoundError:
-                continue
-            except OSError as exc:
-                raise CampaignLockError(
-                    f"could not clear stale campaign lock at {lock_path}: {exc}"
-                ) from exc
-            continue
-        try:
-            os.write(fd, json.dumps(payload).encode("utf-8"))
-        finally:
-            os.close(fd)
-        break
-
-    try:
+                os.write(fd, json.dumps(payload).encode("utf-8"))
+            finally:
+                os.close(fd)
+            marker_acquired = True
+            break
+        descriptor = _flock_campaign_rwlock(
+            rwlock_path, shared=False, deadline=deadline, poll_seconds=poll_seconds,
+        )
         yield lock_path
     finally:
-        try:
-            current = _read_lock_payload(lock_path)
-            if current is None or int(current.get("pid") or 0) == os.getpid():
-                lock_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if descriptor is not None:
+            _release_flock(descriptor)
+        if marker_acquired:
+            try:
+                current = _read_lock_payload(lock_path)
+                if current is None or int(current.get("pid") or 0) == os.getpid():
+                    lock_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        process_lock.release(shared=False)

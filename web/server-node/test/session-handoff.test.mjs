@@ -179,6 +179,31 @@ test("exit code 42 fallback starts the same handoff", async () => {
   });
 });
 
+test("respawn keeps setup intent when coc_session_role still judges setup", async () => {
+  const created = [];
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = fakeHost({ campaignId: opts.campaignId });
+      host.tableIntent = opts.tableIntent;
+      created.push(host);
+      return host;
+    },
+    // Authoritative single source: e.g. a placeholder-investigator campaign
+    // whose files exist on disk but whose setup is not confirmed.
+    resolveRoleFn: async () => "setup",
+  });
+  await orchestrator.acquire("still-setup", { tableIntent: "character-setup" });
+  created[0].emit({ type: "process_exit", code: 42, signal: null });
+  created[0].closed = true;
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(created.length, 2);
+  assert.equal(created[1].tableIntent, "character-setup");
+  assert.deepEqual(orchestrator.statusOf("still-setup"), {
+    session_role: "setup",
+    transitioning: true,
+  });
+});
+
 test("player input is rejected while transitioning", async () => {
   let release;
   const gate = new Promise((resolve) => {
@@ -239,9 +264,11 @@ test("same campaign refuses a second live child", async () => {
   assert.equal(orchestrator.hosts.size, 1);
 });
 
-test("parseSessionRoleStdout reads play from JSON or token", () => {
+test("parseSessionRoleStdout reads play or setup from JSON or token", () => {
   assert.equal(parseSessionRoleStdout('{"role":"play","status":"ready_for_table"}'), "play");
   assert.equal(parseSessionRoleStdout("play"), "play");
+  assert.equal(parseSessionRoleStdout('{"role":"setup","status":"setup"}'), "setup");
+  assert.equal(parseSessionRoleStdout("setup"), "setup");
 });
 
 function fakeRpcChild({ prompts } = {}) {

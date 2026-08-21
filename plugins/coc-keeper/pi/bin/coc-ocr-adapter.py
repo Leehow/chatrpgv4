@@ -37,6 +37,14 @@ _OCR_PYTHON_CANDIDATES = (
     "python3.10",
     "python3",
     "python",
+    # GUI hosts commonly inherit a reduced PATH.  Probe stable absolute
+    # Homebrew/Xcode locations as well so a shadowing project Python without
+    # requests cannot make an otherwise ready OCR installation disappear.
+    "/opt/homebrew/opt/python@3.11/bin/python3.11",
+    "/opt/homebrew/bin/python3",
+    "/usr/local/bin/python3.11",
+    "/usr/local/bin/python3",
+    "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
 )
 
 

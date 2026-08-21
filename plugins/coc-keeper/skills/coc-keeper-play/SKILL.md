@@ -144,9 +144,10 @@ output evidence boundary, not a replacement prose engine:
    rendered. If the roll was never executed, execute it first — do not
    narrate a result.
 2. **State writes go through tools.** Clue discoveries, scene moves, HP/SAN
-   changes, time, and turn receipts are recorded with `state.*` / `rules.*`
-   tools (atomic, idempotent via `decision_id`) — never by hand-editing save
-   files mid-play.
+   changes, time, items, cash, and turn receipts are recorded with `state.*` /
+   `rules.*` tools (atomic, idempotent via `decision_id`) — never by
+   hand-editing save files mid-play or by narrating a possession or purse
+   change that was not first written.
 3. **Module truth is read-only.** Tools mark keeper-only material
    (`secret: true`, undiscovered clues, NPC secrets). You may foreshadow and
    pace freely. Never edit module source or dump secrets without an earned
@@ -157,7 +158,7 @@ output evidence boundary, not a replacement prose engine:
    separate summary), then call `turn.output_context`. Draft causal fiction for
    every returned obligation and call `turn.finalize`. Echo its
    `rendered_text` exactly. The finalizer owns public dice and visible
-   HP/SAN/MP/Luck, current loaded-magazine, item, condition, time, and
+   HP/SAN/MP/Luck, current loaded-magazine, item, cash, condition, time, and
    first-contact context lines. Never recompute, omit, duplicate, prepend to,
    append to, or rewrite those deterministic segments.
 
@@ -334,7 +335,19 @@ settled finalization.
    beat; it never waits, becomes a second KP, or replaces semantic/rules/state/
    final-prose ownership.
 5. **State + close.** Record clues/moves/flags/NPC presence and engagements/
-   items/time as the fiction earns them. Then `state.journal` → `turn.output_context` →
+   items/cash/time as the fiction earns them. Story loot, purchases, pay, and
+   fees use `state.item_grant` / `state.item_remove` / `state.item_use` and
+   `state.cash_grant` / `state.cash_spend` (query with `state.inventory_list`
+   / `state.cash_query`) **before** the prose that treats the change as real.
+   A physical handoff (NPC giving a key, paying coin) is not real until that
+   write lands; do not infer items or cash from player or NPC wording.
+   Cash writes need audit `reason` plus `localized_reason` in `play_language`;
+   currencies stay separate (no FX). ASCII codes are case-insensitive;
+   `美元`/`英镑` alias to `USD`/`GBP`. Omit `unit` to reuse the recorded
+   unit. The tool stamps `game_time` — do not pass
+   wall-clock time. Players see only the localized reason and game time from
+   `turn.finalize`.
+   Then `state.journal` → `turn.output_context` →
    coverage → `turn.finalize` → deliver exact `rendered_text`. Normally omit
    `mechanics_placements`: the finalizer inserts public rolls before their
    covered result and groups later changes once. Put setup and consequence in

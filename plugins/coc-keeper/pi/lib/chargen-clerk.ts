@@ -7,6 +7,7 @@ export type ChargenClerkMode = "quick_fire" | "era_adaptive" | "pregen";
 export interface ChargenClerkBrief {
   name: string;
   occupation_or_concept: string;
+  age?: number;
   assignment_priority?: string;
   interest_allocation_intent?: string;
   occupation_skill_names?: string[];
@@ -95,6 +96,13 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
     occupation_or_concept: occupation,
     mode: modeRaw,
   };
+  if (params.age !== undefined) {
+    const age = Number(params.age);
+    if (!Number.isInteger(age) || age < 15 || age > 89) {
+      throw new Error("coc_chargen_delegate age must be an integer from 15 to 89");
+    }
+    brief.age = age;
+  }
   const assignment = String(params.assignment_priority ?? "").trim();
   if (assignment) brief.assignment_priority = assignment;
   const interest = String(params.interest_allocation_intent ?? "").trim();
@@ -137,6 +145,14 @@ const DEFAULT_INTEREST_FILLERS = [
   "Listen", "First Aid", "Navigate", "Mechanical Repair",
   "Natural World", "Charm", "Fast Talk", "Appraise", "Law",
   "Accounting", "History", "Track",
+] as const;
+const ERA_ADAPTIVE_OCCUPATION_FILLERS = [
+  "First Aid", "Natural World", "Charm", "Navigate",
+  "Listen", "Appraise", "Fast Talk", "History", "Track", "Ride",
+] as const;
+const ERA_ADAPTIVE_INTEREST_FILLERS = [
+  "Track", "Stealth", "Survival", "Charm", "Fast Talk",
+  "Natural World", "Navigate", "First Aid", "Listen", "Appraise",
 ] as const;
 const SKILL_CANONICAL: Record<string, string> = {
   photography: "Art and Craft (Photography)",
@@ -260,6 +276,12 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
   const dex = chars.DEX ?? 50;
   const occupationBudget = edu * 4;
   const interestBudget = Math.max((chars.INT ?? MAX_QUICK_FIRE_INT) * 2, MAX_INTEREST_BUDGET);
+  const occupationFillers = brief.mode === "era_adaptive"
+    ? ERA_ADAPTIVE_OCCUPATION_FILLERS
+    : DEFAULT_OCCUPATION_FILLERS;
+  const interestFillers = brief.mode === "era_adaptive"
+    ? ERA_ADAPTIVE_INTEREST_FILLERS
+    : DEFAULT_INTEREST_FILLERS;
   const mains = uniqueSkillNames(brief.occupation_skill_names);
   const statedInterests = uniqueSkillNames(brief.interest_skill_names);
   const occupation = [...mains];
@@ -270,7 +292,7 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
     spendTotal(simulateSpend(occPool(pool), occupationBudget, edu, dex, new Map()))
       === occupationBudget
   );
-  for (const filler of DEFAULT_OCCUPATION_FILLERS) {
+  for (const filler of occupationFillers) {
     if (canPlaceOcc(occupation)) break;
     if (hasName(occupation, filler) || hasName(statedInterests, filler)) continue;
     occupation.push(filler);
@@ -280,7 +302,7 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
     const next = stealFrom.shift() as string;
     if (!hasName(occupation, next)) occupation.push(next);
   }
-  for (const filler of DEFAULT_OCCUPATION_FILLERS) {
+  for (const filler of occupationFillers) {
     if (canPlaceOcc(occupation)) break;
     if (hasName(occupation, filler)) continue;
     occupation.push(filler);
@@ -296,12 +318,12 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
   const canPlaceInterest = (pool: string[]) => (
     spendTotal(simulateSpend(pool, interestBudget, edu, dex, occAlloc)) === interestBudget
   );
-  for (const filler of DEFAULT_INTEREST_FILLERS) {
+  for (const filler of interestFillers) {
     if (canPlaceInterest(interest)) break;
     if (hasName(interest, filler)) continue;
     interest.push(filler);
   }
-  for (const filler of [...DEFAULT_OCCUPATION_FILLERS, ...mains]) {
+  for (const filler of [...occupationFillers, ...mains]) {
     if (canPlaceInterest(interest)) break;
     if (hasName(interest, filler)) continue;
     interest.push(filler);
@@ -339,6 +361,7 @@ export async function runChargenInProcess(options: {
     occupation_name: options.brief.occupation_or_concept,
     luck: { mode: "auto_roll" },
   };
+  if (options.brief.age !== undefined) args.age = options.brief.age;
   args.assignment_priority = resolveAssignmentPriority(
     options.brief.assignment_priority,
   );

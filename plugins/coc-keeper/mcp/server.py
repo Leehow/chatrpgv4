@@ -22,6 +22,9 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from threading import Condition, Lock
 import traceback
 from typing import Any
 
@@ -161,25 +164,42 @@ _PROCESS_ACTIVE_CAMPAIGN: tuple[str, str] | None = None
 _PROCESS_HOST_SESSION_ID: str | None = None
 _PROCESS_FRESH_CAMPAIGNS: set[tuple[str, str]] = set()
 
+# The toolbox historically receives its host session through an environment
+# bridge. Concurrent reads for one session can safely share that bridge;
+# different sessions must wait rather than temporarily exposing the wrong one.
+_HOST_BINDING_CONDITION = Condition()
+_HOST_BINDING_SESSION: str | None = None
+_HOST_BINDING_COUNT = 0
+_HOST_BINDING_PRIOR: str | None = None
+
 
 @contextmanager
 def _host_session_binding(session_id: str | None):
-    """Expose the exact host session while the canonical toolbox runs.
-
-    The stdio server is single-request-at-a-time.  A temporary environment
-    bridge lets the shared host-context module resolve the correct marker
-    without introducing a host-specific parameter into every operation.
-    """
-    prior = os.environ.get("COC_HOST_SESSION_ID")
-    if session_id:
-        os.environ["COC_HOST_SESSION_ID"] = session_id
+    """Expose one exact host session without cross-thread environment bleed."""
+    global _HOST_BINDING_SESSION, _HOST_BINDING_COUNT, _HOST_BINDING_PRIOR
+    normalized = session_id or ""
+    with _HOST_BINDING_CONDITION:
+        while _HOST_BINDING_COUNT and _HOST_BINDING_SESSION != normalized:
+            _HOST_BINDING_CONDITION.wait()
+        if not _HOST_BINDING_COUNT:
+            _HOST_BINDING_PRIOR = os.environ.get("COC_HOST_SESSION_ID")
+            _HOST_BINDING_SESSION = normalized
+            if normalized:
+                os.environ["COC_HOST_SESSION_ID"] = normalized
+        _HOST_BINDING_COUNT += 1
     try:
         yield
     finally:
-        if prior is None:
-            os.environ.pop("COC_HOST_SESSION_ID", None)
-        else:
-            os.environ["COC_HOST_SESSION_ID"] = prior
+        with _HOST_BINDING_CONDITION:
+            _HOST_BINDING_COUNT -= 1
+            if not _HOST_BINDING_COUNT:
+                if _HOST_BINDING_PRIOR is None:
+                    os.environ.pop("COC_HOST_SESSION_ID", None)
+                else:
+                    os.environ["COC_HOST_SESSION_ID"] = _HOST_BINDING_PRIOR
+                _HOST_BINDING_PRIOR = None
+                _HOST_BINDING_SESSION = None
+                _HOST_BINDING_CONDITION.notify_all()
 
 
 def _mcp_tool_name(operation: str) -> str:
@@ -1109,36 +1129,290 @@ def _handle(message: dict[str, Any]) -> dict[str, Any] | None:
     return _error(request_id, -32601, f"method not found: {method}")
 
 
-def main() -> int:
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        request_id = None
+def _request_execution_class(message: dict[str, Any]) -> str:
+    """Read the canonical registry class; unrecognised input is serial."""
+    if message.get("method") != "tools/call":
+        return "serial_global"
+    params = message.get("params") or {}
+    name = params.get("name")
+    arguments = params.get("arguments") or {}
+    if not isinstance(name, str) or not isinstance(arguments, dict):
+        return "serial_global"
+    operation = arguments.get("operation") if name == "coc_invoke" else name
+    if not isinstance(operation, str):
+        return "serial_campaign"
+    spec = toolbox.TOOLS.get(_canonical_tool_name(operation))
+    execution_class = spec.get("execution_class") if isinstance(spec, dict) else None
+    return (
+        execution_class
+        if execution_class in {"parallel_read", "serial_campaign", "serial_global"}
+        else "serial_campaign"
+    )
+
+
+def _safe_handle(message: dict[str, Any], request_id: Any) -> dict[str, Any] | None:
+    try:
+        return _handle(message)
+    except Exception as exc:
+        # One failed worker must not poison its siblings or terminate the MCP
+        # child. The scheduler releases its slot in a finally block below.
+        traceback.print_exc()
+        return _error(
+            request_id,
+            -32603,
+            f"internal error: {type(exc).__name__}: {exc}",
+        )
+
+
+def _parallel_read_width() -> tuple[int, str | None]:
+    """Bound one stdio child to 1..4 concurrent reviewed read calls."""
+    raw = os.environ.get("COC_MCP_PARALLEL_READ_WIDTH", "4")
+    try:
+        return max(1, min(4, int(raw))), None
+    except (TypeError, ValueError):
+        # A malformed deployment setting must degrade to the old FIFO model.
+        return 1, "invalid_parallel_read_width"
+
+
+class _ToolCallScheduler:
+    """Arrival-ordered read batches separated by exclusive serial barriers."""
+
+    def __init__(self, write_response) -> None:
+        self._write_response = write_response
+        self._width, self._width_fallback_reason = _parallel_read_width()
+        self._executor = ThreadPoolExecutor(
+            max_workers=self._width,
+            thread_name_prefix="coc-mcp",
+        )
+        self._condition = Condition()
+        self._pending: list[tuple[dict[str, Any], Any, str, float]] = []
+        self._active_reads = 0
+        self._serial_running = False
+        self._active_request_ids: set[str | int] = set()
+        self._cancelled_active: set[str | int] = set()
+        self._closing = False
+        self._closed = False
+
+    @staticmethod
+    def _cancelled_response(request_id: str | int) -> dict[str, Any]:
+        # JSON-RPC's RequestCancelled code makes this distinguishable from a
+        # business failure to raw/private transport users. It intentionally has
+        # no coc_transport receipt: it never reached the tool boundary.
+        return _error(request_id, -32800, "request cancelled")
+
+    @staticmethod
+    def _observe_worker(future: Future) -> None:
+        """Never let a worker failure disappear into an unobserved Future."""
+        error = future.exception()
+        if error is not None:
+            traceback.print_exception(error, file=sys.stderr)
+
+    def _start_locked(
+        self,
+        message: dict[str, Any],
+        request_id: str | int,
+        execution_class: str,
+        queued_at: float,
+        active_count: int,
+    ) -> None:
+        self._active_request_ids.add(request_id)
         try:
-            message = json.loads(line)
-            if not isinstance(message, dict):
-                raise ValueError("message must be an object")
-            if isinstance(message.get("id"), (str, int)):
-                request_id = message["id"]
-            response = _handle(message)
-        except (ValueError, json.JSONDecodeError) as exc:
-            response = _error(None, -32700, str(exc))
-        except Exception as exc:
-            # One bad request must never kill the whole JSONL child: every
-            # sibling in-flight request would fail with "MCP child exited".
-            traceback.print_exc()
-            response = _error(
-                request_id,
-                -32603,
-                f"internal error: {type(exc).__name__}: {exc}",
+            future = self._executor.submit(
+                self._run, message, request_id, execution_class, queued_at, active_count,
             )
-        if response is not None:
-            sys.stdout.write(json.dumps(
-                response,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ) + "\n")
+        except RuntimeError as exc:
+            # This must be observable even if a lifecycle regression tries to
+            # submit after shutdown; settle this exact request and free its slot.
+            self._active_request_ids.discard(request_id)
+            if execution_class == "parallel_read":
+                self._active_reads -= 1
+            else:
+                self._serial_running = False
+            traceback.print_exc()
+            self._write_response(_error(request_id, -32603, f"scheduler unavailable: {exc}"))
+            self._condition.notify_all()
+            return
+        future.add_done_callback(self._observe_worker)
+
+    def submit(self, message: dict[str, Any], request_id: Any) -> None:
+        execution_class = _request_execution_class(message)
+        rejected: dict[str, Any] | None = None
+        with self._condition:
+            if self._closing or self._closed:
+                if isinstance(request_id, (str, int)):
+                    rejected = _error(request_id, -32000, "MCP scheduler is closing")
+            else:
+                self._pending.append((message, request_id, execution_class, time.monotonic()))
+                self._drain_locked()
+        if rejected is not None:
+            self._write_response(rejected)
+
+    def cancel(self, request_id: Any) -> bool:
+        """Cancel one queued call, or suppress an active call's eventual result."""
+        if not isinstance(request_id, (str, int)):
+            return False
+        cancelled: dict[str, Any] | None = None
+        with self._condition:
+            for index, (_, queued_id, _, _) in enumerate(self._pending):
+                if queued_id == request_id:
+                    self._pending.pop(index)
+                    cancelled = self._cancelled_response(request_id)
+                    # Removing a serial barrier may make the following read run
+                    # eligible immediately; no sibling id is touched.
+                    self._drain_locked()
+                    break
+            else:
+                if request_id in self._active_request_ids:
+                    # Python toolbox calls are not safely interruptible. The
+                    # active work is allowed to finish, but its result is
+                    # suppressed and the caller gets this settled cancellation.
+                    self._cancelled_active.add(request_id)
+                    cancelled = self._cancelled_response(request_id)
+        if cancelled is not None:
+            self._write_response(cancelled)
+            return True
+        return False
+
+    def _drain_locked(self) -> None:
+        # The queue is arrival ordered. Start only a contiguous read run; a
+        # serial request waits all earlier reads, runs alone, then releases the
+        # next run. This never lets a later read cross an earlier write.
+        if self._closing or self._closed:
+            return
+        while self._pending:
+            message, request_id, execution_class, queued_at = self._pending[0]
+            if not isinstance(request_id, (str, int)):
+                self._pending.pop(0)
+                continue
+            if execution_class != "parallel_read":
+                if self._active_reads or self._serial_running:
+                    return
+                self._pending.pop(0)
+                self._serial_running = True
+                self._start_locked(message, request_id, execution_class, queued_at, 1)
+                return
+            if self._serial_running or self._active_reads >= self._width:
+                return
+            self._pending.pop(0)
+            self._active_reads += 1
+            self._start_locked(message, request_id, execution_class, queued_at, self._active_reads)
+
+    def _run(
+        self,
+        message: dict[str, Any],
+        request_id: str | int,
+        execution_class: str,
+        queued_at: float,
+        active_count: int,
+    ) -> None:
+        started_at = time.monotonic()
+        try:
+            response = _safe_handle(message, request_id)
+            # Commit the result/cancellation choice while the request remains
+            # active. A late cancellation then finds no active id; its client
+            # already drops the matching pending promise, so it cannot leak to
+            # a later request or model/player output.
+            with self._condition:
+                cancelled = request_id in self._cancelled_active
+                self._cancelled_active.discard(request_id)
+                self._active_request_ids.discard(request_id)
+            if response is not None and not cancelled:
+                fallback_reason = self._width_fallback_reason
+                if fallback_reason is None and execution_class == "parallel_read" and self._width == 1:
+                    fallback_reason = "parallel_read_width_1"
+                if fallback_reason is None and execution_class != "parallel_read":
+                    fallback_reason = "execution_class_serial"
+                # This sits beside the JSON-RPC result, never inside MCP
+                # content/structuredContent. The Pi transport strips it before
+                # the model-facing tool result and retains it for telemetry.
+                response["coc_transport"] = {
+                    "request_id": request_id,
+                    "execution_class": execution_class,
+                    "queue_ms": round(max(0, started_at - queued_at) * 1000, 3),
+                    "execute_ms": round(max(0, time.monotonic() - started_at) * 1000, 3),
+                    "parallel_read_width": self._width,
+                    "active_count": active_count,
+                    "fallback_reason": fallback_reason,
+                }
+                self._write_response(response)
+        finally:
+            with self._condition:
+                self._active_request_ids.discard(request_id)
+                self._cancelled_active.discard(request_id)
+                if execution_class == "parallel_read":
+                    self._active_reads -= 1
+                else:
+                    self._serial_running = False
+                if not self._closing:
+                    self._drain_locked()
+                self._condition.notify_all()
+
+    def shutdown(self) -> None:
+        # EOF first closes admission and settles every queued request. Already
+        # running Python is best-effort only, so wait for it before shutting the
+        # executor; worker finally blocks never submit after closing begins.
+        queued: list[dict[str, Any]] = []
+        with self._condition:
+            if self._closed:
+                return
+            self._closing = True
+            for _, request_id, _, _ in self._pending:
+                if isinstance(request_id, (str, int)):
+                    queued.append(self._cancelled_response(request_id))
+            self._pending.clear()
+        for response in queued:
+            self._write_response(response)
+        with self._condition:
+            while self._active_reads or self._serial_running:
+                self._condition.wait()
+        self._executor.shutdown(wait=True)
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+
+
+def main() -> int:
+    stdout_lock = Lock()
+
+    def write_response(response: dict[str, Any]) -> None:
+        # Worker completions may be out of order, but each JSON-RPC line must
+        # remain indivisible and its id stays attached to its own request.
+        encoded = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
+        with stdout_lock:
+            sys.stdout.write(encoded + "\n")
             sys.stdout.flush()
+
+    scheduler = _ToolCallScheduler(write_response)
+    try:
+        for line in sys.stdin:
+            if not line.strip():
+                continue
+            request_id = None
+            try:
+                message = json.loads(line)
+                if not isinstance(message, dict):
+                    raise ValueError("message must be an object")
+                if isinstance(message.get("id"), (str, int)):
+                    request_id = message["id"]
+            except (ValueError, json.JSONDecodeError) as exc:
+                write_response(_error(None, -32700, str(exc)))
+                continue
+            method = message.get("method")
+            if method in {"notifications/cancelled", "$/cancelRequest"}:
+                # MCP's cancellation notification names requestId; accept the
+                # JSON-RPC/LSP spelling too because this is a private JSONL
+                # transport and older Pi children used that envelope.
+                params = message.get("params")
+                if isinstance(params, dict):
+                    scheduler.cancel(params.get("requestId", params.get("id")))
+            elif method == "tools/call":
+                scheduler.submit(message, request_id)
+            else:
+                response = _safe_handle(message, request_id)
+                if response is not None:
+                    write_response(response)
+    finally:
+        scheduler.shutdown()
     return 0
 
 

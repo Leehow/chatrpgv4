@@ -1785,7 +1785,7 @@ export class PiSemanticSupplyCoordinator {
           state.terminalPacketIds.add(`materialize:${candidate.scene_id}`);
           this.publishContext(candidate.campaign_id, "scene_priority_terminal", {
             ...this.scenePriorityUnavailableContext(candidate), failure_class: code,
-          });
+          }, true);
           return;
         }
         throw new Error("scene materialization was not canonical");
@@ -1813,7 +1813,7 @@ export class PiSemanticSupplyCoordinator {
         this.publishContext(candidate.campaign_id, "scene_priority_terminal", {
           ...this.scenePriorityUnavailableContext(candidate),
           failure_class: "scene_materialization_incomplete",
-        });
+        }, true);
         return;
       }
       const secretsParams: JsonObject = {
@@ -1848,7 +1848,7 @@ export class PiSemanticSupplyCoordinator {
       this.publishContext(candidate.campaign_id, "scene_priority_terminal", {
         ...this.scenePriorityUnavailableContext(candidate),
         failure_class: "scene_priority_materialize_failed",
-      });
+      }, true);
     } finally {
       if (!retryScheduled) {
         state.checking = false;
@@ -1927,7 +1927,7 @@ export class PiSemanticSupplyCoordinator {
         ...(typeof receipt.failure_class === "string"
           ? { failure_class: receipt.failure_class }
           : {}),
-      });
+      }, true);
       return;
     }
     const params: JsonObject = {
@@ -1945,7 +1945,7 @@ export class PiSemanticSupplyCoordinator {
         scene_id: binding.sceneId,
         source_specific_facts: "unestablished_or_campaign_local_only",
         failure_class: "scene_priority_refresh_failed",
-      });
+      }, true);
       return;
     }
     try {
@@ -1972,7 +1972,7 @@ export class PiSemanticSupplyCoordinator {
         scene_id: binding.sceneId,
         source_specific_facts: "unestablished_or_campaign_local_only",
         failure_class: "scene_priority_refresh_failed",
-      });
+      }, true);
     }
   }
 

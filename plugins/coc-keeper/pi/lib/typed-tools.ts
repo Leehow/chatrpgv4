@@ -141,6 +141,18 @@ function presentedTypedToolParameters(
   operation: string,
   inputSchema: JsonSchema,
 ): JsonSchema {
+  if (operation === "progressive.prepare_opening") {
+    const cloned = structuredClone(inputSchema);
+    cloned.required = (cloned.required ?? []).filter((key) => key !== "campaign");
+    const campaign = cloned.properties?.campaign;
+    if (isPlainObject(campaign)) {
+      campaign.description = (
+        "Optional in the setup host: omit it to consume the current retained "
+        + "opening-selection campaign."
+      );
+    }
+    return cloned;
+  }
   if (operation !== "setup.adopt_source_facts") return inputSchema;
   const cloned = structuredClone(inputSchema);
   cloned.required = ["campaign_id"];
@@ -190,7 +202,16 @@ export function wrapTypedToolInvokeParams(
   const tool = catalog.byName.get(toolName);
   if (!tool) return params;
   const root = params.root;
-  const campaign = params.campaign;
+  // Typed model schemas expose the canonical operation arguments, not the
+  // transport envelope. Campaign-bound operations already carry their exact
+  // campaign_id there, so lift that same value into the gateway envelope when
+  // Pi did not add a top-level campaign. Keep campaign_id in the arguments bag
+  // as the canonical operation still requires it.
+  const campaign = params.campaign ?? (
+    typeof params.campaign_id === "string" && params.campaign_id.trim()
+      ? params.campaign_id
+      : undefined
+  );
   const argumentsBag: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(params)) {
     if (key === "root" || key === "campaign") continue;

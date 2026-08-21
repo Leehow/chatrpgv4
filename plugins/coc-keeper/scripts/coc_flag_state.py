@@ -313,6 +313,24 @@ def valid_entity_head(
                 return False
         elif marker is not None:
             return False
+    elif stable_kind == "cash":
+        if set(live_record) != {
+            "schema_version", "investigator_id", "balances",
+            "ledger_len", "after_digest",
+        }:
+            return False
+        balances = live_record.get("balances")
+        if (
+            live_record.get("schema_version") != 2
+            or str(live_record.get("investigator_id") or "") != stable_id
+            or not isinstance(balances, dict)
+            or not balances
+            or not isinstance(live_record.get("ledger_len"), int)
+            or isinstance(live_record.get("ledger_len"), bool)
+            or int(live_record.get("ledger_len") or -1) < 1
+            or not str(live_record.get("after_digest") or "").startswith("sha256:")
+        ):
+            return False
     elif stable_kind == "npc_presence":
         if set(live_record) != {"schema_version", "npc_id", "record"}:
             return False

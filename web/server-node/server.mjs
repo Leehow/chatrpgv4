@@ -17,17 +17,25 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { Sidecar, SidecarError } from "./sidecar.mjs";
-import { PiCocRpcError, PiCocRpcHost, sessionOpeningFlags, webSessionId } from "./pi-coc-rpc.mjs";
+import {
+  PiCocRpcError,
+  PiCocRpcHost,
+  sessionOpeningFlags,
+  tableIntentFromOpeningPhase,
+  webSessionId,
+} from "./pi-coc-rpc.mjs";
 import {
   CampaignHostOrchestrator,
+  defaultResolveSessionRole,
   SESSION_TRANSITIONING_CODE,
 } from "./session-handoff.mjs";
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
 import { finishPromptTurn } from "./turn-flow.mjs";
-import { buildTurnSseData, latestKeeperProjection, projectionIdentity } from "./turn-settle.mjs";
 import {
   campaignDir,
+  campaignDisplayTitle,
+  characterSetupPendingFromOpeningPhase,
   combatInitiativeDisplay,
   cocRoot,
   discoveredCluesDisplay,
@@ -35,11 +43,12 @@ import {
   findBundleByPdfSha256,
   formatPlayerTime,
   campaignListExtras,
+  investigatorIdFromParty,
   listSourceBundles,
   modelsPayload,
   readJsonFile,
-  sceneDisplayLabel,
   resolvePlaySceneId,
+  sceneDisplayLabel,
   sha256Bytes,
   sha256File,
   tableTranscriptMessages,
@@ -48,8 +57,8 @@ import {
 } from "./projections.mjs";
 import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./model-editor.mjs";
 import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
+import { loadUserPrefs, resolveUserPrefsPath, saveUserPrefs } from "./user-prefs.mjs";
 import { cancelLogin, loginSnapshot, respondLoginPrompt, startProviderLogin } from "./provider-login.mjs";
-import { derivePdfIngestStatus, readManifestFacts } from "./ingest-status.mjs";
 
 /**
  * Arm the canonical Pi source-lifecycle lanes for the pi-coc RPC child this
@@ -185,8 +194,18 @@ function httpError(status, message) {
   return err;
 }
 
+/**
+ * Pick which investigator id to project (sheet display, item use). This is
+ * id-selection only — it must never decide lifecycle, intent, or setup
+ * progress; that authority is the `opening_phase` projection.
+ */
 function resolveInvestigator(campaignId) {
-  const stateDir = path.join(campaignDir(WORKSPACE, campaignId), "save", "investigator-state");
+  const dir = campaignDir(WORKSPACE, campaignId);
+  const fromParty = investigatorIdFromParty(readJsonFile(path.join(dir, "party.json")), {
+    draftId: SETUP_DRAFT_INVESTIGATOR_ID,
+  });
+  if (fromParty) return fromParty;
+  const stateDir = path.join(dir, "save", "investigator-state");
   let names;
   try {
     names = fs.readdirSync(stateDir).filter((n) => n.endsWith(".json")).sort();
@@ -198,6 +217,39 @@ function resolveInvestigator(campaignId) {
     if (stem !== SETUP_DRAFT_INVESTIGATOR_ID) return stem;
   }
   return null;
+}
+
+/**
+ * Player-safe opening lifecycle projection for one campaign, from the same
+ * sidecar `project_campaign_state` payload the state endpoint serves.
+ * Returns null when the projection is unavailable.
+ */
+async function campaignOpeningPhase(campaignId) {
+  try {
+    const state = await sidecar.request("project_campaign_state", {
+      campaign_id: campaignId,
+    });
+    const phase = state?.opening_phase;
+    return phase && typeof phase === "object" ? phase : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Single lifecycle source for session intent: the `opening_phase` projection,
+ * else coc_session_role.py (same judge session-handoff respawns consult).
+ * Never investigator-file scanning.
+ */
+async function resolveTableIntent(campaignId, openingPhase) {
+  const fromPhase = tableIntentFromOpeningPhase(openingPhase);
+  if (fromPhase) return fromPhase;
+  const role = await defaultResolveSessionRole({
+    workspace: WORKSPACE,
+    campaignId,
+    repoRoot: REPO_ROOT,
+  });
+  return role === "play" ? "continue" : "character-setup";
 }
 
 // ---------------------------------------------------------------------------
@@ -227,17 +279,24 @@ async function statePayload(info) {
   } else {
     state.character = null;
   }
-  state.character_setup_pending = !liveInvestigator;
+  state.character_setup_pending = characterSetupPendingFromOpeningPhase(
+    state.opening_phase,
+  );
   state.time = timeExtras(WORKSPACE, info.campaign_id, lang);
   const sceneId =
     resolvePlaySceneId(WORKSPACE, info.campaign_id) || state.active_scene_id;
   if (typeof sceneId === "string" && sceneId) {
     state.active_scene_id = sceneId;
     state.active_scene_label =
-      sceneDisplayLabel(WORKSPACE, info.campaign_id, sceneId, lang) || sceneId;
+      sceneDisplayLabel(WORKSPACE, info.campaign_id, sceneId, lang);
   } else {
     state.active_scene_label = null;
   }
+  state.display_title = campaignDisplayTitle(WORKSPACE, info.campaign_id, {
+    openingPhase: state.opening_phase,
+    activeSceneLabel: state.active_scene_label,
+    investigatorName: state.character?.name ?? null,
+  });
   const tension = state.tension_level;
   state.tension_label =
     typeof tension === "string" && tension
@@ -420,6 +479,15 @@ async function handleSaveModelEditorProvider(req, res) {
   sendJson(res, 200, await saveApiKeyProvider(resolveProductAgentDir(), body));
 }
 
+function handleUserPrefs(_req, res) {
+  sendJson(res, 200, loadUserPrefs(resolveUserPrefsPath()));
+}
+
+async function handleSaveUserPrefs(req, res) {
+  const body = await readJsonBody(req);
+  sendJson(res, 200, saveUserPrefs(resolveUserPrefsPath(), body));
+}
+
 async function handleStartModelLogin(req, res) {
   const body = await readJsonBody(req);
   sendJson(
@@ -459,7 +527,21 @@ async function handleBootstrap(_req, res) {
           const compat = await sidecar.request("campaign_compat", {
             campaign_id: summary.campaign_id,
           });
-          Object.assign(summary, compat, campaignListExtras(WORKSPACE, summary.campaign_id));
+          const extras = campaignListExtras(WORKSPACE, summary.campaign_id);
+          Object.assign(summary, compat, extras);
+          const sceneId = resolvePlaySceneId(WORKSPACE, summary.campaign_id);
+          const sceneLabel = sceneDisplayLabel(
+            WORKSPACE,
+            summary.campaign_id,
+            sceneId,
+            "zh-Hans",
+          );
+          const openingPhase = await campaignOpeningPhase(summary.campaign_id);
+          summary.title = campaignDisplayTitle(WORKSPACE, summary.campaign_id, {
+            openingPhase,
+            activeSceneLabel: sceneLabel,
+            investigatorName: extras.investigator_name,
+          });
         }
       }),
     );
@@ -783,12 +865,14 @@ async function handleCreateSession(req, res) {
         "请从左侧「＋ 新战役」开局。",
     );
   }
+  // id-selection only (which sheet to project); lifecycle comes from the phase.
   const investigatorId = String(body.investigator_id || "").trim()
     || resolveInvestigator(campaignId)
     || "";
   const sessionId = webSessionId(campaignId);
   const selectedModel = resolveRequestedModelSettings(modelsPayload(), body);
-  const tableIntent = resolveInvestigator(campaignId) ? "continue" : "character-setup";
+  const openingPhase = await campaignOpeningPhase(campaignId);
+  const tableIntent = await resolveTableIntent(campaignId, openingPhase);
   let host = HOSTS.get(campaignId);
   let spawned = false;
   if (!host || host.closed) {
@@ -810,7 +894,8 @@ async function handleCreateSession(req, res) {
   SESSIONS.set(sessionId, info);
   const opening = sessionOpeningFlags({
     spawned,
-    hasInvestigator: Boolean(resolveInvestigator(campaignId)),
+    phase: openingPhase?.phase ?? null,
+    tableIntent,
   });
   sendJson(res, 200, {
     session_id: sessionId,
@@ -863,16 +948,6 @@ function sseWrite(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-function clientLiveId(body, attach) {
-  if (attach) return null;
-  const raw = body?.live_id;
-  if (typeof raw !== "string") return null;
-  const id = raw.trim();
-  if (!id || id.length > 128) return null;
-  if (/[\u0000-\u001f]/.test(id)) return null;
-  return id;
-}
-
 async function handleTurn(req, res, sid) {
   const info = SESSIONS.get(sid);
   if (!info) {
@@ -892,10 +967,6 @@ async function handleTurn(req, res, sid) {
   }
   const selectedModel = resolveRequestedModelSettings(modelsPayload(), body);
   const { provider, model, thinking } = selectedModel;
-  const previousIdentity = projectionIdentity(
-    latestKeeperProjection(WORKSPACE, info.campaign_id),
-  );
-  const liveId = clientLiveId(body, attach);
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -940,23 +1011,16 @@ async function handleTurn(req, res, sid) {
       state = { error: `${err?.constructor?.name || "Error"}: ${err?.message || err}` };
     }
     const usage = activeHost.lastUsage;
-    const usagePayload = usage
-      ? {
-          input_tokens: Number.isInteger(usage.input) ? usage.input : null,
-          output_tokens: Number.isInteger(usage.output) ? usage.output : null,
-        }
-      : lastTelemetryUsage(info.campaign_id);
-    safeWrite(
-      "turn",
-      buildTurnSseData({
-        state,
-        usage: usagePayload,
-        workspace: WORKSPACE,
-        campaignId: info.campaign_id,
-        liveId,
-        previousIdentity,
-      }),
-    );
+    safeWrite("turn", {
+      events: [],
+      state,
+      usage: usage
+        ? {
+            input_tokens: Number.isInteger(usage.input) ? usage.input : null,
+            output_tokens: Number.isInteger(usage.output) ? usage.output : null,
+          }
+        : lastTelemetryUsage(info.campaign_id),
+    });
     safeWrite("end", {});
   };
 
@@ -1079,7 +1143,13 @@ function parseMultipartFile(body, contentType) {
       if (filenameMatch) {
         const raw = filenameMatch[1] ?? filenameMatch[2] ?? "";
         try {
-          filename = decodeURIComponent(raw) || filename;
+          const percentDecoded = decodeURIComponent(raw);
+          const utf8Decoded = Buffer.from(percentDecoded, "latin1").toString("utf8");
+          filename = (
+            utf8Decoded && !utf8Decoded.includes("\uFFFD")
+              ? utf8Decoded
+              : percentDecoded
+          ) || filename;
         } catch {
           filename = raw || filename;
         }
@@ -1524,8 +1594,19 @@ async function runIngest(storedPath, fileSha256, requestedIndices) {
     Array.isArray(routerResult.pages_needing_ocr_0indexed) &&
     routerResult.pages_needing_ocr_0indexed.length > 0
   ) {
-    const ocrSet = new Set(routerResult.pages_needing_ocr_0indexed);
-    const reduced = indices.filter((index) => !ocrSet.has(index));
+    const pageCount = Number.isInteger(routerResult.page_count)
+      && routerResult.page_count > 0
+      ? routerResult.page_count
+      : null;
+    const inRange = pageCount === null
+      ? indices
+      : indices.filter((index) => index < pageCount);
+    const ocrSet = new Set(
+      routerResult.pages_needing_ocr_0indexed.filter((index) => (
+        pageCount === null || index < pageCount
+      )),
+    );
+    const reduced = inRange.filter((index) => !ocrSet.has(index));
     if (reduced.length === 0) {
       throw httpError(
         502,
@@ -1637,51 +1718,6 @@ async function handleIngestPdf(req, res) {
   }
 }
 
-function handlePdfIngestStatus(req, res) {
-  const url = new URL(req.url, "http://localhost");
-  const sha = String(url.searchParams.get("file_sha256") || "")
-    .trim()
-    .toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(sha)) {
-    throw httpError(400, "需要合法的 file_sha256");
-  }
-  const locked = Boolean(INGEST_LOCKS.get(sha));
-  const storedPath = findRegisteredPdf(sha);
-  const matched = findBundleByPdfSha256(WORKSPACE, sha);
-  const slug = storedPath
-    ? ingestIdentity(storedPath).slug
-    : matched && typeof matched.bundle_id === "string"
-      ? String(matched.bundle_id).replace(/-w2$/i, "")
-      : null;
-  const bundlesRoot = path.join(cocRoot(WORKSPACE), "source-bundles");
-  const firstId = slug || null;
-  const firstDir = firstId ? path.join(bundlesRoot, firstId) : null;
-  const firstFacts = firstDir
-    ? readManifestFacts(firstDir, fs, readJsonFile)
-    : { dir_exists: false, manifest_valid: false, pdf_indices: null, page_count: null };
-  const w2Id = firstId ? `${firstId}-w2` : null;
-  const w2Dir = w2Id ? path.join(bundlesRoot, w2Id) : null;
-  const w2Facts = w2Dir
-    ? readManifestFacts(w2Dir, fs, readJsonFile)
-    : { dir_exists: false, manifest_valid: false, pdf_indices: null, page_count: null };
-  const status = derivePdfIngestStatus({
-    locked,
-    firstWindow: {
-      bundle_id: firstId,
-      page_count: firstFacts.page_count,
-      rendered_pdf_indices: firstFacts.pdf_indices,
-      valid: firstFacts.manifest_valid,
-    },
-    w2: {
-      dir_exists: w2Facts.dir_exists,
-      manifest_valid: w2Facts.manifest_valid,
-      pdf_indices: w2Facts.pdf_indices,
-      bundle_id: w2Id,
-    },
-  });
-  sendJson(res, 200, { ok: true, result: { file_sha256: sha, ...status } });
-}
-
 // ---------------------------------------------------------------------------
 // Static files
 
@@ -1741,6 +1777,7 @@ async function route(req, res) {
     if (urlPath === "/api/model-editor") return handleModelEditor(req, res);
     if (urlPath === "/api/model-editor/login") return handleModelLoginSnapshot(req, res);
     if (urlPath === "/api/bootstrap") return handleBootstrap(req, res);
+    if (urlPath === "/api/user-prefs") return handleUserPrefs(req, res);
     if (
       parts.length === 4 &&
       parts[0] === "api" &&
@@ -1757,7 +1794,6 @@ async function route(req, res) {
     ) {
       return handleTranscript(req, res, parts[2]);
     }
-    if (urlPath === "/api/uploads/pdf/ingest-status") return handlePdfIngestStatus(req, res);
     if (urlPath === "/api/trash") return handleListTrash(req, res);
     if (urlPath.startsWith("/api/")) throw httpError(404, "not found");
     return serveStatic(req, res, urlPath);
@@ -1808,6 +1844,7 @@ async function route(req, res) {
 
   if (method === "PUT") {
     if (urlPath === "/api/model-editor") return handleSaveModelEditor(req, res);
+    if (urlPath === "/api/user-prefs") return handleSaveUserPrefs(req, res);
     throw httpError(404, "not found");
   }
 
