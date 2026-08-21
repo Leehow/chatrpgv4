@@ -33,6 +33,10 @@ const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const PNG_BYTES = Buffer.from(PNG_B64, "base64");
 const SECRET = "xai-test-secret-value-do-not-leak";
+const COMPAT = {
+  PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH: JSON.stringify({ "ext.grok-build-oauth.compatFallback": true }),
+};
+
 
 const SERVER_SRC = fs.readFileSync(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "server.mjs"),
@@ -95,7 +99,7 @@ test("XAI_API_KEY wins over auth.json", () => {
   try {
     writeAuth(agentDir, { key: "auth-json-key-value-xx" });
     const resolved = resolveXaiToken({
-      env: { XAI_API_KEY: SECRET, PI_AGENT_DIR: agentDir },
+      env: { ...COMPAT, XAI_API_KEY: SECRET, PI_AGENT_DIR: agentDir },
       agentDir,
     });
     assert.equal(resolved.source, "env");
@@ -131,7 +135,7 @@ test("missing token is none and never invents a relay token", () => {
   const agentDir = tempDir("coc-xai-none-");
   try {
     const resolved = resolveXaiToken({
-      env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1", PI_AGENT_DIR: agentDir },
+      env: { ...COMPAT, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1", PI_AGENT_DIR: agentDir },
       agentDir,
     });
     assert.equal(resolved.source, "none");
@@ -167,7 +171,7 @@ test("generateCampaignPortrait writes caller tmp portrait path only", async () =
       campaignId,
       prompt: "confirmed appearance: dark coat, grey eyes",
       outputPath: "tmp/portraits/pending.png",
-      env: { XAI_API_KEY: SECRET, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+      env: { ...COMPAT, XAI_API_KEY: SECRET, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
       agentDir,
       fetchImpl: mockImagine(calls),
       log: (event, fields) => logs.push({ event, ...fields }),
@@ -248,7 +252,7 @@ test("401/403/429/5xx map to clear errors without leaking the token", async () =
             campaignId,
             prompt: "a face",
             outputPath: "tmp/portraits/x.png",
-            env: { XAI_API_KEY: SECRET },
+            env: { ...COMPAT, XAI_API_KEY: SECRET },
             fetchImpl: mockImagine(calls, {
               status,
               body: { error: { message: `nope ${SECRET}` } },
@@ -288,7 +292,7 @@ test("AbortSignal cancels the official fetch", async () => {
           campaignId,
           prompt: "a face",
           outputPath: "tmp/portraits/x.png",
-          env: { XAI_API_KEY: SECRET },
+          env: { ...COMPAT, XAI_API_KEY: SECRET },
           signal: ac.signal,
           timeoutMs: 30_000,
           fetchImpl: (_url, init) =>
@@ -324,7 +328,7 @@ test("timeout maps to 504", async () => {
           campaignId,
           prompt: "a face",
           outputPath: "tmp/portraits/x.png",
-          env: { XAI_API_KEY: SECRET },
+          env: { ...COMPAT, XAI_API_KEY: SECRET },
           timeoutMs: 20,
           fetchImpl: (_url, init) =>
             new Promise((_, reject) => {
@@ -361,7 +365,7 @@ test("HTTP mock service boundary writes portrait and returns path JSON", async (
         runGeneratePortraitHttp({
           workspace,
           body,
-          env: { XAI_API_KEY: SECRET },
+          env: { ...COMPAT, XAI_API_KEY: SECRET },
           agentDir,
           fetchImpl: mockImagine(calls),
           log() {},
@@ -432,7 +436,7 @@ test("parseGeneratePortraitBody rejects empty prompt and bad aspect", () => {
 
 test("explicit XAI_API_KEY beats host relay", async () => {
   const transport = await resolveXaiImageTransport({
-    env: { XAI_API_KEY: SECRET, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+    env: { ...COMPAT, XAI_API_KEY: SECRET, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
     probeImpl: () => {
       throw new Error("probe should not run when env key is set");
     },
@@ -471,7 +475,7 @@ test("PipiUI host with OAuth uses loopback relay, not official", async () => {
       expires: Date.now() + 60_000,
     });
     const transport = await resolveXaiImageTransport({
-      env: { PI_AGENT_DIR: agentDir, PIPIUI_HOST_PROTOCOL: "1" },
+      env: { ...COMPAT, PI_AGENT_DIR: agentDir, PIPIUI_HOST_PROTOCOL: "1" },
       agentDir,
       probeImpl: (base) => {
         assert.equal(base, DEFAULT_PIPIUI_GROK_RELAY);
@@ -516,7 +520,7 @@ test("unreachable host relay fails immediately without official fetch", async ()
   const calls = [];
   await assert.rejects(
     () => resolveXaiImageTransport({
-      env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+      env: { ...COMPAT, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
       probeImpl: () => false,
     }),
     (err) => {
@@ -545,10 +549,11 @@ test("auth.json key can still use official when not on PipiUI", async () => {
   try {
     writeAuth(agentDir, { key: "auth-json-key-value-xx" });
     const transport = await resolveXaiImageTransport({
-      env: { PI_AGENT_DIR: agentDir },
+      env: { ...COMPAT, PI_AGENT_DIR: agentDir },
       agentDir,
     });
     assert.equal(transport.backend, "official");
+    assert.equal(transport.deprecated, true);
     assert.equal(transport.token, "auth-json-key-value-xx");
     assert.equal(transport.tokenSource, "auth.json");
   } finally {
@@ -568,7 +573,7 @@ test("relay generation writes portrait from b64 without leaking secrets or promp
       campaignId,
       prompt,
       outputPath: "tmp/portraits/pending.png",
-      env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+      env: { ...COMPAT, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
       probeImpl: () => true,
       fetchImpl: mockImagine(calls),
       log: (event, fields) => logs.push({ event, ...fields }),
@@ -608,7 +613,7 @@ test("relay url response is downloaded", async () => {
       campaignId,
       prompt: "a face",
       outputPath: "tmp/portraits/url.png",
-      env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+      env: { ...COMPAT, PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
       probeImpl: () => true,
       fetchImpl: async (url, init) => {
         calls.push({ url, method: init?.method });

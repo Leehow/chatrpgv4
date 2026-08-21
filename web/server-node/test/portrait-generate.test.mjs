@@ -18,6 +18,10 @@ const PNG_B64 =
 const PNG_BYTES = Buffer.from(PNG_B64, "base64");
 const OLD_BYTES = Buffer.from("old-portrait-bytes");
 const SECRET = "xai-test-secret-value-do-not-leak";
+const COMPAT = {
+  PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH: JSON.stringify({ "ext.grok-build-oauth.compatFallback": true }),
+};
+
 const SERVER_SRC = fs.readFileSync(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "server.mjs"),
   "utf8",
@@ -141,7 +145,7 @@ test("generateInvestigatorPortrait writes a new file and does not leak prompt", 
       workspace: ws,
       campaignId: "camp-1",
       investigatorId: "ada",
-      env: { XAI_API_KEY: SECRET },
+      env: { ...COMPAT, XAI_API_KEY: SECRET },
       fetchImpl: mockImagine(calls),
       spawnFn: fakeCliSpawn(ws),
       now: new Date("2026-08-21T12:00:00.000Z"),
@@ -188,7 +192,7 @@ test("generate failure does not overwrite the previous portrait", async () => {
         workspace: ws,
         campaignId: "camp-1",
         investigatorId: "ada",
-        env: { XAI_API_KEY: SECRET },
+        env: { ...COMPAT, XAI_API_KEY: SECRET },
         fetchImpl: mockImagine([], { status: 500 }),
         prefs: { provider: "xai" },
         spawnFn: () => {

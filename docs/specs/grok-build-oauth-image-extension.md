@@ -15,7 +15,7 @@
 - PipiUI 用户与 chatrpgv4 pi-coc 用户希望用 xAI Grok 订阅（OAuth）登录一次后，在任意 Pi 会话（PipiUI 普通 Pi 会话、pi-coc terminal、`pi-coc --mode rpc` 驱动的 Web/Electron）中通过模型工具调用生成/编辑图片，凭证自动刷新、跨会话与跨进程安全、无需重复登录或手填 API key。
 - COC portrait 等现有图片消费者希望从“宿主自带 xAI relay/直调”迁移到统一的 Pi 工具路径，但不把 OAuth 逻辑塞进 COC shared kernel。
 
-Success looks like: 一包安装后，`/login grok-build`（browser/device）在两宿主可达，登录状态、剩余有效期、凭证来源在设置/UI 可见；`image_gen`/`image_edit` 由模型触发经同一 HTTP 路径到达官方 `images/generations` 并把文件落到宿主约定目录；token 提前刷新、401 单次强刷、并发去重、0600 原子落盘均生效；旧 `pipiui-media` / `portrait-image-route` / relay 重复路径被兼容层收敛并最终移除。
+Success looks like: 一包安装后，`/login grok-build`（browser/device）在两宿主可达，登录状态、剩余有效期、凭证来源在设置/UI 可见；`image_gen`/`image_edit` 由模型触发到达官方 images 端点（生成 `POST {base}/images/generations`，编辑 `POST {base}/images/edits`）并把文件落到宿主约定目录；token 提前刷新、401 单次强刷、并发去重、0600 原子落盘均生效；旧 `pipiui-media` / `portrait-image-route` / relay 重复路径被兼容层收敛并最终移除。
 
 Hollow delivery would be:
 - 两份复制的 TS 实现（PipiUI 一份、pi-coc 一份）声称完成；
@@ -55,7 +55,7 @@ grok-build-oauth/
 ### 2.2 Provider & tools
 
 - Agent 半注册**独立 provider `grok-build`**（`displayName: Grok Build`），不覆盖官方 `xai` provider。`xai` 保持 API-key 形态，`grok-build` 承载 OAuth 形态，二者可并存。
-- 同时注册 `image_gen` / `image_edit` 工具（tool 名与官方 `xai-grok-tools` 对齐）。工具走同一请求路径：官方 `POST {xai_api_base_url}/images/generations`，默认 `https://api.x.ai/v1`，payload 含 `model`/`prompt`/`n`/`aspect_ratio`/`resolution`/`response_format`，header 含 `Authorization: Bearer` 与 `x-grok-session-id`。见 §4.4。
+- 同时注册 `image_gen` / `image_edit` 工具（tool 名与官方 `xai-grok-tools` 对齐）。两工具共用同一 client 与认证/header 约定，但走官方各自的端点：`image_gen` → `POST {xai_api_base_url}/images/generations`；`image_edit` → `POST {xai_api_base_url}/images/edits`（默认 base `https://api.x.ai/v1`）。payload 含 `model`/`prompt`/`n`/`aspect_ratio`/`resolution`/`response_format`，header 含 `Authorization: Bearer` 与 `x-grok-session-id`。见 §4.4。此外包内声明稳定 host 入口（`host.entry = agent/dist/host.js`）供跨宿主消费者（pi-coc 头像路由）复用同一 broker/tier/images client，不复制实现。
 - 标准 Pi OAuth：`pi.registerProvider("grok-build", { … oauth … })` 使 `/login grok-build`、` /logout grok-build` 与 `ModelRuntime.login("grok-build", "oauth")` 原生可用，支持 browser 与 device_code 两模式。凭证类型为 `oauth`，与 `.env` 静态 key 隔离（见 §4.3 Key Management 衔接）。
 
 ### 2.3 Credential lifecycle
@@ -109,9 +109,9 @@ PipiUI 现有 `pipiui-media` 与 chatrpgv4 `portrait-image-route` / relay 逻辑
 ### 3.4 图像生成/编辑
 
 - **US-16 [M]** 作为用户，我让模型调用 `image_gen`（prompt + 可选 `aspect_ratio`）时，扩展以当前有效 Bearer token 向 `POST {base}/images/generations` 发起请求，默认 model `grok-imagine-image-quality`，`n=1`、`resolution=1k`、`response_format=b64_json`，并附 `x-grok-session-id`。
-- **US-17 [M]** 作为需要编辑的用户，我可通过 `image_edit` 传入参考图（`image`/`mask` 按官方 ImageGenInput 形态），同样走 Bearer 认证与 `b64_json` 解码路径。
+- **US-17 [M]** 作为需要编辑的用户，我可通过 `image_edit` 传入参考图（`image`/`mask` 按官方 ImageGenInput 形态）向 `POST {base}/images/edits` 发起请求，同样走 Bearer 认证、`resolution=1k`、`x-grok-session-id` 与 `b64_json` 解码路径。
 - **US-18 [M]** 作为用户，我收到的结果包含**宿主约定目录下的已落盘文件路径**与 typed `image` 内容（`b64_json` 严格解码、空/畸形拒绝），PipiUI 侧为 `.pi/attachments/` 或等效隔离目录，pi-coc 侧为会话/项目约定目录，路径永不穿越隔离根。
-- **US-19 [M]** 作为未配置 base_url 的用户，请求默认命中 `https://api.x.ai/v1/images/generations`；配置了 `xai_api_base_url` 时使用该 base 的 `/images/generations`，尾斜杠被规范化。
+- **US-19 [M]** 作为未配置 base_url 的用户，生成请求默认命中 `https://api.x.ai/v1/images/generations`、编辑请求默认命中 `https://api.x.ai/v1/images/edits`；配置了 `xai_api_base_url` 时使用该 base 的对应端点，尾斜杠被规范化。
 - **US-20 [M]** 作为使用 OAuth 与 API key 两种凭证的用户，二者**共用同一请求路径与 payload 形状**，仅 `Authorization` 来源不同；OAuth 路径受 tier gate 影响而 API key 路径不受限（见 US-22）。
 - **US-21 [M]** 作为用户，我可在 manifest/settings 中覆盖默认 model（如 `grok-imagine-image`）与 base_url，非法 model/aspect 值在客户端被拒绝并返回可操作错误。
 
@@ -287,7 +287,7 @@ type GrokBuildOAuthCredential = {
 
 - **刷新触发：**
   1. **提前刷新：** `expires_at - now < 60s`（可配置 30–120s）即在 `before_provider_request` / 工具执行前触发 refresh。
-  2. **401 强刷：** 任意 `images/generations` 401 触发**单次**强制 refresh 并重试一次；重试仍 401 则上抛 `auth_expired` 需重登。
+  2. **401 强刷：** 任意 images 请求（`images/generations` 或 `images/edits`）401 触发**单次**强制 refresh 并重试一次；重试仍 401 则上抛 `auth_expired` 需重登。
 
 - **Refresh 语义：**
   - 无 `refresh_token` 则直接要求重登。
@@ -302,7 +302,7 @@ type GrokBuildOAuthCredential = {
 
 ### D6 — Images API（与官方 `xai-grok-tools/image_gen` 对齐）
 
-- **Endpoint：** `POST {xai_api_base_url}/images/generations`，`xai_api_base_url` 默认 `https://api.x.ai/v1`，尾斜杠规范化。`xai_api_base_url` 来源：宿主 env / 扩展设置 / 构建默认，按优先级。
+- **Endpoint：** `image_gen` → `POST {xai_api_base_url}/images/generations`；`image_edit` → `POST {xai_api_base_url}/images/edits`。`xai_api_base_url` 默认 `https://api.x.ai/v1`，尾斜杠规范化。`xai_api_base_url` 来源：宿主 env / 扩展设置 / 构建默认，按优先级。
 - **Auth：** `Authorization: Bearer <resolved token>`。Token 解析优先级：`grok-build` OAuth access_token（经 D5 刷新后）> `XAI_API_KEY`（仅当 OAuth 未登录且 compat fallback 开启时）。OAuth 与 API key **共用同一路径与 payload**。
 - **Payload：**
 
@@ -471,7 +471,7 @@ any → error (reason visible, no auto-retry)
 
 **缝 C — Images request / output（请求与产物）：**
 
-- 请求断言：`POST {base}/images/generations`、payload `model`/`n=1`/`aspect`/`resolution=1k`/`b64_json`、Bearer 与 `x-grok-session-id`。
+- 请求断言：`image_gen` → `POST {base}/images/generations`、`image_edit` → `POST {base}/images/edits`；payload `model`/`n=1`/`aspect`/`resolution=1k`/`b64_json`、Bearer 与 `x-grok-session-id`。
 - Base 默认 `https://api.x.ai/v1`，尾斜杠规范化；非法 aspect/model 被拒。
 - 响应：`b64_json` 严格解码、空/畸形拒绝；非 2xx 分类（401/403/429/5xx）与截断 body；secret 永不进日志。
 - 落盘：原子 tmp+fsync+rename 到隔离目录，路径不穿越，返回 typed `image`/`path`。

@@ -238,6 +238,7 @@ export async function generateInvestigatorPortrait({
     fetchImpl,
     env,
     agentDir,
+    repoRoot,
     now,
     log,
   });
