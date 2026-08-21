@@ -64,6 +64,7 @@ import {
 } from "../lib/keeper-briefing.ts";
 import { registerCocHud } from "../lib/hud.ts";
 import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry.ts";
+import { createContextFold, readFoldSettings } from "../lib/context-fold.ts";
 import {
   registerCocWelcome,
   STARTUP_RESUME_CUSTOM_TYPE,
@@ -9548,6 +9549,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   // Game table HUD replaces the coding-agent token/path footer in TUI sessions.
   registerCocHud(pi, (ctx) => client(ctx));
+  // Epoch context fold. Closed-turn tool results are 85-91% of the model-visible
+  // context and are dead weight once `turn.finalize` closed their turn; the next
+  // turn's authority comes from state/scene reads, not from old transcript JSON.
+  // Registered before telemetry so the probe measures what is actually sent.
+  const contextFold = createContextFold(readFoldSettings());
+  pi.on("context", (event) => ({
+    messages: contextFold.apply(event.messages).messages as typeof event.messages,
+  }));
   // Per-turn step timing + token telemetry: JSONL evidence under the COC
   // agent home, a summary line after each settled turn, and /timing.
   // The real pi-coc wrapper always exports PI_CODING_AGENT_DIR; without it
@@ -9559,7 +9568,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     ?? null
   );
   if (telemetryAgentDir !== null) {
-    turnTelemetry = registerTurnTelemetry(pi, { agentDir: telemetryAgentDir });
+    turnTelemetry = registerTurnTelemetry(pi, {
+      agentDir: telemetryAgentDir,
+      foldStats: () => contextFold.stats(),
+    });
   }
   const agentDir = (
     overrides.welcomeAgentDir

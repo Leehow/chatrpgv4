@@ -35,6 +35,28 @@ const usage2 = {
   input: 90000, output: 3000, cacheRead: 1500000, cacheWrite: 0, totalTokens: 93000,
   cost: { input: 0.09, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.10 },
 };
+// Two closed player turns of tool traffic plus a live turn; call N appends
+// one more assistant message, so the prefix must read as append-only.
+const contextMessages = (call) => {
+  const closed = [
+    { role: "user", content: "我推门进去", timestamp: 1 },
+    { role: "assistant", model: "grok-4.5", content: [
+      { type: "thinking", thinking: "思".repeat(200) },
+      { type: "text", text: "门后是走廊。" },
+      { type: "toolCall", id: "c1", name: "coc_invoke", arguments: { operation: "state.journal" } },
+    ], usage: {}, stopReason: "toolCalls", timestamp: 2 },
+    { role: "toolResult", toolCallId: "c1", toolName: "coc_invoke",
+      content: [{ type: "text", text: "x".repeat(9000) }], isError: false, timestamp: 3 },
+  ];
+  const live = [{ role: "user", content: "我走向窗户", timestamp: 4 }];
+  const appended = Array.from({ length: call - 1 }, (_, index) => ({
+    role: "assistant", model: "grok-4.5",
+    content: [{ type: "text", text: `第 ${index + 1} 次调用的叙事` }],
+    usage: {}, stopReason: "stop", timestamp: 5 + index,
+  }));
+  return [...closed, ...live, ...appended];
+};
+
 const toolArgs = { operation: "rules.roll", campaign: "smoke", arguments: { skill: "斗殴", difficulty: "regular" } };
 
 const uiCtx = (hasUI) => ({
@@ -77,6 +99,7 @@ emit("agent_start", {}, uiCtx(true));
 tick(30);
 emit("turn_start", { turnIndex: 0 });
 tick(20);
+emit("context", { messages: contextMessages(1) });
 emit("before_provider_request");
 tick(200);
 emit("after_provider_response", { status: 200 });
@@ -122,6 +145,7 @@ emit("tool_execution_end", {
 tick(200);
 emit("turn_start", { turnIndex: 1 });
 tick(100);
+emit("context", { messages: contextMessages(2) });
 emit("before_provider_request");
 tick(150);
 emit("after_provider_response", { status: 200 });
@@ -187,10 +211,10 @@ try {
     ok: true,
     hasTimingCommand: commands.has("timing"),
     sessionLineFirst: sessionLine?.record === "session"
-      && sessionLine.schema_version === 4 && sessionLine.mode === "tui"
+      && sessionLine.schema_version === 5 && sessionLine.mode === "tui"
       && sessionLine.thinking_level === "off",
     recordShape: record !== null && record.record === "turn"
-      && record.schema_version === 4 && record.host === "pi-coc"
+      && record.schema_version === 5 && record.host === "pi-coc"
       && record.mode === "tui" && record.thinking_level === "off",
     sessionLabeled: record?.session === "telemetry-smoke",
     promptExcerpt: record?.prompt_excerpt === "我推门进去看看门后有什么",
@@ -266,6 +290,28 @@ try {
       && leanTurn?.other_ms === 5100
       && leanTurn?.steps.filter((s) => s.kind === "tool")
         .every((s) => s.duration_ms === 3000 || s.duration_ms === 3200),
+    // Context probe rides on the model steps; the turn rolls it up. Observation
+    // only: the fold is projected, never applied.
+    contextProbeOnSteps: first?.context_probe?.messages === 4
+      && first?.context_probe?.by_class.tool_result === 9000 + "coc_invoke".length
+      && first?.context_probe?.fold.closed_turns === 1
+      && first?.context_probe?.fold.folded_tool_results === 1
+      && first?.context_probe?.prefix.status === "first"
+      && second?.context_probe?.messages === 5
+      && second?.context_probe?.prefix.status === "append_only"
+      && second?.context_probe?.prefix.appended_messages === 1,
+    contextProbeRollup: record?.context_probe?.calls === 2
+      && record?.context_probe?.append_only_calls === 1
+      && record?.context_probe?.rewritten_calls === 0
+      && record?.context_probe?.saving_chars > 9000
+      && record?.context_probe?.est_saving_tokens > 2000,
+    panelShowsFoldPreview: panelTurn1.some((l) => l.includes("折叠预演：还可省")
+      && l.includes("纯追加")),
+    summaryShowsPending: summary.includes("待折叠"),
+    // No fold wired in this harness: fold state stays null end to end.
+    foldStateAbsent: first?.context_fold === null && record?.context_fold === null,
+    leanTurnHasNoProbe: leanModel?.context_probe === null
+      && leanTurn?.context_probe === null,
     totalsAfterTwoTurns: totals.turns === 2 && totals.model_ms === 85810,
     summaryEnabledFlag: telemetry.isSummaryEnabled() === false,
   }, null, 2));

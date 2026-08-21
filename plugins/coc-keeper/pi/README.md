@@ -172,8 +172,8 @@ Undiscovered clues and keeper-only fields never appear on this strip.
 ### Turn timing telemetry (`/timing`)
 
 `{this-repo}/.pi/coc-agent/telemetry/turns.jsonl` is a machine-first, fine-grained log
-for offline latency analysis (schema v2, one JSON line per record). A
-`record:"session"` header opens each session (label, mode, agent dir). Every
+for offline latency and context analysis (schema v5, one JSON line per
+record). A `record:"session"` header opens each session (label, mode, agent dir). Every
 `record:"turn"` line reconstructs the full timeline of one KP turn:
 
 - every step carries dual clocks — `at` (epoch ms) plus `offset_ms`
@@ -193,7 +193,51 @@ for offline latency analysis (schema v2, one JSON line per record). A
   this layer;
 - turn totals: wall/model/tool/other buckets, summed tokens and cost,
   provider context usage (`getContextUsage`), prompt excerpt, and Pi
-  `turnIndex` stamping per model round-trip.
+  `turnIndex` stamping per model round-trip;
+- `context_probe` on each model step plus a per-turn roll-up: model-visible
+  context size by class (player / KP prose / thinking / tool arguments / tool
+  results), how much a fold could still reclaim, and whether the prefix was
+  `append_only` or `rewritten` — the prefix-cache baseline. Observation only;
+  see `lib/context-probe.ts`;
+- `context_fold` on each model step and per turn: standing epoch-fold state
+  (epochs, folded results, chars reclaimed, pending pile, threshold).
+
+### Epoch context fold
+
+Closed-turn tool results are 85–91% of the model-visible context on real
+sessions, while KP prose is under 2%. Once `turn.finalize` closes a turn its
+tool payloads are dead weight — the next turn's authority comes from `state.*`,
+scene projections, and `session.resume`, not from rereading old transcript
+JSON. `lib/context-fold.ts` collapses them to stubs on pi's `context` hook.
+
+The shape is dictated by prefix caching (automatic, no pinnable breakpoints,
+~96% hit rate here): a rewrite inside the prefix invalidates everything after
+it, so this is an **epoch fold**, not a sliding window.
+
+- Folds only on the first model call of a turn, never mid-turn; the running
+  turn's own results are always intact.
+- Folds only when the unfolded closed-turn pile crosses the threshold, so most
+  turns are pure appends and keep hitting cache.
+- Each stub is frozen under its `toolCallId`: identical bytes on every later
+  call, and folding never reverses. Results under `MIN_FOLD_CHARS` (400) are
+  left alone because a stub costs more than they do.
+- The stub is structural — tool, canonical operation, ok/error,
+  `full_result_sha256`, folded size, and a re-read note. It never summarizes
+  the payload. Host-side `details` is untouched, so the TUI still renders the
+  original call.
+
+| env | default | effect |
+|---|---|---|
+| `PI_COC_CONTEXT_FOLD` | on | `off` / `0` / `false` disables folding |
+| `PI_COC_CONTEXT_FOLD_TOKENS` | `20000` | est_tokens of closed-turn pile that opens a fold |
+
+Size a threshold against recorded play before changing it — the replay runs the
+shipped fold, so its predictions are the live policy:
+
+```bash
+node --experimental-strip-types plugins/coc-keeper/pi/bin/coc-context-replay.mjs \
+  .pi/coc-agent/sessions/<dir>/<session>.jsonl --thresholds 10000,20000,40000
+```
 
 Human surfaces over the same log: a one-line summary after each settled turn
 (`/timing off|on` toggles only the line; the log is always written) and the

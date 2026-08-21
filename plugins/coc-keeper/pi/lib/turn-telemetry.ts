@@ -25,9 +25,11 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { classifyToolCall } from "./domain-tools.ts";
+import { createContextProbe, type ContextProbe } from "./context-probe.ts";
+import type { ContextFoldStats } from "./context-fold.ts";
 import type { McpTransportMeta } from "./runtime.ts";
 
-export const TURN_TELEMETRY_SCHEMA_VERSION = 4;
+export const TURN_TELEMETRY_SCHEMA_VERSION = 5;
 
 export type TelemetryUsage = {
   input: number;
@@ -77,6 +79,10 @@ export type ModelCallStep = {
   tool_calls: number;
   usage: TelemetryUsage | null;
   stop_reason: string | null;
+  /** Composition of the context actually sent on this call (post-fold). */
+  context_probe: ContextProbe | null;
+  /** Standing epoch-fold state at this call; null when folding is not wired. */
+  context_fold: ContextFoldStats | null;
 };
 
 export type ToolCallStep = {
@@ -98,6 +104,22 @@ export type ToolCallStep = {
   end: TelemetryMark;
 };
 
+/** Per-turn roll-up of the context probe; details stay on the model steps. */
+export type TurnContextProbeSummary = {
+  calls: number;
+  /** Composition at the last model call of the turn (post-fold). */
+  chars: number;
+  est_tokens: number;
+  saving_chars: number;
+  saving_percent: number | null;
+  est_saving_tokens: number;
+  /** Prefix behaviour across this turn's calls — the cache baseline. */
+  append_only_calls: number;
+  rewritten_calls: number;
+  reset_calls: number;
+  probe_ms: number;
+};
+
 export type TurnTelemetryRecord = {
   record: "turn";
   schema_version: number;
@@ -115,6 +137,10 @@ export type TurnTelemetryRecord = {
   model_calls: number;
   tool_calls: number;
   context_usage: { tokens: number; context_window: number; percent: number | null } | null;
+  /** Roll-up of the per-call context probe for this turn. */
+  context_probe: TurnContextProbeSummary | null;
+  /** Standing epoch-fold state after this turn; null when folding is off. */
+  context_fold: ContextFoldStats | null;
   /** Last known effective thinking level; null when the host never reported one. */
   thinking_level: string | null;
   tokens: TelemetryUsage | null;
@@ -257,6 +283,20 @@ export function formatTurnSummaryLine(record: TurnTelemetryRecord): string {
   } else {
     parts.push("tokens 未知（provider 未上报）");
   }
+  if (record.context_fold && record.context_fold.folded_results > 0) {
+    parts.push(
+      `已折叠 ${record.context_fold.folded_results} 条工具结果`
+        + `（省 ${formatTokens(record.context_fold.folded_chars - record.context_fold.stub_chars)}字`
+        + `，${record.context_fold.epochs} 个世代）`,
+    );
+  }
+  const pendingPercent = record.context_probe?.saving_percent ?? 0;
+  if (record.context_probe && pendingPercent >= 20) {
+    parts.push(
+      `待折叠 ${pendingPercent.toFixed(0)}%`
+        + `（≈${formatTokens(record.context_probe.est_saving_tokens)} tokens）`,
+    );
+  }
   return parts.join("｜");
 }
 
@@ -319,6 +359,30 @@ export function formatTimingPanel(
           : ""),
     );
   }
+  if (record.context_fold) {
+    const fold = record.context_fold;
+    lines.push(
+      fold.enabled
+        ? `折叠：已折 ${fold.folded_results} 条工具结果 / ${fold.epochs} 个世代`
+          + ` · 省 ${formatTokens(fold.folded_chars - fold.stub_chars)}字`
+          + ` · 待折 ${formatTokens(fold.pending_chars)}字`
+          + `（阈值 ${formatTokens(fold.threshold_tokens)} tokens）`
+        : "折叠：已关闭（PI_COC_CONTEXT_FOLD=off）",
+    );
+  }
+  if (record.context_probe) {
+    const probe = record.context_probe;
+    const percent = probe.saving_percent === null ? "—" : `${probe.saving_percent.toFixed(0)}%`;
+    lines.push(
+      `折叠预演：还可省 ${formatTokens(probe.saving_chars)}字`
+        + `≈${formatTokens(probe.est_saving_tokens)} tokens（${percent}）`
+        + ` · 前缀 ${probe.append_only_calls}/${probe.calls} 次纯追加`
+        + (probe.rewritten_calls + probe.reset_calls > 0
+          ? ` · 改写 ${probe.rewritten_calls} · 重置 ${probe.reset_calls}`
+          : "")
+        + ` · 探针 ${formatDuration(probe.probe_ms)}`,
+    );
+  }
   if (sessionTotals && sessionTotals.turns > 0) {
     lines.push(
       `会话累计 ${sessionTotals.turns} 回合 · 墙钟 ${formatDuration(sessionTotals.wall_ms)}`
@@ -326,6 +390,29 @@ export function formatTimingPanel(
     );
   }
   return lines;
+}
+
+/** Roll up per-call probes into the turn record. Last call wins on size. */
+function summarizeContextProbe(
+  steps: Array<ModelCallStep | ToolCallStep>,
+): TurnContextProbeSummary | null {
+  const probes = steps
+    .filter((step): step is ModelCallStep => step.kind === "model" && step.context_probe !== null)
+    .map((step) => step.context_probe as ContextProbe);
+  if (!probes.length) return null;
+  const last = probes[probes.length - 1];
+  return {
+    calls: probes.length,
+    chars: last.chars,
+    est_tokens: last.est_tokens,
+    saving_chars: last.fold.saving_chars,
+    saving_percent: last.fold.saving_percent,
+    est_saving_tokens: last.fold.est_saving_tokens,
+    append_only_calls: probes.filter((probe) => probe.prefix.status === "append_only").length,
+    rewritten_calls: probes.filter((probe) => probe.prefix.status === "rewritten").length,
+    reset_calls: probes.filter((probe) => probe.prefix.status === "reset").length,
+    probe_ms: probes.reduce((sum, probe) => sum + probe.observe_ms, 0),
+  };
 }
 
 type OpenModelCall = {
@@ -336,6 +423,8 @@ type OpenModelCall = {
   toolCalls: number;
   updates: number;
   model: string;
+  context: ContextProbe | null;
+  fold: ContextFoldStats | null;
 };
 
 type PendingProvider = {
@@ -377,7 +466,12 @@ export type TurnTelemetry = {
 
 export function registerTurnTelemetry(
   pi: ExtensionAPI,
-  options: { agentDir: string; now?: () => number },
+  options: {
+    agentDir: string;
+    now?: () => number;
+    /** Standing epoch-fold state, read once per model call when wired. */
+    foldStats?: () => ContextFoldStats | null;
+  },
 ): TurnTelemetry {
   // Durations/offsets use the monotonic sub-ms clock; `at` uses wall time.
   const now = options.now ?? performance.now.bind(performance);
@@ -387,6 +481,9 @@ export function registerTurnTelemetry(
   let pendingPrompt: string | null = null;
   let active: ActiveTurn | null = null;
   let pendingProvider: PendingProvider | null = null;
+  const contextProbe = createContextProbe({ now });
+  let pendingContext: ContextProbe | null = null;
+  let pendingFold: ContextFoldStats | null = null;
   let sessionLabel: string | null = null;
   let sessionMode: string | null = null;
   let thinkingLevel: string | null = null;
@@ -476,6 +573,12 @@ export function registerTurnTelemetry(
       model_calls: turn.steps.filter((step) => step.kind === "model").length,
       tool_calls: turn.steps.filter((step) => step.kind === "tool").length,
       context_usage: readContextUsage(ctx),
+      context_probe: summarizeContextProbe(turn.steps),
+      context_fold: turn.steps
+        .filter((step): step is ModelCallStep => step.kind === "model")
+        .map((step) => step.context_fold)
+        .filter((stats): stats is ContextFoldStats => stats !== null)
+        .at(-1) ?? null,
       thinking_level: thinkingLevel,
       tokens: sumUsage(
         turn.steps
@@ -542,6 +645,21 @@ export function registerTurnTelemetry(
     active.turnIndex = typeof index === "number" ? index : null;
   });
 
+  // Observation only: never return messages, so the context stays untouched.
+  pi.on("context", (event: unknown) => {
+    const messages = (event as { messages?: unknown } | undefined)?.messages;
+    if (!Array.isArray(messages)) return;
+    try {
+      // The fold handler is registered first, so this observes what is sent.
+      pendingContext = contextProbe.observe(messages);
+      pendingFold = options.foldStats?.() ?? null;
+    } catch {
+      // A probe failure must never cost a turn.
+      pendingContext = null;
+      pendingFold = null;
+    }
+  });
+
   pi.on("before_provider_request", () => {
     if (!active) return;
     pendingProvider = {
@@ -586,7 +704,11 @@ export function registerTurnTelemetry(
       model: typeof message.model === "string" && message.model
         ? message.model
         : "unknown-model",
+      context: pendingContext,
+      fold: pendingFold,
     };
+    pendingContext = null;
+    pendingFold = null;
   });
 
   pi.on("message_update", (event: unknown) => {
@@ -671,6 +793,8 @@ export function registerTurnTelemetry(
       tool_calls: call.toolCalls,
       usage: readUsage(message),
       stop_reason: typeof message.stopReason === "string" ? message.stopReason : null,
+      context_probe: call.context,
+      context_fold: call.fold,
     });
   });
 

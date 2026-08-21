@@ -454,6 +454,63 @@ def test_pi_turn_telemetry_logs_fine_grained_step_timing_for_offline_analysis():
     assert result["offStopsNotify"] is True
     assert result["jsonlStillWrittenWhenOff"] is True
     assert result["totalsAfterTwoTurns"] is True
+    # Context probe: per-call composition + fold projection, rolled up per turn.
+    assert result["contextProbeOnSteps"] is True
+    assert result["contextProbeRollup"] is True
+    assert result["panelShowsFoldPreview"] is True
+    assert result["summaryShowsPending"] is True
+    assert result["foldStateAbsent"] is True
+    assert result["leanTurnHasNoProbe"] is True
+
+
+def test_pi_context_fold_collapses_closed_turn_tool_results_cache_stably():
+    result = _node(ROOT / "tests/pi/context-fold.mjs", str(ROOT))
+    assert result["ok"] is True
+    # Epoch discipline: below threshold nothing moves, and a pile that crosses
+    # mid-turn waits for the next turn boundary instead of rewriting the prefix
+    # underneath the calls of the running turn.
+    assert result["belowThreshold"] is True
+    assert result["midTurnHeldOff"] is True
+    assert result["foldedAtBoundary"] is True
+    assert result["liveTurnUntouched"] is True
+    # Prefix caching has no pinnable breakpoints here: a folded result must
+    # render to identical bytes forever, and folding never reverses.
+    assert result["stubStable"] is True
+    assert result["monotonic"] is True
+    # The stub is structural (identity + canonical digest), never a summary of
+    # the payload it replaces.
+    assert result["stubShape"] is True
+    # A stub costs ~200 chars; folding a shorter receipt would spend context.
+    assert result["tinyResultKept"] is True
+    assert result["detailsKept"] is True
+    assert result["proseKept"] is True
+    assert result["disabled"] is True
+    assert result["settingsRead"] is True
+    assert result["emptySafe"] is True
+
+
+def test_pi_context_probe_projects_fold_savings_without_touching_the_context():
+    result = _node(ROOT / "tests/pi/context-probe.mjs", str(ROOT))
+    assert result["ok"] is True
+    # Byte accounting by message class, on pi's own chars/4 token heuristic.
+    assert result["accounting"] is True
+    # Fold candidates stop at the current turn boundary: live tool results are
+    # the running turn's own inputs and are never counted as savings.
+    assert result["foldShape"] is True
+    assert result["liveTurnPreserved"] is True
+    # Prefix stability is measured, not assumed — this is the cache baseline
+    # any future folding has to beat.
+    assert result["appendOnly"] is True
+    assert result["rewriteDetected"] is True
+    assert result["resetDetected"] is True
+    # Observation must never mutate the context or crash on degenerate input.
+    assert result["untouched"] is True
+    # Host-side tool `details` never reaches the provider (~48% of tool-result
+    # bytes on a real session), so it must not be measured as context.
+    assert result["detailsIgnored"] is True
+    assert result["boundarylessSafe"] is True
+    assert result["emptySafe"] is True
+    assert result["probeMsCounted"] is True
 
 
 def test_pi_hud_injects_exact_hidden_active_table_identity():
@@ -532,6 +589,7 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
 
 def _pi_coc_test_home(
     tmp_path: Path, *, settings: dict, models: dict,
+    custom_models: dict | None = None,
     uv_version: str | None = "0.11.16",
 ) -> tuple[Path, Path]:
     agent_dir = tmp_path / "agent"
@@ -545,6 +603,10 @@ def _pi_coc_test_home(
     (agent_dir / "models-store.json").write_text(
         json.dumps(models), encoding="utf-8",
     )
+    if custom_models is not None:
+        (agent_dir / "models.json").write_text(
+            json.dumps(custom_models), encoding="utf-8",
+        )
     for name in ("fd", "rg"):
         executable = agent_bin / name
         executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -579,6 +641,7 @@ def _run_pi_coc(
     *,
     settings: dict,
     models: dict,
+    custom_models: dict | None = None,
     args: list[str],
     new: bool = True,
     extra_env: dict[str, str] | None = None,
@@ -586,7 +649,11 @@ def _run_pi_coc(
     minimal_path: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     agent_dir, fake_bin = _pi_coc_test_home(
-        tmp_path, settings=settings, models=models, uv_version=uv_version,
+        tmp_path,
+        settings=settings,
+        models=models,
+        custom_models=custom_models,
+        uv_version=uv_version,
     )
     args_path = tmp_path / "pi-args.txt"
     path_tail = "/usr/bin:/bin" if minimal_path else os.environ["PATH"]
@@ -957,6 +1024,32 @@ def test_pi_coc_preserves_supported_thinking_off_exactly(tmp_path: Path):
     assert completed.returncode == 0
     forwarded = args_path.read_text(encoding="utf-8").splitlines()
     assert forwarded[-3:] == ["--thinking", "off", "hello"]
+
+
+def test_pi_coc_inherits_bundled_capabilities_for_stripped_custom_model(
+    tmp_path: Path,
+):
+    settings = {
+        "defaultProvider": "qwen-token-plan-cn",
+        "defaultModel": "qwen3.8-max",
+        "defaultThinkingLevel": "low",
+    }
+    custom_models = {
+        "providers": {
+            "qwen-token-plan-cn": {
+                "models": [{"id": "qwen3.8-max", "name": "Qwen3.8 Max"}],
+            },
+        },
+    }
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models={},
+        custom_models=custom_models,
+        args=["hello"],
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert args_path.read_text(encoding="utf-8").splitlines()[-1] == "hello"
 
 
 def test_pi_coc_refuses_silently_clamped_non_off_thinking_level(tmp_path: Path):

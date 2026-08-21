@@ -393,3 +393,65 @@ Component coverage proves checkpoint publication/rebuild, open-transaction
 recovery, host epoch blocking, delivery confirmation, input privacy, and hook
 bypass denial. Whole-product acceptance still requires a real plugin-native
 close/reopen or compaction probe with an Agent player and exact battle report.
+
+## Host transcript accumulation (2026-08-21)
+
+The bounded working set bounds what one operation *returns*. It does not bound
+what the host *keeps*. pi holds a single linear transcript: every tool result
+stays in it and is resent on every model call, so a campaign whose per-operation
+responses are all in budget still walks the context window up until play breaks.
+Measured on the recorded sessions under `.pi/coc-agent/`:
+
+- Model-visible context is 85–91% tool results plus 9–12% tool arguments. KP
+  prose is 0.6–1.2%; player input is 0.1–0.3%.
+- Turn 1 (resume + opening) costs ~80k tokens; each later player turn adds
+  12–20k, and one turn is 7–12 model calls that each resend the whole prefix.
+- `turns.jsonl` records a real host reaching `509,439 / 500,000` tokens.
+- Provider prompt caching is automatic prefix caching and is doing most of the
+  work today: 305M cache-read tokens against 11M fresh input (~96% hit rate),
+  with no explicit breakpoints to pin. Any rewrite inside the prefix
+  invalidates everything after it, so eviction must be an **epoch fold** at a
+  turn boundary, never a per-turn sliding window.
+
+`lib/context-probe.ts` measures this before anything changes it. It runs on
+pi's `context` hook, returns nothing, and writes per-call composition, an epoch
+fold projection, and observed prefix stability into the turn telemetry
+(`context_probe` on each model step, `context_fold` per turn). Host-side tool
+`details` — ~48% of tool-result message bytes and never sent to the provider —
+is excluded, so probe numbers track what the provider is actually billed for.
+
+`lib/context-fold.ts` then acts on the measurement, for tool results only:
+
+- Closed-turn tool results (everything before the last player message) fold to
+  a stub; the running turn's results are never touched, because they are the
+  live inputs of that turn's remaining model calls.
+- A fold opens only on the first model call of a turn and only when the
+  unfolded pile crosses `PI_COC_CONTEXT_FOLD_TOKENS` (default 20k est_tokens),
+  so most turns stay pure appends and keep hitting the prefix cache. This is an
+  epoch fold, not a sliding window: a window would rewrite the prefix every
+  turn and pay the invalidation every turn.
+- Each stub is computed once and frozen under its `toolCallId`, so a folded
+  result renders identical bytes on every later call, and folding never
+  reverses. Results below `MIN_FOLD_CHARS` are left alone — a stub costs more
+  than they do.
+- The stub is structural, never a summary: tool identity, canonical operation,
+  ok/error, `full_result_sha256`, folded byte count, and a re-read note.
+  Nothing is inferred from the payload prose; a semantic digest would be both a
+  fabrication risk and non-deterministic, breaking the byte stability the cache
+  depends on. Host-side `details` is untouched, so TUI rendering is unaffected.
+- `PI_COC_CONTEXT_FOLD=off` disables it entirely.
+
+`bin/coc-context-replay.mjs` replays a recorded session through the shipped
+fold and prices baseline against threshold variants under one cache model
+(surviving chars are cache reads, everything else fresh), so the threshold is
+chosen from history rather than guessed. Replaying the 695-call
+`rpc-play-session` transcript at the 20k default: 21 folds, effective tokens
+−71.7%, peak context 171k instead of 693k. On the 152-call
+`memory-playtest-20260820` transcript: 4 folds, −57.2%, peak 45k instead of
+132k.
+The curve is flat between 5k and 20k, so the default takes the fewer folds.
+
+What component coverage cannot answer is whether the KP still plays well
+against folded stubs — whether it re-reads state instead of hallucinating what
+a folded result said. That is a live-play question and needs a real
+plugin-native run with a human player, not a synthetic transcript.
