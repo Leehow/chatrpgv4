@@ -15,7 +15,7 @@ import {
   DEFAULT_XAI_IMAGE_MODEL,
   XaiImageError,
   requestXaiImageGeneration,
-  resolveXaiToken,
+  resolveXaiImageTransport,
   tokenFromXaiEntry,
 } from "./xai-image.mjs";
 
@@ -392,21 +392,31 @@ export async function generatePortraitBytes({
   now,
   log,
   timeoutMs,
+  connectTimeoutMs,
   intervalMs,
   sleepFn,
+  probeImpl,
 } = {}) {
+  void now;
   if (!route || route.family === PORTRAIT_FAMILY_UNSUPPORTED) {
     throw imageError(400, unsupportedMessage(route?.provider));
   }
   if (route.family === PORTRAIT_FAMILY_XAI) {
-    const { token } = resolveXaiToken({ env, agentDir, now });
-    if (!token) throw imageError(401, "xAI API key is not configured");
+    const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl });
+    log?.("xai_image_route", {
+      backend: transport.backend,
+      token_source: transport.tokenSource,
+      model: transport.model,
+    });
     return requestXaiImageGeneration({
       prompt,
-      token,
-      model: route.model || DEFAULT_XAI_IMAGE_MODEL,
+      token: transport.token,
+      model: transport.model,
+      url: transport.url,
       aspectRatio,
       signal,
+      timeoutMs,
+      connectTimeoutMs,
       fetchImpl,
       log,
     });

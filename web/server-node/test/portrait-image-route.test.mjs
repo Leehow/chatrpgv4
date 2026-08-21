@@ -234,3 +234,30 @@ test("generatePortraitBytes does not call xAI for OpenAI family", async () => {
   assert.equal(calls[0].includes("openai.com"), true);
   assert.equal(bytes.model, "gpt-image-1");
 });
+
+test("generatePortraitBytes xAI uses host relay instead of OAuth official", async () => {
+  const calls = [];
+  const result = await generatePortraitBytes({
+    route: {
+      family: PORTRAIT_FAMILY_XAI,
+      provider: "xai",
+      model: DEFAULT_XAI_IMAGE_MODEL,
+    },
+    prompt: "look",
+    env: { PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1" },
+    probeImpl: () => true,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, auth: init.headers.Authorization });
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({ data: [{ b64_json: PNG_B64 }] });
+        },
+      };
+    },
+  });
+  assert.equal(calls[0].url, "http://127.0.0.1:18891/v1/images/generations");
+  assert.equal(calls[0].auth, "Bearer local");
+  assert.equal(result.model, "grok-imagine-image-quality");
+});
