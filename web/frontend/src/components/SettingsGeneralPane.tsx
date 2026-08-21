@@ -111,8 +111,8 @@ export function SettingsGeneralPane({
         >
           <span
             className={cn(
-              "absolute top-0.5 size-5 rounded-full bg-card shadow transition-transform",
-              vision.enabled ? "translate-x-5" : "translate-x-0.5",
+              "absolute left-0.5 top-0.5 size-5 rounded-full bg-card shadow transition-transform",
+              vision.enabled ? "translate-x-5" : "translate-x-0",
             )}
           />
         </button>
