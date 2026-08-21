@@ -45,3 +45,24 @@ test("PDF campaign setup exposes absolute-path import through the shared ingest 
   assert.match(source, /uploadAndIngestPdfFromPath\(pdfPath\.trim\(\), setUploadMsg\)/);
   assert.match(source, /onSubmit=\{[^}]*handlePdfPath/s);
 });
+
+test("guided welcome owns PDF upload; campaign flow keeps picker + absolute path", () => {
+  const guided = fs.readFileSync(
+    new URL("./components/GuidedStart.tsx", import.meta.url),
+    "utf8",
+  );
+  const flow = fs.readFileSync(
+    new URL("./components/NewCampaignFlow.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // Welcome page: button + whole-page drop through the shared PDF gate.
+  assert.match(guided, /上传 PDF 模组/);
+  assert.match(guided, /isWaitingPdfFile/);
+  assert.match(guided, /松开以导入模组 PDF/);
+  // Campaign flow: standalone dropzone removed, picker and path kept.
+  assert.doesNotMatch(flow, /拖拽 PDF 到此处/);
+  assert.doesNotMatch(flow, /setDragOver/);
+  assert.match(flow, /选择文件/);
+  assert.match(flow, /PDF 绝对路径/);
+});

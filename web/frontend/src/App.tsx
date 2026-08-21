@@ -305,6 +305,8 @@ export default function App() {
   /** Desktop「导入 PDF 模组…」handoff: a shell-provided local path awaiting
    *  registration inside NewCampaignFlow's pdf mode. */
   const [pdfImportPath, setPdfImportPath] = useState<string | null>(null);
+  /** Guided-welcome PDF pick/drop: same upload+ingest chain, by File. */
+  const [pdfImportFile, setPdfImportFile] = useState<File | null>(null);
   const pdfImportHandledRef = useRef<string | null>(null);
   /** Desktop fatal notice (bridge died): styled in-app modal, not a native box. */
   const [fatal, setFatal] = useState<{ title: string; message: string; detail?: string } | null>(null);
@@ -361,6 +363,7 @@ export default function App() {
     if (!pickedPath || pdfImportHandledRef.current === pickedPath) return;
     pdfImportHandledRef.current = pickedPath;
     setGuided(false);
+    setPdfImportFile(null);
     setPdfImportPath(pickedPath);
     setCreating(true);
   }, []);
@@ -1404,6 +1407,7 @@ export default function App() {
         close();
         // Manual「＋ 新战役」must not inherit a previously imported PDF path.
         setPdfImportPath(null);
+        setPdfImportFile(null);
         setCreating(true);
       }}
       onRename={renameCampaign}
@@ -1492,7 +1496,18 @@ export default function App() {
         </Button>
         {/* Phones: brand text stays off so toolbar icons fit. */}
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="brand-seal hidden md:inline-block" aria-hidden="true" />
+          {/* 章鱼印记：点击重新进入首次开始引导。仅本会话内强制显示，
+              不改写「先跳过」的持久化记录。 */}
+          <button
+            type="button"
+            className={cn(
+              "brand-seal hidden shrink-0 cursor-pointer border-0 bg-transparent p-0 transition-transform duration-150 hover:scale-110 md:inline-block",
+              isDesktop && "app-no-drag",
+            )}
+            title="回到开始引导"
+            aria-label="回到开始引导"
+            onClick={() => setGuided(true)}
+          />
           <span className="hidden font-display text-[1.35rem] font-bold tracking-[0.08em] text-foreground md:inline">
             <span className="text-primary">Pi</span> Keeper
           </span>
@@ -1604,6 +1619,13 @@ export default function App() {
                 localStorage.setItem(LS.guidedDismissed, "1");
                 setGuided(false);
               }}
+              onImportPdf={(file) => {
+                localStorage.setItem(LS.guidedDismissed, "1");
+                setGuided(false);
+                setPdfImportPath(null);
+                setPdfImportFile(file);
+                setCreating(true);
+              }}
               onBootstrapRefresh={async () => {
                 const fresh = await api.fetchBootstrap();
                 setBootstrap(fresh.result);
@@ -1613,8 +1635,9 @@ export default function App() {
             <NewCampaignFlow
               bootstrap={bootstrap}
               busy={busy}
-              initialMode={pdfImportPath ? "pdf" : undefined}
+              initialMode={pdfImportPath || pdfImportFile ? "pdf" : undefined}
               initialPdfPath={pdfImportPath}
+              initialPdfFile={pdfImportFile}
               onCreate={(args) => {
                 void createCampaign(args).then((info) => {
                   if (!info) setCreating(false);
@@ -1622,6 +1645,7 @@ export default function App() {
               }}
               onBack={() => {
                 setPdfImportPath(null);
+                setPdfImportFile(null);
                 setCreating(false);
               }}
               onBootstrapRefresh={async () => {

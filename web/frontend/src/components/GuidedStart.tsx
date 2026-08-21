@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { ChevronLeft, Library, Package, ScrollText, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, FileUp, Library, Package, ScrollText, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { isWaitingPdfFile } from "../waiting-pdf-import";
 import {
   NewCampaignFlow,
   type CreateArgs,
@@ -21,6 +22,8 @@ interface Props {
   busy: boolean;
   onCreate: (args: CreateArgs) => void;
   onSkip: () => void;
+  /** Welcome-screen PDF pick/drop: leave the guide straight into pdf 开局. */
+  onImportPdf?: (file: File) => void;
   onBootstrapRefresh?: () => Promise<void>;
 }
 
@@ -33,10 +36,70 @@ export function GuidedStart({
   busy,
   onCreate,
   onSkip,
+  onImportPdf,
   onBootstrapRefresh,
 }: Props) {
   const [stage, setStage] = useState<Stage>("welcome");
   const [picked, setPicked] = useState<SourceMode | null>(null);
+
+  const [pdfDragOver, setPdfDragOver] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState<string | null>(null);
+  const pdfFileRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
+
+  const takePdfFile = (file: File | null) => {
+    if (!file) return;
+    if (!isWaitingPdfFile(file)) {
+      setPdfNotice("只支持 PDF 模组文件。");
+      return;
+    }
+    setPdfNotice(null);
+    onImportPdf?.(file);
+  };
+
+  // Whole-page PDF drop while the guide owns the screen (welcome/source).
+  // NewCampaignFlow owns the config stage, so the listeners stop there.
+  useEffect(() => {
+    if (stage === "config" || !onImportPdf) return;
+    const onDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepth.current += 1;
+      setPdfDragOver(true);
+    };
+    const onDragOver = (e: DragEvent) => e.preventDefault();
+    const onDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setPdfDragOver(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepth.current = 0;
+      setPdfDragOver(false);
+      takePdfFile(e.dataTransfer?.files?.[0] ?? null);
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- takePdfFile only closes over onImportPdf
+  }, [stage, onImportPdf]);
+
+  const pdfDropOverlay =
+    pdfDragOver &&
+    stage !== "config" && (
+      <div className="pointer-events-none fixed inset-0 z-50 m-6 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-primary/5 text-center">
+        <FileUp className="size-8 text-primary" />
+        <div className="text-sm font-medium text-foreground">松开以导入模组 PDF</div>
+        <div className="text-xs text-muted-foreground">将进入 PDF 开局并自动开始解析</div>
+      </div>
+    );
 
   const desktop = (window as { cocDesktop?: DesktopBridge }).cocDesktop;
 
@@ -106,6 +169,7 @@ export function GuidedStart({
   if (stage === "source") {
     return (
       <div className="flex h-full flex-col overflow-y-auto">
+        {pdfDropOverlay}
         <div className="mx-auto w-full max-w-3xl px-6 py-10">
           <button
             type="button"
@@ -162,6 +226,7 @@ export function GuidedStart({
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
+      {pdfDropOverlay}
       <div className="mx-auto w-full max-w-2xl px-6 py-12">
         <div className="flex size-14 items-center justify-center rounded-2xl bg-secondary text-primary">
           <Sparkles className="size-7" />
@@ -211,7 +276,7 @@ export function GuidedStart({
           </div>
         </div>
 
-        <div className="mt-10 flex items-center gap-3">
+        <div className="mt-10 flex flex-wrap items-center gap-3">
           <Button
             size="lg"
             disabled={!aiReady || busy}
@@ -220,10 +285,30 @@ export function GuidedStart({
           >
             开始第一场战役
           </Button>
+          <input
+            ref={pdfFileRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="sr-only"
+            onChange={(e) => {
+              takePdfFile(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            size="lg"
+            variant="outline"
+            disabled={!aiReady || busy}
+            onClick={() => pdfFileRef.current?.click()}
+          >
+            <FileUp className="size-4" />
+            上传 PDF 模组
+          </Button>
           <Button size="lg" variant="ghost" onClick={onSkip} disabled={busy}>
             先跳过，随便看看
           </Button>
         </div>
+        {pdfNotice && <p className="mt-3 text-xs text-warning">{pdfNotice}</p>}
       </div>
     </div>
   );

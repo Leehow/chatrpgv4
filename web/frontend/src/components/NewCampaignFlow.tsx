@@ -2,12 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
-  FileText,
   Library,
   Loader2,
   Package,
   ScrollText,
-  UploadCloud,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -140,7 +138,6 @@ export function NewCampaignFlow({
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const [uploadInfo, setUploadInfo] = useState<PdfUploadResult | null>(null);
   const [pdfPath, setPdfPath] = useState("");
-  const [dragOver, setDragOver] = useState(false);
   const [startMsg, setStartMsg] = useState<string | null>(null);
   const [bundleClearMsg, setBundleClearMsg] = useState<string | null>(null);
   const [bundleClearBusy, setBundleClearBusy] = useState<string | null>(null);
@@ -572,66 +569,35 @@ export function NewCampaignFlow({
                 源包：<code>.coc/source-bundles/&lt;id&gt;/</code>（仅做 SHA-256
                 登记，不重复解析）
               </p>
-              <div
-                className={cn(
-                  "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors",
-                  dragOver
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-card hover:border-primary/40",
-                  uploadBusy && "pointer-events-none opacity-70",
-                )}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={(e) => {
-                  e.preventDefault();
-                  setDragOver(false);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(false);
-                  void handlePdfFile(e.dataTransfer.files?.[0] ?? null);
-                }}
-                onClick={() => fileRef.current?.click()}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    fileRef.current?.click();
-                  }
-                }}
-              >
+              {/* Homepage/welcome owns drag-and-drop; this flow keeps explicit
+                  file picking plus the absolute-path importer on the same chain. */}
+              <div className="flex flex-wrap items-center gap-3">
                 <input
                   ref={fileRef}
                   type="file"
+                  accept="application/pdf,.pdf"
                   className="sr-only"
                   onChange={(e) => {
                     void handlePdfFile(e.target.files?.[0] ?? null);
                     e.target.value = "";
                   }}
                 />
-                {uploadBusy ? (
-                  <Loader2 className="size-8 animate-spin text-primary" />
-                ) : uploadInfo ? (
-                  <FileText className="size-8 text-primary" />
-                ) : (
-                  <UploadCloud className="size-8 text-muted-foreground" />
-                )}
-                <div className="text-sm font-medium text-foreground">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={uploadBusy}
+                  onClick={() => fileRef.current?.click()}
+                  className="shrink-0"
+                >
+                  选择文件
+                </Button>
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                   {uploadBusy
                     ? `解析中… 已用 ${uploadElapsed}s（大模组可能需要几分钟）`
                     : uploadInfo
                       ? uploadInfo.filename
-                      : "拖拽 PDF 到此处，或点击选择"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  自动哈希；若已有相同源包则直接选用
-                </div>
+                      : "自动哈希；若已有相同源包则直接选用"}
+                </span>
               </div>
               <form className="rounded-xl border border-border bg-card p-3" onSubmit={handlePdfPath}>
                 <label
