@@ -8085,31 +8085,85 @@ def _tool_setup_complete(ctx: Ctx, args: dict[str, Any]):
         },
         "assignment_priority": {
             "type": "array",
+            "minItems": 8,
+            "maxItems": 8,
+            "uniqueItems": True,
+            "items": {
+                "type": "string",
+                "enum": ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"],
+            },
             "desc": "eight unique characteristic keys in Quick Fire descending priority",
         },
         "occupation_skill_names": {
             "type": "array",
+            "items": {"type": "string"},
             "desc": "optional concrete occupation skill names",
         },
         "interest_skill_names": {
             "type": "array",
+            "items": {"type": "string"},
             "desc": "optional personal-interest skill names",
-        },
-        "occupation_allocations": {
-            "type": "object",
-            "desc": "optional explicit occupation point map; totals must match the formula",
-        },
-        "interest_allocations": {
-            "type": "object",
-            "desc": "optional explicit interest point map; totals must match INT*2",
         },
         "luck": {
             "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "mode": {"type": "string", "enum": ["auto_roll"]},
+            },
+            "required_fields": ["mode"],
             "desc": "optional {mode:auto_roll}; default auto_roll",
         },
         "age": {
             "type": "integer",
-            "desc": "optional age; default 27",
+            "minimum": 15,
+            "maximum": 89,
+            "desc": "optional age 15-89; default 27. Runtime applies full age modifiers.",
+        },
+        "occupation_label": {
+            "type": "string",
+            "desc": "player-facing zh-Hans occupation; required when occupation_name is a catalog English key",
+        },
+        "backstory": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "personal_description": {"type": "string"},
+                "ideology_beliefs": {"type": "string"},
+                "significant_people": {"type": "string"},
+                "meaningful_locations": {"type": "string"},
+                "treasured_possessions": {"type": "string"},
+                "traits": {"type": "string"},
+                "injuries_scars": {"type": "string"},
+                "phobias_manias": {"type": "string"},
+                "encounters": {"type": "string"},
+                "scenario_bound": {"type": "string"},
+            },
+            "desc": "optional p.157 backstory plus scenario_bound; closed keys; prose only",
+        },
+        "equipment": {
+            "type": "array",
+            "items": {"type": "string"},
+            "desc": "optional era-fitting carried items as strings; no costs or numeric values",
+        },
+        "key_connection": {
+            "type": "object",
+            "additionalProperties": False,
+            "required_fields": ["backstory_field", "summary"],
+            "properties": {
+                "backstory_field": {
+                    "type": "string",
+                    "enum": [
+                        "personal_description",
+                        "ideology_beliefs",
+                        "significant_people",
+                        "meaningful_locations",
+                        "treasured_possessions",
+                        "traits",
+                    ],
+                },
+                "summary": {"type": "string"},
+            },
+            "desc": "starred key connection from a backstory field written this chargen",
         },
     },
     needs_campaign=False,
@@ -8117,11 +8171,7 @@ def _tool_setup_complete(ctx: Ctx, args: dict[str, Any]):
     write_domains=("setup",),
 )
 def _tool_setup_chargen_run(ctx: Ctx, args: dict[str, Any]):
-    allowed = {
-        "campaign_id", "investigator_id", "name", "occupation_name",
-        "assignment_priority", "occupation_skill_names", "interest_skill_names",
-        "occupation_allocations", "interest_allocations", "luck", "age",
-    }
+    allowed = set(coc_runtime_ops.coc_character.CHARGEN_RUN_ALLOWED)
     unsupported = sorted(set(args) - allowed)
     if unsupported:
         raise ToolError(

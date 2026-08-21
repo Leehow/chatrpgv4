@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:3c2779888933a4208c4430be77006825bcee80e72f44e8532e69a3bf9aca056e",
+  "content_sha256": "sha256:f0272e0abb12098a891f48a92818ac4ebd3e2e190b4cb10c020fdb2ea065144e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4443,12 +4443,67 @@
         "additionalProperties": false,
         "properties": {
           "age": {
-            "description": "optional age; default 27",
+            "description": "optional age 15-89; default 27. Runtime applies full age modifiers.",
+            "maximum": 89,
+            "minimum": 15,
             "type": "integer"
           },
           "assignment_priority": {
             "description": "eight unique characteristic keys in Quick Fire descending priority",
-            "type": "array"
+            "items": {
+              "enum": [
+                "STR",
+                "CON",
+                "SIZ",
+                "DEX",
+                "APP",
+                "INT",
+                "POW",
+                "EDU"
+              ],
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 8,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "backstory": {
+            "additionalProperties": false,
+            "description": "optional p.157 backstory plus scenario_bound; closed keys; prose only",
+            "properties": {
+              "encounters": {
+                "type": "string"
+              },
+              "ideology_beliefs": {
+                "type": "string"
+              },
+              "injuries_scars": {
+                "type": "string"
+              },
+              "meaningful_locations": {
+                "type": "string"
+              },
+              "personal_description": {
+                "type": "string"
+              },
+              "phobias_manias": {
+                "type": "string"
+              },
+              "scenario_bound": {
+                "type": "string"
+              },
+              "significant_people": {
+                "type": "string"
+              },
+              "traits": {
+                "type": "string"
+              },
+              "treasured_possessions": {
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "campaign": {
             "description": "Campaign id. Required for campaign-bound operations.",
@@ -4459,13 +4514,18 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
             "type": "string"
           },
-          "interest_allocations": {
-            "additionalProperties": true,
-            "description": "optional explicit interest point map; totals must match INT*2",
-            "type": "object"
+          "equipment": {
+            "description": "optional era-fitting carried items as strings; no costs or numeric values",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "interest_skill_names": {
             "description": "optional personal-interest skill names",
+            "items": {
+              "type": "string"
+            },
             "type": "array"
           },
           "investigator_id": {
@@ -4473,19 +4533,54 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
             "type": "string"
           },
+          "key_connection": {
+            "additionalProperties": false,
+            "description": "starred key connection from a backstory field written this chargen",
+            "properties": {
+              "backstory_field": {
+                "enum": [
+                  "personal_description",
+                  "ideology_beliefs",
+                  "significant_people",
+                  "meaningful_locations",
+                  "treasured_possessions",
+                  "traits"
+                ],
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "backstory_field",
+              "summary"
+            ],
+            "type": "object"
+          },
           "luck": {
-            "additionalProperties": true,
+            "additionalProperties": false,
             "description": "optional {mode:auto_roll}; default auto_roll",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "auto_roll"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "mode"
+            ],
             "type": "object"
           },
           "name": {
             "description": "investigator display name",
             "type": "string"
           },
-          "occupation_allocations": {
-            "additionalProperties": true,
-            "description": "optional explicit occupation point map; totals must match the formula",
-            "type": "object"
+          "occupation_label": {
+            "description": "player-facing zh-Hans occupation; required when occupation_name is a catalog English key",
+            "type": "string"
           },
           "occupation_name": {
             "description": "sample occupation name from occupations.json, or a concept if skill names are supplied",
@@ -4493,6 +4588,9 @@
           },
           "occupation_skill_names": {
             "description": "optional concrete occupation skill names",
+            "items": {
+              "type": "string"
+            },
             "type": "array"
           },
           "root": {

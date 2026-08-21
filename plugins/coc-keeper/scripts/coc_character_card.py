@@ -152,7 +152,17 @@ def _derived_rows(sheet: dict[str, Any]) -> list[tuple[str, Any]]:
 
 def _skills(sheet: dict[str, Any]) -> list[dict[str, Any]]:
     values = sheet.get("skills", [])
-    return [entry for entry in values if isinstance(entry, dict)]
+    rows: list[dict[str, Any]] = []
+    for entry in values:
+        if not isinstance(entry, dict):
+            continue
+        value = _skill_value(entry)
+        rows.append({
+            **entry,
+            "half": value // 2,
+            "fifth": value // 5,
+        })
+    return rows
 
 
 def _backstory_detail_blocks(character: dict[str, Any], sheet: dict[str, Any], language: str) -> list[tuple[str, list[Any]]]:

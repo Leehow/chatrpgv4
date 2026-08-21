@@ -15,6 +15,10 @@ export interface ChargenClerkBrief {
   investigator_id?: string;
   mode: ChargenClerkMode;
   pregen_id?: string;
+  backstory?: JsonObject;
+  equipment?: string[];
+  key_connection?: JsonObject;
+  occupation_label?: string;
 }
 
 export function isChargenClerkProcess(
@@ -122,6 +126,48 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   if (modeRaw === "pregen" && !pregenId) {
     throw new Error("coc_chargen_delegate pregen mode requires pregen_id");
   }
+  const forbiddenNumeric = [
+    "cash", "assets", "spending_level", "living_standard", "credit_rating",
+    "characteristics", "derived", "skills", "hp", "mp", "san", "luck_roll_total",
+    "occupation_allocations", "interest_allocations",
+  ];
+  const presentForbidden = forbiddenNumeric.filter((key) => params[key] !== undefined);
+  if (presentForbidden.length > 0) {
+    throw new Error(
+      "coc_chargen_delegate rejects KP-supplied numeric finance or stats: "
+        + presentForbidden.join(", "),
+    );
+  }
+  if (params.backstory !== undefined) {
+    if (
+      typeof params.backstory !== "object"
+      || params.backstory === null
+      || Array.isArray(params.backstory)
+    ) {
+      throw new Error("coc_chargen_delegate backstory must be an object");
+    }
+    brief.backstory = params.backstory as JsonObject;
+  }
+  if (params.equipment !== undefined) {
+    if (!Array.isArray(params.equipment)) {
+      throw new Error("coc_chargen_delegate equipment must be an array of strings");
+    }
+    brief.equipment = params.equipment.filter(
+      (item): item is string => typeof item === "string" && item.trim().length > 0,
+    );
+  }
+  if (params.key_connection !== undefined) {
+    if (
+      typeof params.key_connection !== "object"
+      || params.key_connection === null
+      || Array.isArray(params.key_connection)
+    ) {
+      throw new Error("coc_chargen_delegate key_connection must be an object");
+    }
+    brief.key_connection = params.key_connection as JsonObject;
+  }
+  const occupationLabel = String(params.occupation_label ?? "").trim();
+  if (occupationLabel) brief.occupation_label = occupationLabel;
   return brief;
 }
 
@@ -372,6 +418,10 @@ export async function runChargenInProcess(options: {
   if (planned.interest_skill_names.length) {
     args.interest_skill_names = planned.interest_skill_names;
   }
+  if (options.brief.backstory) args.backstory = options.brief.backstory;
+  if (options.brief.equipment?.length) args.equipment = options.brief.equipment;
+  if (options.brief.key_connection) args.key_connection = options.brief.key_connection;
+  if (options.brief.occupation_label) args.occupation_label = options.brief.occupation_label;
   const envelope = await options.callTool("setup.chargen_run", args, options.signal);
   if (envelope.ok === true && envelope.data && typeof envelope.data === "object") {
     const data = envelope.data as JsonObject;
