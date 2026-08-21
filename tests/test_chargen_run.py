@@ -1495,10 +1495,15 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
     }
     assert labels["Language (English)"] == "语言（英语）"
     assert labels["Language (Own)"] == "语言（国语）"
-    assert not [
-        item for item in (envelope.get("warnings") or [])
-        if "Language (English)" in item and "不一致" in item
-    ]
+    english_value = stored["skills"]["Language (English)"]
+    if english_value < coc_character.CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN:
+        low = (envelope.get("warnings") or [])
+        assert any(str(english_value) in item and "50" in item for item in low)
+    else:
+        assert not [
+            item for item in (envelope.get("warnings") or [])
+            if "Language (English)" in item and "建议阈值" in item
+        ]
 
 
 def _dilettante_args(campaign_id: str, investigator_id: str) -> dict:
@@ -1598,3 +1603,44 @@ def test_chargen_run_cash_ledger_decreases_on_setup_replace(tmp_path: Path) -> N
     replayed = _investigator_runtime_state(tmp_path, campaign_id, "ada-down")["cash"]
     assert len(replayed["ledger"]) == 2
     assert replayed["balances"]["USD"]["amount"] == target
+
+
+def test_chargen_working_language_warning_competency_bands() -> None:
+    warn = coc_character.chargen_working_language_warning
+    threshold = coc_character.CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN
+    assert threshold == 50
+    missing = warn(era="1920s", own_language="国语", skills={"Listen": 40})
+    assert missing is not None
+    assert "没有 Language (English)" in missing
+    assert "无法有效行动" in missing
+    low = warn(
+        era="1920s",
+        own_language="国语",
+        skills={"Language (English)": 24, "Listen": 40},
+    )
+    assert low is not None
+    assert "24" in low and "50" in low
+    assert "有限交流" in low
+    assert "读档案" in low
+    just_under = warn(
+        era="1920s",
+        own_language="国语",
+        skills={"Language (English)": threshold - 1},
+    )
+    assert just_under is not None
+    assert str(threshold - 1) in just_under
+    assert str(threshold) in just_under
+    at = warn(
+        era="1920s",
+        own_language="国语",
+        skills={"Language (English)": threshold},
+    )
+    assert at is None
+    above = warn(
+        era="1920s",
+        own_language="国语",
+        skills={"Language (English)": threshold + 5},
+    )
+    assert above is None
+    assert warn(era="1920s", own_language="英语", skills={}) is None
+    assert warn(era="ww1", own_language="国语", skills={}) is None
