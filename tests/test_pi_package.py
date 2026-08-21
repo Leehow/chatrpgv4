@@ -463,6 +463,20 @@ def test_pi_turn_telemetry_logs_fine_grained_step_timing_for_offline_analysis():
     assert result["leanTurnHasNoProbe"] is True
 
 
+def test_pi_scene_supply_gate_always_has_an_exit_and_names_its_callable():
+    result = _node(ROOT / "tests/pi/scene-supply-gate.mjs", str(ROOT))
+    assert result["ok"] is True
+    assert result["allows"] is True
+    assert result["prefersFallback"] is True
+    # "Dispatch steward-scene" names an intent, not a callable; a weaker KP
+    # never bridged that gap and looped on the same blocked move.
+    assert result["waitsNameTheTool"] is True
+    # Without a terminal state the wait costs the player one turn per attempt.
+    assert result["blocks"] is True
+    assert result["staysBlocked"] is True
+    assert result["junkAllows"] is True
+
+
 def test_pi_context_fold_collapses_closed_turn_tool_results_cache_stably():
     result = _node(ROOT / "tests/pi/context-fold.mjs", str(ROOT))
     assert result["ok"] is True
