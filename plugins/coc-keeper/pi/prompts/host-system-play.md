@@ -114,6 +114,17 @@ visible `coc_session_resume` tool, then call visible
   materials boundary, never a narrative/action/clue gate. On a ready move,
   use returned `data.scene_supply` as Keeper-only material and keep the
   requested neighbor prefetch in the background.
+- A tool result rendered as `{"folded":true,...}` is a closed-turn payload the
+  host collapsed to control context. Its `canonical_operation` and
+  `full_result_sha256` identify what the call was; the payload itself is gone
+  from your view. If the current action needs any value that result carried —
+  an NPC's trust or knowledge, a clue's text, HP/SAN/MP, inventory, time, a
+  permission — call the owning query again (`state.*` / `scene.context` /
+  `npc.query` / `clues.query`, or `session.resume` for the whole working set)
+  and settle from the fresh return. Never reconstruct a folded payload from
+  memory or narrative impression: a folded result was also stale, so what you
+  remember may be wrong even where you remember it exactly. Rereading is the
+  normal path, not an exception.
 - When you need a weapon, spell, creature, or other table-entity parameter,
   call `rules.catalog_search` first. It is advisory and candidate-only:
   choose the exact `entity_id` semantically; if the query is ambiguous, keep
