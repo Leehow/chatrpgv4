@@ -1392,6 +1392,14 @@ def test_chargen_run_own_language_relabels_and_defaults(tmp_path: Path) -> None:
         if isinstance(row, dict)
     }
     assert labels["Language (Own)"] == "语言（国语）"
+    missing_en = (
+        "调查员母语与本模组工作语言（英语）不一致，技能表没有 Language (English)。"
+        "该调查员在模组语境下无法有效行动。"
+        "建议以 replace=True 重跑 setup.chargen_run / coc_chargen_delegate，"
+        "并把 Language (English) 分配到得体水平。"
+    )
+    assert missing_en in (explicit.get("warnings") or [])
+    assert (explicit.get("data") or {}).get("result", {}).get("warnings") == [missing_en]
     defaulted = coc_toolbox.run_tool(
         "setup.chargen_run",
         tmp_path,
@@ -1407,6 +1415,8 @@ def test_chargen_run_own_language_relabels_and_defaults(tmp_path: Path) -> None:
         if isinstance(row, dict)
     }
     assert eng_labels["Language (Own)"] == "语言（英语）"
+    assert missing_en not in (defaulted.get("warnings") or [])
+    assert not (defaulted.get("data") or {}).get("result", {}).get("warnings")
 
 
 def test_chargen_run_projects_luck_and_backstory_to_sidebar(tmp_path: Path) -> None:
@@ -1481,3 +1491,7 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
     }
     assert labels["Language (English)"] == "语言（英语）"
     assert labels["Language (Own)"] == "语言（国语）"
+    assert not [
+        item for item in (envelope.get("warnings") or [])
+        if "Language (English)" in item and "不一致" in item
+    ]

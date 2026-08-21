@@ -171,6 +171,8 @@ deliver opening narration here.
   skip English. If `own_language` is 国语/汉语, the delegate must list
   `Language (English)` (or `Other Language (English)`) in occupation or interest
   skill names so it is allocated; prose 英语 alone does not write the skill.
+  If chargen returns a language warning, rerun with replace=True and allocate
+  that working language, or tell the player why they cannot operate here.
   When they ask how they get involved, give at least one concrete hook already
   on this opening (e.g. Knott's letter is in their hand tonight), not an open
   quiz. `scenario_bound` records that chosen hook. Tell these points up front

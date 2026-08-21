@@ -794,6 +794,63 @@ def chargen_default_own_language(era: str) -> str | None:
     return None
 
 
+def chargen_working_language(era: str) -> str | None:
+    """Module/era working language for chargen advisories.
+
+    Same table as omitted own_language (1920s/modern = 英语). kp_guided
+    era-adaptive eras have no authoritative cash/language table, so this
+    returns None and chargen must not invent a working-language warning.
+    """
+    return chargen_default_own_language(era)
+
+
+def _language_identity_key(name: str) -> str | None:
+    raw = str(name or "").strip()
+    if not raw:
+        return None
+    return language_other_skill_id(raw) or language_other_skill_id(
+        f"Language ({raw})"
+    )
+
+
+def sheet_has_other_language(skills: Any, language_name: str) -> bool:
+    wanted = _language_identity_key(language_name)
+    if wanted is None or not isinstance(skills, dict):
+        return False
+    for key in skills:
+        if str(key) == "Language (Own)":
+            continue
+        if _language_identity_key(str(key)) == wanted:
+            return True
+    return False
+
+
+def chargen_working_language_warning(
+    *,
+    era: str,
+    own_language: Any,
+    skills: Any,
+) -> str | None:
+    """Advisory only: missing table working language when own_language differs."""
+    working = chargen_working_language(era)
+    if working is None:
+        return None
+    own = str(own_language).strip() if isinstance(own_language, str) else ""
+    if not own:
+        return None
+    if _language_identity_key(own) == _language_identity_key(working):
+        return None
+    if sheet_has_other_language(skills, working):
+        return None
+    skill_id = language_other_skill_id(working) or f"Language ({working})"
+    return (
+        f"调查员母语与本模组工作语言（{working}）不一致，技能表没有 {skill_id}。"
+        f"该调查员在模组语境下无法有效行动。"
+        f"建议以 replace=True 重跑 setup.chargen_run / coc_chargen_delegate，"
+        f"并把 {skill_id} 分配到得体水平。"
+    )
+
+
 def own_language_skill_label(own_language: str) -> str:
     return f"语言（{own_language}）"
 
