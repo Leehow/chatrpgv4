@@ -21,12 +21,13 @@ export type SheetAssets = {
   };
 };
 
+/** Current Assets belong on the character sheet with cash, and on items. */
 export function showsAssetsSection(
   view: PanelView,
   setupPending?: boolean,
 ): boolean {
   if (setupPending) return false;
-  return view === "all" || view === "items";
+  return view === "all" || view === "character" || view === "items";
 }
 
 export function hasSheetAssets(

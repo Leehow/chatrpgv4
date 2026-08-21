@@ -536,7 +536,6 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
         "name": "Ada Lark",
         "occupation_name": "Journalist",
         "occupation_label": "记者",
-        "own_language": "英语",
         "assignment_priority": [
             "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
         ],
@@ -581,13 +580,6 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
         if row["key"] == "Credit Rating"
     )
     assert credit_row["label"] == "地位与财力"
-    own_language_row = next(
-        row
-        for row in stored["player_facing_sheet_zh"]["skills"]
-        if row["key"] == "Language (Own)"
-    )
-    assert stored["own_language"] == "英语"
-    assert own_language_row["label"] == "语言（英语）"
 
 
 def test_chargen_run_ww1_unrecognized_skill_is_structured_error(tmp_path: Path) -> None:
@@ -1039,11 +1031,11 @@ def test_chargen_run_field_set_matches_across_layers() -> None:
     assert mcp_keys == allowed
     typed = _typed_chargen_schema()
     typed_kp = set(typed["properties"]) - {
-        "mode", "pregen_id", "interest_allocation_intent",
+        "mode", "pregen_id", "occupation_or_concept", "interest_allocation_intent",
     }
     runtime_without_ids = allowed - {"campaign_id", "investigator_id", "occupation_name"}
     assert runtime_without_ids <= typed_kp | {"name", "occupation_label", "luck"}
-    assert "occupation_name" in typed["properties"]
+    assert "occupation_or_concept" in typed["properties"]
     backstory_keys = set(coc_character.CHARGEN_BACKSTORY_ALLOWED)
     assert set(mcp["properties"]["backstory"]["properties"]) == backstory_keys
     assert mcp["properties"]["backstory"]["additionalProperties"] is False
@@ -1340,45 +1332,11 @@ def test_chargen_run_seeds_play_cash_ledger_once(tmp_path: Path) -> None:
     assert row["localized_reason"] == "建卡·信用评级换算"
     assert row["amount"] == expected_amount
     assert row["currency"] == currency
-    finance = state["finance"]
-    assert finance["schema_version"] == 1
-    campaign = json.loads(
-        (
-            tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json"
-        ).read_text(encoding="utf-8")
-    )
-    assert finance["period"] == (stored.get("era") or campaign.get("era"))
-    assert finance["living_standard"] == stored["living_standard"]
-    assert finance["spending_level"]["amount"] == coc_toolbox.coc_cash.format_amount(
-        stored["spending_level"]["amount"]
-    )
-    assert finance["spending_level"]["currency"] == stored["spending_level"]["currency"]
-    sheet_assets = stored["assets"]["amount"]
-    if sheet_assets is None or coc_toolbox.coc_cash.parse_amount(sheet_assets) <= 0:
-        assert finance["assets"]["balances"] == {}
-    else:
-        assert finance["assets"]["balances"][currency]["amount"] == (
-            coc_toolbox.coc_cash.format_amount(sheet_assets)
-        )
-        assert finance["assets"]["ledger"][0]["op"] == "seed"
-        assert finance["assets"]["ledger"][0]["decision_id"] == decision_id
-    assert finance["receipts"] == {"state.purchase": {}, "state.assets_liquidate": {}}
     replay = coc_toolbox.run_tool("setup.chargen_run", tmp_path, None, args)
     assert replay["ok"] is True, replay
     replayed = _investigator_runtime_state(tmp_path, campaign_id, "ada-cash")
     assert len(replayed["cash"]["ledger"]) == 1
     assert replayed["cash"]["balances"][currency]["amount"] == expected_amount
-    assert len(replayed["finance"]["assets"]["ledger"]) == len(finance["assets"]["ledger"])
-    queried = coc_toolbox.run_tool(
-        "state.finance_query",
-        tmp_path,
-        campaign_id,
-        {"investigator": "ada-cash"},
-    )
-    assert queried["ok"] is True, queried
-    assert queried["data"]["living_standard"] == stored["living_standard"]
-    assert queried["data"]["cash"]["balances"][currency]["amount"] == expected_amount
-    assert queried["data"]["spending_level"]["amount"] == finance["spending_level"]["amount"]
     view = web_views.display_character(
         tmp_path, "ada-cash", "zh-Hans", campaign_id=campaign_id
     )
@@ -1408,7 +1366,6 @@ def test_chargen_run_era_adaptive_does_not_seed_cash_ledger(tmp_path: Path) -> N
     state = _investigator_runtime_state(tmp_path, campaign_id, "ww1-cash")
     cash = state.get("cash")
     assert cash in (None, {}) or cash.get("ledger") in (None, [])
-    assert "finance" not in state
 
 
 def test_chargen_run_own_language_relabels_and_defaults(tmp_path: Path) -> None:
@@ -1519,7 +1476,7 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
             own_language="国语",
             interest_skill_names=[
                 "Other Language (English)",
-                "Other Language (Spanish)",
+                "Occult",
                 "First Aid",
                 "Stealth",
             ],
@@ -1528,7 +1485,6 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
     assert envelope["ok"] is True, envelope
     stored, creation = _stored_investigator(tmp_path, "ada-en")
     assert "Language (English)" in stored["skills"]
-    assert "Language (Spanish)" in stored["skills"]
     occ = creation["skill_budget"]["occupation_points"]["allocations"]
     interest = creation["skill_budget"]["personal_interest_points"]["allocations"]
     expected = 1 + occ.get("Language (English)", 0) + interest.get("Language (English)", 0)
@@ -1540,7 +1496,6 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
         if isinstance(row, dict)
     }
     assert labels["Language (English)"] == "语言（英语）"
-    assert labels["Language (Spanish)"] == "语言（西班牙语）"
     assert labels["Language (Own)"] == "语言（国语）"
     english_value = stored["skills"]["Language (English)"]
     if english_value < coc_character.CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN:

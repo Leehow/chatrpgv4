@@ -570,3 +570,128 @@ def test_chargen_replay_fails_closed_on_matching_numbers_foreign_seed(campaign_w
             decision_id="chargen-commit-real",
             fingerprint="sha256:abc",
         )
+
+
+def _create_campaign(
+    workspace: Path, campaign_id: str, *, era: str = "1920s"
+) -> str:
+    receipt = coc_toolbox.coc_runtime_ops.execute_setup_operation(
+        workspace,
+        operation={
+            "schema_version": 1,
+            "kind": "campaign.create",
+            "payload": {
+                "campaign_id": campaign_id,
+                "title": "Finance Chargen Seed",
+                "era": era,
+            },
+        },
+    )
+    assert receipt["status"] == "PASS"
+    return campaign_id
+
+
+def _chargen_args(campaign_id: str, investigator_id: str) -> dict:
+    return {
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "name": "Ada Lark",
+        "occupation_name": "Journalist",
+        "assignment_priority": [
+            "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
+        ],
+        "occupation_skill_names": ["Spot Hidden", "Listen"],
+        "interest_skill_names": ["Occult", "First Aid", "Stealth", "Listen"],
+        "luck": {"mode": "auto_roll"},
+        "occupation_label": "记者",
+    }
+
+
+def _investigator_runtime_state(
+    workspace: Path, campaign_id: str, investigator_id: str
+) -> dict:
+    path = (
+        workspace
+        / ".coc"
+        / "campaigns"
+        / campaign_id
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_chargen_run_seeds_runtime_finance_once(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "finance-chargen-seed")
+    args = _chargen_args(campaign_id, "ada-cash")
+    first = coc_toolbox.run_tool("setup.chargen_run", tmp_path, None, args)
+    assert first["ok"] is True, first
+    stored = json.loads(
+        (
+            tmp_path / ".coc" / "investigators" / "ada-cash" / "character.json"
+        ).read_text(encoding="utf-8")
+    )
+    decision_id = first["data"]["result"]["decision_id"]
+    state = _investigator_runtime_state(tmp_path, campaign_id, "ada-cash")
+    finance = state["finance"]
+    assert finance["schema_version"] == 1
+    campaign = json.loads(
+        (
+            tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert finance["period"] == (stored.get("era") or campaign.get("era"))
+    assert finance["living_standard"] == stored["living_standard"]
+    assert finance["spending_level"]["amount"] == coc_toolbox.coc_cash.format_amount(
+        stored["spending_level"]["amount"]
+    )
+    assert finance["spending_level"]["currency"] == stored["spending_level"]["currency"]
+    sheet_assets = stored["assets"]["amount"]
+    currency = str(stored["cash"]["currency"])
+    expected_amount = coc_toolbox.coc_cash.format_amount(stored["cash"]["amount"])
+    if sheet_assets is None or coc_toolbox.coc_cash.parse_amount(sheet_assets) <= 0:
+        assert finance["assets"]["balances"] == {}
+    else:
+        assert finance["assets"]["balances"][currency]["amount"] == (
+            coc_toolbox.coc_cash.format_amount(sheet_assets)
+        )
+        assert finance["assets"]["ledger"][0]["op"] == "seed"
+        assert finance["assets"]["ledger"][0]["decision_id"] == decision_id
+    assert finance["receipts"] == {"state.purchase": {}, "state.assets_liquidate": {}}
+    replay = coc_toolbox.run_tool("setup.chargen_run", tmp_path, None, args)
+    assert replay["ok"] is True, replay
+    replayed = _investigator_runtime_state(tmp_path, campaign_id, "ada-cash")
+    assert len(replayed["finance"]["assets"]["ledger"]) == len(
+        finance["assets"]["ledger"]
+    )
+    queried = coc_toolbox.run_tool(
+        "state.finance_query",
+        tmp_path,
+        campaign_id,
+        {"investigator": "ada-cash"},
+    )
+    assert queried["ok"] is True, queried
+    assert queried["data"]["living_standard"] == stored["living_standard"]
+    assert queried["data"]["cash"]["balances"][currency]["amount"] == expected_amount
+    assert queried["data"]["spending_level"]["amount"] == finance["spending_level"]["amount"]
+
+
+def test_era_adaptive_chargen_run_does_not_seed_finance(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "finance-ww1-chargen", era="ww1")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "ww1-cash",
+            "name": "Ada Lark",
+            "occupation_name": "Journalist",
+            "occupation_label": "记者",
+            "luck": {"mode": "auto_roll"},
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    state = _investigator_runtime_state(tmp_path, campaign_id, "ww1-cash")
+    assert "finance" not in state
