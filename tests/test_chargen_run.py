@@ -1366,3 +1366,80 @@ def test_chargen_run_era_adaptive_does_not_seed_cash_ledger(tmp_path: Path) -> N
     state = _investigator_runtime_state(tmp_path, campaign_id, "ww1-cash")
     cash = state.get("cash")
     assert cash in (None, {}) or cash.get("ledger") in (None, [])
+
+
+def test_chargen_run_own_language_relabels_and_defaults(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-lang")
+    explicit = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-guoyu",
+            own_language="国语",
+            backstory=_ROLEPLAY_BACKSTORY,
+            key_connection=_KEY_CONNECTION,
+        ),
+    )
+    assert explicit["ok"] is True, explicit
+    stored, _ = _stored_investigator(tmp_path, "ada-guoyu")
+    assert stored["own_language"] == "国语"
+    assert stored["skills"]["Language (Own)"] == stored["characteristics"]["EDU"]
+    labels = {
+        row["key"]: row["label"]
+        for row in stored["player_facing_sheet_zh"]["skills"]
+        if isinstance(row, dict)
+    }
+    assert labels["Language (Own)"] == "语言（国语）"
+    defaulted = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-english"),
+    )
+    assert defaulted["ok"] is True, defaulted
+    english, _ = _stored_investigator(tmp_path, "ada-english")
+    assert english["own_language"] == "英语"
+    eng_labels = {
+        row["key"]: row["label"]
+        for row in english["player_facing_sheet_zh"]["skills"]
+        if isinstance(row, dict)
+    }
+    assert eng_labels["Language (Own)"] == "语言（英语）"
+
+
+def test_chargen_run_projects_luck_and_backstory_to_sidebar(tmp_path: Path) -> None:
+    from runtime.sdk import web_views
+
+    campaign_id = _create_campaign(tmp_path, "chargen-panel")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-panel",
+            backstory=_ROLEPLAY_BACKSTORY,
+            key_connection=_KEY_CONNECTION,
+            equipment=_ROLEPLAY_EQUIPMENT,
+        ),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, _ = _stored_investigator(tmp_path, "ada-panel")
+    view = web_views.display_character(
+        tmp_path, "ada-panel", "zh-Hans", campaign_id=campaign_id
+    )
+    assert view is not None
+    assert view["luck"] == stored["derived"]["Luck"]
+    assert view["derived"]["Luck"] == stored["derived"]["Luck"]
+    fields = [row["field"] for row in view["backstory"]]
+    assert "significant_people" in fields
+    assert "scenario_bound" in fields
+    assert "injuries_scars" not in fields
+    starred = next(row for row in view["backstory"] if row.get("starred"))
+    assert starred["field"] == "significant_people"
+    hook = next(row for row in view["backstory"] if row["field"] == "scenario_bound")
+    assert "编辑部" in hook["items"][0]
+    own = next(row for row in view["skills"] if row["key"] == "Language (Own)")
+    assert own["label"] == "语言（英语）"

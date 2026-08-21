@@ -414,6 +414,42 @@ def _display_character(
         # exactly what the old sheet-only projection showed).
         equipment = [item["label"] for item in inventory_items if item["kind"] == "gear"]
 
+    panel_fields = {
+        "personal_description",
+        "ideology_beliefs",
+        "significant_people",
+        "meaningful_locations",
+        "treasured_possessions",
+        "traits",
+        "scenario_bound",
+    }
+    backstory: list[dict[str, Any]] = []
+    details = (sheet or {}).get("backstory_details")
+    if isinstance(details, list):
+        for block in details:
+            if not isinstance(block, dict):
+                continue
+            field = block.get("field")
+            if field not in panel_fields:
+                continue
+            label = block.get("label")
+            items = block.get("items")
+            if not isinstance(label, str) or not isinstance(items, list) or not items:
+                continue
+            prose = [str(item) for item in items if str(item).strip()]
+            if not prose:
+                continue
+            row: dict[str, Any] = {"field": field, "label": label, "items": prose}
+            if block.get("starred") is True:
+                row["starred"] = True
+            backstory.append(row)
+    derived = raw_derived if isinstance(raw_derived, dict) else {}
+    luck = derived.get("Luck")
+    if not isinstance(luck, int) or isinstance(luck, bool):
+        luck = derived.get("LUCK")
+    if isinstance(luck, bool) or not isinstance(luck, int):
+        luck = None
+
     return {
         "name": (sheet or {}).get("display_name") or character.get("name"),
         "occupation": (sheet or {}).get("occupation") or character.get("occupation"),
@@ -423,7 +459,9 @@ def _display_character(
         "residence": character.get("residence"),
         "birthplace": character.get("birthplace"),
         "characteristics": characteristics,
-        "derived": raw_derived if isinstance(raw_derived, dict) else {},
+        "derived": derived,
+        "luck": luck,
+        "backstory": backstory,
         "skills": skills,
         "weapons": weapons,
         "equipment": equipment,

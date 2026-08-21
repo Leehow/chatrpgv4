@@ -37,7 +37,7 @@ const RESOURCE_META: { key: string; label: string; barCls: string; textCls: stri
   { key: "hp", label: "HP 生命", barCls: "bg-hp", textCls: "text-hp", derived: "HP" },
   { key: "san", label: "SAN 理智", barCls: "bg-san", textCls: "text-san", derived: "SAN" },
   { key: "mp", label: "MP 魔法", barCls: "bg-mp", textCls: "text-mp", derived: "MP" },
-  { key: "luck", label: "幸运", barCls: "bg-luck", textCls: "text-luck", derived: "LUCK" },
+  { key: "luck", label: "幸运", barCls: "bg-luck", textCls: "text-luck", derived: "Luck" },
 ];
 
 /** Tension level → static badge classes (unknown levels fall back to muted). */
@@ -82,7 +82,8 @@ function conditionMeta(raw: string): { label: string; cls: string } {
 }
 
 function resourceBar(actor: Actor | null, key: string, max: number | null) {
-  const current = actor?.resources?.[key];
+  const live = actor?.resources?.[key];
+  const current = typeof live === "number" ? live : max;
   if (typeof current !== "number") return null;
   const cap = typeof max === "number" && max > 0 ? max : current;
   const pct = cap > 0 ? Math.max(0, Math.min(100, (current / cap) * 100)) : 0;
@@ -184,10 +185,12 @@ export function PanelContent({
   const sheet = state.character ?? null;
   const derived = sheet?.derived ?? {};
   const derivedNum = (k: string): number | null => {
-    const v = derived[k];
+    const v = derived[k] ?? (k === "Luck" ? derived.LUCK : undefined);
     return typeof v === "number" ? v : null;
   };
   const chars = sheet?.characteristics ?? [];
+  const backstory = sheet?.backstory ?? [];
+  const luckCap = derivedNum("Luck") ?? (typeof sheet?.luck === "number" ? sheet.luck : null);
   const skills = [...(sheet?.skills ?? [])].sort(
     (a, b) => Number(b.value) - Number(a.value),
   );
@@ -298,7 +301,8 @@ export function PanelContent({
               <>
                 <div className="space-y-3">
                   {RESOURCE_META.map((meta) => {
-                    const bar = resourceBar(actor, meta.key, derivedNum(meta.derived));
+                    const cap = meta.key === "luck" ? luckCap : derivedNum(meta.derived);
+                    const bar = resourceBar(actor, meta.key, cap);
                     if (!bar) return null;
                     return (
                       <div key={meta.key} className="flex items-center gap-3">
@@ -354,6 +358,25 @@ export function PanelContent({
                       >
                         <span className="text-[10px] tracking-wide text-muted-foreground">{c.label}</span>
                         <span className="font-display text-lg leading-none font-semibold tabular-nums">{c.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {backstory.length > 0 && (
+                  <div className="mt-4 space-y-2.5">
+                    <div className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                      背景
+                    </div>
+                    {backstory.map((block) => (
+                      <div key={block.field || block.label} className="text-sm leading-relaxed">
+                        <div className="text-[11px] text-muted-foreground">
+                          {block.label}
+                        </div>
+                        <ul className="mt-0.5 space-y-0.5 text-foreground/90">
+                          {block.items.map((item, index) => (
+                            <li key={`${block.field || block.label}-${index}`}>{item}</li>
+                          ))}
+                        </ul>
                       </div>
                     ))}
                   </div>

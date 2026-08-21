@@ -8124,6 +8124,10 @@ def _tool_setup_complete(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "player-facing zh-Hans occupation; required when occupation_name is a catalog English key",
         },
+        "own_language": {
+            "type": "string",
+            "desc": "concrete own-language name in play_language (e.g. 英语/国语); machine skill key stays Language (Own)",
+        },
         "backstory": {
             "type": "object",
             "additionalProperties": False,

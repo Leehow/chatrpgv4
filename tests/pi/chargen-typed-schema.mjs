@@ -44,6 +44,7 @@ process.stdout.write(JSON.stringify({
     "interest_skill_names",
     "investigator_id",
     "occupation_label",
+    "own_language",
     "backstory",
     "equipment",
     "key_connection",

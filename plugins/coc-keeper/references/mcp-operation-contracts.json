@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:f0272e0abb12098a891f48a92818ac4ebd3e2e190b4cb10c020fdb2ea065144e",
+  "content_sha256": "sha256:b18a5012b64f789c561b2c2d59f0b9f2fdffd7a309cfab31dcfd82b54923ab9f",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 117,
+  "operation_count": 120,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -4593,6 +4593,10 @@
             },
             "type": "array"
           },
+          "own_language": {
+            "description": "concrete own-language name in play_language (e.g. 英语/国语); machine skill key stays Language (Own)",
+            "type": "string"
+          },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
@@ -5118,6 +5122,118 @@
       },
       "summary": "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger."
     },
+    "state.cash_grant": {
+      "access": "mutation",
+      "canonical_operation": "state.cash_grant",
+      "description": "Credit the investigator runtime cash ledger before narrating. Idempotent on decision_id. Do not treat sheet cash as this purse. Canonical operation `state.cash_grant`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "description": "positive amount at most 2 decimal places",
+            "type": "number"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "currency": {
+            "description": "wallet identity (USD/GBP or aliases; never FX)",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "localized_reason": {
+            "description": "player-safe reason in play_language",
+            "type": "string"
+          },
+          "reason": {
+            "description": "audit reason (not player-visible)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source": {
+            "description": "structured source id",
+            "type": "string"
+          },
+          "unit": {
+            "description": "optional recorded unit; omit to reuse the wallet unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "amount",
+          "currency",
+          "source",
+          "reason",
+          "localized_reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Credit the investigator runtime cash ledger before narrating. Idempotent on decision_id. Do not treat sheet cash as this purse."
+    },
+    "state.cash_query": {
+      "access": "query",
+      "canonical_operation": "state.cash_query",
+      "description": "Read the investigator's runtime cash ledger (schema v2 balances + recent rows). Not the chargen sheet snapshot. Canonical operation `state.cash_query`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "limit": {
+            "description": "max trailing ledger rows (default all)",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Read the investigator's runtime cash ledger (schema v2 balances + recent rows). Not the chargen sheet snapshot."
+    },
     "state.cash_semantic": {
       "access": "mutation",
       "canonical_operation": "state.cash_semantic",
@@ -5184,6 +5300,77 @@
         ]
       },
       "summary": "Record one KP-guided, campaign-local starting-cash/assets disposition when the campaign era has no authoritative cash-assets table. This never calculates, replaces, or changes rules-table values."
+    },
+    "state.cash_spend": {
+      "access": "mutation",
+      "canonical_operation": "state.cash_spend",
+      "description": "Debit the investigator runtime cash ledger before narrating. Fails closed on insufficient funds. Idempotent on decision_id. Canonical operation `state.cash_spend`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "description": "positive amount at most 2 decimal places",
+            "type": "number"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "currency": {
+            "description": "wallet identity (USD/GBP or aliases; never FX)",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "localized_reason": {
+            "description": "player-safe reason in play_language",
+            "type": "string"
+          },
+          "reason": {
+            "description": "audit reason (not player-visible)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source": {
+            "description": "structured source id",
+            "type": "string"
+          },
+          "unit": {
+            "description": "optional recorded unit; omit to reuse the wallet unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "amount",
+          "currency",
+          "source",
+          "reason",
+          "localized_reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Debit the investigator runtime cash ledger before narrating. Fails closed on insufficient funds. Idempotent on decision_id."
     },
     "state.clear_transient_condition": {
       "access": "mutation",
@@ -5596,7 +5783,7 @@
     "state.item_grant": {
       "access": "mutation",
       "canonical_operation": "state.item_grant",
-      "description": "Grant an item or weapon earned in play. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon. Canonical operation `state.item_grant`; the result envelope is authoritative.",
+      "description": "Grant an item or weapon earned in play before narrating. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon. Canonical operation `state.item_grant`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5676,7 +5863,7 @@
           "live_turn"
         ]
       },
-      "summary": "Grant an item or weapon earned in play. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon."
+      "summary": "Grant an item or weapon earned in play before narrating. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon."
     },
     "state.item_remove": {
       "access": "mutation",

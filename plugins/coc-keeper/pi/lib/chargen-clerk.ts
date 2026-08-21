@@ -45,6 +45,7 @@ export interface ChargenClerkBrief {
   equipment?: string[];
   key_connection?: ChargenKeyConnection;
   occupation_label?: string;
+  own_language?: string;
 }
 
 export function isChargenClerkProcess(
@@ -221,6 +222,8 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   }
   const occupationLabel = String(params.occupation_label ?? "").trim();
   if (occupationLabel) brief.occupation_label = occupationLabel;
+  const ownLanguage = String(params.own_language ?? "").trim();
+  if (ownLanguage) brief.own_language = ownLanguage;
   return brief;
 }
 
@@ -475,6 +478,7 @@ export async function runChargenInProcess(options: {
   if (options.brief.equipment?.length) args.equipment = options.brief.equipment;
   if (options.brief.key_connection) args.key_connection = options.brief.key_connection;
   if (options.brief.occupation_label) args.occupation_label = options.brief.occupation_label;
+  if (options.brief.own_language) args.own_language = options.brief.own_language;
   const envelope = await options.callTool("setup.chargen_run", args, options.signal);
   if (envelope.ok === true && envelope.data && typeof envelope.data === "object") {
     const data = envelope.data as JsonObject;

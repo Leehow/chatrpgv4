@@ -5746,6 +5746,7 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
             equipment=payload.get("equipment"),
             key_connection=payload.get("key_connection"),
             occupation_label=payload.get("occupation_label"),
+            own_language=payload.get("own_language"),
             era=campaign_era,
         )
     except coc_character.ChargenRunError as exc:

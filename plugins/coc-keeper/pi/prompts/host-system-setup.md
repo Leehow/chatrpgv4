@@ -156,7 +156,8 @@ deliver opening narration here.
   ladder by how much they already gave:
   - **Empty endpoint:** name+occupation **and** they grant the rest (「其余全由你定」).
     Do not ask another missing-dimension question. Fill age, 3–6 first-six
-    backstory strands, hook, equipment, key_connection, occupation_label.
+    backstory strands, a **module-specific** hook (`scenario_bound`), equipment,
+    key_connection, occupation_label, own_language.
     Present the complete draft the same turn (no invented dice or cash).
   - **Partial:** some dimensions given. After a first answer that is only
     name+occupation without that grant, ask one more meaningful creation
@@ -165,6 +166,13 @@ deliver opening narration here.
     1–3 evocative questions, one at a time, only for still-missing strands
     among 来历与外貌、人格信念、如何卷入眼前模组事件、随身之物.
   - **Given facts** are hard constraints: do not overwrite, do not re-ask.
+  Use the player-safe briefing (era/place/premise) to **offer** language,
+  occupation, and gear that this opening needs — a 1920s American table cannot
+  skip English; Chinese-heritage investigators with 国语 as `own_language` also
+  get investigable English as Other Language. `scenario_bound` names this
+  module's concrete opening (Knott's letter, the invitation), never a generic
+  怪事. Tell these points up front as suggestions; fill omitted language/hook/gear
+  on the final draft from module context and show them there.
   Stay in-fiction. This is not a form and not a characteristic/skill
   questionnaire; never ask the player to fill fields, list skills, or name
   numbers. From the first six p.157 categories form a coherent 3–6 strands;
@@ -191,7 +199,9 @@ deliver opening narration here.
   drop, or count skills to balance machine budgets. Pass `backstory` with
   `ideology_beliefs` (never `ideology`) and `scenario_bound`, plus `equipment`
   as strings, plus `key_connection` `{backstory_field, summary}` starring one
-  of the first six p.157 categories that was actually written. Never pass `cash`, `assets`, `spending_level`, `living_standard`,
+  of the first six p.157 categories that was actually written. Pass `own_language`
+  as a concrete name (英语/国语/…); the machine skill stays `Language (Own)`.
+  Never pass `cash`, `assets`, `spending_level`, `living_standard`,
   `credit_rating`, `occupation_allocations`, `interest_allocations`, or other numeric stats. Runtime then owns Quick Fire
   array, full age modifiers, occupation formula, skill fill, Luck `auto_roll`,
   Credit Rating → cash/assets for 1920s/modern, create → link →
