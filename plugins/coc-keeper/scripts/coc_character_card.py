@@ -200,6 +200,87 @@ def _backstory_detail_blocks(character: dict[str, Any], sheet: dict[str, Any], l
     return blocks
 
 
+_LIVING_STANDARD_ZH = {
+    "Penniless": "赤贫",
+    "Poor": "贫穷",
+    "Average": "普通",
+    "Wealthy": "富裕",
+    "Rich": "富有",
+    "Super Rich": "超级富豪",
+}
+
+
+def _finance_amount_text(entry: Any) -> str:
+    if not isinstance(entry, dict):
+        return ""
+    amount = entry.get("amount")
+    if amount is None:
+        return "无"
+    currency = str(entry.get("currency") or "USD")
+    return f"{amount} {currency}"
+
+
+def _finance_rows(character: dict[str, Any]) -> list[tuple[str, str]]:
+    skills = character.get("skills") if isinstance(character.get("skills"), dict) else {}
+    credit = skills.get("Credit Rating")
+    rows: list[tuple[str, str]] = []
+    if isinstance(credit, int) and not isinstance(credit, bool):
+        rows.append(("信用评级", str(credit)))
+    living = character.get("living_standard")
+    if isinstance(living, str) and living.strip():
+        rows.append(("生活水平", _LIVING_STANDARD_ZH.get(living, living)))
+    cash = _finance_amount_text(character.get("cash"))
+    if cash:
+        rows.append(("现金", cash))
+    assets = _finance_amount_text(character.get("assets"))
+    if assets:
+        rows.append(("资产", assets))
+    spend = _finance_amount_text(character.get("spending_level"))
+    if spend:
+        rows.append(("消费水平", spend))
+    return rows
+
+
+def _load_creation_beside(source_path: Path) -> dict[str, Any] | None:
+    path = source_path.parent / "creation.json"
+    if not path.is_file():
+        return None
+    try:
+        data = _load_json(path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _public_dice_rows(creation: dict[str, Any] | None) -> list[tuple[str, str]]:
+    if not isinstance(creation, dict):
+        return []
+    rows: list[tuple[str, str]] = []
+    candidates = creation.get("luck_roll_candidates")
+    if isinstance(candidates, list) and candidates:
+        totals = []
+        for index, row in enumerate(candidates, start=1):
+            if not isinstance(row, dict):
+                continue
+            total = row.get("total")
+            totals.append(total)
+            rows.append((f"幸运 3D6（第{index}次）", f"{total}（建卡幸运）"))
+        if totals:
+            rows.append(("幸运取高", str(max(int(v) for v in totals if isinstance(v, int)))))
+    else:
+        luck_total = creation.get("luck_roll_total")
+        if isinstance(luck_total, int) and not isinstance(luck_total, bool):
+            rows.append(("幸运 3D6", f"{luck_total}（建卡幸运）"))
+    for index, record in enumerate(creation.get("edu_improvement_rolls") or [], start=1):
+        if not isinstance(record, dict):
+            continue
+        roll = record.get("roll")
+        rows.append((f"教育提升检定 {index}（1D100）", f"{roll}（建卡教育检定）"))
+        if "improvement_roll" in record:
+            rows.append((f"教育提升 {index}（1D10）", str(record.get("improvement_roll"))))
+    return rows
+
+
 def _skill_value(entry: dict[str, Any]) -> int:
     try:
         return max(0, min(100, int(entry.get("value", 0))))
@@ -280,6 +361,18 @@ def render_markdown(
             ]
         )
         lines.extend(_markdown_table(rows))
+        lines.append("")
+
+    finance = _finance_rows(character)
+    if finance:
+        lines.extend(["## 财力", ""])
+        lines.extend(_markdown_table([["项目", "数值"], *[[label, value] for label, value in finance]]))
+        lines.append("")
+
+    dice = _public_dice_rows(_load_creation_beside(source_path))
+    if dice:
+        lines.extend(["## 公开骰", ""])
+        lines.extend(_markdown_table([["检定", "结果"], *[[label, value] for label, value in dice]]))
         lines.append("")
 
     weapons = sheet.get("weapons", [])
@@ -412,6 +505,16 @@ def render_html(
 
     summary = sheet.get("backstory_summary", "")
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    finance_html = "".join(
+        f'<div class="meta"><span>{_html(label)}</span><strong>{_html(value)}</strong></div>'
+        for label, value in _finance_rows(character)
+    )
+    if finance_html:
+        finance_html = (
+            '<section class="section" style="padding: 0 38px 12px;">'
+            "<h2>财力</h2><div class=\"meta-grid\">"
+            f"{finance_html}</div></section>"
+        )
 
     return f"""<!doctype html>
 <html lang="{_html(language)}">
@@ -769,6 +872,7 @@ def render_html(
           </div>
         </section>
       </main>
+      {finance_html}
       <section class="section" style="padding: 0 38px 38px;">
         <h2>背景</h2>
         <div class="backstory">{detail_html}</div>

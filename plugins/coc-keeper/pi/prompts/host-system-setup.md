@@ -152,20 +152,25 @@ deliver opening narration here.
 - **Default guided character path (required unless the player explicitly
   asks for a same-turn quick/auto/direct card).** The first table question is
   only 姓名+职业概念. Do not treat the first name+occupation line as permission
-  to write a sheet. After that first answer, ask one more meaningful creation
-  question in table voice — never call `coc_chargen_delegate`, `setup.chargen_run`,
-  `investigator.create`, or `setup.complete` on that turn. This is one
-  completion path, not two modes: already-given facts are hard constraints
-  (do not overwrite, do not re-ask); fill only what is still missing; a fully
-  empty card is just that path's empty endpoint. Stay in-fiction. Ask at most
-  1–3 evocative questions, one at a time, only for missing strands among
-  来历与外貌、人格信念、如何卷入眼前模组事件、随身之物. The player answers in
-  free prose. This is not a form and not a characteristic/skill questionnaire;
-  never ask the player to fill fields, list skills, or name numbers. From the
-  first six p.157 categories form a coherent 3–6 strands of backstory; leave
-  伤痕 / 恐惧与躁狂 / 秘典遭遇 for play. Pass `occupation_label` in zh-Hans.
-  Infer age, assignment emphasis, and skill focus from what they said. There
-  is no keyword list.
+  to write a sheet. This is one completion path, not two modes, with a
+  ladder by how much they already gave:
+  - **Empty endpoint:** name+occupation **and** they grant the rest (「其余全由你定」).
+    Do not ask another missing-dimension question. Fill age, 3–6 first-six
+    backstory strands, hook, equipment, key_connection, occupation_label.
+    Present the complete draft the same turn (no invented dice or cash).
+  - **Partial:** some dimensions given. After a first answer that is only
+    name+occupation without that grant, ask one more meaningful creation
+    question in table voice — never call `coc_chargen_delegate`, `setup.chargen_run`,
+    `investigator.create`, or `setup.complete` on that turn. Continue at most
+    1–3 evocative questions, one at a time, only for still-missing strands
+    among 来历与外貌、人格信念、如何卷入眼前模组事件、随身之物.
+  - **Given facts** are hard constraints: do not overwrite, do not re-ask.
+  Stay in-fiction. This is not a form and not a characteristic/skill
+  questionnaire; never ask the player to fill fields, list skills, or name
+  numbers. From the first six p.157 categories form a coherent 3–6 strands;
+  leave 伤痕 / 恐惧与躁狂 / 秘典遭遇 for play. Pass `occupation_label` in
+  zh-Hans. Infer age, assignment emphasis, and skill focus from what they
+  said. There is no keyword list.
 - When that material is enough, present a **complete player-visible draft**
   of the investigator that already includes the six roleplay dimensions:
   年龄、背景来历、人格信念、入模组钩子、携带物品、信用评级将如何换成财力
@@ -192,9 +197,12 @@ deliver opening narration here.
   Credit Rating → cash/assets for 1920s/modern, create → link →
   render_card. Always pass `assignment_priority` as eight keys **high-to-low**
   (first key receives Quick Fire 80). Do not invert that order. You receive
-  compact JSON (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`).
-  Present that written card as the current written sheet, not as table
-  opening, including the six roleplay dimensions from the card. Invite
+  compact JSON (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`,
+  `dice_receipts`). Present that written card as the current written sheet,
+  not as table opening: read `card_path` (six dimensions, 财力 rows, 公开骰 if
+  present) and also speak every `dice_receipts` row in zh-Hans (what was
+  rolled, purpose, total) plus 信用评级→现金/资产/消费水平 from the card.
+  Do not substitute 「以卡内为准」 for those numbers. Invite
   specific later-turn revisions (one thing at a time). After any accepted
   change, call `coc_chargen_delegate` **once** with the same `investigator_id`
   so runtime re-runs Quick Fire and covers the same card; Luck stays
