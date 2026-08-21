@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { FEATURED_OAUTH, FEATURED_PRESETS } from "./model-editor.mjs";
 import { keeperNodeModules, listPiCatalogProviders, loginProviderMeta } from "./pi-catalog.mjs";
+import { loadGrokBuildProviderFactory } from "./grok-build-extension.mjs";
 
 // Browser-reachable login for the in-app 编辑模型 dialog. Same ModelRuntime
 // path the settings window uses; the client opens auth URLs itself.
@@ -27,6 +28,34 @@ function raceAbort(promise, signal) {
   });
 }
 
+/**
+ * Register the canonical `grok-build` provider (from the repo-local installed
+ * grok-build-oauth artifact) on a host ModelRuntime so the 编辑模型 dialog can
+ * run `/login grok-build`-equivalent device-code login and the settings
+ * projection can show its login state from Pi auth — without a live session
+ * and without a second OAuth UI. No-op when the artifact is not installed or
+ * the runtime already knows the provider.
+ */
+export async function registerGrokBuildProviderOnRuntime(
+  runtime,
+  { agentDir, repoRoot, env = process.env } = {},
+) {
+  try {
+    if (!runtime || typeof runtime.registerProvider !== "function") return false;
+    const factory = await loadGrokBuildProviderFactory({ repoRoot, env });
+    if (!factory) return false;
+    const known = typeof runtime.getProviders === "function" ? runtime.getProviders() : [];
+    if (Array.isArray(known) && known.some((p) => p?.id === factory.providerId)) return false;
+    runtime.registerProvider(
+      factory.providerId,
+      factory.createGrokBuildProvider({ authPath: path.join(agentDir, "auth.json") }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadModelRuntime({ payloadRoot, agentDir }) {
   const key = `${payloadRoot}\0${agentDir}`;
   if (runtimeCache.has(key)) return runtimeCache.get(key);
@@ -37,6 +66,7 @@ async function loadModelRuntime({ payloadRoot, agentDir }) {
     modelsPath: path.join(agentDir, "models.json"),
     allowModelNetwork: true,
   });
+  await registerGrokBuildProviderOnRuntime(runtime, { agentDir, repoRoot: payloadRoot });
   runtimeCache.set(key, runtime);
   return runtime;
 }

@@ -83,6 +83,65 @@ pi-coc 宿主按 `coc-keeper-play` 自己决定。
 不读取终端 `~/.pi/agent`。每个回合通过 Pi RPC `set_model` /
 `set_thinking_level` 切到当前选择。
 
+## Grok Build 出图（grok-build-oauth 扩展消费）
+
+Canonical spec：`docs/specs/grok-build-oauth-image-extension.md`。出图能力来自
+PipiUI 与本仓共用的**同一构建产物**（package `@pipiui/grok-build-oauth-extension`，
+manifest id `grok-build-oauth`，provider id `grok-build`）；本仓**不复制 TS 源码**，
+COC 共享内核（`plugins/coc-keeper/**`）也不承载任何 OAuth/图像传输。
+
+### 安装（一次性）
+
+```bash
+# 从 PipiUI bundled runtime / 显式路径安装到本仓 .pi/coc-agent（原子 stage-swap，
+# 只复制构建产物与 manifest，校验 id/version/agent/dist/index.js 哈希）
+node web/server-node/grok-build-extension.mjs install \
+  --source /path/to/pipiui/Electron/resources/runtime/extensions/grok-build-oauth
+node web/server-node/grok-build-extension.mjs status   # 查看安装/配置状态
+```
+
+不传 `--source` 时按序解析：`GROK_BUILD_OAUTH_PACKAGE` 环境变量 → PipiUI
+bundled runtime（`PIPIUI_REPO_ROOT` 或同级 `../pipiui` checkout）→ 已安装的
+repo-local 目录（幂等重配）。
+
+### 三个消费面
+
+1. **Web/Electron RPC 新会话**：`pi-coc-rpc.mjs` 装配时若宿主
+   `PIPIUI_MOUNTED_EXTENSIONS` 已含 `grok-build-oauth` 则不重复挂载；否则把
+   repo-local `agent/dist/index.js` 作为 `--extension` 追加。会话内模型工具
+   `image_gen` / `image_edit` 即来自 canonical 扩展。
+2. **Terminal pi-coc**：安装器把入口写进 repo-local
+   `.pi/coc-agent/settings.json` 的官方 `extensions` 键（Pi 0.84.2 无
+   `pipiui-extension.json` manifest 发现；其它设置项原样保留，原子写，幂等）。
+   不修改共享 `pi-coc` launcher。
+3. **登录**：设置 → 编辑模型中的「Grok Build（Grok 订阅出图）」卡片走
+   `ModelRuntime.login("grok-build", "oauth")`（provider 工厂同样来自已安装
+   构建产物），等价于会话内 `/login grok-build`；登录状态从 Pi
+   `auth.json` 投影。OAuth 凭证只存 Pi auth（`auth.json`），不进 COC
+   campaign/state、不进 UI prefs。
+
+### 头像路由（兼容消费者）
+
+`/api/portraits/generate` 的 xai 家族路由已迁移为兼容消费者：优先使用已安装
+`grok-build-oauth` 工件的 credential broker（提前刷新、401 单次重试、跨进程锁
+均留在单一源包）+ Pi auth 的 `grok-build` OAuth 凭证直调官方
+`POST {base}/images/generations`；不可用时依序回退旧路径（`XAI_API_KEY` →
+PipiUI loopback relay → auth.json `xai` key），回退传输标记
+`compatFallback: true`（relay 另标 `deprecated`）。
+
+**RPC 升级边界**：当前 pi 0.84.2 没有 `invokeExtension` RPC，服务端无法热调
+在会话扩展的 `image_gen` 工具，因此头像 HTTP 路由不伪造热调用、保留直连实现；
+待 pi 提供 `invokeExtension`（或等价扩展调用 RPC）后，应把该路由收敛为对已挂载
+`grok-build-oauth` 的委托，并最终删除 relay 兼容层（spec D8 移除条件）。
+
+### 扩展设置快照（无密钥）
+
+新会话子进程注入 `PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH`（JSON 快照）：宿主
+已铸造的值优先，否则读 `.pi/coc-agent/extensions/grok-build-oauth.settings.json`
+（非密钥用户设置 sidecar）。快照会剥除 manifest 标记 `format: secret` 的键及
+任何 token 形键——token 永不进入子进程环境。Terminal 会话不注入该 env，
+由扩展默认值与 `GROK_*` 环境变量控制。
+
 ## 战役管理（重命名 / 删除 / 回收站）
 
 侧栏每个战役卡片悬停可见「重命名 / 删除」操作：

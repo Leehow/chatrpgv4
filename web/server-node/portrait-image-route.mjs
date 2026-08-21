@@ -396,13 +396,14 @@ export async function generatePortraitBytes({
   intervalMs,
   sleepFn,
   probeImpl,
+  repoRoot,
 } = {}) {
   void now;
   if (!route || route.family === PORTRAIT_FAMILY_UNSUPPORTED) {
     throw imageError(400, unsupportedMessage(route?.provider));
   }
   if (route.family === PORTRAIT_FAMILY_XAI) {
-    const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl });
+    const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl, signal, repoRoot });
     log?.("xai_image_route", {
       backend: transport.backend,
       token_source: transport.tokenSource,

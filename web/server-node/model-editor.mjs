@@ -37,6 +37,12 @@ export const FEATURED_OAUTH = [
     note: "GitHub Copilot 订阅账户，设备码登录。",
     methods: ["oauth"],
   },
+  {
+    id: "grok-build",
+    label: "Grok Build（Grok 订阅出图）",
+    note: "Grok Build 订阅 OAuth 设备码登录；需先安装 grok-build-oauth 扩展（同一构建产物，见 docs/specs/grok-build-oauth-image-extension.md）。仅用于 image_gen/image_edit 出图，不含聊天模型。",
+    methods: ["oauth"],
+  },
 ];
 
 export const FEATURED_PRESETS = [

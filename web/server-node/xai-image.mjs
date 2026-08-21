@@ -1,14 +1,28 @@
 /**
- * xAI / PipiUI-host portrait image client for pi-coc.
+ * xAI / PipiUI-host portrait image client for pi-coc — compat consumer of the
+ * canonical `grok-build-oauth` extension package.
  *
- * Routing:
- * 1. Explicit XAI_API_KEY → official POST https://api.x.ai/v1/images/generations
- * 2. PipiUI host with a loopback Grok Imagine relay → host-native channel
- *    (PIPIUI_GROK_RELAY or http://127.0.0.1:18891/v1), model grok-imagine-image-quality
- * 3. Product auth.json xai `key` (not OAuth access) → official
+ * Routing (canonical spec docs/specs/grok-build-oauth-image-extension.md):
+ * 0. Installed grok-build-oauth + Pi auth `grok-build` OAuth credential →
+ *    official POST {base}/images/generations via the artifact's credential
+ *    broker (early refresh / 401 retry / cross-process lock stay in the
+ *    single-source package). This is the canonical path for the portrait
+ *    HTTP route until pi ships an `invokeExtension` RPC (pi 0.84.2 lacks it,
+ *    so the route cannot hot-call the in-session image_gen tool — no fake
+ *    hot calls).
+ * 1. compatFallback (deprecated, labeled): explicit XAI_API_KEY → official
+ *    POST https://api.x.ai/v1/images/generations
+ * 2. compatFallback (deprecated, labeled): PipiUI host with a loopback Grok
+ *    Imagine relay → host-native channel (PIPIUI_GROK_RELAY or
+ *    http://127.0.0.1:18891/v1), model grok-imagine-image-quality
+ * 3. compatFallback: product auth.json xai `key` (not OAuth access) → official
  *
- * OAuth access/token is never used as an official image API key.
- * Relay bases must be loopback. Never log Bearer, keys, or prompts.
+ * New session/model tool paths use the canonical extension's image_gen /
+ * image_edit tools instead of this HTTP route. OAuth state never enters COC
+ * campaign state; credentials stay in Pi auth.json.
+ *
+ * OAuth access/token from the xai entry is never used as an official image
+ * API key. Relay bases must be loopback. Never log Bearer, keys, or prompts.
  *
  * HTTP contract (image bytes stay on disk, never in JSON):
  *
@@ -23,11 +37,18 @@ import path from "node:path";
 
 import { resolveProductAgentDir } from "./agent-dir.mjs";
 import { campaignDir } from "./projections.mjs";
+import {
+  DEFAULT_REPO_ROOT,
+  loadGrokBuildRuntimeModules,
+} from "./grok-build-extension.mjs";
 
 export const XAI_IMAGES_GENERATIONS_URL = "https://api.x.ai/v1/images/generations";
 export const DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image-2.0";
 export const DEFAULT_PIPIUI_GROK_RELAY = "http://127.0.0.1:18891/v1";
 export const DEFAULT_PIPIUI_RELAY_MODEL = "grok-imagine-image-quality";
+/** Canonical grok-build images defaults when the artifact config is unavailable. */
+export const GROK_BUILD_DEFAULT_BASE_URL = "https://api.x.ai/v1";
+export const GROK_BUILD_DEFAULT_IMAGE_MODEL = "grok-imagine-image-quality";
 export const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 60_000;
 export const DEFAULT_XAI_CONNECT_TIMEOUT_MS = 10_000;
 export const RELAY_PROBE_TIMEOUT_MS = 800;
@@ -296,14 +317,93 @@ export function probePipiUiGrokRelay(base, {
 }
 
 /**
- * Prefer explicit official key, else PipiUI loopback relay, else auth.json key.
- * OAuth access never selects official Imagine.
+ * Canonical consumer path: installed grok-build-oauth artifact + Pi auth
+ * `grok-build` OAuth credential. Returns
+ * - { status: "ready", transport } when the canonical route is usable,
+ * - { status: "absent" } when artifact or credential is missing,
+ * - { status: "auth-error", message } when a credential exists but a fresh
+ *   access token could not be produced (caller falls back to compat paths).
+ */
+export async function resolveGrokBuildImageTransport({
+  env = process.env,
+  agentDir,
+  repoRoot = DEFAULT_REPO_ROOT,
+  signal,
+} = {}) {
+  const modules = await loadGrokBuildRuntimeModules({ repoRoot, env });
+  if (!modules) return { status: "absent" };
+  const dir = trimKey(agentDir)
+    || resolveProductAgentDir({
+      agentDir: env?.PI_AGENT_DIR,
+      userData: env?.COC_DESKTOP_USER_DATA,
+    });
+  const broker = modules.createBroker({
+    authPath: path.join(dir, AUTH_NAME),
+    fetchImpl: globalThis.fetch,
+  });
+  let hasCredential = false;
+  try {
+    hasCredential = await broker.hasCredential();
+  } catch {
+    hasCredential = false;
+  }
+  if (!hasCredential) return { status: "absent" };
+  let token = "";
+  try {
+    token = await broker.getAccessToken(signal);
+  } catch (err) {
+    return {
+      status: "auth-error",
+      message: redactSecrets(
+        `grok-build 凭证刷新失败：${err?.message || err}`,
+        [],
+      ),
+    };
+  }
+  if (!trimKey(token)) return { status: "absent" };
+  let baseUrl = GROK_BUILD_DEFAULT_BASE_URL;
+  let model = GROK_BUILD_DEFAULT_IMAGE_MODEL;
+  try {
+    const cfg = modules.resolveImagesConfig?.();
+    if (cfg) {
+      baseUrl = trimKey(cfg.baseUrl) || baseUrl;
+      model = trimKey(cfg.model) || model;
+    }
+  } catch {
+    /* artifact defaults */
+  }
+  const base = baseUrl.replace(/\/+$/, "");
+  const url = /\/images\/generations$/i.test(base) ? base : `${base}/images/generations`;
+  return {
+    status: "ready",
+    transport: {
+      backend: "grok-build-oauth",
+      url,
+      token: trimKey(token),
+      model,
+      tokenSource: "pi-auth:grok-build",
+      canonical: true,
+    },
+  };
+}
+
+/**
+ * Prefer the canonical grok-build provider auth (mounted extension artifact +
+ * Pi auth), then the deprecated compat fallbacks: explicit official key,
+ * PipiUI loopback relay, else auth.json key.
+ * OAuth access from the xai entry never selects official Imagine.
  */
 export async function resolveXaiImageTransport({
   env = process.env,
   agentDir,
   probeImpl,
+  repoRoot = DEFAULT_REPO_ROOT,
+  signal,
 } = {}) {
+  const grok = await resolveGrokBuildImageTransport({ env, agentDir, repoRoot, signal });
+  if (grok.status === "ready") return grok.transport;
+  // —— deprecated compat fallback layer (canonical route unavailable) ——
+  const compatNote = grok.status === "auth-error" ? grok.message : "";
   const official = resolveOfficialXaiApiKey({ env, agentDir });
   if (official.source === "env") {
     return {
@@ -312,6 +412,8 @@ export async function resolveXaiImageTransport({
       token: official.token,
       model: DEFAULT_XAI_IMAGE_MODEL,
       tokenSource: official.source,
+      compatFallback: true,
+      ...(compatNote ? { compatReason: compatNote } : {}),
     };
   }
   const relayBase = pipiUiGrokRelayBase(env);
@@ -326,6 +428,9 @@ export async function resolveXaiImageTransport({
       token: RELAY_BEARER,
       model: DEFAULT_PIPIUI_RELAY_MODEL,
       tokenSource: "relay",
+      compatFallback: true,
+      deprecated: true,
+      ...(compatNote ? { compatReason: compatNote } : {}),
     };
   }
   if (official.token) {
@@ -335,11 +440,13 @@ export async function resolveXaiImageTransport({
       token: official.token,
       model: DEFAULT_XAI_IMAGE_MODEL,
       tokenSource: official.source,
+      compatFallback: true,
+      ...(compatNote ? { compatReason: compatNote } : {}),
     };
   }
   throw imageError(
     401,
-    "未配置 xAI 密钥，无法生成头像。",
+    "未登录 Grok Build（/login grok-build），且未配置 xAI 兼容密钥，无法生成头像。",
     "NO_IMAGE_BACKEND",
   );
 }
@@ -696,7 +803,7 @@ export async function generateCampaignPortrait({
 } = {}) {
   void now;
   const resolved = resolvePortraitOutputPath({ workspace, campaignId, outputPath });
-  const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl });
+  const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl, signal });
   log("xai_image_generate", {
     campaign_id: campaignId,
     token_source: transport.tokenSource,
