@@ -417,3 +417,5 @@ def test_render_helper_exposes_ability_band_without_dropping_source_text():
     assert rendered["ability_band"] == "simple_ideas"
     assert rendered["comprehension"] == "gist"
     assert "Nicht dort." in rendered["visible_text"]
+    assert rendered["player_visible_source_is_not_investigator_knowledge"] is True
+    assert rendered["direction"] == "inbound"

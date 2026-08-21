@@ -1419,7 +1419,7 @@ def test_dialogue_comprehension_directive_low_skill_yields_gist_or_none():
         "active_scene": _foreign_dialogue_scene(),
         "player_intent_rich": {"action_atoms": []},
         "npc_agendas": _foreign_dialogue_agendas(),
-        "investigator": _investigator_with_german(5),  # tier 'gist' (1-19)
+        "investigator": _investigator_with_german(5),  # identify band; four-label none
     }
     enriched = narr.enrich_director_plan(plan, ctx)
     dc = enriched["narrative_directives"]["dialogue_comprehension"]

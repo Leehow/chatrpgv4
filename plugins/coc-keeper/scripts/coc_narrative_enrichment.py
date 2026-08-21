@@ -1677,10 +1677,10 @@ def build_incident_moves(
 # on npc-agenda entries and the investigator's structured Language skill value.
 
 _DIALOGUE_COMPREHENSION_RULE_ZH = {
-    "none": "展示源语原文与语气/表情，不翻译；调查员听不懂具体意思。",
-    "gist": "展示源语原文或片段，仅给零碎词义，不默认完整翻译。",
-    "partial": "展示源语原文与粗略大意，细节仍不稳，不直接给完整翻译。",
-    "fluent": "调查员能听懂，可正常展示完整翻译。",
+    "none": "展示源语原文与语气/表情，不翻译；0-4 不能识别语言，5-9 仅可识别语言名称。玩家能读懂原文不等于调查员知识。",
+    "gist": "展示源语原文，仅给简单意思/零碎词义（10-29），不默认完整翻译。",
+    "partial": "展示源语原文与交易性/部分理解（30-49），细节仍不稳，不直接给完整翻译。",
+    "fluent": "调查员能听懂完整意思（50+）。50-74 流利但口音可辨；75+ 可辨语域并支持母语伪装。原句仍保留。",
 }
 
 
@@ -1689,8 +1689,11 @@ def _dialogue_rule_for_tier(tier: str | None) -> str:
         # Placeholder path: narrator/runner must gate on the investigator's
         # structured Language skill value before revealing translation.
         return (
-            "展示源语原文；翻译是否可见取决于调查员该语言的结构化技能值（<20 仅给片段，"
-            "20-49 给粗略大意，>=50 可给完整翻译）。runner/narrator 须按调查员技能值决定。"
+            "展示源语原文；理解层取决于调查员该语言的结构化技能值与 settle_language 结算"
+            "（0-4 仅语气动作，5-9 可识别语言，10-29 简单意思，30-49 交易性/部分，"
+            "50-74 流利但可辨非母语背景，75+ 语域/母语伪装）。"
+            "由 render_foreign_dialogue_for_investigator 呈现；代码不翻译。"
+            "玩家能读懂原文不等于调查员知识。"
         )
     return _DIALOGUE_COMPREHENSION_RULE_ZH.get(
         tier,
@@ -1757,13 +1760,19 @@ def build_dialogue_comprehension_directive(
                 {"skills": skills}, source_language,
             )
             skill_value = int(skill.get("skill_value", 0) or 0)
+            native = bool(skill.get("native"))
+            ability_band = coc_language.language_ability_band(
+                skill_value, native=native,
+            )
             tier = coc_language.dialogue_comprehension_tier(
-                skill_value, native=bool(skill.get("native")),
+                skill_value, native=native,
             )
             translation_visible = tier == "fluent"
             requires_investigator_skill = False
         else:
             skill_value = None
+            native = None
+            ability_band = None
             tier = None
             translation_visible = False
             requires_investigator_skill = True
@@ -1773,11 +1782,8 @@ def build_dialogue_comprehension_directive(
             "source_language": source_language,
             "sample_line": _non_empty_str(foreign.get("sample_line")),
             "skill_value": skill_value,
-            "native": None if skills is None else bool(
-                coc_language.language_skill_for_source(
-                    {"skills": skills}, source_language,
-                ).get("native")
-            ),
+            "native": native,
+            "ability_band": ability_band,
             "comprehension": tier,
             "translation_visible": translation_visible,
             "requires_investigator_skill": requires_investigator_skill,
