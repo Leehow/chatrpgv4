@@ -5680,6 +5680,10 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     roll_ids, dice_receipts = _chargen_public_dice(
         stored_creation if isinstance(stored_creation, dict) else {}
     )
+    player_summary_zh = coc_character.build_chargen_player_summary_zh(
+        stored,
+        stored_creation if isinstance(stored_creation, dict) else {},
+    )
     card_path = render_result.get("markdown_path") or render_result.get("card_path")
     return {
         "schema_version": 1,
@@ -5700,6 +5704,7 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "card_path": card_path,
             "roll_ids": roll_ids,
             "dice_receipts": dice_receipts,
+            "player_summary_zh": player_summary_zh,
         },
         "state_refs": list(created.get("state_refs") or []) + list(
             rendered.get("state_refs") or []
