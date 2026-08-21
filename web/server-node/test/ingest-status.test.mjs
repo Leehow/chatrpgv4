@@ -4,7 +4,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { readJsonFile } from "../projections.mjs";
-import { derivePdfIngestStatus, readManifestFacts } from "../ingest-status.mjs";
+import {
+  derivePdfIngestStatus,
+  pdfWindowBundleId,
+  pdfWindowIndices,
+  readManifestFacts,
+} from "../ingest-status.mjs";
+
+test("long PDF windows cover every page without overlap", () => {
+  assert.deepEqual(pdfWindowIndices(669, 1), Array.from({ length: 32 }, (_, i) => i));
+  assert.deepEqual(pdfWindowIndices(669, 2), Array.from({ length: 32 }, (_, i) => 32 + i));
+  assert.deepEqual(pdfWindowIndices(669, 3), Array.from({ length: 32 }, (_, i) => 64 + i));
+  assert.deepEqual(pdfWindowIndices(669, 21), Array.from({ length: 29 }, (_, i) => 640 + i));
+  assert.deepEqual(pdfWindowIndices(669, 22), []);
+  assert.equal(pdfWindowBundleId("masks", 2), "masks-w2");
+  assert.equal(pdfWindowBundleId("masks", 21), "masks-w21");
+});
 
 const SHA = "a".repeat(64);
 

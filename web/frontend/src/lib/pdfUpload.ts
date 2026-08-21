@@ -1,6 +1,10 @@
 import * as api from "../api";
 import type { PdfIngestStatus } from "../api";
 import type { PdfUploadResult } from "../types";
+import {
+  buildPdfIngestRequest,
+  pdfOcrHintForError,
+} from "./pdf-upload-policy";
 
 export type PdfIngestApply = {
   info: PdfUploadResult;
@@ -27,13 +31,13 @@ export async function applyPdfUploadResult(
   let info = result;
   onProgress?.(message);
 
-  if (result.status === "stored_pending_ingest") {
-    message = "正在快速解析…";
+  if (result.status === "stored_pending_ingest" || result.status === "matched_bundle") {
+    message = result.status === "matched_bundle"
+      ? "正在检查长模组解析窗口…"
+      : "正在快速解析…";
     onProgress?.(message);
     try {
-      const ingest = await api.ingestPdf({
-        file_sha256: result.file_sha256,
-      });
+      const ingest = await api.ingestPdf(buildPdfIngestRequest(result));
       const ingestResult = ingest.result;
       message =
         ingestResult.message ??
@@ -57,9 +61,7 @@ export async function applyPdfUploadResult(
       };
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
-      const ocrHint = /ocr/i.test(raw)
-        ? "扫描版 PDF（无文本层）需要外部 OCR 能力，暂不支持。"
-        : "";
+      const ocrHint = pdfOcrHintForError(raw);
       message = `解析失败：${raw}${ocrHint ? `；${ocrHint}` : ""}`;
       onProgress?.(message);
       return {

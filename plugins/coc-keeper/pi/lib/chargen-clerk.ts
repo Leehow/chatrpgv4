@@ -38,6 +38,9 @@ export interface ChargenClerkBrief {
   interest_allocation_intent?: string;
   occupation_skill_names?: string[];
   interest_skill_names?: string[];
+  /** Player-confirmed languages that must reach the rulebook's professional
+   *  (50+) band. Values are canonical ids such as Language (English). */
+  professional_language_names?: string[];
   investigator_id?: string;
   mode: ChargenClerkMode;
   pregen_id?: string;
@@ -107,11 +110,13 @@ export function allocateInvestigatorId(
 
 export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   const name = String(params.name ?? "").trim();
-  const occupation = String(params.occupation_or_concept ?? "").trim();
+  const occupation = String(
+    params.occupation_name ?? params.occupation_or_concept ?? "",
+  ).trim();
   const modeRaw = String(params.mode ?? "quick_fire").trim() || "quick_fire";
   if (!name) throw new Error("coc_chargen_delegate requires name");
   if (!occupation) {
-    throw new Error("coc_chargen_delegate requires occupation_or_concept");
+    throw new Error("coc_chargen_delegate requires occupation_name");
   }
   if (
     modeRaw !== "quick_fire"
@@ -146,6 +151,10 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
   }
   if (Array.isArray(params.interest_skill_names)) {
     brief.interest_skill_names = params.interest_skill_names
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+  if (Array.isArray(params.professional_language_names)) {
+    brief.professional_language_names = params.professional_language_names
       .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
   }
   const pregenId = String(params.pregen_id ?? "").trim();
@@ -381,14 +390,25 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
   const edu = chars.EDU ?? 80;
   const dex = chars.DEX ?? 50;
   const occupationBudget = edu * 4;
-  const interestBudget = Math.max((chars.INT ?? MAX_QUICK_FIRE_INT) * 2, MAX_INTEREST_BUDGET);
+  const professionalLanguages = uniqueSkillNames(brief.professional_language_names);
+  // Ordinary briefs keep the conservative maximum so their skill list can
+  // absorb any Quick Fire assignment.  A professional-language brief already
+  // carries the exact assignment into this deterministic planner; using the
+  // maximum here would add unnecessary interest skills, dilute the real INT*2
+  // budget at runtime, and could leave the declared language below 50.
+  const interestBudget = professionalLanguages.length > 0
+    ? (chars.INT ?? MAX_QUICK_FIRE_INT) * 2
+    : MAX_INTEREST_BUDGET;
   const occupationFillers = brief.mode === "era_adaptive"
     ? ERA_ADAPTIVE_OCCUPATION_FILLERS
     : DEFAULT_OCCUPATION_FILLERS;
   const interestFillers = brief.mode === "era_adaptive"
     ? ERA_ADAPTIVE_INTEREST_FILLERS
     : DEFAULT_INTEREST_FILLERS;
-  const mains = uniqueSkillNames(brief.occupation_skill_names);
+  const mains = uniqueSkillNames([
+    ...professionalLanguages,
+    ...(brief.occupation_skill_names ?? []),
+  ]);
   const statedInterests = uniqueSkillNames(brief.interest_skill_names);
   const occupation = [...mains];
   const occPool = (pool: string[]) => (
@@ -420,18 +440,32 @@ export function planChargenSkillLists(brief: ChargenClerkBrief): {
     dex,
     new Map(),
   );
-  const interest = [...statedInterests];
+  // A player-confirmed professional language is paid from the occupation
+  // budget above. Reusing those capped occupation skills in the interest pool
+  // can leave too little capacity for INT*2 and make an otherwise valid card
+  // impossible to create. Keep the two pools disjoint and let the ordinary
+  // capacity simulation add as many interest skills as the rolled INT needs.
+  const disjointInterestPool = professionalLanguages.length > 0;
+  const interest = disjointInterestPool
+    ? statedInterests.filter((skill) => !hasName(occupation, skill))
+    : [...statedInterests];
   const canPlaceInterest = (pool: string[]) => (
     spendTotal(simulateSpend(pool, interestBudget, edu, dex, occAlloc)) === interestBudget
   );
   for (const filler of interestFillers) {
     if (canPlaceInterest(interest)) break;
-    if (hasName(interest, filler)) continue;
+    if (
+      hasName(interest, filler)
+      || (disjointInterestPool && hasName(occupation, filler))
+    ) continue;
     interest.push(filler);
   }
   for (const filler of [...occupationFillers, ...mains]) {
     if (canPlaceInterest(interest)) break;
-    if (hasName(interest, filler)) continue;
+    if (
+      hasName(interest, filler)
+      || (disjointInterestPool && hasName(occupation, filler))
+    ) continue;
     interest.push(filler);
   }
   return {

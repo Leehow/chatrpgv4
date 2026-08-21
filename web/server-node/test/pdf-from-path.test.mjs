@@ -104,6 +104,21 @@ test("from-path is idempotent for the same file", async () => {
   assert.equal(copies.length, 1, `expected one stored copy, got ${copies.join(",")}`);
 });
 
+test("from-path preserves the .pdf suffix when the source filename is very long", async () => {
+  const { base } = await getServer();
+  const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-pdf-src-"));
+  const longName = `${"Call of Cthulhu Masks of Nyarlathotep ".repeat(4)}Larry DiTillio.pdf`;
+  const pdfPath = makePdf(srcDir, longName);
+
+  const { status, json } = await postFromPath(base, { path: pdfPath });
+  assert.equal(status, 200);
+  assert.match(path.basename(json.result.stored_path), /\.pdf$/i);
+  assert.ok(
+    path.basename(json.result.stored_path).length <= 97,
+    `stored filename exceeds hash prefix plus 80 safe characters: ${json.result.stored_path}`,
+  );
+});
+
 test("from-path rejects a missing path field", async () => {
   const { base } = await getServer();
   const { status } = await postFromPath(base, {});

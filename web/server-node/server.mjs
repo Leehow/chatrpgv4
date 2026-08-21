@@ -69,6 +69,11 @@ import {
   resolvePortraitStaticFile,
 } from "./portrait-generate.mjs";
 import { deleteSourceBundle } from "./source-bundles.mjs";
+import {
+  OPENING_READY_WINDOW_COUNT,
+  pdfWindowBundleId,
+  pdfWindowIndices,
+} from "./ingest-status.mjs";
 
 /**
  * Arm the canonical Pi source-lifecycle lanes for the pi-coc RPC child this
@@ -1259,10 +1264,13 @@ function registerPdfUpload({ filename, data }) {
   }
   const fileSha256 = sha256Bytes(data);
   const matched = findBundleByPdfSha256(WORKSPACE, fileSha256);
-  const safeName = path
-    .basename(filename)
+  const originalBase = path.basename(filename);
+  const safeStem = originalBase
+    .replace(/\.pdf$/i, "")
     .replace(/[^A-Za-z0-9._-]+/g, "_")
-    .slice(0, 80);
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 76) || "upload";
+  const safeName = `${safeStem}.pdf`;
   const uploadsDir = path.join(cocRoot(WORKSPACE), "uploads", "pdfs");
   fs.mkdirSync(uploadsDir, { recursive: true });
   let stored = path.join(uploadsDir, `${fileSha256.slice(0, 16)}_${safeName}`);
@@ -1483,11 +1491,16 @@ function findRegisteredPdf(fileSha256) {
   }
   const digest = String(fileSha256).toLowerCase();
   const ordered = [...entries].sort((a, b) => {
-    // Prefer the cheap name-prefix candidates before hashing every file.
+    // Prefer a valid PDF suffix, then cheap name-prefix candidates, before
+    // hashing. Older builds could truncate long names after stripping .pdf;
+    // such stale duplicates must never win over a valid registered PDF.
+    const pdf = (name) => Number(name.toLowerCase().endsWith(".pdf"));
     const hit = (name) =>
       name.toLowerCase().startsWith(`${digest.slice(0, 16)}_`) ||
       name.toLowerCase().startsWith(`${digest}_`);
-    return Number(hit(b)) - Number(hit(a));
+    return pdf(b) - pdf(a)
+      || Number(hit(b)) - Number(hit(a))
+      || a.localeCompare(b);
   });
   for (const name of ordered) {
     const full = path.join(dir, name);
@@ -1544,17 +1557,49 @@ function buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, titl
   };
 }
 
-/** Fire-and-forget second window for the remaining pages (detached self). */
-function startBackgroundWindow(storedPath, fileSha256, slug, title, indices) {
-  const bundleId = `${slug}-w2`;
-  const payload = JSON.stringify({
+function backgroundWindowPayload(
+  storedPath,
+  fileSha256,
+  slug,
+  title,
+  pageCount,
+  windowNumber,
+  continueBackground,
+) {
+  return {
     workspace: WORKSPACE,
     stored_path: storedPath,
     file_sha256: fileSha256,
-    bundle_id: bundleId,
+    slug,
+    bundle_id: pdfWindowBundleId(slug, windowNumber),
     title,
-    pdf_indices: indices,
-  });
+    page_count: pageCount,
+    window_number: windowNumber,
+    pdf_indices: pdfWindowIndices(pageCount, windowNumber),
+    continue_background: continueBackground,
+  };
+}
+
+/** Fire-and-forget one window; a successful worker continues with the next. */
+function startBackgroundWindow(
+  storedPath,
+  fileSha256,
+  slug,
+  title,
+  pageCount,
+  windowNumber,
+) {
+  const body = backgroundWindowPayload(
+    storedPath,
+    fileSha256,
+    slug,
+    title,
+    pageCount,
+    windowNumber,
+    true,
+  );
+  if (body.pdf_indices.length === 0) return null;
+  const payload = JSON.stringify(body);
   try {
     const child = spawn(
       process.execPath,
@@ -1562,9 +1607,9 @@ function startBackgroundWindow(storedPath, fileSha256, slug, title, indices) {
       { detached: true, stdio: "ignore" },
     );
     child.unref();
-    return { bundle_id: bundleId, pdf_indices: indices, status: "started" };
+    return { bundle_id: body.bundle_id, pdf_indices: body.pdf_indices, status: "started" };
   } catch {
-    return { bundle_id: bundleId, pdf_indices: indices, status: "failed" };
+    return { bundle_id: body.bundle_id, pdf_indices: body.pdf_indices, status: "failed" };
   }
 }
 
@@ -1578,10 +1623,24 @@ async function ingestWindowWorker(payload) {
     "source-bundles",
     String(payload.bundle_id),
   );
-  // Idempotent: an existing validated bundle wins without re-parsing.
+  const continueAfterSuccess = () => {
+    if (payload.continue_background !== true) return true;
+    const next = startBackgroundWindow(
+      payload.stored_path,
+      payload.file_sha256,
+      payload.slug,
+      payload.title,
+      payload.page_count,
+      payload.window_number + 1,
+    );
+    return next === null || next.status === "started";
+  };
+
+  // Idempotent: an existing validated bundle wins without re-parsing, but a
+  // resumed worker must still continue the remaining document windows.
   if (fs.existsSync(path.join(bundleDir, "manifest.json"))) {
     const existing = await validateBundleDir(bundleDir);
-    if (existing.ok) return 0;
+    if (existing.ok) return continueAfterSuccess() ? 0 : 1;
   }
   const result = await runPdfInspector(
     buildInspectorRequest(
@@ -1620,11 +1679,58 @@ async function ingestWindowWorker(payload) {
   }
   if (finalResult.status !== "ok") return 1;
   const check = await validateBundleDir(bundleDir);
-  return check.ok ? 0 : 1;
+  if (!check.ok) return 1;
+  return continueAfterSuccess() ? 0 : 1;
+}
+
+async function prepareLongPdfWindows(
+  storedPath,
+  fileSha256,
+  slug,
+  title,
+  pageCount,
+) {
+  if (pageCount === null || pageCount <= INGEST_WINDOW_MAX) return null;
+  const lastReadyWindow = Math.min(
+    OPENING_READY_WINDOW_COUNT,
+    Math.ceil(pageCount / INGEST_WINDOW_MAX),
+  );
+  for (let windowNumber = 2; windowNumber <= lastReadyWindow; windowNumber += 1) {
+    const code = await ingestWindowWorker(backgroundWindowPayload(
+      storedPath,
+      fileSha256,
+      slug,
+      title,
+      pageCount,
+      windowNumber,
+      false,
+    ));
+    if (code !== 0) {
+      throw httpError(
+        502,
+        `外部解析路由器未能准备开场检索窗口 ${windowNumber}。`,
+      );
+    }
+  }
+  return startBackgroundWindow(
+    storedPath,
+    fileSha256,
+    slug,
+    title,
+    pageCount,
+    lastReadyWindow + 1,
+  );
 }
 
 async function ingestSuccessPayload(fileSha256, bundleDir, rendered, backgroundWindow, message, skippedOcr) {
-  const matched = findBundleByPdfSha256(WORKSPACE, fileSha256);
+  // A digest can legitimately have several source-bundle generations (for
+  // example an older two-window ingest and a newly completed long-document
+  // ingest). Bind the exact bundle just validated here; choosing the first
+  // hash match would reconnect the campaign to the stale generation.
+  const resolvedBundleDir = path.resolve(bundleDir);
+  const matched = listSourceBundles(WORKSPACE).find(
+    (bundle) => path.resolve(bundle.path) === resolvedBundleDir,
+  ) ?? findBundleByPdfSha256(WORKSPACE, fileSha256);
   return {
     status: "matched_bundle",
     file_sha256: fileSha256,
@@ -1654,11 +1760,21 @@ async function runIngest(storedPath, fileSha256, requestedIndices) {
   if (fs.existsSync(path.join(bundleDir, "manifest.json"))) {
     const existing = await validateBundleDir(bundleDir);
     if (existing.ok) {
+      const pageCount = readBundlePageCount(bundleDir);
+      const backgroundWindow = isDefaultWindow
+        ? await prepareLongPdfWindows(
+            storedPath,
+            fileSha256,
+            slug,
+            title,
+            pageCount,
+          )
+        : null;
       return ingestSuccessPayload(
         fileSha256,
         bundleDir,
         indices,
-        null,
+        backgroundWindow,
         "已存在校验通过的源包，直接复用，可以开局。",
       );
     }
@@ -1712,8 +1828,10 @@ async function runIngest(storedPath, fileSha256, requestedIndices) {
     throw httpError(
       502,
       `外部解析路由器无法完成本 PDF（status=${routerResult.status}, reason=${reason}` +
-        `${ocrPages ? `，需 OCR 页: ${ocrPages}` : ""}）。仓库不做 OCR，` +
-        "请改用文字层完整的 PDF。",
+        `${ocrPages ? `，需 OCR 页: ${ocrPages}` : ""}）。` +
+        (ocrPages || reason === "needs_ocr"
+          ? "仓库不做 OCR，请改用文字层完整的 PDF。"
+          : "请检查外部解析器状态后重试。"),
     );
   }
 
@@ -1725,17 +1843,20 @@ async function runIngest(storedPath, fileSha256, requestedIndices) {
     );
   }
 
-  // Remaining pages beyond the default first window: background second window.
+  // Opening review needs enough real source to reach the first playable scene
+  // in long campaign books. Materialize windows 2 and 3 before declaring the
+  // upload ready; then continue the rest of the book in detached sequential
+  // workers so upload latency stays bounded.
   let backgroundWindow = null;
   if (isDefaultWindow) {
     const pageCount = readBundlePageCount(bundleDir);
-    if (pageCount !== null && pageCount > INGEST_WINDOW_MAX) {
-      const rest = Array.from(
-        { length: Math.min(pageCount, INGEST_WINDOW_MAX * 2) - INGEST_WINDOW_MAX },
-        (_, i) => INGEST_WINDOW_MAX + i,
-      );
-      backgroundWindow = startBackgroundWindow(storedPath, fileSha256, slug, title, rest);
-    }
+    backgroundWindow = await prepareLongPdfWindows(
+      storedPath,
+      fileSha256,
+      slug,
+      title,
+      pageCount,
+    );
   }
   return ingestSuccessPayload(
     fileSha256,
@@ -1755,16 +1876,7 @@ async function handleIngestPdf(req, res) {
   let storedPath = null;
   let fileSha256 = null;
   const sha = typeof body.file_sha256 === "string" ? body.file_sha256.trim().toLowerCase() : "";
-  if (/^[0-9a-f]{64}$/.test(sha)) {
-    fileSha256 = sha;
-    storedPath = findRegisteredPdf(fileSha256);
-    if (!storedPath) {
-      throw httpError(
-        404,
-        `找不到已登记的 PDF（sha256=${fileSha256.slice(0, 16)}…），请先通过 /api/uploads/pdf 上传登记。`,
-      );
-    }
-  } else if (typeof body.stored_path === "string" && body.stored_path.trim()) {
+  if (typeof body.stored_path === "string" && body.stored_path.trim()) {
     const candidate = path.resolve(body.stored_path.trim());
     const uploadsDir = path.resolve(path.join(cocRoot(WORKSPACE), "uploads", "pdfs"));
     if (
@@ -1776,6 +1888,18 @@ async function handleIngestPdf(req, res) {
     }
     storedPath = candidate;
     fileSha256 = sha256File(candidate);
+    if (/^[0-9a-f]{64}$/.test(sha) && sha !== fileSha256) {
+      throw httpError(400, "stored_path 与 file_sha256 不匹配");
+    }
+  } else if (/^[0-9a-f]{64}$/.test(sha)) {
+    fileSha256 = sha;
+    storedPath = findRegisteredPdf(fileSha256);
+    if (!storedPath) {
+      throw httpError(
+        404,
+        `找不到已登记的 PDF（sha256=${fileSha256.slice(0, 16)}…），请先通过 /api/uploads/pdf 上传登记。`,
+      );
+    }
   } else {
     throw httpError(400, "需要 file_sha256 或 stored_path");
   }

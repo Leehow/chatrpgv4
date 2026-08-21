@@ -139,6 +139,7 @@ export function NewCampaignFlow({
   const [uploadElapsed, setUploadElapsed] = useState(0);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const [uploadInfo, setUploadInfo] = useState<PdfUploadResult | null>(null);
+  const [pdfPath, setPdfPath] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [startMsg, setStartMsg] = useState<string | null>(null);
   const [bundleClearMsg, setBundleClearMsg] = useState<string | null>(null);
@@ -264,6 +265,26 @@ export function NewCampaignFlow({
       return;
     }
     await applyIngest(() => uploadAndIngestPdfFile(file, setUploadMsg));
+  };
+
+  const handlePdfPath = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const path = pdfPath.trim();
+    if (!path) {
+      setUploadMsg("请输入 PDF 的绝对路径。");
+      return;
+    }
+    if (!path.startsWith("/")) {
+      setUploadMsg("请输入以 / 开头的绝对路径。");
+      return;
+    }
+    if (!path.toLowerCase().endsWith(".pdf")) {
+      setUploadMsg("该路径不是 PDF 文件。");
+      return;
+    }
+    await applyIngest(() =>
+      uploadAndIngestPdfFromPath(pdfPath.trim(), setUploadMsg),
+    );
   };
 
   const handleStart = () => {
@@ -612,6 +633,37 @@ export function NewCampaignFlow({
                   自动哈希；若已有相同源包则直接选用
                 </div>
               </div>
+              <form className="rounded-xl border border-border bg-card p-3" onSubmit={handlePdfPath}>
+                <label
+                  htmlFor="pdf-absolute-path"
+                  className="mb-1.5 block text-xs font-medium tracking-wide text-muted-foreground"
+                >
+                  PDF 绝对路径
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id="pdf-absolute-path"
+                    value={pdfPath}
+                    onChange={(event) => setPdfPath(event.target.value)}
+                    placeholder="/Users/name/Documents/module.pdf"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={uploadBusy}
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    disabled={uploadBusy || !pdfPath.trim()}
+                    className="shrink-0"
+                  >
+                    从路径导入
+                  </Button>
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  可直接粘贴本机路径；回车后与上方上传走同一套解析流程。
+                </p>
+              </form>
               {uploadMsg && (
                 <p
                   className={cn(

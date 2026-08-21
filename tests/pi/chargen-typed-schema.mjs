@@ -37,11 +37,12 @@ process.stdout.write(JSON.stringify({
   clerk_key_fields: [...CHARGEN_KEY_CONNECTION_FIELDS],
   properties: [
     "name",
-    "occupation_or_concept",
+    "occupation_name",
     "age",
     "assignment_priority",
     "occupation_skill_names",
     "interest_skill_names",
+    "professional_language_names",
     "investigator_id",
     "occupation_label",
     "own_language",

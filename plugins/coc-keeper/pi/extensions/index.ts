@@ -90,6 +90,7 @@ import {
   handoffFromEnvelope,
 } from "../lib/handoff.ts";
 import {
+  CHARGEN_BACKSTORY_KEYS,
   parseChargenClerkBrief,
   runChargenInProcess,
   shouldRegisterChargenDelegate,
@@ -240,21 +241,53 @@ const ZH_HANS_PLAYER_TERMS = zhHansPlayerTerms();
 
 function zhHansChargenSkillLabel(canonicalName: string): string {
   if (canonicalName === "Language (Own)") return "母语";
+  const languageMatch = /^(?:Other Language|Language) \((.+)\)$/.exec(canonicalName);
+  if (languageMatch) {
+    const languageLabels: Record<string, string> = {
+      English: "英语",
+      Spanish: "西班牙语",
+    };
+    return `语言（${languageLabels[languageMatch[1]] ?? languageMatch[1]}）`;
+  }
   const localized = COC7_CHARGEN_CATALOG.zhHansSkillLabels[canonicalName]
     ?? ZH_HANS_PLAYER_TERMS[canonicalName];
   if (localized) return localized;
-  if (
-    canonicalName.startsWith("Language (")
-    || canonicalName.startsWith("Other Language (")
-  ) return "外语";
   return canonicalName;
+}
+
+const ZH_HANS_CHARGEN_BACKSTORY_LABELS: Record<string, string> = {
+  personal_description: "外貌与来历",
+  ideology_beliefs: "人格信念",
+  significant_people: "重要之人",
+  meaningful_locations: "意义之地",
+  treasured_possessions: "珍视之物",
+  traits: "特质",
+  injuries_scars: "伤病与疤痕",
+  phobias_manias: "恐惧与躁狂",
+  encounters: "神话遭遇",
+  scenario_bound: "如何卷入",
+};
+
+function zhHansChargenRoleplaySummary(brief: ChargenClerkBrief): string[] {
+  const lines = CHARGEN_BACKSTORY_KEYS.flatMap((field) => {
+    const value = brief.backstory?.[field]?.trim();
+    if (!value) return [];
+    const starred = brief.key_connection?.backstory_field === field ? " ★" : "";
+    return [`${ZH_HANS_CHARGEN_BACKSTORY_LABELS[field] ?? field}${starred}：${value}`];
+  });
+  const blocks: string[] = [];
+  if (lines.length > 0) blocks.push(`人物背景：\n- ${lines.join("\n- ")}`);
+  if (brief.equipment?.length) {
+    blocks.push(`随身物品：${brief.equipment.join("；")}`);
+  }
+  return blocks;
 }
 
 export const chargenDelegateSchema = {
   type: "object",
   properties: {
     name: { type: "string", minLength: 1 },
-    occupation_or_concept: { type: "string", minLength: 1 },
+    occupation_name: { type: "string", minLength: 1 },
     age: { type: "integer", minimum: 15, maximum: 89 },
     assignment_priority: { type: "string" },
     interest_allocation_intent: { type: "string" },
@@ -265,6 +298,11 @@ export const chargenDelegateSchema = {
     interest_skill_names: {
       type: "array",
       items: { type: "string", minLength: 1 },
+    },
+    professional_language_names: {
+      type: "array",
+      maxItems: 2,
+      items: { type: "string", pattern: "^Language \\(.+\\)$" },
     },
     investigator_id: { type: "string" },
     mode: { type: "string", enum: ["quick_fire", "era_adaptive", "pregen"] },
@@ -311,7 +349,7 @@ export const chargenDelegateSchema = {
       },
     },
   },
-  required: ["name", "occupation_or_concept"],
+  required: ["name", "occupation_name"],
   additionalProperties: false,
 } as const;
 const ocrSchema = {
@@ -1048,13 +1086,15 @@ export class OpeningTerminalContinuationGate {
       .map((entry) => `${entry[0]} ${entry[1]}`)
       .join("；");
     if (brief !== undefined) {
+      const roleplaySummary = zhHansChargenRoleplaySummary(brief);
       this.pendingChargenPlayerSummary = {
         campaignId,
         text: [
-          `角色卡已生成：${brief.name}（${brief.age ?? "年龄未指定"}岁，${brief.occupation_or_concept}）。`,
+          `角色卡已生成：${brief.name}（${brief.age ?? "年龄未指定"}岁，${brief.occupation_label ?? brief.occupation_or_concept}）。`,
           characteristicText ? `特征：${characteristicText}。` : "",
           derivedText ? `派生数值：${derivedText}。` : "",
           skillTop.length ? `主要技能：${skillTop.join("；")}。` : "",
+          ...roleplaySummary,
           "你想调整角色卡，还是确认打开游戏桌？",
         ].filter(Boolean).join("\n\n"),
       };
@@ -9435,11 +9475,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         "Commit one in-process setup.chargen_run from a semantic brief after "
         + "the player explicitly confirms the presented draft, or when they "
         + "explicitly ask for a same-turn quick/auto card. Pass focus skills "
+        + "and the canonical occupation_name field exactly as documented. "
         + "in occupation_skill_names and supporting skills in "
         + "interest_skill_names using canonical catalog English ids "
         + "(e.g. Library Use), not bilingual descriptions; the wrapper expands "
         + "occupation and interest support so both budgets fit. Do not ask the "
         + "player to add or drop skills to balance points. "
+        + "When the player explicitly states fluency or professional command of "
+        + "a non-native language, pass its canonical id in "
+        + "professional_language_names (for example Language (English)); the "
+        + "wrapper reserves enough system-owned points for the 50+ professional band. "
         + "Always pass the player's confirmed age when they supplied one. "
         + "assignment_priority is eight characteristic keys high-to-low; first receives 80. "
         + "Call at most once per player turn; do not retry or guess formulas "

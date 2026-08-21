@@ -202,6 +202,11 @@ test("sceneDisplayLabel prefers localized names", () => {
     ],
   });
   assert.equal(sceneDisplayLabel(ws, "c1", "s1", "zh-Hans"), "门厅");
+  writeJson(path.join(ws, ".coc/campaigns/c1/scenario/story-graph.json"), {
+    scenes: [{ scene_id: "s2", display_name: "Creating Investigators" }],
+  });
+  assert.equal(sceneDisplayLabel(ws, "c1", "s2", "zh-Hans"), null);
+  assert.equal(sceneDisplayLabel(ws, "c1", "s2", "en"), "Creating Investigators");
   assert.equal(sceneDisplayLabel(ws, "c1", "missing", "zh-Hans"), null);
 });
 

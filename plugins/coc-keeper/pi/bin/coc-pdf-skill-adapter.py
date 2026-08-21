@@ -70,6 +70,7 @@ PI_TOOLS = "read,bash,write"
 # falsely producing extractor_invalid_output.
 OPENING_TEXT_TOOLS = "read"
 MAX_FACT_EVIDENCE_PAGES = 8
+MAX_FACT_CANDIDATE_PAGES = 32
 OPENING_FACT_VALUE_LIMITS = {
     "era": 128,
     "place": 256,
@@ -1678,7 +1679,10 @@ def _module_init_l0_schema() -> dict[str, Any]:
             "safety_notes", "structure_type",
         ],
         "module_meta_field_rules": {
-            "title_zh": "null or non-empty string",
+            "title_zh": (
+                "for zh-Hans play_language, a faithful Chinese localization "
+                "of the source title; otherwise null or non-empty string"
+            ),
             "title_en": "null or non-empty string",
             "era": "null or non-empty string",
             "locale": "null or non-empty string",
@@ -1742,8 +1746,8 @@ def _opening_text_prompt(
             "pdf_index": int(page["pdf_index"]),
             "markdown_path": page["markdown_path"],
             "role": (
-                "opening" if int(page["pdf_index"]) in opening
-                else "fact_evidence"
+                "opening_seed" if int(page["pdf_index"]) in opening
+                else "candidate"
             ),
         }
         for page in materialized["bundle"].get("pages", [])
@@ -1758,10 +1762,10 @@ def _opening_text_prompt(
         "title": task["title"],
         "play_language": task["play_language"],
         "source_bundle_path": task["source_bundle_path"],
-        "selected_opening_pdf_indices": materialized[
+        "opening_seed_pdf_indices": materialized[
             "selected_opening_pdf_indices"
         ],
-        "fact_evidence_pdf_indices": materialized[
+        "fact_candidate_pdf_indices": materialized[
             "fact_evidence_pdf_indices"
         ],
         "pages": pages,
@@ -1777,9 +1781,27 @@ def _opening_text_prompt(
         "task.pages markdown_path (each relative to "
         "task.source_bundle_path) and extract, from that source text only, "
         "the six opening fast facts and the private keeper-only "
-        "module_init_l0. task.pages role marks the contiguous playable "
-        "opening window (opening) versus the separate fact-evidence set "
-        "(fact_evidence). Use grep/find anchors such as 预设、建卡、角色、年代、"
+        "module_init_l0. task.pages contains cached page candidates from the "
+        "same source. The opening_seed role is only a locator hint, never an "
+        "accepted opening. Before selecting, use grep/find across all listed "
+        "candidate Markdown paths for section headings whose source meaning "
+        "is START, BEGIN PLAY, OPENING SCENE, FIRST SCENE, or an equivalent "
+        "in the document language. Treat hits only as location aids, then "
+        "read each plausible page plus its adjacent candidate pages. Locate "
+        "and semantically select the earliest actual interactive scene "
+        "intended for play. The selected page must itself frame what the "
+        "investigators can perceive or do at the table; a page that merely "
+        "mentions, summarizes, or looks back on a scene is never sufficient. "
+        "Reject covers, contents, campaign overviews, investigator-creation "
+        "guidance, character biographies, post-event history, and Keeper-only "
+        "background. If an authored optional prologue is the established "
+        "player starting path, select its first interactive scene rather than "
+        "the later core-campaign opening. Return its smallest contiguous 1 to "
+        "3 page window as "
+        "selected_opening_pdf_indices. Then select the smallest "
+        "sufficient 1 to 8 candidate pages that support the six facts; return "
+        "their sorted unique pdf indices as fact_evidence_pdf_indices. Use "
+        "grep/find anchors such as 预设、建卡、角色、年代、"
         "人数、难度、适合、职业、技能、警告 to locate candidates, then read "
         "their surrounding Markdown and make the final inclusion decision "
         "semantically. Anchor hits are location aids only, never keyword "
@@ -1804,7 +1826,11 @@ def _opening_text_prompt(
         "are non-empty strings or null. module_meta MUST include every field "
         "named by its required fields list. module_meta field rules: "
         "title_zh, title_en, era, locale, duration_hint, and structure_type "
-        "are non-empty strings or null, party_size is a string, integer, or "
+        "are non-empty strings or null. When task.play_language is zh-Hans, "
+        "title_zh MUST be a faithful Chinese localization of the source title "
+        "even when the source has no published Chinese edition title; keep "
+        "the canonical source-language title separately in title_en. "
+        "party_size is a string, integer, or "
         "null (never boolean), authors, translator, and safety_notes are "
         "null, a string, or an array of non-empty strings ([] when the "
         "source names none), and tone_tags, mythos_entities, campaign_hooks, "
@@ -1820,7 +1846,9 @@ def _opening_text_prompt(
         "tools or write outside source_bundle_path. Return only one strict "
         "JSON object with exact fields schema_version, contract_id, status, "
         "campaign_id, scenario_id, source_bundle_path, failure_class, facts, "
-        "module_init_l0. Output must be strictly valid JSON: never place a "
+        "module_init_l0, selected_opening_pdf_indices, "
+        "fact_evidence_pdf_indices. Output must be strictly "
+        "valid JSON: never place a "
         "bare ASCII double quote (\") inside a string value -- render quoted "
         "terms with full-width quotes 「」 or “ ” instead, and escape any "
         "unavoidable backslash or control character. contract_id is "
@@ -1829,14 +1857,16 @@ def _opening_text_prompt(
         "coc.opening-fast-facts.v1 object and module_init_l0 satisfies "
         "task.module_init_l0_schema. facts must exactly satisfy "
         "task.opening_fast_facts_schema: answer all six questions only from "
-        "task.fact_evidence_pdf_indices; source answers use minimal "
+        "the returned fact_evidence_pdf_indices; source answers use minimal "
         "{source_id,pdf_index} source_refs with source_id exactly "
         "task.source_id and unresolved answers use minimal "
         "inspected_source_refs for pages actually checked. Every "
         "source_refs or inspected_source_refs array MUST "
         "contain 1 to 3 unique refs and never more than three; "
         "content_flags is not an exception. Never cite a page outside "
-        "task.fact_evidence_pdf_indices. Never use a "
+        "the returned fact_evidence_pdf_indices, and every returned index must "
+        "belong to task.fact_candidate_pdf_indices. Every selected opening "
+        "index must also belong to task.fact_candidate_pdf_indices. Never use a "
         "campaign era, default era, title hint, or task placeholder as "
         "evidence. The opening fact era is the investigators' native/start era "
         "used for character creation at the first player-facing scene, not "
@@ -2269,6 +2299,120 @@ def _write_opening_l0_failure_evidence(
     return destination
 
 
+def _extend_opening_bundle_with_cached_fact_candidates(
+    task: dict[str, Any],
+    materialized: dict[str, Any],
+    pdf_bundle: Any,
+) -> dict[str, Any]:
+    """Project same-source cached front matter into the semantic fact lane.
+
+    The opening locator intentionally keeps only a contiguous 1..3 page
+    playable slice.  Long campaigns commonly put era, locale, hooks, and
+    investigator guidance later in the already-ingested front matter, so that
+    slice is not a sufficient fact-retrieval corpus.  Reuse only validated
+    schema-v1 pages for the exact same source identity, cap the candidate set,
+    and let the isolated text extractor choose the final 1..8 evidence pages.
+    No PDF bytes are opened here.
+    """
+    workspace_value = task.get("workspace_root")
+    if not isinstance(workspace_value, str) or not workspace_value.strip():
+        return materialized
+    workspace = Path(workspace_value).resolve()
+    cache_root = workspace / ".coc" / "source-bundles"
+    if not cache_root.is_dir():
+        return materialized
+
+    output_root = Path(task["source_bundle_path"]).resolve()
+    current = pdf_bundle.load_host_bundle(output_root)
+    current_manifest = _json(
+        output_root / "manifest.json", "opening source manifest",
+    )
+    rows_by_index = _pages_by_index(
+        current_manifest.get("pages"), "opening source manifest pages",
+    )
+    source = _object(task.get("source"), "opening task source")
+
+    candidates: dict[int, tuple[Path, dict[str, Any]]] = {}
+    for manifest_path in sorted(cache_root.glob("*/manifest.json")):
+        bundle_root = manifest_path.parent.resolve()
+        try:
+            cached = pdf_bundle.load_host_bundle(bundle_root)
+        except Exception:
+            continue
+        cached_source = _object(cached.get("source"), "cached source")
+        # Background OCR stores later page windows in sibling bundles and may
+        # suffix their logical source_id (for example ``-w2``). The immutable
+        # file identity is the exact SHA-256 plus canonical original path;
+        # requiring the chunk-local id would hide valid later pages from the
+        # semantic opening selector.
+        if (
+            cached_source.get("file_sha256") != source.get("file_sha256")
+            or Path(str(cached_source.get("path") or "")).resolve()
+            != Path(str(source.get("path") or "")).resolve()
+        ):
+            continue
+        raw_manifest = _json(manifest_path, "cached source manifest")
+        raw_rows = _pages_by_index(
+            raw_manifest.get("pages"), "cached source manifest pages",
+        )
+        for pdf_index, row in raw_rows.items():
+            candidates.setdefault(pdf_index, (bundle_root, row))
+
+    all_indices = sorted(set(rows_by_index) | set(candidates))
+    required_indices = sorted(
+        set(materialized.get("selected_opening_pdf_indices", []))
+        | set(materialized.get("fact_evidence_pdf_indices", []))
+    )
+    if len(required_indices) > MAX_FACT_CANDIDATE_PAGES:
+        return materialized
+    optional = [index for index in all_indices if index not in required_indices]
+    slots = MAX_FACT_CANDIDATE_PAGES - len(required_indices)
+    if len(optional) <= slots:
+        sampled = optional
+    elif slots <= 1:
+        sampled = optional[-slots:] if slots else []
+    else:
+        # Cover the whole cached range instead of truncating to front matter.
+        # This is only candidate retrieval; the isolated document agent still
+        # owns the semantic opening and evidence decision.
+        sampled_positions = {
+            round(position * (len(optional) - 1) / (slots - 1))
+            for position in range(slots)
+        }
+        sampled = [optional[position] for position in sorted(sampled_positions)]
+        if len(sampled) < slots:
+            sampled_set = set(sampled)
+            sampled.extend(
+                index for index in optional if index not in sampled_set
+            )
+            sampled = sampled[:slots]
+    chosen_indices = sorted(set(required_indices) | set(sampled))
+    for pdf_index in chosen_indices:
+        if pdf_index in rows_by_index:
+            continue
+        source_root, row = candidates[pdf_index]
+        _copy_validated_bundle_file(
+            source_root, output_root, str(row["markdown_path"]),
+        )
+        structured = row.get("structured_data")
+        if isinstance(structured, dict):
+            _copy_validated_bundle_file(
+                source_root, output_root, str(structured["path"]),
+            )
+        rows_by_index[pdf_index] = row
+
+    current_manifest["pages"] = [rows_by_index[index] for index in chosen_indices]
+    (output_root / "manifest.json").write_text(
+        json.dumps(current_manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    extended = pdf_bundle.load_host_bundle(output_root)
+    result = dict(materialized)
+    result["fact_evidence_pdf_indices"] = chosen_indices
+    result["bundle"] = extended
+    return result
+
+
 def _materialize_opening_bundle(
     task: dict[str, Any],
     private: dict[str, Any],
@@ -2295,7 +2439,7 @@ def _materialize_opening_bundle(
     _run_post_child_hook()
     _fail_if_shutdown(shutdown)
     if routed is not None:
-        return {
+        return _extend_opening_bundle_with_cached_fact_candidates(task, {
             "selected_opening_pdf_indices": list(
                 routed["selected_opening_pdf_indices"]
             ),
@@ -2304,7 +2448,7 @@ def _materialize_opening_bundle(
             ),
             "bundle": routed["bundle"],
             "source": "router",
-        }
+        }, pdf_bundle)
     bound_indices = list(int(index) for index in private["allowed_pdf_indices"])
     bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
     if [int(row["pdf_index"]) for row in bundle.get("pages", [])] != bound_indices:
@@ -2312,12 +2456,12 @@ def _materialize_opening_bundle(
     window = _earliest_contiguous_page_run(bound_indices)
     selected = window[: min(3, len(window))]
     fact_evidence = window[: min(MAX_FACT_EVIDENCE_PAGES, len(window))]
-    return {
+    return _extend_opening_bundle_with_cached_fact_candidates(task, {
         "selected_opening_pdf_indices": selected,
         "fact_evidence_pdf_indices": fact_evidence,
         "bundle": bundle,
         "source": "preseed",
-    }
+    }, pdf_bundle)
 
 
 def _run_opening_text_extractor(
@@ -2535,7 +2679,7 @@ def _validate_opening_extractor_result(
     value: Any,
     task: dict[str, Any],
     selected: list[int],
-    fact_evidence: list[int],
+    fact_candidates: list[int],
 ) -> dict[str, Any]:
     """Validate the text extractor and assemble the producer-result envelope.
 
@@ -2555,11 +2699,22 @@ def _validate_opening_extractor_result(
         # the plain failed receipt and the extractor_invalid_output receipt
         # (with its bounded stdout sample) are legal. Every required field
         # must still be present.
-        allowed_fields = required_fields | {"stdout_sample"}
+        allowed_fields = required_fields | {
+            "stdout_sample", "selected_opening_pdf_indices",
+            "fact_evidence_pdf_indices",
+        }
         shape_ok = required_fields <= set(result) <= allowed_fields
     else:
-        # Reviewed results keep the exact required shape.
-        shape_ok = set(result) == required_fields
+        # New extractors return their semantic evidence selection.  Retain
+        # compatibility with old bounded (<=8 page) test/host receipts while
+        # packages roll forward; a larger candidate corpus must be selected.
+        shape_ok = frozenset(result) in {
+            frozenset(required_fields),
+            frozenset(required_fields | {"fact_evidence_pdf_indices"}),
+            frozenset(required_fields | {
+                "selected_opening_pdf_indices", "fact_evidence_pdf_indices",
+            }),
+        }
     if (
         not shape_ok
         or result.get("schema_version") != 1
@@ -2601,13 +2756,41 @@ def _validate_opening_extractor_result(
         or not isinstance(result.get("module_init_l0"), dict)
     ):
         _fail("reviewed opening text extractor result invalid")
+    semantic_opening = result.get("selected_opening_pdf_indices", selected)
+    if (
+        not isinstance(semantic_opening, list)
+        or not 1 <= len(semantic_opening) <= 3
+        or any(
+            not isinstance(index, int) or isinstance(index, bool) or index < 0
+            for index in semantic_opening
+        )
+        or semantic_opening != sorted(set(semantic_opening))
+        or semantic_opening
+        != list(range(semantic_opening[0], semantic_opening[0] + len(semantic_opening)))
+        or not set(semantic_opening).issubset(set(fact_candidates))
+    ):
+        _fail("opening text extractor semantic opening selection invalid")
+    fact_evidence = result.get("fact_evidence_pdf_indices")
+    if fact_evidence is None and len(fact_candidates) <= MAX_FACT_EVIDENCE_PAGES:
+        fact_evidence = list(fact_candidates)
+    if (
+        not isinstance(fact_evidence, list)
+        or not 1 <= len(fact_evidence) <= MAX_FACT_EVIDENCE_PAGES
+        or any(
+            not isinstance(index, int) or isinstance(index, bool) or index < 0
+            for index in fact_evidence
+        )
+        or fact_evidence != sorted(set(fact_evidence))
+        or not set(fact_evidence).issubset(set(fact_candidates))
+    ):
+        _fail("opening text extractor fact evidence selection invalid")
     return _validate_opening_result({
         "schema_version": 1,
         "contract_id": "coc.pi-opening-pdf-producer-result.v1",
         "status": "reviewed",
         "campaign_id": task["campaign_id"],
         "scenario_id": task["scenario_id"],
-        "selected_opening_pdf_indices": list(selected),
+        "selected_opening_pdf_indices": list(semantic_opening),
         "fact_evidence_pdf_indices": list(fact_evidence),
         "source_bundle_path": task["source_bundle_path"],
         "failure_class": None,
@@ -2656,7 +2839,7 @@ def _run_opening_review() -> dict[str, Any]:
                 task, private, pdf_bundle, request, shutdown,
             )
             selected = materialized["selected_opening_pdf_indices"]
-            fact_evidence = materialized["fact_evidence_pdf_indices"]
+            fact_candidates = materialized["fact_evidence_pdf_indices"]
             extractor_payload = _run_opening_text_extractor(
                 task,
                 materialized,
@@ -2665,7 +2848,7 @@ def _run_opening_review() -> dict[str, Any]:
             )
             try:
                 result = _validate_opening_extractor_result(
-                    extractor_payload, task, selected, fact_evidence,
+                    extractor_payload, task, selected, fact_candidates,
                 )
             except RuntimeError as exc:
                 if isinstance(extractor_payload, dict) and "module_init_l0" in extractor_payload:
@@ -2676,6 +2859,7 @@ def _run_opening_review() -> dict[str, Any]:
                         str(exc),
                     )
                 raise
+            selected = result["selected_opening_pdf_indices"]
             _run_post_child_hook()
             _fail_if_shutdown(shutdown)
             if result["status"] != "reviewed":
@@ -2685,6 +2869,7 @@ def _run_opening_review() -> dict[str, Any]:
                 )
                 _fail_if_shutdown(shutdown)
                 return receipt
+            fact_evidence = result["fact_evidence_pdf_indices"]
             try:
                 module_init_l0 = ops._validate_module_init_l0(
                     result["module_init_l0"]

@@ -14330,6 +14330,43 @@ def test_pi_character_discriminator_rejects_nonregular_party_path(
     assert details.get("character_setup_policy") != "guided_quick_fire"
 
 
+def test_pi_opening_character_setup_allows_only_canonical_chargen_dice_recipes():
+    gate = {"phase": "character_setup_required"}
+
+    for purpose, expressions in {
+        "investigator_creation_luck": ("3D6",),
+        "investigator_creation_characteristic": (
+            "3D6", "2D6+6", "1D100", "1D10",
+        ),
+    }.items():
+        for expression in expressions:
+            assert coc_toolbox._pi_opening_setup_operation_allowed(
+                "rules.roll_dice",
+                {
+                    "expression": expression,
+                    "decision_id": f"opening-{purpose}-{expression}",
+                    "purpose": purpose,
+                    "reason": "canonical investigator creation recipe",
+                },
+                gate,
+            ) is True
+
+    for purpose, expression in (
+        ("investigator_creation_luck", "1D100"),
+        ("investigator_creation_luck", "2D6+6"),
+        ("investigator_creation_characteristic", "1D8"),
+    ):
+        assert coc_toolbox._pi_opening_setup_operation_allowed(
+            "rules.roll_dice",
+            {
+                "expression": expression,
+                "decision_id": f"opening-rejected-{purpose}-{expression}",
+                "purpose": purpose,
+            },
+            gate,
+        ) is False
+
+
 def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     tmp_path: Path, monkeypatch,
 ):

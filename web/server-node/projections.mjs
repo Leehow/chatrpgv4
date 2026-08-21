@@ -475,6 +475,9 @@ export function sceneDisplayLabel(workspace, campaignId, sceneId, playLanguage) 
         }
       }
     }
+    // Source-language scene headings are machine data until the semantic
+    // compiler supplies a localized name. Do not leak them into a Chinese UI.
+    if (playLanguage === "zh-Hans" || playLanguage === "zh") return null;
     if (typeof scene.display_name === "string" && scene.display_name.trim()) {
       return scene.display_name.trim();
     }

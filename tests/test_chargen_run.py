@@ -536,6 +536,7 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
         "name": "Ada Lark",
         "occupation_name": "Journalist",
         "occupation_label": "记者",
+        "own_language": "英语",
         "assignment_priority": [
             "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
         ],
@@ -580,6 +581,13 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
         if row["key"] == "Credit Rating"
     )
     assert credit_row["label"] == "地位与财力"
+    own_language_row = next(
+        row
+        for row in stored["player_facing_sheet_zh"]["skills"]
+        if row["key"] == "Language (Own)"
+    )
+    assert stored["own_language"] == "英语"
+    assert own_language_row["label"] == "语言（英语）"
 
 
 def test_chargen_run_ww1_unrecognized_skill_is_structured_error(tmp_path: Path) -> None:
@@ -1031,11 +1039,11 @@ def test_chargen_run_field_set_matches_across_layers() -> None:
     assert mcp_keys == allowed
     typed = _typed_chargen_schema()
     typed_kp = set(typed["properties"]) - {
-        "mode", "pregen_id", "occupation_or_concept", "interest_allocation_intent",
+        "mode", "pregen_id", "interest_allocation_intent",
     }
     runtime_without_ids = allowed - {"campaign_id", "investigator_id", "occupation_name"}
     assert runtime_without_ids <= typed_kp | {"name", "occupation_label", "luck"}
-    assert "occupation_or_concept" in typed["properties"]
+    assert "occupation_name" in typed["properties"]
     backstory_keys = set(coc_character.CHARGEN_BACKSTORY_ALLOWED)
     assert set(mcp["properties"]["backstory"]["properties"]) == backstory_keys
     assert mcp["properties"]["backstory"]["additionalProperties"] is False
@@ -1476,7 +1484,7 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
             own_language="国语",
             interest_skill_names=[
                 "Other Language (English)",
-                "Occult",
+                "Other Language (Spanish)",
                 "First Aid",
                 "Stealth",
             ],
@@ -1485,6 +1493,7 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
     assert envelope["ok"] is True, envelope
     stored, creation = _stored_investigator(tmp_path, "ada-en")
     assert "Language (English)" in stored["skills"]
+    assert "Language (Spanish)" in stored["skills"]
     occ = creation["skill_budget"]["occupation_points"]["allocations"]
     interest = creation["skill_budget"]["personal_interest_points"]["allocations"]
     expected = 1 + occ.get("Language (English)", 0) + interest.get("Language (English)", 0)
@@ -1496,6 +1505,7 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
         if isinstance(row, dict)
     }
     assert labels["Language (English)"] == "语言（英语）"
+    assert labels["Language (Spanish)"] == "语言（西班牙语）"
     assert labels["Language (Own)"] == "语言（国语）"
     english_value = stored["skills"]["Language (English)"]
     if english_value < coc_character.CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN:

@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
@@ -657,14 +658,206 @@ def test_l0_soft_location_accepts_non_front_matter_fixture_without_page_rule(
     assert "semantically" in prompt
     assert "Do not assume the first N pages" in prompt
     assert "first 5 pages" not in prompt
+    assert "fact_candidate_pdf_indices" in prompt
+    assert "fact_evidence_pdf_indices" in prompt
+    assert "selected_opening_pdf_indices" in prompt
+    assert "actual interactive scene" in prompt
+    assert "investigator-creation guidance" in prompt
+    assert "use grep/find across all listed" in prompt
+    assert "post-event history" in prompt
+    assert "page that merely" in prompt
     assert "variant_of is present as null" in prompt
     assert "audience is exactly player or keeper" in prompt
     assert "Every pregen and opening_handouts item MUST include every field" in prompt
     assert "hooks_to_plot is an" in prompt
     assert "never null and never empty-string entries" in prompt
     assert "Handout rules: id is a non-empty string" in prompt
+    assert "faithful Chinese localization of the source title" in prompt
+    assert "canonical source-language title separately in title_en" in prompt
     schema = adapter._module_init_l0_schema()
     assert "array of non-empty strings" in schema["pregen_field_rules"]["hooks_to_plot"]
     assert schema["pregen_field_rules"]["age"] == "null, string, or integer"
     assert schema["pregen_field_rules"]["stats_ref"] == "null, string, or object"
     assert schema["pregen_field_rules"]["backstory_blocks"] == "null, string, array, or object"
+
+
+def test_opening_fact_agent_selects_distant_pages_from_cached_candidates(
+    tmp_path: Path,
+):
+    """A long module may keep era/place guidance far beyond its cover pages."""
+    source_bundle, source_id = _source_bundle(tmp_path)
+    cache = tmp_path / ".coc" / "source-bundles" / "far-page-letter"
+    cache.parent.mkdir(parents=True)
+    shutil.move(str(source_bundle), cache)
+    manifest = json.loads((cache / "manifest.json").read_text(encoding="utf-8"))
+    canonical_source = dict(manifest["source"])
+    manifest["source"] = {
+        **canonical_source,
+        "source_id": f"{canonical_source['source_id']}-w2",
+    }
+    (cache / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8",
+    )
+
+    output = tmp_path / "reviewed"
+    output.mkdir()
+    retained = [row for row in manifest["pages"] if row["pdf_index"] in {0, 1}]
+    for row in retained:
+        shutil.copyfile(cache / row["markdown_path"], output / row["markdown_path"])
+    output_manifest = {**manifest, "source": canonical_source, "pages": retained}
+    (output / "manifest.json").write_text(
+        json.dumps(output_manifest, ensure_ascii=False), encoding="utf-8",
+    )
+
+    pdf_bundle = _load(
+        "coc_pdf_bundle_cached_fact_candidates_test",
+        SCRIPTS / "coc_pdf_bundle.py",
+    )
+    materialized = adapter._extend_opening_bundle_with_cached_fact_candidates(
+        {
+            "workspace_root": str(tmp_path),
+            "source_bundle_path": str(output),
+            "source": canonical_source,
+        },
+        {
+            "selected_opening_pdf_indices": [0, 1],
+            "fact_evidence_pdf_indices": [0, 1],
+            "bundle": pdf_bundle.load_host_bundle(output),
+            "source": "router",
+        },
+        pdf_bundle,
+    )
+    assert materialized["fact_evidence_pdf_indices"] == [0, 1, 17, 23]
+    assert [page["pdf_index"] for page in materialized["bundle"]["pages"]] == [
+        0, 1, 17, 23,
+    ]
+
+    task = {
+        "campaign_id": "long-module",
+        "scenario_id": "far-page-letter",
+        "source_bundle_path": str(output),
+        "source": {"source_id": source_id},
+        "reusable_bound_source": {"manifest": {"pages": retained}},
+    }
+    extractor = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": "long-module",
+        "scenario_id": "far-page-letter",
+        "source_bundle_path": str(output),
+        "failure_class": None,
+        "facts": _facts(source_id, 23),
+        "module_init_l0": _l0(),
+        "selected_opening_pdf_indices": [17],
+        "fact_evidence_pdf_indices": [17, 23],
+    }
+    result = adapter._validate_opening_extractor_result(
+        extractor, task, [17], materialized["fact_evidence_pdf_indices"],
+    )
+    assert result["fact_evidence_pdf_indices"] == [17, 23]
+    assert result["selected_opening_pdf_indices"] == [17]
+
+
+def test_opening_agent_can_replace_a_chargen_seed_with_a_later_playable_scene(
+    tmp_path: Path,
+):
+    adapter = _load("coc_pdf_adapter_semantic_opening_test", ADAPTER_PATH)
+    source_id = "pdf:long-campaign"
+    task = {
+        "campaign_id": "long-campaign",
+        "scenario_id": "long-campaign",
+        "source_bundle_path": str(tmp_path / "reviewed"),
+        "source": {"source_id": source_id},
+        "reusable_bound_source": {"manifest": {"pages": []}},
+    }
+    extractor = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": "long-campaign",
+        "scenario_id": "long-campaign",
+        "source_bundle_path": str(tmp_path / "reviewed"),
+        "failure_class": None,
+        "facts": _facts(source_id, 28),
+        "module_init_l0": _l0(),
+        "selected_opening_pdf_indices": [63, 64],
+        "fact_evidence_pdf_indices": [28],
+    }
+    result = adapter._validate_opening_extractor_result(
+        extractor, task, [28], [28, 63, 64],
+    )
+    assert result["selected_opening_pdf_indices"] == [63, 64]
+
+
+def test_cached_candidate_sampling_covers_late_pages_within_bundle_limit(
+    tmp_path: Path,
+):
+    adapter = _load("coc_pdf_adapter_candidate_sampling_test", ADAPTER_PATH)
+    source_id = "pdf:long-campaign"
+    source_path = tmp_path / "long.pdf"
+    source_path.write_bytes(b"same immutable source")
+    source_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    cache_root = tmp_path / ".coc" / "source-bundles"
+    cache_root.mkdir(parents=True)
+
+    def write_bundle(name: str, indices: list[int], chunk_source_id: str) -> Path:
+        root = cache_root / name
+        (root / "pages").mkdir(parents=True)
+        pages = []
+        for index in indices:
+            rel = f"pages/{index:04d}.md"
+            body = f"# Page {index}\n"
+            (root / rel).write_text(body, encoding="utf-8")
+            pages.append({
+                "pdf_index": index,
+                "printed_page": index + 1,
+                "markdown_path": rel,
+                "text_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                "review_state": "auto_accepted",
+                "parse_confidence": 0.9,
+                "grep_anchors": [f"Page {index}"],
+            })
+        (root / "manifest.json").write_text(json.dumps({
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source": {
+                "source_id": chunk_source_id,
+                "title": "Long Campaign",
+                "path": str(source_path),
+                "file_sha256": source_hash,
+                "page_count": 669,
+            },
+            "pages": pages,
+        }), encoding="utf-8")
+        return root
+
+    primary = write_bundle("long", list(range(32)), source_id)
+    write_bundle("long-w2", list(range(32, 64)), f"{source_id}-w2")
+    output = tmp_path / "reviewed"
+    shutil.copytree(primary, output)
+    pdf_bundle = _load(
+        "coc_pdf_bundle_candidate_sampling_test",
+        SCRIPTS / "coc_pdf_bundle.py",
+    )
+    materialized = adapter._extend_opening_bundle_with_cached_fact_candidates(
+        {
+            "workspace_root": str(tmp_path),
+            "source_bundle_path": str(output),
+            "source": {
+                "source_id": source_id,
+                "path": str(source_path),
+                "file_sha256": source_hash,
+            },
+        },
+        {
+            "selected_opening_pdf_indices": [28],
+            "fact_evidence_pdf_indices": [25, 28],
+            "bundle": pdf_bundle.load_host_bundle(output),
+            "source": "router",
+        },
+        pdf_bundle,
+    )
+    indices = materialized["fact_evidence_pdf_indices"]
+    assert len(indices) == 32
+    assert {25, 28, 63}.issubset(indices)

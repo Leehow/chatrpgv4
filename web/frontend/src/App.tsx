@@ -612,6 +612,19 @@ export default function App() {
       turnAbortRef.current?.abort();
       const openGen = ++openGenRef.current;
       openingRef.current = campaignId;
+      const switchingCampaign = Boolean(session && session.campaign_id !== campaignId);
+      // Live turn chrome belongs to one campaign/session.  Clearing it before
+      // the replacement RPC host starts prevents an aborted room's thinking,
+      // tool steps, usage, or streaming tail from appearing in the new room.
+      setToolSteps([]);
+      setKpThinking("");
+      setLiveUsage(null);
+      liveUsageRef.current = null;
+      if (switchingCampaign) {
+        setMessages([]);
+        setState(null);
+        setTransition(initialTransitionState);
+      }
       if (opts?.userSelected) {
         campaignSyncRef.current?.publish(campaignId);
       }
@@ -674,6 +687,7 @@ export default function App() {
           undefined,
           {
             onTool: (phase, tool) => {
+              if (openGen !== openGenRef.current) return;
               if (phase === "start") {
                 setMessages(foldInterimSegment);
                 settledText = "";
@@ -697,6 +711,7 @@ export default function App() {
               }
             },
             onDelta: (delta) => {
+              if (openGen !== openGenRef.current) return;
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -712,6 +727,7 @@ export default function App() {
               });
             },
             onDeltaReset: () => {
+              if (openGen !== openGenRef.current) return;
               settledText = "";
               setMessages((prev) => {
                 const next = [...prev];
@@ -727,9 +743,11 @@ export default function App() {
               });
             },
             onThinking: (chunk) => {
+              if (openGen !== openGenRef.current) return;
               setKpThinking((prev) => (prev + chunk).slice(-8000));
             },
             onUsage: (usage) => {
+              if (openGen !== openGenRef.current) return;
               const value = { input: usage.input, output: usage.output };
               liveUsageRef.current = value;
               setLiveUsage(value);
@@ -744,8 +762,12 @@ export default function App() {
               setLiveUsage(null);
               liveUsageRef.current = null;
             },
-            onHandoff: (payload) => noteHandoff(payload),
+            onHandoff: (payload) => {
+              if (openGen !== openGenRef.current) return;
+              noteHandoff(payload);
+            },
             onError: (message) => {
+              if (openGen !== openGenRef.current) return;
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -757,6 +779,7 @@ export default function App() {
               setError(friendlyError(message));
             },
             onNotice: (message) => {
+              if (openGen !== openGenRef.current) return;
               if (!message) return;
               setMessages((prev) => [
                 ...prev,
@@ -839,6 +862,7 @@ export default function App() {
         setBusy(false);
         return info;
       } catch (e) {
+        if (openGen !== openGenRef.current) return null;
         setError(friendlyError(e instanceof Error ? e.message : String(e)));
         setBusy(false);
         return null;

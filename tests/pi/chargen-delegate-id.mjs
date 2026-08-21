@@ -44,7 +44,7 @@ assert.equal(
 const calls = [];
 const brief = parseChargenClerkBrief({
   name,
-  occupation_or_concept: "私家侦探",
+  occupation_name: "私家侦探",
   age: 32,
   investigator_id: "inv-investigator",
 });
@@ -68,6 +68,7 @@ const result = await runChargenInProcess({
 assert.equal(calls.length, 1);
 assert.equal(calls[0].op, "setup.chargen_run");
 assert.equal(calls[0].args.age, 32);
+assert.equal(calls[0].args.occupation_name, "私家侦探");
 assert.notEqual(calls[0].args.investigator_id, "inv-investigator");
 assert.equal(result.investigator_id, calls[0].args.investigator_id);
 assert.throws(
@@ -232,6 +233,25 @@ const romanAdaptive = planChargenSkillLists(parseChargenClerkBrief({
 assert.equal(romanAdaptive.occupation_skill_names.includes("Mechanical Repair"), false);
 assert.equal(romanAdaptive.interest_skill_names.includes("Mechanical Repair"), false);
 assert.equal(romanAdaptive.interest_skill_names.includes("Accounting"), false);
+
+const fluentReporter = planChargenSkillLists(parseChargenClerkBrief({
+  name: "林晚舟",
+  occupation_name: "Photojournalist",
+  assignment_priority: "DEX INT APP EDU POW CON STR SIZ",
+  occupation_skill_names: [
+    "Art and Craft (Photography)", "Language (English)", "Language (Spanish)",
+    "Spot Hidden", "Listen", "Psychology", "Persuade", "Fast Talk", "Library Use",
+  ],
+  interest_skill_names: [
+    "Dodge", "First Aid", "Stealth", "Navigate", "History", "Charm", "Drive Auto",
+  ],
+  professional_language_names: ["Language (English)"],
+}));
+assert.equal(fluentReporter.occupation_skill_names[0], "Language (English)");
+assert.equal(fluentReporter.interest_skill_names[0], "Dodge");
+assert.equal(fluentReporter.interest_skill_names.includes("Language (English)"), false);
+assert.equal(fluentReporter.interest_budget, 140);
+assert.ok(fluentReporter.interest_skill_names.length >= 4);
 
 process.stdout.write(JSON.stringify({
   ok: true,

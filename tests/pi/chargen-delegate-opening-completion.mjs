@@ -90,10 +90,10 @@ assert.equal(
     derived: { hp: 11, mp: 10, san: 60, luck: 45 },
     skill_top: [
       { name: "Language (Own)", value: 75 },
-      { name: "First Aid", value: 70 },
+      { name: "Language (English)", value: 70 },
+      { name: "Language (Spanish)", value: 65 },
       { name: "Spot Hidden", value: 65 },
       { name: "Library Use", value: 60 },
-      { name: "Listen", value: 55 },
       { name: "Persuade", value: 50 },
       { name: "Psychology", value: 45 },
       { name: "Art and Craft (Acting)", value: 40 },
@@ -101,18 +101,37 @@ assert.equal(
   }, {
     name: "马库斯",
     age: 32,
-    occupation_or_concept: "百夫长",
+    occupation_or_concept: "Journalist",
+    occupation_label: "记者",
+    backstory: {
+      personal_description: "瘦高，常穿沾着油墨味的旧风衣。",
+      ideology_beliefs: "相信真相必须见报。",
+      significant_people: "提携他的老编辑。",
+      scenario_bound: "因追查远征队失踪案来到利马。",
+    },
+    equipment: ["速记本", "袖珍相机"],
+    key_connection: {
+      backstory_field: "ideology_beliefs",
+      summary: "相信真相必须见报。",
+    },
     mode: "era_adaptive",
   }),
   true,
   "a successful aggregate chargen result must close the in-memory gate",
 );
 const playerSummary = gate.acceptVisibleAssistantFinal("");
-assert.match(playerSummary.replacementText, /马库斯（32岁，百夫长）/);
+assert.match(playerSummary.replacementText, /马库斯（32岁，记者）/);
+assert.doesNotMatch(playerSummary.replacementText, /Journalist/);
 assert.match(playerSummary.replacementText, /力量 80；敏捷 70；体质 60/);
 assert.match(playerSummary.replacementText, /生命值 11；魔法值 10；理智 60；幸运 45/);
-assert.match(playerSummary.replacementText, /母语 75；急救 70；侦查 65；图书馆使用 60/);
-assert.match(playerSummary.replacementText, /聆听 55；说服 50；心理学 45；艺术与手艺（表演） 40/);
+assert.match(playerSummary.replacementText, /母语 75；语言（英语） 70；语言（西班牙语） 65；侦查 65/);
+assert.match(playerSummary.replacementText, /图书馆使用 60；说服 50；心理学 45；艺术与手艺（表演） 40/);
+assert.match(playerSummary.replacementText, /人物背景/);
+assert.match(playerSummary.replacementText, /外貌与来历：瘦高，常穿沾着油墨味的旧风衣。/);
+assert.match(playerSummary.replacementText, /人格信念 ★：相信真相必须见报。/);
+assert.match(playerSummary.replacementText, /重要之人：提携他的老编辑。/);
+assert.match(playerSummary.replacementText, /如何卷入：因追查远征队失踪案来到利马。/);
+assert.match(playerSummary.replacementText, /随身物品：速记本；袖珍相机/);
 assert.doesNotMatch(
   playerSummary.replacementText,
   /\b(?:STR|DEX|CON|POW|APP|EDU|SIZ|INT|HP|MP|SAN)\b|Language \(Own\)|First Aid|Spot Hidden|Library Use|Listen|Persuade|Psychology|Art and Craft/,

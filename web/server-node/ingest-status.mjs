@@ -4,6 +4,23 @@
  */
 
 export const INGEST_WINDOW_MAX = 32;
+export const OPENING_READY_WINDOW_COUNT = 3;
+
+export function pdfWindowIndices(pageCount, windowNumber) {
+  if (!Number.isInteger(pageCount) || pageCount <= 0) return [];
+  if (!Number.isInteger(windowNumber) || windowNumber < 1) return [];
+  const start = (windowNumber - 1) * INGEST_WINDOW_MAX;
+  if (start >= pageCount) return [];
+  const end = Math.min(pageCount, start + INGEST_WINDOW_MAX);
+  return Array.from({ length: end - start }, (_, offset) => start + offset);
+}
+
+export function pdfWindowBundleId(slug, windowNumber) {
+  if (!Number.isInteger(windowNumber) || windowNumber < 2) {
+    throw new TypeError("background window number must be >= 2");
+  }
+  return `${slug}-w${windowNumber}`;
+}
 
 export const INGEST_STATUS_PHASES = [
   "window1_in_progress",
