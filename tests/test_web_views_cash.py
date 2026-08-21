@@ -275,3 +275,31 @@ def test_display_character_corrupt_or_missing_cash_does_not_crash(cash_workspace
     assert sheet is not None
     assert sheet["cash"]["balances"] == {}
     assert sheet["cash"]["ledger"] == []
+
+
+def test_display_character_projects_sheet_assets_not_as_inventory(cash_workspace):
+    workspace, campaign_id, inv = cash_workspace
+    empty = web_views.display_character(
+        workspace, inv, "zh-Hans", campaign_id=campaign_id
+    )
+    assert empty is not None
+    assert empty.get("assets") is None
+    path = workspace / ".coc" / "investigators" / inv / "character.json"
+    raw = json.loads(path.read_text("utf-8"))
+    raw["assets"] = {"amount": 29500, "currency": "USD", "formula": "CR x 50"}
+    raw["living_standard"] = "Average"
+    raw["spending_level"] = {"amount": 10, "currency": "USD"}
+    path.write_text(json.dumps(raw, ensure_ascii=False), "utf-8")
+    sheet = web_views.display_character(
+        workspace, inv, "zh-Hans", campaign_id=campaign_id
+    )
+    assert sheet is not None
+    assets = sheet["assets"]
+    assert assets["display"] == "$29,500"
+    assert assets["currency"] == "USD"
+    assert assets["source"] == "信用评级换算"
+    assert assets["living_standard"] == "普通"
+    assert assets["spending_level"] == "$10"
+    assert "29,500" not in json.dumps(sheet.get("cash") or {})
+    labels = sheet.get("equipment") or []
+    assert "$29,500" not in labels

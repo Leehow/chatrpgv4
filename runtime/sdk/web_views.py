@@ -213,6 +213,67 @@ def _project_cash(raw: Any, *, workspace: Path | None = None) -> dict[str, Any]:
     }
 
 
+_LIVING_STANDARD_ZH = {
+    "Penniless": "赤贫",
+    "Poor": "贫穷",
+    "Average": "普通",
+    "Wealthy": "富裕",
+    "Rich": "富有",
+    "Super Rich": "超级富豪",
+}
+
+
+def _format_sheet_money(entry: Any) -> str:
+    if not isinstance(entry, dict):
+        return ""
+    amount = entry.get("amount")
+    if amount is None or isinstance(amount, bool):
+        return ""
+    if not isinstance(amount, (int, float)):
+        return ""
+    currency = str(entry.get("currency") or "USD")
+    if isinstance(amount, float) and amount.is_integer():
+        amount = int(amount)
+    if isinstance(amount, int):
+        formatted = f"{amount:,}"
+    else:
+        formatted = str(amount)
+    if currency == "USD":
+        return f"${formatted}"
+    return f"{formatted} {currency}"
+
+
+def _project_sheet_assets(
+    character: dict[str, Any], *,
+    play_language: str,
+) -> dict[str, Any] | None:
+    """Chargen asset snapshot for the items tab. Not cash and not inventory."""
+    raw = character.get("assets")
+    display = _format_sheet_money(raw)
+    if not display:
+        return None
+    assert isinstance(raw, dict)
+    out: dict[str, Any] = {
+        "amount": raw.get("amount"),
+        "currency": str(raw.get("currency") or "USD"),
+        "display": display,
+    }
+    if raw.get("formula"):
+        out["source"] = (
+            "信用评级换算" if play_language in {"zh-Hans", "zh"} else "Credit Rating"
+        )
+    living = character.get("living_standard")
+    if isinstance(living, str) and living.strip():
+        if play_language in {"zh-Hans", "zh"}:
+            out["living_standard"] = _LIVING_STANDARD_ZH.get(living, living)
+        else:
+            out["living_standard"] = living.strip()
+    spend = _format_sheet_money(character.get("spending_level"))
+    if spend:
+        out["spending_level"] = spend
+    return out
+
+
 def _display_character(
     workspace: Path,
     character: dict[str, Any],
@@ -467,6 +528,7 @@ def _display_character(
         "equipment": equipment,
         "inventory_items": inventory_items,
         "cash": cash,
+        "assets": _project_sheet_assets(character, play_language=play_language),
         "localized": sheet is not None,
     }
 

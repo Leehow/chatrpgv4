@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Backpack, Clock3, Fingerprint, Search, Swords, Wallet } from "lucide-react";
+import { Backpack, Clock3, Fingerprint, Landmark, Search, Swords, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -20,6 +20,12 @@ import {
   type CashDisplay,
   type PanelView,
 } from "../panel-cash";
+import {
+  assetsHeadline,
+  hasSheetAssets,
+  showsAssetsSection,
+  type SheetAssets,
+} from "../panel-assets";
 
 interface Props {
   state: GameState | null;
@@ -97,6 +103,26 @@ function SectionTitle({ icon, text }: { icon: React.ReactNode; text: string }) {
       {text}
       <span aria-hidden className="ml-1 h-px flex-1 bg-border/70" />
     </h3>
+  );
+}
+
+function AssetsSection({ assets }: { assets: SheetAssets }) {
+  return (
+    <section className="panel-section">
+      <SectionTitle icon={<Landmark className="size-3.5" />} text="资产" />
+      <div className="mt-2 font-display text-xl leading-none font-semibold tabular-nums text-foreground">
+        {assetsHeadline(assets)}
+      </div>
+      {assets.currency ? (
+        <div className="mt-1 text-xs text-muted-foreground">{assets.currency}</div>
+      ) : null}
+      {(assets.living_standard || assets.spending_level) && (
+        <div className="mt-2 space-y-0.5 text-sm text-foreground/90">
+          {assets.living_standard ? <div>生活水平：{assets.living_standard}</div> : null}
+          {assets.spending_level ? <div>消费水平：{assets.spending_level}</div> : null}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -200,6 +226,7 @@ export function PanelContent({
   const inventoryItems =
     sheet?.inventory_items?.filter((item) => item.kind !== "weapon") ?? null;
   const cash = sheet?.cash ?? null;
+  const assets = sheet?.assets ?? null;
   const handleUseItem = async (itemId: string) => {
     if (!onUseItem || usingItemId) return;
     setUsingItemId(itemId);
@@ -389,6 +416,9 @@ export function PanelContent({
 
       {/* 现金 — 角色 tab 与物品 tab 共用同一 CashSection；物品 tab 中置于装备列表之前 */}
       {showsCashSection(view, setupPending) && <CashSection cash={cash} />}
+      {showsAssetsSection(view, setupPending) && hasSheetAssets(assets) && (
+        <AssetsSection assets={assets!} />
+      )}
 
       {/* 技能 */}
       {(view === "all" || view === "character") && !setupPending && skills.length > 0 && (
