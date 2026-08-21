@@ -16,6 +16,10 @@ import {
   SETUP_CHARACTER_OPENING_MARKER,
 } from "./pi-session-text.mjs";
 import { loadUserPrefs, pickUiPrefs, resolveUserPrefsPath } from "./user-prefs.mjs";
+import {
+  applyGrokBuildExtensionSettingsEnv,
+  grokBuildExtensionMountArgs,
+} from "./grok-build-extension.mjs";
 
 export { SETUP_CHARACTER_OPENING_MARKER, isHiddenSetupOpeningPrompt } from "./pi-session-text.mjs";
 
@@ -290,6 +294,7 @@ export function buildPiCocArgs({
   model,
   thinking,
   repoRoot = DEFAULT_REPO_ROOT,
+  env = process.env,
 }) {
   const args = ["--mode", "rpc", "--session-id", sessionId];
   if (campaignId) args.push("--campaign", String(campaignId));
@@ -298,6 +303,14 @@ export function buildPiCocArgs({
   if (thinking) args.push("--thinking", String(thinking));
   for (const ext of resolveHostPiExtensions(repoRoot)) {
     args.push("--extension", ext);
+  }
+  // Canonical grok-build-oauth mount: repo-local install only, skipped when
+  // the PipiUI host spawn already mounted the extension id (no double mount).
+  const grokMount = grokBuildExtensionMountArgs({ repoRoot, env });
+  if (grokMount.length) {
+    const entry = grokMount[1];
+    const already = args.some((value, idx) => value === "--extension" && args[idx + 1] === entry);
+    if (!already) args.push("--extension", entry);
   }
   return args;
 }
@@ -346,6 +359,10 @@ export function buildChildEnv({
   pushUniqueDir(keyDirs, productAgentDir);
   pushUniqueDir(keyDirs, hostedAgentDir);
   injectWebSearchKeysIntoEnv(env, { keyDirs });
+  // Extension settings snapshot (non-secret only): the grok-build-oauth
+  // agent half reads PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH; tokens never
+  // enter the child env.
+  applyGrokBuildExtensionSettingsEnv(env, { repoRoot });
   env.COC_PI_ATTACHED_UI = "1";
   env.COC_PI_SCENE_SUPPLY = env.COC_PI_SCENE_SUPPLY || "1";
   env.COC_HOST = "pi";
@@ -790,6 +807,7 @@ export class PiCocRpcHost {
       model: this.model,
       thinking: this.thinking,
       repoRoot: this.repoRoot,
+      env: process.env,
     });
     const env = buildChildEnv({
       workspace: this.workspace,
