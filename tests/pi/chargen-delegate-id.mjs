@@ -74,6 +74,34 @@ assert.throws(
   () => parseChargenClerkBrief({ name, occupation_or_concept: "私家侦探", age: 14 }),
   /age must be an integer from 15 to 89/,
 );
+assert.throws(
+  () => parseChargenClerkBrief({
+    name,
+    occupation_or_concept: "私家侦探",
+    occupation_allocations: { "Library Use": 160 },
+  }),
+  /numeric finance or stats/,
+);
+const roleplayCalls = [];
+await runChargenInProcess({
+  campaignId: "camp-alpha",
+  brief: parseChargenClerkBrief({
+    name,
+    occupation_or_concept: "Journalist",
+    occupation_label: "记者",
+    backstory: { ideology_beliefs: "真相必须见报" },
+    equipment: ["速记本"],
+    key_connection: { backstory_field: "ideology_beliefs", summary: "真相必须见报" },
+  }),
+  callTool: async (_op, args) => {
+    roleplayCalls.push(args);
+    return { ok: true, data: { result: { ok: true } } };
+  },
+});
+assert.equal(roleplayCalls[0].occupation_label, "记者");
+assert.equal(roleplayCalls[0].backstory.ideology_beliefs, "真相必须见报");
+assert.deepEqual(roleplayCalls[0].equipment, ["速记本"]);
+assert.equal(roleplayCalls[0].key_connection.backstory_field, "ideology_beliefs");
 
 const explicitCalls = [];
 await runChargenInProcess({

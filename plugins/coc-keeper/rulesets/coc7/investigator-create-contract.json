@@ -78,7 +78,7 @@
         "type": "integer",
         "minimum": 15,
         "maximum": 89,
-        "description": "Optional age supported by the current COC7 age-adjustment brackets when creation arithmetic is evaluated."
+        "description": "Age 15-89."
       },
       "characteristics": {
         "type": "object",
@@ -119,7 +119,7 @@
           }
         },
         "additionalProperties": true,
-        "description": "The eight required COC7 characteristic keys. Method-specific arrays, budgets, and derived arithmetic are checked by the runtime."
+        "description": "Eight COC7 characteristic keys."
       },
       "derived": {
         "type": "object",
@@ -156,7 +156,7 @@
                 "pattern": ".*\\S.*"
               }
             ],
-            "description": "Damage bonus. Canonical zero is the string \"none\"; runtime derived-value consistency is authoritative."
+            "description": "Damage bonus; canonical zero is \"none\"."
           },
           "Build": {
             "type": "integer"
@@ -179,7 +179,7 @@
           "type": "integer",
           "minimum": 0
         },
-        "description": "Canonical English machine skill keys mapped to non-negative integers, including exact Credit Rating. For guided Quick Fire, runtime requires the package-owned standard 1920s sheet classification plus explicitly allocated optional grouped/uncommon skills and reconciles every value to catalog base plus allocation deltas. The selected cap of 75 applies to player-allocated/non-derived starting values; an unallocated formula/characteristic-derived standard base remains authoritative even when it is above 75."
+        "description": "Canonical English skill keys to non-negative integers, including Credit Rating. Runtime reconciles catalog bases plus allocation deltas and the package 75 cap."
       },
       "quick_fire_sheet": {
         "type": "object",
@@ -204,13 +204,22 @@
             "enum": [
               "1920s"
             ],
-            "description": "Optional closed guided-creation era. Omit to use the canonical 1920s default; no modern standard-sheet policy is currently owned."
+            "description": "Optional closed guided-creation era; omit for 1920s."
           },
           "skills": {
             "$ref": "#/$defs/skills"
           },
           "player_facing_sheet_zh": {
             "$ref": "#/$defs/player_facing_sheet_zh"
+          },
+          "backstory": {
+            "$ref": "#/$defs/chargen_backstory"
+          },
+          "equipment": {
+            "$ref": "#/$defs/chargen_equipment"
+          },
+          "key_connection": {
+            "$ref": "#/$defs/chargen_key_connection"
           }
         },
         "not": {
@@ -307,13 +316,56 @@
               }
             },
             "additionalProperties": false,
-            "description": "Compact reference to the current campaign's immutable Quick-Fire Luck source receipt."
+            "description": "Luck source receipt reference."
           },
           "skill_budget": {
             "$ref": "#/$defs/skill_budget"
           }
         },
         "additionalProperties": true
+      },
+      "chargen_prose": {
+        "type": "string",
+        "minLength": 1
+      },
+      "chargen_backstory": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "personal_description": {"$ref": "#/$defs/chargen_prose"},
+          "ideology_beliefs": {"$ref": "#/$defs/chargen_prose"},
+          "significant_people": {"$ref": "#/$defs/chargen_prose"},
+          "meaningful_locations": {"$ref": "#/$defs/chargen_prose"},
+          "treasured_possessions": {"$ref": "#/$defs/chargen_prose"},
+          "traits": {"$ref": "#/$defs/chargen_prose"},
+          "injuries_scars": {"$ref": "#/$defs/chargen_prose"},
+          "phobias_manias": {"$ref": "#/$defs/chargen_prose"},
+          "encounters": {"$ref": "#/$defs/chargen_prose"},
+          "scenario_bound": {"$ref": "#/$defs/chargen_prose"}
+        }
+      },
+      "chargen_equipment": {
+        "type": "array",
+        "items": {"$ref": "#/$defs/chargen_prose"}
+      },
+      "chargen_key_connection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["backstory_field", "summary"],
+        "properties": {
+          "backstory_field": {
+            "type": "string",
+            "enum": [
+              "personal_description",
+              "ideology_beliefs",
+              "significant_people",
+              "meaningful_locations",
+              "treasured_possessions",
+              "traits"
+            ]
+          },
+          "summary": {"$ref": "#/$defs/chargen_prose"}
+        }
       },
       "complete_sheet": {
         "type": "object",
@@ -444,7 +496,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Narrow guided Quick Fire accounting gate. Runtime derives spent from both per-skill allocation maps, requires package standard-sheet/base reconciliation, checks personal-interest budget against INT*2, and applies the package-owned 75 cap to player-allocated/non-derived starting values. An unallocated formula/characteristic-derived standard base remains authoritative above 75; allocating any points to a derived base already above the cap is rejected explicitly. Occupation eligibility remains semantic Keeper judgment; this does not introduce a second occupation engine."
+        "description": "Guided Quick Fire skill accounting. Runtime owns spent/budget vs INT*2 and the package 75 cap; occupation eligibility stays Keeper judgment."
       }
     }
   }

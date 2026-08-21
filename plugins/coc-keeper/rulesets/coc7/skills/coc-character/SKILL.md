@@ -13,10 +13,9 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
 
 ## Workflows
 
-- **Ordinary KP path (required):** one semantic `coc_chargen_delegate` / `setup.chargen_run` call with name, occupation, optional eight-key `assignment_priority`, optional occupation/interest skill name lists, and default Luck `auto_roll`. Runtime selects `guided_quick_fire` vs `kp_guided_era_adaptive` from campaign era (`standard_sheet` key vs not). KP submits semantic parameters only; dice, point spend, validation, and cap correction stay in Python. Do not hand-assemble `investigator.create` on a standard Quick Fire era to bypass chargen tools. Direct `investigator.create` remains a documented contract for imports, tests, and the runtime-built adaptive branch only — **normal play must not assemble it by hand**.
-- Full guided creation: characteristics, age, occupation, skills, backstory, equipment, derived values.
-- Quick creation: ask for a concept, generate a valid investigator, then ask for confirmation.
-- Immersive guided creation (default recommend for players who do not know COC rules): the entire conversation stays in-fiction. Ask only 1–3 open, prose story questions—who they are / how they make a living, one unforgettable past, why they are drawn in now. Never, at any step, ask the player for mechanical parameters: characteristics, skill points, numbers, rule terms, or an occupation list. Missing pieces are the Keeper's off-table judgment. The player answers in free prose or says they want the Keeper to fill it in. All numbers come from a mechanical seed through the existing rules tools; the player does not roll characteristics. 红线：全程不超游，参数一律幕后派生，绝不向玩家提问数值。 Present the numbered complete sheet only once at the end, then use the confirmation prompt below. Natural-language corrections revise and re-show; then ask again. This path sits beside Full and Quick; it does not replace them.
+- **Ordinary KP path (required):** one semantic `coc_chargen_delegate` / `setup.chargen_run` after the player confirms the draft (same-turn write only when they already gave enough to complete, or explicitly asked to finish now). Submit `name`, `occupation_name`, `occupation_label` (zh-Hans when the catalog key is English), optional age 15–89, optional eight-key `assignment_priority`, optional occupation/interest skill name lists, Luck `auto_roll`, and semantic `backstory`, `equipment`, `key_connection`. Never send `occupation_allocations`, `interest_allocations`, cash, or other numbers. Runtime selects `guided_quick_fire` vs `kp_guided_era_adaptive` from campaign era. Dice, age modifiers (EDU checks `purpose=investigator_creation_characteristic`; 15–19 dual Luck `investigator_creation_luck`), CR cash, `Language (Own)=EDU`, `Dodge=½DEX` stay in Python. half/fifth are card-projection only. Do not hand-assemble `investigator.create` on a standard Quick Fire era. Direct `investigator.create` is for imports/tests/runtime adaptive only.
+- **Single completion path.** There are not two modes. Whatever the player has already stated is a hard constraint: do not overwrite it and do not re-ask it. Fill every still-missing playable dimension (age, a coherent 3–6 strand backstory from the first six p.157 categories, `scenario_bound`, `equipment`, `key_connection`, occupation label). A blank card is only the empty-endpoint of the same path. First table question is **only** 姓名+职业概念. After that answer, never call `coc_chargen_delegate` on that turn. Stay in-fiction; ask at most 1–3 evocative questions, one at a time, only for what is still missing. Do not fill the last three p.157 categories (伤痕、恐惧与躁狂、秘典遭遇) at creation — leave them for play. Do not walk a nine-box form. Star `key_connection` on one first-six field that was actually written. Present the complete draft (no invented dice), confirm, one write, allow one later change, then a separate `setup.complete`.
+- 红线：全程不超游，参数一律幕后派生，绝不向玩家提问数值，也绝不由 KP 把现金/资产/消费水平数字写进委托参数。
 - **Naming craft.** Fit the investigator's name to `campaign.era` and the scenario's place and culture by semantic judgment: a 1920s Boston table uses period-fitting American names; a Chinese given name only when the fiction or background supports it (for example a Chinatown diaspora). 语言≠族裔：`play_language` zh-Hans does not make the character Chinese; names follow in-world culture. If the player only gives a nickname (如「大手」), treat it as a sobriquet: supply an era-and-culture formal name in fiction, and let the player correct it at confirmation—do not force a stock Chinese full name. When rendering a foreign name in zh-Hans, use a proper-character 译名 and, if needed, a reading in parentheses. Avoid stock/cliché names; a mono-cultural setting still varies region, class, or dialect so the table is not one surname. Before locking a name, self-check: 这个名字贴合 era/地域/文化吗？我是不是因为桌面语言是中文就默认了中国名？ Invent names from the Keeper's own knowledge of era, place, and culture; do not rely on a fixed name pool or a copied menu. This is Keeper semantic craft: no keyword/regex gate, no injected random-pool code.
 - After the custom campaign exists and before constructing the final creation
   payload, invoke `coc_invoke` once with
@@ -61,6 +60,25 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `sheet`, and `creation`. Do not send top-level `name`, `occupation`,
   `assignment_order`, or `interest_allocation_intent`.
   `sheet` required keys: `id`, `name`, `skills`, `player_facing_sheet_zh`.
+  Optional roleplay keys on that sheet (ordinary path: pass them on
+  `setup.chargen_run` / `coc_chargen_delegate`, not by hand-assembling create):
+  `backstory` (object; keys only `personal_description`, `ideology_beliefs`,
+  `significant_people`, `meaningful_locations`, `treasured_possessions`,
+  `traits`, `injuries_scars`, `phobias_manias`, `encounters`, `scenario_bound`;
+  values are play_language prose strings or string lists; canonical ideology
+  key is `ideology_beliefs`, never `ideology`), `equipment` (array of
+  era-fitting item strings), and `key_connection` (object with exactly
+  `backstory_field` from the first six p.157 categories — `personal_description`,
+  `ideology_beliefs`, `significant_people`, `meaningful_locations`,
+  `treasured_possessions`, `traits` — plus prose `summary`). That shape is what
+  later SAN self-help consumes. Pass `occupation_label` as zh-Hans when
+  `occupation_name` is a catalog English key. Runtime always writes `Language (Own)` equal to
+  post-age EDU (reskin the label in `skill_provenance` if the table language
+  differs; the machine key stays `Language (Own)`) and `Dodge` equal to
+  ⌊DEX/2⌋ plus any allocated points. Do not write half/fifth into `sheet.skills`.
+  Runtime may also persist `cash`, `assets`, `spending_level`, and
+  `living_standard` from `rules.cash_assets`; KP must not send those keys or any
+  other numeric finance/stat fields.
   `creation` required keys: `input_mode` (`guided_quick_fire`), `method`
   (`quick_fire_array`), `characteristic_assignment_order` (the eight unique
   canonical keys in descending array-slot priority), `skill_budget`, plus
@@ -135,18 +153,27 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   then copy `total`/`roll_id`) remains compatible. Do not invent a second dice
   engine or send `3D6*5`. Investigator concept, assignment, occupation,
   backstory, and final craft remain live semantic Keeper work.
-- During this guided setup window, use `rules.cash_assets` with the confirmed
-  canonical `Credit Rating`; omit `period` to bind the lookup to the canonical
-  campaign era. An explicit period must match that era. A campaign era without
-  an authoritative table still fails closed—never borrow a 1920s table or
-  estimate a numeric amount—but its error exposes the machine-readable
-  `details.cash_semantic_disposition`. In the active
-  `kp_guided_era_adaptive` route only, follow that exact disposition with
-  `state.cash_semantic`: provide a stable `record_id`, `basis` of
-  `module_pregen` or `kp_era_adaptation`, a semantic `reason`, a `decision_id`,
-  and player-safe `cash_description` and/or `assets`. It records only
-  campaign-local KP bookkeeping with `kp_guided`/`cash_semantic` provenance;
-  it cannot alter rule tables or claim a rules-derived cash amount.
+- **Cash and assets are not KP numbers.** `setup.chargen_run` materializes
+  sheet `cash` / `assets` / `spending_level` / `living_standard` from the
+  occupation-allocated `skills["Credit Rating"]` and campaign era through
+  `rules.cash_assets` when that era is `1920s` or `modern`. Do not pass those
+  keys, a top-level `credit_rating`, or any cash amount on the delegate.
+  First-contact reaction still reads `skills["Credit Rating"]`; do not replace
+  that path. During this guided setup window, a later `rules.cash_assets`
+  lookup with the confirmed canonical `Credit Rating` remains valid for
+  table explanation; omit `period` to bind it to the campaign era. An explicit
+  period must match that era. A campaign era without an authoritative table
+  still fails closed—never borrow a 1920s table or estimate a numeric
+  amount—and chargen leaves those sheet finance keys unset. Its error exposes
+  the machine-readable `details.cash_semantic_disposition`. In the active
+  `kp_guided_era_adaptive` route only, **after** the chargen write, follow that
+  exact disposition with `state.cash_semantic`: provide a stable `record_id`,
+  `basis` of `module_pregen` or `kp_era_adaptation`, a semantic `reason`, a
+  `decision_id`, and player-safe `cash_description` and/or `assets`. It records
+  only campaign-local KP bookkeeping with `kp_guided`/`cash_semantic`
+  provenance; it cannot alter rule tables or claim a rules-derived cash amount.
+  Do not call `state.cash_semantic` for `1920s`/`modern`; the sheet already
+  holds the table result.
 - **Confirmation craft.** After presenting the complete investigator, close in the Keeper's own voice and invite confirmation, in campaign `play_language` (default `zh-Hans`). Recommended substance: 「哪里想改，直接说；如果确定，请回复『确定』，我们开始游戏。」 The wording may follow the table's tone. When the player corrects, jokes, hedges, or asks a follow-up, treat the sheet as not yet settled: apply the change, re-show what moved, and ask again in passing. Do not take a correction or a joke as the final nod. This is Keeper craft (should / 应当 / 习惯上); the KP judges meaning. It is not a tool-enforced or blocking gate.
 - After the player confirms the final parameters, reuse the canonical
   `setup.invoke` card already returned by setup inspection and construct its

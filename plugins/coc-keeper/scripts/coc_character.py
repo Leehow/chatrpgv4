@@ -18,6 +18,73 @@ _COC_RULES_SPEC.loader.exec_module(coc_rules)
 
 REQUIRED_CHARACTERISTICS = ("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU")
 ERA_ADAPTIVE_INPUT_MODE = "kp_guided_era_adaptive"
+# Nine p.157 categories plus the campaign-join hook. Matches coc_state.BACKSTORY_FIELDS.
+CHARGEN_BACKSTORY_FIELDS = (
+    "personal_description",
+    "ideology_beliefs",
+    "significant_people",
+    "meaningful_locations",
+    "treasured_possessions",
+    "traits",
+    "injuries_scars",
+    "phobias_manias",
+    "encounters",
+)
+CHARGEN_BACKSTORY_ALLOWED = CHARGEN_BACKSTORY_FIELDS + ("scenario_bound",)
+# Rulebook p.157 starring: only the first six categories may be the key connection.
+CHARGEN_KEY_CONNECTION_FIELDS = CHARGEN_BACKSTORY_FIELDS[:6]
+CHARGEN_AGE_MIN = 15
+CHARGEN_AGE_MAX = 89
+CHARGEN_RUN_REQUIRED = frozenset({
+    "campaign_id", "investigator_id", "name", "occupation_name",
+})
+CHARGEN_RUN_ALLOWED = CHARGEN_RUN_REQUIRED | frozenset({
+    "assignment_priority",
+    "occupation_skill_names",
+    "interest_skill_names",
+    "luck",
+    "age",
+    "backstory",
+    "equipment",
+    "key_connection",
+    "occupation_label",
+})
+CHARGEN_KP_FORBIDDEN_NUMERIC_FIELDS = frozenset({
+    "cash",
+    "assets",
+    "spending_level",
+    "living_standard",
+    "credit_rating",
+    "characteristics",
+    "derived",
+    "skills",
+    "hp",
+    "mp",
+    "san",
+    "luck_roll_total",
+    "occupation_allocations",
+    "interest_allocations",
+})
+_BACKSTORY_ZH_LABELS = {
+    "personal_description": "外貌与来历",
+    "ideology_beliefs": "人格信念",
+    "significant_people": "重要之人",
+    "meaningful_locations": "意义之地",
+    "treasured_possessions": "珍视之物",
+    "traits": "特质",
+    "injuries_scars": "伤痕",
+    "phobias_manias": "恐惧与躁狂",
+    "encounters": "神秘遭遇",
+    "scenario_bound": "如何卷入",
+}
+_LIVING_STANDARD_ZH = {
+    "Penniless": "赤贫",
+    "Poor": "贫穷",
+    "Average": "普通",
+    "Wealthy": "富裕",
+    "Rich": "富有",
+    "Super Rich": "超级富豪",
+}
 ERA_ADAPTIVE_SHEET_REQUIRED = (
     "id", "name", "era", "era_adaptive", "kp_guided", "occupation",
     "characteristics", "derived", "skills", "skill_provenance",
@@ -246,6 +313,16 @@ def materialize_quick_fire_create_sheet(
         if isinstance(age, bool) or not isinstance(age, int):
             raise ValueError("age must be an integer when supplied")
         age_mov_penalty = int(coc_rules.age_adjustment(age).get("mov_penalty", 0))
+        if (
+            "edu_improvement_rolls" in creation
+            or "characteristic_reductions" in creation
+        ):
+            characteristics = apply_chargen_age_to_characteristics(
+                characteristics,
+                age,
+                creation.get("edu_improvement_rolls"),
+                creation.get("characteristic_reductions"),
+            )
     materialized["characteristics"] = characteristics
     materialized["derived"] = derive_values(
         characteristics,
@@ -322,6 +399,369 @@ def apply_age_modifiers(
                 raise ValueError(f"successful EDU improvement_roll must be within {improvement_die}")
             adjusted["EDU"] = min(edu_maximum, adjusted["EDU"] + improvement_amount)
     return adjusted
+
+
+def chargen_characteristic_reductions(age: int) -> list[dict[str, Any]]:
+    """Deterministic STR/CON/DEX/SIZ spend for chargen; KP never chooses amounts."""
+    adjustment = coc_rules.age_adjustment(age)
+    total = int(adjustment.get("characteristic_reduction_total", 0))
+    choices = [
+        str(item)
+        for item in (adjustment.get("characteristic_reduction_choices") or [])
+        if str(item).strip()
+    ]
+    if total == 0:
+        return []
+    if not choices:
+        raise ChargenRunError(
+            "age",
+            "age bracket requires characteristic reductions but lists no choices",
+        )
+    base, extra = divmod(total, len(choices))
+    reductions: list[dict[str, Any]] = []
+    for index, characteristic in enumerate(choices):
+        amount = base + (1 if index < extra else 0)
+        if amount > 0:
+            reductions.append({"characteristic": characteristic, "amount": amount})
+    return reductions
+
+
+def apply_chargen_age_to_characteristics(
+    characteristics: dict[str, int],
+    age: int,
+    edu_improvement_rolls: list[dict[str, Any]] | None = None,
+    characteristic_reductions: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    reductions = (
+        list(characteristic_reductions)
+        if characteristic_reductions is not None
+        else chargen_characteristic_reductions(age)
+    )
+    rolls = list(edu_improvement_rolls or [])
+    try:
+        return apply_age_modifiers(
+            characteristics,
+            age,
+            edu_improvement_rolls=rolls,
+            characteristic_reductions=reductions,
+        )
+    except ValueError as exc:
+        raise ChargenRunError("age", str(exc)) from exc
+
+
+def quick_fire_array_characteristics(
+    assignment_priority: list[str] | None = None,
+) -> dict[str, int]:
+    order = list(assignment_priority or REQUIRED_CHARACTERISTICS)
+    if (
+        len(order) != len(REQUIRED_CHARACTERISTICS)
+        or set(order) != set(REQUIRED_CHARACTERISTICS)
+    ):
+        unrecognized = [
+            str(item)
+            for item in order
+            if str(item) not in REQUIRED_CHARACTERISTICS
+        ]
+        extra = ""
+        if unrecognized:
+            extra = "; unrecognized: " + ", ".join(
+                repr(name) for name in unrecognized
+            )
+        raise ChargenRunError(
+            "assignment",
+            "assignment_priority must list STR, CON, SIZ, DEX, APP, INT, POW, EDU once"
+            + extra,
+            expected={"unrecognized": unrecognized} if unrecognized else None,
+        )
+    method = characteristic_generation_methods().get("quick_fire_array") or {}
+    values = method.get("array")
+    if (
+        not isinstance(values, list)
+        or len(values) != len(REQUIRED_CHARACTERISTICS)
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in values)
+    ):
+        raise ChargenRunError("assignment", "quick_fire_array rule data is invalid")
+    return {key: int(value) for key, value in zip(order, values, strict=True)}
+
+
+def required_edu_improvement_checks(age: int) -> int:
+    return int(coc_rules.age_adjustment(age).get("edu_improvement_checks", 0))
+
+
+def chargen_luck_rolls_keep_highest(age: int) -> int:
+    return max(1, int(coc_rules.age_adjustment(age).get("luck_rolls_keep_highest", 1)))
+
+
+def _chargen_prose_items(value: Any, *, field: str) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ChargenRunError(
+                "backstory",
+                f"backstory.{field} must be non-empty prose",
+            )
+        return [text]
+    if isinstance(value, list):
+        items: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ChargenRunError(
+                    "backstory",
+                    f"backstory.{field} items must be non-empty strings",
+                )
+            items.append(item.strip())
+        if not items:
+            raise ChargenRunError(
+                "backstory",
+                f"backstory.{field} must be non-empty prose",
+            )
+        return items
+    raise ChargenRunError(
+        "backstory",
+        f"backstory.{field} must be prose; KP must not submit numbers",
+    )
+
+
+def normalize_chargen_backstory(backstory: Any) -> dict[str, Any] | None:
+    if backstory is None:
+        return None
+    if not isinstance(backstory, dict):
+        raise ChargenRunError("backstory", "backstory must be an object")
+    unknown = sorted(str(key) for key in backstory if key not in CHARGEN_BACKSTORY_ALLOWED)
+    if unknown:
+        raise ChargenRunError(
+            "backstory",
+            "unsupported backstory keys",
+            expected={
+                "allowed": list(CHARGEN_BACKSTORY_ALLOWED),
+                "unknown": unknown,
+            },
+        )
+    normalized: dict[str, Any] = {}
+    for key, value in backstory.items():
+        if value is None:
+            continue
+        if isinstance(value, bool) or isinstance(value, (int, float)):
+            raise ChargenRunError(
+                "backstory",
+                f"backstory.{key} must be prose; KP must not submit numbers",
+            )
+        items = _chargen_prose_items(value, field=str(key))
+        if key == "scenario_bound":
+            normalized[key] = items[0] if len(items) == 1 else items
+        else:
+            normalized[key] = items[0] if len(items) == 1 else items
+    return normalized or None
+
+
+def normalize_chargen_equipment(equipment: Any) -> list[str] | None:
+    if equipment is None:
+        return None
+    if not isinstance(equipment, list):
+        raise ChargenRunError("equipment", "equipment must be a list of strings")
+    items: list[str] = []
+    for item in equipment:
+        if isinstance(item, bool) or isinstance(item, (int, float)):
+            raise ChargenRunError(
+                "equipment",
+                "equipment entries must be prose strings; KP must not submit numbers",
+            )
+        if not isinstance(item, str) or not item.strip():
+            raise ChargenRunError("equipment", "equipment entries must be non-empty strings")
+        items.append(item.strip())
+    return items
+
+
+def normalize_chargen_key_connection(key_connection: Any) -> dict[str, str] | None:
+    """Persist the healing/SAN self-help star: backstory_field + summary."""
+    if key_connection is None:
+        return None
+    if not isinstance(key_connection, dict):
+        raise ChargenRunError("key_connection", "key_connection must be an object")
+    extra = sorted(
+        str(key) for key in key_connection if key not in {"backstory_field", "summary"}
+    )
+    if extra:
+        raise ChargenRunError(
+            "key_connection",
+            "unsupported key_connection keys",
+            expected={"allowed": ["backstory_field", "summary"], "unknown": extra},
+        )
+    field = key_connection.get("backstory_field")
+    if field not in CHARGEN_KEY_CONNECTION_FIELDS:
+        raise ChargenRunError(
+            "key_connection",
+            "key_connection.backstory_field must be one of the first six p.157 categories",
+            expected={"allowed": list(CHARGEN_KEY_CONNECTION_FIELDS)},
+        )
+    summary = key_connection.get("summary")
+    if isinstance(summary, bool) or isinstance(summary, (int, float)):
+        raise ChargenRunError(
+            "key_connection",
+            "key_connection.summary must be prose; KP must not submit numbers",
+        )
+    if not isinstance(summary, str) or not summary.strip():
+        raise ChargenRunError(
+            "key_connection",
+            "key_connection.summary must be non-empty prose",
+        )
+    return {"backstory_field": str(field), "summary": summary.strip()}
+
+
+def _format_finance_amount(entry: Any) -> str:
+    if not isinstance(entry, dict):
+        return "无"
+    amount = entry.get("amount")
+    if amount is None:
+        return "无"
+    currency = str(entry.get("currency") or "USD")
+    return f"{amount} {currency}"
+
+
+def chargen_cash_from_credit(credit_rating: int, era: str) -> dict[str, Any] | None:
+    try:
+        return coc_rules.cash_and_assets(int(credit_rating), str(era).strip())
+    except ValueError:
+        return None
+
+
+def chargen_player_occupation_label(
+    occupation_name: str,
+    *,
+    occupation_label: Any = None,
+    occupation_value: Any = None,
+) -> str:
+    """Player-facing occupation must be zh-Hans prose, never a catalog English key."""
+    label = occupation_label
+    if label is None:
+        label = ""
+    if not isinstance(label, str):
+        raise ChargenRunError("occupation", "occupation_label must be a string")
+    label = label.strip()
+    machine = occupation_name.strip()
+    if isinstance(occupation_value, dict):
+        machine = str(occupation_value.get("name") or machine).strip()
+    elif isinstance(occupation_value, str) and occupation_value.strip():
+        machine = occupation_value.strip()
+    if label:
+        if label == machine and label.isascii() and lookup_occupation_template(label) is not None:
+            raise ChargenRunError(
+                "occupation",
+                "occupation_label must be player-facing zh-Hans, not the catalog English key",
+            )
+        return label
+    if machine and not machine.isascii():
+        return machine
+    raise ChargenRunError(
+        "occupation",
+        "occupation_label is required when occupation_name is a catalog English key",
+    )
+
+
+def attach_chargen_roleplay(
+    sheet: dict[str, Any],
+    *,
+    backstory: Any = None,
+    equipment: Any = None,
+    key_connection: Any = None,
+    occupation_label: Any = None,
+    era: str = "",
+) -> dict[str, Any]:
+    """Persist KP prose plus rules-owned cash. Does not invent narrative."""
+    attached = json.loads(json.dumps(sheet))
+    normalized_backstory = normalize_chargen_backstory(backstory)
+    normalized_equipment = normalize_chargen_equipment(equipment)
+    normalized_key = normalize_chargen_key_connection(key_connection)
+    if normalized_backstory:
+        attached["backstory"] = normalized_backstory
+    if normalized_equipment:
+        attached["equipment"] = normalized_equipment
+    if normalized_key:
+        field = normalized_key["backstory_field"]
+        if not normalized_backstory or field not in normalized_backstory:
+            raise ChargenRunError(
+                "key_connection",
+                "key_connection.backstory_field must name a backstory entry written this chargen",
+                expected={"required_field": field},
+            )
+        attached["key_connection"] = normalized_key
+    skills = attached.get("skills") if isinstance(attached.get("skills"), dict) else {}
+    credit = skills.get("Credit Rating")
+    finance = None
+    if isinstance(credit, int) and not isinstance(credit, bool):
+        finance = chargen_cash_from_credit(credit, era)
+    if finance is not None:
+        attached["cash"] = finance["cash"]
+        attached["assets"] = finance["assets"]
+        attached["spending_level"] = finance["spending_level"]
+        attached["living_standard"] = finance["living_standard"]
+    player_sheet = attached.get("player_facing_sheet_zh")
+    if not isinstance(player_sheet, dict):
+        player_sheet = {}
+    occupation = attached.get("occupation")
+    if isinstance(occupation, dict):
+        machine_name = str(occupation.get("name") or "").strip()
+    else:
+        machine_name = str(occupation or "").strip()
+    player_sheet["occupation"] = chargen_player_occupation_label(
+        machine_name,
+        occupation_label=occupation_label,
+        occupation_value=occupation,
+    )
+    if attached.get("age") is not None:
+        player_sheet["age"] = attached["age"]
+    details: list[dict[str, Any]] = []
+    if normalized_backstory:
+        for key in CHARGEN_BACKSTORY_ALLOWED:
+            if key not in normalized_backstory:
+                continue
+            raw = normalized_backstory[key]
+            items = raw if isinstance(raw, list) else [raw]
+            details.append({
+                "label": _BACKSTORY_ZH_LABELS.get(key, key),
+                "items": list(items),
+            })
+    if normalized_equipment:
+        details.append({"label": "随身物品", "items": list(normalized_equipment)})
+    if normalized_key:
+        field_label = _BACKSTORY_ZH_LABELS.get(
+            normalized_key["backstory_field"],
+            normalized_key["backstory_field"],
+        )
+        details.append({
+            "label": "关键连结",
+            "items": [f"{field_label}：{normalized_key['summary']}"],
+        })
+    if finance is not None:
+        living = str(finance.get("living_standard") or "")
+        living_zh = _LIVING_STANDARD_ZH.get(living, living)
+        details.append({
+            "label": "财力",
+            "items": [
+                f"生活水平：{living_zh}",
+                f"现金：{_format_finance_amount(finance.get('cash'))}",
+                f"资产：{_format_finance_amount(finance.get('assets'))}",
+                f"消费水平：{_format_finance_amount(finance.get('spending_level'))}",
+            ],
+        })
+    if details:
+        player_sheet["backstory_details"] = details
+        summary_source = None
+        if normalized_backstory:
+            for key in (
+                "personal_description",
+                "scenario_bound",
+                "ideology_beliefs",
+                "traits",
+            ):
+                if key in normalized_backstory:
+                    raw = normalized_backstory[key]
+                    summary_source = raw[0] if isinstance(raw, list) else raw
+                    break
+        if summary_source:
+            player_sheet["backstory_summary"] = str(summary_source)
+    attached["player_facing_sheet_zh"] = player_sheet
+    return attached
 
 
 def validate_character_sheet(sheet: dict) -> list[str]:
@@ -461,7 +901,41 @@ def validate_character_create_sheet(
     if not isinstance(method_id, str) or not method_id.strip():
         errors.append("creation method must be a non-empty string")
         return errors
-    errors.extend(validate_characteristic_generation(method_id, characteristics))
+    age_bundle = (
+        "edu_improvement_rolls" in creation
+        or "characteristic_reductions" in creation
+    )
+    if method_id == "quick_fire_array" and age_bundle:
+        try:
+            base_characteristics = quick_fire_array_characteristics(
+                list(creation.get("characteristic_assignment_order") or [])
+            )
+        except ChargenRunError as exc:
+            errors.append(str(exc))
+            return errors
+        errors.extend(
+            validate_characteristic_generation(method_id, base_characteristics)
+        )
+        age = sheet.get("age")
+        if isinstance(age, bool) or not isinstance(age, int):
+            errors.append("age must be an integer when age modifiers are present")
+            return errors
+        try:
+            adjusted = apply_chargen_age_to_characteristics(
+                base_characteristics,
+                age,
+                creation.get("edu_improvement_rolls"),
+                creation.get("characteristic_reductions"),
+            )
+        except ChargenRunError as exc:
+            errors.append(str(exc))
+            return errors
+        if characteristics != adjusted:
+            errors.append(
+                "age-adjusted characteristics do not match apply_age_modifiers"
+            )
+    else:
+        errors.extend(validate_characteristic_generation(method_id, characteristics))
 
     luck = derived["Luck"]
     age_mov_penalty = 0
@@ -1132,8 +1606,6 @@ def _localized_skill_rows(skills: dict[str, int]) -> list[dict[str, Any]]:
                 )
             ),
             "value": value,
-            "half": value // 2,
-            "fifth": value // 5,
         }
         for skill_id, value in skills.items()
     ]
@@ -1374,39 +1846,22 @@ def build_quick_fire_chargen_payload(
     occupation_allocations: dict[str, int] | None = None,
     interest_allocations: dict[str, int] | None = None,
     age: int = 27,
+    edu_improvement_rolls: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Build compact sheet + creation for investigator.create. No I/O."""
     catalog = _skill_catalog()
     if not catalog:
         raise ChargenRunError("occupation", "canonical skill catalog is unavailable")
     order = list(assignment_priority or REQUIRED_CHARACTERISTICS)
-    if (
-        len(order) != len(REQUIRED_CHARACTERISTICS)
-        or set(order) != set(REQUIRED_CHARACTERISTICS)
-    ):
-        unrecognized = [
-            str(item)
-            for item in order
-            if str(item) not in REQUIRED_CHARACTERISTICS
-        ]
-        extra = ""
-        if unrecognized:
-            extra = "; unrecognized: " + ", ".join(
-                repr(name) for name in unrecognized
-            )
-        raise ChargenRunError(
-            "assignment",
-            "assignment_priority must list STR, CON, SIZ, DEX, APP, INT, POW, EDU once"
-            + extra,
-            expected={"unrecognized": unrecognized} if unrecognized else None,
-        )
-    method = characteristic_generation_methods().get("quick_fire_array") or {}
-    values = method.get("array")
-    if not isinstance(values, list) or len(values) != 8:
-        raise ChargenRunError("assignment", "quick_fire_array rule data is invalid")
-    characteristics = {
-        key: int(value) for key, value in zip(order, values, strict=True)
-    }
+    characteristics = quick_fire_array_characteristics(order)
+    reductions = chargen_characteristic_reductions(age)
+    rolls = list(edu_improvement_rolls or [])
+    characteristics = apply_chargen_age_to_characteristics(
+        characteristics,
+        age,
+        rolls,
+        reductions,
+    )
     found = lookup_occupation_template(occupation_name)
     if found is None and not occupation_skill_names:
         raise ChargenRunError(
@@ -1506,7 +1961,9 @@ def build_quick_fire_chargen_payload(
         )
         or []
     )
-    required = set(default_ids) | set(occ_alloc) | set(int_alloc)
+    required = set(default_ids) | set(occ_alloc) | set(int_alloc) | {
+        skill_id for skill_id in ("Dodge", "Language (Own)") if skill_id in catalog
+    }
     skills: dict[str, int] = {}
     for skill_id in catalog:
         if skill_id not in required:
@@ -1529,6 +1986,8 @@ def build_quick_fire_chargen_payload(
         "characteristic_assignment_order": order,
         "luck": {"mode": "auto_roll"},
         "occupation": {"name": occ_key, "skill_point_formula": formula},
+        "edu_improvement_rolls": rolls,
+        "characteristic_reductions": reductions,
         "skill_budget": {
             "occupation_points": {
                 "budget": occ_budget,
@@ -1561,6 +2020,7 @@ def build_era_adaptive_chargen_payload(
     occupation_skill_names: list[str] | None = None,
     interest_skill_names: list[str] | None = None,
     age: int = 27,
+    edu_improvement_rolls: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Build KP-semantic era-adaptive create sheet. Numbers stay system-owned."""
     era_key = str(era or "").strip()
@@ -1594,6 +2054,7 @@ def build_era_adaptive_chargen_payload(
                 occupation_skill_names=occ_names,
                 interest_skill_names=interest_names,
                 age=age,
+                edu_improvement_rolls=edu_improvement_rolls,
             )
             break
         except ChargenRunError as exc:
@@ -1618,9 +2079,11 @@ def build_era_adaptive_chargen_payload(
             "luck_roll_receipt requires campaign_id, decision_id, and roll_id",
         )
     characteristics = meta["characteristics"]
+    age_mov_penalty = int(coc_rules.age_adjustment(age).get("mov_penalty", 0))
     derived = derive_values(
         characteristics,
         luck=luck_roll_total * characteristic_generation_multiplier(),
+        age_mov_penalty=age_mov_penalty,
     )
     occ_key = str(meta["occupation_key"])
     formula = str(meta["formula"])
@@ -1698,6 +2161,12 @@ def build_era_adaptive_chargen_payload(
         "luck_roll_total": luck_roll_total,
         "luck_roll_receipt": dict(luck_roll_receipt),
         "occupation": occupation_obj,
+        "edu_improvement_rolls": list(
+            creation_qf.get("edu_improvement_rolls") or []
+        ),
+        "characteristic_reductions": list(
+            creation_qf.get("characteristic_reductions") or []
+        ),
         "skill_budget": creation_qf["skill_budget"],
     }
     return sheet, creation, meta

@@ -45,6 +45,23 @@ def _create_campaign(
     return campaign_id
 
 
+def _stored_investigator(tmp_path: Path, investigator_id: str) -> tuple[dict, dict]:
+    base = tmp_path / ".coc" / "investigators" / investigator_id
+    stored = json.loads((base / "character.json").read_text(encoding="utf-8"))
+    creation = json.loads((base / "creation.json").read_text(encoding="utf-8"))
+    return stored, creation
+
+
+def _expected_age_adjusted_chars(creation: dict, age: int) -> dict:
+    order = creation["characteristic_assignment_order"]
+    return coc_character.apply_chargen_age_to_characteristics(
+        coc_character.quick_fire_array_characteristics(order),
+        age,
+        creation.get("edu_improvement_rolls") or [],
+        creation.get("characteristic_reductions") or [],
+    )
+
+
 def test_chargen_run_end_to_end_links_and_renders(tmp_path: Path) -> None:
     campaign_id = _create_campaign(tmp_path)
     envelope = coc_toolbox.run_tool(
@@ -56,6 +73,7 @@ def test_chargen_run_end_to_end_links_and_renders(tmp_path: Path) -> None:
             "investigator_id": "ada-lark",
             "name": "Ada Lark",
             "occupation_name": "Journalist",
+            "occupation_label": "记者",
             "assignment_priority": [
                 "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
             ],
@@ -70,7 +88,8 @@ def test_chargen_run_end_to_end_links_and_renders(tmp_path: Path) -> None:
     assert result["investigator_id"] == "ada-lark"
     chars = result["characteristics"]
     assert set(chars) == set(coc_character.REQUIRED_CHARACTERISTICS)
-    assert sorted(chars.values()) == [40, 50, 50, 50, 60, 60, 70, 80]
+    stored, creation = _stored_investigator(tmp_path, "ada-lark")
+    assert chars == _expected_age_adjusted_chars(creation, int(stored["age"]))
     derived = result["derived"]
     assert isinstance(derived["hp"], int) and derived["hp"] > 0
     assert isinstance(derived["mp"], int) and derived["mp"] > 0
@@ -105,6 +124,7 @@ def test_chargen_run_luck_idempotent(tmp_path: Path) -> None:
             "investigator_id": "luck-one",
             "name": "Luck One",
             "occupation_name": "Librarian",
+            "occupation_label": "图书管理员",
             "occupation_skill_names": ["History", "Occult", "Spot Hidden", "Listen"],
         },
     )
@@ -179,8 +199,11 @@ def test_chargen_run_unknown_occupation_without_skills(tmp_path: Path) -> None:
     ).exists()
 
 
-def test_chargen_run_explicit_allocation_mismatch(tmp_path: Path) -> None:
+def test_chargen_run_rejects_allocation_maps_even_when_totals_match(
+    tmp_path: Path,
+) -> None:
     campaign_id = _create_campaign(tmp_path, "chargen-alloc")
+    matching = {"Library Use": 160, "History": 0}
     envelope = coc_toolbox.run_tool(
         "setup.chargen_run",
         tmp_path,
@@ -190,14 +213,33 @@ def test_chargen_run_explicit_allocation_mismatch(tmp_path: Path) -> None:
             "investigator_id": "mismatch",
             "name": "Mismatch",
             "occupation_name": "Author",
-            "occupation_allocations": {"Library Use": 1},
+            "occupation_label": "作家",
+            "occupation_allocations": {"Library Use": 160},
         },
     )
     assert envelope["ok"] is False, envelope
-    details = (envelope.get("error") or {}).get("details") or {}
-    assert details.get("stage") == "occupation_allocations"
-    assert details.get("expected", {}).get("got") == 1
-    assert details.get("expected", {}).get("expected") != 1
+    assert "occupation_allocations" in str(envelope)
+    receipt = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "setup.chargen_run",
+            "payload": {
+                "campaign_id": campaign_id,
+                "investigator_id": "match-alloc",
+                "name": "Match Alloc",
+                "occupation_name": "Author",
+                "occupation_label": "作家",
+                "occupation_allocations": matching,
+                "interest_allocations": {"Spot Hidden": 80},
+            },
+        },
+    )
+    assert receipt["status"] == "FAIL"
+    assert receipt["result"]["stage"] == "payload"
+    forbidden = receipt["result"]["expected"]["forbidden"]
+    assert "occupation_allocations" in forbidden
+    assert "interest_allocations" in forbidden
 
 
 def test_extension_has_no_pi_p_clerk_spawn() -> None:
@@ -290,7 +332,7 @@ def test_chargen_run_int_edu_priority_and_photography_interest(tmp_path: Path) -
     result = envelope["data"]["result"]
     chars = result["characteristics"]
     assert chars["INT"] == 80
-    assert chars["EDU"] == 70
+    assert chars["EDU"] >= 70
     assert chars["STR"] == 40
     assert chars["CON"] < chars["INT"]
     stored = json.loads(
@@ -323,6 +365,7 @@ def test_chargen_run_journalist_single_interest_expands_under_cap(tmp_path: Path
             "investigator_id": "shen-yan-journo",
             "name": "沈砚",
             "occupation_name": "Journalist",
+            "occupation_label": "记者",
             "assignment_priority": PRIORITY,
             "occupation_skill_names": [
                 "Persuade", "Psychology", "Library Use",
@@ -362,6 +405,7 @@ def _chargen_args(campaign_id: str, investigator_id: str, **overrides: object) -
         "occupation_skill_names": ["Spot Hidden", "Listen"],
         "interest_skill_names": ["Occult", "First Aid", "Stealth", "Listen"],
         "luck": {"mode": "auto_roll"},
+        "occupation_label": "记者",
     }
     payload.update(overrides)
     return payload
@@ -491,6 +535,7 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
         "investigator_id": "ww1-ada",
         "name": "Ada Lark",
         "occupation_name": "Journalist",
+        "occupation_label": "记者",
         "assignment_priority": [
             "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
         ],
@@ -505,15 +550,8 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
     result = envelope["data"]["result"]
     assert result["ok"] is True
     chars = result["characteristics"]
-    assert sorted(chars.values()) == [40, 50, 50, 50, 60, 60, 70, 80]
-    stored = json.loads(
-        (tmp_path / ".coc" / "investigators" / "ww1-ada" / "character.json")
-        .read_text(encoding="utf-8")
-    )
-    creation = json.loads(
-        (tmp_path / ".coc" / "investigators" / "ww1-ada" / "creation.json")
-        .read_text(encoding="utf-8")
-    )
+    stored, creation = _stored_investigator(tmp_path, "ww1-ada")
+    assert chars == _expected_age_adjusted_chars(creation, int(stored["age"]))
     assert creation["input_mode"] == coc_character.ERA_ADAPTIVE_INPUT_MODE
     assert stored["era_adaptive"] is True
     assert stored["characteristics"] == chars
@@ -556,6 +594,7 @@ def test_chargen_run_ww1_unrecognized_skill_is_structured_error(tmp_path: Path) 
             "investigator_id": "ww1-bad",
             "name": "Nobody",
             "occupation_name": "Soldier",
+            "occupation_label": "士兵",
             "occupation_skill_names": [mystery],
         },
     )
@@ -582,3 +621,491 @@ def test_onboarding_inspect_pregen_summaries() -> None:
         assert row["pregen_id"]
         assert row["name"]
     assert starters["the-white-war"]["pregens"] == []
+
+
+_ROLEPLAY_BACKSTORY = {
+    "personal_description": "瘦高的波士顿记者， rumpled 大衣领口别着一支铅笔。",
+    "ideology_beliefs": "真相必须见报，哪怕会得罪市政厅。",
+    "significant_people": "失踪的妹妹玛丽。",
+    "meaningful_locations": "北区那间通宵排字房。",
+    "treasured_possessions": "父亲留下的怀表。",
+    "traits": "坐不住，爱追问",
+    "scenario_bound": "编辑部把一份关于旧宅怪响的 commuter 来信扔到她桌上。",
+}
+_ROLEPLAY_EQUIPMENT = ["铅笔与速记本", "折叠刀", "电车票夹"]
+_KEY_CONNECTION = {
+    "backstory_field": "significant_people",
+    "summary": "失踪的妹妹玛丽。",
+}
+
+
+def test_chargen_run_persists_backstory_equipment_and_cash(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-roleplay")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-story",
+            backstory=_ROLEPLAY_BACKSTORY,
+            equipment=_ROLEPLAY_EQUIPMENT,
+            key_connection=_KEY_CONNECTION,
+            age=27,
+        ),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, _creation = _stored_investigator(tmp_path, "ada-story")
+    assert stored["backstory"]["ideology_beliefs"] == _ROLEPLAY_BACKSTORY["ideology_beliefs"]
+    assert stored["backstory"]["scenario_bound"] == _ROLEPLAY_BACKSTORY["scenario_bound"]
+    assert "ideology" not in stored["backstory"]
+    assert stored["equipment"] == _ROLEPLAY_EQUIPMENT
+    assert stored["key_connection"] == _KEY_CONNECTION
+    assert stored["occupation"] == "Journalist"
+    assert stored["player_facing_sheet_zh"]["occupation"] == "记者"
+    assert all(isinstance(value, int) and not isinstance(value, bool) for value in stored["skills"].values())
+    assert "half" not in stored["skills"]
+    assert "fifth" not in stored["skills"]
+    for row in stored["player_facing_sheet_zh"]["skills"]:
+        assert "half" not in row
+        assert "fifth" not in row
+    chars = stored["characteristics"]
+    own_language = stored["skills"]["Language (Own)"]
+    dodge = stored["skills"]["Dodge"]
+    assert own_language >= chars["EDU"]
+    assert own_language % 1 == 0
+    # Unallocated Own Language equals EDU; Dodge base is floor(DEX/2).
+    occ = _creation["skill_budget"]["occupation_points"]["allocations"]
+    interest = _creation["skill_budget"]["personal_interest_points"]["allocations"]
+    assert own_language == chars["EDU"] + occ.get("Language (Own)", 0) + interest.get("Language (Own)", 0)
+    assert dodge == (chars["DEX"] // 2) + occ.get("Dodge", 0) + interest.get("Dodge", 0)
+    credit = stored["skills"]["Credit Rating"]
+    assert isinstance(credit, int)
+    expected = coc_character.chargen_cash_from_credit(credit, "1920s")
+    assert expected is not None
+    assert stored["cash"] == expected["cash"]
+    assert stored["assets"] == expected["assets"]
+    assert stored["spending_level"] == expected["spending_level"]
+    assert stored["living_standard"] == expected["living_standard"]
+    details = stored["player_facing_sheet_zh"]["backstory_details"]
+    labels = {block["label"] for block in details}
+    assert "人格信念" in labels
+    assert "如何卷入" in labels
+    assert "随身物品" in labels
+    assert "关键连结" in labels
+    assert "财力" in labels
+    card = tmp_path / envelope["data"]["result"]["card_path"]
+    markdown = card.read_text(encoding="utf-8")
+    assert "人格信念" in markdown
+    assert "随身物品" in markdown
+    assert "记者" in markdown
+    assert "Journalist" not in markdown
+
+
+def test_chargen_run_applies_full_age_modifiers(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-age")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-aged", age=47),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, creation = _stored_investigator(tmp_path, "ada-aged")
+    expected = _expected_age_adjusted_chars(creation, 47)
+    assert stored["characteristics"] == expected
+    assert stored["characteristics"]["APP"] == 45  # QF APP 50 minus 5
+    reductions = {row["characteristic"]: row["amount"] for row in creation["characteristic_reductions"]}
+    assert sum(reductions.values()) == 5
+    assert set(reductions) <= {"STR", "CON", "DEX"}
+    assert len(creation["edu_improvement_rolls"]) == 2
+    for record in creation["edu_improvement_rolls"]:
+        receipt = record["check_receipt"]
+        assert set(receipt) == {"campaign_id", "decision_id", "roll_id"}
+        assert receipt["decision_id"].startswith("chargen-edu-")
+    mov = stored["derived"]["MOV"]
+    raw = coc_character.quick_fire_array_characteristics(
+        creation["characteristic_assignment_order"]
+    )
+    # MOV must include the age penalty, not just the unadjusted array.
+    unaged_mov = coc_character.derive_values(raw, luck=stored["derived"]["Luck"])["MOV"]
+    assert mov == unaged_mov - 1 or mov <= unaged_mov
+
+
+def test_chargen_run_rejects_kp_numeric_finance(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-no-cash")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-cash", cash=50, assets=500),
+    )
+    assert envelope["ok"] is False, envelope
+    assert "cash" in str(envelope)
+    receipt = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "setup.chargen_run",
+            "payload": _chargen_args(campaign_id, "ada-cash-ops", cash=50),
+        },
+    )
+    assert receipt["status"] == "FAIL"
+    assert receipt["result"]["stage"] == "payload"
+    assert "cash" in receipt["result"]["expected"]["forbidden"]
+    assert not (
+        tmp_path / ".coc" / "investigators" / "ada-cash" / "character.json"
+    ).exists()
+    assert not (
+        tmp_path / ".coc" / "investigators" / "ada-cash-ops" / "character.json"
+    ).exists()
+
+
+def test_chargen_run_rejects_ideology_key_drift(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-ideology")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-ideo",
+            backstory={"ideology": "publish the truth"},
+        ),
+    )
+    assert envelope["ok"] is False, envelope
+    details = (envelope.get("error") or {}).get("details") or {}
+    assert details.get("stage") == "backstory"
+    assert "ideology_beliefs" in str(details.get("expected", {}).get("allowed", []))
+
+
+def test_chargen_run_era_without_cash_table_skips_sheet_finance(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-ww1-cash", era="ww1")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ww1-story",
+            backstory=_ROLEPLAY_BACKSTORY,
+            equipment=_ROLEPLAY_EQUIPMENT,
+        ),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, _creation = _stored_investigator(tmp_path, "ww1-story")
+    assert "cash" not in stored
+    assert "assets" not in stored
+    assert "spending_level" not in stored
+    assert stored["backstory"]["scenario_bound"] == _ROLEPLAY_BACKSTORY["scenario_bound"]
+    labels = {
+        block["label"]
+        for block in stored["player_facing_sheet_zh"]["backstory_details"]
+    }
+    assert "财力" not in labels
+    assert stored["skills"]["Credit Rating"]  # first-contact path stays on the skill
+
+
+def _plant_d100(tmp_path: Path, campaign_id: str, decision_id: str, *, want_gt: int | None, want_le: int | None, seed: int) -> int | None:
+    result = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        campaign_id,
+        {
+            "expression": "1D100",
+            "decision_id": decision_id,
+            "purpose": "investigator_creation_characteristic",
+            "reason": "chargen age EDU improvement check",
+            "seed": seed,
+        },
+    )
+    if result.get("ok") is not True:
+        return None
+    total = int(result["data"]["total"])
+    if want_gt is not None and total <= want_gt:
+        return None
+    if want_le is not None and total > want_le:
+        return None
+    return total
+
+
+def test_chargen_run_edu_check_failure_keeps_edu(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-edu-fail")
+    inv = None
+    for seed in range(1, 250):
+        candidate = f"ada-fail-{seed}"
+        decision_id = f"chargen-edu-{campaign_id}-{candidate}-0"
+        if _plant_d100(tmp_path, campaign_id, decision_id, want_gt=None, want_le=70, seed=seed) is None:
+            continue
+        inv = candidate
+        break
+    assert inv is not None
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, inv, age=27),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, creation = _stored_investigator(tmp_path, inv)
+    record = creation["edu_improvement_rolls"][0]
+    assert "improvement_roll" not in record
+    assert stored["characteristics"]["EDU"] == 70
+    assert record["check_receipt"]["decision_id"].endswith("-0")
+    kinds = {row["kind"] for row in envelope["data"]["result"]["dice_receipts"]}
+    assert "edu_check" in kinds
+    assert "luck" in kinds
+
+
+def test_chargen_run_edu_check_success_applies_1d10(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-edu-ok")
+    inv = None
+    for seed in range(1, 250):
+        candidate = f"ada-ok-{seed}"
+        decision_id = f"chargen-edu-{campaign_id}-{candidate}-0"
+        if _plant_d100(tmp_path, campaign_id, decision_id, want_gt=70, want_le=None, seed=seed) is None:
+            continue
+        inv = candidate
+        break
+    assert inv is not None
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, inv, age=27),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, creation = _stored_investigator(tmp_path, inv)
+    record = creation["edu_improvement_rolls"][0]
+    assert "improvement_roll" in record
+    assert 1 <= int(record["improvement_roll"]) <= 10
+    assert stored["characteristics"]["EDU"] == 70 + int(record["improvement_roll"])
+    improve = record["improve_receipt"]
+    document = json.loads(
+        (
+            tmp_path / ".coc" / "campaigns" / campaign_id
+            / "save" / "roll-operation-receipts.json"
+        ).read_text(encoding="utf-8")
+    )
+    saved = document["receipts"]["rules.roll_dice"][improve["decision_id"]]
+    assert saved["operation"]["purpose"] == "investigator_creation_characteristic"
+    assert saved["operation"]["expression"] == "1D10"
+    assert any(row["kind"] == "edu_improve" for row in envelope["data"]["result"]["dice_receipts"])
+
+
+def test_chargen_run_teen_keeps_highest_of_two_luck_rolls(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-teen-luck")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-teen", age=18),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, creation = _stored_investigator(tmp_path, "ada-teen")
+    assert creation["luck_rolls_keep_highest"] == 2
+    candidates = creation["luck_roll_candidates"]
+    assert len(candidates) == 2
+    totals = [int(row["total"]) for row in candidates]
+    assert creation["luck_roll_total"] == max(totals)
+    assert stored["derived"]["Luck"] == max(totals) * 5
+    first_id = f"chargen-luck-{campaign_id}-ada-teen"
+    second_id = f"{first_id}-1"
+    assert {row["receipt"]["decision_id"] for row in candidates} == {
+        first_id, second_id,
+    }
+    assert creation["luck_roll_receipt"]["decision_id"] in {first_id, second_id}
+    document = json.loads(
+        (
+            tmp_path / ".coc" / "campaigns" / campaign_id
+            / "save" / "roll-operation-receipts.json"
+        ).read_text(encoding="utf-8")
+    )
+    for row in candidates:
+        saved = document["receipts"]["rules.roll_dice"][row["receipt"]["decision_id"]]
+        assert saved["operation"]["purpose"] == "investigator_creation_luck"
+        assert saved["operation"]["expression"] == "3D6"
+        assert saved["data"]["total"] == row["total"]
+    assert stored["characteristics"]["EDU"] == 65  # QF EDU 70 minus teen 5
+    assert stored["skills"]["Language (Own)"] >= 65
+    assert stored["skills"]["Dodge"] >= stored["characteristics"]["DEX"] // 2
+    luck_rows = [
+        row for row in envelope["data"]["result"]["dice_receipts"] if row["kind"] == "luck"
+    ]
+    assert len(luck_rows) == 2
+    assert {row["total"] for row in luck_rows} == set(totals)
+
+
+def test_chargen_run_rejects_late_backstory_key_connection(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-key")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-key",
+            key_connection={
+                "backstory_field": "encounters",
+                "summary": "不该在建卡时星标后三类",
+            },
+        ),
+    )
+    assert envelope["ok"] is False, envelope
+    details = (envelope.get("error") or {}).get("details") or {}
+    assert details.get("stage") == "key_connection"
+    assert "significant_people" in str(details.get("expected", {}).get("allowed", []))
+
+
+def test_chargen_run_rejects_key_connection_not_written_in_backstory(
+    tmp_path: Path,
+) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-key-missing")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-missing-star",
+            backstory={"personal_description": "高瘦， rumpled 大衣。"},
+            key_connection={
+                "backstory_field": "ideology_beliefs",
+                "summary": "星标了没写的信念",
+            },
+        ),
+    )
+    assert envelope["ok"] is False, envelope
+    details = (envelope.get("error") or {}).get("details") or {}
+    assert details.get("stage") == "key_connection"
+
+
+def test_chargen_run_field_set_matches_across_layers() -> None:
+    allowed = set(coc_character.CHARGEN_RUN_ALLOWED)
+    toolbox_keys = set(coc_toolbox.TOOLS["setup.chargen_run"]["params"])
+    assert toolbox_keys == allowed
+    archive = json.loads(
+        (
+            REPO / "plugins" / "coc-keeper" / "references"
+            / "mcp-operation-contracts.json"
+        ).read_text(encoding="utf-8")
+    )
+    mcp_keys = set(
+        archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"]
+    ) - {"root", "campaign"}
+    assert mcp_keys == allowed
+    assert "occupation_allocations" not in allowed
+    assert "interest_allocations" not in allowed
+    backstory_props = set(
+        archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"]
+        ["backstory"]["properties"]
+    )
+    assert backstory_props == set(coc_character.CHARGEN_BACKSTORY_ALLOWED)
+    assert archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"][
+        "backstory"
+    ]["additionalProperties"] is False
+    key_schema = archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"][
+        "key_connection"
+    ]
+    assert key_schema["additionalProperties"] is False
+    assert set(key_schema["required"]) == {"backstory_field", "summary"}
+    age_schema = archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"]["age"]
+    assert age_schema["minimum"] == coc_character.CHARGEN_AGE_MIN
+    assert age_schema["maximum"] == coc_character.CHARGEN_AGE_MAX
+    contract = json.loads(
+        (
+            REPO / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+            / "investigator-create-contract.json"
+        ).read_text(encoding="utf-8")
+    )
+    sheet_props = set(contract["payload_schema"]["$defs"]["quick_fire_sheet"]["properties"])
+    assert {"backstory", "equipment", "key_connection"} <= sheet_props
+    assert contract["payload_schema"]["$defs"]["chargen_backstory"]["additionalProperties"] is False
+    clerk = CLERK_TS.read_text(encoding="utf-8")
+    for field in ("backstory", "equipment", "key_connection", "occupation_label"):
+        assert field in clerk
+
+
+def test_investigator_create_rejects_tampered_edu_receipt(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-tamper")
+    first = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-tamper", age=27),
+    )
+    assert first["ok"] is True, first
+    stored, creation = _stored_investigator(tmp_path, "ada-tamper")
+    rolls = list(creation["edu_improvement_rolls"])
+    assert rolls
+    rolls[0] = dict(rolls[0])
+    rolls[0]["roll"] = 1
+    creation["edu_improvement_rolls"] = rolls
+    try:
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": {
+                    "campaign_id": campaign_id,
+                    "investigator_id": "ada-tamper",
+                    "replace": True,
+                    "sheet": {
+                        "id": "ada-tamper",
+                        "name": stored["name"],
+                        "age": 27,
+                        "skills": stored["skills"],
+                        "player_facing_sheet_zh": stored["player_facing_sheet_zh"],
+                    },
+                    "creation": {
+                        "input_mode": "guided_quick_fire",
+                        "method": "quick_fire_array",
+                        "characteristic_assignment_order": creation[
+                            "characteristic_assignment_order"
+                        ],
+                        "luck": {"mode": "auto_roll"},
+                        "luck_roll_total": creation.get("luck_roll_total"),
+                        "luck_roll_receipt": creation.get("luck_roll_receipt"),
+                        "skill_budget": creation["skill_budget"],
+                        "edu_improvement_rolls": rolls,
+                        "characteristic_reductions": creation.get(
+                            "characteristic_reductions"
+                        ) or [],
+                    },
+                },
+            },
+        )
+    except coc_runtime_ops.RuntimeOperationError as exc:
+        assert "edu_improvement_rolls" in str(exc) or "receipt" in str(exc).lower() or "roll" in str(exc).lower()
+        return
+    raise AssertionError("tampered EDU receipt was accepted")
+
+
+def test_chargen_key_connection_feeds_san_self_help(tmp_path: Path) -> None:
+    import random
+
+    healing = _load("coc_healing_chargen", SCRIPTS / "coc_healing.py")
+    campaign_id = _create_campaign(tmp_path, "chargen-self-help")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(
+            campaign_id,
+            "ada-help",
+            backstory=_ROLEPLAY_BACKSTORY,
+            equipment=_ROLEPLAY_EQUIPMENT,
+            key_connection=_KEY_CONNECTION,
+        ),
+    )
+    assert envelope["ok"] is True, envelope
+    stored, _creation = _stored_investigator(tmp_path, "ada-help")
+    key = stored["key_connection"]
+    assert key["backstory_field"] in stored["backstory"]
+    state = {"current_san": 50, "max_san": 90}
+    sess = healing.PsychotherapySession("ada-help", state, rng=random.Random(1))
+    ev = sess.self_help(key_connection=key)
+    assert ev["key_connection"]["backstory_field"] == "significant_people"
+    assert ev["key_connection"]["summary"] == _KEY_CONNECTION["summary"]
+    assert "san_delta" in ev

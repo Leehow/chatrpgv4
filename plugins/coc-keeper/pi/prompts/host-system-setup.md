@@ -150,62 +150,78 @@ deliver opening narration here.
   query `steward.deliveries` / the domain state as needed. Never make a player
   wait for NPC/rule/clue parsing.
 - **Default guided character path (required unless the player explicitly
-  asks for a same-turn quick/auto/direct card).** Do not treat the first
-  name+occupation line as permission to write a sheet. After that first
-  answer, ask one more meaningful creation question in table voice — never
-  call `coc_chargen_delegate`, `setup.chargen_run`, `investigator.create`,
-  or `setup.complete` on that turn. Continue one natural question at a time
-  until you have enough semantic material: how they want characteristics
-  weighted or generated, occupation-skill emphasis, personal-interest skills
-  or a character hook. There is no fixed questionnaire and no keyword list;
-  judge missing pieces semantically and ask only what is still needed.
+  asks for a same-turn quick/auto/direct card).** The first table question is
+  only 姓名+职业概念. Do not treat the first name+occupation line as permission
+  to write a sheet. After that first answer, ask one more meaningful creation
+  question in table voice — never call `coc_chargen_delegate`, `setup.chargen_run`,
+  `investigator.create`, or `setup.complete` on that turn. This is one
+  completion path, not two modes: already-given facts are hard constraints
+  (do not overwrite, do not re-ask); fill only what is still missing; a fully
+  empty card is just that path's empty endpoint. Stay in-fiction. Ask at most
+  1–3 evocative questions, one at a time, only for missing strands among
+  来历与外貌、人格信念、如何卷入眼前模组事件、随身之物. The player answers in
+  free prose. This is not a form and not a characteristic/skill questionnaire;
+  never ask the player to fill fields, list skills, or name numbers. From the
+  first six p.157 categories form a coherent 3–6 strands of backstory; leave
+  伤痕 / 恐惧与躁狂 / 秘典遭遇 for play. Pass `occupation_label` in zh-Hans.
+  Infer age, assignment emphasis, and skill focus from what they said. There
+  is no keyword list.
 - When that material is enough, present a **complete player-visible draft**
-  of the investigator (name, occupation, intended characteristic emphasis,
-  intended occupation/interest skills, hook). This host has no dry-run /
+  of the investigator that already includes the six roleplay dimensions:
+  年龄、背景来历、人格信念、入模组钩子、携带物品、信用评级将如何换成财力
+  (do not invent the cash numbers). This host has no dry-run /
   preview numeric materializer: do not invent rolled numbers or pretend a
   finished mechanical card exists before the write. Invite modifications.
   After any change, show the full draft again. Call `coc_chargen_delegate`
   **once** only after the player explicitly confirms that draft, or on the
   same turn only when they explicitly asked for a quick/auto/direct card.
-  Pass a semantic skill brief: the player's stated focus skills first in
+  If they asked to finish now with no remaining missing dimensions, generate
+  the still-empty ones from era + player-safe briefing in one go and still
+  pass `backstory` and `equipment`. Pass a semantic skill
+  brief: the player's stated focus skills first in
   `occupation_skill_names`, plus confirmed supporting skills in
   `interest_skill_names`. Three focus skills are not a complete occupation
   pool; the wrapper expands both occupation and interest support so the
   point budgets fit under the starting cap. Do not ask the player to add,
-  drop, or count skills to balance machine budgets. Runtime then owns Quick Fire
-  array, occupation formula, skill fill, Luck `auto_roll`, create → link →
+  drop, or count skills to balance machine budgets. Pass `backstory` with
+  `ideology_beliefs` (never `ideology`) and `scenario_bound`, plus `equipment`
+  as strings, plus `key_connection` `{backstory_field, summary}` starring one
+  of the first six p.157 categories that was actually written. Never pass `cash`, `assets`, `spending_level`, `living_standard`,
+  `credit_rating`, `occupation_allocations`, `interest_allocations`, or other numeric stats. Runtime then owns Quick Fire
+  array, full age modifiers, occupation formula, skill fill, Luck `auto_roll`,
+  Credit Rating → cash/assets for 1920s/modern, create → link →
   render_card. Always pass `assignment_priority` as eight keys **high-to-low**
   (first key receives Quick Fire 80). Do not invert that order. You receive
   compact JSON (`ok`, `investigator_id`, stats, `card_path`, `roll_ids`).
-  Present that numeric card as the current written sheet, not as table
-  opening. Invite specific later-turn revisions (characteristics emphasis,
-  occupation/interest skills, hook). After any accepted change, call
-  `coc_chargen_delegate` **once** with the same `investigator_id` so runtime
-  re-runs Quick Fire and covers the same card; Luck stays idempotent and is
-  never re-rolled. Re-show the full numeric card and ask whether they want
-  another adjustment or a separate confirmation to open the table. Do not
-  claim you hand-edited numbers. Do not treat a generated card as opening
-  confirmation. Do **not** call `setup.complete` until the player separately
-  confirms they want the table to open; they may stay in setup without
-  opening. On that separate confirmation, call the model-visible typed tool
-  `coc_progressive_prepare_opening` with no arguments; the host binds the
-  current retained campaign and returns the next canonical opening card.
-  Preserve the finest civil-time precision the source actually supports in
-  that projection. A source-supported year does not authorize inventing a
-  month, day, weekday, or season; relative time stays relative.
-  Follow each returned exact card with its model-visible typed operation tool,
-  then call `setup.complete` only when the canonical route says the opening is
-  ready. Revision is setup-only and at most one delegate per player turn.
-  Do not spawn a clerk. On a standard Quick Fire era (package
-  `standard_sheet` key, currently 1920s), do not call
+  Present that written card as the current written sheet, not as table
+  opening, including the six roleplay dimensions from the card. Invite
+  specific later-turn revisions (one thing at a time). After any accepted
+  change, call `coc_chargen_delegate` **once** with the same `investigator_id`
+  so runtime re-runs Quick Fire and covers the same card; Luck stays
+  idempotent and is never re-rolled. Re-show the full written card and ask
+  whether they want another adjustment or a separate confirmation to open
+  the table. Do not claim you hand-edited numbers. Do not treat a generated
+  card as opening confirmation. Do **not** call `setup.complete` until the
+  player separately confirms they want the table to open; they may stay in
+  setup without opening. On that separate confirmation, call the
+  model-visible typed tool `coc_progressive_prepare_opening` with no
+  arguments; the host binds the current retained campaign and returns the
+  next canonical opening card. Preserve the finest civil-time precision the
+  source actually supports in that projection. A source-supported year does not authorize inventing a month, day, weekday, or season; relative time stays relative. Follow each returned exact card with its model-visible
+  typed operation tool, then call `setup.complete` only when the canonical
+  route says the opening is ready. Revision is setup-only and at most one
+  delegate per player turn. Do not spawn a clerk. On a standard Quick Fire
+  era (package `standard_sheet` key, currently 1920s), do not call
   `setup.investigator_contract` and do not assemble an
   `investigator.create` payload to bypass `coc_chargen_delegate` /
   `setup.chargen_run`. On a non-standard era the same delegate/chargen_run
   entry auto-routes to `kp_guided_era_adaptive`: submit only semantic
-  fields (occupation, skill names, concept, assignment preference). The
-  runtime owns dice, point spend, validation, and cap correction. Do not
-  invent sheet numbers. Do not call `setup.quick_start` when a setup
-  campaign already exists.
+  fields (occupation, skill names, concept, assignment preference,
+  backstory, equipment). After the write, if the era has no cash table, use
+  `state.cash_semantic` as the character skill directs; do not invent a
+  1920s dollar amount. The runtime owns dice, point spend, validation, and
+  cap correction. Do not invent sheet numbers. Do not call
+  `setup.quick_start` when a setup campaign already exists.
 - Never omit `investigator_id` as `inv-investigator` or another generic
   placeholder. Leave it blank and let the wrapper allocate a campaign-scoped
   unique id, or pass an explicit unique id. On id conflict or a chargen

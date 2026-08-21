@@ -496,6 +496,98 @@ def _validate_quick_fire_luck_receipt(
         )
 
 
+def _validate_chargen_age_dice_receipts(
+    root: Path,
+    creation: dict[str, Any],
+    *,
+    current_campaign_id: str,
+) -> None:
+    """Bind EDU improvement and extra Luck candidate totals to rules receipts."""
+    rolls = creation.get("edu_improvement_rolls")
+    if isinstance(rolls, list):
+        for index, record in enumerate(rolls):
+            if not isinstance(record, dict):
+                raise RuntimeOperationError("edu_improvement_rolls entries must be objects")
+            check_receipt = record.get("check_receipt")
+            total = _authoritative_dice_roll_total(
+                root,
+                check_receipt,
+                current_campaign_id=current_campaign_id,
+                expression="1D100",
+                purpose="investigator_creation_characteristic",
+                label=f"chargen EDU check {index}",
+            )
+            if total != record.get("roll"):
+                raise RuntimeOperationError(
+                    f"edu_improvement_rolls[{index}].roll does not match its rules receipt"
+                )
+            if "improvement_roll" in record:
+                improve_total = _authoritative_dice_roll_total(
+                    root,
+                    record.get("improve_receipt"),
+                    current_campaign_id=current_campaign_id,
+                    expression="1D10",
+                    purpose="investigator_creation_characteristic",
+                    label=f"chargen EDU improve {index}",
+                )
+                if improve_total != record.get("improvement_roll"):
+                    raise RuntimeOperationError(
+                        f"edu_improvement_rolls[{index}].improvement_roll does not match its rules receipt"
+                    )
+    candidates = creation.get("luck_roll_candidates")
+    if isinstance(candidates, list):
+        for index, row in enumerate(candidates):
+            if not isinstance(row, dict):
+                raise RuntimeOperationError("luck_roll_candidates entries must be objects")
+            total = _authoritative_dice_roll_total(
+                root,
+                row.get("receipt"),
+                current_campaign_id=current_campaign_id,
+                expression="3D6",
+                purpose="investigator_creation_luck",
+                label=f"chargen Luck candidate {index}",
+            )
+            if total != row.get("total"):
+                raise RuntimeOperationError(
+                    f"luck_roll_candidates[{index}].total does not match its rules receipt"
+                )
+
+
+def _chargen_public_dice(creation: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
+    receipts: list[dict[str, Any]] = []
+    roll_ids: list[str] = []
+
+    def _add(kind: str, total: Any, reference: Any) -> None:
+        if not isinstance(reference, dict):
+            return
+        roll_id = reference.get("roll_id")
+        item = {
+            "kind": kind,
+            "total": total,
+            "campaign_id": reference.get("campaign_id"),
+            "decision_id": reference.get("decision_id"),
+            "roll_id": roll_id,
+        }
+        receipts.append(item)
+        if isinstance(roll_id, str) and roll_id.strip() and roll_id not in roll_ids:
+            roll_ids.append(roll_id)
+
+    candidates = creation.get("luck_roll_candidates")
+    if isinstance(candidates, list) and candidates:
+        for row in candidates:
+            if isinstance(row, dict):
+                _add("luck", row.get("total"), row.get("receipt"))
+    else:
+        _add("luck", creation.get("luck_roll_total"), creation.get("luck_roll_receipt"))
+    for record in creation.get("edu_improvement_rolls") or []:
+        if not isinstance(record, dict):
+            continue
+        _add("edu_check", record.get("roll"), record.get("check_receipt"))
+        if "improve_receipt" in record:
+            _add("edu_improve", record.get("improvement_roll"), record.get("improve_receipt"))
+    return roll_ids, receipts
+
+
 def _quick_fire_luck_is_auto_roll(creation: dict[str, Any]) -> bool:
     luck = creation.get("luck")
     return isinstance(luck, dict) and luck.get("mode") == "auto_roll"
@@ -507,8 +599,9 @@ def _apply_quick_fire_auto_luck_roll(
     *,
     campaign_id: str,
     investigator_id: str,
+    age: int = 27,
 ) -> None:
-    """Fill luck_roll_total/receipt from the canonical 3D6 Luck roll."""
+    """Fill luck_roll_total/receipt from canonical 3D6 Luck; 15-19 keeps highest of two."""
     if not _quick_fire_luck_is_auto_roll(creation):
         return
     if creation.get("luck_roll_total") is not None or creation.get(
@@ -518,22 +611,65 @@ def _apply_quick_fire_auto_luck_roll(
             "creation.luck auto_roll cannot be combined with "
             "luck_roll_total or luck_roll_receipt"
         )
+    try:
+        keep = coc_character.chargen_luck_rolls_keep_highest(age)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    candidates: list[dict[str, Any]] = []
+    for index in range(keep):
+        decision_id = f"chargen-luck-{campaign_id}-{investigator_id}"
+        if index > 0:
+            decision_id = f"{decision_id}-{index}"
+        rolled = _toolbox_roll(
+            root,
+            campaign_id,
+            expression="3D6",
+            decision_id=decision_id,
+            reason="Quick Fire Luck auto_roll",
+            purpose="investigator_creation_luck",
+        )
+        candidates.append({
+            "total": rolled["total"],
+            "receipt": {
+                "campaign_id": campaign_id,
+                "decision_id": rolled["decision_id"],
+                "roll_id": rolled["roll_id"],
+            },
+        })
+    winner = max(candidates, key=lambda row: int(row["total"]))
+    creation["luck_roll_total"] = int(winner["total"])
+    creation["luck_roll_receipt"] = dict(winner["receipt"])
+    if keep > 1:
+        creation["luck_roll_candidates"] = candidates
+        creation["luck_rolls_keep_highest"] = keep
+
+
+def _toolbox_roll(
+    root: Path,
+    campaign_id: str,
+    *,
+    expression: str,
+    decision_id: str,
+    reason: str,
+    purpose: str | None = None,
+) -> dict[str, Any]:
     import coc_toolbox
-    decision_id = f"chargen-luck-{campaign_id}-{investigator_id}"
+    args: dict[str, Any] = {
+        "expression": expression,
+        "decision_id": decision_id,
+        "reason": reason,
+    }
+    if purpose is not None:
+        args["purpose"] = purpose
     result = coc_toolbox.run_tool(
         "rules.roll_dice",
         root,
         campaign_id,
-        {
-            "expression": "3D6",
-            "decision_id": decision_id,
-            "purpose": "investigator_creation_luck",
-            "reason": "Quick Fire Luck auto_roll",
-        },
+        args,
     )
     if not isinstance(result, dict) or result.get("ok") is not True:
         raise RuntimeOperationError(
-            "Quick Fire Luck auto_roll failed: "
+            f"{reason} auto_roll failed: "
             + str((result or {}).get("error") or result)
         )
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
@@ -546,14 +682,64 @@ def _apply_quick_fire_auto_luck_roll(
         or not roll_id.strip()
     ):
         raise RuntimeOperationError(
-            "Quick Fire Luck auto_roll did not return a usable 3D6 receipt"
+            f"{reason} auto_roll did not return a usable receipt"
         )
-    creation["luck_roll_total"] = total
-    creation["luck_roll_receipt"] = {
-        "campaign_id": campaign_id,
-        "decision_id": decision_id,
-        "roll_id": roll_id,
-    }
+    return {"total": total, "roll_id": roll_id, "decision_id": decision_id}
+
+
+def _chargen_edu_improvement_rolls(
+    root: Path,
+    *,
+    campaign_id: str,
+    investigator_id: str,
+    age: int,
+    current_edu: int,
+) -> list[dict[str, Any]]:
+    try:
+        required = coc_character.required_edu_improvement_checks(age)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    records: list[dict[str, Any]] = []
+    edu = int(current_edu)
+    age_rules = coc_character.coc_rules.load_rule_table("age-adjustments")
+    edu_maximum = int(age_rules.get("edu_maximum", 99))
+    for index in range(required):
+        check = _toolbox_roll(
+            root,
+            campaign_id,
+            expression="1D100",
+            decision_id=f"chargen-edu-{campaign_id}-{investigator_id}-{index}",
+            reason="chargen age EDU improvement check",
+            purpose="investigator_creation_characteristic",
+        )
+        record: dict[str, Any] = {
+            "roll": check["total"],
+            "check_receipt": {
+                "campaign_id": campaign_id,
+                "decision_id": check["decision_id"],
+                "roll_id": check["roll_id"],
+            },
+        }
+        if check["total"] > edu:
+            improve = _toolbox_roll(
+                root,
+                campaign_id,
+                expression="1D10",
+                decision_id=(
+                    f"chargen-edu-improve-{campaign_id}-{investigator_id}-{index}"
+                ),
+                reason="chargen age EDU improvement amount",
+                purpose="investigator_creation_characteristic",
+            )
+            record["improvement_roll"] = improve["total"]
+            record["improve_receipt"] = {
+                "campaign_id": campaign_id,
+                "decision_id": improve["decision_id"],
+                "roll_id": improve["roll_id"],
+            }
+            edu = min(edu_maximum, edu + int(improve["total"]))
+        records.append(record)
+    return records
 
 
 def _validate_kp_guided_characteristic_roll_receipts(
@@ -5107,13 +5293,22 @@ def _chargen_fail(
 
 
 def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
-    allowed = {
-        "campaign_id", "investigator_id", "name", "occupation_name",
-        "assignment_priority", "occupation_skill_names", "interest_skill_names",
-        "occupation_allocations", "interest_allocations", "luck", "age",
-    }
-    required = {"campaign_id", "investigator_id", "name", "occupation_name"}
+    allowed = set(coc_character.CHARGEN_RUN_ALLOWED)
+    required = set(coc_character.CHARGEN_RUN_REQUIRED)
     received = set(payload)
+    forbidden = sorted(
+        received & coc_character.CHARGEN_KP_FORBIDDEN_NUMERIC_FIELDS
+    )
+    if forbidden:
+        return _chargen_fail(
+            "payload",
+            "setup.chargen_run rejects KP-supplied numeric finance or stats; "
+            "cash/assets/spending_level are materialized from Credit Rating",
+            expected={
+                "forbidden": forbidden,
+                "allowed": sorted(allowed),
+            },
+        )
     if received - allowed or not required <= received:
         return _chargen_fail(
             "payload",
@@ -5158,12 +5353,11 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     age = payload.get("age", 27)
     if isinstance(age, bool) or not isinstance(age, int):
         return _chargen_fail("payload", "age must be an integer")
-    occ_alloc = payload.get("occupation_allocations")
-    int_alloc = payload.get("interest_allocations")
-    if occ_alloc is not None and not isinstance(occ_alloc, dict):
-        return _chargen_fail("occupation_allocations", "occupation_allocations must be an object")
-    if int_alloc is not None and not isinstance(int_alloc, dict):
-        return _chargen_fail("interest_allocations", "interest_allocations must be an object")
+    if age < coc_character.CHARGEN_AGE_MIN or age > coc_character.CHARGEN_AGE_MAX:
+        return _chargen_fail(
+            "payload",
+            f"age must be an integer from {coc_character.CHARGEN_AGE_MIN} to {coc_character.CHARGEN_AGE_MAX}",
+        )
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
     if not campaign_dir.is_dir():
         return _chargen_fail("payload", f"unknown campaign: {campaign_id}")
@@ -5174,6 +5368,16 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     campaign_era = str(campaign.get("era") or "").strip()
     input_mode = guided_character_creation_input_mode(campaign_era)
     try:
+        base_characteristics = coc_character.quick_fire_array_characteristics(
+            assignment if isinstance(assignment, list) else None
+        )
+        edu_rolls = _chargen_edu_improvement_rolls(
+            root,
+            campaign_id=campaign_id,
+            investigator_id=investigator_id,
+            age=age,
+            current_edu=int(base_characteristics["EDU"]),
+        )
         if input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE:
             luck_creation: dict[str, Any] = {"luck": {"mode": "auto_roll"}}
             try:
@@ -5182,6 +5386,7 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
                     luck_creation,
                     campaign_id=campaign_id,
                     investigator_id=investigator_id,
+                    age=age,
                 )
             except RuntimeOperationError as exc:
                 return _chargen_fail("luck", str(exc))
@@ -5196,7 +5401,13 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
                 occupation_skill_names=occ_names,
                 interest_skill_names=interest_names,
                 age=age,
+                edu_improvement_rolls=edu_rolls,
             )
+            if luck_creation.get("luck_roll_candidates"):
+                creation["luck_roll_candidates"] = luck_creation["luck_roll_candidates"]
+                creation["luck_rolls_keep_highest"] = luck_creation.get(
+                    "luck_rolls_keep_highest"
+                )
         else:
             sheet, creation, meta = coc_character.build_quick_fire_chargen_payload(
                 investigator_id=investigator_id,
@@ -5205,13 +5416,22 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
                 assignment_priority=assignment,
                 occupation_skill_names=occ_names,
                 interest_skill_names=interest_names,
-                occupation_allocations=occ_alloc,
-                interest_allocations=int_alloc,
                 age=age,
+                edu_improvement_rolls=edu_rolls,
             )
+        sheet = coc_character.attach_chargen_roleplay(
+            sheet,
+            backstory=payload.get("backstory"),
+            equipment=payload.get("equipment"),
+            key_connection=payload.get("key_connection"),
+            occupation_label=payload.get("occupation_label"),
+            era=campaign_era,
+        )
     except coc_character.ChargenRunError as exc:
         expected = exc.expected if isinstance(exc.expected, dict) else None
         return _chargen_fail(exc.stage, str(exc), expected=expected)
+    except RuntimeOperationError as exc:
+        return _chargen_fail("age", str(exc))
     replace, revision_error = _chargen_revision_decision(
         root,
         campaign_id=campaign_id,
@@ -5223,6 +5443,12 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
             revision_error,
             extra={"investigator_id": investigator_id},
         )
+    commit_id = f"chargen-commit-{campaign_id}-{investigator_id}"
+    creation["chargen_commit"] = {
+        "decision_id": commit_id,
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+    }
     create_payload: dict[str, Any] = {
         "campaign_id": campaign_id,
         "investigator_id": investigator_id,
@@ -5304,10 +5530,16 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
         ),
         key=lambda row: (-row["value"], row["name"]),
     )[:8]
-    luck_receipt = creation.get("luck_roll_receipt") if isinstance(creation.get("luck_roll_receipt"), dict) else {}
-    roll_ids = []
-    if isinstance(luck_receipt.get("roll_id"), str) and luck_receipt["roll_id"].strip():
-        roll_ids.append(luck_receipt["roll_id"])
+    creation_path = (
+        root / ".coc" / "investigators" / investigator_id / "creation.json"
+    )
+    try:
+        stored_creation = _read_object(creation_path)
+    except RuntimeOperationError:
+        stored_creation = creation if isinstance(creation, dict) else {}
+    roll_ids, dice_receipts = _chargen_public_dice(
+        stored_creation if isinstance(stored_creation, dict) else {}
+    )
     card_path = render_result.get("markdown_path") or render_result.get("card_path")
     return {
         "schema_version": 1,
@@ -5316,6 +5548,7 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
         "result": {
             "ok": True,
             "investigator_id": investigator_id,
+            "decision_id": commit_id,
             "characteristics": stored.get("characteristics") or meta["characteristics"],
             "derived": {
                 "hp": derived.get("HP"),
@@ -5326,6 +5559,7 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "skill_top": skill_top,
             "card_path": card_path,
             "roll_ids": roll_ids,
+            "dice_receipts": dice_receipts,
         },
         "state_refs": list(created.get("state_refs") or []) + list(
             linked.get("state_refs") or []
@@ -5750,13 +5984,20 @@ def execute_setup_operation(
                     f"{supported}. Use creation.input_mode="
                     f"{coc_character.ERA_ADAPTIVE_INPUT_MODE!r}."
                 )
+            sheet_age = sheet.get("age", 27)
+            if isinstance(sheet_age, bool) or not isinstance(sheet_age, int):
+                sheet_age = 27
             _apply_quick_fire_auto_luck_roll(
                 root,
                 creation,
                 campaign_id=current_campaign_id,
                 investigator_id=investigator_id,
+                age=sheet_age,
             )
             _validate_quick_fire_luck_receipt(
+                root, creation, current_campaign_id=current_campaign_id,
+            )
+            _validate_chargen_age_dice_receipts(
                 root, creation, current_campaign_id=current_campaign_id,
             )
         elif kp_guided_era_adaptive:
@@ -5781,6 +6022,9 @@ def execute_setup_operation(
                     "campaign era has no package-owned guided Quick Fire standard sheet"
                 )
             _validate_quick_fire_luck_receipt(
+                root, creation, current_campaign_id=current_campaign_id,
+            )
+            _validate_chargen_age_dice_receipts(
                 root, creation, current_campaign_id=current_campaign_id,
             )
         elif "campaign_id" in payload:
