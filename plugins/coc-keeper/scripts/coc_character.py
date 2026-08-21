@@ -814,15 +814,29 @@ def _language_identity_key(name: str) -> str | None:
 
 
 def sheet_has_other_language(skills: Any, language_name: str) -> bool:
+    return sheet_other_language_value(skills, language_name) is not None
+
+
+def sheet_other_language_value(skills: Any, language_name: str) -> int | None:
     wanted = _language_identity_key(language_name)
     if wanted is None or not isinstance(skills, dict):
-        return False
-    for key in skills:
+        return None
+    best: int | None = None
+    for key, value in skills.items():
         if str(key) == "Language (Own)":
             continue
-        if _language_identity_key(str(key)) == wanted:
-            return True
-    return False
+        if _language_identity_key(str(key)) != wanted:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        best = value if best is None else max(best, value)
+    return best
+
+
+# Keeper Rulebook Ch.4 "General level of ability by skill value" (full.md ~2321–2327):
+# 50%-74% Professional — eke out a living; bachelor's-degree equivalent.
+# Independent file-reading / interview / legal diction is professional work.
+CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN = 50
 
 
 def chargen_working_language_warning(
@@ -831,7 +845,7 @@ def chargen_working_language_warning(
     own_language: Any,
     skills: Any,
 ) -> str | None:
-    """Advisory only: missing table working language when own_language differs."""
+    """Advisory only: missing or sub-professional table working language."""
     working = chargen_working_language(era)
     if working is None:
         return None
@@ -840,15 +854,25 @@ def chargen_working_language_warning(
         return None
     if _language_identity_key(own) == _language_identity_key(working):
         return None
-    if sheet_has_other_language(skills, working):
-        return None
     skill_id = language_other_skill_id(working) or f"Language ({working})"
-    return (
-        f"调查员母语与本模组工作语言（{working}）不一致，技能表没有 {skill_id}。"
-        f"该调查员在模组语境下无法有效行动。"
-        f"建议以 replace=True 重跑 setup.chargen_run / coc_chargen_delegate，"
-        f"并把 {skill_id} 分配到得体水平。"
-    )
+    value = sheet_other_language_value(skills, working)
+    if value is None:
+        return (
+            f"调查员母语与本模组工作语言（{working}）不一致，技能表没有 {skill_id}。"
+            f"该调查员在模组语境下无法有效行动。"
+            f"建议以 replace=True 重跑 setup.chargen_run / coc_chargen_delegate，"
+            f"并把 {skill_id} 分配到得体水平。"
+        )
+    threshold = CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN
+    if value < threshold:
+        return (
+            f"调查员工作语言 {skill_id} 为 {value}，低于规则书 Professional 档建议阈值 {threshold}"
+            f"（50% 起可凭该技能谋生，相当于本科学位）。"
+            f"目前只能有限交流，不足以独立读档案、访谈或处理专业措辞。"
+            f"建议以 replace=True 重跑 setup.chargen_run / coc_chargen_delegate 并提升到 {threshold}，"
+            f"或保留该弱点并安排翻译/同伴。玩家可坚持低语言设定；KP 不得偷偷覆盖硬约束。"
+        )
+    return None
 
 
 def own_language_skill_label(own_language: str) -> str:
