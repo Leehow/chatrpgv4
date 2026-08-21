@@ -1453,6 +1453,10 @@ def test_chargen_run_projects_luck_and_backstory_to_sidebar(tmp_path: Path) -> N
     assert "编辑部" in hook["items"][0]
     own = next(row for row in view["skills"] if row["key"] == "Language (Own)")
     assert own["label"] == "语言（英语）"
+    assert stored.get("assets")
+    assert view["assets"]["display"].startswith("$")
+    assert view["assets"]["source"] == "信用评级换算"
+    assert view["assets"]["living_standard"]
     sidecar = _investigator_runtime_state(tmp_path, campaign_id, "ada-panel")
     assert "backstory" not in sidecar
     assert sidecar.get("current_luck") == stored["derived"]["Luck"]

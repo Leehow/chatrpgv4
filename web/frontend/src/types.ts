@@ -202,6 +202,15 @@ export interface CharacterSheet {
   inventory_items?: InventoryItem[] | null;
   /** Live campaign cash ledger; absent/null outside a campaign context. */
   cash?: CashView | null;
+  /** Chargen asset snapshot (not cash, not inventory). */
+  assets?: {
+    amount?: number | string | null;
+    currency?: string;
+    display?: string;
+    source?: string;
+    living_standard?: string;
+    spending_level?: string;
+  } | null;
   localized?: boolean;
 }
 
