@@ -142,14 +142,469 @@ def language_skill_for_source(
     return best
 
 
+# Rulebook Other Language bands (full.md 3145-3155): identify / simple ideas /
+# transactional / fluent / native-passing. 0-4 cannot identify by language skill.
+LANGUAGE_ABILITY_THRESHOLDS = {
+    "identify": 5,
+    "simple_ideas": 10,
+    "transactional": 30,
+    "fluent": 50,
+    "native_passing": 75,
+}
+
+LANGUAGE_ABILITY_BANDS = (
+    "unrecognized",
+    "identify",
+    "simple_ideas",
+    "transactional",
+    "fluent",
+    "native_passing",
+)
+
+_LANGUAGE_BAND_BY_THRESHOLD = tuple(
+    reversed(tuple(LANGUAGE_ABILITY_THRESHOLDS.items()))
+)
+
+LANGUAGE_RECOGNITION_ROUTES = frozenset({
+    "language_skill",
+    "know",
+    "archaeology",
+    "history",
+    "cthulhu_mythos",
+    "occult",
+    "none",
+})
+
+LANGUAGE_MEDIA = frozenset({
+    "speech",
+    "writing",
+    "inscription",
+})
+
+LANGUAGE_DIFFICULTIES = frozenset({
+    "regular",
+    "hard",
+    "extreme",
+    "none",
+})
+
+_SUCCESS_ROLL_OUTCOMES = frozenset({
+    "success",
+    "regular",
+    "regular_success",
+    "hard",
+    "hard_success",
+    "extreme",
+    "extreme_success",
+    "critical",
+    "critical_success",
+    "auto_success",
+})
+
+_FAILURE_ROLL_OUTCOMES = frozenset({
+    "failure",
+    "fumble",
+})
+
+_UNSETTLED_ROLL_OUTCOMES = frozenset({
+    "not_rolled",
+    "pending",
+})
+
+LANGUAGE_ROLL_OUTCOMES = (
+    _SUCCESS_ROLL_OUTCOMES
+    | _FAILURE_ROLL_OUTCOMES
+    | _UNSETTLED_ROLL_OUTCOMES
+)
+
+# Rulebook push examples / pushed-failure samples (full.md 3169-3173).
+# Advisory candidates only — never auto-selected.
+LANGUAGE_PUSH_METHOD_CANDIDATES = (
+    "take_longer_to_compose",
+    "long_pauses_to_answer",
+    "reference_other_books",
+)
+
+LANGUAGE_PUSHED_FAILURE_CANDIDATES = (
+    "alert_enemy_faction",
+    "meaning_reversed_or_misunderstood",
+    "unintentional_slur_offense",
+)
+
+_RENDER_TIER_FOR_BAND = {
+    "unrecognized": "none",
+    "identify": "none",
+    "simple_ideas": "gist",
+    "transactional": "partial",
+    "fluent": "fluent",
+    "native_passing": "fluent",
+}
+
+_BANDS_AT_LEAST_SIMPLE = frozenset({
+    "simple_ideas",
+    "transactional",
+    "fluent",
+    "native_passing",
+})
+_BANDS_AT_LEAST_TRANSACTIONAL = frozenset({
+    "transactional",
+    "fluent",
+    "native_passing",
+})
+_BANDS_AT_LEAST_FLUENT = frozenset({"fluent", "native_passing"})
+
+
+def _coerce_nonneg_int(value: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def language_ability_band(skill_value: int, *, native: bool = False) -> str:
+    """Return the rulebook Other-Language capability band.
+
+    Native Own-Language speakers are native-passing. Code never identifies a
+    language or infers a family; callers supply an already-decided skill value.
+    """
+    if native:
+        return "native_passing"
+    value = _coerce_nonneg_int(skill_value)
+    for name, threshold in _LANGUAGE_BAND_BY_THRESHOLD:
+        if value >= threshold:
+            return name
+    return "unrecognized"
+
+
+def language_ability_facts(skill_value: int, *, native: bool = False) -> dict[str, Any]:
+    """Structured capability facts for the five-band scale. No dice."""
+    value = _coerce_nonneg_int(skill_value)
+    band = language_ability_band(value, native=native)
+    identifies = band != "unrecognized"
+    simple = band in _BANDS_AT_LEAST_SIMPLE
+    transactional = band in _BANDS_AT_LEAST_TRANSACTIONAL
+    fluent = band in _BANDS_AT_LEAST_FLUENT
+    native_passing = band == "native_passing"
+    return {
+        "band": band,
+        "skill_value": value,
+        "native": bool(native),
+        "thresholds": dict(LANGUAGE_ABILITY_THRESHOLDS),
+        "identifies_without_roll": identifies,
+        "simple_ideas": simple,
+        "transactional": transactional,
+        "fluent": fluent,
+        "native_passing": native_passing,
+        "accent": bool(simple and not native_passing),
+    }
+
+
 def dialogue_comprehension_tier(skill_value: int, *, native: bool = False) -> str:
-    if native or skill_value >= 50:
-        return "fluent"
-    if skill_value >= 20:
-        return "partial"
-    if skill_value >= 1:
-        return "gist"
-    return "none"
+    """Rendering-facing four-label view of the five-band language scale."""
+    return _RENDER_TIER_FOR_BAND[language_ability_band(skill_value, native=native)]
+
+
+def _require_choice(field: str, value: Any, allowed: frozenset[str]) -> str:
+    text = str(value or "").strip().lower()
+    if text not in allowed:
+        allowed_list = ", ".join(sorted(allowed))
+        raise ValueError(f"invalid {field}: {value!r} (expected one of {allowed_list})")
+    return text
+
+
+def _optional_choice(
+    field: str,
+    value: Any,
+    allowed: frozenset[str],
+) -> str | None:
+    if value is None or value == "":
+        return None
+    return _require_choice(field, value, allowed)
+
+
+def _roll_verdict(outcome: str | None) -> str:
+    if outcome is None or outcome in _UNSETTLED_ROLL_OUTCOMES:
+        return "unsettled"
+    if outcome in _SUCCESS_ROLL_OUTCOMES:
+        return "success"
+    if outcome in _FAILURE_ROLL_OUTCOMES:
+        return "failure"
+    return "unsettled"
+
+
+def _automatic_success(
+    *,
+    facts: dict[str, Any],
+    medium: str,
+    difficulty: str | None,
+) -> bool:
+    # Dice Rule 1 / Own Language (full.md 3179, 7967): KP may waive a roll.
+    if difficulty == "none":
+        return True
+    if facts["native"] and difficulty in (None, "regular") and medium == "speech":
+        return True
+    if facts["native"] and difficulty is None:
+        return True
+    # Fluent regular conversation does not require a roll (full.md 3165-3167).
+    if facts["fluent"] and medium == "speech" and difficulty in (None, "regular"):
+        return True
+    return False
+
+
+def _time_guidance(
+    *,
+    facts: dict[str, Any],
+    recognized: bool,
+    medium: str,
+    difficulty: str | None,
+    translator: bool,
+    hurry: bool,
+    failure: bool,
+    pushed: bool,
+    keeper_duration: str | None,
+) -> str:
+    if keeper_duration:
+        return "keeper_specified"
+    if translator:
+        return "translator_pace"
+    if not recognized and not facts["identifies_without_roll"]:
+        return "translator_required"
+    if pushed or failure:
+        return "extra_time"
+    if hurry:
+        return "hurried"
+    if medium in {"writing", "inscription"} and difficulty in {"hard", "extreme"}:
+        return "extended_study"
+    if medium in {"writing", "inscription"}:
+        return "reading_pace"
+    return "conversation_pace"
+
+
+def settle_language(
+    *,
+    source_language: str,
+    skill_value: int | None = None,
+    native: bool | None = None,
+    investigator: dict[str, Any] | None = None,
+    recognition_route: str | None = None,
+    recognition_result: str | None = None,
+    medium: str = "speech",
+    difficulty: str | None = None,
+    roll_outcome: str | None = None,
+    roll_receipt: dict[str, Any] | None = None,
+    pushed: bool = False,
+    core_clue: bool = False,
+    time_context: dict[str, Any] | None = None,
+    corpus_id: str | None = None,
+) -> dict[str, Any]:
+    """Settle recognition / comprehension / time / accuracy from KP-decided facts.
+
+    This helper does not identify a language, infer a family, translate, or roll
+    dice. ``source_language`` must already be a Keeper semantic decision.
+    Dice live in ``rules.*``; pass the authoritative outcome or receipt here.
+    """
+    language = str(source_language or "").strip()
+    if not language:
+        raise ValueError("source_language is required and must be KP-decided")
+
+    skill = language_skill_for_source(investigator, language)
+    if skill_value is None:
+        resolved_skill_value = int(skill["skill_value"])
+    else:
+        resolved_skill_value = _coerce_nonneg_int(skill_value)
+    resolved_native = bool(skill["native"] if native is None else native)
+
+    facts = language_ability_facts(resolved_skill_value, native=resolved_native)
+    medium_key = _require_choice("medium", medium, LANGUAGE_MEDIA)
+    difficulty_key = _optional_choice("difficulty", difficulty, LANGUAGE_DIFFICULTIES)
+
+    route_default = "language_skill" if facts["identifies_without_roll"] else "none"
+    route = _require_choice(
+        "recognition_route",
+        recognition_route if recognition_route is not None else route_default,
+        LANGUAGE_RECOGNITION_ROUTES,
+    )
+
+    receipt = dict(roll_receipt) if isinstance(roll_receipt, dict) else None
+    outcome = roll_outcome
+    if outcome is None and receipt is not None:
+        outcome = receipt.get("outcome")
+    if outcome is None or outcome == "":
+        outcome_key = None
+    else:
+        outcome_key = _require_choice("roll_outcome", outcome, LANGUAGE_ROLL_OUTCOMES)
+    verdict = _roll_verdict(outcome_key)
+
+    if recognition_result is None or recognition_result == "":
+        recognition_result_key = None
+    else:
+        recognition_result_key = _require_choice(
+            "recognition_result",
+            recognition_result,
+            LANGUAGE_ROLL_OUTCOMES,
+        )
+    recognition_verdict = _roll_verdict(recognition_result_key)
+
+    identified_by_ability = bool(facts["identifies_without_roll"])
+    requires_other_route = not identified_by_ability
+    if identified_by_ability:
+        recognized = True
+        recognition_used = "language_skill" if route == "language_skill" else route
+        recognition_result_out = recognition_result_key or "auto_success"
+    elif route in {"know", "archaeology", "history", "cthulhu_mythos", "occult"}:
+        recognition_used = route
+        if recognition_verdict == "success":
+            recognized = True
+            recognition_result_out = recognition_result_key
+        elif recognition_verdict == "failure":
+            recognized = False
+            recognition_result_out = recognition_result_key
+        else:
+            recognized = False
+            recognition_result_out = recognition_result_key or "not_rolled"
+    else:
+        recognition_used = route
+        recognized = False
+        recognition_result_out = recognition_result_key or "not_rolled"
+
+    auto = _automatic_success(
+        facts=facts, medium=medium_key, difficulty=difficulty_key,
+    )
+    if difficulty_key == "none" or auto:
+        check_needed = False
+        check_difficulty = None if difficulty_key == "none" else difficulty_key
+    else:
+        check_needed = True
+        check_difficulty = difficulty_key or "regular"
+
+    if outcome_key is None and auto and not check_needed:
+        outcome_key = "auto_success"
+        verdict = "success"
+    roll_settled = verdict != "unsettled"
+
+    ability_scope = facts["band"]
+    failure = verdict == "failure"
+    success = verdict == "success"
+    if success or (auto and not check_needed and not roll_settled):
+        realized_scope = ability_scope
+        if realized_scope == "unrecognized" and recognized:
+            realized_scope = "identify"
+    elif failure and core_clue:
+        # full.md 8218/8224: obvious/core clues are not gated by the die.
+        realized_scope = "necessary_gist"
+    elif failure:
+        realized_scope = "degraded" if ability_scope != "unrecognized" else "none"
+    else:
+        realized_scope = "pending" if check_needed else ability_scope
+
+    if core_clue and realized_scope in {"none", "pending", "unrecognized"}:
+        realized_scope = "necessary_gist"
+
+    time_ctx = time_context if isinstance(time_context, dict) else {}
+    translator = bool(time_ctx.get("translator"))
+    hurry = bool(time_ctx.get("hurry"))
+    keeper_duration = time_ctx.get("keeper_duration")
+    keeper_duration_text = (
+        str(keeper_duration).strip() if keeper_duration not in (None, "") else None
+    )
+
+    time_key = _time_guidance(
+        facts=facts,
+        recognized=recognized,
+        medium=medium_key,
+        difficulty=difficulty_key,
+        translator=translator,
+        hurry=hurry,
+        failure=failure,
+        pushed=bool(pushed),
+        keeper_duration=keeper_duration_text,
+    )
+
+    if not roll_settled and check_needed:
+        reliability = "unknown"
+        risk = "unsettled_check"
+    elif success:
+        if facts["native_passing"]:
+            reliability = "native"
+        elif facts["fluent"]:
+            reliability = "high"
+        elif facts["transactional"]:
+            reliability = "transactional"
+        elif facts["simple_ideas"]:
+            reliability = "simple_only"
+        elif recognized:
+            reliability = "identify_only"
+        else:
+            reliability = "none"
+        risk = "none"
+    elif failure and core_clue:
+        reliability = "degraded"
+        risk = "precision_time_or_safety"
+    elif failure:
+        reliability = "unreliable"
+        risk = "misunderstanding"
+    else:
+        reliability = "unknown"
+        risk = "none"
+
+    if failure and pushed:
+        risk = "pushed_failure" if not core_clue else "precision_time_or_safety"
+
+    exceptional = outcome_key in {
+        "critical",
+        "critical_success",
+        "fumble",
+    }
+
+    return {
+        "source_language": language,
+        "skill_key": skill["skill_key"],
+        "skill_value": facts["skill_value"],
+        "native": facts["native"],
+        "ability": facts,
+        "recognized": recognized,
+        "recognition": {
+            "route": recognition_used,
+            "result": recognition_result_out,
+            "by_language_skill": identified_by_ability,
+            "requires_other_route": requires_other_route,
+        },
+        "comprehension": {
+            "ability_scope": ability_scope,
+            "realized_scope": realized_scope,
+            "core_clue_gist_guaranteed": bool(core_clue),
+        },
+        "check": {
+            "needed": check_needed,
+            "automatic_success": bool(auto and not check_needed),
+            "difficulty": check_difficulty,
+            "covers_coherent_corpus": True,
+            "corpus_id": str(corpus_id).strip() if corpus_id else None,
+            "roll_outcome": outcome_key,
+            "roll_receipt": receipt,
+            "roll_settled": roll_settled,
+            "exceptional": exceptional,
+        },
+        "time": {
+            "guidance": time_key,
+            "translator": translator,
+            "hurry": hurry,
+            "keeper_duration": keeper_duration_text,
+            "advisory": True,
+        },
+        "accuracy": {
+            "reliability": reliability,
+            "risk": risk,
+            "goal_failed": False,
+        },
+        "push": {
+            "pushed": bool(pushed),
+            "method_candidates": list(LANGUAGE_PUSH_METHOD_CANDIDATES),
+            "failure_consequence_candidates": list(LANGUAGE_PUSHED_FAILURE_CANDIDATES),
+            "selected_method": None,
+            "selected_consequence": None,
+        },
+    }
 
 
 def _foreign_dialogue_visible_text_zh(
@@ -200,7 +655,9 @@ def render_foreign_dialogue_for_investigator(
     """
     skill = language_skill_for_source(investigator, source_language)
     skill_value = int(skill["skill_value"])
-    tier = dialogue_comprehension_tier(skill_value, native=bool(skill["native"]))
+    native = bool(skill["native"])
+    ability_band = language_ability_band(skill_value, native=native)
+    tier = dialogue_comprehension_tier(skill_value, native=native)
 
     if play_language == "zh-Hans":
         visible_text, understood_text, translation_visible = _foreign_dialogue_visible_text_zh(
@@ -239,7 +696,8 @@ def render_foreign_dialogue_for_investigator(
         "source_text": source_text,
         "skill_key": skill["skill_key"],
         "skill_value": skill_value,
-        "native": skill["native"],
+        "native": native,
+        "ability_band": ability_band,
         "comprehension": tier,
         "understood_text": understood_text,
         "translation_visible": translation_visible,
