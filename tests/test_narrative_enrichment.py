@@ -1517,12 +1517,12 @@ def test_dialogue_comprehension_directive_uses_investigator_skills_dict():
         "active_scene": _foreign_dialogue_scene(),
         "player_intent_rich": {"action_atoms": []},
         "npc_agendas": _foreign_dialogue_agendas(),
-        "investigator_skills": {"Language (Other: German)": 25},  # tier 'partial'
+        "investigator_skills": {"Language (Other: German)": 25},  # simple_ideas -> gist
     }
     enriched = narr.enrich_director_plan(plan, ctx)
     dc = enriched["narrative_directives"]["dialogue_comprehension"]
     entry = dc[0]
-    assert entry["comprehension"] == "partial"
+    assert entry["comprehension"] == "gist"
     assert entry["skill_value"] == 25
 
 
