@@ -58,6 +58,7 @@ import {
 import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./model-editor.mjs";
 import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
 import { loadUserPrefs, resolveUserPrefsPath, saveUserPrefs } from "./user-prefs.mjs";
+import { loadWebSearchKeysView, saveWebSearchApiKeys } from "./web-search-keys.mjs";
 import { cancelLogin, loginSnapshot, respondLoginPrompt, startProviderLogin } from "./provider-login.mjs";
 
 /**
@@ -486,6 +487,15 @@ function handleUserPrefs(_req, res) {
 async function handleSaveUserPrefs(req, res) {
   const body = await readJsonBody(req);
   sendJson(res, 200, saveUserPrefs(resolveUserPrefsPath(), body));
+}
+
+function handleWebSearchKeys(_req, res) {
+  sendJson(res, 200, loadWebSearchKeysView(resolveProductAgentDir()));
+}
+
+async function handleSaveWebSearchKeys(req, res) {
+  const body = await readJsonBody(req);
+  sendJson(res, 200, saveWebSearchApiKeys(resolveProductAgentDir(), body));
 }
 
 async function handleStartModelLogin(req, res) {
@@ -1778,6 +1788,7 @@ async function route(req, res) {
     if (urlPath === "/api/model-editor/login") return handleModelLoginSnapshot(req, res);
     if (urlPath === "/api/bootstrap") return handleBootstrap(req, res);
     if (urlPath === "/api/user-prefs") return handleUserPrefs(req, res);
+    if (urlPath === "/api/web-search-keys") return handleWebSearchKeys(req, res);
     if (
       parts.length === 4 &&
       parts[0] === "api" &&
@@ -1845,6 +1856,7 @@ async function route(req, res) {
   if (method === "PUT") {
     if (urlPath === "/api/model-editor") return handleSaveModelEditor(req, res);
     if (urlPath === "/api/user-prefs") return handleSaveUserPrefs(req, res);
+    if (urlPath === "/api/web-search-keys") return handleSaveWebSearchKeys(req, res);
     throw httpError(404, "not found");
   }
 

@@ -186,12 +186,97 @@ export function sessionOpeningFlags({ spawned, phase, tableIntent } = {}) {
   };
 }
 
-export function buildPiCocArgs({ campaignId, sessionId, provider, model, thinking }) {
+/** Host KP web_search / web_fetch extension (not the shared COC package). */
+export const HOST_WEB_SEARCH_EXTENSION_REL = path.join(
+  "web",
+  "server-node",
+  "pi-extensions",
+  "web-search.ts",
+);
+
+/** Host Pi extensions (not the shared COC package). */
+export const HOST_PI_EXTENSION_RELS = Object.freeze([
+  HOST_WEB_SEARCH_EXTENSION_REL,
+  path.join("web", "server-node", "pi-extensions", "openai-server-tools.ts"),
+  path.join("web", "server-node", "pi-extensions", "xai-server-tools.ts"),
+]);
+
+const WEB_SEARCH_KEY_ENV = Object.freeze({
+  exaApiKey: "EXA_API_KEY",
+  searxngApiKey: "SEARXNG_API_KEY",
+});
+
+export function resolveHostWebSearchExtension(repoRoot = DEFAULT_REPO_ROOT) {
+  return path.resolve(repoRoot, HOST_WEB_SEARCH_EXTENSION_REL);
+}
+
+export function hostPiExtensionPaths(repoRoot = DEFAULT_REPO_ROOT) {
+  return HOST_PI_EXTENSION_RELS.map((rel) => path.resolve(repoRoot, rel));
+}
+
+/**
+ * Resolve host extension paths. Missing files are omitted for fake test
+ * repoRoots; callers that use the real repo must assert every required file
+ * exists so a missing T4/T5 file cannot silently skip.
+ */
+export function resolveHostPiExtensions(repoRoot = DEFAULT_REPO_ROOT) {
+  return hostPiExtensionPaths(repoRoot).filter((abs) => fs.existsSync(abs));
+}
+
+function readWebSearchConfigObject(agentDir) {
+  const dir = String(agentDir || "").trim();
+  if (!dir) return {};
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(path.join(dir, "web-search.json"), "utf8"),
+    );
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (err) {
+    if (err && err.code === "ENOENT") return {};
+    return {};
+  }
+}
+
+function pushUniqueDir(dirs, value) {
+  const raw = String(value || "").trim();
+  if (!raw) return;
+  const resolved = path.resolve(raw);
+  if (!dirs.includes(resolved)) dirs.push(resolved);
+}
+
+/** Inject *ApiKey from web-search.json. Never overwrite an already-set env secret. */
+export function injectWebSearchKeysIntoEnv(env, { keyDirs = [] } = {}) {
+  const next = env && typeof env === "object" ? env : {};
+  for (const dir of keyDirs) {
+    const config = readWebSearchConfigObject(dir);
+    for (const [field, name] of Object.entries(WEB_SEARCH_KEY_ENV)) {
+      const value = typeof config[field] === "string" ? config[field].trim() : "";
+      if (!value) continue;
+      if (String(next[name] || "").trim()) continue;
+      next[name] = value;
+    }
+  }
+  return next;
+}
+
+export function buildPiCocArgs({
+  campaignId,
+  sessionId,
+  provider,
+  model,
+  thinking,
+  repoRoot = DEFAULT_REPO_ROOT,
+}) {
   const args = ["--mode", "rpc", "--session-id", sessionId];
   if (campaignId) args.push("--campaign", String(campaignId));
   if (provider) args.push("--provider", String(provider));
   if (model) args.push("--model", String(model));
   if (thinking) args.push("--thinking", String(thinking));
+  for (const ext of resolveHostPiExtensions(repoRoot)) {
+    args.push("--extension", ext);
+  }
   return args;
 }
 
@@ -222,9 +307,10 @@ export function buildChildEnv({
 }) {
   const env = { ...parentEnv };
   env.COC_WORKSPACE = path.resolve(workspace);
+  const productAgentDir = agentDir || env.PI_AGENT_DIR || "";
   const hostedAgentDir = pickHostedSessionAgentDir({
     workspace: env.COC_WORKSPACE,
-    agentDir: agentDir || env.PI_AGENT_DIR || "",
+    agentDir: productAgentDir,
     sessionId,
   });
   if (hostedAgentDir) {
@@ -233,6 +319,11 @@ export function buildChildEnv({
       env.PI_CODING_AGENT_DIR = hostedAgentDir;
     }
   }
+  const keyDirs = [];
+  pushUniqueDir(keyDirs, parentEnv.PI_AGENT_DIR);
+  pushUniqueDir(keyDirs, productAgentDir);
+  pushUniqueDir(keyDirs, hostedAgentDir);
+  injectWebSearchKeysIntoEnv(env, { keyDirs });
   env.COC_PI_ATTACHED_UI = "1";
   env.COC_PI_SCENE_SUPPLY = env.COC_PI_SCENE_SUPPLY || "1";
   env.COC_HOST = "pi";
@@ -676,6 +767,7 @@ export class PiCocRpcHost {
       provider: this.provider,
       model: this.model,
       thinking: this.thinking,
+      repoRoot: this.repoRoot,
     });
     const env = buildChildEnv({
       workspace: this.workspace,

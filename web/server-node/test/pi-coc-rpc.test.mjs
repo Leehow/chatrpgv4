@@ -3,21 +3,28 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import {
   HANDOFF_EXIT_CODE,
+  HOST_PI_EXTENSION_RELS,
+  HOST_WEB_SEARCH_EXTENSION_REL,
   UI_AUTO_OPEN_MARKER,
   UI_IDLE_MARKER,
   applyVisionChildEnv,
   buildChildEnv,
   buildPiCocArgs,
   createJsonlParser,
+  hostPiExtensionPaths,
+  injectWebSearchKeysIntoEnv,
   mapRpcEventToSse,
   PiCocRpcHost,
   PLAY_TABLE_OPENING_PROMPT,
+  resolveHostWebSearchExtension,
+  resolvePiCocLauncher,
   SETUP_CHARACTER_OPENING_MARKER,
   setupCharacterOpeningPrompt,
   sessionOpeningFlags,
@@ -25,6 +32,32 @@ import {
   tableIntentFromOpeningPhase,
   webSessionId,
 } from "../pi-coc-rpc.mjs";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const HOST_WEB_SEARCH_EXTENSION = resolveHostWebSearchExtension(REPO_ROOT);
+
+function argsWithoutExtensions(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "--extension") {
+      i += 1;
+      continue;
+    }
+    out.push(args[i]);
+  }
+  return out;
+}
+
+function extensionPaths(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "--extension" && args[i + 1]) {
+      out.push(args[i + 1]);
+      i += 1;
+    }
+  }
+  return out;
+}
 
 test("webSessionId stays inside Pi session-id grammar", () => {
   assert.equal(webSessionId("the-haunting"), "web-the-haunting");
@@ -44,20 +77,25 @@ test("summarizeRpcDeath prefers the Error line over a leading warning", () => {
 
 test("buildPiCocArgs uses RPC mode and a campaign selector", () => {
   assert.deepEqual(
-    buildPiCocArgs({ campaignId: "haunting-1", sessionId: "web-haunting-1" }),
+    argsWithoutExtensions(
+      buildPiCocArgs({ campaignId: "haunting-1", sessionId: "web-haunting-1", repoRoot: REPO_ROOT }),
+    ),
     ["--mode", "rpc", "--session-id", "web-haunting-1", "--campaign", "haunting-1"],
   );
 });
 
 test("buildPiCocArgs pins the selected model and exact supported thinking at startup", () => {
   assert.deepEqual(
-    buildPiCocArgs({
-      campaignId: "haunting-1",
-      sessionId: "web-haunting-1",
-      provider: "jellytoken",
-      model: "deepseek-v4-flash",
-      thinking: "off",
-    }),
+    argsWithoutExtensions(
+      buildPiCocArgs({
+        campaignId: "haunting-1",
+        sessionId: "web-haunting-1",
+        provider: "jellytoken",
+        model: "deepseek-v4-flash",
+        thinking: "off",
+        repoRoot: REPO_ROOT,
+      }),
+    ),
     [
       "--mode", "rpc",
       "--session-id", "web-haunting-1",
@@ -67,6 +105,64 @@ test("buildPiCocArgs pins the selected model and exact supported thinking at sta
       "--thinking", "off",
     ],
   );
+});
+
+test("buildPiCocArgs mounts host web-search and hosted-search extensions that exist", () => {
+  const required = hostPiExtensionPaths(REPO_ROOT);
+  assert.equal(required.length, HOST_PI_EXTENSION_RELS.length);
+  assert.deepEqual(required.map((p) => path.basename(p)), [
+    "web-search.ts",
+    "openai-server-tools.ts",
+    "xai-server-tools.ts",
+  ]);
+  for (const abs of required) {
+    assert.equal(path.isAbsolute(abs), true);
+    assert.equal(fs.existsSync(abs), true, `missing host extension: ${abs}`);
+  }
+  assert.equal(required[0], HOST_WEB_SEARCH_EXTENSION);
+  assert.equal(path.normalize(required[0]).endsWith(HOST_WEB_SEARCH_EXTENSION_REL), true);
+  const args = buildPiCocArgs({
+    campaignId: "haunting-1",
+    sessionId: "web-haunting-1",
+    repoRoot: REPO_ROOT,
+  });
+  assert.deepEqual(extensionPaths(args), required);
+  assert.doesNotMatch(JSON.stringify(args), /ApiKey|exa-/i);
+});
+
+test("pi-coc launcher forwards --extension into USER_ARGS instead of swallowing it", () => {
+  const launcher = resolvePiCocLauncher(REPO_ROOT);
+  const src = fs.readFileSync(launcher, "utf8");
+  assert.match(src, /USER_ARGS=\(\)/);
+  assert.match(src, /PI_ARGS\+=\("\$\{USER_ARGS\[@\]\}"\)/);
+  assert.doesNotMatch(src, /--extension\)/);
+  const start = src.indexOf("WANT_NEW=0");
+  const loopStart = src.indexOf("USER_ARGS=()");
+  const done = src.indexOf("\ndone\n", loopStart);
+  assert.ok(start >= 0 && loopStart > start && done > loopStart);
+  const loop = src.slice(start, done + "\ndone".length);
+  const ext = HOST_WEB_SEARCH_EXTENSION;
+  const run = spawnSync("bash", ["-s", "--",
+    "--mode", "rpc",
+    "--session-id", "web-haunting-1",
+    "--campaign", "haunting-1",
+    "--extension", ext,
+  ], {
+    encoding: "utf8",
+    input: `${loop}\nprintf '%s\\n' "\${USER_ARGS[@]}"\n`,
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  const lines = run.stdout.split("\n").filter(Boolean);
+  assert.deepEqual(lines, [
+    "--mode",
+    "rpc",
+    "--session-id",
+    "web-haunting-1",
+    "--extension",
+    ext,
+  ]);
+  assert.equal(lines.includes("--campaign"), false);
+  assert.equal(lines.includes("haunting-1"), false);
 });
 
 test("sessionOpeningFlags reads the authoritative opening phase, not investigator files", () => {
@@ -235,6 +331,75 @@ test("buildChildEnv sets COC_PI_PDF_MODEL from vision prefs and never writes COC
   });
   assert.equal(env.COC_PI_PDF_MODEL, "openai/gpt-5");
   assert.equal(env.COC_PI_OPENING_MODEL, "keep-me");
+});
+
+test("buildChildEnv injects EXA_API_KEY from web-search.json and does not overwrite a parent key", () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-web-search-env-"));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-web-search-ws-"));
+  const secret = "exa-test-secret-not-for-logs";
+  try {
+    fs.writeFileSync(
+      path.join(agentDir, "web-search.json"),
+      `${JSON.stringify({ exaApiKey: secret, workflow: "none" }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    const env = buildChildEnv({
+      workspace,
+      repoRoot: "/tmp/missing-repo",
+      campaignId: "haunting-1",
+      agentDir,
+      parentEnv: { PATH: "/usr/bin", HOME: "/tmp", PI_AGENT_DIR: agentDir },
+      userPrefs: {},
+    });
+    assert.equal(env.EXA_API_KEY, secret);
+    const pinned = buildChildEnv({
+      workspace,
+      repoRoot: "/tmp/missing-repo",
+      campaignId: "haunting-1",
+      agentDir,
+      parentEnv: {
+        PATH: "/usr/bin",
+        HOME: "/tmp",
+        PI_AGENT_DIR: agentDir,
+        EXA_API_KEY: "parent-wins",
+      },
+      userPrefs: {},
+    });
+    assert.equal(pinned.EXA_API_KEY, "parent-wins");
+    const args = buildPiCocArgs({
+      campaignId: "haunting-1",
+      sessionId: "web-haunting-1",
+      repoRoot: REPO_ROOT,
+    });
+    assert.equal(JSON.stringify(args).includes(secret), false);
+    const view = injectWebSearchKeysIntoEnv({}, { keyDirs: [agentDir] });
+    assert.equal(view.EXA_API_KEY, secret);
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("PiCocRpcHost start passes existing host extension paths into spawn args", () => {
+  let captured;
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: REPO_ROOT,
+    workspace: "/tmp/ws",
+    campaignId: "c-ext",
+    sessionId: "web-c-ext",
+    launcherPath: process.execPath,
+    spawnFn: (cmd, args, opts) => {
+      captured = { cmd, args, env: opts.env };
+      return child;
+    },
+  });
+  host.start();
+  const required = hostPiExtensionPaths(REPO_ROOT);
+  for (const abs of required) {
+    assert.equal(fs.existsSync(abs), true, `missing host extension: ${abs}`);
+  }
+  assert.deepEqual(extensionPaths(captured.args), required);
 });
 
 test("JSONL parser splits only on LF and ignores a U+2028 inside JSON", () => {
