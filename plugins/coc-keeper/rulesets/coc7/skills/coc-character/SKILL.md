@@ -289,20 +289,47 @@ example, do not invoke Codex `imagegen` while running on Grok Build).
 | **Grok Build** | built-in `image_gen` / Imagine | generate when the user asks |
 | **Claude Code / Cursor / Kimi / hosts without image tools** | none | skip portrait generation; continue character creation |
 
+Portrait files and metadata belong on the reusable investigator sheet, not in
+localStorage, a second state engine, or a host cache. `setup.chargen_run`
+attaches `sheet.portrait` after roleplay fields; KP does not send `portrait` on
+the chargen payload and **must not call an image API at chargen completion**.
+
+`backstory.personal_description` is the player appearance hard constraint.
+When that prose is present at chargen completion, set `portrait.source=player`
+and never overwrite it. When it is absent, do not invent an appearance; only
+record confirmed `concept` / `age` / `occupation` / `era` / `region` /
+`background` under `portrait.provenance` for a later prompt builder, with
+`source=sheet_concept` and `status=pending`.
+
+Canonical machine field `portrait` on `character.json`:
+
+| Field | Meaning |
+|-------|---------|
+| `asset_path` | Workspace-relative file under `.coc/investigators/<investigator-id>/portraits/` only |
+| `prompt` | Prompt summary after a host image tool actually ran |
+| `source` | `player` \| `sheet_concept` \| `host_native` |
+| `provenance` | Confirmed seed: concept, age, occupation, era, region, background, appearance |
+| `status` | `pending` \| `generated` \| `skipped` |
+| `generated_at` / `updated_at` | UTC `Z` timestamps; `generated_at` only with a stored asset |
+| `tool` / `host` | Optional host-native generator identity |
+
+Player-facing projection (card / panel) uses `player_facing_sheet_zh`:
+`portrait_path`, `portrait_source`, `portrait_status`, `portrait_generated_at`.
+Do not copy prompt-builder provenance onto the player card.
+
 When generating:
 
 1. Use the investigator's confirmed identity, age, nationality, era,
    occupation, backstory, equipment, and campaign tone for a concise historical
-   portrait prompt.
+   portrait prompt. Player `personal_description` wins over any seed.
 2. Avoid spoilers, Mythos reveals, modern clothing, modern weapons, and action
    poses unless the user explicitly requests them.
-3. Copy every project-referenced portrait into the workspace. Prefer
-   `.coc/investigators/<investigator-id>/portraits/` after the reusable
-   investigator exists. During campaign setup before a final investigator id
-   exists, use `.coc/campaigns/<campaign-id>/assets/portraits/`.
+3. Copy every project-referenced portrait into
+   `.coc/investigators/<investigator-id>/portraits/` only. Do not use campaign
+   `assets/portraits/` or any other workspace path.
 4. Record the final asset path, prompt summary, generation tool/host, and
-   status in the creation draft or investigator sheet under a `portrait` field.
-   Do not leave a project-referenced portrait only under a host cache such as
+   status in the investigator sheet under `portrait`. Do not leave a
+   project-referenced portrait only under a host cache such as
    `$CODEX_HOME/generated_images` or a Grok session image temp path.
 <!-- HOST_NATIVE_IMAGEGEN_END -->
 

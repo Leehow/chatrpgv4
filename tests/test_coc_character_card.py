@@ -369,3 +369,58 @@ def test_render_cards_projects_finance_and_public_dice(tmp_path):
     assert "每日免记账额度 $10" in markdown
     assert "## 建卡财力" in markdown
     assert "$70" in markdown
+
+
+def test_render_cards_uses_canonical_investigator_portrait_path(tmp_path):
+    card_script = _load_card_script()
+    investigator_id = "aino"
+    portrait = (
+        tmp_path / ".coc" / "investigators" / investigator_id / "portraits" / "aino.png"
+    )
+    portrait.parent.mkdir(parents=True)
+    portrait.write_bytes(b"not really a png, only a path fixture")
+    character_path = portrait.parent.parent / "character.json"
+    campaign_path = tmp_path / ".coc" / "campaigns" / "camp" / "campaign.json"
+    campaign_path.parent.mkdir(parents=True)
+    campaign_path.write_text(json.dumps({"title": "Masks of Nyarlathotep"}), encoding="utf-8")
+    asset_path = ".coc/investigators/aino/portraits/aino.png"
+    character_path.write_text(
+        json.dumps(
+            {
+                "id": investigator_id,
+                "identity": {"name": "Aino Rautio"},
+                "portrait": {
+                    "asset_path": asset_path,
+                    "source": "player",
+                    "status": "generated",
+                    "generated_at": "2026-08-21T12:00:00Z",
+                },
+                "player_facing_sheet_zh": {
+                    "display_name": "艾诺·劳蒂奥",
+                    "portrait_path": asset_path,
+                    "portrait_source": "player",
+                    "portrait_status": "generated",
+                    "era": "1925",
+                    "nationality": "芬兰",
+                    "age": 44,
+                    "occupation": "神秘学学者",
+                    "characteristics": {"力量": {"key": "STR", "value": 35}},
+                    "derived": {"生命值": 11},
+                    "skills": [],
+                    "weapons": [],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result = card_script.render_cards(
+        character_path,
+        campaign_path,
+        tmp_path / "cards",
+        repo_root=tmp_path,
+        language="zh-Hans",
+        html_mode="never",
+    )
+    markdown = (tmp_path / result["markdown_path"]).read_text(encoding="utf-8")
+    assert f"![艾诺·劳蒂奥 立绘](../.coc/investigators/aino/portraits/aino.png)" in markdown

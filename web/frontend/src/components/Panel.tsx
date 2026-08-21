@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Backpack, Clock3, Fingerprint, Landmark, Search, Swords, Wallet } from "lucide-react";
+import { useRef, useState } from "react";
+import { Backpack, Clock3, Fingerprint, Landmark, Loader2, Search, Swords, UserRound, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -10,7 +11,16 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { generatePortrait } from "../api";
 import type { Actor, GameState } from "../types";
+import {
+  canGeneratePortrait,
+  isAbortError,
+  mapPortraitError,
+  portraitButtonLabel,
+  portraitImageSrc,
+  type PortraitView,
+} from "../panel-portrait";
 import { safeDisplayText } from "../safe-display";
 import {
   cashLedgerRows,
@@ -103,6 +113,119 @@ function SectionTitle({ icon, text }: { icon: React.ReactNode; text: string }) {
       {text}
       <span aria-hidden className="ml-1 h-px flex-1 bg-border/70" />
     </h3>
+  );
+}
+
+function PortraitFrame({
+  campaignId,
+  investigatorId,
+  setupPending,
+  portrait,
+}: {
+  campaignId?: string | null;
+  investigatorId: string | null;
+  setupPending?: boolean;
+  portrait: PortraitView | null | undefined;
+}) {
+  const [generated, setGenerated] = useState<PortraitView | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const current = generated ?? portrait;
+  const src = portraitImageSrc(current);
+  const enabled = canGeneratePortrait({
+    setupPending,
+    investigatorId,
+    campaignId,
+  });
+  const label = portraitButtonLabel(current);
+
+  const cancel = () => {
+    abortRef.current?.abort();
+  };
+
+  const run = async () => {
+    if (!enabled || !campaignId || !investigatorId || loading) return;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setLoading(true);
+    setStatus("正在生成头像…");
+    try {
+      const result = await generatePortrait(
+        { campaign_id: campaignId, investigator_id: investigatorId },
+        ac.signal,
+      );
+      if (result?.portrait) setGenerated(result.portrait);
+      setStatus(null);
+    } catch (err) {
+      if (isAbortError(err) || ac.signal.aborted) {
+        setStatus("已取消");
+      } else {
+        setStatus(mapPortraitError(err, false));
+      }
+    } finally {
+      if (abortRef.current === ac) abortRef.current = null;
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className="relative w-[7.25rem] max-w-[46%] overflow-hidden rounded-lg border border-border/70 bg-secondary/60 shadow-xs sm:w-32 aspect-[2/3]"
+        aria-label="调查员头像"
+      >
+        {src ? (
+          <img
+            src={src}
+            alt="调查员头像"
+            className="size-full object-cover object-top"
+          />
+        ) : (
+          <div className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground">
+            <UserRound className="size-8 opacity-70" aria-hidden />
+            <span className="px-2 text-center text-[10px] leading-tight">暂无头像</span>
+          </div>
+        )}
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/55">
+            <Loader2 className="size-6 animate-spin text-primary" aria-hidden />
+          </div>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!enabled || loading}
+          onClick={() => void run()}
+        >
+          {label}
+        </Button>
+        {loading ? (
+          <Button type="button" size="sm" variant="ghost" onClick={cancel}>
+            取消
+          </Button>
+        ) : null}
+      </div>
+      {status ? (
+        <p
+          className={cn(
+            "max-w-[16rem] text-center text-[11px] leading-snug",
+            status === "正在生成头像…"
+              ? "text-muted-foreground"
+              : status === "已取消"
+                ? "text-muted-foreground"
+                : "text-destructive",
+          )}
+          role="status"
+        >
+          {status}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -301,6 +424,13 @@ export function PanelContent({
         <Card className="gap-3 py-4">
           <CardHeader className="gap-2 px-4">
             <SectionTitle icon={<Fingerprint className="size-3.5" />} text="调查员" />
+            <PortraitFrame
+              key={investigatorId ?? "none"}
+              campaignId={state.campaign_id}
+              investigatorId={investigatorId}
+              setupPending={setupPending}
+              portrait={sheet?.portrait}
+            />
             {!setupPending && (
               <>
                 <CardTitle className="font-display text-lg leading-snug">

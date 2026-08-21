@@ -318,6 +318,8 @@ export default function App() {
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [visionProvider, setVisionProvider] = useState("");
   const [visionModel, setVisionModel] = useState("");
+  const [portraitImageProvider, setPortraitImageProvider] = useState("");
+  const [portraitImageModel, setPortraitImageModel] = useState("");
   useEffect(() => {
     const desktop = (
       window as {
@@ -452,6 +454,12 @@ export default function App() {
         setVisionEnabled(disk.visionEnabled === true);
         setVisionProvider(typeof disk.visionProvider === "string" ? disk.visionProvider : "");
         setVisionModel(typeof disk.visionModel === "string" ? disk.visionModel : "");
+        setPortraitImageProvider(
+          typeof disk.portraitImageProvider === "string" ? disk.portraitImageProvider : "",
+        );
+        setPortraitImageModel(
+          typeof disk.portraitImageModel === "string" ? disk.portraitImageModel : "",
+        );
         const uploadModel = hydrated.shouldUpload && !modelFallbackUploaded.current;
         if (uploadLayout) layoutUploaded.current = true;
         if (uploadModel) modelFallbackUploaded.current = true;
@@ -568,6 +576,16 @@ export default function App() {
       })
       .catch(() => undefined);
   }, [visionEnabled, visionProvider, visionModel, modelPrefsReady, modelPrefsWritable]);
+
+  useEffect(() => {
+    if (!modelPrefsReady || !modelPrefsWritable) return;
+    void api
+      .saveUserPrefs({
+        portraitImageProvider,
+        portraitImageModel,
+      })
+      .catch(() => undefined);
+  }, [portraitImageProvider, portraitImageModel, modelPrefsReady, modelPrefsWritable]);
 
   useEffect(() => {
     localStorage.setItem(LS.appearance, appearance);
@@ -1511,6 +1529,12 @@ export default function App() {
           setVisionEnabled(next.enabled);
           setVisionProvider(next.enabled ? next.provider : "");
           setVisionModel(next.enabled ? next.model : "");
+        }}
+        keeperProvider={provider}
+        portraitImage={{ provider: portraitImageProvider, model: portraitImageModel }}
+        onPortraitImageChange={(next) => {
+          setPortraitImageProvider(next.provider);
+          setPortraitImageModel(next.model);
         }}
       />
       {error && (

@@ -54,6 +54,7 @@ import {
   tableTranscriptMessages,
   tensionDisplayLabel,
   timeExtras,
+  attachPortraitToDisplayCharacter,
 } from "./projections.mjs";
 import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./model-editor.mjs";
 import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
@@ -61,6 +62,12 @@ import { loadUserPrefs, resolveUserPrefsPath, saveUserPrefs } from "./user-prefs
 import { loadWebSearchKeysView, saveWebSearchApiKeys } from "./web-search-keys.mjs";
 import { loadOcrTokenView, saveOcrToken } from "./ocr-secrets.mjs";
 import { cancelLogin, loginSnapshot, respondLoginPrompt, startProviderLogin } from "./provider-login.mjs";
+import { generateCampaignPortrait, parseGeneratePortraitBody } from "./xai-image.mjs";
+import {
+  generateInvestigatorPortrait,
+  parseInvestigatorPortraitBody,
+  resolvePortraitStaticFile,
+} from "./portrait-generate.mjs";
 import { deleteSourceBundle } from "./source-bundles.mjs";
 
 /**
@@ -275,7 +282,10 @@ async function statePayload(info) {
         play_language: lang,
         campaign_id: info.campaign_id,
       });
-      state.character = extras?.character ?? null;
+      state.character = attachPortraitToDisplayCharacter(extras?.character ?? null, {
+        workspace: WORKSPACE,
+        investigatorId: liveInvestigator,
+      });
     } catch {
       state.character = null;
     }
@@ -507,6 +517,52 @@ function handleOcrToken(_req, res) {
 async function handleSaveOcrToken(req, res) {
   const body = await readJsonBody(req);
   sendJson(res, 200, saveOcrToken(body));
+}
+
+async function handleGeneratePortrait(req, res) {
+  const body = await readJsonBody(req);
+  const ac = new AbortController();
+  req.on("close", () => {
+    if (!res.writableEnded) ac.abort();
+  });
+  if (body && typeof body.investigator_id === "string" && body.investigator_id.trim()) {
+    parseInvestigatorPortraitBody(body);
+    const result = await generateInvestigatorPortrait({
+      workspace: WORKSPACE,
+      repoRoot: REPO_ROOT,
+      campaignId: body.campaign_id,
+      investigatorId: body.investigator_id,
+      signal: ac.signal,
+      prefs: loadUserPrefs(resolveUserPrefsPath()),
+      clientBody: body,
+      agentDir: resolveProductAgentDir(),
+    });
+    sendJson(res, 200, result);
+    return;
+  }
+  const parsed = parseGeneratePortraitBody(body);
+  const result = await generateCampaignPortrait({
+    workspace: WORKSPACE,
+    ...parsed,
+    signal: ac.signal,
+  });
+  sendJson(res, 200, result);
+}
+
+function handleInvestigatorPortrait(req, res, investigatorId, filename) {
+  const resolved = resolvePortraitStaticFile(WORKSPACE, investigatorId, filename);
+  if (!resolved) {
+    sendJson(res, 404, { error: "portrait not found" });
+    return;
+  }
+  const body = fs.readFileSync(resolved.file);
+  res.writeHead(200, {
+    "Content-Type": resolved.mime,
+    "Content-Length": body.length,
+    "Cache-Control": "private, max-age=0, must-revalidate",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(body);
 }
 
 async function handleStartModelLogin(req, res) {
@@ -1823,6 +1879,14 @@ async function route(req, res) {
       return handleTranscript(req, res, parts[2]);
     }
     if (urlPath === "/api/trash") return handleListTrash(req, res);
+    if (
+      parts.length === 5 &&
+      parts[0] === "api" &&
+      parts[1] === "investigators" &&
+      parts[3] === "portraits"
+    ) {
+      return handleInvestigatorPortrait(req, res, parts[2], parts[4]);
+    }
     if (urlPath.startsWith("/api/")) throw httpError(404, "not found");
     return serveStatic(req, res, urlPath);
   }
@@ -1838,6 +1902,7 @@ async function route(req, res) {
     if (urlPath === "/api/campaigns/attach-investigator") return handleAttachInvestigator(req, res);
     if (urlPath === "/api/sessions") return handleCreateSession(req, res);
     if (urlPath === "/api/investigators") return handleCreateInvestigator(req, res);
+    if (urlPath === "/api/portraits/generate") return handleGeneratePortrait(req, res);
     if (urlPath === "/api/model-editor/provider") return handleSaveModelEditorProvider(req, res);
     if (urlPath === "/api/model-editor/login") return handleStartModelLogin(req, res);
     if (urlPath === "/api/model-editor/login/respond") return handleModelLoginRespond(req, res);

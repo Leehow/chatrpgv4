@@ -27,6 +27,10 @@ import {
   zhDigits,
   zhHourPhrase,
   zhSmallNumber,
+  attachPortraitToDisplayCharacter,
+  playerFacingPortraitProjection,
+  portraitImageUrl,
+  resolveInvestigatorPortraitFile,
 } from "../projections.mjs";
 
 test("listSourceBundles reports the PDF page count rather than rendered-page count", () => {
@@ -1282,6 +1286,71 @@ test("modelsPayload marks image from models.json input without touching settings
     else process.env.COC_DESKTOP_USER_DATA = prevData;
     fs.rmSync(userData, { recursive: true, force: true });
   }
+});
+
+test("player-facing portrait projection omits prompt and provenance", () => {
+  const projected = playerFacingPortraitProjection({
+    portrait: {
+      asset_path: ".coc/investigators/ada/portraits/ada.png",
+      source: "player",
+      status: "generated",
+      generated_at: "2026-01-01T00:00:00Z",
+      prompt: "secret prompt must not leak",
+      provenance: { appearance: "hidden", mythos: "do not send" },
+      tool: "xai",
+      host: "pi-coc",
+    },
+  });
+  assert.deepEqual(projected, {
+    portrait_path: ".coc/investigators/ada/portraits/ada.png",
+    portrait_source: "player",
+    portrait_status: "generated",
+    portrait_generated_at: "2026-01-01T00:00:00Z",
+  });
+  const dumped = JSON.stringify(projected);
+  assert.equal(dumped.includes("prompt"), false);
+  assert.equal(dumped.includes("provenance"), false);
+  assert.equal(dumped.includes("secret"), false);
+});
+
+test("attachPortraitToDisplayCharacter adds a safe image URL and strips secrets", () => {
+  const ws = makeWorkspace();
+  writeJson(path.join(ws, ".coc/investigators/ada/character.json"), {
+    id: "ada",
+    name: "Ada",
+    portrait: {
+      asset_path: ".coc/investigators/ada/portraits/ada.png",
+      source: "sheet_concept",
+      status: "generated",
+      generated_at: "2026-01-01T00:00:00Z",
+      prompt: "KP-only prompt",
+      provenance: { appearance: "secret look" },
+    },
+  });
+  const display = attachPortraitToDisplayCharacter(
+    { name: "Ada", portrait: { prompt: "leaked" } },
+    { workspace: ws, investigatorId: "ada" },
+  );
+  assert.equal(display.portrait.portrait_path, ".coc/investigators/ada/portraits/ada.png");
+  assert.equal(
+    display.portrait.image_url,
+    "/api/investigators/ada/portraits/ada.png",
+  );
+  assert.equal(display.portrait.prompt, undefined);
+  assert.equal(display.portrait.provenance, undefined);
+  assert.equal(JSON.stringify(display).includes("KP-only"), false);
+  assert.equal(portraitImageUrl("ada", ".coc/investigators/ada/portraits/ada.png"), display.portrait.image_url);
+});
+
+test("resolveInvestigatorPortraitFile rejects traversal", () => {
+  const ws = makeWorkspace();
+  const ok = resolveInvestigatorPortraitFile(ws, "ada", "ada.png");
+  assert.ok(ok.endsWith(`${path.sep}ada${path.sep}portraits${path.sep}ada.png`));
+  assert.equal(resolveInvestigatorPortraitFile(ws, "ada", "../campaign.json"), null);
+  assert.equal(resolveInvestigatorPortraitFile(ws, "ada", ".."), null);
+  assert.equal(resolveInvestigatorPortraitFile(ws, "../ada", "ada.png"), null);
+  assert.equal(resolveInvestigatorPortraitFile(ws, "ada", "ada.png.txt"), null);
+  assert.equal(resolveInvestigatorPortraitFile(ws, "ada", ".hidden.png"), null);
 });
 
 test("modelsPayload default falls back to Pi settings when user-prefs model is empty", () => {

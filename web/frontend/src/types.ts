@@ -230,6 +230,14 @@ export interface CharacterSheet {
       pair_sep?: string;
     };
   } | null;
+  /** Player-facing portrait only: path/source/status/time + safe image URL. */
+  portrait?: {
+    portrait_path?: string;
+    portrait_source?: string;
+    portrait_status?: string;
+    portrait_generated_at?: string;
+    image_url?: string;
+  } | null;
   localized?: boolean;
 }
 

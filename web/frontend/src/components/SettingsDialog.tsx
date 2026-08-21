@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ModelsResponse } from "../types";
 import { EditModelsDialog } from "./EditModelsDialog";
-import { SettingsGeneralPane, type VisionSelection } from "./SettingsGeneralPane";
+import {
+  SettingsGeneralPane,
+  type PortraitImageSelection,
+  type VisionSelection,
+} from "./SettingsGeneralPane";
 
 type SettingsTab = "general" | "models";
 
@@ -16,6 +20,9 @@ export function SettingsDialog({
   hiddenProviders,
   vision,
   onVisionChange,
+  keeperProvider,
+  portraitImage,
+  onPortraitImageChange,
 }: {
   open: boolean;
   onClose: () => void;
@@ -24,6 +31,9 @@ export function SettingsDialog({
   hiddenProviders: string[];
   vision: VisionSelection;
   onVisionChange: (next: VisionSelection) => void;
+  keeperProvider?: string;
+  portraitImage: PortraitImageSelection;
+  onPortraitImageChange: (next: PortraitImageSelection) => void;
 }) {
   const [tab, setTab] = useState<SettingsTab>("models");
 
@@ -83,6 +93,9 @@ export function SettingsDialog({
               hiddenProviders={hiddenProviders}
               vision={vision}
               onVisionChange={onVisionChange}
+              keeperProvider={keeperProvider}
+              portraitImage={portraitImage}
+              onPortraitImageChange={onPortraitImageChange}
             />
           ) : null}
           <div className={tab === "models" ? "block" : "hidden"}>

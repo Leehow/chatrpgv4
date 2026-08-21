@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { streamTurn } from "./api.ts";
+import { generatePortrait, streamTurn } from "./api.ts";
 import { applySettledKeeperMessage } from "./transcript-merge.ts";
 
 function sseFrame(event, data) {
@@ -62,6 +62,33 @@ test("streamTurn sends live_id only for non-attach turns and onTurn consumes mes
     });
     assert.equal(bodies[1].attach, true);
     assert.equal("live_id" in bodies[1], false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("generatePortrait posts campaign and investigator ids without a client prompt", async () => {
+  const originalFetch = globalThis.fetch;
+  let url;
+  let body;
+  globalThis.fetch = async (nextUrl, init) => {
+    url = String(nextUrl);
+    body = JSON.parse(String(init.body));
+    return new Response(JSON.stringify({
+      ok: true,
+      portrait: {
+        portrait_path: ".coc/investigators/ada/portraits/ada.png",
+        image_url: "/api/investigators/ada/portraits/ada.png",
+        portrait_status: "generated",
+      },
+    }), { status: 200 });
+  };
+  try {
+    const result = await generatePortrait({ campaign_id: "camp-1", investigator_id: "ada" });
+    assert.equal(url, "/api/portraits/generate");
+    assert.deepEqual(body, { campaign_id: "camp-1", investigator_id: "ada" });
+    assert.equal("prompt" in body, false);
+    assert.equal(result.portrait.image_url, "/api/investigators/ada/portraits/ada.png");
   } finally {
     globalThis.fetch = originalFetch;
   }

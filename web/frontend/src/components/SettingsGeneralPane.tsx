@@ -1,7 +1,15 @@
 import { cn } from "@/lib/utils";
 import type { ModelsResponse } from "../types";
+import {
+  isOfficialXaiKeeper,
+  portraitImageCandidates,
+  type PortraitImageSelection,
+} from "../portrait-image-prefs";
 import { OcrSecretsPane } from "./OcrSecretsPane";
 import { WebSearchKeysPane } from "./WebSearchKeysPane";
+
+export type { PortraitImageSelection };
+export { isOfficialXaiKeeper, portraitImageCandidates };
 
 export type VisionSelection = {
   enabled: boolean;
@@ -61,12 +69,31 @@ export function SettingsGeneralPane({
   hiddenProviders,
   vision,
   onVisionChange,
+  keeperProvider,
+  portraitImage,
+  onPortraitImageChange,
 }: {
   models: ModelsResponse | null;
   hiddenProviders: string[];
   vision: VisionSelection;
   onVisionChange: (next: VisionSelection) => void;
+  keeperProvider?: string;
+  portraitImage: PortraitImageSelection;
+  onPortraitImageChange: (next: PortraitImageSelection) => void;
 }) {
+  const xaiKeeper = isOfficialXaiKeeper(keeperProvider);
+  const portraitCandidates = portraitImageCandidates(models, hiddenProviders, {
+    provider: portraitImage.provider,
+    model: portraitImage.model,
+  });
+  const portraitRetained = portraitCandidates.some((row) => row.retained);
+  const portraitGroups = new Map<string, typeof portraitCandidates>();
+  for (const row of portraitCandidates) {
+    const list = portraitGroups.get(row.group) || [];
+    list.push(row);
+    portraitGroups.set(row.group, list);
+  }
+  const portraitValue = visionRef(portraitImage.provider, portraitImage.model);
   const candidates = visionCandidates(models, hiddenProviders, {
     provider: vision.provider,
     model: vision.model,
@@ -143,6 +170,54 @@ export function SettingsGeneralPane({
           ))}
         </select>
       </label>
+      <div className="flex flex-col gap-2" data-testid="portrait-image-settings">
+        <div>
+          <p className="text-sm font-medium">图像生成模型</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            用于调查员头像。候选来自模型页已勾选的供应商。xAI 主模型固定 Grok Imagine；JellyToken 与阿里云百炼走异步出图。所选模型/供应商需支持图像生成。
+          </p>
+        </div>
+        {xaiKeeper ? (
+          <p className="text-sm text-foreground" data-testid="portrait-image-xai-bypass">
+            使用 xAI Grok Imagine
+          </p>
+        ) : (
+          <>
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              <span>图像生成模型</span>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm text-foreground"
+                aria-label="图像生成模型"
+                data-testid="portrait-image-model-select"
+                value={portraitValue}
+                onChange={(event) => {
+                  onPortraitImageChange(parseVisionRef(event.target.value));
+                }}
+              >
+                <option value="">请选择图像生成模型</option>
+                {[...portraitGroups.entries()].map(([group, rows]) => (
+                  <optgroup key={group} label={group}>
+                    {rows.map((row) => (
+                      <option
+                        key={visionRef(row.provider, row.model)}
+                        value={visionRef(row.provider, row.model)}
+                      >
+                        {row.label}（{visionRef(row.provider, row.model)}）
+                        {row.retained ? " · 已隐藏仍保留" : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            {portraitRetained ? (
+              <p className="text-xs text-muted-foreground" data-testid="portrait-image-retained">
+                当前选中的模型已从模型页隐藏，仍可继续使用，直到你改选。
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
       <WebSearchKeysPane />
       <OcrSecretsPane />
     </div>

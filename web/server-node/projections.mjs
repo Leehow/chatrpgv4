@@ -165,6 +165,130 @@ export function investigatorIdFromParty(
   return null;
 }
 
+export const INVESTIGATOR_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+export const PORTRAIT_FILENAME_RE =
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(?:png|jpe?g|webp)$/i;
+const PLAYER_FACING_PORTRAIT_KEYS = Object.freeze([
+  "portrait_path",
+  "portrait_source",
+  "portrait_status",
+  "portrait_generated_at",
+]);
+const SECRET_PORTRAIT_KEYS = Object.freeze([
+  "prompt",
+  "provenance",
+  "tool",
+  "host",
+  "updated_at",
+  "appearance",
+  "aspect_ratio",
+  "framing",
+]);
+
+export function investigatorCharacterPath(workspace, investigatorId) {
+  const id = String(investigatorId || "").trim();
+  if (!INVESTIGATOR_ID_RE.test(id)) return null;
+  return path.join(cocRoot(workspace), "investigators", id, "character.json");
+}
+
+export function investigatorPortraitDir(workspace, investigatorId) {
+  const id = String(investigatorId || "").trim();
+  if (!INVESTIGATOR_ID_RE.test(id)) return null;
+  return path.join(cocRoot(workspace), "investigators", id, "portraits");
+}
+
+function isInsideDir(root, candidate) {
+  const base = path.resolve(root);
+  const full = path.resolve(candidate);
+  return full === base || full.startsWith(base + path.sep);
+}
+
+/** Confine a portrait filename to `.coc/investigators/<id>/portraits/`. */
+export function resolveInvestigatorPortraitFile(workspace, investigatorId, filename) {
+  const dir = investigatorPortraitDir(workspace, investigatorId);
+  const name = String(filename || "").trim();
+  if (!dir || !PORTRAIT_FILENAME_RE.test(name)) return null;
+  if (name.includes("/") || name.includes("\\") || name.includes("\0")) return null;
+  if (name.includes("..") || name.startsWith(".")) return null;
+  const resolved = path.resolve(dir, name);
+  if (!isInsideDir(dir, resolved)) return null;
+  return resolved;
+}
+
+export function portraitImageUrl(investigatorId, assetPath) {
+  const id = String(investigatorId || "").trim();
+  const name = path.posix.basename(String(assetPath || "").replaceAll("\\", "/"));
+  if (!INVESTIGATOR_ID_RE.test(id) || !PORTRAIT_FILENAME_RE.test(name)) return null;
+  return `/api/investigators/${encodeURIComponent(id)}/portraits/${encodeURIComponent(name)}`;
+}
+
+function publicPortraitField(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+/** Player-facing portrait contract: path/source/status/time only. */
+export function playerFacingPortraitProjection(character) {
+  const raw = character && typeof character === "object" ? character : {};
+  const machine = raw.portrait && typeof raw.portrait === "object" ? raw.portrait : {};
+  const sheet =
+    raw.player_facing_sheet_zh && typeof raw.player_facing_sheet_zh === "object"
+      ? raw.player_facing_sheet_zh
+      : {};
+  const asset =
+    publicPortraitField(machine.asset_path) ||
+    publicPortraitField(machine.portrait_path) ||
+    publicPortraitField(raw.portrait_path) ||
+    publicPortraitField(sheet.portrait_path);
+  const source =
+    publicPortraitField(machine.source) ||
+    publicPortraitField(machine.portrait_source) ||
+    publicPortraitField(sheet.portrait_source);
+  const status =
+    publicPortraitField(machine.status) ||
+    publicPortraitField(machine.portrait_status) ||
+    publicPortraitField(sheet.portrait_status);
+  const generatedAt =
+    publicPortraitField(machine.generated_at) ||
+    publicPortraitField(machine.portrait_generated_at) ||
+    publicPortraitField(sheet.portrait_generated_at);
+  const projected = {};
+  if (asset) {
+    projected.portrait_path = asset;
+  }
+  if (source) projected.portrait_source = source;
+  if (status) projected.portrait_status = status;
+  if (generatedAt) projected.portrait_generated_at = generatedAt;
+  for (const key of SECRET_PORTRAIT_KEYS) {
+    delete projected[key];
+  }
+  return projected;
+}
+
+/** Overlay public portrait fields onto the sidecar display sheet. */
+export function attachPortraitToDisplayCharacter(display, { workspace, investigatorId } = {}) {
+  if (!display || typeof display !== "object") return display;
+  const id = String(investigatorId || "").trim();
+  const file = id ? investigatorCharacterPath(workspace, id) : null;
+  const stored = file ? readJsonFile(file) : null;
+  const projected = playerFacingPortraitProjection(stored && typeof stored === "object" ? stored : display);
+  const next = { ...display };
+  for (const key of [...PLAYER_FACING_PORTRAIT_KEYS, ...SECRET_PORTRAIT_KEYS, "portrait"]) {
+    delete next[key];
+  }
+  if (next.player_facing_sheet_zh && typeof next.player_facing_sheet_zh === "object") {
+    const pf = { ...next.player_facing_sheet_zh };
+    for (const key of [...PLAYER_FACING_PORTRAIT_KEYS, ...SECRET_PORTRAIT_KEYS]) {
+      delete pf[key];
+    }
+    next.player_facing_sheet_zh = pf;
+  }
+  const portrait = { ...projected };
+  const imageUrl = portraitImageUrl(id, portrait.portrait_path);
+  if (imageUrl) portrait.image_url = imageUrl;
+  next.portrait = Object.keys(portrait).length ? portrait : null;
+  return next;
+}
+
 export function readJsonFile(file) {
   try {
     const data = JSON.parse(fs.readFileSync(file, "utf-8"));

@@ -13,6 +13,8 @@ export const UI_PREF_KEYS = [
   "visionEnabled",
   "visionProvider",
   "visionModel",
+  "portraitImageProvider",
+  "portraitImageModel",
 ];
 
 const APPEARANCE = new Set(["light", "dark", "system"]);
@@ -44,6 +46,8 @@ function emptyPrefs() {
     visionEnabled: false,
     visionProvider: "",
     visionModel: "",
+    portraitImageProvider: "",
+    portraitImageModel: "",
   };
 }
 

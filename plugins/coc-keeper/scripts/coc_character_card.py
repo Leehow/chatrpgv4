@@ -308,7 +308,7 @@ def render_markdown(
     canonical_name = _identity_name(character, sheet)
     title = _campaign_title(campaign, language)
     portrait_path = _resolve_asset_path(
-        str(sheet.get("portrait_path") or character.get("portrait", {}).get("asset_path") or ""),
+        str(coc_character.player_facing_portrait(character).get("portrait_path") or ""),
         repo_root,
         source_path,
     )
@@ -430,7 +430,7 @@ def render_html(
     canonical_name = _identity_name(character, sheet)
     title = _campaign_title(campaign, language)
     portrait_path = _resolve_asset_path(
-        str(sheet.get("portrait_path") or character.get("portrait", {}).get("asset_path") or ""),
+        str(coc_character.player_facing_portrait(character).get("portrait_path") or ""),
         repo_root,
         source_path,
     )

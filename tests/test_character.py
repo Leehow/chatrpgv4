@@ -645,3 +645,215 @@ def test_kp_guided_occupation_formula_options_fail_closed_on_rule_literal_drift(
     )
 
     assert coc_character._occupation_skill_point_formula_options() == {}
+
+
+def _portrait_chargen_sheet() -> dict:
+    return {
+        "id": "ada",
+        "name": "Ada",
+        "age": 29,
+        "era": "1920s",
+        "occupation": "Journalist",
+        "nationality": "波士顿",
+        "player_facing_sheet_zh": {
+            "display_name": "艾达",
+            "occupation": "记者",
+            "nationality": "波士顿",
+            "skills": [],
+        },
+    }
+
+
+def test_canonical_portrait_asset_path_is_investigator_scoped():
+    assert coc_character.canonical_portrait_asset_path("ada", "ada.png") == (
+        ".coc/investigators/ada/portraits/ada.png"
+    )
+    with pytest.raises(coc_character.ChargenRunError, match="basename"):
+        coc_character.canonical_portrait_asset_path("ada", "../x.png")
+
+
+def test_normalize_chargen_portrait_rejects_non_canonical_paths():
+    with pytest.raises(coc_character.ChargenRunError, match="must live under"):
+        coc_character.normalize_chargen_portrait(
+            {"asset_path": "assets/portraits/ada.png"},
+            investigator_id="ada",
+        )
+    with pytest.raises(coc_character.ChargenRunError, match="must live under"):
+        coc_character.normalize_chargen_portrait(
+            {"asset_path": ".coc/campaigns/camp/assets/portraits/ada.png"},
+            investigator_id="ada",
+        )
+    with pytest.raises(coc_character.ChargenRunError, match="must live under"):
+        coc_character.normalize_chargen_portrait(
+            {"asset_path": ".coc/investigators/other/portraits/ada.png"},
+            investigator_id="ada",
+        )
+
+
+def test_attach_chargen_roleplay_marks_player_appearance_and_does_not_invent_prompt():
+    attached = coc_character.attach_chargen_roleplay(
+        _portrait_chargen_sheet(),
+        backstory={"personal_description": "高瘦，rumpled 大衣领口别着铅笔。"},
+        occupation_label="记者",
+        era="1920s",
+        now="2026-08-21T12:00:00Z",
+    )
+    portrait = attached["portrait"]
+    assert portrait["source"] == coc_character.PORTRAIT_SOURCE_PLAYER
+    assert portrait["status"] == coc_character.PORTRAIT_STATUS_PENDING
+    assert "asset_path" not in portrait
+    assert "prompt" not in portrait
+    assert portrait["updated_at"] == "2026-08-21T12:00:00Z"
+    assert portrait["provenance"]["appearance"] == "高瘦，rumpled 大衣领口别着铅笔。"
+    assert portrait["provenance"]["appearance_field"] == "personal_description"
+    assert portrait["provenance"]["concept"] == "Ada"
+    assert portrait["provenance"]["age"] == 29
+    assert portrait["provenance"]["occupation"] == "记者"
+    assert portrait["provenance"]["era"] == "1920s"
+    assert portrait["provenance"]["region"] == "波士顿"
+    sheet = attached["player_facing_sheet_zh"]
+    assert sheet["portrait_source"] == "player"
+    assert sheet["portrait_status"] == "pending"
+    assert "portrait_path" not in sheet
+    assert attached["backstory"]["personal_description"] == (
+        "高瘦，rumpled 大衣领口别着铅笔。"
+    )
+
+
+def test_attach_chargen_roleplay_records_concept_seed_when_appearance_is_missing():
+    attached = coc_character.attach_chargen_roleplay(
+        _portrait_chargen_sheet(),
+        backstory={"traits": "冷静"},
+        occupation_label="记者",
+        era="1920s",
+        now="2026-08-21T12:00:00Z",
+    )
+    portrait = attached["portrait"]
+    assert portrait["source"] == coc_character.PORTRAIT_SOURCE_SHEET_CONCEPT
+    assert portrait["status"] == coc_character.PORTRAIT_STATUS_PENDING
+    assert "appearance" not in portrait["provenance"]
+    assert portrait["provenance"]["background"] == {"traits": "冷静"}
+    assert attached["backstory"] == {"traits": "冷静"}
+    assert "personal_description" not in attached["backstory"]
+
+
+def test_attach_chargen_portrait_does_not_overwrite_player_source():
+    sheet = _portrait_chargen_sheet()
+    sheet["portrait"] = {
+        "source": "player",
+        "status": "generated",
+        "asset_path": ".coc/investigators/ada/portraits/ada.png",
+        "prompt": "keep-me",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "provenance": {"appearance": "original player look"},
+    }
+    attached = coc_character.attach_chargen_roleplay(
+        sheet,
+        backstory={"personal_description": "a different look the player did not ask to replace"},
+        occupation_label="记者",
+        era="1920s",
+        now="2026-08-21T12:00:00Z",
+    )
+    portrait = attached["portrait"]
+    assert portrait["source"] == "player"
+    assert portrait["status"] == "generated"
+    assert portrait["prompt"] == "keep-me"
+    assert portrait["asset_path"] == ".coc/investigators/ada/portraits/ada.png"
+    assert portrait["generated_at"] == "2026-01-01T00:00:00Z"
+    assert portrait["provenance"]["appearance"] == "original player look"
+    assert attached["player_facing_sheet_zh"]["portrait_path"] == (
+        ".coc/investigators/ada/portraits/ada.png"
+    )
+    assert attached["player_facing_sheet_zh"]["portrait_generated_at"] == (
+        "2026-01-01T00:00:00Z"
+    )
+
+
+def test_player_facing_portrait_projects_card_fields_only():
+    projected = coc_character.player_facing_portrait({
+        "portrait": {
+            "asset_path": ".coc/investigators/ada/portraits/ada.png",
+            "source": "player",
+            "status": "generated",
+            "prompt": "secret prompt",
+            "provenance": {"appearance": "hidden from card"},
+            "generated_at": "2026-01-01T00:00:00Z",
+        },
+    })
+    assert projected["portrait_path"] == ".coc/investigators/ada/portraits/ada.png"
+    assert projected["portrait_source"] == "player"
+    assert projected["portrait_status"] == "generated"
+    assert projected["portrait_generated_at"] == "2026-01-01T00:00:00Z"
+    assert "prompt" not in projected
+    assert "provenance" not in projected
+
+
+def test_record_generated_portrait_writes_metadata_without_leaking_on_player_facing():
+    sheet = _portrait_chargen_sheet()
+    sheet["portrait"] = {
+        "source": "player",
+        "status": "pending",
+        "provenance": {"appearance": "高瘦，大衣领口别着铅笔。"},
+    }
+    updated = coc_character.record_generated_portrait(
+        sheet,
+        asset_path=".coc/investigators/ada/portraits/ada.png",
+        source="player",
+        prompt="secret prompt",
+        provenance={"appearance": "高瘦，大衣领口别着铅笔。", "concept": "Ada"},
+        generated_at="2026-08-21T12:00:00Z",
+        tool="grok-imagine-image-2.0",
+        host="pi-coc",
+    )
+    portrait = updated["portrait"]
+    assert portrait["status"] == "generated"
+    assert portrait["asset_path"] == ".coc/investigators/ada/portraits/ada.png"
+    assert portrait["prompt"] == "secret prompt"
+    assert portrait["source"] == "player"
+    facing = coc_character.player_facing_portrait(updated)
+    assert facing["portrait_path"] == ".coc/investigators/ada/portraits/ada.png"
+    assert "prompt" not in facing
+    assert "provenance" not in facing
+
+
+def test_apply_generated_portrait_file_cli_roundtrip(tmp_path: Path):
+    root = tmp_path
+    sheet_path = root / ".coc" / "investigators" / "ada" / "character.json"
+    sheet_path.parent.mkdir(parents=True)
+    sheet_path.write_text(
+        json.dumps(_portrait_chargen_sheet(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    projected = coc_character.apply_generated_portrait_file(
+        root=root,
+        investigator_id="ada",
+        payload={
+            "asset_path": ".coc/investigators/ada/portraits/n1.png",
+            "source": "sheet_concept",
+            "prompt": "constructed look",
+            "generated_at": "2026-08-21T12:00:00Z",
+            "tool": "grok-imagine-image-2.0",
+            "host": "pi-coc",
+        },
+    )
+    saved = json.loads(sheet_path.read_text(encoding="utf-8"))
+    assert saved["portrait"]["asset_path"] == ".coc/investigators/ada/portraits/n1.png"
+    assert saved["portrait"]["prompt"] == "constructed look"
+    assert projected["portrait_status"] == "generated"
+    assert "prompt" not in projected
+    rc = coc_character.main([
+        "record-generated-portrait",
+        "--root",
+        str(root),
+        "--investigator",
+        "ada",
+        "--json",
+        json.dumps({
+            "asset_path": ".coc/investigators/ada/portraits/n2.png",
+            "source": "sheet_concept",
+            "generated_at": "2026-08-21T13:00:00Z",
+        }),
+    ])
+    assert rc == 0
+    saved = json.loads(sheet_path.read_text(encoding="utf-8"))
+    assert saved["portrait"]["asset_path"] == ".coc/investigators/ada/portraits/n2.png"

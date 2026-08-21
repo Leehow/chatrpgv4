@@ -28,6 +28,8 @@ const DEFAULT_PREFS = {
   visionEnabled: false,
   visionProvider: "",
   visionModel: "",
+  portraitImageProvider: "",
+  portraitImageModel: "",
 };
 
 test("user-prefs path is product userData, never ~/.pi", () => {
@@ -79,6 +81,8 @@ test("saveUserPrefs merges UI keys without clobbering hiddenProviderIds", () => 
     visionEnabled: false,
     visionProvider: "",
     visionModel: "",
+    portraitImageProvider: "",
+    portraitImageModel: "",
   });
 
   const disk = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
@@ -288,6 +292,8 @@ test("GET /api/user-prefs reads existing settings file", async () => {
     visionEnabled: false,
     visionProvider: "",
     visionModel: "",
+    portraitImageProvider: "",
+    portraitImageModel: "",
   });
 });
 
@@ -405,4 +411,29 @@ test("GET/PUT /api/user-prefs round-trips vision selection", async () => {
   assert.equal(body.visionEnabled, true);
   assert.equal(body.visionProvider, "openai");
   assert.equal(body.visionModel, "gpt-5");
+});
+
+test("saveUserPrefs persists portrait image provider/model without secrets", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "coc-user-prefs-portrait-"));
+  const settingsPath = path.join(root, "coc-desktop-settings.json");
+  fs.writeFileSync(
+    settingsPath,
+    JSON.stringify({ onboarded: true, hiddenProviderIds: ["zhipu"] }) + "\n",
+  );
+  const saved = saveUserPrefs(settingsPath, {
+    portraitImageProvider: "openai",
+    portraitImageModel: "gpt-image-1",
+  });
+  assert.equal(saved.portraitImageProvider, "openai");
+  assert.equal(saved.portraitImageModel, "gpt-image-1");
+  const disk = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  assert.equal(disk.portraitImageProvider, "openai");
+  assert.equal(disk.portraitImageModel, "gpt-image-1");
+  assert.equal(disk.onboarded, true);
+  assert.equal(JSON.stringify(disk).toLowerCase().includes("sk-"), false);
+  assert.throws(
+    () => saveUserPrefs(settingsPath, { portraitImageProvider: 1 }),
+    /must be a string/,
+  );
+  fs.rmSync(root, { recursive: true, force: true });
 });

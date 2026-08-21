@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,52 @@ CHARGEN_QUICK_FIRE_SHEET_PROPERTIES = frozenset({
     "own_language",
     *CHARGEN_SHEET_FINANCE_FIELDS,
 })
+# Portrait is runtime-owned sheet metadata, not a KP chargen_run field.
+PORTRAIT_SOURCE_PLAYER = "player"
+PORTRAIT_SOURCE_SHEET_CONCEPT = "sheet_concept"
+PORTRAIT_SOURCE_HOST_NATIVE = "host_native"
+PORTRAIT_SOURCES = frozenset({
+    PORTRAIT_SOURCE_PLAYER,
+    PORTRAIT_SOURCE_SHEET_CONCEPT,
+    PORTRAIT_SOURCE_HOST_NATIVE,
+})
+PORTRAIT_STATUS_PENDING = "pending"
+PORTRAIT_STATUS_GENERATED = "generated"
+PORTRAIT_STATUS_SKIPPED = "skipped"
+PORTRAIT_STATUSES = frozenset({
+    PORTRAIT_STATUS_PENDING,
+    PORTRAIT_STATUS_GENERATED,
+    PORTRAIT_STATUS_SKIPPED,
+})
+PORTRAIT_ALLOWED_KEYS = frozenset({
+    "asset_path",
+    "prompt",
+    "source",
+    "provenance",
+    "status",
+    "generated_at",
+    "updated_at",
+    "tool",
+    "host",
+})
+PORTRAIT_PROVENANCE_KEYS = frozenset({
+    "concept",
+    "age",
+    "occupation",
+    "era",
+    "region",
+    "background",
+    "appearance",
+    "appearance_field",
+})
+PORTRAIT_ASSET_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "webp"})
+_PORTRAIT_INVESTIGATOR_ID_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+)
+_PORTRAIT_ASSET_NAME_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(?:png|jpg|jpeg|webp)$",
+    re.IGNORECASE,
+)
 CHARGEN_KP_FORBIDDEN_NUMERIC_FIELDS = frozenset({
     "cash",
     "assets",
@@ -890,6 +937,548 @@ def apply_own_language_skill_label(
             row["label"] = own_language_skill_label(own_language)
 
 
+def investigator_portrait_dir(investigator_id: str) -> str:
+    ident = str(investigator_id or "").strip()
+    if not _PORTRAIT_INVESTIGATOR_ID_RE.match(ident):
+        raise ChargenRunError(
+            "portrait",
+            "investigator id is required for a canonical portrait path",
+        )
+    return f".coc/investigators/{ident}/portraits"
+
+
+def canonical_portrait_asset_path(investigator_id: str, filename: str) -> str:
+    name = str(filename or "").strip()
+    if not _PORTRAIT_ASSET_NAME_RE.match(name):
+        raise ChargenRunError(
+            "portrait",
+            "portrait filename must be a posix basename with png/jpg/jpeg/webp",
+        )
+    return f"{investigator_portrait_dir(investigator_id)}/{name}"
+
+
+def _portrait_timestamp(now: Any = None) -> str:
+    if isinstance(now, datetime):
+        moment = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+        return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(now, str) and now.strip():
+        return now.strip()
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _portrait_prose(value: Any, *, field: str) -> str:
+    if isinstance(value, bool) or isinstance(value, (int, float)):
+        raise ChargenRunError(
+            "portrait",
+            f"portrait.{field} must be prose; KP must not submit numbers",
+        )
+    if not isinstance(value, str) or not value.strip():
+        raise ChargenRunError(
+            "portrait",
+            f"portrait.{field} must be a non-empty string",
+        )
+    return value.strip()
+
+
+def _confirmed_portrait_region(sheet: dict[str, Any]) -> str | None:
+    identity = sheet.get("identity")
+    candidates = (
+        sheet.get("nationality"),
+        identity.get("nationality") if isinstance(identity, dict) else None,
+    )
+    player_sheet = sheet.get("player_facing_sheet_zh")
+    if isinstance(player_sheet, dict):
+        candidates = (*candidates, player_sheet.get("nationality"))
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _confirmed_portrait_occupation(sheet: dict[str, Any]) -> str | None:
+    player_sheet = sheet.get("player_facing_sheet_zh")
+    if isinstance(player_sheet, dict):
+        label = player_sheet.get("occupation")
+        if isinstance(label, str) and label.strip():
+            return label.strip()
+    occupation = sheet.get("occupation")
+    if isinstance(occupation, dict):
+        name = occupation.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    if isinstance(occupation, str) and occupation.strip():
+        return occupation.strip()
+    return None
+
+
+def _confirmed_portrait_concept(sheet: dict[str, Any]) -> str | None:
+    for value in (sheet.get("name"),):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    identity = sheet.get("identity")
+    if isinstance(identity, dict):
+        name = identity.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    player_sheet = sheet.get("player_facing_sheet_zh")
+    if isinstance(player_sheet, dict):
+        name = player_sheet.get("display_name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
+def build_portrait_prompt_seed(
+    sheet: dict[str, Any],
+    *,
+    era: str = "",
+) -> dict[str, Any]:
+    """Confirmed concept facts for a later prompt builder. Invents no appearance."""
+    seed: dict[str, Any] = {}
+    concept = _confirmed_portrait_concept(sheet)
+    if concept:
+        seed["concept"] = concept
+    age = sheet.get("age")
+    if isinstance(age, int) and not isinstance(age, bool):
+        seed["age"] = age
+    occupation = _confirmed_portrait_occupation(sheet)
+    if occupation:
+        seed["occupation"] = occupation
+    era_value = str(era or sheet.get("era") or "").strip()
+    if era_value:
+        seed["era"] = era_value
+    region = _confirmed_portrait_region(sheet)
+    if region:
+        seed["region"] = region
+    backstory = sheet.get("backstory")
+    background: dict[str, str] = {}
+    if isinstance(backstory, dict):
+        for key in CHARGEN_BACKSTORY_ALLOWED:
+            if key not in backstory:
+                continue
+            raw = backstory[key]
+            if isinstance(raw, str) and raw.strip():
+                background[key] = raw.strip()
+    if background:
+        seed["background"] = background
+        appearance = background.get("personal_description")
+        if appearance:
+            seed["appearance"] = appearance
+            seed["appearance_field"] = "personal_description"
+    return seed
+
+
+def _normalize_portrait_asset_path(
+    path_text: Any,
+    *,
+    investigator_id: Any,
+) -> str:
+    if not isinstance(path_text, str) or not path_text.strip():
+        raise ChargenRunError(
+            "portrait",
+            "portrait.asset_path must be a non-empty posix path",
+        )
+    raw = path_text.strip().replace("\\", "/")
+    if raw.startswith("/") or raw.startswith("~") or ":" in Path(raw).parts[0]:
+        raise ChargenRunError(
+            "portrait",
+            "portrait.asset_path must be workspace-relative",
+        )
+    if raw.startswith("./") or "/./" in raw or ".." in Path(raw).parts:
+        raise ChargenRunError(
+            "portrait",
+            "portrait.asset_path must not contain '.' or '..' segments",
+        )
+    ident = str(investigator_id or "").strip()
+    expected_dir = investigator_portrait_dir(ident)
+    parts = Path(raw).parts
+    if len(parts) < 5 or Path(*parts[:-1]).as_posix() != expected_dir:
+        raise ChargenRunError(
+            "portrait",
+            "portrait.asset_path must live under "
+            f"{expected_dir}/",
+            expected={"directory": expected_dir},
+        )
+    return canonical_portrait_asset_path(ident, parts[-1])
+
+
+def _normalize_portrait_provenance(provenance: Any) -> dict[str, Any] | None:
+    if provenance is None:
+        return None
+    if not isinstance(provenance, dict):
+        raise ChargenRunError("portrait", "portrait.provenance must be an object")
+    unknown = sorted(
+        str(key) for key in provenance if key not in PORTRAIT_PROVENANCE_KEYS
+    )
+    if unknown:
+        raise ChargenRunError(
+            "portrait",
+            "unsupported portrait.provenance keys",
+            expected={
+                "allowed": sorted(PORTRAIT_PROVENANCE_KEYS),
+                "unknown": unknown,
+            },
+        )
+    normalized: dict[str, Any] = {}
+    if "age" in provenance and provenance["age"] is not None:
+        age = provenance["age"]
+        if isinstance(age, bool) or not isinstance(age, int):
+            raise ChargenRunError("portrait", "portrait.provenance.age must be an integer")
+        normalized["age"] = age
+    for key in ("concept", "occupation", "era", "region", "appearance", "appearance_field"):
+        if key not in provenance or provenance[key] is None:
+            continue
+        normalized[key] = _portrait_prose(provenance[key], field=f"provenance.{key}")
+    if "background" in provenance and provenance["background"] is not None:
+        background = provenance["background"]
+        if not isinstance(background, dict):
+            raise ChargenRunError(
+                "portrait",
+                "portrait.provenance.background must be an object",
+            )
+        unknown_bg = sorted(
+            str(key) for key in background if key not in CHARGEN_BACKSTORY_ALLOWED
+        )
+        if unknown_bg:
+            raise ChargenRunError(
+                "portrait",
+                "unsupported portrait.provenance.background keys",
+                expected={
+                    "allowed": list(CHARGEN_BACKSTORY_ALLOWED),
+                    "unknown": unknown_bg,
+                },
+            )
+        items: dict[str, str] = {}
+        for key, value in background.items():
+            if value is None:
+                continue
+            items[str(key)] = _portrait_prose(
+                value, field=f"provenance.background.{key}"
+            )
+        if items:
+            normalized["background"] = items
+    return normalized or None
+
+
+def normalize_chargen_portrait(
+    portrait: Any,
+    *,
+    investigator_id: Any = None,
+) -> dict[str, Any] | None:
+    if portrait is None:
+        return None
+    if not isinstance(portrait, dict):
+        raise ChargenRunError("portrait", "portrait must be an object")
+    unknown = sorted(str(key) for key in portrait if key not in PORTRAIT_ALLOWED_KEYS)
+    if unknown:
+        raise ChargenRunError(
+            "portrait",
+            "unsupported portrait keys",
+            expected={"allowed": sorted(PORTRAIT_ALLOWED_KEYS), "unknown": unknown},
+        )
+    normalized: dict[str, Any] = {}
+    if "asset_path" in portrait and portrait["asset_path"] not in (None, ""):
+        normalized["asset_path"] = _normalize_portrait_asset_path(
+            portrait["asset_path"],
+            investigator_id=investigator_id,
+        )
+    for key in ("prompt", "generated_at", "updated_at", "tool", "host"):
+        if key not in portrait or portrait[key] is None:
+            continue
+        normalized[key] = _portrait_prose(portrait[key], field=key)
+    if "source" in portrait and portrait["source"] is not None:
+        source = portrait["source"]
+        if source not in PORTRAIT_SOURCES:
+            raise ChargenRunError(
+                "portrait",
+                "portrait.source must be player, sheet_concept, or host_native",
+                expected={"allowed": sorted(PORTRAIT_SOURCES)},
+            )
+        normalized["source"] = source
+    if "status" in portrait and portrait["status"] is not None:
+        status = portrait["status"]
+        if status not in PORTRAIT_STATUSES:
+            raise ChargenRunError(
+                "portrait",
+                "portrait.status must be pending, generated, or skipped",
+                expected={"allowed": sorted(PORTRAIT_STATUSES)},
+            )
+        normalized["status"] = status
+    provenance = _normalize_portrait_provenance(portrait.get("provenance"))
+    if provenance:
+        normalized["provenance"] = provenance
+    if (
+        normalized.get("status") == PORTRAIT_STATUS_GENERATED
+        and not normalized.get("asset_path")
+    ):
+        raise ChargenRunError(
+            "portrait",
+            "portrait.status=generated requires a canonical asset_path",
+        )
+    return normalized or None
+
+
+def player_facing_portrait(character: dict[str, Any]) -> dict[str, Any]:
+    """Player-facing portrait projection: path/source/status/time only."""
+    sheet = character.get("player_facing_sheet_zh")
+    sheet = sheet if isinstance(sheet, dict) else {}
+    raw = character.get("portrait")
+    portrait = raw if isinstance(raw, dict) else {}
+    asset = ""
+    machine_path = portrait.get("asset_path")
+    sheet_path = sheet.get("portrait_path")
+    if isinstance(machine_path, str) and machine_path.strip():
+        asset = machine_path.strip()
+    elif isinstance(sheet_path, str) and sheet_path.strip():
+        asset = sheet_path.strip()
+    projected: dict[str, Any] = {}
+    if asset:
+        projected["asset_path"] = asset
+        projected["portrait_path"] = asset
+    source = portrait.get("source") or sheet.get("portrait_source")
+    if isinstance(source, str) and source.strip():
+        projected["source"] = source.strip()
+        projected["portrait_source"] = source.strip()
+    status = portrait.get("status") or sheet.get("portrait_status")
+    if isinstance(status, str) and status.strip():
+        projected["status"] = status.strip()
+        projected["portrait_status"] = status.strip()
+    generated_at = portrait.get("generated_at") or sheet.get("portrait_generated_at")
+    if isinstance(generated_at, str) and generated_at.strip():
+        projected["generated_at"] = generated_at.strip()
+        projected["portrait_generated_at"] = generated_at.strip()
+    return projected
+
+
+def apply_player_facing_portrait(
+    sheet: dict[str, Any],
+    portrait: dict[str, Any] | None = None,
+) -> None:
+    player_sheet = sheet.get("player_facing_sheet_zh")
+    if not isinstance(player_sheet, dict):
+        player_sheet = {}
+        sheet["player_facing_sheet_zh"] = player_sheet
+    machine = portrait if portrait is not None else sheet.get("portrait")
+    projected = player_facing_portrait(
+        {"portrait": machine if isinstance(machine, dict) else {}, "player_facing_sheet_zh": {}}
+    )
+    for key in (
+        "portrait_path",
+        "portrait_source",
+        "portrait_status",
+        "portrait_generated_at",
+    ):
+        player_sheet.pop(key, None)
+    if projected.get("portrait_path"):
+        player_sheet["portrait_path"] = projected["portrait_path"]
+    if projected.get("portrait_source"):
+        player_sheet["portrait_source"] = projected["portrait_source"]
+    if projected.get("portrait_status"):
+        player_sheet["portrait_status"] = projected["portrait_status"]
+    if projected.get("portrait_generated_at"):
+        player_sheet["portrait_generated_at"] = projected["portrait_generated_at"]
+
+
+def attach_chargen_portrait(
+    sheet: dict[str, Any],
+    *,
+    era: str = "",
+    now: Any = None,
+) -> dict[str, Any]:
+    """Record portrait metadata at chargen. Does not call an image API."""
+    attached = sheet
+    investigator_id = attached.get("id")
+    existing = normalize_chargen_portrait(
+        attached.get("portrait"),
+        investigator_id=investigator_id,
+    )
+    portrait = dict(existing) if existing else {}
+    seed = build_portrait_prompt_seed(attached, era=era)
+    appearance = seed.get("appearance")
+    player_locked = portrait.get("source") == PORTRAIT_SOURCE_PLAYER
+    generated_locked = (
+        portrait.get("status") == PORTRAIT_STATUS_GENERATED
+        and bool(portrait.get("asset_path"))
+    )
+    existing_prov = (
+        dict(portrait["provenance"])
+        if isinstance(portrait.get("provenance"), dict)
+        else {}
+    )
+    if player_locked or generated_locked:
+        filled = dict(existing_prov)
+        for key, value in seed.items():
+            if key == "appearance" or key == "appearance_field":
+                continue
+            if key not in filled or filled[key] in (None, "", {}, []):
+                filled[key] = value
+        if appearance and "appearance" not in filled:
+            filled["appearance"] = appearance
+            filled["appearance_field"] = "personal_description"
+        if filled:
+            portrait["provenance"] = filled
+    else:
+        portrait["source"] = (
+            PORTRAIT_SOURCE_PLAYER if appearance else PORTRAIT_SOURCE_SHEET_CONCEPT
+        )
+        if portrait.get("status") not in PORTRAIT_STATUSES:
+            portrait["status"] = PORTRAIT_STATUS_PENDING
+        if portrait.get("status") == PORTRAIT_STATUS_GENERATED and not portrait.get(
+            "asset_path"
+        ):
+            portrait["status"] = PORTRAIT_STATUS_PENDING
+        merged = dict(seed)
+        if appearance:
+            merged["appearance"] = appearance
+            merged["appearance_field"] = "personal_description"
+        elif "appearance" in existing_prov:
+            merged["appearance"] = existing_prov["appearance"]
+            if existing_prov.get("appearance_field"):
+                merged["appearance_field"] = existing_prov["appearance_field"]
+        if merged:
+            portrait["provenance"] = merged
+        portrait["updated_at"] = _portrait_timestamp(now)
+        portrait.pop("prompt", None)
+    normalized = normalize_chargen_portrait(
+        portrait,
+        investigator_id=investigator_id,
+    )
+    if normalized:
+        attached["portrait"] = normalized
+        apply_player_facing_portrait(attached, normalized)
+    return attached
+
+
+GENERATED_PORTRAIT_PAYLOAD_KEYS = frozenset({
+    "asset_path",
+    "source",
+    "prompt",
+    "provenance",
+    "generated_at",
+    "tool",
+    "host",
+})
+
+
+def investigator_character_json_path(root: Path, investigator_id: str) -> Path:
+    ident = str(investigator_id or "").strip()
+    if not _PORTRAIT_INVESTIGATOR_ID_RE.match(ident):
+        raise ChargenRunError(
+            "portrait",
+            "investigator id is required for a canonical portrait path",
+        )
+    return Path(root) / ".coc" / "investigators" / ident / "character.json"
+
+
+def record_generated_portrait(
+    sheet: dict[str, Any],
+    *,
+    asset_path: str,
+    source: str | None = None,
+    prompt: str | None = None,
+    provenance: Any = None,
+    generated_at: Any = None,
+    tool: str | None = None,
+    host: str | None = None,
+) -> dict[str, Any]:
+    """Write generated portrait metadata onto an investigator sheet.
+
+    Does not call an image API and does not invent appearance. Player-facing
+    projection still omits prompt/provenance.
+    """
+    attached = json.loads(json.dumps(sheet))
+    investigator_id = attached.get("id")
+    existing = normalize_chargen_portrait(
+        attached.get("portrait"),
+        investigator_id=investigator_id,
+    )
+    portrait = dict(existing) if existing else {}
+    portrait["asset_path"] = asset_path
+    portrait["status"] = PORTRAIT_STATUS_GENERATED
+    stamp = _portrait_timestamp(generated_at)
+    portrait["generated_at"] = stamp
+    portrait["updated_at"] = stamp
+    if source is not None:
+        portrait["source"] = source
+    elif portrait.get("source") not in PORTRAIT_SOURCES:
+        portrait["source"] = PORTRAIT_SOURCE_SHEET_CONCEPT
+    if prompt is not None:
+        portrait["prompt"] = prompt
+    if provenance is not None:
+        portrait["provenance"] = provenance
+    if tool is not None:
+        portrait["tool"] = tool
+    if host is not None:
+        portrait["host"] = host
+    normalized = normalize_chargen_portrait(
+        portrait,
+        investigator_id=investigator_id,
+    )
+    if not normalized:
+        raise ChargenRunError("portrait", "generated portrait metadata is empty")
+    attached["portrait"] = normalized
+    apply_player_facing_portrait(attached, normalized)
+    return attached
+
+
+def apply_generated_portrait_file(
+    *,
+    root: Path,
+    investigator_id: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Load character.json, record generated portrait metadata, write atomically."""
+    if not isinstance(payload, dict):
+        raise ChargenRunError("portrait", "generated portrait payload must be an object")
+    unknown = sorted(
+        str(key) for key in payload if key not in GENERATED_PORTRAIT_PAYLOAD_KEYS
+    )
+    if unknown:
+        raise ChargenRunError(
+            "portrait",
+            "unsupported generated portrait payload keys",
+            expected={
+                "allowed": sorted(GENERATED_PORTRAIT_PAYLOAD_KEYS),
+                "unknown": unknown,
+            },
+        )
+    path = investigator_character_json_path(root, investigator_id)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ChargenRunError(
+            "portrait",
+            "character.json is missing or invalid",
+        ) from exc
+    if not isinstance(raw, dict):
+        raise ChargenRunError("portrait", "character.json must be an object")
+    sheet_id = str(raw.get("id") or "").strip()
+    if sheet_id and sheet_id != str(investigator_id).strip():
+        raise ChargenRunError(
+            "portrait",
+            "investigator id does not match character.json",
+        )
+    if not sheet_id:
+        raw["id"] = str(investigator_id).strip()
+    updated = record_generated_portrait(
+        raw,
+        asset_path=str(payload.get("asset_path") or ""),
+        source=payload.get("source"),
+        prompt=payload.get("prompt"),
+        provenance=payload.get("provenance"),
+        generated_at=payload.get("generated_at"),
+        tool=payload.get("tool"),
+        host=payload.get("host"),
+    )
+    tmp = path.with_name(f"{path.name}.tmp")
+    tmp.write_text(
+        json.dumps(updated, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+    return player_facing_portrait(updated)
+
+
 def attach_chargen_roleplay(
     sheet: dict[str, Any],
     *,
@@ -899,6 +1488,7 @@ def attach_chargen_roleplay(
     occupation_label: Any = None,
     own_language: Any = None,
     era: str = "",
+    now: Any = None,
 ) -> dict[str, Any]:
     """Persist KP prose plus rules-owned cash. Does not invent narrative."""
     attached = json.loads(json.dumps(sheet))
@@ -1007,7 +1597,7 @@ def attach_chargen_roleplay(
     if resolved_own:
         apply_own_language_skill_label(player_sheet, resolved_own)
     attached["player_facing_sheet_zh"] = player_sheet
-    return attached
+    return attach_chargen_portrait(attached, era=era, now=now)
 
 
 def validate_character_sheet(sheet: dict) -> list[str]:
@@ -2521,3 +3111,52 @@ def build_era_adaptive_chargen_payload(
         "skill_budget": creation_qf["skill_budget"],
     }
     return sheet, creation, meta
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        prog="coc_character.py",
+        description="Canonical investigator character helpers",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    rec = sub.add_parser(
+        "record-generated-portrait",
+        help="write generated portrait metadata onto character.json",
+    )
+    rec.add_argument("--root", type=Path, required=True)
+    rec.add_argument("--investigator", required=True)
+    rec.add_argument("--json", required=True, help="generated portrait payload JSON")
+    args = parser.parse_args(argv)
+    if args.command != "record-generated-portrait":
+        parser.error("unknown command")
+    try:
+        payload = json.loads(args.json)
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(json.dumps({"ok": False, "error": str(exc)}) + "\n")
+        return 2
+    try:
+        projected = apply_generated_portrait_file(
+            root=args.root,
+            investigator_id=args.investigator,
+            payload=payload,
+        )
+    except ChargenRunError as exc:
+        sys.stderr.write(
+            json.dumps(
+                {"ok": False, "error": str(exc), "stage": exc.stage},
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+        return 1
+    sys.stdout.write(
+        json.dumps({"ok": True, "portrait": projected}, ensure_ascii=False) + "\n"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

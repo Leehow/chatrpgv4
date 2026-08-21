@@ -48,6 +48,8 @@ export type UserPrefs = {
   visionEnabled?: boolean;
   visionProvider?: string;
   visionModel?: string;
+  portraitImageProvider?: string;
+  portraitImageModel?: string;
 };
 
 export type WebSearchKeyProvider = {
@@ -430,6 +432,33 @@ export function fetchState(sessionId: string): Promise<GameState> {
 }
 
 /** Use one charge of a consumable; returns the fresh state (item may be gone). */
+export type GeneratePortraitResponse = {
+  ok: boolean;
+  portrait: {
+    portrait_path?: string;
+    portrait_source?: string;
+    portrait_status?: string;
+    portrait_generated_at?: string;
+    image_url?: string;
+  };
+};
+
+/** Host-built prompt + xAI image. Never send a client prompt. */
+export function generatePortrait(
+  payload: { campaign_id: string; investigator_id: string },
+  signal?: AbortSignal,
+): Promise<GeneratePortraitResponse> {
+  return request<GeneratePortraitResponse>("/api/portraits/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      campaign_id: payload.campaign_id,
+      investigator_id: payload.investigator_id,
+    }),
+    signal,
+  });
+}
+
 export function useItem(sessionId: string, itemId: string): Promise<GameState> {
   return request<GameState>(`/api/sessions/${sessionId}/items/use`, {
     method: "POST",
