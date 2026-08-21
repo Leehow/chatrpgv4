@@ -72,20 +72,45 @@ deliver in `play_language`.
 When an NPC or diegetic document speaks/writes in a language that is not the
 investigator's obvious comprehension, preserve player knowledge separation.
 Do not auto-translate *that diegetic foreign speech* into full comprehension
-without Language skill. Use the investigator's canonical
-`Language (Own: X)` / `Language (Other: X)` skills
-(helper: `coc_language.render_foreign_dialogue_for_investigator(...)`).
+without Language skill. The player being able to read the original words does
+**not** make them investigator knowledge. Ordinary narration stays in
+`play_language`; only diegetic foreign speech may remain foreign.
 
-Comprehension tiers:
+Use the investigator's canonical `Language (Own: X)` / `Language (Other: X)`
+skills. Consume `coc_language.settle_language(...)` (recognition /
+comprehension / time / accuracy; no dice, no family table, no code
+translation), then render with the same module:
 
-- No matching language skill or 0: show the source-language words only, plus
-  visible tone/body-language cues. Do not show the translation.
-- 1-19: show the source-language words plus a vague gist.
-- 20-49: show the source-language words plus an incomplete or uncertain
-  translation.
-- 50+ or matching `Language (Own: X)`: the investigator understands it; a
-  fuller translation may be shown, ideally with the short source quote kept
-  for atmosphere.
+- NPC → investigator: `coc_language.render_foreign_dialogue_for_investigator(...)`
+- Investigator → NPC: `coc_language.render_investigator_speech_in_language(...)`
+
+Always keep `source_text` in the original language. You supply gist, partial
+translation, full translation, register notes, and any target-language
+utterance; the helper only reveals the layer the investigator actually
+realized. Output distinguishes `source_text` / `understood_text` /
+`intended_meaning` / `delivered_meaning` confidence. Never rewrite the
+player's intended meaning. Misexpression is `accuracy.risk`, never a
+code-invented wrong sentence.
+
+Rulebook bands (5 / 10 / 30 / 50 / 75):
+
+- 0–4: source words plus tone/gesture only. No language name, gist, or translation.
+- 5–9: source words plus the language name. Still no gist or translation.
+- 10–29: source words plus simple ideas / gist.
+- 30–49: source words plus transactional / partial meaning.
+- 50–74: fluent understanding; a fuller translation may be shown; non-native
+  background remains discernible (`ability.accent`). Keep the short source quote.
+- 75+ or matching `Language (Own: X)`: native-passing facts; may show a supplied
+  register cue. Keep the short source quote.
+
+Outbound speech: the player gives intent in `play_language`; you supply the
+target-language utterance. Rendering adds pauses, simplification, missing
+professional phrasing, accent visibility, or native-passing — it does not
+invent a different sentence. Failed or pushed speech is settlement risk.
+Core clues still give the necessary gist inbound; dice change precision, time,
+or safety, not whether the clue exists. `time.guidance` is advisory for
+`state.advance_time` when needed; accuracy risk belongs in journal / clue /
+narrative debt. These helpers do not write those themselves.
 
 ## Action Prompt Shape
 

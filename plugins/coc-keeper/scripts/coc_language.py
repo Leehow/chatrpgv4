@@ -253,6 +253,23 @@ _BANDS_AT_LEAST_TRANSACTIONAL = frozenset({
 })
 _BANDS_AT_LEAST_FLUENT = frozenset({"fluent", "native_passing"})
 
+LANGUAGE_RENDER_DIRECTIONS = ("inbound", "outbound")
+LANGUAGE_UNDERSTOOD_LAYERS = (
+    "tone_only",
+    "language_name",
+    "gist",
+    "partial",
+    "full",
+)
+LANGUAGE_MEANING_CONFIDENCE = (
+    "none",
+    "gist",
+    "partial",
+    "high",
+    "native",
+    "unreliable",
+)
+
 
 def _coerce_nonneg_int(value: Any, default: int = 0) -> int:
     try:
@@ -607,34 +624,357 @@ def settle_language(
     }
 
 
-def _foreign_dialogue_visible_text_zh(
-    source_text: str,
-    tier: str,
+def language_display_label(
+    source_language: str,
+    play_language: str | None = None,
+) -> str:
+    """Player-facing name for a KP-decided language. Never infers from text."""
+    raw = str(source_language or "").strip()
+    language = play_language or DEFAULT_PLAY_LANGUAGE
+    mapped = (_LANGUAGE_DISPLAY_NAMES.get(language) or {}).get(
+        _normalize_language_name(raw),
+    )
+    return mapped or raw
+
+
+def _quote_source_text(source_text: str, play_language: str) -> str:
+    text = str(source_text)
+    if play_language == "zh-Hans":
+        return f"“{text}”"
+    return f'"{text}"'
+
+
+def _settlement_for_render(
     *,
-    translation: str | None = None,
-    partial_translation: str | None = None,
-    gist: str | None = None,
+    source_language: str,
+    investigator: dict[str, Any] | None,
+    settled: dict[str, Any] | None,
+    skill_value: int | None,
+    native: bool | None,
+    recognition_route: str | None,
+    recognition_result: str | None,
+    medium: str,
+    difficulty: str | None,
+    roll_outcome: str | None,
+    roll_receipt: dict[str, Any] | None,
+    pushed: bool,
+    core_clue: bool,
+    time_context: dict[str, Any] | None,
+    corpus_id: str | None,
+) -> dict[str, Any]:
+    if settled is not None:
+        return settled
+    return settle_language(
+        source_language=source_language,
+        skill_value=skill_value,
+        native=native,
+        investigator=investigator,
+        recognition_route=recognition_route,
+        recognition_result=recognition_result,
+        medium=medium,
+        difficulty=difficulty,
+        roll_outcome=roll_outcome,
+        roll_receipt=roll_receipt,
+        pushed=pushed,
+        core_clue=core_clue,
+        time_context=time_context,
+        corpus_id=corpus_id,
+    )
+
+
+def _render_display_scope(settled: dict[str, Any]) -> str:
+    realized = str(settled["comprehension"]["realized_scope"])
+    ability = str(settled["comprehension"]["ability_scope"])
+    check = settled["check"]
+    if realized in {"necessary_gist", "degraded", "none"}:
+        return realized
+    if realized == "pending":
+        return ability
+    if check.get("roll_settled") or check.get("automatic_success") or not check.get("needed"):
+        return realized
+    return ability
+
+
+def _inbound_understood_layer(display_scope: str, recognized: bool) -> str:
+    if display_scope == "necessary_gist":
+        return "gist"
+    if display_scope == "degraded":
+        return "gist"
+    if display_scope == "simple_ideas":
+        return "gist"
+    if display_scope == "transactional":
+        return "partial"
+    if display_scope in {"fluent", "native_passing"}:
+        return "full"
+    if display_scope == "identify" or recognized:
+        return "language_name"
+    return "tone_only"
+
+
+def _meaning_confidence(
+    *,
+    layer: str,
+    native_passing: bool,
+    unreliable: bool,
+) -> str:
+    if unreliable:
+        return "unreliable"
+    if layer in {"tone_only", "language_name"}:
+        return "none"
+    if layer == "gist":
+        return "gist"
+    if layer == "partial":
+        return "partial"
+    if layer == "full":
+        return "native" if native_passing else "high"
+    return "none"
+
+
+def _language_render_contract(
+    *,
+    direction: str,
+    settled: dict[str, Any],
+    source_text: str,
+    play_language: str,
+    understood_text: str | None,
+    intended_meaning: str | None,
+    delivered_meaning: str | None,
+    delivered_meaning_confidence: str,
+    comprehension: str,
+    understood_layer: str,
+    translation_visible: bool,
+    language_name_visible: bool,
+    visible_text: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    identified = bool(settled["recognized"])
+    contract = {
+        "direction": direction,
+        "source_language": settled["source_language"],
+        "source_text": source_text,
+        "understood_text": understood_text,
+        "intended_meaning": intended_meaning,
+        "delivered_meaning": delivered_meaning,
+        "delivered_meaning_confidence": delivered_meaning_confidence,
+        "play_language": play_language,
+        "skill_key": settled["skill_key"],
+        "skill_value": settled["skill_value"],
+        "native": settled["native"],
+        "ability_band": settled["ability"]["band"],
+        "comprehension": comprehension,
+        "realized_scope": settled["comprehension"]["realized_scope"],
+        "understood_layer": understood_layer,
+        "translation_visible": translation_visible,
+        "language_name_visible": language_name_visible,
+        "visible_text": visible_text,
+        "player_visible_source_is_not_investigator_knowledge": True,
+        "investigator_knowledge": {
+            "language_identified": identified,
+            "understood_layer": understood_layer,
+            "understood_text": understood_text,
+        },
+        "ability": settled["ability"],
+        "accuracy": settled["accuracy"],
+        "settlement": settled,
+    }
+    if extra:
+        contract.update(extra)
+    return contract
+
+
+def _inbound_visible_text(
+    *,
+    play_language: str,
+    source_text: str,
+    layer: str,
+    language_label: str,
+    translation: str | None,
+    partial_translation: str | None,
+    gist: str | None,
+    register_note: str | None,
+    speaker_background_note: str | None,
+    show_register: bool,
+    show_background: bool,
+    degraded: bool,
+    core_gist: bool,
 ) -> tuple[str, str | None, bool]:
-    quoted = f"“{source_text}”"
-    if tier == "none":
-        return (
-            f"{quoted}\n你听不懂具体意思，只能从语气、表情和动作判断情绪。",
-            None,
-            False,
+    quoted = _quote_source_text(source_text, play_language)
+    zh = play_language == "zh-Hans"
+
+    if layer == "tone_only":
+        note = (
+            "你听不懂具体意思，只能从语气、表情和动作判断情绪。"
+            if zh else
+            "You do not understand the exact words; only tone and body language carry through."
         )
-    if tier == "gist":
-        if gist:
-            return f"{quoted}\n你只能抓到零碎意思：{gist}", gist, False
-        return f"{quoted}\n你只听出几个零碎词，意思仍很不稳。", None, False
-    if tier == "partial":
-        if partial_translation:
-            return f"{quoted}\n你大概听出：{partial_translation}", partial_translation, True
-        if gist:
-            return f"{quoted}\n你大概听出一部分：{gist}，但细节仍不稳。", gist, False
-        return f"{quoted}\n你大概听懂了一部分，但细节仍不稳。", None, False
-    if translation:
-        return f"{quoted}\n你听懂了：{translation}", translation, True
-    return f"{quoted}\n你听懂了这句话。", None, False
+        return f"{quoted}\n{note}", None, False
+
+    if layer == "language_name":
+        note = (
+            f"你听出这是{language_label}，但听不懂具体意思，只能从语气、表情和动作判断情绪。"
+            if zh else
+            f"You recognize this as {language_label}, but you do not understand the words; only tone and body language carry through."
+        )
+        return f"{quoted}\n{note}", None, False
+
+    if layer == "gist":
+        if zh:
+            if gist:
+                body = f"你只能抓到零碎意思：{gist}"
+            elif core_gist:
+                body = "你抓住了关键大意，但措辞和细节并不稳。"
+            elif degraded:
+                body = "你没能稳定听懂，意思对不上。"
+            else:
+                body = "你只听出几个零碎词，意思仍很不稳。"
+        else:
+            if gist:
+                body = f"You catch only fragments: {gist}"
+            elif core_gist:
+                body = "You catch the necessary gist, but wording and detail stay unstable."
+            elif degraded:
+                body = "You cannot hold the meaning steadily."
+            else:
+                body = "You catch only fragments."
+        return f"{quoted}\n{body}", gist, False
+
+    if layer == "partial":
+        understood = partial_translation or gist
+        if zh:
+            if partial_translation:
+                body = f"你大概听出：{partial_translation}"
+            elif gist:
+                body = f"你大概听出一部分：{gist}，但细节仍不稳。"
+            else:
+                body = "你大概听懂了一部分，但细节仍不稳。"
+        else:
+            body = (
+                f"You roughly make out: {understood}"
+                if understood else
+                "You understand part of it, but not reliably."
+            )
+        return f"{quoted}\n{body}", understood, bool(partial_translation)
+
+    understood = translation
+    if zh:
+        body = f"你听懂了：{translation}" if translation else "你听懂了这句话。"
+    else:
+        body = (
+            f"You understand: {translation}"
+            if translation else
+            "You understand the sentence."
+        )
+    extras: list[str] = []
+    if show_background and speaker_background_note:
+        extras.append(
+            f"你听得出对方并非以这门语言为母语。{speaker_background_note}"
+            if zh else
+            f"You can tell this is not the speaker's native language. {speaker_background_note}"
+        )
+    if show_register and register_note:
+        extras.append(
+            f"你听出语域上的细微之处：{register_note}"
+            if zh else
+            f"You catch a fine register cue: {register_note}"
+        )
+    if extras:
+        body = body + "\n" + "\n".join(extras)
+    return f"{quoted}\n{body}", understood, bool(translation)
+
+
+def _outgoing_delivery(
+    *,
+    facts: dict[str, Any],
+    display_scope: str,
+    failure: bool,
+) -> dict[str, Any]:
+    band = facts["band"]
+    cannot_speak = (
+        band in {"unrecognized", "identify"}
+        or display_scope in {"none", "unrecognized", "identify"}
+    )
+    if cannot_speak:
+        return {
+            "utterance_delivered": False,
+            "pauses": band == "identify" or display_scope == "identify",
+            "simplified": False,
+            "wrong_word_risk": False,
+            "missing_professional_phrasing": True,
+            "accent_visible": False,
+            "native_passing": False,
+        }
+    simple = band == "simple_ideas" or display_scope == "simple_ideas"
+    return {
+        "utterance_delivered": True,
+        "pauses": bool(simple or (failure and not facts["native_passing"])),
+        "simplified": bool(simple),
+        "wrong_word_risk": bool(failure),
+        "missing_professional_phrasing": not bool(facts["fluent"]),
+        "accent_visible": bool(facts["accent"]),
+        "native_passing": bool(facts["native_passing"]),
+    }
+
+
+def _outbound_visible_text(
+    *,
+    play_language: str,
+    source_text: str,
+    intended_meaning: str,
+    language_label: str,
+    delivery: dict[str, Any],
+    failure: bool,
+) -> str:
+    zh = play_language == "zh-Hans"
+    intent = str(intended_meaning or "").strip()
+    intent_line = ""
+    if intent:
+        intent_line = f"你想说的是：{intent}" if zh else f"You intended: {intent}"
+
+    if not delivery["utterance_delivered"]:
+        if delivery["pauses"]:
+            body = (
+                f"你听得出这是{language_label}，却说不成句，只能靠停顿、语气和动作。"
+                if zh else
+                f"You recognize this as {language_label}, but you cannot form the sentence; only pauses, tone, and gesture come out."
+            )
+        else:
+            body = (
+                "这门语言你说不出来，只能靠语气和动作比划。"
+                if zh else
+                "You cannot speak this language; only tone and gesture come through."
+            )
+        return "\n".join(part for part in (body, intent_line) if part)
+
+    quoted = _quote_source_text(source_text, play_language)
+    if zh:
+        if delivery["native_passing"]:
+            speech = f"你用{language_label}说：{quoted}"
+            craft = "语域自然，可被当成母语者。"
+        elif delivery["accent_visible"] and not delivery["missing_professional_phrasing"]:
+            speech = f"你用{language_label}流利地说：{quoted}"
+            craft = "母语者仍能听出你不是以这门语言为母语。"
+        elif delivery["simplified"]:
+            speech = f"你用{language_label}慢慢挤出：{quoted}"
+            craft = "停顿很多，只能传达简单意思，专业措辞到不了。"
+        else:
+            speech = f"你用{language_label}说：{quoted}"
+            craft = "能完成交易性表达，但专业措辞仍不到位。"
+        risk = "表达并不稳，有被听错或说错的风险。" if failure else ""
+    else:
+        if delivery["native_passing"]:
+            speech = f"You say in {language_label}: {quoted}"
+            craft = "The register is native-passing."
+        elif delivery["accent_visible"] and not delivery["missing_professional_phrasing"]:
+            speech = f"You speak {language_label} fluently: {quoted}"
+            craft = "A native listener can still tell this is not your first language."
+        elif delivery["simplified"]:
+            speech = f"You slowly piece out {language_label}: {quoted}"
+            craft = "There are long pauses; only simple ideas land, and professional phrasing is missing."
+        else:
+            speech = f"You say in {language_label}: {quoted}"
+            craft = "Transactional meaning lands, but professional phrasing is still missing."
+        risk = "The wording is unstable; there is a risk it will be misunderstood." if failure else ""
+    return "\n".join(part for part in (speech, craft, intent_line, risk) if part)
 
 
 def render_foreign_dialogue_for_investigator(
@@ -646,63 +986,194 @@ def render_foreign_dialogue_for_investigator(
     partial_translation: str | None = None,
     gist: str | None = None,
     play_language: str = DEFAULT_PLAY_LANGUAGE,
+    settled: dict[str, Any] | None = None,
+    skill_value: int | None = None,
+    native: bool | None = None,
+    recognition_route: str | None = None,
+    recognition_result: str | None = None,
+    medium: str = "speech",
+    difficulty: str | None = None,
+    roll_outcome: str | None = None,
+    roll_receipt: dict[str, Any] | None = None,
+    pushed: bool = False,
+    core_clue: bool = False,
+    time_context: dict[str, Any] | None = None,
+    corpus_id: str | None = None,
+    language_name: str | None = None,
+    register_note: str | None = None,
+    speaker_background_note: str | None = None,
 ) -> dict[str, Any]:
-    """Render NPC dialogue through the investigator's structured language skill.
+    """Render NPC→investigator diegetic speech through settle_language.
 
-    This helper does not translate source text. It only decides whether a
-    Keeper/semantic layer supplied translation, partial translation, or gist is
-    player-visible for this investigator.
+    Always keeps ``source_text`` in the original language. Does not translate.
+    Keeper/semantic layer supplies gist, partial, or full meaning; this helper
+    only reveals the layer the investigator actually realized.
     """
-    skill = language_skill_for_source(investigator, source_language)
-    skill_value = int(skill["skill_value"])
-    native = bool(skill["native"])
-    ability_band = language_ability_band(skill_value, native=native)
-    tier = dialogue_comprehension_tier(skill_value, native=native)
-
-    if play_language == "zh-Hans":
-        visible_text, understood_text, translation_visible = _foreign_dialogue_visible_text_zh(
-            source_text,
-            tier,
-            translation=translation,
-            partial_translation=partial_translation,
-            gist=gist,
-        )
-    else:
-        quoted = f"\"{source_text}\""
-        if tier == "none":
-            visible_text, understood_text, translation_visible = (
-                f"{quoted}\nYou do not understand the exact words; only tone and body language carry through.",
-                None,
-                False,
-            )
-        elif tier == "gist":
-            understood_text = gist
-            visible_text = f"{quoted}\nYou catch only fragments: {gist}" if gist else f"{quoted}\nYou catch only fragments."
-            translation_visible = False
-        elif tier == "partial":
-            understood_text = partial_translation or gist
-            visible_text = (
-                f"{quoted}\nYou roughly make out: {understood_text}"
-                if understood_text else f"{quoted}\nYou understand part of it, but not reliably."
-            )
-            translation_visible = bool(partial_translation)
-        else:
-            understood_text = translation
-            visible_text = f"{quoted}\nYou understand: {translation}" if translation else f"{quoted}\nYou understand the sentence."
-            translation_visible = bool(translation)
-
-    return {
-        "source_language": source_language,
-        "source_text": source_text,
-        "skill_key": skill["skill_key"],
-        "skill_value": skill_value,
-        "native": native,
-        "ability_band": ability_band,
-        "comprehension": tier,
-        "understood_text": understood_text,
-        "translation_visible": translation_visible,
-        "visible_text": visible_text,
+    settlement = _settlement_for_render(
+        source_language=source_language,
+        investigator=investigator,
+        settled=settled,
+        skill_value=skill_value,
+        native=native,
+        recognition_route=recognition_route,
+        recognition_result=recognition_result,
+        medium=medium,
+        difficulty=difficulty,
+        roll_outcome=roll_outcome,
+        roll_receipt=roll_receipt,
+        pushed=pushed,
+        core_clue=core_clue,
+        time_context=time_context,
+        corpus_id=corpus_id,
+    )
+    display_scope = _render_display_scope(settlement)
+    layer = _inbound_understood_layer(display_scope, bool(settlement["recognized"]))
+    ability_tier = dialogue_comprehension_tier(
+        settlement["skill_value"], native=bool(settlement["native"]),
+    )
+    label = str(language_name).strip() if language_name else language_display_label(
+        settlement["source_language"], play_language,
+    )
+    facts = settlement["ability"]
+    unreliable = display_scope == "degraded" or settlement["accuracy"]["risk"] in {
+        "misunderstanding",
+        "pushed_failure",
     }
+    visible_text, understood_text, translation_visible = _inbound_visible_text(
+        play_language=play_language,
+        source_text=source_text,
+        layer=layer,
+        language_label=label,
+        translation=translation,
+        partial_translation=partial_translation,
+        gist=gist,
+        register_note=register_note,
+        speaker_background_note=speaker_background_note,
+        show_register=bool(facts["native_passing"] and register_note),
+        show_background=bool(facts["fluent"] and speaker_background_note),
+        degraded=display_scope == "degraded",
+        core_gist=display_scope == "necessary_gist",
+    )
+    return _language_render_contract(
+        direction="inbound",
+        settled=settlement,
+        source_text=source_text,
+        play_language=play_language,
+        understood_text=understood_text,
+        intended_meaning=None,
+        delivered_meaning=None,
+        delivered_meaning_confidence=_meaning_confidence(
+            layer=layer,
+            native_passing=bool(facts["native_passing"]),
+            unreliable=unreliable,
+        ),
+        comprehension=ability_tier,
+        understood_layer=layer,
+        translation_visible=translation_visible,
+        language_name_visible=bool(settlement["recognized"]),
+        visible_text=visible_text,
+    )
+
+
+def render_investigator_speech_in_language(
+    *,
+    intended_meaning: str,
+    source_text: str,
+    source_language: str,
+    investigator: dict[str, Any] | None,
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+    settled: dict[str, Any] | None = None,
+    skill_value: int | None = None,
+    native: bool | None = None,
+    recognition_route: str | None = None,
+    recognition_result: str | None = None,
+    medium: str = "speech",
+    difficulty: str | None = None,
+    roll_outcome: str | None = None,
+    roll_receipt: dict[str, Any] | None = None,
+    pushed: bool = False,
+    core_clue: bool = False,
+    time_context: dict[str, Any] | None = None,
+    corpus_id: str | None = None,
+    language_name: str | None = None,
+) -> dict[str, Any]:
+    """Render investigator→NPC foreign speech from player intent + KP utterance.
+
+    Code never translates and never rewrites ``intended_meaning``. Failed or
+    pushed speech is marked as settlement risk rather than a fabricated
+    mistranslation. ``source_text`` stays the KP-supplied target-language line.
+    """
+    settlement = _settlement_for_render(
+        source_language=source_language,
+        investigator=investigator,
+        settled=settled,
+        skill_value=skill_value,
+        native=native,
+        recognition_route=recognition_route,
+        recognition_result=recognition_result,
+        medium=medium,
+        difficulty=difficulty,
+        roll_outcome=roll_outcome,
+        roll_receipt=roll_receipt,
+        pushed=pushed,
+        core_clue=core_clue,
+        time_context=time_context,
+        corpus_id=corpus_id,
+    )
+    display_scope = _render_display_scope(settlement)
+    facts = settlement["ability"]
+    failure = settlement["check"]["roll_outcome"] in _FAILURE_ROLL_OUTCOMES
+    delivery = _outgoing_delivery(
+        facts=facts, display_scope=display_scope, failure=failure,
+    )
+    label = str(language_name).strip() if language_name else language_display_label(
+        settlement["source_language"], play_language,
+    )
+    intent = str(intended_meaning or "")
+    visible_text = _outbound_visible_text(
+        play_language=play_language,
+        source_text=source_text,
+        intended_meaning=intent,
+        language_label=label,
+        delivery=delivery,
+        failure=failure,
+    )
+    unreliable = bool(failure or delivery["wrong_word_risk"])
+    if delivery["native_passing"]:
+        layer = "full"
+    elif facts["fluent"]:
+        layer = "full"
+    elif facts["transactional"]:
+        layer = "partial"
+    elif facts["simple_ideas"]:
+        layer = "gist"
+    elif settlement["recognized"] or facts["identifies_without_roll"]:
+        layer = "language_name"
+    else:
+        layer = "tone_only"
+    ability_tier = dialogue_comprehension_tier(
+        settlement["skill_value"], native=bool(settlement["native"]),
+    )
+    return _language_render_contract(
+        direction="outbound",
+        settled=settlement,
+        source_text=source_text,
+        play_language=play_language,
+        understood_text=None,
+        intended_meaning=intent,
+        delivered_meaning=intent,
+        delivered_meaning_confidence=_meaning_confidence(
+            layer=layer,
+            native_passing=bool(facts["native_passing"]),
+            unreliable=unreliable,
+        ),
+        comprehension=ability_tier,
+        understood_layer=layer,
+        translation_visible=False,
+        language_name_visible=layer != "tone_only",
+        visible_text=visible_text,
+        extra={"delivery": delivery},
+    )
 
 BASE_REPORT_LABELS = {
     "roll_sentence": "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}",
