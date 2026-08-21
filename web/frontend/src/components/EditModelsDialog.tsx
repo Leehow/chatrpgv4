@@ -143,10 +143,12 @@ export function EditModelsDialog({
   open,
   onClose,
   onChanged,
+  embedded = false,
 }: {
   open: boolean;
   onClose: () => void;
   onChanged: (hidden: string[]) => void;
+  embedded?: boolean;
 }) {
   const [state, setState] = useState<ModelEditorState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -489,25 +491,24 @@ export function EditModelsDialog({
     );
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+  const panel = (
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="编辑模型"
-        className="flex max-h-[min(36rem,100%)] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-4 shadow-xl"
+        role={embedded ? undefined : "dialog"}
+        aria-modal={embedded ? undefined : "true"}
+        aria-label={embedded ? undefined : "编辑模型"}
+        className={cn(
+          "flex w-full flex-col gap-3",
+          embedded ? "" : "max-h-[min(36rem,100%)] max-w-lg overflow-y-auto rounded-2xl border border-border bg-card p-4 shadow-xl",
+        )}
       >
+        {embedded ? null : (
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-display text-lg font-semibold">编辑模型</h2>
           <Button type="button" variant="ghost" size="icon" className="size-8" onClick={onClose} title="关闭">
             <X className="size-4" />
           </Button>
         </div>
+        )}
         <p className="text-xs leading-relaxed text-muted-foreground">
           勾选的提供方显示在模型菜单中。点「未配置」：订阅会打开登录，API Key 会展开输入框。
         </p>
@@ -615,7 +616,9 @@ export function EditModelsDialog({
           </Button>
         </div>
       </div>
-      {loginTarget && (
+  );
+
+  const login = loginTarget ? (
         <ProviderLoginPanel
           provider={loginTarget}
           method="oauth"
@@ -625,7 +628,26 @@ export function EditModelsDialog({
           }}
           onCancel={() => setLoginTarget(null)}
         />
-      )}
+  ) : null;
+
+  if (embedded) {
+    return (
+      <>
+        {panel}
+        {login}
+      </>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      {panel}
+      {login}
     </div>
   );
 }

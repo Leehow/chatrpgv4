@@ -4,7 +4,16 @@ import path from "node:path";
 import { resolveProductSettingsPath } from "./agent-dir.mjs";
 
 /** Keys the UI may read/write. Never includes onboarded / provider-list fields. */
-export const UI_PREF_KEYS = ["provider", "model", "thinking", "appearance", "layout"];
+export const UI_PREF_KEYS = [
+  "provider",
+  "model",
+  "thinking",
+  "appearance",
+  "layout",
+  "visionEnabled",
+  "visionProvider",
+  "visionModel",
+];
 
 const APPEARANCE = new Set(["light", "dark", "system"]);
 const MAX_LEN = 200;
@@ -32,6 +41,9 @@ function emptyPrefs() {
     thinking: "",
     appearance: "",
     layout: { ...LAYOUT_DEFAULTS },
+    visionEnabled: false,
+    visionProvider: "",
+    visionModel: "",
   };
 }
 
@@ -69,6 +81,15 @@ export function sanitizeUiPref(key, value, { strict = false } = {}) {
     return s;
   }
   return s;
+}
+
+export function sanitizeVisionEnabled(value, { strict = false } = {}) {
+  if (value == null || value === "") return false;
+  if (typeof value !== "boolean") {
+    if (strict) throw prefError("visionEnabled must be a boolean");
+    return false;
+  }
+  return value;
 }
 
 function clampWidth(key, value) {
@@ -120,7 +141,15 @@ export function pickUiPrefs(raw, { strict = false } = {}) {
       out.layout = sanitizeLayout(raw.layout, { strict, base: out.layout });
       continue;
     }
+    if (key === "visionEnabled") {
+      out.visionEnabled = sanitizeVisionEnabled(raw.visionEnabled, { strict });
+      continue;
+    }
     out[key] = sanitizeUiPref(key, raw[key], { strict });
+  }
+  if (!out.visionEnabled) {
+    out.visionProvider = "";
+    out.visionModel = "";
   }
   return out;
 }
@@ -170,7 +199,15 @@ export function saveUserPrefs(settingsPath, patch) {
       next.layout = sanitizeLayout(patch.layout, { strict: true, base: next.layout });
       continue;
     }
+    if (key === "visionEnabled") {
+      next.visionEnabled = sanitizeVisionEnabled(patch.visionEnabled, { strict: true });
+      continue;
+    }
     next[key] = sanitizeUiPref(key, patch[key], { strict: true });
+  }
+  if (!next.visionEnabled) {
+    next.visionProvider = "";
+    next.visionModel = "";
   }
   const existing = readJson(settingsPath);
   const merged = existing && typeof existing === "object" && !Array.isArray(existing)

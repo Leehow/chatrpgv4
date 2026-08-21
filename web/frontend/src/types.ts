@@ -4,6 +4,8 @@ export interface ModelInfo {
   /** Levels the model actually supports (pi rule); absent → unknown, menu
    *  falls back to the generic list. */
   thinkingLevels?: string[];
+  /** True when catalog/models.json `input` includes image. */
+  image?: boolean;
 }
 
 export interface ProviderInfo {

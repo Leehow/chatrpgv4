@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { AlertTriangle, Loader2, Menu, PanelRightOpen, Pencil, RefreshCw } from "lucide-react";
+import { AlertTriangle, Loader2, Menu, PanelRightOpen, RefreshCw, Settings } from "lucide-react";
 import * as api from "./api";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { CampaignSidebar } from "./components/CampaignSidebar";
 import { AppearanceMenu, type Appearance } from "./components/AppearanceMenu";
 import { Chat, type QuickStartAction } from "./components/Chat";
-import { EditModelsDialog } from "./components/EditModelsDialog";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { CombatOverlay } from "./components/CombatOverlay";
 import { GuidedStart } from "./components/GuidedStart";
 import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
@@ -314,7 +314,10 @@ export default function App() {
   // 编辑模型 curation: providers unchecked in the editor disappear from
   // the model dropdown. Desktop IPC is preferred; HTTP covers the in-app overlay.
   const [hiddenProviders, setHiddenProviders] = useState<string[]>([]);
-  const [editModelsOpen, setEditModelsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [visionEnabled, setVisionEnabled] = useState(false);
+  const [visionProvider, setVisionProvider] = useState("");
+  const [visionModel, setVisionModel] = useState("");
   useEffect(() => {
     const desktop = (
       window as {
@@ -446,6 +449,9 @@ export default function App() {
         if (hydrated.provider) setProvider(hydrated.provider);
         if (hydrated.model) setModel(hydrated.model);
         if (hydrated.thinking) setThinking(hydrated.thinking);
+        setVisionEnabled(disk.visionEnabled === true);
+        setVisionProvider(typeof disk.visionProvider === "string" ? disk.visionProvider : "");
+        setVisionModel(typeof disk.visionModel === "string" ? disk.visionModel : "");
         const uploadModel = hydrated.shouldUpload && !modelFallbackUploaded.current;
         if (uploadLayout) layoutUploaded.current = true;
         if (uploadModel) modelFallbackUploaded.current = true;
@@ -551,6 +557,17 @@ export default function App() {
       })
       .catch(() => undefined);
   }, [provider, model, effectiveThinking, modelPrefsReady, modelPrefsWritable]);
+
+  useEffect(() => {
+    if (!modelPrefsReady || !modelPrefsWritable) return;
+    void api
+      .saveUserPrefs({
+        visionEnabled,
+        visionProvider: visionEnabled ? visionProvider : "",
+        visionModel: visionEnabled ? visionModel : "",
+      })
+      .catch(() => undefined);
+  }, [visionEnabled, visionProvider, visionModel, modelPrefsReady, modelPrefsWritable]);
 
   useEffect(() => {
     localStorage.setItem(LS.appearance, appearance);
@@ -1461,11 +1478,11 @@ export default function App() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setEditModelsOpen(true)}
-            title="编辑模型"
-            aria-label="编辑模型"
+            onClick={() => setSettingsOpen(true)}
+            title="设置"
+            aria-label="设置"
           >
-            <Pencil className="size-4" />
+            <Settings className="size-4" />
           </Button>
           <AppearanceMenu value={appearance} onChange={setAppearance} />
           <Button
@@ -1480,12 +1497,20 @@ export default function App() {
         </div>
       </header>
 
-      <EditModelsDialog
-        open={editModelsOpen}
-        onClose={() => setEditModelsOpen(false)}
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
         onChanged={(hidden) => {
           setHiddenProviders(hidden);
           void api.fetchModels().then(setModels).catch(() => undefined);
+        }}
+        models={models}
+        hiddenProviders={hiddenProviders}
+        vision={{ enabled: visionEnabled, provider: visionProvider, model: visionModel }}
+        onVisionChange={(next) => {
+          setVisionEnabled(next.enabled);
+          setVisionProvider(next.enabled ? next.provider : "");
+          setVisionModel(next.enabled ? next.model : "");
         }}
       />
       {error && (
@@ -1570,7 +1595,7 @@ export default function App() {
               quickStart={quickStart}
               setupPending={setupPending}
               modelsReady={aiReady}
-              onConfigureModels={() => setEditModelsOpen(true)}
+              onConfigureModels={() => setSettingsOpen(true)}
               onSend={send}
               onStop={stop}
               models={models}

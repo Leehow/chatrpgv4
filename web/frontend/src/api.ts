@@ -45,6 +45,9 @@ export type UserPrefs = {
   thinking?: string;
   appearance?: string;
   layout?: UserLayoutPrefs;
+  visionEnabled?: boolean;
+  visionProvider?: string;
+  visionModel?: string;
 };
 
 export function fetchUserPrefs(): Promise<UserPrefs> {

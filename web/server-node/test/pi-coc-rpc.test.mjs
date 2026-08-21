@@ -11,6 +11,7 @@ import {
   HANDOFF_EXIT_CODE,
   UI_AUTO_OPEN_MARKER,
   UI_IDLE_MARKER,
+  applyVisionChildEnv,
   buildChildEnv,
   buildPiCocArgs,
   createJsonlParser,
@@ -150,6 +151,7 @@ test("buildChildEnv marks an attached UI and play workspace", () => {
     campaignId: "haunting-1",
     tableIntent: "character-setup",
     parentEnv: { PATH: "/usr/bin", HOME: "/tmp" },
+    userPrefs: {},
   });
   assert.equal(env.COC_WORKSPACE, "/tmp/coc-workspace");
   assert.equal(env.COC_PI_ATTACHED_UI, "1");
@@ -185,9 +187,54 @@ test("buildChildEnv pins keeper pi CLI over parent COC_PI_CLI", (t) => {
       COC_PI_CLI: "/Applications/PipiUI.app/Contents/Resources/pipiui-embedded/pi/bin/pi",
       HOME: "/tmp",
     },
+    userPrefs: {},
   });
   assert.equal(env.COC_PI_CLI, keeperCli);
   assert.ok(env.PATH.startsWith(path.join(repoRoot, "runtime", "adapters", "keeper", "node_modules", ".bin")));
+});
+
+test("buildChildEnv sets COC_PI_PDF_MODEL from vision prefs and never writes COC_PI_OPENING_MODEL", () => {
+  const enabled = buildChildEnv({
+    workspace: "/tmp/coc-workspace",
+    repoRoot: "/tmp/missing-repo",
+    campaignId: "haunting-1",
+    parentEnv: {
+      PATH: "/usr/bin",
+      HOME: "/tmp",
+      COC_PI_OPENING_MODEL: "deepseek/deepseek-v4-flash",
+      COC_PI_PDF_MODEL: "stale/model",
+    },
+    userPrefs: {
+      visionEnabled: true,
+      visionProvider: "xai",
+      visionModel: "grok-4.6",
+    },
+  });
+  assert.equal(enabled.COC_PI_PDF_MODEL, "xai/grok-4.6");
+  assert.equal(enabled.COC_PI_OPENING_MODEL, "deepseek/deepseek-v4-flash");
+
+  const disabled = buildChildEnv({
+    workspace: "/tmp/coc-workspace",
+    repoRoot: "/tmp/missing-repo",
+    parentEnv: {
+      PATH: "/usr/bin",
+      HOME: "/tmp",
+      COC_PI_OPENING_MODEL: "deepseek/deepseek-v4-flash",
+      COC_PI_PDF_MODEL: "stale/model",
+    },
+    userPrefs: { visionEnabled: false, visionProvider: "xai", visionModel: "grok-4.6" },
+  });
+  assert.equal(disabled.COC_PI_PDF_MODEL, undefined);
+  assert.equal(disabled.COC_PI_OPENING_MODEL, "deepseek/deepseek-v4-flash");
+
+  const env = { COC_PI_OPENING_MODEL: "keep-me", COC_PI_PDF_MODEL: "stale" };
+  applyVisionChildEnv(env, {
+    visionEnabled: true,
+    visionProvider: "openai",
+    visionModel: "gpt-5",
+  });
+  assert.equal(env.COC_PI_PDF_MODEL, "openai/gpt-5");
+  assert.equal(env.COC_PI_OPENING_MODEL, "keep-me");
 });
 
 test("JSONL parser splits only on LF and ignores a U+2028 inside JSON", () => {

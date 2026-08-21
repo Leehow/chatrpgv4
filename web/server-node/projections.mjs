@@ -1027,6 +1027,15 @@ const THINKING_LEVEL_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh"
 // Mirrors pi-ai getSupportedThinkingLevels (models.js): non-reasoning models
 // only have "off"; a thinkingLevelMap entry of null disables that level;
 // xhigh/max must be explicitly mapped.
+export function modelAcceptsImage(providerId, entry) {
+  const fromEntry = Array.isArray(entry?.input) ? entry.input : null;
+  if (fromEntry) return fromEntry.includes("image");
+  const catalog = piCatalogEntry(providerId, entry?.id);
+  const fromCatalog = Array.isArray(catalog?.input) ? catalog.input : null;
+  if (fromCatalog) return fromCatalog.includes("image");
+  return false;
+}
+
 export function supportedThinkingLevels({ reasoning, thinkingLevelMap }) {
   if (!reasoning) return ["off"];
   return THINKING_LEVEL_ORDER.filter((level) => {
@@ -1129,6 +1138,7 @@ export function modelsPayload() {
         id: m.id,
         label: String(m.name || m.id),
         thinkingLevels: supportedThinkingLevels(resolveThinkingMeta(name, m, cfg)),
+        image: modelAcceptsImage(name, m),
       }));
     if (models.length) {
       providers[name] = {

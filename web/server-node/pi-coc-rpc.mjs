@@ -15,6 +15,7 @@ import {
   pickHostedSessionAgentDir,
   SETUP_CHARACTER_OPENING_MARKER,
 } from "./pi-session-text.mjs";
+import { loadUserPrefs, pickUiPrefs, resolveUserPrefsPath } from "./user-prefs.mjs";
 
 export { SETUP_CHARACTER_OPENING_MARKER, isHiddenSetupOpeningPrompt } from "./pi-session-text.mjs";
 
@@ -194,6 +195,21 @@ export function buildPiCocArgs({ campaignId, sessionId, provider, model, thinkin
   return args;
 }
 
+/** Inject PDF-skill vision model from UI prefs. Never writes COC_PI_OPENING_MODEL. */
+export function applyVisionChildEnv(env, prefs) {
+  if (!env || typeof env !== "object") return env;
+  if (prefs?.visionEnabled === true) {
+    const provider = String(prefs.visionProvider || "").trim();
+    const model = String(prefs.visionModel || "").trim();
+    if (provider && model) {
+      env.COC_PI_PDF_MODEL = `${provider}/${model}`;
+      return env;
+    }
+  }
+  delete env.COC_PI_PDF_MODEL;
+  return env;
+}
+
 export function buildChildEnv({
   workspace,
   repoRoot = DEFAULT_REPO_ROOT,
@@ -202,6 +218,7 @@ export function buildChildEnv({
   agentDir,
   tableIntent,
   parentEnv = process.env,
+  userPrefs,
 }) {
   const env = { ...parentEnv };
   env.COC_WORKSPACE = path.resolve(workspace);
@@ -235,6 +252,14 @@ export function buildChildEnv({
   if (cliJs) {
     env.COC_PI_CLI = cliJs;
   }
+  const prefs = userPrefs !== undefined
+    ? pickUiPrefs(userPrefs)
+    : loadUserPrefs(resolveUserPrefsPath({
+      settingsPath: parentEnv.COC_DESKTOP_SETTINGS,
+      userData: parentEnv.COC_DESKTOP_USER_DATA,
+      agentDir: parentEnv.PI_AGENT_DIR || agentDir,
+    }));
+  applyVisionChildEnv(env, prefs);
   return env;
 }
 

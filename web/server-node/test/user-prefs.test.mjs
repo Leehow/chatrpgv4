@@ -25,6 +25,9 @@ const DEFAULT_PREFS = {
   thinking: "",
   appearance: "",
   layout: { ...LAYOUT_DEFAULTS },
+  visionEnabled: false,
+  visionProvider: "",
+  visionModel: "",
 };
 
 test("user-prefs path is product userData, never ~/.pi", () => {
@@ -73,6 +76,9 @@ test("saveUserPrefs merges UI keys without clobbering hiddenProviderIds", () => 
     thinking: "off",
     appearance: "dark",
     layout: { ...LAYOUT_DEFAULTS },
+    visionEnabled: false,
+    visionProvider: "",
+    visionModel: "",
   });
 
   const disk = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
@@ -279,6 +285,9 @@ test("GET /api/user-prefs reads existing settings file", async () => {
       leftSidebarCollapsed: false,
       rightSidebarCollapsed: true,
     },
+    visionEnabled: false,
+    visionProvider: "",
+    visionModel: "",
   });
 });
 
@@ -321,4 +330,79 @@ test("PUT /api/user-prefs rejects invalid types", async () => {
   assert.equal(res.status, 400);
   const body = await res.json();
   assert.match(String(body.error), /must be a string/);
+});
+
+test("saveUserPrefs persists vision fields and never writes pdfVisionModel", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "coc-user-prefs-vision-"));
+  const settingsPath = path.join(root, "coc-desktop-settings.json");
+  fs.writeFileSync(
+    settingsPath,
+    JSON.stringify({
+      onboarded: true,
+      hiddenProviderIds: ["zhipu"],
+      pdfVisionModel: "xai/grok-4.6",
+    }) + "\n",
+  );
+
+  const saved = saveUserPrefs(settingsPath, {
+    visionEnabled: true,
+    visionProvider: "xai",
+    visionModel: "grok-4.6",
+  });
+  assert.equal(saved.visionEnabled, true);
+  assert.equal(saved.visionProvider, "xai");
+  assert.equal(saved.visionModel, "grok-4.6");
+
+  const disk = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  assert.equal(disk.onboarded, true);
+  assert.deepEqual(disk.hiddenProviderIds, ["zhipu"]);
+  assert.equal(disk.visionEnabled, true);
+  assert.equal(disk.visionProvider, "xai");
+  assert.equal(disk.visionModel, "grok-4.6");
+  assert.equal(Object.hasOwn(disk, "pdfVisionModel"), false);
+
+  const cleared = saveUserPrefs(settingsPath, { visionEnabled: false });
+  assert.equal(cleared.visionEnabled, false);
+  assert.equal(cleared.visionProvider, "");
+  assert.equal(cleared.visionModel, "");
+  const after = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  assert.equal(after.visionEnabled, false);
+  assert.equal(after.visionProvider, "");
+  assert.equal(after.visionModel, "");
+  assert.equal(after.onboarded, true);
+  assert.deepEqual(after.hiddenProviderIds, ["zhipu"]);
+
+  assert.throws(
+    () => saveUserPrefs(settingsPath, { visionEnabled: "true" }),
+    /must be a boolean/,
+  );
+  const afterBad = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  assert.equal(afterBad.visionEnabled, false);
+  assert.deepEqual(afterBad.hiddenProviderIds, ["zhipu"]);
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("GET/PUT /api/user-prefs round-trips vision selection", async () => {
+  const { base } = await getHttpServer();
+  const put = await fetch(`${base}/api/user-prefs`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      visionEnabled: true,
+      visionProvider: "openai",
+      visionModel: "gpt-5",
+    }),
+  });
+  assert.equal(put.status, 200);
+  const saved = await put.json();
+  assert.equal(saved.visionEnabled, true);
+  assert.equal(saved.visionProvider, "openai");
+  assert.equal(saved.visionModel, "gpt-5");
+
+  const get = await fetch(`${base}/api/user-prefs`);
+  const body = await get.json();
+  assert.equal(body.visionEnabled, true);
+  assert.equal(body.visionProvider, "openai");
+  assert.equal(body.visionModel, "gpt-5");
 });

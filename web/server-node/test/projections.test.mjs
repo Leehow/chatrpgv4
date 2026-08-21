@@ -1202,6 +1202,64 @@ test("modelsPayload default reads user-prefs over Pi settings.json", () => {
   }
 });
 
+test("modelsPayload marks image from models.json input without touching settings merge fields", () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "coc-models-image-"));
+  const agentDir = path.join(userData, "pi-agent");
+  fs.mkdirSync(agentDir);
+  const settingsPath = path.join(userData, "coc-desktop-settings.json");
+  fs.writeFileSync(
+    settingsPath,
+    JSON.stringify({
+      onboarded: true,
+      hiddenProviderIds: ["zhipu"],
+      extraProviderIds: ["google"],
+    }) + "\n",
+  );
+  const settingsBefore = fs.readFileSync(settingsPath, "utf8");
+  fs.writeFileSync(
+    path.join(agentDir, "models.json"),
+    JSON.stringify({
+      providers: {
+        xai: {
+          name: "xAI",
+          models: [
+            { id: "grok-4.6", name: "Grok 4.6", input: ["text", "image"] },
+            { id: "text-only", name: "Text", input: ["text"] },
+          ],
+        },
+        mygateway: {
+          name: "My Gateway",
+          models: [{ id: "model-b", name: "B" }],
+        },
+      },
+    }),
+  );
+  const prevAgent = process.env.PI_AGENT_DIR;
+  const prevData = process.env.COC_DESKTOP_USER_DATA;
+  process.env.PI_AGENT_DIR = agentDir;
+  process.env.COC_DESKTOP_USER_DATA = userData;
+  try {
+    const payload = modelsPayload();
+    const byId = Object.fromEntries(
+      payload.providers.xai.models.map((m) => [m.id, m.image]),
+    );
+    assert.equal(byId["grok-4.6"], true);
+    assert.equal(byId["text-only"], false);
+    assert.equal(payload.providers.mygateway.models[0].image, false);
+    assert.equal(fs.readFileSync(settingsPath, "utf8"), settingsBefore);
+    const disk = JSON.parse(settingsBefore);
+    assert.equal(disk.onboarded, true);
+    assert.deepEqual(disk.hiddenProviderIds, ["zhipu"]);
+    assert.deepEqual(disk.extraProviderIds, ["google"]);
+  } finally {
+    if (prevAgent === undefined) delete process.env.PI_AGENT_DIR;
+    else process.env.PI_AGENT_DIR = prevAgent;
+    if (prevData === undefined) delete process.env.COC_DESKTOP_USER_DATA;
+    else process.env.COC_DESKTOP_USER_DATA = prevData;
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
 test("modelsPayload default falls back to Pi settings when user-prefs model is empty", () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "coc-models-pi-"));
   const agentDir = path.join(userData, "pi-agent");
