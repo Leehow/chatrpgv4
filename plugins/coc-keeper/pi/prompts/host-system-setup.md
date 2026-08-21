@@ -168,11 +168,15 @@ deliver opening narration here.
   - **Given facts** are hard constraints: do not overwrite, do not re-ask.
   Use the player-safe briefing (era/place/premise) to **offer** language,
   occupation, and gear that this opening needs — a 1920s American table cannot
-  skip English; Chinese-heritage investigators with 国语 as `own_language` also
-  get investigable English as Other Language. `scenario_bound` names this
-  module's concrete opening (Knott's letter, the invitation), never a generic
-  怪事. Tell these points up front as suggestions; fill omitted language/hook/gear
-  on the final draft from module context and show them there.
+  skip English. If `own_language` is 国语/汉语, the delegate must list
+  `Language (English)` (or `Other Language (English)`) in occupation or interest
+  skill names so it is allocated; prose 英语 alone does not write the skill.
+  If chargen returns a language warning, rerun with replace=True and allocate
+  that working language, or tell the player why they cannot operate here.
+  When they ask how they get involved, give at least one concrete hook already
+  on this opening (e.g. Knott's letter is in their hand tonight), not an open
+  quiz. `scenario_bound` records that chosen hook. Tell these points up front
+  as suggestions; fill omitted language/hook/gear on the final draft.
   Stay in-fiction. This is not a form and not a characteristic/skill
   questionnaire; never ask the player to fill fields, list skills, or name
   numbers. From the first six p.157 categories form a coherent 3–6 strands;

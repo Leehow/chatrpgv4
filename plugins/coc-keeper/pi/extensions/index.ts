@@ -260,11 +260,11 @@ export const chargenDelegateSchema = {
     interest_allocation_intent: { type: "string" },
     occupation_skill_names: {
       type: "array",
-      items: { type: "string", enum: CHARGEN_SKILL_IDS },
+      items: { type: "string", minLength: 1 },
     },
     interest_skill_names: {
       type: "array",
-      items: { type: "string", enum: CHARGEN_SKILL_IDS },
+      items: { type: "string", minLength: 1 },
     },
     investigator_id: { type: "string" },
     mode: { type: "string", enum: ["quick_fire", "era_adaptive", "pregen"] },

@@ -5833,28 +5833,36 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
         stored,
         stored_creation if isinstance(stored_creation, dict) else {},
     )
+    language_warning = coc_character.chargen_working_language_warning(
+        era=campaign_era,
+        own_language=stored.get("own_language"),
+        skills=skills,
+    )
     card_path = render_result.get("markdown_path") or render_result.get("card_path")
+    result: dict[str, Any] = {
+        "ok": True,
+        "investigator_id": investigator_id,
+        "decision_id": commit_id,
+        "characteristics": stored.get("characteristics") or meta["characteristics"],
+        "derived": {
+            "hp": derived.get("HP"),
+            "mp": derived.get("MP"),
+            "san": derived.get("SAN"),
+            "luck": derived.get("Luck"),
+        },
+        "skill_top": skill_top,
+        "card_path": card_path,
+        "roll_ids": roll_ids,
+        "dice_receipts": dice_receipts,
+        "player_summary_zh": player_summary_zh,
+    }
+    if language_warning:
+        result["warnings"] = [language_warning]
     return {
         "schema_version": 1,
         "status": "PASS",
         "kind": "setup.chargen_run",
-        "result": {
-            "ok": True,
-            "investigator_id": investigator_id,
-            "decision_id": commit_id,
-            "characteristics": stored.get("characteristics") or meta["characteristics"],
-            "derived": {
-                "hp": derived.get("HP"),
-                "mp": derived.get("MP"),
-                "san": derived.get("SAN"),
-                "luck": derived.get("Luck"),
-            },
-            "skill_top": skill_top,
-            "card_path": card_path,
-            "roll_ids": roll_ids,
-            "dice_receipts": dice_receipts,
-            "player_summary_zh": player_summary_zh,
-        },
+        "result": result,
         "state_refs": list(created.get("state_refs") or []) + list(
             rendered.get("state_refs") or []
         ),

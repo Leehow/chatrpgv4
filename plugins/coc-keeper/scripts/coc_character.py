@@ -794,6 +794,63 @@ def chargen_default_own_language(era: str) -> str | None:
     return None
 
 
+def chargen_working_language(era: str) -> str | None:
+    """Module/era working language for chargen advisories.
+
+    Same table as omitted own_language (1920s/modern = 英语). kp_guided
+    era-adaptive eras have no authoritative cash/language table, so this
+    returns None and chargen must not invent a working-language warning.
+    """
+    return chargen_default_own_language(era)
+
+
+def _language_identity_key(name: str) -> str | None:
+    raw = str(name or "").strip()
+    if not raw:
+        return None
+    return language_other_skill_id(raw) or language_other_skill_id(
+        f"Language ({raw})"
+    )
+
+
+def sheet_has_other_language(skills: Any, language_name: str) -> bool:
+    wanted = _language_identity_key(language_name)
+    if wanted is None or not isinstance(skills, dict):
+        return False
+    for key in skills:
+        if str(key) == "Language (Own)":
+            continue
+        if _language_identity_key(str(key)) == wanted:
+            return True
+    return False
+
+
+def chargen_working_language_warning(
+    *,
+    era: str,
+    own_language: Any,
+    skills: Any,
+) -> str | None:
+    """Advisory only: missing table working language when own_language differs."""
+    working = chargen_working_language(era)
+    if working is None:
+        return None
+    own = str(own_language).strip() if isinstance(own_language, str) else ""
+    if not own:
+        return None
+    if _language_identity_key(own) == _language_identity_key(working):
+        return None
+    if sheet_has_other_language(skills, working):
+        return None
+    skill_id = language_other_skill_id(working) or f"Language ({working})"
+    return (
+        f"调查员母语与本模组工作语言（{working}）不一致，技能表没有 {skill_id}。"
+        f"该调查员在模组语境下无法有效行动。"
+        f"建议以 replace=True 重跑 setup.chargen_run / coc_chargen_delegate，"
+        f"并把 {skill_id} 分配到得体水平。"
+    )
+
+
 def own_language_skill_label(own_language: str) -> str:
     return f"语言（{own_language}）"
 
@@ -1142,6 +1199,64 @@ def _compact_skill_fold(name: str) -> str:
     return _COMPACT_SKILL_FOLD_PATTERN.sub("", str(name)).casefold()
 
 
+_LANGUAGE_OTHER_NAME_ALIASES = {
+    "english": "English",
+    "英语": "English",
+    "英文": "English",
+}
+_LANGUAGE_OTHER_LABEL_ZH = {
+    "English": "英语",
+}
+_LANGUAGE_OTHER_SKILL_RE = re.compile(
+    r"^(?:other\s+language|language)\s*\((.+)\)$",
+    re.IGNORECASE,
+)
+
+
+def language_other_skill_id(name: str) -> str | None:
+    """Map KP language-other names onto Language (English)-style machine keys.
+
+    Language (Other) is a group, not a catalog skill. Specializations are not
+    in rules-json; chargen still persists them when the KP names one.
+    """
+    raw = str(name or "").strip()
+    if not raw:
+        return None
+    folded = raw.casefold()
+    mapped = _LANGUAGE_OTHER_NAME_ALIASES.get(folded)
+    if mapped:
+        return f"Language ({mapped})"
+    match = _LANGUAGE_OTHER_SKILL_RE.fullmatch(raw)
+    if match is None:
+        return None
+    inner = match.group(1).strip()
+    if not inner:
+        return None
+    inner_fold = inner.casefold()
+    if inner_fold in {"own", "母语", "other"}:
+        return None
+    language = _LANGUAGE_OTHER_NAME_ALIASES.get(inner_fold) or inner
+    if language.isascii():
+        language = language[:1].upper() + language[1:]
+    return f"Language ({language})"
+
+
+def _language_other_spec(skill_id: str) -> dict[str, Any] | None:
+    canonical = language_other_skill_id(skill_id)
+    if canonical is None or canonical != skill_id:
+        return None
+    return {"base_chance": 1, "group": "Language (Other)"}
+
+
+def _chargen_skill_spec(
+    skill_id: str, catalog: dict[str, dict]
+) -> dict[str, Any] | None:
+    spec = catalog.get(skill_id)
+    if isinstance(spec, dict):
+        return spec
+    return _language_other_spec(skill_id)
+
+
 def _skill_catalog() -> dict[str, dict]:
     """Cached rulebook skill catalog (canonical name -> spec incl. aliases)."""
     try:
@@ -1299,13 +1414,14 @@ def _guided_quick_fire_skill_reconciliation(
             continue
         normalized: dict[str, int] = {}
         for skill_id, delta in allocations.items():
-            if skill_id not in catalog:
+            spec = _chargen_skill_spec(skill_id, catalog)
+            if spec is None:
                 errors.append(
                     f"skill_budget.{account_name} allocation uses unknown "
                     f"canonical skill {skill_id!r}"
                 )
                 continue
-            if skill_id not in available:
+            if skill_id not in available and skill_id in catalog:
                 errors.append(
                     f"skill_budget.{account_name} allocation uses "
                     f"era-inappropriate skill {skill_id!r}"
@@ -1352,13 +1468,21 @@ def _guided_quick_fire_skill_reconciliation(
     ))
     expected_ids = required | selected
     expected: dict[str, int] = {}
-    for skill_id in catalog:
+    for skill_id in list(catalog) + [
+        key for key in expected_ids if key not in catalog
+    ]:
         if skill_id not in expected_ids:
+            continue
+        spec = _chargen_skill_spec(skill_id, catalog)
+        if spec is None:
+            errors.append(
+                f"guided Quick Fire cannot resolve skill spec {skill_id!r}"
+            )
             continue
         try:
             base = _guided_skill_base(
                 skill_id,
-                catalog[skill_id],
+                spec,
                 characteristics,
             )
         except (KeyError, TypeError, ValueError) as exc:
@@ -1375,7 +1499,7 @@ def _guided_quick_fire_skill_reconciliation(
         )
         if expected[skill_id] > starting_cap:
             characteristic_derived_base = (
-                catalog[skill_id].get("base_chance") in {"half_DEX", "EDU"}
+                spec.get("base_chance") in {"half_DEX", "EDU"}
             )
             if (
                 characteristic_derived_base
@@ -1772,19 +1896,21 @@ def _localized_skill_rows(
     own_language: str | None = None,
 ) -> list[dict[str, Any]]:
     catalog = _skill_catalog()
-    rows = [
-        {
-            "key": skill_id,
-            "label": str(
-                (catalog[skill_id].get("localized_labels") or {}).get(
-                    "zh-Hans",
-                    skill_id,
-                )
-            ),
-            "value": value,
-        }
-        for skill_id, value in skills.items()
-    ]
+    rows: list[dict[str, Any]] = []
+    for skill_id, value in skills.items():
+        spec = _chargen_skill_spec(skill_id, catalog) or {}
+        labels = spec.get("localized_labels") if isinstance(spec, dict) else None
+        label = None
+        if isinstance(labels, dict):
+            label = labels.get("zh-Hans")
+        if not isinstance(label, str) or not label.strip():
+            other = language_other_skill_id(skill_id)
+            if other == skill_id:
+                inner = skill_id[len("Language ("):-1]
+                label = f"语言（{_LANGUAGE_OTHER_LABEL_ZH.get(inner, inner)}）"
+            else:
+                label = skill_id
+        rows.append({"key": skill_id, "label": str(label), "value": value})
     if own_language:
         apply_own_language_skill_label({"skills": rows}, own_language)
     return rows
@@ -1896,6 +2022,9 @@ def resolve_catalog_skill_name(name: str, catalog: dict[str, dict] | None = None
     mapped = aliases.get(_compact_skill_fold(raw))
     if mapped and mapped in catalog:
         return mapped
+    other = language_other_skill_id(raw)
+    if other is not None:
+        return other
     return None
 
 
@@ -1936,7 +2065,9 @@ def resolve_occupation_skill_list(
     seen: set[str] = set()
 
     def _add(name: str | None) -> None:
-        if not name or name not in catalog or name in seen:
+        if not name or name in seen:
+            return
+        if name not in catalog and _language_other_spec(name) is None:
             return
         seen.add(name)
         resolved.append(name)
@@ -2076,11 +2207,12 @@ def build_quick_fire_chargen_payload(
     ]
     if not interest_ids:
         interest_ids = [sid for sid in _DEFAULT_INTEREST_SKILLS if sid in catalog]
-    bases = {
-        skill_id: _guided_skill_base(skill_id, catalog[skill_id], characteristics)
-        for skill_id in set(occ_skills) | set(interest_ids)
-        if skill_id in catalog
-    }
+    bases = {}
+    for skill_id in set(occ_skills) | set(interest_ids):
+        spec = _chargen_skill_spec(skill_id, catalog)
+        if spec is None:
+            continue
+        bases[skill_id] = _guided_skill_base(skill_id, spec, characteristics)
     if occupation_allocations is not None:
         occ_alloc = {
             str(key): int(value)
@@ -2144,10 +2276,15 @@ def build_quick_fire_chargen_payload(
         skill_id for skill_id in ("Dodge", "Language (Own)") if skill_id in catalog
     }
     skills: dict[str, int] = {}
-    for skill_id in catalog:
+    for skill_id in list(catalog) + [
+        key for key in required if key not in catalog
+    ]:
         if skill_id not in required:
             continue
-        base = _guided_skill_base(skill_id, catalog[skill_id], characteristics)
+        spec = _chargen_skill_spec(skill_id, catalog)
+        if spec is None:
+            continue
+        base = _guided_skill_base(skill_id, spec, characteristics)
         skills[skill_id] = (
             base + occ_alloc.get(skill_id, 0) + int_alloc.get(skill_id, 0)
         )

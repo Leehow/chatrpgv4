@@ -8220,7 +8220,15 @@ def _tool_setup_chargen_run(ctx: Ctx, args: dict[str, Any]):
             error,
             details=result if isinstance(result, dict) else None,
         )
-    return receipt, [], hints
+    warnings: list[str] = []
+    raw_warnings = result.get("warnings")
+    if isinstance(raw_warnings, list):
+        warnings.extend(
+            str(item).strip()
+            for item in raw_warnings
+            if isinstance(item, str) and item.strip()
+        )
+    return receipt, warnings, hints
 
 
 @tool(
