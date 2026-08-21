@@ -496,6 +496,52 @@ def _validate_quick_fire_luck_receipt(
         )
 
 
+def _require_generated_age_dice_assertions(
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+) -> None:
+    """Generated create with sheet.age asserts the age bracket and needs receipts.
+
+    import_complete_sheet / pregen paths send finished characteristics and must
+    omit this bundle. Omitting receipts while asserting age is rejected.
+    """
+    input_mode = creation.get("input_mode")
+    if input_mode == "import_complete_sheet":
+        return
+    age_present = "age" in sheet
+    bundle_present = (
+        "edu_improvement_rolls" in creation
+        or "luck_roll_candidates" in creation
+        or "characteristic_reductions" in creation
+    )
+    if input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE and not bundle_present:
+        return
+    if not age_present and not bundle_present:
+        return
+    age = sheet.get("age")
+    if isinstance(age, bool) or not isinstance(age, int):
+        raise RuntimeOperationError("age must be an integer when supplied")
+    try:
+        required_edu = coc_character.required_edu_improvement_checks(age)
+        keep = coc_character.chargen_luck_rolls_keep_highest(age)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    rolls = creation.get("edu_improvement_rolls")
+    if not isinstance(rolls, list) or len(rolls) != required_edu:
+        raise RuntimeOperationError(
+            f"generated create with age={age} asserts {required_edu} EDU "
+            "improvement check receipt(s); omit sheet.age or attach "
+            "edu_improvement_rolls. import_complete_sheet must omit this bundle"
+        )
+    if keep > 1:
+        candidates = creation.get("luck_roll_candidates")
+        if not isinstance(candidates, list) or len(candidates) != keep:
+            raise RuntimeOperationError(
+                f"generated create with age={age} asserts {keep} Luck receipts "
+                "(keep highest); omit sheet.age or attach luck_roll_candidates"
+            )
+
+
 def _validate_chargen_age_dice_receipts(
     root: Path,
     creation: dict[str, Any],
@@ -5292,6 +5338,133 @@ def _chargen_fail(
     }
 
 
+def _chargen_commit_path(campaign_dir: Path) -> Path:
+    return campaign_dir / "save" / "chargen-commits.json"
+
+
+def _chargen_commit_fingerprint(sheet: dict[str, Any]) -> str:
+    payload = {
+        "id": sheet.get("id"),
+        "name": sheet.get("name"),
+        "occupation": sheet.get("occupation"),
+        "age": sheet.get("age"),
+        "skills": sheet.get("skills"),
+        "backstory": sheet.get("backstory"),
+        "equipment": sheet.get("equipment"),
+        "key_connection": sheet.get("key_connection"),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _load_chargen_commits(campaign_dir: Path) -> dict[str, Any]:
+    path = _chargen_commit_path(campaign_dir)
+    if not path.is_file():
+        return {"schema_version": 1, "receipts": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1, "receipts": {}}
+    if not isinstance(data, dict) or not isinstance(data.get("receipts"), dict):
+        return {"schema_version": 1, "receipts": {}}
+    return data
+
+
+def _commit_chargen_create_and_link(
+    root: Path,
+    *,
+    campaign_id: str,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+    replace: bool,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """One decision_id receipt covering create+link. Render stays after commit."""
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    decision_id = f"chargen-commit-{campaign_id}-{investigator_id}"
+    fingerprint = _chargen_commit_fingerprint(sheet)
+    document = _load_chargen_commits(campaign_dir)
+    receipts = document["receipts"]
+    previous = receipts.get(decision_id)
+    party_path = campaign_dir / "party.json"
+    linked_ids: list[str] = []
+    if party_path.is_file():
+        try:
+            party = json.loads(party_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            party = {}
+        raw_ids = party.get("investigator_ids") if isinstance(party, dict) else []
+        if isinstance(raw_ids, list):
+            linked_ids = [str(item) for item in raw_ids if isinstance(item, str)]
+    already_linked = investigator_id in linked_ids
+    if (
+        isinstance(previous, dict)
+        and previous.get("fingerprint") == fingerprint
+        and previous.get("investigator_id") == investigator_id
+    ):
+        if not already_linked:
+            linked = execute_setup_operation(
+                root,
+                operation={
+                    "schema_version": 1,
+                    "kind": "campaign.link_investigator",
+                    "payload": {
+                        "campaign_id": campaign_id,
+                        "investigator_ids": [investigator_id],
+                    },
+                },
+            )
+            if linked.get("status") != "PASS":
+                raise RuntimeOperationError("campaign.link_investigator did not pass")
+        return previous, {"status": "PASS", "state_refs": []}, True
+    create_payload: dict[str, Any] = {
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "sheet": sheet,
+        "creation": creation,
+    }
+    if replace:
+        create_payload["replace"] = True
+    created = execute_setup_operation(
+        root,
+        operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": create_payload,
+        },
+    )
+    if created.get("status") != "PASS":
+        raise RuntimeOperationError("investigator.create did not pass")
+    linked = execute_setup_operation(
+        root,
+        operation={
+            "schema_version": 1,
+            "kind": "campaign.link_investigator",
+            "payload": {
+                "campaign_id": campaign_id,
+                "investigator_ids": [investigator_id],
+            },
+        },
+    )
+    if linked.get("status") != "PASS":
+        raise RuntimeOperationError("campaign.link_investigator did not pass")
+    receipt = {
+        "decision_id": decision_id,
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "fingerprint": fingerprint,
+    }
+    receipts[decision_id] = receipt
+    coc_fileio.write_json_atomic(
+        _chargen_commit_path(campaign_dir),
+        {"schema_version": 1, "receipts": receipts},
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return receipt, created, False
+
+
 def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     allowed = set(coc_character.CHARGEN_RUN_ALLOWED)
     required = set(coc_character.CHARGEN_RUN_REQUIRED)
@@ -5449,51 +5622,18 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
         "campaign_id": campaign_id,
         "investigator_id": investigator_id,
     }
-    create_payload: dict[str, Any] = {
-        "campaign_id": campaign_id,
-        "investigator_id": investigator_id,
-        "sheet": sheet,
-        "creation": creation,
-    }
-    if replace:
-        create_payload["replace"] = True
     try:
-        created = execute_setup_operation(
+        commit_receipt, created, _replayed = _commit_chargen_create_and_link(
             root,
-            operation={
-                "schema_version": 1,
-                "kind": "investigator.create",
-                "payload": create_payload,
-            },
+            campaign_id=campaign_id,
+            investigator_id=investigator_id,
+            sheet=sheet,
+            creation=creation,
+            replace=replace,
         )
     except (RuntimeOperationError, FileExistsError, FileNotFoundError, OSError) as exc:
-        return _chargen_fail("create", str(exc))
-    if created.get("status") != "PASS":
-        return _chargen_fail("create", "investigator.create did not pass")
-    try:
-        linked = execute_setup_operation(
-            root,
-            operation={
-                "schema_version": 1,
-                "kind": "campaign.link_investigator",
-                "payload": {
-                    "campaign_id": campaign_id,
-                    "investigator_ids": [investigator_id],
-                },
-            },
-        )
-    except (RuntimeOperationError, FileNotFoundError, OSError) as exc:
-        return _chargen_fail(
-            "link",
-            str(exc),
-            extra={"investigator_id": investigator_id},
-        )
-    if linked.get("status") != "PASS":
-        return _chargen_fail(
-            "link",
-            "campaign.link_investigator did not pass",
-            extra={"investigator_id": investigator_id},
-        )
+        return _chargen_fail("commit", str(exc))
+    commit_id = str(commit_receipt.get("decision_id") or commit_id)
     try:
         rendered = execute_setup_operation(
             root,
@@ -5562,8 +5702,8 @@ def _execute_chargen_run(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "dice_receipts": dice_receipts,
         },
         "state_refs": list(created.get("state_refs") or []) + list(
-            linked.get("state_refs") or []
-        ) + list(rendered.get("state_refs") or []),
+            rendered.get("state_refs") or []
+        ),
     }
 
 
@@ -5984,16 +6124,20 @@ def execute_setup_operation(
                     f"{supported}. Use creation.input_mode="
                     f"{coc_character.ERA_ADAPTIVE_INPUT_MODE!r}."
                 )
-            sheet_age = sheet.get("age", 27)
-            if isinstance(sheet_age, bool) or not isinstance(sheet_age, int):
-                sheet_age = 27
+            raw_age = sheet.get("age")
+            luck_age = (
+                raw_age
+                if isinstance(raw_age, int) and not isinstance(raw_age, bool)
+                else 27
+            )
             _apply_quick_fire_auto_luck_roll(
                 root,
                 creation,
                 campaign_id=current_campaign_id,
                 investigator_id=investigator_id,
-                age=sheet_age,
+                age=luck_age,
             )
+            _require_generated_age_dice_assertions(sheet, creation)
             _validate_quick_fire_luck_receipt(
                 root, creation, current_campaign_id=current_campaign_id,
             )
@@ -6021,6 +6165,7 @@ def execute_setup_operation(
                     "KP-guided era-adaptive creation is available only when the "
                     "campaign era has no package-owned guided Quick Fire standard sheet"
                 )
+            _require_generated_age_dice_assertions(sheet, creation)
             _validate_quick_fire_luck_receipt(
                 root, creation, current_campaign_id=current_campaign_id,
             )

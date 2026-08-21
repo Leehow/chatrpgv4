@@ -78,7 +78,7 @@
         "type": "integer",
         "minimum": 15,
         "maximum": 89,
-        "description": "Age 15-89."
+        "description": "Age 15-89. Generated create with sheet.age requires EDU/Luck receipts for that bracket; omit receipts is rejected. import_complete_sheet/pregen omit the bundle."
       },
       "characteristics": {
         "type": "object",
@@ -220,6 +220,21 @@
           },
           "key_connection": {
             "$ref": "#/$defs/chargen_key_connection"
+          },
+          "occupation": {
+            "$ref": "#/$defs/name"
+          },
+          "cash": {
+            "$ref": "#/$defs/chargen_finance_amount"
+          },
+          "assets": {
+            "$ref": "#/$defs/chargen_finance_amount"
+          },
+          "spending_level": {
+            "$ref": "#/$defs/chargen_finance_amount"
+          },
+          "living_standard": {
+            "type": "string"
           }
         },
         "not": {
@@ -236,8 +251,17 @@
             }
           ]
         },
-        "additionalProperties": true,
-        "description": "Quick Fire must omit characteristics and derived; the deterministic runtime materializes both."
+        "additionalProperties": false,
+        "description": "Closed generated Quick Fire sheet. Omit characteristics/derived. Runtime may add cash/assets/spending_level/living_standard from rules.cash_assets; KP must not send them."
+      },
+      "chargen_finance_amount": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "amount": {"type": ["number", "null"]},
+          "currency": {"type": "string"},
+          "formula": {"type": "string"}
+        }
       },
       "quick_fire_creation": {
         "type": "object",

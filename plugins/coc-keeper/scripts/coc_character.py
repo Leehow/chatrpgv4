@@ -49,6 +49,15 @@ CHARGEN_RUN_ALLOWED = CHARGEN_RUN_REQUIRED | frozenset({
     "key_connection",
     "occupation_label",
 })
+CHARGEN_SHEET_FINANCE_FIELDS = (
+    "cash", "assets", "spending_level", "living_standard",
+)
+CHARGEN_FINANCE_AMOUNT_KEYS = ("amount", "currency", "formula")
+CHARGEN_QUICK_FIRE_SHEET_PROPERTIES = frozenset({
+    "id", "name", "age", "era", "occupation", "skills",
+    "player_facing_sheet_zh", "backstory", "equipment", "key_connection",
+    *CHARGEN_SHEET_FINANCE_FIELDS,
+})
 CHARGEN_KP_FORBIDDEN_NUMERIC_FIELDS = frozenset({
     "cash",
     "assets",
@@ -492,34 +501,18 @@ def chargen_luck_rolls_keep_highest(age: int) -> int:
     return max(1, int(coc_rules.age_adjustment(age).get("luck_rolls_keep_highest", 1)))
 
 
-def _chargen_prose_items(value: Any, *, field: str) -> list[str]:
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            raise ChargenRunError(
-                "backstory",
-                f"backstory.{field} must be non-empty prose",
-            )
-        return [text]
-    if isinstance(value, list):
-        items: list[str] = []
-        for item in value:
-            if not isinstance(item, str) or not item.strip():
-                raise ChargenRunError(
-                    "backstory",
-                    f"backstory.{field} items must be non-empty strings",
-                )
-            items.append(item.strip())
-        if not items:
-            raise ChargenRunError(
-                "backstory",
-                f"backstory.{field} must be non-empty prose",
-            )
-        return items
-    raise ChargenRunError(
-        "backstory",
-        f"backstory.{field} must be prose; KP must not submit numbers",
-    )
+def _chargen_prose_string(value: Any, *, field: str) -> str:
+    if isinstance(value, bool) or isinstance(value, (int, float)):
+        raise ChargenRunError(
+            "backstory",
+            f"backstory.{field} must be prose; KP must not submit numbers",
+        )
+    if not isinstance(value, str) or not value.strip():
+        raise ChargenRunError(
+            "backstory",
+            f"backstory.{field} must be a non-empty string",
+        )
+    return value.strip()
 
 
 def normalize_chargen_backstory(backstory: Any) -> dict[str, Any] | None:
@@ -541,16 +534,7 @@ def normalize_chargen_backstory(backstory: Any) -> dict[str, Any] | None:
     for key, value in backstory.items():
         if value is None:
             continue
-        if isinstance(value, bool) or isinstance(value, (int, float)):
-            raise ChargenRunError(
-                "backstory",
-                f"backstory.{key} must be prose; KP must not submit numbers",
-            )
-        items = _chargen_prose_items(value, field=str(key))
-        if key == "scenario_bound":
-            normalized[key] = items[0] if len(items) == 1 else items
-        else:
-            normalized[key] = items[0] if len(items) == 1 else items
+        normalized[str(key)] = _chargen_prose_string(value, field=str(key))
     return normalized or None
 
 

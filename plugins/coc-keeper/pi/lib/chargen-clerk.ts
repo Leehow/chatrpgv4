@@ -4,6 +4,32 @@ export const CHARGEN_CLERK_ENV = "COC_PI_CHARGEN_CLERK";
 
 export type ChargenClerkMode = "quick_fire" | "era_adaptive" | "pregen";
 
+export const CHARGEN_BACKSTORY_KEYS = [
+  "personal_description",
+  "ideology_beliefs",
+  "significant_people",
+  "meaningful_locations",
+  "treasured_possessions",
+  "traits",
+  "injuries_scars",
+  "phobias_manias",
+  "encounters",
+  "scenario_bound",
+] as const;
+export const CHARGEN_KEY_CONNECTION_FIELDS = [
+  "personal_description",
+  "ideology_beliefs",
+  "significant_people",
+  "meaningful_locations",
+  "treasured_possessions",
+  "traits",
+] as const;
+export type ChargenBackstory = Partial<Record<typeof CHARGEN_BACKSTORY_KEYS[number], string>>;
+export type ChargenKeyConnection = {
+  backstory_field: typeof CHARGEN_KEY_CONNECTION_FIELDS[number];
+  summary: string;
+};
+
 export interface ChargenClerkBrief {
   name: string;
   occupation_or_concept: string;
@@ -15,9 +41,9 @@ export interface ChargenClerkBrief {
   investigator_id?: string;
   mode: ChargenClerkMode;
   pregen_id?: string;
-  backstory?: JsonObject;
+  backstory?: ChargenBackstory;
   equipment?: string[];
-  key_connection?: JsonObject;
+  key_connection?: ChargenKeyConnection;
   occupation_label?: string;
 }
 
@@ -146,7 +172,19 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
     ) {
       throw new Error("coc_chargen_delegate backstory must be an object");
     }
-    brief.backstory = params.backstory as JsonObject;
+    const allowed = new Set<string>(CHARGEN_BACKSTORY_KEYS);
+    const unknown = Object.keys(params.backstory).filter((key) => !allowed.has(key));
+    if (unknown.length > 0) {
+      throw new Error("coc_chargen_delegate backstory has unsupported keys");
+    }
+    const backstory: ChargenBackstory = {};
+    for (const [key, value] of Object.entries(params.backstory)) {
+      if (typeof value !== "string" || !value.trim()) {
+        throw new Error("coc_chargen_delegate backstory values must be strings");
+      }
+      backstory[key as typeof CHARGEN_BACKSTORY_KEYS[number]] = value.trim();
+    }
+    brief.backstory = backstory;
   }
   if (params.equipment !== undefined) {
     if (!Array.isArray(params.equipment)) {
@@ -164,7 +202,22 @@ export function parseChargenClerkBrief(params: JsonObject): ChargenClerkBrief {
     ) {
       throw new Error("coc_chargen_delegate key_connection must be an object");
     }
-    brief.key_connection = params.key_connection as JsonObject;
+    const field = String(
+      (params.key_connection as JsonObject).backstory_field ?? "",
+    ).trim();
+    const summary = String(
+      (params.key_connection as JsonObject).summary ?? "",
+    ).trim();
+    if (
+      !(CHARGEN_KEY_CONNECTION_FIELDS as readonly string[]).includes(field)
+      || !summary
+    ) {
+      throw new Error("coc_chargen_delegate key_connection is invalid");
+    }
+    brief.key_connection = {
+      backstory_field: field as typeof CHARGEN_KEY_CONNECTION_FIELDS[number],
+      summary,
+    };
   }
   const occupationLabel = String(params.occupation_label ?? "").trim();
   if (occupationLabel) brief.occupation_label = occupationLabel;

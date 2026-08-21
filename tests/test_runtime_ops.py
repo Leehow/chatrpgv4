@@ -136,7 +136,6 @@ def _guided_quick_fire_payload(
         "sheet": {
             "id": investigator_id,
             "name": "Guided Investigator",
-            "age": 29,
             "skills": skills,
             "player_facing_sheet_zh": {
                 "display_name": "引导式调查员",
@@ -3366,7 +3365,6 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
             "sheet": {
                 "id": "quick-fire-inv",
                 "name": "Quick Fire Investigator",
-                "age": 29,
                 "skills": complete_skills,
                 "player_facing_sheet_zh": {
                     "display_name": "速建调查员",
@@ -3435,7 +3433,6 @@ def test_investigator_create_luck_auto_roll_is_idempotent(tmp_path):
         "sheet": {
             "id": "auto-luck-inv",
             "name": "Auto Luck Investigator",
-            "age": 29,
             "skills": complete_skills,
             "player_facing_sheet_zh": {
                 "display_name": "自动幸运调查员",
@@ -3546,7 +3543,6 @@ def test_quick_fire_luck_receipt_failure_names_cause_and_corrected_call(
                 "sheet": {
                     "id": "steer-inv",
                     "name": "Steer Investigator",
-                    "age": 29,
                     "skills": complete_skills,
                     "player_facing_sheet_zh": {
                         "display_name": "引导测试调查员",
@@ -3609,7 +3605,6 @@ def test_quick_fire_luck_total_mismatch_echoes_authoritative_total(tmp_path):
                 "sheet": {
                     "id": "steer-total-inv",
                     "name": "Steer Total Investigator",
-                    "age": 29,
                     "skills": complete_skills,
                     "player_facing_sheet_zh": {
                         "display_name": "总数回显调查员",
