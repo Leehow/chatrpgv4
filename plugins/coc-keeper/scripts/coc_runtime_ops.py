@@ -5427,6 +5427,89 @@ def _write_chargen_cash_head(
     )
 
 
+def _campaign_is_unfinished_setup(root: Path, campaign_id: str) -> bool:
+    path = root / ".coc" / "campaigns" / campaign_id / "campaign.json"
+    try:
+        campaign = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(campaign, dict):
+        return False
+    return campaign.get("status", "setup") == "setup" and not campaign.get(
+        "setup_handoff"
+    )
+
+
+def _cash_wallet_amount(cash: dict[str, Any], currency: str) -> Any:
+    try:
+        identity = coc_cash.validate_currency(currency)
+    except ValueError:
+        identity = str(currency)
+    for code, wallet in (cash.get("balances") or {}).items():
+        if not isinstance(wallet, dict):
+            continue
+        try:
+            if coc_cash.canonical_currency(str(code)) != identity:
+                continue
+            return coc_cash.parse_amount(wallet.get("amount"))
+        except ValueError:
+            continue
+    return coc_cash.parse_amount(0)
+
+
+def _apply_chargen_cash_entry(
+    *,
+    campaign_dir: Path,
+    state_path: Path,
+    state: dict[str, Any],
+    cash: dict[str, Any],
+    investigator_id: str,
+    op: str,
+    amount: Any,
+    currency: str,
+    source: str,
+    reason: str,
+    localized_reason: str,
+    decision_id: str,
+    tool: str,
+) -> dict[str, Any] | None:
+    try:
+        next_cash, entry = coc_cash.apply_cash(
+            cash,
+            op=op,
+            amount=amount,
+            currency=currency,
+            unit=None,
+            source=source,
+            reason=reason,
+            localized_reason=localized_reason,
+            decision_id=decision_id,
+            recorded_at=datetime.now(timezone.utc).isoformat(),
+            game_time=coc_time.current_stamp(campaign_dir),
+            tool=tool,
+        )
+    except coc_cash.DuplicateCashDecision:
+        return None
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    state["cash"] = next_cash
+    try:
+        coc_cash.attach_cash_receipt(state, entry)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    coc_fileio.write_json_atomic(
+        state_path,
+        state,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    _write_chargen_cash_head(
+        campaign_dir, investigator_id, entry, len(next_cash["ledger"])
+    )
+    return next_cash
+
+
 def _seed_chargen_cash_ledger(
     root: Path,
     *,
@@ -5434,12 +5517,14 @@ def _seed_chargen_cash_ledger(
     investigator_id: str,
     sheet: dict[str, Any],
     decision_id: str,
+    fingerprint: str,
 ) -> None:
-    """Idempotent starting-cash grant on the play ledger. Same decision_id as create+link."""
+    """Idempotent starting-cash grant, plus setup-only auditable replace deltas."""
     starting = _chargen_starting_cash_amount(sheet)
     if starting is None:
         return
     amount, currency = starting
+    target = coc_cash.parse_amount(amount)
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
     state_path = coc_state.seed_investigator_state_if_missing(
         root, campaign_id, investigator_id, sheet=sheet
@@ -5458,49 +5543,62 @@ def _seed_chargen_cash_ledger(
         cash = coc_cash.normalize_cash(state.get("cash"))
     except ValueError as exc:
         raise RuntimeOperationError(str(exc)) from exc
-    existing = next(
-        (
-            row
-            for row in cash["ledger"]
-            if str(row.get("decision_id") or "") == decision_id
-        ),
-        None,
+    seeded = any(
+        str(row.get("decision_id") or "") == decision_id for row in cash["ledger"]
     )
-    if existing is not None:
-        return
-    try:
-        next_cash, entry = coc_cash.apply_cash(
-            cash,
+    if not seeded:
+        written = _apply_chargen_cash_entry(
+            campaign_dir=campaign_dir,
+            state_path=state_path,
+            state=state,
+            cash=cash,
+            investigator_id=investigator_id,
             op="grant",
             amount=amount,
             currency=currency,
-            unit=None,
             source=coc_cash.CHARGEN_CASH_SOURCE,
             reason=coc_cash.CHARGEN_CASH_REASON,
             localized_reason=coc_cash.CHARGEN_CASH_LOCALIZED_REASON,
             decision_id=decision_id,
-            recorded_at=datetime.now(timezone.utc).isoformat(),
-            game_time=coc_time.current_stamp(campaign_dir),
             tool=coc_cash.CASH_GRANT_TOOL,
         )
-    except coc_cash.DuplicateCashDecision:
+        if written is not None:
+            cash = written
+    current = _cash_wallet_amount(cash, currency)
+    if current == target:
         return
-    except ValueError as exc:
-        raise RuntimeOperationError(str(exc)) from exc
-    state["cash"] = next_cash
-    try:
-        coc_cash.attach_cash_receipt(state, entry)
-    except ValueError as exc:
-        raise RuntimeOperationError(str(exc)) from exc
-    coc_fileio.write_json_atomic(
-        state_path,
-        state,
-        indent=2,
-        ensure_ascii=False,
-        trailing_newline=True,
+    if not _campaign_is_unfinished_setup(root, campaign_id):
+        return
+    delta = target - current
+    digest = str(fingerprint).removeprefix("sha256:")[:16]
+    adjust_id = (
+        f"chargen-cash-adjust-{investigator_id}-{digest}-"
+        f"{coc_cash.format_amount(target)}"
     )
-    _write_chargen_cash_head(
-        campaign_dir, investigator_id, entry, len(next_cash["ledger"])
+    if any(str(row.get("decision_id") or "") == adjust_id for row in cash["ledger"]):
+        return
+    if delta > 0:
+        op = "grant"
+        tool = coc_cash.CASH_GRANT_TOOL
+        apply_amount = delta
+    else:
+        op = "spend"
+        tool = coc_cash.CASH_SPEND_TOOL
+        apply_amount = -delta
+    _apply_chargen_cash_entry(
+        campaign_dir=campaign_dir,
+        state_path=state_path,
+        state=state,
+        cash=cash,
+        investigator_id=investigator_id,
+        op=op,
+        amount=apply_amount,
+        currency=currency,
+        source=coc_cash.CHARGEN_CASH_ADJUST_SOURCE,
+        reason=coc_cash.CHARGEN_CASH_ADJUST_REASON,
+        localized_reason=coc_cash.CHARGEN_CASH_ADJUST_LOCALIZED_REASON,
+        decision_id=adjust_id,
+        tool=tool,
     )
 
 
@@ -5556,6 +5654,7 @@ def _commit_chargen_create_and_link(
             investigator_id=investigator_id,
             sheet=sheet,
             decision_id=decision_id,
+            fingerprint=fingerprint,
         )
         return previous, {"status": "PASS", "state_refs": []}, True
     create_payload: dict[str, Any] = {
@@ -5609,6 +5708,7 @@ def _commit_chargen_create_and_link(
         investigator_id=investigator_id,
         sheet=sheet,
         decision_id=decision_id,
+        fingerprint=fingerprint,
     )
     return receipt, created, False
 
