@@ -445,7 +445,7 @@ def test_chargen_run_setup_revision_replaces_same_id(tmp_path: Path) -> None:
     assert result["characteristics"]["STR"] == 80
     assert result["characteristics"]["INT"] == 40
     assert result["derived"]["luck"] == first_luck
-    assert result["roll_ids"] == first_rolls
+    assert first_rolls[0] in result["roll_ids"]
     stored = json.loads(
         (tmp_path / ".coc" / "investigators" / "ada-lark" / "character.json")
         .read_text(encoding="utf-8")
@@ -980,6 +980,23 @@ def test_chargen_run_rejects_key_connection_not_written_in_backstory(
     assert details.get("stage") == "key_connection"
 
 
+def _typed_chargen_schema() -> dict:
+    import subprocess
+    printed = subprocess.run(
+        [
+            "node",
+            "--experimental-strip-types",
+            str(REPO / "tests" / "pi" / "chargen-typed-schema.mjs"),
+            str(REPO),
+        ],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(printed.stdout)
+
+
 def test_chargen_run_field_set_matches_across_layers() -> None:
     allowed = set(coc_character.CHARGEN_RUN_ALLOWED)
     toolbox_keys = set(coc_toolbox.TOOLS["setup.chargen_run"]["params"])
@@ -990,40 +1007,186 @@ def test_chargen_run_field_set_matches_across_layers() -> None:
             / "mcp-operation-contracts.json"
         ).read_text(encoding="utf-8")
     )
-    mcp_keys = set(
-        archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"]
-    ) - {"root", "campaign"}
+    mcp = archive["operations"]["setup.chargen_run"]["inputSchema"]
+    mcp_keys = set(mcp["properties"]) - {"root", "campaign"}
     assert mcp_keys == allowed
-    assert "occupation_allocations" not in allowed
-    assert "interest_allocations" not in allowed
-    backstory_props = set(
-        archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"]
-        ["backstory"]["properties"]
-    )
-    assert backstory_props == set(coc_character.CHARGEN_BACKSTORY_ALLOWED)
-    assert archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"][
-        "backstory"
-    ]["additionalProperties"] is False
-    key_schema = archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"][
-        "key_connection"
-    ]
-    assert key_schema["additionalProperties"] is False
-    assert set(key_schema["required"]) == {"backstory_field", "summary"}
-    age_schema = archive["operations"]["setup.chargen_run"]["inputSchema"]["properties"]["age"]
-    assert age_schema["minimum"] == coc_character.CHARGEN_AGE_MIN
-    assert age_schema["maximum"] == coc_character.CHARGEN_AGE_MAX
+    typed = _typed_chargen_schema()
+    typed_kp = set(typed["properties"]) - {
+        "mode", "pregen_id", "occupation_or_concept", "interest_allocation_intent",
+    }
+    runtime_without_ids = allowed - {"campaign_id", "investigator_id", "occupation_name"}
+    assert runtime_without_ids <= typed_kp | {"name", "occupation_label", "luck"}
+    assert "occupation_or_concept" in typed["properties"]
+    backstory_keys = set(coc_character.CHARGEN_BACKSTORY_ALLOWED)
+    assert set(mcp["properties"]["backstory"]["properties"]) == backstory_keys
+    assert mcp["properties"]["backstory"]["additionalProperties"] is False
+    assert set(typed["backstory"]["properties"]) == backstory_keys
+    assert typed["backstory"]["additionalProperties"] is False
+    assert set(typed["clerk_backstory_keys"]) == backstory_keys
+    key_fields = set(coc_character.CHARGEN_KEY_CONNECTION_FIELDS)
+    assert set(mcp["properties"]["key_connection"]["properties"]["backstory_field"]["enum"]) == key_fields
+    assert set(typed["key_connection"]["properties"]["backstory_field"]["enum"]) == key_fields
+    assert set(typed["clerk_key_fields"]) == key_fields
+    assert typed["age"]["minimum"] == coc_character.CHARGEN_AGE_MIN
+    assert typed["age"]["maximum"] == coc_character.CHARGEN_AGE_MAX
     contract = json.loads(
         (
             REPO / "plugins" / "coc-keeper" / "rulesets" / "coc7"
             / "investigator-create-contract.json"
         ).read_text(encoding="utf-8")
     )
-    sheet_props = set(contract["payload_schema"]["$defs"]["quick_fire_sheet"]["properties"])
-    assert {"backstory", "equipment", "key_connection"} <= sheet_props
-    assert contract["payload_schema"]["$defs"]["chargen_backstory"]["additionalProperties"] is False
-    clerk = CLERK_TS.read_text(encoding="utf-8")
-    for field in ("backstory", "equipment", "key_connection", "occupation_label"):
-        assert field in clerk
+    defs = contract["payload_schema"]["$defs"]
+    sheet = defs["quick_fire_sheet"]
+    assert sheet["additionalProperties"] is False
+    assert set(sheet["properties"]) == set(coc_character.CHARGEN_QUICK_FIRE_SHEET_PROPERTIES)
+    assert set(defs["chargen_backstory"]["properties"]) == backstory_keys
+    assert defs["chargen_backstory"]["additionalProperties"] is False
+    finance = defs["chargen_finance_amount"]["properties"]
+    assert set(finance) == set(coc_character.CHARGEN_FINANCE_AMOUNT_KEYS)
+    assert defs["chargen_finance_amount"]["additionalProperties"] is False
+    for field in coc_character.CHARGEN_SHEET_FINANCE_FIELDS:
+        assert field in sheet["properties"]
+
+
+def test_generated_create_without_age_dice_receipts_is_rejected(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-omit-edu")
+    luck = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        campaign_id,
+        {
+            "expression": "3D6",
+            "decision_id": f"chargen-luck-{campaign_id}-omit-edu",
+            "purpose": "investigator_creation_luck",
+            "reason": "fixture",
+        },
+    )
+    assert luck["ok"] is True, luck
+    try:
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": {
+                    "campaign_id": campaign_id,
+                    "investigator_id": "omit-edu",
+                    "sheet": {
+                        "id": "omit-edu",
+                        "name": "Omit Edu",
+                        "age": 29,
+                        "skills": {"Credit Rating": 20, "Dodge": 25, "Language (Own)": 60},
+                        "player_facing_sheet_zh": {
+                            "display_name": "省略收据",
+                            "skills": [],
+                        },
+                    },
+                    "creation": {
+                        "input_mode": "guided_quick_fire",
+                        "method": "quick_fire_array",
+                        "characteristic_assignment_order": [
+                            "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+                        ],
+                        "luck_roll_total": luck["data"]["total"],
+                        "luck_roll_receipt": {
+                            "campaign_id": campaign_id,
+                            "decision_id": f"chargen-luck-{campaign_id}-omit-edu",
+                            "roll_id": luck["data"]["roll_id"],
+                        },
+                        "skill_budget": {
+                            "occupation_points": {
+                                "budget": 1, "spent": 1, "allocations": {"Credit Rating": 1},
+                            },
+                            "personal_interest_points": {
+                                "budget": 1, "spent": 1, "allocations": {"Dodge": 1},
+                            },
+                        },
+                    },
+                },
+            },
+        )
+    except coc_runtime_ops.RuntimeOperationError as exc:
+        assert "EDU" in str(exc) or "edu_improvement" in str(exc)
+        return
+    raise AssertionError("omitted EDU receipts were accepted")
+
+
+def test_import_complete_sheet_with_age_does_not_need_edu_receipts(
+    tmp_path: Path,
+) -> None:
+    _create_campaign(tmp_path, "chargen-pregen-age")
+    characteristics = {
+        "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50,
+        "APP": 50, "INT": 50, "POW": 50, "EDU": 50,
+    }
+    receipt = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": {
+                "investigator_id": "pregen-age",
+                "sheet": {
+                    "id": "pregen-age",
+                    "name": "Pregen Age",
+                    "age": 29,
+                    "characteristics": characteristics,
+                    "derived": coc_character.derive_values(characteristics, luck=50),
+                    "skills": {"Credit Rating": 20},
+                },
+                "creation": {"input_mode": "import_complete_sheet"},
+            },
+        },
+    )
+    assert receipt["status"] == "PASS"
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "pregen-age" / "character.json")
+        .read_text(encoding="utf-8")
+    )
+    assert stored["age"] == 29
+    assert "edu_improvement_rolls" not in json.loads(
+        (tmp_path / ".coc" / "investigators" / "pregen-age" / "creation.json")
+        .read_text(encoding="utf-8")
+    )
+
+
+def test_chargen_commit_replay_does_not_duplicate_link(tmp_path: Path) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-replay")
+    first = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-replay"),
+    )
+    assert first["ok"] is True, first
+    decision_id = first["data"]["result"]["decision_id"]
+    second = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        _chargen_args(campaign_id, "ada-replay"),
+    )
+    assert second["ok"] is True, second
+    assert second["data"]["result"]["decision_id"] == decision_id
+    party = json.loads(
+        (tmp_path / ".coc" / "campaigns" / campaign_id / "party.json")
+        .read_text(encoding="utf-8")
+    )
+    ids = party.get("investigator_ids") or []
+    assert ids.count("ada-replay") == 1
+    investigators = [
+        path.name
+        for path in (tmp_path / ".coc" / "investigators").iterdir()
+        if path.is_dir()
+    ]
+    assert investigators == ["ada-replay"]
+    commits = json.loads(
+        (
+            tmp_path / ".coc" / "campaigns" / campaign_id
+            / "save" / "chargen-commits.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert list(commits["receipts"]) == [decision_id]
 
 
 def test_investigator_create_rejects_tampered_edu_receipt(tmp_path: Path) -> None:

@@ -13,7 +13,8 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
 
 ## Workflows
 
-- **Ordinary KP path (required):** one semantic `coc_chargen_delegate` / `setup.chargen_run` after the player confirms the draft (same-turn write only when they already gave enough to complete, or explicitly asked to finish now). Submit `name`, `occupation_name`, `occupation_label` (zh-Hans when the catalog key is English), optional age 15–89, optional eight-key `assignment_priority`, optional occupation/interest skill name lists, Luck `auto_roll`, and semantic `backstory`, `equipment`, `key_connection`. Never send `occupation_allocations`, `interest_allocations`, cash, or other numbers. Runtime selects `guided_quick_fire` vs `kp_guided_era_adaptive` from campaign era. Dice, age modifiers (EDU checks `purpose=investigator_creation_characteristic`; 15–19 dual Luck `investigator_creation_luck`), CR cash, `Language (Own)=EDU`, `Dodge=½DEX` stay in Python. half/fifth are card-projection only. Do not hand-assemble `investigator.create` on a standard Quick Fire era. Direct `investigator.create` is for imports/tests/runtime adaptive only.
+- **Ordinary KP path (required):** one semantic `coc_chargen_delegate` / `setup.chargen_run` after the player confirms the draft (same-turn write only when they already gave enough to complete, or explicitly asked to finish now). KP-facing fields are exactly `campaign_id`, `investigator_id`, `name`, `occupation_name`, optional `occupation_label` (zh-Hans when the catalog key is English), optional `age` 15–89, optional eight-key `assignment_priority`, optional `occupation_skill_names` / `interest_skill_names`, optional `luck` `{mode:auto_roll}`, optional `backstory`, `equipment`, `key_connection`. Never send `occupation_allocations`, `interest_allocations`, cash, or other numbers. Runtime selects `guided_quick_fire` vs `kp_guided_era_adaptive` from campaign era. Dice, age modifiers (EDU checks `purpose=investigator_creation_characteristic`; 15–19 dual Luck `investigator_creation_luck`), CR cash, `Language (Own)=EDU`, `Dodge=½DEX` stay in Python. half/fifth are card-projection only. Do not hand-assemble `investigator.create` on a standard Quick Fire era. Direct `investigator.create` is for imports/tests/runtime adaptive only.
+- **Age dice receipts (generated create only).** Putting `sheet.age` on `guided_quick_fire` / `kp_guided_era_adaptive` asserts that age bracket: attach `edu_improvement_rolls` (count = bracket EDU checks) with `check_receipt` `{campaign_id,decision_id,roll_id}` bound to `rules.roll_dice` `1D100` `purpose=investigator_creation_characteristic`, and `improve_receipt` for each successful `1D10`; if the bracket keeps highest of N Luck rolls, attach `luck_roll_candidates` of N `3D6` `investigator_creation_luck` receipts. Omitting those receipts while asserting age is rejected. `creation.input_mode=import_complete_sheet` (pregen / `setup.quick_start`) sends finished characteristics and **must omit** this dice bundle — age there is biographical, not an improvement assertion.
 - **Single completion path.** There are not two modes. Whatever the player has already stated is a hard constraint: do not overwrite it and do not re-ask it. Fill every still-missing playable dimension (age, a coherent 3–6 strand backstory from the first six p.157 categories, `scenario_bound`, `equipment`, `key_connection`, occupation label). A blank card is only the empty-endpoint of the same path. First table question is **only** 姓名+职业概念. After that answer, never call `coc_chargen_delegate` on that turn. Stay in-fiction; ask at most 1–3 evocative questions, one at a time, only for what is still missing. Do not fill the last three p.157 categories (伤痕、恐惧与躁狂、秘典遭遇) at creation — leave them for play. Do not walk a nine-box form. Star `key_connection` on one first-six field that was actually written. Present the complete draft (no invented dice), confirm, one write, allow one later change, then a separate `setup.complete`.
 - 红线：全程不超游，参数一律幕后派生，绝不向玩家提问数值，也绝不由 KP 把现金/资产/消费水平数字写进委托参数。
 - **Naming craft.** Fit the investigator's name to `campaign.era` and the scenario's place and culture by semantic judgment: a 1920s Boston table uses period-fitting American names; a Chinese given name only when the fiction or background supports it (for example a Chinatown diaspora). 语言≠族裔：`play_language` zh-Hans does not make the character Chinese; names follow in-world culture. If the player only gives a nickname (如「大手」), treat it as a sobriquet: supply an era-and-culture formal name in fiction, and let the player correct it at confirmation—do not force a stock Chinese full name. When rendering a foreign name in zh-Hans, use a proper-character 译名 and, if needed, a reading in parentheses. Avoid stock/cliché names; a mono-cultural setting still varies region, class, or dialect so the table is not one surname. Before locking a name, self-check: 这个名字贴合 era/地域/文化吗？我是不是因为桌面语言是中文就默认了中国名？ Invent names from the Keeper's own knowledge of era, place, and culture; do not rely on a fixed name pool or a copied menu. This is Keeper semantic craft: no keyword/regex gate, no injected random-pool code.
@@ -65,20 +66,23 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `backstory` (object; keys only `personal_description`, `ideology_beliefs`,
   `significant_people`, `meaningful_locations`, `treasured_possessions`,
   `traits`, `injuries_scars`, `phobias_manias`, `encounters`, `scenario_bound`;
-  values are play_language prose strings or string lists; canonical ideology
+  values are play_language prose strings; canonical ideology
   key is `ideology_beliefs`, never `ideology`), `equipment` (array of
-  era-fitting item strings), and `key_connection` (object with exactly
+  era-fitting item strings), `key_connection` (object with exactly
   `backstory_field` from the first six p.157 categories — `personal_description`,
   `ideology_beliefs`, `significant_people`, `meaningful_locations`,
-  `treasured_possessions`, `traits` — plus prose `summary`). That shape is what
-  later SAN self-help consumes. Pass `occupation_label` as zh-Hans when
-  `occupation_name` is a catalog English key. Runtime always writes `Language (Own)` equal to
+  `treasured_possessions`, `traits` — plus prose `summary`), and machine
+  `occupation`. That shape is what later SAN self-help consumes. Pass
+  `occupation_label` as zh-Hans when `occupation_name` is a catalog English key.
+  Runtime always writes `Language (Own)` equal to
   post-age EDU (reskin the label in `skill_provenance` if the table language
   differs; the machine key stays `Language (Own)`) and `Dodge` equal to
   ⌊DEX/2⌋ plus any allocated points. Do not write half/fifth into `sheet.skills`.
-  Runtime may also persist `cash`, `assets`, `spending_level`, and
-  `living_standard` from `rules.cash_assets`; KP must not send those keys or any
-  other numeric finance/stat fields.
+  Runtime may persist `cash`, `assets`, `spending_level` as
+  `{amount, currency, formula?}` and `living_standard` as a string from
+  `rules.cash_assets`; KP must not send those keys or any other numeric
+  finance/stat fields. The generated Quick Fire sheet is closed
+  (`additionalProperties` false).
   `creation` required keys: `input_mode` (`guided_quick_fire`), `method`
   (`quick_fire_array`), `characteristic_assignment_order` (the eight unique
   canonical keys in descending array-slot priority), `skill_budget`, plus

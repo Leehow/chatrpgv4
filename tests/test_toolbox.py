@@ -14448,7 +14448,6 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
             "sheet": {
                 "id": "opening-quick-fire",
                 "name": "Opening Quick Fire",
-                "age": 29,
                 "skills": complete_skills,
                 "player_facing_sheet_zh": {
                     "display_name": "开场速建调查员",

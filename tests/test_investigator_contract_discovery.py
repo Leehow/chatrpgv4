@@ -127,7 +127,6 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
         "sheet": {
             "id": investigator_id,
             "name": "Quick Fire Investigator",
-            "age": 29,
             "era": "1920s",
             "skills": skills,
             "player_facing_sheet_zh": {
