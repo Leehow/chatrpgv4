@@ -1310,6 +1310,7 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     manifest["assets"] = [{
         "path": "assets/letter.png",
         "sha256": hashlib.sha256(image).hexdigest(),
+        "pdf_index": 1,
     }]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     registration = assets.register_source_bundle(
@@ -1322,8 +1323,8 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
         "title": "The letter",
         "player_visible": True,
         "parse_state": "named_only",
-        "source_page_indices": [1],
-        "body_source_page_indices": [1],
+        "source_page_indices": [0, 1],
+        "body_source_page_indices": [0, 1],
         "scene_refs": ["cellar"],
         "clue_refs": [],
     }
@@ -1360,6 +1361,7 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     }
     allowed_asset = {
         "image_ref": "assets/letter.png",
+        "pdf_index": 1,
         "media_type": "image/png",
         "sha256": hashlib.sha256(image).hexdigest(),
         "size_bytes": len(image),
@@ -1434,6 +1436,10 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     unknown_image = deepcopy(exact_pack)
     unknown_image["image_ref"] = "assets/unknown.png"
     invalid_packs.append((unknown_image, "registered asset"))
+    wrong_page_image = deepcopy(exact_pack)
+    wrong_page_image.pop("text")
+    wrong_page_image["source_refs"] = ["pdf_index-0"]
+    invalid_packs.append((wrong_page_image, "same cited page"))
     hidden = deepcopy(exact_pack)
     hidden["player_visible"] = False
     invalid_packs.append((hidden, "player_visible=true"))

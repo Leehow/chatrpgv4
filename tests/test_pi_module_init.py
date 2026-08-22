@@ -248,6 +248,18 @@ def test_pi_module_init_l0_reports_exact_invalid_field(mutate, error):
         ops._validate_module_init_l0(value)
 
 
+@pytest.mark.parametrize("field", ["text", "localized_text", "image_ref"])
+def test_pi_module_init_l0_rejects_direct_handout_body_escape(field):
+    value = _l0()
+    value["opening_handouts"][0][field] = "assets/arbitrary.png"
+
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="deepen_handout closed contract",
+    ):
+        ops._validate_module_init_l0(value)
+
+
 def _l0_guidance_gaps(schema: dict) -> list[str]:
     """Every validator-required L0 field that lacks producer shape guidance.
 
@@ -405,8 +417,17 @@ def test_opening_prompt_carries_chargen_deltas_and_module_meta_shape_rules(
     assert "Do not expose full source text in L0" in prompt
     assert "Every source_refs or inspected_source_refs array MUST contain 1 to 3" in prompt
     assert "content_flags is not an exception" in prompt
+    assert "opening_handouts are discovery metadata only" in prompt
+    assert "omit text, localized_text, and image_ref" in prompt
+    assert "deepen_handout coc.handout-card-pack.v1 compiler" in prompt
     assert "era.value MUST be exactly one canonical era key" in prompt
     assert "roman" in prompt
+    schema = adapter._module_init_l0_schema()
+    assert schema["opening_handout_body_contract"] == {
+        "forbidden_direct_fields": ["text", "localized_text", "image_ref"],
+        "compiler": "deepen_handout",
+        "result_contract": "coc.handout-card-pack.v1",
+    }
 
 
 

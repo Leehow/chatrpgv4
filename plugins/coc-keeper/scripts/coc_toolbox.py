@@ -17175,9 +17175,12 @@ def _l0_direct_opening_projection(
         # opening card becomes a canonical handout entity that the selected-
         # opening projection reprojects into the campaign card store.
         opening_cards = coc_runtime_ops.l0_opening_handout_cards(
-            l0, fallback_pdf_indices=list(pages),
+            l0,
+            fallback_pdf_indices=list(pages),
+            scene_id=location_id,
         )
         opening_card_ids: list[str] = []
+        opening_card_jobs: list[dict[str, Any]] = []
         for card in opening_cards:
             assets_mod.put_entity(
                 ctx.root,
@@ -17187,6 +17190,20 @@ def _l0_direct_opening_projection(
                 card,
             )
             opening_card_ids.append(str(card["asset_id"]))
+            opening_card_jobs.append(assets_mod.enqueue_job(
+                ctx.root,
+                root_info["asset_root_id"],
+                kind="deepen_handout",
+                target_id=str(card["handout_id"]),
+                priority=100,
+                reason="module_init_l0_opening_handout",
+                consumer_refs=[assets_mod.campaign_consumer_ref(
+                    ctx.root,
+                    str(ctx.campaign_id),
+                    root_info["asset_root_id"],
+                    intent_kind="scene_enter",
+                )],
+            ))
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError(
             "opening_l0_direct_write_invalid", str(exc),
@@ -17226,6 +17243,7 @@ def _l0_direct_opening_projection(
         "start_location_id": location_id,
         "stored_entity": stored,
         "opening_handout_card_ids": opening_card_ids,
+        "opening_handout_jobs": opening_card_jobs,
         "opening_projection": projection,
         "watch_drain": drain,
     }
@@ -18885,6 +18903,18 @@ def _require_closed_handout_worker_pack(
             row for row in allowed_assets
             if isinstance(row, dict) and row.get("image_ref") == image_ref
         ]
+        cited_pdf_indices = {
+            coc_module_project.coc_module_assets.handout_card_ref_index(ref)
+            for ref in supplied_refs
+        }
+        if any(
+            row.get("pdf_index") not in cited_pdf_indices
+            for row in expected_rows
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout image_ref must bind to the same cited page",
+            )
         current_rows = [row for row in current_assets if row.get("image_ref") == image_ref]
         if current_rows != expected_rows:
             raise ToolError(

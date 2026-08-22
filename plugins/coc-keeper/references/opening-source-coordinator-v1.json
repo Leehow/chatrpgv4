@@ -146,6 +146,10 @@
       ],
       "assets": []
     },
+    "assets_may_be_empty": true,
+    "nonempty_assets_permitted": true,
+    "asset_row_required_fields": ["path", "sha256", "pdf_index"],
+    "asset_page_association": "each asset pdf_index names one selected pages row and participates in bundle_sha256",
     "one_page_row_per_selected_index": true,
     "grep_anchor_must_occur_verbatim_in_normalized_markdown": true,
     "optional_printed_page_fields_only_when_visually_established": true,

@@ -515,6 +515,7 @@ def handout_card_result_contract(
         "rules": [
             "card source_refs are a non-empty exact subset of allowed_exact_source_refs.card_source_ref",
             "image_ref is omitted or equals one allowed_registered_asset_refs.image_ref",
+            "an image_ref asset pdf_index must be one of the card source_refs pages",
             "scene_refs and clue_refs are unique subsets of the exact allowed request ids; when the allowed set is empty the result field is absent or empty",
             "player_visible is true; Keeper-only material is not a handout result",
             "when_to_deliver is semantic advice for Keeper judgment, never a machine condition",
@@ -1486,7 +1487,11 @@ def _validate_entity_pack(
                 "body_source_page_indices must contain unique ascending "
                 "non-negative integers"
             )
-        entity_source_indices = set(_source_indices(doc, field=kind))
+        entity_source_indices = set(_source_indices(
+            doc,
+            field=kind,
+            allow_string_refs=(kind == "handout"),
+        ))
         if not set(body_source_page_indices).issubset(entity_source_indices):
             raise ModuleAssetsError(
                 "body_source_page_indices must be contained in the entity source scope"
@@ -4671,7 +4676,7 @@ def register_source_bundle(
 _HANDOUT_CARD_REF = re.compile(r"pdf_index-(\d+)")
 
 
-def _handout_card_ref_index(ref: str) -> int | None:
+def handout_card_ref_index(ref: str) -> int | None:
     """One handout card string ref -> its bundle page index, else None."""
     if not isinstance(ref, str):
         return None
@@ -4719,7 +4724,7 @@ def _source_indices(
                     raise ModuleAssetsError(
                         f"{field}.source_refs[{position}] must be an object"
                     )
-                derived = _handout_card_ref_index(ref)
+                derived = handout_card_ref_index(ref)
                 if derived is None:
                     continue
                 ref_indices.append(derived)

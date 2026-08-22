@@ -581,9 +581,15 @@ def _write_host_bundle_with_assets(
     assets_by_path: dict[str, bytes],
     *,
     bundle_name: str = "bound-source-assets",
+    asset_pdf_indices: dict[str, int] | None = None,
+    include_page_one: bool = False,
 ) -> Path:
     """Create one real host bundle whose declared assets exercise registration."""
-    bundle, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    bundle, _file_sha, _page_sha = _write_host_bundle(
+        tmp_path,
+        page_count=2 if include_page_one else 1,
+        include_page_one=include_page_one,
+    )
     target = tmp_path / bundle_name
     bundle.rename(target)
     manifest_path = target / "manifest.json"
@@ -596,6 +602,7 @@ def _write_host_bundle_with_assets(
         rows.append({
             "path": relative,
             "sha256": hashlib.sha256(payload).hexdigest(),
+            "pdf_index": int((asset_pdf_indices or {}).get(relative, 0)),
         })
     manifest["assets"] = rows
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -627,6 +634,7 @@ def test_register_source_bundle_preserves_validated_image_assets(tmp_path: Path)
         {
             "source_bundle_path": "assets/cellar.png",
             "image_ref": "assets/cellar.png",
+            "pdf_index": 0,
             "media_type": "image/png",
             "sha256": hashlib.sha256(png).hexdigest(),
             "size_bytes": len(png),
@@ -635,6 +643,7 @@ def test_register_source_bundle_preserves_validated_image_assets(tmp_path: Path)
         {
             "source_bundle_path": "assets/letter.jpg",
             "image_ref": "assets/letter.jpg",
+            "pdf_index": 0,
             "media_type": "image/jpeg",
             "sha256": hashlib.sha256(jpeg).hexdigest(),
             "size_bytes": len(jpeg),
@@ -643,6 +652,7 @@ def test_register_source_bundle_preserves_validated_image_assets(tmp_path: Path)
         {
             "source_bundle_path": "assets/route.webp",
             "image_ref": "assets/route.webp",
+            "pdf_index": 0,
             "media_type": "image/webp",
             "sha256": hashlib.sha256(webp).hexdigest(),
             "size_bytes": len(webp),
@@ -653,6 +663,56 @@ def test_register_source_bundle_preserves_validated_image_assets(tmp_path: Path)
     assert manifest == {"schema_version": 1, "assets": expected}
     assert first["registered_assets"] == expected
     assert second["registered_assets"] == expected
+
+
+def test_registered_asset_refs_are_narrowed_to_the_requested_source_pages(
+    tmp_path: Path,
+):
+    page_zero = b"\x89PNG\r\n\x1a\npage-zero"
+    page_one = b"\x89PNG\r\n\x1a\npage-one"
+    bundle = _write_host_bundle_with_assets(
+        tmp_path,
+        {
+            "assets/page-zero.png": page_zero,
+            "assets/page-one.png": page_one,
+        },
+        asset_pdf_indices={
+            "assets/page-zero.png": 0,
+            "assets/page-one.png": 1,
+        },
+        include_page_one=True,
+    )
+    registration = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="page-bound-media",
+    )
+
+    page_zero_refs = assets.registered_source_asset_refs(
+        tmp_path,
+        "page-bound-media",
+        requested_pdf_indices=[0],
+    )
+    page_one_refs = assets.registered_source_asset_refs(
+        tmp_path,
+        "page-bound-media",
+        requested_pdf_indices=[1],
+    )
+
+    assert page_zero_refs == [{
+        "image_ref": "assets/page-zero.png",
+        "pdf_index": 0,
+        "media_type": "image/png",
+        "sha256": hashlib.sha256(page_zero).hexdigest(),
+        "size_bytes": len(page_zero),
+        "bundle_sha256": registration["bundle_sha256"],
+    }]
+    assert page_one_refs == [{
+        "image_ref": "assets/page-one.png",
+        "pdf_index": 1,
+        "media_type": "image/png",
+        "sha256": hashlib.sha256(page_one).hexdigest(),
+        "size_bytes": len(page_one),
+        "bundle_sha256": registration["bundle_sha256"],
+    }]
 
 
 @pytest.mark.parametrize(
@@ -735,6 +795,7 @@ def test_register_source_bundle_rejects_target_asset_symlink_escape(
     manifest["assets"] = [{
         "path": "assets/map.png",
         "sha256": hashlib.sha256(incoming_payload).hexdigest(),
+        "pdf_index": 0,
     }]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -769,6 +830,7 @@ def test_register_source_bundle_rejects_internal_target_symlink_component(
     manifest["assets"] = [{
         "path": "assets/map.png",
         "sha256": hashlib.sha256(payload).hexdigest(),
+        "pdf_index": 0,
     }]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 

@@ -153,7 +153,14 @@ def _canonical_digest(
         },
         "pages": digest_pages,
         "assets": sorted(
-            ({"path": item["path"], "sha256": item["sha256"]} for item in assets),
+            (
+                {
+                    "path": item["path"],
+                    "sha256": item["sha256"],
+                    "pdf_index": item["pdf_index"],
+                }
+                for item in assets
+            ),
             key=lambda item: item["path"],
         ),
     }
@@ -425,6 +432,19 @@ def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
             raise PdfSourceBundleError(f"duplicate asset path: {relative}")
         seen_assets.add(relative)
         declared_hash = _require_sha256(raw_asset.get("sha256"), f"{field}.sha256")
+        pdf_index = raw_asset.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise PdfSourceBundleError(
+                f"{field}.pdf_index must be a non-negative integer"
+            )
+        if pdf_index not in seen_indices:
+            raise PdfSourceBundleError(
+                f"{field}.pdf_index must identify one selected bundle page"
+            )
         size_bytes = asset_path.stat().st_size
         if size_bytes <= 0:
             raise PdfSourceBundleError(f"{field} must not be empty")
@@ -437,6 +457,7 @@ def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
         assets.append({
             "path": relative,
             "sha256": declared_hash,
+            "pdf_index": pdf_index,
             "media_type": media_type,
             "size_bytes": size_bytes,
         })
