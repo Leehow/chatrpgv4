@@ -71,7 +71,7 @@ try {
   assert.equal(activeTools.length, 1, "unset KP session must call setActiveTools exactly once");
   const unsetActive = activeTools[0];
   assert.deepEqual(unsetActive, [
-    "subagent", "subagent_wait",
+    "subagent", "subagent_wait", "coc_source_assets",
     "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
     "coc_chargen_delegate",
   ]);
@@ -89,6 +89,7 @@ try {
   assert.ok(setupActive.includes("coc_session_resume"));
   assert.ok(setupActive.includes("coc_rules_roll_dice"));
   assert.ok(setupActive.includes("coc_chargen_delegate"));
+  assert.ok(setupActive.includes("coc_source_assets"));
   assert.ok(!setupActive.includes("coc_rules_roll"));
   assert.ok(!setupActive.includes("coc_npc_reaction"));
   assert.ok(!setupActive.includes("coc_turn_finalize"));
@@ -98,6 +99,7 @@ try {
   const playActive = activeTools.at(-1);
   assertNoGenericWrappers(playActive, "play");
   assert.ok(!playActive.includes("read"), "play KP surface must keep builtin read disabled");
+  assert.ok(playActive.includes("coc_source_assets"));
   assert.ok(playActive.includes("coc_session_resume"));
   assert.ok(playActive.includes("coc_setup_inspect"));
   assert.ok(playActive.includes("coc_rules_roll_dice"));

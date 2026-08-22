@@ -203,7 +203,7 @@ function openingSelectionCard(error, campaignId, assetRootId) {
   ) throw new Error("progressive.status opening gate contract drift");
   exactKeys(details, [
     "schema_version", "status", "hard_gate", "activation_allowed", "phase",
-    "campaign_id", "asset_root_id", "next_operation", "instruction",
+    "opening_phase", "campaign_id", "asset_root_id", "next_operation", "instruction",
   ], "opening gate details");
   if (
     details.schema_version !== 1
@@ -211,6 +211,8 @@ function openingSelectionCard(error, campaignId, assetRootId) {
     || details.hard_gate !== true
     || details.activation_allowed !== false
     || details.phase !== "opening_selection"
+    || typeof details.opening_phase !== "string"
+    || !details.opening_phase.trim()
     || details.campaign_id !== campaignId
     || details.asset_root_id !== assetRootId
     || typeof details.instruction !== "string"

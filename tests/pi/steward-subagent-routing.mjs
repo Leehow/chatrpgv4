@@ -40,7 +40,7 @@ for (const handler of handlers.get("session_start") || []) {
   await handler({ reason: "probe" }, ctx);
 }
 assert.deepEqual(activeTools.at(-1), [
-  "subagent", "subagent_wait",
+  "subagent", "subagent_wait", "coc_source_assets",
   "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
   "coc_chargen_delegate",
 ]);

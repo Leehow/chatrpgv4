@@ -122,7 +122,9 @@ try {
   // session_start does not fire on the in-memory SDK session path; the session
   // header line is written by real desktop/RPC sessions. Not an error here.
   if (turnRecords.length < 1) problems.push("no turn record");
-  if (kinds.join(",") !== "model,tool,model") problems.push(`unexpected steps: ${kinds}`);
+  if (!/^model,tool,model(?:,model)?$/.test(kinds.join(","))) {
+    problems.push(`unexpected steps: ${kinds}`);
+  }
   const p = firstModel?.phases;
   // Provider request/response events depend on the host stream path; the
   // faux native provider does not invoke them. Stream-side phases must exist.

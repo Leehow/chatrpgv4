@@ -60,6 +60,11 @@ import {
   renderMapSupplyPages,
 } from "../lib/map-supply.ts";
 import {
+  executeSourceAssetTool,
+  SOURCE_ASSET_TOOL_NAME,
+  SOURCE_ASSET_TOOL_SCHEMA,
+} from "../lib/source-asset-catalog.ts";
+import {
   KEEPER_BRIEFING_CUSTOM_TYPE,
   keeperBriefingMessage,
   readKeeperBriefing,
@@ -9914,6 +9919,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         return result({ status: "delivered", ...(message.details as JsonObject) });
       }
       throw new Error("unsupported coc_map_supply operation");
+    },
+  });
+  pi.registerTool({
+    name: SOURCE_ASSET_TOOL_NAME,
+    label: "COC source assets",
+    description:
+      "Catalog already-extracted source-bundle assets, record semantic associations, "
+      + "query them for the current scene, and plan delivery through state.deliver_handout "
+      + "or coc_map_supply.present. Asset IDs are code-derived; do not invent hashes or ids.",
+    parameters: SOURCE_ASSET_TOOL_SCHEMA,
+    ...compactToolRenderers(SOURCE_ASSET_TOOL_NAME),
+    async execute(_id: string, params: JsonObject, _signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
+      const startupResumeError = startupResumeToolError(SOURCE_ASSET_TOOL_NAME, params);
+      if (startupResumeError !== null) throw new Error(startupResumeError);
+      return result(await executeSourceAssetTool({ cwd: ctx.cwd, params }));
     },
   });
   if (

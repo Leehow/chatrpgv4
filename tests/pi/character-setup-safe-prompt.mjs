@@ -13,11 +13,10 @@ const {
   path.join(root, "plugins/coc-keeper/pi/extensions/index.ts")
 );
 
-const chargenSkillIds = chargenDelegateSchema.properties
-  .occupation_skill_names.items.enum;
-assert.ok(chargenSkillIds.includes("Fighting (Sword)"));
-assert.ok(chargenSkillIds.includes("Persuade"));
-assert.equal(chargenSkillIds.includes("Command"), false);
+assert.equal(chargenDelegateSchema.properties.occupation_skill_names.type, "array");
+assert.equal(chargenDelegateSchema.properties.occupation_skill_names.items.type, "string");
+assert.equal(chargenDelegateSchema.properties.occupation_skill_names.items.minLength, 1);
+assert.equal(chargenDelegateSchema.properties.occupation_skill_names.items.enum, undefined);
 assert.ok(chargenDelegateSchema.properties.mode.enum.includes("era_adaptive"));
 
 const campaignId = "safe-character-setup";

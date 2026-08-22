@@ -108,13 +108,19 @@ function gatewayHarness({ failPrivateProjection = false } = {}) {
   extension.default(fakePi, {
     coordinatorEnabled: () => false,
     welcomeAgentDir: path.join(fixture.workspace, ".module-init-probe"),
-    createClient: () => ({
-      async callTool(name) {
-        if (name === "coc_capabilities") return { ok: true, host: "pi" };
-        return fixture.envelope;
-      },
-      async close() {},
-    }),
+    createClient: () => {
+      const client = {
+        async callTool(name) {
+          if (name === "coc_capabilities") return { ok: true, host: "pi" };
+          return fixture.envelope;
+        },
+        async callToolWithTransportMeta(name, params) {
+          return { value: await client.callTool(name, params), transport: { attempts: 1 } };
+        },
+        async close() {},
+      };
+      return client;
+    },
   });
   const ctx = {
     cwd: fixture.workspace,

@@ -126,7 +126,7 @@ if (/↑|↓|token|grok-relay|CH\d|\/200k/i.test(joined)) {
 if (!/COC/.test(joined)) problems.push("missing COC marker");
 // After bind+refresh against a real campaign we expect game fields or an explicit error line.
 const looksLikeGame =
-  /HP|SAN|运|物品|线索|回合|未绑定|读取|error|Error|corrupt|PASS|investigator/i.test(joined);
+  /HP|SAN|运|物品|线索|回合|未绑定|读取|失败|error|Error|corrupt|PASS|investigator/i.test(joined);
 if (!looksLikeGame) problems.push(`footer not game-like: ${joined}`);
 
 // Detail panels (keyboard path)

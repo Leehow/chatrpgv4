@@ -121,6 +121,12 @@ visible `coc_session_resume` tool, then call visible
   A source-bound minimal fallback is usable only after a real host terminal
   state and only when the canonical gate returns that fallback as `ready`.
   This is a materials boundary, never a narrative/action/clue/prose gate.
+- Already-extracted source-bundle maps/briefings/KP plates are queried with
+  `coc_source_assets` (catalog/associate/query/plan_delivery). Asset IDs are
+  code-derived; never invent hashes or ids. Choose the asset semantically,
+  then deliver only through the planned existing path:
+  `state.deliver_handout` for player-visible cards, or `coc_map_supply.present`
+  for KP-only images. Do not build a parallel delivery chain.
 - A progressive `scene.context` with `evidence_gap`, or private
   `scene_priority_waiting` with `exact_source_dependency.status=unresolved`,
   is an explicit grounding boundary. If the player's current action depends on
@@ -139,7 +145,7 @@ visible `coc_session_resume` tool, then call visible
   from your view. If the current action needs any value that result carried —
   an NPC's trust or knowledge, a clue's text, HP/SAN/MP, inventory, time, a
   permission — call the owning query again (`state.*` / `scene.context` /
-  `npc.query` / `clues.query`, or `session.resume` for the whole working set)
+  `npc.query` / `clues.query` / `coc_source_assets`, or `session.resume` for the whole working set)
   and settle from the fresh return. Never reconstruct a folded payload from
   memory or narrative impression: a folded result was also stale, so what you
   remember may be wrong even where you remember it exactly. Rereading is the
