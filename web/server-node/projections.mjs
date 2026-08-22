@@ -134,11 +134,18 @@ export function campaignDisplayTitle(
  * Character-setup pending is read from the authoritative `opening_phase`
  * projection (plugin derive_opening_phase), never from investigator-file
  * scanning: a linked placeholder sheet is not a confirmed investigator.
- * A missing projection fails closed as pending so placeholder numbers are
- * never rendered as a real character.
+ * A missing projection normally fails closed. The one safe fallback is an
+ * already-projected play session plus a resolved display character: both are
+ * player-safe live-state facts, and treating that combination as chargen
+ * would hide a real sheet after a host/model restart.
  */
-export function characterSetupPendingFromOpeningPhase(openingPhase) {
-  if (!openingPhase || typeof openingPhase !== "object") return true;
+export function characterSetupPendingFromOpeningPhase(
+  openingPhase,
+  { sessionRole = null, hasCharacter = false } = {},
+) {
+  if (!openingPhase || typeof openingPhase !== "object") {
+    return !(sessionRole === "play" && hasCharacter === true);
+  }
   return openingPhase.character_setup_confirmed !== true;
 }
 
@@ -1584,9 +1591,9 @@ export function supportedThinkingLevels({ reasoning, thinkingLevelMap }) {
 // models.json entry omits reasoning/thinkingLevelMap (e.g. OAuth providers
 // materialized with id/name/input only). Custom provider ids simply miss.
 let piCatalogCache = null;
-function piCatalogEntry(providerId, modelId) {
+function piCatalogModels(providerId) {
   if (!piCatalogCache) piCatalogCache = new Map();
-  if (piCatalogCache.has(providerId)) return piCatalogCache.get(providerId)?.get(modelId) ?? null;
+  if (piCatalogCache.has(providerId)) return piCatalogCache.get(providerId);
   // web/server-node sits beside runtime/ in both the repo and the desktop
   // payload, so the keeper's bundled pi-ai data is a stable relative path.
   const dataDir = path.resolve(
@@ -1605,7 +1612,11 @@ function piCatalogEntry(providerId, modelId) {
     }
   }
   piCatalogCache.set(providerId, byModel);
-  return byModel.get(modelId) ?? null;
+  return byModel;
+}
+
+function piCatalogEntry(providerId, modelId) {
+  return piCatalogModels(providerId).get(modelId) ?? null;
 }
 
 /** Effective thinking metadata for one models.json model entry: a user-tuned
@@ -1665,7 +1676,18 @@ export function modelsPayload() {
   const rawProviders = rawModels && typeof rawModels === "object" ? rawModels.providers : null;
   for (const [name, cfg] of Object.entries(rawProviders || {})) {
     if (!cfg || typeof cfg !== "object") continue;
-    const models = (Array.isArray(cfg.models) ? cfg.models : [])
+    const configuredEntries = (Array.isArray(cfg.models) ? cfg.models : [])
+      .filter((m) => m && typeof m === "object" && typeof m.id === "string" && m.id);
+    const configuredIds = new Set(configuredEntries.map((m) => m.id));
+    // A long-lived models.json may predate models newly added to Pi's bundled
+    // provider catalog. Keep its explicit order/overrides, then expose missing
+    // bundled entries so an authenticated built-in provider never appears to
+    // lack a model that the running Pi actually supports.
+    const modelEntries = [
+      ...configuredEntries,
+      ...[...piCatalogModels(name).values()].filter((m) => !configuredIds.has(m.id)),
+    ];
+    const models = modelEntries
       .filter((m) => m && typeof m === "object" && typeof m.id === "string" && m.id)
       .map((m) => ({
         id: m.id,

@@ -54,7 +54,7 @@ test("listSourceBundles reports the PDF page count rather than rendered-page cou
   }
 });
 
-test("character_setup_pending reads the opening_phase projection only", () => {
+test("character_setup_pending prefers opening_phase and survives a missing projection", () => {
   // Confirmed investigator: setup is done regardless of phase spelling.
   assert.equal(
     characterSetupPendingFromOpeningPhase({
@@ -82,8 +82,24 @@ test("character_setup_pending reads the opening_phase projection only", () => {
     }),
     true,
   );
-  // Missing projection fails closed: never render a placeholder as a sheet.
+  // A live play projection with a resolved character remains playable even
+  // when the optional opening-phase enrichment failed to load.
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: "play",
+      hasCharacter: true,
+    }),
+    false,
+  );
+  // Missing projection otherwise fails closed: never render a placeholder.
   assert.equal(characterSetupPendingFromOpeningPhase(null), true);
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: "setup",
+      hasCharacter: true,
+    }),
+    true,
+  );
   assert.equal(characterSetupPendingFromOpeningPhase(undefined), true);
   assert.equal(characterSetupPendingFromOpeningPhase("active"), true);
 });
@@ -693,6 +709,37 @@ test("modelsPayload resolves thinkingLevels with catalog fallback", (t) => {
     assert.deepEqual(byId("deepseek")["deepseek-v4-flash"], ["off", "low", "high", "max"]);
     assert.deepEqual(byId("mygateway")["model-a"], ["off", "minimal", "low", "medium", "high"]);
     assert.deepEqual(byId("mygateway")["model-b"], ["off"]);
+  } finally {
+    delete process.env.PI_AGENT_DIR;
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("modelsPayload includes bundled models missing from an older provider save", (t) => {
+  if (!fs.existsSync(path.join(piAiCatalogDataDir(), "qwen-token-plan-cn.json"))) {
+    t.skip("keeper pi-ai catalog not vendored in this worktree");
+    return;
+  }
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-qwen-models-"));
+  process.env.PI_AGENT_DIR = agentDir;
+  try {
+    fs.writeFileSync(
+      path.join(agentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          "qwen-token-plan-cn": {
+            name: "Qwen Token Plan CN",
+            models: [{ id: "qwen3.8-max", name: "qwen3.8-max" }],
+          },
+        },
+      }),
+    );
+    const payload = modelsPayload();
+    const flash = payload.providers["qwen-token-plan-cn"].models.find(
+      (entry) => entry.id === "deepseek-v4-flash",
+    );
+    assert.equal(flash.label, "DeepSeek V4 Flash");
+    assert.deepEqual(flash.thinkingLevels, ["off", "high", "max"]);
   } finally {
     delete process.env.PI_AGENT_DIR;
     fs.rmSync(agentDir, { recursive: true, force: true });

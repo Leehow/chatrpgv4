@@ -137,16 +137,32 @@ def _terminal_evidence(
                 if event_type == "session_ending":
                     payload = row.get("payload")
                     scene_id = world.get("active_scene_id")
-                    if (
-                        not isinstance(payload, dict)
-                        or not isinstance(payload.get("scenario_id"), str)
-                        or not payload["scenario_id"]
-                        or not isinstance(payload.get("scene_id"), str)
-                        or payload.get("scene_id") != scene_id
-                        or row.get("scene_id") not in {None, scene_id}
-                        or not isinstance(row.get("decision_id"), str)
-                        or not row["decision_id"]
-                    ):
+                    if isinstance(payload, dict):
+                        valid_ending = (
+                            isinstance(payload.get("scenario_id"), str)
+                            and bool(payload["scenario_id"])
+                            and isinstance(payload.get("scene_id"), str)
+                            and payload.get("scene_id") == scene_id
+                            and row.get("scene_id") in {None, scene_id}
+                            and isinstance(row.get("decision_id"), str)
+                            and bool(row["decision_id"])
+                        )
+                    else:
+                        # state.end_session persists the canonical plugin event
+                        # as a flat record. It predates the runtime mapper's
+                        # nested payload envelope but is the authoritative
+                        # ending receipt used by development settlement.
+                        valid_ending = (
+                            isinstance(row.get("scene_id"), str)
+                            and row.get("scene_id") == scene_id
+                            and isinstance(row.get("decision_id"), str)
+                            and bool(row["decision_id"])
+                            and isinstance(row.get("ending_id"), str)
+                            and bool(row["ending_id"])
+                            and isinstance(row.get("event_id"), str)
+                            and bool(row["event_id"])
+                        )
+                    if not valid_ending:
                         return empty, True
                     events.append({"event_type": "session_ending"})
         except (OSError, UnicodeError, json.JSONDecodeError):

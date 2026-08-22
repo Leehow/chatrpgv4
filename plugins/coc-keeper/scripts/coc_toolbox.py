@@ -14614,6 +14614,42 @@ def _tool_session_begin(ctx: Ctx, args: dict[str, Any]):
     return data, [], hints
 
 
+def _session_resume_ending_output(ctx: Ctx) -> dict[str, Any] | None:
+    ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+    if ending is None:
+        return None
+    # An ending event is state, not player output.  Only replay a later
+    # hash-bound turn.finalize transcript; if that receipt does not exist yet,
+    # session.resume must expose the pending turn instead of publishing the
+    # ending summary directly.
+    if coc_turn_manifest.pending_manifest(ctx.campaign_dir) is not None:
+        return None
+    captured_at = str(ending.get("captured_at") or "")
+    finalized_rows = [
+        row
+        for row in _read_jsonl_records(
+            ctx.campaign_dir / "logs" / "table-transcript.jsonl"
+        )
+        if row.get("role") == "keeper"
+        and isinstance(row.get("finalization_id"), str)
+        and isinstance(row.get("text"), str)
+        and isinstance(row.get("text_sha256"), str)
+        and (not captured_at or str(row.get("ts") or "") >= captured_at)
+    ]
+    if not finalized_rows:
+        return None
+    finalized = finalized_rows[-1]
+    return {
+        "ending_id": ending["ending_id"],
+        "scene_id": ending.get("scene_id"),
+        "kind": ending.get("kind"),
+        "summary": str(ending.get("summary") or "").strip(),
+        "finalization_id": finalized["finalization_id"],
+        "rendered_text": finalized["text"],
+        "rendered_sha256": finalized["text_sha256"],
+    }
+
+
 @tool(
     "session.resume",
     "Load one bounded, hash-bound Keeper recovery bundle when continuing a campaign generation that predates this host startup, process restart, switch, or context compaction. It is the first campaign call only for that continuation case; do not call it after creating, quick-starting, binding, or setting up the campaign in the current initial request.",
@@ -14652,7 +14688,10 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
             "host context changed since this session.resume request was prepared; "
             "use the current lifecycle epoch",
         )
+    ending_output = _session_resume_ending_output(ctx)
     if (
+        ending_output is None
+        and
         current_host_marker is not None
         and current_host_marker.get("ended_at") is None
         and current_host_marker.get("requires_resume") is False
@@ -14738,7 +14777,14 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
     hints: list[str] = []
     scene_context: dict[str, Any] | None = None
     pending_output_context: dict[str, Any] | None = None
-    if pending is not None:
+    if ending_output is not None:
+        mode = "ending"
+        next_operations = []
+        hints.extend([
+            "this campaign already has a durable state.end_session receipt",
+            "render ending_output exactly once; do not reopen narration, rerun settlement, or call turn.finalize",
+        ])
+    elif pending is not None:
         try:
             pending_output_context = coc_turn_finalization.build_output_context(
                 ctx.campaign_dir
@@ -14829,6 +14875,7 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         "current_turn": current_window,
         "pending_turn": deepcopy(pending),
         "pending_output_context": pending_output_context,
+        "ending_output": ending_output,
         "scene_context": scene_context,
         "host_input": unclassified_input,
         "host_context": {

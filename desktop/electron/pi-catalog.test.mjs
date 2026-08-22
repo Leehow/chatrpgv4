@@ -97,7 +97,7 @@ describe("listPiCatalogProviders", () => {
     const ids = catalog.map((p) => p.id);
     assert.ok(ids.includes("google"), `missing google in ${ids.join(",")}`);
     assert.ok(ids.includes("openrouter"), `missing openrouter in ${ids.join(",")}`);
-    const more = morePiProviders(catalog, new Set(["anthropic", "openai-codex", "xai", "github-copilot", "deepseek", "zhipu"]));
+    const more = morePiProviders(catalog, new Set(["anthropic", "openai-codex", "xai", "github-copilot", "deepseek", "zai-coding-cn"]));
     assert.ok(more.length >= 20, `expected a full pi catalog, got ${more.length}`);
     const google = catalog.find((p) => p.id === "google");
     assert.ok(google.methods.includes("api_key"));

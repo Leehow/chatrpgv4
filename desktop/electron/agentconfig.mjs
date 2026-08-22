@@ -98,19 +98,18 @@ export const PROVIDER_PRESETS = [
     note: "需要 xAI API Key（console.x.ai）或订阅登录。Grok 4.6 支持图像输入；Grok 4.5 的思考档位（low/medium/high）真实可调。",
   },
   {
-    id: "zhipu",
-    label: "智谱 GLM",
+    id: "zai-coding-cn",
+    label: "ZAI Coding Plan CN",
     api: "openai-completions",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4",
     models: [
       {
         id: "glm-5.3",
         name: "GLM-5.3",
         input: ["text"],
-        // Same thinking switch as zai (Zhipu's international API family):
-        // thinking {type:"enabled"/"disabled"} on the OpenAI-compatible端点.
         reasoning: true,
-        compat: { thinkingFormat: "zai" },
+        compat: { thinkingFormat: "zai", supportsReasoningEffort: true },
+        thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", max: "max" },
       },
       {
         id: "glm-5.2",
@@ -131,7 +130,7 @@ export const PROVIDER_PRESETS = [
         compat: { thinkingFormat: "zai" },
       },
     ],
-    note: "需要智谱 API Key（bigmodel.cn）；填入 Key 后自动拉取模型列表，模型 ID 以控制台为准。思考已默认关闭。",
+    note: "使用智谱国内 Coding Plan 专属 API Key 与 coding 端点；不要与普通开放平台 zhipu 渠道混用。",
   },
   {
     id: "",

@@ -16,12 +16,16 @@ const main = await import(
 );
 
 const {
+  applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
+  isPendingFinalizationResume,
   isOpenTurnRecoveryResume,
   OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
   OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE,
   OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED,
+  PENDING_FINALIZATION_RECOVERY_GUIDANCE_CONTRACT,
+  PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
 } = guidanceMod;
 
 function resumeEnvelope(mode, extra = {}) {
@@ -113,6 +117,73 @@ assert.equal(
   applyOpenTurnRecoveryGuidance(resumeEnvelope("pending_finalization")).attached,
   false,
 );
+const pendingDirectEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+pendingDirectEnvelope.data.semantic_capsule = {
+  recent_summaries: ["large unrelated recovery projection".repeat(200)],
+};
+pendingDirectEnvelope.data.pending_output_context = {
+  journal_decision_id: "journal:pending",
+  required_obligation_ids: ["obligation-1"],
+  mechanics_bundle: { large: "mechanics".repeat(200) },
+};
+assert.equal(isPendingFinalizationResume(pendingDirectEnvelope), true);
+assert.equal(
+  isPendingFinalizationResume(resumeEnvelope("pending_finalization", {
+    next_operations: ["state.exceptional_effect", "turn.finalize"],
+  })),
+  false,
+  "host must not skip a canonical exceptional-effect blocker",
+);
+const pendingDirect = applyPendingFinalizationRecoveryGuidance(
+  pendingDirectEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+);
+assert.equal(pendingDirect.attached, true);
+assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.contract_id,
+  PENDING_FINALIZATION_RECOVERY_GUIDANCE_CONTRACT,
+);
+assert.deepEqual(
+  pendingDirect.envelope.data.host_recovery_guidance.next_call,
+  {
+    tool: "coc_turn_output_context",
+    arguments: { root, campaign: "recovery-guide-campaign" },
+  },
+);
+assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.then.exact_card_path,
+  "coc_turn_output_context.data.finalize_operation",
+);
+assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.then.instruction.includes(
+    "do not construct, infer, or reuse turn.finalize arguments",
+  ),
+  true,
+);
+assert.deepEqual(
+  Object.keys(pendingDirect.envelope.data).sort(),
+  [
+    "campaign_id",
+    "host_recovery_guidance",
+    "mode",
+    "next_operations",
+    "pending_output_context",
+    "schema_version",
+  ],
+);
+assert.equal(pendingDirect.envelope.data.semantic_capsule, undefined);
+assert.deepEqual(
+  pendingDirect.envelope.data.pending_output_context,
+  {
+    status: "read_via_exact_typed_call",
+    next_call: {
+      tool: "coc_turn_output_context",
+      arguments: { root, campaign: "recovery-guide-campaign" },
+    },
+  },
+);
 
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-recovery-guide-"));
 
@@ -141,13 +212,20 @@ function harness(responseForCall, startupCampaignId) {
   };
   main.default(fakePi, {
     coordinatorEnabled: async () => false,
-    createClient: () => ({
-      callTool: async (name, params) => {
+    createClient: () => {
+      const callTool = async (name, params) => {
         if (name === "coc_capabilities") return { ok: true, host: "pi" };
         return responseForCall(name, params);
-      },
-      close: async () => {},
-    }),
+      };
+      return {
+        callTool,
+        callToolWithTransportMeta: async (name, params) => ({
+          value: await callTool(name, params),
+          transport: null,
+        }),
+        close: async () => {},
+      };
+    },
     startupCampaignId: () => startupCampaignId,
     welcomeAgentDir,
     launchCoordinator: () => ({
@@ -270,7 +348,6 @@ await recovery.shutdown();
 for (const [label, mode, next] of [
   ["table_opening", "table_opening", ["evidence.table_opening"]],
   ["awaiting_player", "awaiting_player", ["interpret_current_player_message"]],
-  ["pending_finalization", "pending_finalization", ["turn.finalize"]],
 ]) {
   const campaignId = `startup-${label}`;
   const h = harness((name, params) => {
@@ -294,6 +371,58 @@ for (const [label, mode, next] of [
   );
   await h.shutdown();
 }
+
+const pendingCampaign = "startup-pending-finalization";
+const pending = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected ${name}:${params.operation}`);
+  }
+  const envelope = resumeEnvelope("pending_finalization", {
+    campaign_id: pendingCampaign,
+    next_operations: ["turn.finalize"],
+  });
+  envelope.data.current_turn = { rows: [{ large: "receipt".repeat(400) }] };
+  envelope.data.pending_output_context = {
+    journal_decision_id: "journal:pending",
+    required_obligation_ids: ["obligation-1"],
+    mechanics_bundle: { large: "mechanics".repeat(400) },
+  };
+  return envelope;
+}, pendingCampaign);
+await pending.start();
+const pendingResumed = await invoke(
+  pending,
+  "pending-finalization-resume",
+  resumeParams(pendingCampaign),
+  "coc_setup",
+);
+assert.equal(pendingResumed.ok, true);
+assert.equal(pendingResumed.data.mode, "pending_finalization");
+assert.equal(pendingResumed.data.current_turn, undefined);
+assert.equal(
+  pendingResumed.data.pending_output_context.status,
+  "read_via_exact_typed_call",
+);
+assert.deepEqual(
+  pendingResumed.data.host_recovery_guidance.next_call,
+  {
+    tool: "coc_turn_output_context",
+    arguments: { root, campaign: pendingCampaign },
+  },
+);
+assert.equal(
+  pendingResumed.data.host_recovery_guidance.then.tool,
+  "coc_turn_finalize",
+);
+assert.ok(
+  pending.audits.some((entry) => (
+    entry.name === PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT
+    && entry.value?.contract_id
+      === PENDING_FINALIZATION_RECOVERY_GUIDANCE_CONTRACT
+    && entry.value?.campaign_id === pendingCampaign
+  )),
+);
+await pending.shutdown();
 
 const { convertToLlm } = await import(
   pathToFileURL(embeddedPiFile(root, "pi-coding-agent", "dist/core/messages.js")).href

@@ -1603,6 +1603,10 @@ def _project_resume(data: Any, *, tight: bool) -> Any:
                 # survives the wire.  Dropping it deadlocks guided chargen.
                 "character_creation",
                 "opening_gate",
+                # A durable state.end_session receipt outranks stale pending
+                # turn recovery. The Pi host needs this exact player-safe
+                # projection to release one terminal output after restart.
+                "ending_output",
             ),
         ),
         "delivery": _compact_delivery(data.get("delivery"), tight=tight),
@@ -1918,6 +1922,7 @@ def _project_resume_recovery_index(data: Any) -> Any:
                 "next_operations",
                 "compiled_archive_recovery",
                 "working_set_manifest",
+                "ending_output",
             ),
         ),
         "delivery": deepcopy(base.get("delivery")),

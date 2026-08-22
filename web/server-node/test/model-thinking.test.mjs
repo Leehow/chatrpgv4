@@ -44,3 +44,34 @@ test("model switches retain a supported level and clamp only the off-only target
     "off",
   );
 });
+
+test("duplicate model ids retain the explicitly selected provider independently", () => {
+  const duplicateCatalog = {
+    default: { provider: "qwen-token-plan-cn", model: "glm-5.2" },
+    providers: {
+      "qwen-token-plan-cn": {
+        models: [{ id: "glm-5.2", thinkingLevels: ["off"] }],
+      },
+      "zai-coding-cn": {
+        models: [{ id: "glm-5.2", thinkingLevels: ["off", "high"] }],
+      },
+    },
+  };
+
+  assert.deepEqual(
+    resolveRequestedModelSettings(duplicateCatalog, {
+      provider: "qwen-token-plan-cn",
+      model: "glm-5.2",
+      thinking: "high",
+    }),
+    { provider: "qwen-token-plan-cn", model: "glm-5.2", thinking: "off" },
+  );
+  assert.deepEqual(
+    resolveRequestedModelSettings(duplicateCatalog, {
+      provider: "zai-coding-cn",
+      model: "glm-5.2",
+      thinking: "high",
+    }),
+    { provider: "zai-coding-cn", model: "glm-5.2", thinking: "high" },
+  );
+});

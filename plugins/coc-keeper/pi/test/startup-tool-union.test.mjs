@@ -10,10 +10,29 @@ const root = path.resolve(import.meta.dirname, "../../../..");
 const domainUrl = pathToFileURL(
   path.join(root, "plugins/coc-keeper/pi/lib/domain-tools.ts"),
 ).href;
+const operationPolicyUrl = pathToFileURL(
+  path.join(root, "plugins/coc-keeper/pi/lib/operation-policy.ts"),
+).href;
 
 async function loadDomain() {
   return import(`${domainUrl}?t=${Date.now()}-${Math.random()}`);
 }
+
+test("phase activation never re-enables builtin read", async () => {
+  const mod = await loadDomain();
+  const policy = await import(operationPolicyUrl);
+  const roles = [null, ...policy.SESSION_ROLES];
+
+  for (const role of roles) {
+    for (const phase of policy.PLAY_PHASES) {
+      const tools = mod.activeToolsForPhase(phase, role);
+      const context = `role=${role ?? "legacy"} phase=${phase}`;
+      assert.ok(!tools.includes("read"), `${context} must keep builtin read disabled`);
+      assert.ok(tools.includes("subagent"), `${context} must keep subagent available`);
+      assert.ok(tools.includes("subagent_wait"), `${context} must keep subagent_wait available`);
+    }
+  }
+});
 
 test("pending non-resume stays phase_forbidden while schema unions projected tools", async () => {
   const mod = await loadDomain();

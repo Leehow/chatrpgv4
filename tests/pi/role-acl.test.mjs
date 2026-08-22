@@ -66,6 +66,54 @@ test("play role allows session.resume", async () => {
   });
 });
 
+test("play role ends before journal and then exposes ending closure tools", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    const allowed = mod.evaluateExecuteAcl({
+      toolName: "coc_state",
+      operation: "state.end_session",
+      phase: "live_turn",
+    });
+    assert.equal(allowed.ok, true);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_state",
+      operation: "state.end_session",
+      phase: "pending_finalization",
+    }).ok, false);
+    assert.ok(
+      mod.activeToolsForPhase("live_turn", "play").includes("coc_state_end_session"),
+    );
+  });
+});
+
+test("a settled ending cannot start another end_session", async () => {
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    const denied = mod.evaluateExecuteAcl({
+      toolName: "coc_state",
+      operation: "state.end_session",
+      phase: "ending",
+    });
+    assert.equal(denied.ok, false);
+    assert.equal(denied.code, "phase_forbidden");
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.finalize",
+      phase: "ending",
+    }).ok, true);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "state.journal",
+      phase: "ending",
+    }).ok, true);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "turn.output_context",
+      phase: "ending",
+    }).ok, true);
+  });
+});
+
 test("setup role allows chargen rules.roll_dice", async () => {
   await withRole("setup", async () => {
     const mod = await loadDomain();

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:c320410f62e4fccbf514270900d6c4e06c53b65a882c5c24029f9143516c6e6a",
+  "content_sha256": "sha256:a7255787b1dd0b545a9747d2e2663e66685248e70263c986399ff24419827e4e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -5721,7 +5721,7 @@
         "contract": "state",
         "kp_surface": "state",
         "phases": [
-          "ending"
+          "live_turn"
         ]
       },
       "summary": "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration."
@@ -6313,7 +6313,8 @@
         "phases": [
           "live_turn",
           "pending_finalization",
-          "recovery"
+          "recovery",
+          "ending"
         ]
       },
       "summary": "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts."
@@ -8221,7 +8222,8 @@
         "phases": [
           "live_turn",
           "pending_finalization",
-          "recovery"
+          "recovery",
+          "ending"
         ]
       },
       "summary": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
@@ -8251,12 +8253,13 @@
       "policy": {
         "advisory": false,
         "audience": "keeper",
-        "contract": "none",
+        "contract": "finalize",
         "kp_surface": "turn",
         "phases": [
           "live_turn",
           "pending_finalization",
-          "recovery"
+          "recovery",
+          "ending"
         ]
       },
       "summary": "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal."

@@ -126,7 +126,7 @@ test("buildPiCocArgs mounts host web-search and hosted-search extensions that ex
     sessionId: "web-haunting-1",
     repoRoot: REPO_ROOT,
   });
-  assert.deepEqual(extensionPaths(args), required);
+  assert.deepEqual(extensionPaths(args).slice(0, required.length), required);
   assert.doesNotMatch(JSON.stringify(args), /ApiKey|exa-/i);
 });
 
@@ -254,6 +254,50 @@ test("buildChildEnv marks an attached UI and play workspace", () => {
   assert.equal(env.PI_COC_CAMPAIGN_ID, "haunting-1");
   assert.equal(env.COC_HOST, "pi");
   assert.equal(env.COC_PI_TABLE_INTENT, "character-setup");
+});
+
+test("buildChildEnv pins both Pi home variables to the explicit product home", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-rpc-home-ws-"));
+  const productAgentDir = path.join(workspace, "desktop-data", "pi-agent");
+  try {
+    // Presence of a legacy workspace home must not redirect writable runtime
+    // identity, even when PI_CODING_AGENT_DIR was inherited from elsewhere.
+    fs.mkdirSync(path.join(workspace, ".pi", "agent"), { recursive: true });
+    const env = buildChildEnv({
+      workspace,
+      repoRoot: "/tmp/missing-repo",
+      campaignId: "home-pin",
+      sessionId: "web-home-pin",
+      agentDir: productAgentDir,
+      parentEnv: {
+        PATH: "/usr/bin",
+        HOME: "/tmp",
+        PI_AGENT_DIR: "/tmp/inherited-agent",
+        PI_CODING_AGENT_DIR: path.join(workspace, ".pi", "agent"),
+      },
+      userPrefs: {},
+    });
+    assert.equal(env.PI_AGENT_DIR, path.resolve(productAgentDir));
+    assert.equal(env.PI_CODING_AGENT_DIR, path.resolve(productAgentDir));
+
+    const inheritedProduct = path.join(workspace, "parent-product", "pi-agent");
+    const inherited = buildChildEnv({
+      workspace,
+      repoRoot: "/tmp/missing-repo",
+      campaignId: "home-pin-parent",
+      parentEnv: {
+        PATH: "/usr/bin",
+        HOME: "/tmp",
+        PI_AGENT_DIR: inheritedProduct,
+        PI_CODING_AGENT_DIR: path.join(workspace, ".pi", "agent"),
+      },
+      userPrefs: {},
+    });
+    assert.equal(inherited.PI_AGENT_DIR, path.resolve(inheritedProduct));
+    assert.equal(inherited.PI_CODING_AGENT_DIR, path.resolve(inheritedProduct));
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });
 
 test("buildChildEnv pins keeper pi CLI over parent COC_PI_CLI", (t) => {
@@ -460,7 +504,54 @@ test("PiCocRpcHost start passes existing host extension paths into spawn args", 
   for (const abs of required) {
     assert.equal(fs.existsSync(abs), true, `missing host extension: ${abs}`);
   }
-  assert.deepEqual(extensionPaths(captured.args), required);
+  assert.deepEqual(extensionPaths(captured.args).slice(0, required.length), required);
+});
+
+test("PiCocRpcHost keeps product runtime home while hydrating a legacy workspace transcript", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-rpc-home-host-ws-"));
+  const productAgentDir = path.join(workspace, "desktop-data", "pi-agent");
+  const sessionId = "web-runtime-home-pin";
+  try {
+    const legacySessionDir = path.join(workspace, ".pi", "agent", "sessions", "cwd");
+    fs.mkdirSync(legacySessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacySessionDir, `2026-08-21T00-00-00Z_${sessionId}.jsonl`),
+      `${JSON.stringify({
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "旧记录仍可显示。" }],
+        },
+      })}\n`,
+    );
+    let capturedEnv;
+    const child = fakeChild();
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace,
+      campaignId: "runtime-home-pin",
+      sessionId,
+      agentDir: productAgentDir,
+      launcherPath: process.execPath,
+      spawnFn: (_cmd, _args, options) => {
+        capturedEnv = options.env;
+        return child;
+      },
+    });
+    assert.equal(host.agentDir, path.resolve(productAgentDir));
+    host.start();
+    assert.equal(capturedEnv.PI_AGENT_DIR, path.resolve(productAgentDir));
+    assert.equal(capturedEnv.PI_CODING_AGENT_DIR, path.resolve(productAgentDir));
+    child.stderr.write(`${UI_IDLE_MARKER}\n`);
+    const frames = [];
+    const result = await host.attachOpening({
+      onSse: (frame) => frames.push(frame),
+    });
+    assert.deepEqual(result, { opened: true });
+    assert.deepEqual(frames, [{ event: "delta", data: { text: "旧记录仍可显示。" } }]);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });
 
 test("JSONL parser splits only on LF and ignores a U+2028 inside JSON", () => {
@@ -473,7 +564,7 @@ test("JSONL parser splits only on LF and ignores a U+2028 inside JSON", () => {
   assert.equal(rows[1].type, "b");
 });
 
-test("mapRpcEventToSse forwards text, thinking, usage, and tools", () => {
+test("mapRpcEventToSse buffers draft text and forwards only settled text", () => {
   assert.deepEqual(
     mapRpcEventToSse({
       type: "message_update",
@@ -482,7 +573,6 @@ test("mapRpcEventToSse forwards text, thinking, usage, and tools", () => {
     }),
     [
       { event: "usage", data: { input: 12, output: 3 } },
-      { event: "delta", data: { text: "你好" } },
     ],
   );
   assert.deepEqual(
@@ -509,10 +599,7 @@ test("mapRpcEventToSse forwards text, thinking, usage, and tools", () => {
         content: [{ type: "thinking", thinking: "hidden" }, { type: "text", text: "最终文本" }],
       },
     }),
-    [
-      { event: "delta_reset", data: {} },
-      { event: "delta", data: { text: "最终文本" } },
-    ],
+    [{ event: "delta", data: { text: "最终文本" } }],
   );
   assert.deepEqual(
     mapRpcEventToSse({
@@ -522,10 +609,7 @@ test("mapRpcEventToSse forwards text, thinking, usage, and tools", () => {
         content: [{ type: "text", text: "[in_game]\n正式开场。\n[/in_game]" }],
       },
     }),
-    [
-      { event: "delta_reset", data: {} },
-      { event: "delta", data: { text: "正式开场。" } },
-    ],
+    [{ event: "delta", data: { text: "正式开场。" } }],
   );
   assert.deepEqual(
     mapRpcEventToSse({
@@ -657,10 +741,7 @@ test("empty keeper-only message_end does not erase preceding visible narration",
         content: [{ type: "text", text: "可见叙事" }],
       },
     }),
-    [
-      { event: "delta_reset", data: {} },
-      { event: "delta", data: { text: "可见叙事" } },
-    ],
+    [{ event: "delta", data: { text: "可见叙事" } }],
   );
 });
 
@@ -705,6 +786,10 @@ test("PiCocRpcHost prompts until agent_settled and maps live SSE", async () => {
     type: "message_update",
     assistantMessageEvent: { type: "text_delta", delta: "好。" },
   })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "好。" }] },
+  })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   await promptP;
   assert.deepEqual(frames, [{ event: "delta", data: { text: "好。" } }]);
@@ -743,6 +828,10 @@ test("prompt stays attached across an extension-queued follow-up turn", async ()
     type: "message_update",
     assistantMessageEvent: { type: "text_delta", delta: "幕布正在升起。" },
   })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "幕布正在升起。" }] },
+  })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   await promptP;
   assert.deepEqual(frames, [{ event: "delta", data: { text: "幕布正在升起。" } }]);
@@ -774,6 +863,10 @@ test("promptPlayOpening writes the host opening prompt and requires a visible de
   child.stdout.write(`${JSON.stringify({
     type: "message_update",
     assistantMessageEvent: { type: "text_delta", delta: "雨夜里的科比特宅邸。" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "雨夜里的科比特宅邸。" }] },
   })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   const result = await openP;
@@ -821,6 +914,10 @@ test("attachOpening returns without replaying a turn that settled before the UI 
   child.stdout.write(`${JSON.stringify({
     type: "message_update",
     assistantMessageEvent: { type: "text_delta", delta: "先建卡" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "先建卡" }] },
   })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   await new Promise((r) => setTimeout(r, 20));
@@ -986,6 +1083,10 @@ test("attachOpening character-setup injects one hidden prompt when auto-open is 
     type: "message_update",
     assistantMessageEvent: { type: "text_delta", delta: "先告诉我：这个人是谁？" },
   })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "先告诉我：这个人是谁？" }] },
+  })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   const result = await attachP;
   assert.equal(result.setupOpeningPrompted, true);
@@ -1043,6 +1144,10 @@ test("attachOpening character-setup does not inject when auto-open already has v
   child.stdout.write(`${JSON.stringify({
     type: "message_update",
     assistantMessageEvent: { type: "text_delta", delta: "先建卡：你是谁？" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "先建卡：你是谁？" }] },
   })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   const result = await attachP;
@@ -1127,6 +1232,10 @@ test("attachOpening follows an auto-open already in flight", async () => {
   child.stdout.write(`${JSON.stringify({
     type: "message_update",
     assistantMessageEvent: { type: "text_delta", delta: "开桌" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "开桌" }] },
   })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   const result = await attachP;

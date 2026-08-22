@@ -104,16 +104,35 @@ visible `coc_session_resume` tool, then call visible
   a month, day, weekday, or season; relative time stays relative.
   Do not use `state.journal` / `turn.finalize` for that opening. After the
   player acts, ordinary settled output returns to hash-bound `turn.finalize`.
-- For a source-backed destination with Pi scene supply enabled, `state.move_scene`
-  is preflighted before it mutates state. If it returns `scene_supply_pending`,
-  say only `场景载入中……` to the player, dispatch/resume `steward-scene` for that
-  scene and its neighboring prefetch, await the completion signal, then retry
-  the same move. Do not narrate, infer, or resolve destination material while
-  waiting. After one completed wait, Pi may permit only its returned,
-  source-bound minimal fallback (scene name plus known clue index); this is a
-  materials boundary, never a narrative/action/clue gate. On a ready move,
-  use returned `data.scene_supply` as Keeper-only material and keep the
-  requested neighbor prefetch in the background.
+- For a source-backed destination with Pi scene supply enabled, Pi host
+  preflights `state.move_scene` before it mutates state and privately owns the
+  exact dispatch/write lifecycle. Never dispatch or resume `steward-scene`,
+  call or construct `coc_dispatch_source_work`, write a scene bundle, or poll
+  readiness for this gate. Treat its result as exhaustive:
+  - `ready`: use returned `data.scene_supply` as Keeper-only grounding and
+    continue normal play. Any neighboring prefetch is private, host-owned, and
+    requires no Keeper action or table mention.
+  - `pending_with_live_dispatch`: one real bounded host dispatch is live. Take
+    no operational action and make no promise; keep the destination
+    unestablished in fiction and settle only source-independent parts.
+  - `blocked`: no exact task/capability exists, or the real dispatch terminated
+    without a ready result. Stop waiting, remain entirely in fiction, keep the
+    destination unestablished, and offer established open leads.
+  A source-bound minimal fallback is usable only after a real host terminal
+  state and only when the canonical gate returns that fallback as `ready`.
+  This is a materials boundary, never a narrative/action/clue/prose gate.
+- A progressive `scene.context` with `evidence_gap`, or private
+  `scene_priority_waiting` with `exact_source_dependency.status=unresolved`,
+  is an explicit grounding boundary. If the player's current action depends on
+  an exact authored fact for that scene (for example an NPC's registered hotel,
+  motive, schedule, clue text, or room contents), do not assert, negate, or
+  improvise that fact and do not finalize the dependent part of the action from
+  general knowledge. Settle only genuinely source-independent parts. Await the
+  package's `scene_priority_ready` follow-up, then use its canonical
+  `scene.context` / `secrets.briefing` cards before settling the dependent fact.
+  If the source lifecycle terminally reports unavailable, keep the fact
+  unestablished in fiction instead of inventing an answer. This is a semantic
+  dependency boundary for the current action, not a gate on unrelated play.
 - A tool result rendered as `{"folded":true,...}` is a closed-turn payload the
   host collapsed to control context. Its `canonical_operation` and
   `full_result_sha256` identify what the call was; the payload itself is gone
@@ -167,6 +186,13 @@ visible `coc_session_resume` tool, then call visible
   non-empty strings, and call `state.record_npc_engagement` before
   `state.journal`. After `state.journal`, do not retry it or any other mutation;
   proceed directly through `turn.output_context` to `turn.finalize`.
+- A definitive ending has one exact closure chain:
+  `state.end_session` → `state.journal` → `turn.output_context` → `turn.finalize`.
+  `state.end_session` is the final state mutation and must happen before the
+  ending journal. Never call `turn.finalize` directly after `state.end_session`;
+  record the exact current player message with the visible `coc_state_journal`
+  tool first, then use the visible output-context and finalize tools. After the
+  ending receipt, do not call `state.end_session` again.
 - Long-term story memory is advisory context, never truth. Proactively call
   `memory.search` (on `coc_context`) when an NPC reunion occurs, pacing lulls
   and an old thread could resurface, or the player references past events;

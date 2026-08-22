@@ -27,6 +27,7 @@ import {
 import {
   CampaignHostOrchestrator,
   defaultResolveSessionRole,
+  isStaleModelCatalogError,
   SESSION_TRANSITIONING_CODE,
 } from "./session-handoff.mjs";
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
@@ -301,6 +302,10 @@ async function statePayload(info) {
   }
   state.character_setup_pending = characterSetupPendingFromOpeningPhase(
     state.opening_phase,
+    {
+      sessionRole: state.session_role,
+      hasCharacter: Boolean(state.character),
+    },
   );
   state.time = timeExtras(WORKSPACE, info.campaign_id, lang);
   const sceneId =
@@ -1202,8 +1207,22 @@ async function handleTurn(req, res, sid) {
       try {
         await host.setModel(provider, model);
       } catch (err) {
-        safeWrite("error", { message: `无法切换模型：${err?.message || err}` });
-        return;
+        if (!isStaleModelCatalogError(err)) {
+          safeWrite("error", { message: `无法切换模型：${err?.message || err}` });
+          return;
+        }
+        try {
+          host = await orchestrator.restartForModel(info.campaign_id, {
+            provider,
+            model,
+            thinking,
+          });
+        } catch (restartError) {
+          safeWrite("error", {
+            message: `刷新模型目录失败：${restartError?.message || restartError}`,
+          });
+          return;
+        }
       }
     }
     if (thinking) await host.setThinking(thinking);

@@ -30,6 +30,10 @@ export function hostBusyError(campaignId) {
   return err;
 }
 
+export function isStaleModelCatalogError(error) {
+  return /\bModel not found:\s*\S+\/\S+/i.test(String(error?.message || error || ""));
+}
+
 export function inferSessionRole({ tableIntent, afterHandoff } = {}) {
   if (afterHandoff) return "play";
   if (tableIntent === "character-setup") return "setup";
@@ -210,6 +214,58 @@ export class CampaignHostOrchestrator {
       await host.close?.();
     } catch {
       /* already gone */
+    }
+  }
+
+  /**
+   * Pi snapshots models.json when the RPC child starts. If the UI adds a
+   * provider/model later, set_model cannot see it until that same campaign
+   * host is replaced. Preserve the session id and role, close exactly one
+   * owned child, and start its replacement with the selected model.
+   */
+  async restartForModel(campaignId, { provider, model, thinking } = {}) {
+    const old = this.hosts.get(campaignId);
+    if (!old || old.closed) throw new Error(`战役 ${campaignId} 没有可重启的活跃宿主。`);
+    if (this.isTransitioning(campaignId)) throw transitioningInputError();
+    const currentRole = this.statusOf(campaignId).session_role;
+    const tableIntent = currentRole === "setup" ? "character-setup" : "continue";
+    this.#setStatus(campaignId, { transitioning: true });
+    this.#emitTransition(campaignId, { reason: "model_catalog_refresh" });
+    try {
+      const opts = {
+        repoRoot: old.repoRoot,
+        workspace: old.workspace,
+        campaignId,
+        sessionId: old.sessionId,
+        agentDir: old.agentDir,
+        launcherPath: old.launcherPath,
+        tableIntent,
+        provider: String(provider || old.provider || ""),
+        model: String(model || old.model || ""),
+        thinking: String(thinking || old.thinking || ""),
+        spawnFn: old.spawnFn,
+      };
+      old.expectedShutdown = true;
+      await old.close();
+      this.hosts.delete(campaignId);
+      const { host } = await this.acquire(
+        campaignId,
+        opts,
+        { exclusive: true, reuse: false },
+      );
+      this.#setStatus(campaignId, {
+        session_role: currentRole || inferSessionRole({ tableIntent }),
+        transitioning: false,
+      });
+      this.#emitTransition(campaignId, { reason: "model_catalog_refreshed" });
+      return host;
+    } catch (error) {
+      this.#setStatus(campaignId, { transitioning: false });
+      this.#emitTransition(campaignId, {
+        reason: "model_catalog_refresh_failed",
+        error: String(error?.message || error),
+      });
+      throw error;
     }
   }
 

@@ -886,7 +886,7 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   "state.end_session": {
     "audience": "keeper",
     "phases": [
-      "ending"
+      "live_turn"
     ],
     "contract": "state",
     "advisory": false,
@@ -954,7 +954,8 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "phases": [
       "live_turn",
       "pending_finalization",
-      "recovery"
+      "recovery",
+      "ending"
     ],
     "contract": "state",
     "advisory": false,
@@ -1218,7 +1219,8 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "phases": [
       "live_turn",
       "pending_finalization",
-      "recovery"
+      "recovery",
+      "ending"
     ],
     "contract": "finalize",
     "advisory": false,
@@ -1229,7 +1231,8 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "phases": [
       "live_turn",
       "pending_finalization",
-      "recovery"
+      "recovery",
+      "ending"
     ],
     "contract": "none",
     "advisory": false,

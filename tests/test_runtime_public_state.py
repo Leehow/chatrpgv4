@@ -182,6 +182,35 @@ def test_public_state_accepts_terminal_only_from_validated_scenario(tmp_path):
     )
 
 
+def test_public_state_accepts_canonical_state_end_session_event(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    _write_valid_terminal_scenario(campaign)
+    logs = campaign / "logs"
+    logs.mkdir()
+    (logs / "events.jsonl").write_text(json.dumps({
+        "event_type": "session_ending",
+        "event_id": "ending-event-1",
+        "ending_id": "ending-1",
+        "scene_id": "dock-warehouse",
+        "kind": "conclusion",
+        "decision_id": "end-session-1",
+        "investigator_ids": ["inv-alice"],
+        "summary": "The investigation ended.",
+    }) + "\n", encoding="utf-8")
+
+    state = _load().build_public_state(tmp_path, "camp-1")
+
+    assert state["terminal_evidence"] == {
+        "reached_terminal": True,
+        "active_scene_id": "dock-warehouse",
+        "graph_terminal": True,
+        "session_ending": True,
+    }
+    assert not any(
+        issue["state"] == "terminal" for issue in state["state_health"]["issues"]
+    )
+
+
 def test_public_state_bad_terminal_event_log_fails_closed_with_health(tmp_path):
     campaign = _seed_campaign(tmp_path)
     _write_valid_terminal_scenario(campaign)

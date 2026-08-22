@@ -40,10 +40,11 @@ for (const handler of handlers.get("session_start") || []) {
   await handler({ reason: "probe" }, ctx);
 }
 assert.deepEqual(activeTools.at(-1), [
-  "read", "subagent", "subagent_wait",
+  "subagent", "subagent_wait",
   "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
   "coc_chargen_delegate",
 ]);
+assert.ok(!activeTools.at(-1).includes("read"), "live KP surface must keep builtin read disabled");
 assert.match(
   await (await import("node:fs/promises")).readFile(
     path.join(root, "plugins/coc-keeper/pi/prompts/host-system.md"), "utf8",

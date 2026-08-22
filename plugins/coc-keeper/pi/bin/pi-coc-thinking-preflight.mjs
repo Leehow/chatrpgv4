@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const VALID_THINKING_LEVELS = new Set([
   "off",
@@ -93,6 +94,15 @@ function findConfiguredModel(config, provider, modelId) {
     : undefined;
 }
 
+function findBundledModel(catalog, modelId) {
+  if (!catalog || typeof catalog !== "object") return undefined;
+  for (const modelsByApi of Object.values(catalog)) {
+    const model = modelsByApi?.[modelId];
+    if (model?.id === modelId) return model;
+  }
+  return undefined;
+}
+
 // Mirrors pi's getSupportedThinkingLevels: a mapped `null` means the level is
 // unsupported; a missing ("off"/"minimal"/...) entry means supported; xhigh/max
 // must be explicitly mapped.
@@ -181,6 +191,16 @@ const modelStore = readJson(
   "Pi model catalog",
   false,
 );
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const bundledCatalog = readJson(
+  resolve(
+    scriptDir,
+    "../../../../runtime/adapters/keeper/node_modules/@earendil-works/pi-ai/dist/providers/data",
+    `${provider}.json`,
+  ),
+  "bundled Pi model catalog",
+  false,
+);
 // A user-written models.json entry shadows the catalog wholesale, but writers
 // (e.g. the desktop login materialization) may persist only {id, name} when
 // the upstream catalog lacked capability flags. Inherit missing capability
@@ -199,7 +219,9 @@ function withCatalogCapabilities(configured, catalogEntry) {
 
 const configuredModel = findConfiguredModel(customModels, provider, modelId);
 const catalogModel = findModel(modelStore, provider, modelId);
-const model = withCatalogCapabilities(configuredModel, catalogModel);
+const bundledModel = findBundledModel(bundledCatalog, modelId);
+const completeCatalogModel = withCatalogCapabilities(catalogModel, bundledModel);
+const model = withCatalogCapabilities(configuredModel, completeCatalogModel);
 if (!model) {
   failIfOff(
     `thinking "off" was requested for ${provider}/${modelId}, but its model metadata is unavailable; ` +

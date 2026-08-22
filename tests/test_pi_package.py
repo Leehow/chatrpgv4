@@ -231,7 +231,7 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
     assert result == {
         "ok": True,
         "activeTools": [
-            "read", "subagent", "subagent_wait",
+            "subagent", "subagent_wait",
             "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
             "coc_chargen_delegate",
         ],
@@ -2120,6 +2120,12 @@ def test_pi_mechanical_output_gate_intercepts_unbound_markers():
             "boundReleased": True,
             "boundEnvelopeEmpty": True,
             "proseReleased": True,
+            "unsettledProseIntercepted": True,
+            "unsettledProseEnvelope": {
+                "kind": "settled_output_gate",
+                "action": "journal_context_finalize_exact",
+                "hasInstruction": True,
+            },
             "staleEpochIntercepted": True,
             "staleEpochUncoveredClasses": [
                 "dice", "dice", "dice", "dice",
@@ -2242,8 +2248,8 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
         "redundantSuppressed": True,
         "queuedCustomObserved": True,
         "rawGatewayRejected": {
-            "exactVisible": True,
-            "followUpVisible": True,
+            "exactVisible": False,
+            "followUpVisible": False,
         },
     }
 

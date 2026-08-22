@@ -50,7 +50,10 @@ import {
   type MechanicalMarker,
 } from "../lib/mechanical-output-gate.ts";
 import { compactToolRenderers } from "../lib/tool-render.ts";
-import { decideSceneSupply } from "../lib/scene-supply.ts";
+import {
+  decideSceneSupply,
+  type SceneSupplyDispatchStatus,
+} from "../lib/scene-supply.ts";
 import {
   detectMapSupplyPageDirectory,
   mapVisualMessage,
@@ -99,8 +102,10 @@ import {
 } from "../lib/chargen-clerk.ts";
 import { extraToolsForSessionRole } from "../lib/session-role-tools.ts";
 import {
+  applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
+  PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
 } from "../lib/recovery-guidance.ts";
 import {
   applyRetainedAdoptSourceFacts,
@@ -5168,6 +5173,13 @@ export class OpeningTerminalContinuationGate {
     return true;
   }
 
+  hasPendingFinalizedOutput(): boolean {
+    return (
+      this.finalizedOutput?.delivered === false
+      && this.finalizedOutput.epoch === this.playerTurnEpoch
+    );
+  }
+
   markExternalUserInput(): void {
     this.playerTurnEpoch += 1;
     this.finalizedOutput = null;
@@ -5707,6 +5719,7 @@ export function registerPlayerTranscriptGate(
     visibleText: string,
   ) => VisibleAssistantFinalDecision | void,
   onMessageStart?: (message: unknown) => void,
+  allowEmptyFinalReplacement?: () => boolean,
 ): void {
   pi.on("message_start", (event) => {
     onMessageStart?.(event.message);
@@ -5718,10 +5731,26 @@ export function registerPlayerTranscriptGate(
   pi.on("message_end", (event) => {
     const assistant = assistantContentMessage(event.message);
     if (!assistant) return;
+    const stopReason = (assistant as { stopReason?: unknown }).stopReason;
+    if (stopReason === "error" || stopReason === "aborted") {
+      // A terminal provider failure is not a player-visible assistant final.
+      // Sending its empty/error payload through the settlement gate creates a
+      // hidden follow-up model call and can turn one non-retryable provider
+      // error into an unbounded host loop.
+      return { message: withoutAssistantText(event.message) };
+    }
     if (!assistant.content.some((part) => part.type === "toolCall")) {
-      const visibleText = visibleAssistantText(assistant);
+      const visibleText = visibleAssistantText(assistant) ?? "";
+      if (
+        visibleText.trim().length === 0
+        && allowEmptyFinalReplacement?.() !== true
+      ) {
+        // Thinking-only and empty tool-free terminals carry no player output
+        // to settle. In particular, they must not arm a finalization follow-up.
+        return { message: withoutAssistantText(event.message) };
+      }
       {
-        const decision = onVisibleAssistantFinal?.(visibleText ?? "");
+        const decision = onVisibleAssistantFinal?.(visibleText);
         if (decision === false) {
           return { message: withoutAssistantText(event.message) };
         }
@@ -7546,6 +7575,109 @@ export function explicitPiStartupCampaignId(
   return value;
 }
 
+export type StartupRecoveryThinkingProjection = {
+  apply(messages: readonly unknown[], startupGateActive: boolean): unknown[];
+};
+
+/**
+ * Pi keeps provider thinking blocks in its durable linear transcript. Keep
+ * that evidence untouched, but remove reasoning that canonical startup
+ * recovery has superseded from subsequent model requests. The boundary is
+ * monotonic for this host context: before the first resume call the explicit
+ * startup gate supersedes the entire prior session tail; afterwards an exact
+ * canonical session.resume receipt advances (never rewinds) the boundary.
+ */
+export function createStartupRecoveryThinkingProjection(): StartupRecoveryThinkingProjection {
+  let boundary = 0;
+
+  const canonicalResumeReceipt = (message: unknown): boolean => {
+    const row = objectOrNull(message);
+    if (row?.role !== "toolResult") return false;
+    const content = row.content;
+    const first = Array.isArray(content) ? objectOrNull(content[0]) : null;
+    const text = typeof content === "string"
+      ? content
+      : typeof first?.text === "string" ? first.text : "";
+    if (!text.startsWith("{")) return false;
+    let envelope: JsonObject | null = null;
+    try {
+      envelope = objectOrNull(JSON.parse(text));
+    } catch {
+      return false;
+    }
+    if (envelope?.tool !== "session.resume") return false;
+    if (envelope.ok === true) {
+      const data = objectOrNull(envelope.data);
+      return (
+        data?.schema_version === 1
+        && typeof data.campaign_id === "string"
+        && data.campaign_id.length > 0
+        && typeof data.mode === "string"
+        && data.mode.length > 0
+      );
+    }
+    const error = objectOrNull(envelope.error);
+    return envelope.ok === false
+      && typeof error?.code === "string"
+      && error.code.length > 0;
+  };
+
+  const withoutThinking = (message: unknown): unknown => {
+    const row = objectOrNull(message);
+    if (row === null || !Array.isArray(row.content)) return message;
+    const content = row.content.filter(
+      (part) => objectOrNull(part)?.type !== "thinking",
+    );
+    if (content.length === row.content.length) return message;
+    return { ...row, content };
+  };
+
+  return {
+    apply(messages, startupGateActive) {
+      if (!Array.isArray(messages)) return messages as unknown[];
+      let receiptBoundary = 0;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (canonicalResumeReceipt(messages[index])) {
+          receiptBoundary = index + 1;
+          break;
+        }
+      }
+      boundary = Math.max(
+        boundary,
+        startupGateActive ? messages.length : receiptBoundary,
+      );
+      if (boundary === 0) return messages as unknown[];
+      return messages.map((message, index) => (
+        index < boundary ? withoutThinking(message) : message
+      ));
+    },
+  };
+}
+
+export function turnFinalizationRequiredForPhase(phase: PlayPhase): boolean {
+  return phase === "live_turn" || phase === "pending_finalization" || phase === "ending";
+}
+
+export function endingOutputFromReceipt(
+  args: JsonObject,
+  data: JsonObject | null,
+): { renderedText: string; renderedSha256: string } | null {
+  void args;
+  const resumed = objectOrNull(data?.ending_output);
+  if (!(data?.mode === "ending" && resumed !== null)) return null;
+  const renderedText = typeof resumed.rendered_text === "string"
+    ? resumed.rendered_text
+    : "";
+  const renderedSha256 = typeof resumed.rendered_sha256 === "string"
+    ? resumed.rendered_sha256
+    : "";
+  if (!renderedText || !renderedSha256) return null;
+  return {
+    renderedText,
+    renderedSha256,
+  };
+}
+
 type StartupResumeGate = {
   campaignId: string;
   workspaceRoot: string;
@@ -7576,7 +7708,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
-  const sceneSupplyWaits = new Map<string, number>();
+  const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
   const resolveAclPhase = (campaignId?: string): PlayPhase => {
     if (startupResumeGate !== null && startupResumeGate.phase === "pending") {
@@ -7597,14 +7729,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const gate = startupResumeGate;
     // Schema-time union only. Execute ACL still uses resolveAclPhase (recovery
     // while pending) and startupResumeToolError still hard-rejects non-resume.
-    const tools = gate !== null && gate.phase === "pending"
-      ? activeToolsForStartupResumePending({
-          workspaceRoot: gate.workspaceRoot,
-          campaignId: gate.campaignId,
-          fallbackPhase: kpPlayPhase,
-          role,
-        })
-      : activeToolsForPhase(resolveAclPhase(), role);
+    const tools = openingContinuationGate.hasPendingFinalizedOutput()
+      ? []
+      : gate !== null && gate.phase === "pending"
+        ? activeToolsForStartupResumePending({
+            workspaceRoot: gate.workspaceRoot,
+            campaignId: gate.campaignId,
+            fallbackPhase: kpPlayPhase,
+            role,
+          })
+        : activeToolsForPhase(resolveAclPhase(), role);
     pi.setActiveTools(tools);
   };
   const queueSetupHandoffExit = () => {
@@ -7940,6 +8074,26 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && args !== null
       && Object.keys(args).length === 0
     );
+  };
+  const bindStartupResumeInvocation = (
+    name: string,
+    params: JsonObject,
+  ): JsonObject => {
+    const gate = startupResumeGate;
+    const args = objectOrNull(params.arguments);
+    if (
+      gate === null
+      || gate.phase !== "pending"
+      || !isCanonicalInvokeSurface(name)
+      || params.operation !== "session.resume"
+      || args === null
+      || Object.keys(args).length !== 0
+    ) return params;
+    return {
+      ...params,
+      root: gate.workspaceRoot,
+      campaign: gate.campaignId,
+    };
   };
   const startupResumeToolError = (
     name: string,
@@ -8482,6 +8636,117 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       },
     };
   };
+  const publicSceneSupply = (supply: JsonObject): JsonObject => {
+    const { background_takeover: _privateDispatch, ...visible } = supply;
+    return visible;
+  };
+  const classifySceneSupplyDispatch = (
+    value: unknown,
+    dispatchKey?: string,
+  ): SceneSupplyDispatchStatus => {
+    const row = objectOrNull(value);
+    const status = String(row?.status ?? "");
+    const key = typeof row?.dispatch_key === "string" && row.dispatch_key.trim()
+      ? row.dispatch_key.trim()
+      : dispatchKey;
+    if (["activating", "pending", "retrying", "submitted"].includes(status) && key) {
+      return { status: "active", dispatchKey: key };
+    }
+    if (["completed", "terminal_failure"].includes(status)) {
+      return {
+        status: "terminal",
+        ...(key ? { dispatchKey: key } : {}),
+        ...(typeof row?.failure_class === "string"
+          ? { failureClass: row.failure_class }
+          : {}),
+      };
+    }
+    return {
+      status: "unavailable",
+      failureClass: typeof row?.failure_class === "string"
+        ? row.failure_class
+        : "scene_supply_dispatch_unavailable",
+    };
+  };
+  const sceneSupplyDispatchStatus = async (
+    waitKey: string,
+    supply: JsonObject,
+    signal: AbortSignal | undefined,
+  ): Promise<SceneSupplyDispatchStatus> => {
+    const retained = sceneSupplyDispatches.get(waitKey);
+    if (retained?.status === "active") {
+      const state = supplyCoordinator.activeManager()?.state(retained.dispatchKey);
+      const current = classifySceneSupplyDispatch(state, retained.dispatchKey);
+      sceneSupplyDispatches.set(waitKey, current);
+      return current;
+    }
+    if (retained !== undefined) return retained;
+    const task = findAutoDispatchTask({ ok: true, data: supply });
+    const packet = objectOrNull(task?.packet);
+    const dispatchKey = typeof packet?.packet_id === "string"
+      ? packet.packet_id.trim()
+      : "";
+    if (task === null || !dispatchKey) {
+      const unavailable: SceneSupplyDispatchStatus = {
+        status: "unavailable",
+        failureClass: task === null
+          ? "scene_supply_dispatch_task_unavailable"
+          : "scene_supply_dispatch_task_invalid",
+      };
+      sceneSupplyDispatches.set(waitKey, unavailable);
+      return unavailable;
+    }
+    let submission: JsonObject | null;
+    try {
+      submission = await supplyCoordinator.autoDispatch(
+        "coc_invoke",
+        { ok: true, data: supply },
+        { exactTask: task, priority: "scene", signal },
+      );
+    } catch {
+      submission = {
+        status: "unavailable",
+        failure_class: "scene_supply_dispatch_failed",
+        dispatch_key: dispatchKey,
+      };
+    }
+    const classified = classifySceneSupplyDispatch(submission, dispatchKey);
+    sceneSupplyDispatches.set(waitKey, classified);
+    return classified;
+  };
+  const resolveSceneSupply = async (
+    params: JsonObject,
+    sceneId: string,
+    initialSupply: JsonObject,
+    signal: AbortSignal | undefined,
+    checkMinimal: () => Promise<JsonObject | null>,
+  ) => {
+    const campaignId = String(params.campaign ?? "").trim();
+    const waitKey = `${campaignId}\u0000${sceneId}`;
+    if (initialSupply.enforced !== true || initialSupply.ready === true) {
+      sceneSupplyDispatches.delete(waitKey);
+      return {
+        supply: publicSceneSupply(initialSupply),
+        decision: decideSceneSupply(initialSupply, {
+          status: "unavailable",
+          failureClass: "not_required",
+        }),
+        dispatch: null,
+      };
+    }
+    const dispatch = await sceneSupplyDispatchStatus(waitKey, initialSupply, signal);
+    let supply = initialSupply;
+    let decision = decideSceneSupply(supply, dispatch);
+    if (decision.action === "retry_with_minimal") {
+      const minimal = await checkMinimal();
+      if (minimal !== null) {
+        supply = minimal;
+        decision = decideSceneSupply(supply, dispatch);
+      }
+    }
+    if (decision.action === "allow") sceneSupplyDispatches.delete(waitKey);
+    return { supply: publicSceneSupply(supply), decision, dispatch };
+  };
   const sceneSupplyPreflight = async (
     params: JsonObject,
     signal: AbortSignal | undefined,
@@ -8498,7 +8763,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const sceneId = typeof moveArgs?.scene_id === "string" ? moveArgs.scene_id.trim() : "";
     const campaignId = params.campaign.trim();
     if (!sceneId || !campaignId) return { supply: null, blocked: null };
-    const waitKey = `${campaignId}\u0000${sceneId}`;
     const check = async (allowMinimalFallback: boolean): Promise<JsonObject | null> => {
       try {
         const response = await client(ctx).callTool("coc_invoke", {
@@ -8519,26 +8783,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         return null;
       }
     };
-    let supply = await check(false);
-    if (supply === null) return { supply: null, blocked: null };
-    let decision = decideSceneSupply(supply, sceneSupplyWaits.get(waitKey) ?? 0);
-    if (decision.action === "retry_with_minimal") {
-      const minimal = await check(true);
-      if (minimal !== null) {
-        supply = minimal;
-        decision = decideSceneSupply(supply, sceneSupplyWaits.get(waitKey) ?? 0);
-      }
+    const initialSupply = await check(false);
+    if (initialSupply === null) return { supply: null, blocked: null };
+    const resolved = await resolveSceneSupply(
+      params,
+      sceneId,
+      initialSupply,
+      signal,
+      () => check(true),
+    );
+    if (resolved.decision.action === "allow") {
+      return { supply: resolved.supply, blocked: null };
     }
-    if (decision.action === "allow") {
-      sceneSupplyWaits.delete(waitKey);
-      return { supply, blocked: null };
-    }
-    const completedWaits = (sceneSupplyWaits.get(waitKey) ?? 0) + 1;
-    sceneSupplyWaits.set(waitKey, completedWaits);
-    // A wait that can never end is worse than an admitted block: the player
-    // spends turn after turn on a loading line. After MAX_SOURCE_WAITS the
-    // gate says so, and the KP tells the player instead of looping.
-    const isBlocked = decision.action === "blocked";
+    const isBlocked = resolved.decision.action === "blocked";
     const content = {
       schema_version: 1,
       contract_id: isBlocked
@@ -8547,10 +8804,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       audience: "keeper_only",
       scene_id: sceneId,
       campaign_id: campaignId,
-      completed_waits: completedWaits,
-      ...(isBlocked ? {} : { player_wait_text: decision.playerWaitText }),
-      source_cache_path: supply.source_cache_path,
-      instruction: decision.instruction,
+      host_gate_status: isBlocked ? "blocked" : "pending_with_live_dispatch",
+      source_cache_path: resolved.supply.source_cache_path,
+      instruction: resolved.decision.instruction,
     };
     try {
       pi.sendMessage({
@@ -8562,24 +8818,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       pi.appendEntry("coc-scene-supply-gate", content);
     } catch { /* hidden scene-supply guidance/audit is best effort */ }
     return {
-      supply,
+      supply: resolved.supply,
       blocked: {
         ok: false,
         tool: "state.move_scene",
         error: {
           code: isBlocked ? "scene_supply_blocked" : "scene_supply_pending",
           message: isBlocked
-            ? "destination SceneBundle never arrived and no source-bound fallback exists; "
-              + "tell the player this place stays closed instead of repeating the loading line"
-            : "destination SceneBundle is not ready; wait for steward-scene before moving",
+            ? "the way ahead remains unestablished; keep the response in fiction and offer established leads"
+            : "the way ahead is not yet established; keep the response in fiction and settle only independent action",
         },
         data: {
-          scene_supply: supply,
-          ...(isBlocked ? {} : { player_wait_text: decision.playerWaitText }),
-          retry_policy: isBlocked
-            ? "stop waiting: keep the destination unestablished, say so in fiction, offer open leads"
-            : "call coc_dispatch_source_work with the steward-scene task, await completion, "
-              + "retry once; then source-bound minimal fallback only",
+          scene_supply: resolved.supply,
+          host_gate_status: isBlocked ? "blocked" : "pending_with_live_dispatch",
+          instruction: resolved.decision.instruction,
         },
       },
     };
@@ -8593,6 +8845,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
     }
+    params = bindStartupResumeInvocation(name, params);
     params = openingContinuationGate.bindRetainedOpeningRoute(params);
     const epoch = sessionEpoch;
     const startupResumeError = startupResumeToolError(name, params);
@@ -8711,6 +8964,55 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       transportMeta = call.transport;
       turnTelemetry?.recordTransportMeta(_id, transportMeta);
       if (
+        process.env.COC_PI_SCENE_SUPPLY === "1"
+        && params.operation === "steward.scene_supply"
+        && typeof params.campaign === "string"
+        && objectOrNull(value)?.ok === true
+      ) {
+        const envelope = asObject(value, "scene supply envelope");
+        const initialSupply = asObject(envelope.data, "scene supply data");
+        const supplyArgs = objectOrNull(params.arguments);
+        const sceneId = typeof supplyArgs?.scene_id === "string"
+          ? supplyArgs.scene_id.trim()
+          : "";
+        if (sceneId) {
+          const resolved = await resolveSceneSupply(
+            params,
+            sceneId,
+            initialSupply,
+            signal,
+            async () => {
+              try {
+                const minimal = await client(ctx).callTool("coc_invoke", {
+                  operation: "steward.scene_supply",
+                  ...(typeof params.root === "string" ? { root: params.root } : {}),
+                  campaign: params.campaign,
+                  arguments: { scene_id: sceneId, allow_minimal_fallback: true },
+                }, signal);
+                const minimalEnvelope = objectOrNull(minimal);
+                return minimalEnvelope?.ok === true
+                  ? objectOrNull(minimalEnvelope.data)
+                  : null;
+              } catch { return null; }
+            },
+          );
+          const terminal = resolved.decision.action === "blocked";
+          value = {
+            ...envelope,
+            data: {
+              ...resolved.supply,
+              ...(terminal ? { status: "blocked" } : {}),
+              host_gate_status: resolved.decision.action === "wait"
+                ? "pending_with_live_dispatch"
+                : terminal ? "blocked" : "ready",
+              ...(resolved.decision.action === "allow"
+                ? {}
+                : { instruction: resolved.decision.instruction }),
+            },
+          };
+        }
+      }
+      if (
         preparedSceneSupply !== null
         && params.operation === "state.move_scene"
         && objectOrNull(value)?.ok === true
@@ -8732,11 +9034,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           scene_id: sceneId,
           source_cache_path: preparedSceneSupply.source_cache_path,
           instruction: (
-            "The current SceneBundle is ready. Before continuing ordinary play, "
-            + "resume or dispatch steward-scene to prefetch its directory-adjacent, "
-            + "same-parent child, if-chain, and next-timeline neighbors. Write every "
-            + "source-bound result with steward.scene_bundle_put. This prefetch is "
-            + "background preparation only; it does not decide scenes, actions, clues, or narration."
+            "The current source-bound scene is ready. Continue normal play "
+            + "using the returned data.scene_supply as Keeper-only grounding. "
+            + "Any neighboring prefetch is private and host-owned; it requires "
+            + "no Keeper action and must not be mentioned or promised at the table."
           ),
         };
         try {
@@ -9253,6 +9554,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           data.rendered_text,
           data.rendered_sha256,
         );
+        applyKpActiveTools();
+      }
+      if (
+        operation === "session.resume"
+        && envelope?.ok === true
+      ) {
+        const endingOutput = endingOutputFromReceipt(
+          objectOrNull(params.arguments) ?? {},
+          data,
+        );
+        if (endingOutput !== null) {
+          openingContinuationGate.markFinalizedOutputReady(
+            endingOutput.renderedText,
+            endingOutput.renderedSha256,
+          );
+          applyKpActiveTools();
+        }
       }
       if (
         operation === "evidence.table_opening"
@@ -9265,6 +9583,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           data.text,
           data.text_sha256,
         );
+        applyKpActiveTools();
       }
       if (
         envelope?.ok === true
@@ -9372,12 +9691,28 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (isCanonicalInvokeSurface(name) && params.operation === "session.resume") {
-      const guided = applyOpenTurnRecoveryGuidance(value);
-      if (guided.attached) {
-        value = guided.envelope as JsonObject;
+      const pendingGuided = applyPendingFinalizationRecoveryGuidance(value, {
+        root: typeof params.root === "string" && params.root
+          ? params.root
+          : ctx.cwd,
+        campaign: typeof params.campaign === "string" ? params.campaign : "",
+      });
+      if (pendingGuided.attached) {
+        value = pendingGuided.envelope as JsonObject;
         try {
-          pi.appendEntry(OPEN_TURN_RECOVERY_GUIDANCE_AUDIT, guided.audit);
+          pi.appendEntry(
+            PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
+            pendingGuided.audit,
+          );
         } catch { /* recovery-guidance audit is best effort */ }
+      } else {
+        const guided = applyOpenTurnRecoveryGuidance(value);
+        if (guided.attached) {
+          value = guided.envelope as JsonObject;
+          try {
+            pi.appendEntry(OPEN_TURN_RECOVERY_GUIDANCE_AUDIT, guided.audit);
+          } catch { /* recovery-guidance audit is best effort */ }
+        }
       }
     }
     return gatewayResult(value as JsonObject);
@@ -9566,9 +9901,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   // turn's authority comes from state/scene reads, not from old transcript JSON.
   // Registered before telemetry so the probe measures what is actually sent.
   const contextFold = createContextFold(readFoldSettings());
-  pi.on("context", (event) => ({
-    messages: contextFold.apply(event.messages).messages as typeof event.messages,
-  }));
+  const startupRecoveryThinking = createStartupRecoveryThinkingProjection();
+  pi.on("context", (event) => {
+    const folded = contextFold.apply(event.messages).messages;
+    return {
+      messages: startupRecoveryThinking.apply(
+        folded,
+        startupResumeGate !== null,
+      ) as typeof event.messages,
+    };
+  });
   // Per-turn step timing + token telemetry: JSONL evidence under the COC
   // agent home, a summary line after each settled turn, and /timing.
   // The real pi-coc wrapper always exports PI_CODING_AGENT_DIR; without it
@@ -9635,9 +9977,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       const decision = openingContinuationGate.acceptVisibleAssistantFinal(
         visibleText,
-        kpPlayPhase === "live_turn"
-          || kpPlayPhase === "pending_finalization"
-          || kpPlayPhase === "ending",
+        turnFinalizationRequiredForPhase(kpPlayPhase),
       );
       const deliveredBlocker = (
         openingContinuationGate.takeDeliveredOpeningSetupTerminalBlocker()
@@ -9678,7 +10018,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       return decision;
     },
-    (message) => openingContinuationGate.observeMessageStart(message),
+    (message) => {
+      openingContinuationGate.observeMessageStart(message);
+      applyKpActiveTools();
+    },
+    () => openingContinuationGate.hasPendingFinalizedOutput(),
   );
   // Forced raw-PDF bind injection: the KP must not need to read coc-module-init
   // to know the first call after a player PDF path is scenario.bind_pdf.
@@ -9749,7 +10093,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     });
   });
   pi.on("session_start", async (event, ctx) => {
-    sceneSupplyWaits.clear();
+    sceneSupplyDispatches.clear();
     const startupCampaignId = initializeSession(ctx);
     if (startupCampaignId !== null) {
       await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
@@ -9760,7 +10104,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = true;
     sessionEpoch += 1;
     startupResumeGate = null;
-    sceneSupplyWaits.clear();
+    sceneSupplyDispatches.clear();
     openingContinuationGate.reset();
     await supplyCoordinator.shutdown();
     for (const controller of sourceProducerControllers.values()) {

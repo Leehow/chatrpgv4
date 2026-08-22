@@ -110,6 +110,9 @@ const campaignId = "startup-table-opening-campaign";
 const h = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
   if (params.operation === "session.resume") {
+    if (params.root !== root || params.campaign !== campaignId) {
+      throw new Error(`startup resume identity was not host-bound: ${JSON.stringify(params)}`);
+    }
     return {
       ok: true,
       tool: "session.resume",
@@ -133,8 +136,8 @@ const h = harness((name, params) => {
 await h.start();
 const resumed = await invoke(h, "resume", {
   operation: "session.resume",
-  root,
-  campaign: campaignId,
+  root: `${root}-model-copy-typo`,
+  campaign: `${campaignId}-model-copy-typo`,
   arguments: {},
 });
 const opening = await invoke(h, "opening", {

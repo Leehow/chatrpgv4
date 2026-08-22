@@ -90,13 +90,20 @@ const fakePi = {
 };
 main.default(fakePi, {
   coordinatorEnabled: () => false,
-  createClient: () => ({
-    async callTool(name, params) {
+  createClient: () => {
+    const callTool = async (name, params) => {
       clientCalls.push({ name, params });
       return clientEnvelope;
-    },
-    async close() {},
-  }),
+    };
+    return {
+      callTool,
+      callToolWithTransportMeta: async (name, params) => ({
+        value: await callTool(name, params),
+        transport: null,
+      }),
+      async close() {},
+    };
+  },
 });
 const ctx = {
   cwd: root,

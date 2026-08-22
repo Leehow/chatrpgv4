@@ -264,6 +264,39 @@ test("same campaign refuses a second live child", async () => {
   assert.equal(orchestrator.hosts.size, 1);
 });
 
+test("model catalog refresh replaces the live host with the selected model", async () => {
+  const created = [];
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
+      created.push(host);
+      return host;
+    },
+  });
+  const { host: original } = await orchestrator.acquire("model-refresh", {
+    tableIntent: "continue",
+    provider: "xai",
+    model: "grok-4.5",
+    thinking: "low",
+  });
+
+  const replacement = await orchestrator.restartForModel("model-refresh", {
+    provider: "qwen-token-plan-cn",
+    model: "qwen3.8-max",
+    thinking: "low",
+  });
+
+  assert.equal(original.closed, true);
+  assert.equal(created.length, 2);
+  assert.equal(replacement.provider, "qwen-token-plan-cn");
+  assert.equal(replacement.model, "qwen3.8-max");
+  assert.equal(replacement.sessionId, original.sessionId);
+  assert.deepEqual(orchestrator.statusOf("model-refresh"), {
+    session_role: "play",
+    transitioning: false,
+  });
+});
+
 test("parseSessionRoleStdout reads play or setup from JSON or token", () => {
   assert.equal(parseSessionRoleStdout('{"role":"play","status":"ready_for_table"}'), "play");
   assert.equal(parseSessionRoleStdout("play"), "play");
@@ -305,6 +338,13 @@ function fakeRpcChild({ prompts } = {}) {
         stdout.write(`${JSON.stringify({
           type: "message_update",
           assistantMessageEvent: { type: "text_delta", delta: "宅邸的门缝里漏出一丝冷光。" },
+        })}\n`);
+        stdout.write(`${JSON.stringify({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "宅邸的门缝里漏出一丝冷光。" }],
+          },
         })}\n`);
         stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
       }

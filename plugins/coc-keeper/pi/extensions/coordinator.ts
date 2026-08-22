@@ -1568,6 +1568,12 @@ export class PiSemanticSupplyCoordinator {
       scene_id: candidate.scene_id,
       current_scene_status: candidate.current_scene_status,
       source_specific_facts: "unestablished_or_campaign_local_only",
+      exact_source_dependency: {
+        status: "unresolved",
+        keeper_action: "do_not_assert_or_improvise_source_specific_facts",
+        applies_when: "the current player action depends on an exact authored fact for this scene",
+        continuation: "settle only source-independent parts; await scene_priority_ready, then use its canonical source cards before settling the dependent fact",
+      },
       coordinator_priority: "scene",
     };
   }

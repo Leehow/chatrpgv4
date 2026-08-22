@@ -6,3 +6,30 @@ export function effectiveThinkingLevel(requested: string, supportedLevels?: stri
   if (levels.includes("off")) return "off";
   return levels[0] ?? "off";
 }
+
+export interface ModelRouteIdentity {
+  provider: string;
+  model: string;
+  providerLabel: string;
+  modelLabel: string;
+  label: string;
+}
+
+/** Keep duplicate model ids tied to their selected provider and show that
+ * channel anywhere the route is rendered. */
+export function modelRouteIdentity(route: {
+  provider: string;
+  model: string;
+  providerLabel?: string;
+  modelLabel?: string;
+}): ModelRouteIdentity {
+  const providerLabel = route.providerLabel?.trim() || route.provider;
+  const modelLabel = route.modelLabel?.trim() || route.model;
+  return {
+    provider: route.provider,
+    model: route.model,
+    providerLabel,
+    modelLabel,
+    label: `${providerLabel} · ${modelLabel}`,
+  };
+}

@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import {
   lastVisibleAssistantText,
-  pickHostedSessionAgentDir,
   SETUP_CHARACTER_OPENING_MARKER,
 } from "./pi-session-text.mjs";
+import { resolveProductAgentDir } from "./agent-dir.mjs";
 import { loadUserPrefs, pickUiPrefs, resolveUserPrefsPath } from "./user-prefs.mjs";
 import {
   applyGrokBuildExtensionSettingsEnv,
@@ -342,22 +342,17 @@ export function buildChildEnv({
 }) {
   const env = { ...parentEnv };
   env.COC_WORKSPACE = path.resolve(workspace);
-  const productAgentDir = agentDir || env.PI_AGENT_DIR || "";
-  const hostedAgentDir = pickHostedSessionAgentDir({
-    workspace: env.COC_WORKSPACE,
-    agentDir: productAgentDir,
-    sessionId,
-  });
-  if (hostedAgentDir) {
-    env.PI_AGENT_DIR = hostedAgentDir;
-    if (!(env.PI_CODING_AGENT_DIR || "").trim()) {
-      env.PI_CODING_AGENT_DIR = hostedAgentDir;
-    }
-  }
+  // Runtime identity is the explicitly selected product home. Historical
+  // workspace homes are transcript hydration sources only; they must never
+  // become a writable Pi home merely because an old session exists there.
+  const productAgentDir = path.resolve(resolveProductAgentDir({
+    agentDir: agentDir || env.PI_AGENT_DIR || "",
+    userData: env.COC_DESKTOP_USER_DATA,
+  }));
+  env.PI_AGENT_DIR = productAgentDir;
+  env.PI_CODING_AGENT_DIR = productAgentDir;
   const keyDirs = [];
-  pushUniqueDir(keyDirs, parentEnv.PI_AGENT_DIR);
   pushUniqueDir(keyDirs, productAgentDir);
-  pushUniqueDir(keyDirs, hostedAgentDir);
   injectWebSearchKeysIntoEnv(env, { keyDirs });
   // Extension settings snapshot (non-secret only): the grok-build-oauth
   // agent half reads PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH; tokens never
@@ -531,10 +526,10 @@ export function mapRpcEventToSse(event) {
     }
     const ame = event.assistantMessageEvent;
     if (ame && typeof ame === "object") {
-      if (ame.type === "text_delta" && typeof ame.delta === "string" && ame.delta) {
-        const text = stripPlayerEnvelopeMarkers(ame.delta);
-        if (text) out.push({ event: "delta", data: { text } });
-      } else if (
+      // Assistant text is still a model draft at message_update time. The Pi
+      // extension may hide or replace it at message_end after finalization;
+      // forwarding the draft here bypasses that settled-output boundary.
+      if (
         ame.type === "thinking_delta"
         && typeof ame.delta === "string"
         && ame.delta
@@ -560,10 +555,7 @@ export function mapRpcEventToSse(event) {
     // by the preceding lifecycle turn.
     const visibleText = stripPlayerEnvelopeMarkers(text).trim();
     if (!visibleText) return [];
-    return [
-      { event: "delta_reset", data: {} },
-      { event: "delta", data: { text: visibleText } },
-    ];
+    return [{ event: "delta", data: { text: visibleText } }];
   }
   if (type === "tool_execution_start") {
     return [toolEventFrame("start", event)];
@@ -626,11 +618,10 @@ export class PiCocRpcHost {
     this.workspace = path.resolve(workspace);
     this.campaignId = campaignId;
     this.sessionId = sessionId || webSessionId(campaignId);
-    this.agentDir = pickHostedSessionAgentDir({
-      workspace: this.workspace,
+    this.agentDir = path.resolve(resolveProductAgentDir({
       agentDir: agentDir || process.env.PI_AGENT_DIR || "",
-      sessionId: this.sessionId,
-    });
+      userData: process.env.COC_DESKTOP_USER_DATA,
+    }));
     this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
     this.tableIntent = tableIntent || null;
     this.provider = provider || "";
@@ -690,6 +681,7 @@ export class PiCocRpcHost {
   #replaySessionAssistant(onSse) {
     const text = stripPlayerEnvelopeMarkers(lastVisibleAssistantText({
       agentDir: this.agentDir,
+      workspace: this.workspace,
       sessionId: this.sessionId,
     })).trim();
     if (!text) return false;
@@ -708,6 +700,7 @@ export class PiCocRpcHost {
     if (visibleText.trim()) return true;
     return Boolean(lastVisibleAssistantText({
       agentDir: this.agentDir,
+      workspace: this.workspace,
       sessionId: this.sessionId,
     }));
   }

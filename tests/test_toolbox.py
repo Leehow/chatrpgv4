@@ -4013,6 +4013,57 @@ def test_pending_journal_rejects_later_state_mutation_before_it_writes(campaign_
     assert after == before
 
 
+def test_terminal_state_precedes_journal_and_finalization(campaign_ws):
+    ended = _run(campaign_ws, "state.end_session", {
+        "kind": "retreat",
+        "summary": "调查员拒绝委托，故事至此结束。",
+        "decision_id": "terminal-state-before-finalize",
+    })
+    assert ended["ok"] is True, ended
+    assert ended["data"]["session_ending"] is True
+
+    journaled = _run(campaign_ws, "state.journal", {
+        "summary": "调查员拒绝委托，故事在事务所收束。",
+        "player_action": "拒绝委托并离开",
+        "player_text": "我不接这份委托，转身离开。",
+        "intent_class": "interact",
+        "decision_id": "journal-after-terminal-state",
+    })
+    assert journaled["ok"] is True
+    assert coc_toolbox.coc_turn_manifest.pending_manifest(campaign_ws["campaign_dir"]) is not None
+
+    finalized = _run(campaign_ws, "turn.finalize", {
+        "coverage": [],
+        "decision_id": "terminal-state-before-finalize:receipt",
+        "draft": "调查员没有接过钥匙，转身离开。这个故事至此结束。",
+    })
+    assert finalized["ok"] is True, finalized
+    assert finalized["data"]["rendered_text"].endswith("这个故事至此结束。")
+
+    resumed = _run(campaign_ws, "session.resume")
+    assert resumed["ok"] is True, resumed
+    assert resumed["data"]["mode"] == "ending"
+    assert resumed["data"]["next_operations"] == []
+    assert resumed["data"]["ending_output"]["rendered_text"] == finalized["data"]["rendered_text"]
+    assert resumed["data"]["ending_output"]["rendered_sha256"] == finalized["data"]["rendered_sha256"]
+
+
+def test_pending_journal_rejects_terminal_state_mutation(campaign_ws):
+    journaled = _run(campaign_ws, "state.journal", {
+        "summary": "普通回合已经写入。",
+        "player_text": "我完成这一轮行动。",
+        "decision_id": "journal-before-illegal-ending",
+    })
+    assert journaled["ok"] is True
+    ended = _run(campaign_ws, "state.end_session", {
+        "kind": "retreat",
+        "summary": "过晚的终局写入。",
+        "decision_id": "illegal-ending-after-journal",
+    })
+    assert ended["ok"] is False
+    assert ended["error"]["code"] == "turn_pending_finalization"
+
+
 def test_pending_journal_allows_scene_context_before_finalization(campaign_ws):
     journaled = _run(campaign_ws, "state.journal", {
         "summary": "本轮状态已经结算，KP 随后读取场景投影用于组织输出。",
@@ -5794,6 +5845,28 @@ def test_state_end_session_appends_session_ending_event(campaign_ws):
     assert last["scene_id"] == active
     assert last["kind"] == "cliffhanger"
     assert last["summary"] == "session closed by toolbox test"
+
+    journaled = _run(campaign_ws, "state.journal", {
+        "summary": "session closed by toolbox test",
+        "player_text": "I leave this story here.",
+        "decision_id": "toolbox-end-1-journal",
+    })
+    assert journaled["ok"] is True
+
+    finalized = _run(campaign_ws, "turn.finalize", {
+        "coverage": [],
+        "decision_id": "toolbox-end-1-finalize",
+        "draft": "The session closes here.",
+    })
+    assert finalized["ok"] is True, finalized
+
+    resumed = _run(campaign_ws, "session.resume")
+    assert resumed["ok"] is True, resumed
+    assert resumed["data"]["mode"] == "ending"
+    assert resumed["data"]["next_operations"] == []
+    assert resumed["data"]["ending_output"]["rendered_text"] == finalized["data"]["rendered_text"]
+    assert resumed["data"]["ending_output"]["rendered_sha256"] == finalized["data"]["rendered_sha256"]
+    assert resumed["data"]["ending_output"]["ending_id"] == last["ending_id"]
 
 
 def test_state_end_session_idempotent_on_decision_id(campaign_ws):

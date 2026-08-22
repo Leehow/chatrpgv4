@@ -9,12 +9,10 @@ description: Pi-Coc 当前场景与周边预取、source-bound SceneBundle 缓�
 
 ## 数据面
 
-场景管家将 keeper-only、source-bound `SceneBundle` 写入
-`save/steward-state.json` 的 `domains.scene.bundles`，只能通过：
-
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py steward.scene_bundle_put --root . --campaign <id> --json '<JSON>'
-```
+Pi host 的私有 source coordinator 与 steward preparation 负责把 keeper-only、
+source-bound `SceneBundle` 写入 `save/steward-state.json` 的
+`domains.scene.bundles`。KP 只消费门控返回的 `data.scene_supply`；本门控不要求
+KP 派发、恢复或轮询任务，也不要求 KP 写 bundle。
 
 每个 bundle 的 `current` 必须有 `id`、`name`、`source_refs`；`neighbors[]`
 中的每个条目含 `scene` 与 `edge`。`SceneEdge` 是
@@ -31,26 +29,29 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py steward.scene_b
 ## 进入与预取
 
 1. Pi 在 `state.move_scene` 前读取 `steward.scene_supply(scene_id)`。
-2. 有完整 bundle 时才迁移；返回的 `data.scene_supply` 仅 KP 可用。
-3. 迁移成功后，KP 以短命令 resume/dispatch `steward-scene`，预取当前场景的：
-   目录相邻节点、同父地点子节点、if 边、时间线下一步，以及管家有来源依据的语义暗线。
-4. 将每个可进入的预取结果也写成独立 bundle，带 `prefetched_from`。进入该目标时
-   `cache_hit=true` 即为命中。
-5. 任务过大时可按地点/时间线/if/地图或章节切 2–4 个子任务；仅管家聚合后写
-   bundle，深度最多 KP → 管家 → 子代理。
+2. `ready`：迁移成功；返回的 `data.scene_supply` 仅 KP 可用，KP 直接据此继续正常游戏。
+3. 相邻场景预取完全由 Pi host 私下持有；它不需要 KP 操作，也不改变 KP 对场景、
+   行动、线索或叙事的判断。
+4. host/steward 将每个可进入的预取结果写成独立 bundle，并以
+   `prefetched_from` 标记来源；以后进入该目标时，`cache_hit=true` 表示命中。
 
 ## 就绪门控与降级
 
-当完整 bundle 未就绪，Pi 拒绝本次 `state.move_scene`，KP 只向玩家发送：
+门控状态只有三种：
 
-> 场景载入中……
+- `ready`：使用返回的 keeper-only bundle 继续游戏；相邻预取仍由 host 私下处理。
+- `pending_with_live_dispatch`：Pi host 已确认一个真实、受限的私有 dispatch 正在运行。
+  KP 不执行额外操作，也不承诺稍后一定可用；目的地保持未建立，只结算与其无关的
+  部分，并以纯虚构方式回应玩家。
+- `blocked`：不存在可派发的精确任务/能力，或真实 dispatch 已终止但仍没有可用结果。
+  立即停止等待；全程留在虚构内，让目的地保持未建立，并提供已经建立且开放的线索。
 
-随后派发或 resume `steward-scene`、等待完成信号，并重试同一迁移。不得在此期间
-即兴叙述目的地、补写线索或结算目的地后果。
+Pi host 独占本门控的任务与写入生命周期。KP 不派发或恢复 `steward-scene`，不调用或
+构造 `coc_dispatch_source_work`，也不调用 `steward.scene_bundle_put`。
 
-一次完成等待后仍无完整 bundle，且 `steward.scene_supply` 明确存在
-`fallback_available` 时，Pi 才允许最小降级：仅来源绑定的场景名、`source_refs` 与已知
-线索索引。没有该来源证据时继续失败关闭，不能以“KP 常识”补全。
+只有真实 host dispatch 到达终态后，且 canonical gate 返回来源绑定的 minimal fallback
+为 `ready`，Pi 才允许最小降级；KP 只使用返回的场景名、`source_refs` 与已知线索索引。
+没有该来源证据时保持 `blocked`，不能以“KP 常识”补全。
 
 门控只验证素材是否可用：不允许、拒绝、重排或压制玩家行动，也不代替 KP 的因果、
 节奏和叙事判断。

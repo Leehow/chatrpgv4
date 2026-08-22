@@ -2991,6 +2991,39 @@ def test_hidden_hotset_direct_call_still_succeeds(monkeypatch, tmp_path):
     assert rolled["tool"] == "rules.roll"
 
 
+def test_mcp_wire_resume_preserves_terminal_output_after_restart():
+    server = _load_server()
+    full = {
+        "ok": True,
+        "tool": "session.resume",
+        "data": {
+            "schema_version": 1,
+            "campaign_id": "ended-campaign",
+            "mode": "ending",
+            "ending_output": {
+                "ending_id": "ending-1",
+                "scene_id": "final-scene",
+                "kind": "conclusion",
+                "summary": "调查已经结束。",
+                "mechanical_text": "【明骰】Luck（1D100）：骰面 37 → 总值 37",
+            },
+            "working_set": {"mode": "full", "revision": "ws-ending"},
+            "host_context": {"acknowledged": None},
+            "next_operations": [],
+        },
+        "warnings": [],
+        "hints": [],
+    }
+    projected = server.wire_projection.project_envelope(
+        "session.resume",
+        full,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert projected["data"]["mode"] == "ending"
+    assert projected["data"]["ending_output"] == full["data"]["ending_output"]
+
+
 def test_mcp_wire_projection_keeps_resume_control_before_bounded_working_set():
     server = _load_server()
     repeated = "一段需要保留引用但不应反复塞进模型的连续记忆。" * 4

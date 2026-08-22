@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { modelRouteIdentity } from "../model-thinking";
 import type { ModelsResponse } from "../types";
 
 /** Desktop-shell affordance injected via preload; absent in plain browsers. */
@@ -52,6 +53,14 @@ export function ModelMenu({ models, provider, model, disabled, hidden, variant =
   );
   const activeProvider = models.providers[provider];
   const activeModel = activeProvider?.models.find((m) => m.id === model);
+  const activeRoute = activeProvider
+    ? modelRouteIdentity({
+        provider,
+        model,
+        providerLabel: activeProvider.label,
+        modelLabel: activeModel?.label || model || "模型",
+      })
+    : null;
   const desktop = (window as { cocDesktop?: DesktopBridge }).cocDesktop;
 
   return (
@@ -63,19 +72,25 @@ export function ModelMenu({ models, provider, model, disabled, hidden, variant =
           disabled={disabled}
           className={
             composer
-              ? "h-7 max-w-36 gap-1 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground"
-              : "h-9 max-w-24 gap-1.5 rounded-lg border-border/80 bg-card/70 px-2.5 shadow-none sm:max-w-56"
+              ? "h-7 max-w-48 gap-1 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground"
+              : "h-9 max-w-48 gap-1.5 rounded-lg border-border/80 bg-card/70 px-2.5 shadow-none sm:max-w-56"
           }
-          title="Keeper 模型（pi runner）"
+          title={activeRoute
+            ? `Keeper 模型（pi runner）：${activeRoute.label}`
+            : "Keeper 模型（pi runner）"}
+          aria-label={activeRoute ? `Keeper 模型：${activeRoute.label}` : "Keeper 模型"}
         >
           <Cpu className={cn("shrink-0 text-primary", composer ? "size-3" : "size-3.5")} />
-          {/* Phones show the model only; the provider label is the wide part. */}
-          <span className={cn("truncate sm:hidden", composer ? "text-[11px]" : "text-xs")}>
-            {activeModel ? activeModel.label : activeProvider ? activeProvider.label : "模型"}
-          </span>
-          <span className={cn("hidden truncate sm:inline", composer ? "text-[11px]" : "text-xs")}>
-            {activeProvider ? activeProvider.label : "模型"}
-            {activeModel ? ` · ${activeModel.label}` : ""}
+          <span className={cn("flex min-w-0 items-center gap-1", composer ? "text-[11px]" : "text-xs")}>
+            <span className="shrink-0 font-medium">
+              {activeRoute?.providerLabel ?? "模型"}
+            </span>
+            {activeRoute && (
+              <>
+                <span className="shrink-0 text-muted-foreground/70">·</span>
+                <span className="truncate">{activeRoute.modelLabel}</span>
+              </>
+            )}
           </span>
           <ChevronDown className={cn("hidden shrink-0 text-muted-foreground sm:block", composer ? "size-3" : "size-3.5")} />
         </Button>
@@ -93,12 +108,19 @@ export function ModelMenu({ models, provider, model, disabled, hidden, variant =
               {info.hasAuth ? "" : "（未配置凭据）"}
             </DropdownMenuLabel>
             {info.models.map((m) => {
-              const selected = pid === provider && m.id === model;
+              const route = modelRouteIdentity({
+                provider: pid,
+                model: m.id,
+                providerLabel: info.label,
+                modelLabel: m.label,
+              });
+              const selected = route.provider === provider && route.model === model;
               return (
                 <DropdownMenuItem
                   key={m.id}
-                  onSelect={() => onChange(pid, m.id)}
+                  onSelect={() => onChange(route.provider, route.model)}
                   className={cn("gap-2", selected && "bg-accent")}
+                  aria-label={route.label}
                 >
                   <span
                     className={cn(
@@ -106,7 +128,10 @@ export function ModelMenu({ models, provider, model, disabled, hidden, variant =
                       selected ? "bg-primary" : "bg-transparent",
                     )}
                   />
-                  <span className="truncate">{m.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{route.modelLabel}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {route.providerLabel}
+                  </span>
                 </DropdownMenuItem>
               );
             })}

@@ -81,13 +81,19 @@ export const FEATURED_PRESETS = [
     ],
   },
   {
-    id: "zhipu",
-    label: "智谱 GLM",
-    note: "需要智谱 API Key（bigmodel.cn）；填入 Key 后自动拉取模型列表，模型 ID 以控制台为准。思考已默认关闭。",
+    id: "zai-coding-cn",
+    label: "ZAI Coding Plan CN",
+    note: "使用智谱国内 Coding Plan 专属 API Key 与 coding 端点；不要与普通开放平台 zhipu 渠道混用。",
     api: "openai-completions",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4",
     models: [
-      { id: "glm-5.3", name: "GLM-5.3", reasoning: true, compat: { thinkingFormat: "zai" } },
+      {
+        id: "glm-5.3",
+        name: "GLM-5.3",
+        reasoning: true,
+        compat: { thinkingFormat: "zai", supportsReasoningEffort: true },
+        thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", max: "max" },
+      },
       {
         id: "glm-5.2",
         name: "GLM-5.2",

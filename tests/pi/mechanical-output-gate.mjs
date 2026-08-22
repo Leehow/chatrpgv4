@@ -1,4 +1,5 @@
 import "./_lib/preload-embedded-pi.mjs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -8,6 +9,7 @@ const gateLib = await import(path.join(
   root,
   "plugins/coc-keeper/pi/lib/mechanical-output-gate.ts",
 ));
+const digest = (text) => `sha256:${createHash("sha256").update(JSON.stringify(text)).digest("hex")}`;
 
 // Exact p47 evidence sample (turn-p-cd2a716c79a1.json): zero tool calls, fake
 // 【明骰】 blocks and a fabricated SAN transfer in raw KP prose.
@@ -28,6 +30,85 @@ const p47Sample = [
 ].join("\n");
 
 const pureProse = "雨水沿着窗玻璃缓缓滑落，风把灯焰压低了半寸。";
+
+// state.end_session is the last state write before the ending journal.  The
+// player-visible ending still comes from the later hash-bound turn.finalize
+// receipt, so ending remains a finalization-required phase.
+if (typeof main.turnFinalizationRequiredForPhase !== "function") {
+  throw new Error("turnFinalizationRequiredForPhase export is missing");
+}
+if (main.turnFinalizationRequiredForPhase("live_turn") !== true
+  || main.turnFinalizationRequiredForPhase("pending_finalization") !== true
+  || main.turnFinalizationRequiredForPhase("ending") !== true) {
+  throw new Error("ending phase lost its finalization requirement");
+}
+if (typeof main.endingOutputFromReceipt !== "function") {
+  throw new Error("endingOutputFromReceipt export is missing");
+}
+const endingOutput = main.endingOutputFromReceipt(
+  { summary: "托马斯离开宅邸，调查至此结束。" },
+  {
+    session_ending: true,
+    development: {
+      player_facing_mechanics: {
+        complete: true,
+        rendered_text: "【明骰】Luck（1D100）：骰面 37 → 总值 37",
+      },
+    },
+  },
+);
+if (endingOutput !== null) {
+  throw new Error("state.end_session bypassed the turn.finalize output boundary");
+}
+const exactEndingText = [
+  "托马斯离开宅邸，调查至此结束。",
+  "【明骰】Luck（1D100）：骰面 37 → 总值 37",
+].join("\n\n");
+const resumedEndingOutput = main.endingOutputFromReceipt({}, {
+  mode: "ending",
+  ending_output: {
+    ending_id: "ending-1",
+    summary: "托马斯离开宅邸，调查至此结束。",
+    rendered_text: exactEndingText,
+    rendered_sha256: digest(exactEndingText),
+  },
+});
+if (resumedEndingOutput?.renderedText !== exactEndingText) {
+  throw new Error("session.resume did not restore the exact terminal output");
+}
+const emptyEndingHandlers = new Map();
+const emptyEndingGate = new main.OpeningTerminalContinuationGate();
+emptyEndingGate.markExternalUserInput();
+emptyEndingGate.markFinalizedOutputReady(
+  resumedEndingOutput.renderedText,
+  resumedEndingOutput.renderedSha256,
+);
+main.registerPlayerTranscriptGate({
+  on(type, handler) {
+    const registered = emptyEndingHandlers.get(type) || [];
+    registered.push(handler);
+    emptyEndingHandlers.set(type, registered);
+  },
+}, (visibleText) => emptyEndingGate.acceptVisibleAssistantFinal(visibleText, false),
+undefined, () => emptyEndingGate.hasPendingFinalizedOutput());
+let emptyEndingResult;
+for (const handler of emptyEndingHandlers.get("message_end") || []) {
+  emptyEndingResult = await handler({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      stopReason: "stop",
+      content: [{ type: "thinking", thinking: "ending already settled" }],
+    },
+  }, {});
+}
+const emptyEndingText = emptyEndingResult?.message?.content
+  ?.filter((part) => part.type === "text")
+  .map((part) => part.text)
+  .join("");
+if (emptyEndingText !== resumedEndingOutput.renderedText) {
+  throw new Error("thinking-only terminal did not release the exact ending receipt");
+}
 
 // --------------------------------------------------------------------------- #
 // Detection surface
@@ -191,6 +272,81 @@ const prosePassed = await emit("message_end", {
   role: "assistant",
   content: [{ type: "text", text: pureProse }],
 });
+
+// Terminal provider failures and tool-free empty/thinking-only completions are
+// not visible assistant finals. Feeding them to the finalization gate turns a
+// terminal provider error into a hidden follow-up model call.
+const terminalHandlers = new Map();
+const terminalGate = new main.OpeningTerminalContinuationGate();
+let terminalCallbackCalls = 0;
+let terminalHiddenFollowUps = 0;
+main.registerPlayerTranscriptGate({
+  on(type, handler) {
+    const registered = terminalHandlers.get(type) || [];
+    registered.push(handler);
+    terminalHandlers.set(type, registered);
+  },
+}, (visibleText) => {
+  terminalCallbackCalls += 1;
+  const decision = terminalGate.acceptVisibleAssistantFinal(
+    visibleText,
+    visibleText.trim().length === 0,
+  );
+  if (decision === false) {
+    terminalHiddenFollowUps += 1;
+    terminalGate.takeMechanicalOutputGateEnvelope();
+  }
+  return decision;
+});
+
+async function emitTerminal(message) {
+  let result;
+  for (const handler of terminalHandlers.get("message_end") || []) {
+    result = await handler({ type: "message_end", message }, {});
+  }
+  return result;
+}
+
+const terminalBase = {
+  role: "assistant",
+  api: "openai-responses",
+  provider: "probe",
+  model: "probe",
+  usage: {},
+  timestamp: 300,
+};
+await emitTerminal({ ...terminalBase, stopReason: "error", content: [] });
+await emitTerminal({
+  ...terminalBase,
+  stopReason: "aborted",
+  content: [{ type: "text", text: "" }],
+});
+await emitTerminal({
+  ...terminalBase,
+  stopReason: "stop",
+  content: [{ type: "thinking", thinking: "internal only" }],
+});
+await emitTerminal({
+  ...terminalBase,
+  stopReason: "stop",
+  content: [{ type: "text", text: "  \n" }],
+});
+const terminalCallsBeforeVisible = terminalCallbackCalls;
+const hiddenBeforeVisible = terminalHiddenFollowUps;
+const normalVisibleTerminal = await emitTerminal({
+  ...terminalBase,
+  stopReason: "stop",
+  content: [{ type: "text", text: pureProse }],
+});
+if (terminalCallsBeforeVisible !== 0) {
+  throw new Error(`terminal/empty finals reached transcript callback ${terminalCallsBeforeVisible} times`);
+}
+if (hiddenBeforeVisible !== 0) {
+  throw new Error(`terminal/empty finals armed ${hiddenBeforeVisible} hidden follow-ups`);
+}
+if (terminalCallbackCalls !== 1 || normalVisibleTerminal !== undefined) {
+  throw new Error("normal non-empty visible assistant final did not reach the transcript callback exactly once");
+}
 
 process.stdout.write(JSON.stringify({
   detection: {

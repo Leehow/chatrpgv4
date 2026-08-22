@@ -251,10 +251,10 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "phases": ("live_turn",),
     },
     "state.end_session": {
-        "phases": ("ending",),
+        "phases": ("live_turn",),
     },
     "state.journal": {
-        "phases": ("live_turn", "pending_finalization", "recovery"),
+        "phases": ("live_turn", "pending_finalization", "recovery", "ending"),
         "kp_surface": "turn",
     },
     "state.exceptional_effect": {
@@ -400,6 +400,12 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "audience": "keeper",
         "phases": ("cold_start", "opening", "recovery", "live_turn", "pending_finalization"),
         "kp_surface": "setup",
+    },
+    "turn.finalize": {
+        "phases": ("live_turn", "pending_finalization", "recovery", "ending"),
+    },
+    "turn.output_context": {
+        "phases": ("live_turn", "pending_finalization", "recovery", "ending"),
     },
     "combat.context": {
         "phases": ("live_turn", "pending_finalization"),

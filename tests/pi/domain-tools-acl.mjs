@@ -83,9 +83,29 @@ assert.equal(mod.evaluateExecuteAcl({
 }).ok, true);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_state",
+  operation: "state.end_session",
+  phase: "pending_finalization",
+}).ok, false);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_turn",
+  operation: "turn.finalize",
+  phase: "ending",
+}).ok, true);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_state",
   operation: "state.move_scene",
   phase: "pending_finalization",
 }).ok, false);
+assert.ok(mod.activeToolsForPhase("ending").includes(
+  mod.domainToolForOperation("turn.finalize"),
+));
+assert.ok(mod.activeToolsForPhase("ending").includes(
+  mod.domainToolForOperation("state.journal"),
+));
+assert.ok(mod.activeToolsForPhase("ending").includes(
+  mod.domainToolForOperation("turn.output_context"),
+));
+assert.ok(!mod.activeToolsForPhase("ending").includes("coc_state_end_session"));
 
 for (const [operation, policy] of Object.entries(mod.OPERATION_POLICY)) {
   for (const phase of ["opening", "live_turn", "pending_finalization", "recovery", "ending", "cold_start"]) {
@@ -196,7 +216,7 @@ assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_state",
   operation: "state.end_session",
   phase: "ending",
-}).ok, true);
+}).ok, false);
 
 assert.ok(mod.activeToolsForPhase("cold_start").includes("coc_setup"));
 assert.ok(mod.activeToolsForPhase("opening").includes("coc_setup"));
@@ -277,6 +297,31 @@ assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", investigator
 assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", character_creation: {} }), "opening");
 assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", opening_gate: { phase: "opening_setup" } }), "opening");
 assert.equal(mod.playPhaseFromResumeData({ mode: "awaiting_player", investigators: [{ id: "inv-1" }] }), "live_turn");
+assert.equal(mod.playPhaseFromResumeData({ mode: "ending", ending_output: { ending_id: "ending-1" } }), "ending");
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "session.resume",
+    { ok: true, data: { mode: "ending", ending_output: { ending_id: "ending-1" } } },
+    "live_turn",
+  ),
+  "ending",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "state.end_session",
+    { ok: true, data: { session_ending: true } },
+    "pending_finalization",
+  ),
+  "ending",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "turn.finalize",
+    { ok: true, data: { rendered_text: "结局。" } },
+    "ending",
+  ),
+  "ending",
+);
 assert.equal(mod.inferPhaseFromEnvelope("session.resume", { ok: true }, "opening"), "opening");
 assert.equal(mod.inferPhaseFromEnvelope("session.resume", { ok: true }, "cold_start"), "opening");
 assert.equal(mod.inferPhaseFromEnvelope("session.resume", { ok: true }, "live_turn"), "live_turn");

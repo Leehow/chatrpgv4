@@ -1,11 +1,5 @@
 #!/usr/bin/env node
-/**
- * Deterministic smoke for lib/scene-supply.ts. The gate decides only whether a
- * destination has source-bound material; the property under test is that it
- * always has an exit. A wait that can never end costs the player a turn per
- * attempt and says nothing, which is what a live KP did before this terminal
- * state existed.
- */
+/** Deterministic smoke for the host-owned scene-supply lifecycle policy. */
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
@@ -17,40 +11,54 @@ const mod = await import(
 const pending = { enforced: true, ready: false, fallback_available: false };
 const withFallback = { enforced: true, ready: false, fallback_available: true };
 
-const ready = mod.decideSceneSupply({ enforced: true, ready: true }, 0);
-const unenforced = mod.decideSceneSupply({ enforced: false, ready: false }, 9);
-const first = mod.decideSceneSupply(pending, 0);
-const second = mod.decideSceneSupply(pending, 1);
-const terminal = mod.decideSceneSupply(pending, mod.MAX_SOURCE_WAITS);
-const fallback = mod.decideSceneSupply(withFallback, 1);
+const active = { status: "active", dispatchKey: "dispatch-1" };
+const unavailable = { status: "unavailable", failureClass: "no-capability" };
+const terminalDispatch = { status: "terminal", dispatchKey: "dispatch-1" };
+const ready = mod.decideSceneSupply({ enforced: true, ready: true }, unavailable);
+const unenforced = mod.decideSceneSupply({ enforced: false, ready: false }, unavailable);
+const waiting = mod.decideSceneSupply(pending, active);
+const blockedUnavailable = mod.decideSceneSupply(pending, unavailable);
+const blockedTerminal = mod.decideSceneSupply(pending, terminalDispatch);
+const fallback = mod.decideSceneSupply(withFallback, terminalDispatch);
 
 // Ready or unenforced material never gates play.
 const allows = ready.action === "allow" && unenforced.action === "allow";
 
-// A source-bound minimal fallback outranks both waiting and blocking.
+// A source-bound minimal fallback is permitted only after a real host
+// dispatch reached terminal state, never because the KP repeated a move.
 const prefersFallback = fallback.action === "retry_with_minimal"
-  && mod.decideSceneSupply(withFallback, mod.MAX_SOURCE_WAITS).action === "retry_with_minimal";
+  && mod.decideSceneSupply(withFallback, active).action === "wait"
+  && mod.decideSceneSupply(withFallback, unavailable).action === "blocked";
 
-// Waits name the exact callable: "dispatch steward-scene" describes an intent
-// and leaves the last hop to inference, which a weaker KP never bridges.
-const waitsNameTheTool = first.action === "wait"
-  && second.action === "wait"
-  && first.instruction.includes("coc_dispatch_source_work")
-  && first.instruction.includes("state.move_scene")
-  && first.playerWaitText === "场景载入中……";
+// The host owns dispatch. KP guidance must not expose a callable, a loading
+// line, an operational failure, or a promise that a later turn will fix it.
+const forbidden = [
+  "coc_dispatch_source_work", "steward-scene", "场景载入中", "素材",
+  "processing layer", "cannot dispatch", "unable to dispatch",
+];
+const noModelOwnedDispatch = waiting.action === "wait"
+  && forbidden.every((text) => !waiting.instruction.includes(text))
+  && waiting.instruction.includes("do not promise");
+// Retain the old JSON field until the Python wrapper assertion is renamed;
+// its truth now means the historical callable instruction is absent.
+const waitsNameTheTool = noModelOwnedDispatch;
 
-// The terminal state exists and tells the KP to stop repeating the loading
-// line, keep the destination unestablished, and offer what is open.
-const blocks = terminal.action === "blocked"
-  && !("playerWaitText" in terminal)
-  && terminal.instruction.includes("unestablished")
-  && terminal.instruction.includes("invent nothing");
+// Missing dispatch capability and terminal-without-material block immediately.
+const blocks = blockedUnavailable.action === "blocked"
+  && blockedTerminal.action === "blocked"
+  && !("playerWaitText" in blockedUnavailable)
+  && blockedUnavailable.instruction.includes("unestablished")
+  && blockedUnavailable.instruction.includes("Do not invent");
 
-// Blocking is monotonic in completed waits: more waiting never reopens a wait.
-const staysBlocked = mod.decideSceneSupply(pending, mod.MAX_SOURCE_WAITS + 5).action === "blocked";
+// Repeating the move cannot change the lifecycle decision.
+const staysBlocked = Array.from({ length: 5 }, () => (
+  mod.decideSceneSupply(pending, unavailable).action
+)).every((action) => action === "blocked");
 
 // Junk supply values must not throw or silently gate ordinary play.
-const junk = [null, "x", 42, []].map((value) => mod.decideSceneSupply(value, 0).action);
+const junk = [null, "x", 42, []].map((value) => (
+  mod.decideSceneSupply(value, unavailable).action
+));
 const junkAllows = junk.every((action) => action === "allow");
 
 process.stdout.write(JSON.stringify({
@@ -58,8 +66,8 @@ process.stdout.write(JSON.stringify({
   allows,
   prefersFallback,
   waitsNameTheTool,
+  noModelOwnedDispatch,
   blocks,
   staysBlocked,
   junkAllows,
-  maxWaits: mod.MAX_SOURCE_WAITS,
 }));

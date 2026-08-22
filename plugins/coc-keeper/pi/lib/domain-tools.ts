@@ -320,7 +320,7 @@ export function evaluateExecuteAcl(args: {
 }
 
 export function activeToolsForPhase(phase: PlayPhase, role?: SessionRole | null): string[] {
-  const core = ["read", "subagent", "subagent_wait"] as const;
+  const core = ["subagent", "subagent_wait"] as const;
   let tools: string[];
   if (phase === "pending_finalization") {
     tools = [...core, "coc_turn", "coc_context", "coc_state", "coc_advice"];
@@ -538,6 +538,7 @@ export function playPhaseFromResumeData(
 ): PlayPhase | null {
   if (!data) return null;
   const mode = typeof data.mode === "string" ? data.mode : "";
+  if (mode === "ending") return "ending";
   if (mode === "pending_finalization" || data.pending_output_context) {
     return "pending_finalization";
   }
@@ -631,7 +632,9 @@ export function inferPhaseFromEnvelope(
       return "opening";
     }
   }
-  if (operation === "turn.finalize" && envelope?.ok === true) return "live_turn";
+  if (operation === "turn.finalize" && envelope?.ok === true) {
+    return previous === "ending" ? "ending" : "live_turn";
+  }
   if (operation === "state.end_session" && envelope?.ok === true) return "ending";
   if (operation === "evidence.table_opening" && envelope?.ok === true) {
     return "live_turn";

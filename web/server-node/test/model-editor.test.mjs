@@ -24,6 +24,17 @@ const fakeCatalog = [
   { id: "openrouter", label: "OpenRouter", note: "Pi 内置 · 订阅登录或 API Key", methods: ["oauth", "api_key"], baseUrl: "" },
 ];
 
+test("ZAI Coding Plan CN preset uses the dedicated endpoint and keeps GLM-5.3 thinking on", () => {
+  const preset = FEATURED_PRESETS.find((entry) => entry.id === "zai-coding-cn");
+  assert.ok(preset);
+  assert.equal(preset.baseUrl, "https://open.bigmodel.cn/api/coding/paas/v4");
+  assert.notEqual(preset.baseUrl, "https://open.bigmodel.cn/api/paas/v4");
+  const glm53 = preset.models.find((entry) => entry.id === "glm-5.3");
+  assert.equal(glm53.thinkingLevelMap.off, null);
+  assert.equal(glm53.thinkingLevelMap.low, "low");
+  assert.equal(glm53.compat.supportsReasoningEffort, true);
+});
+
 async function listCatalog() {
   return fakeCatalog;
 }
