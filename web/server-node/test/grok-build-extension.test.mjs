@@ -26,7 +26,12 @@ import {
   verifyInstalledGrokBuildPackage,
   runGrokBuildInstallerCli,
 } from "../grok-build-extension.mjs";
-import { resolveXaiImageTransport, generateCampaignPortrait } from "../xai-image.mjs";
+import {
+  XaiImageError,
+  generateCampaignPortrait,
+  hostErrorAllowsCompatFallback,
+  resolveXaiImageTransport,
+} from "../xai-image.mjs";
 import { buildChildEnv, buildPiCocArgs } from "../pi-coc-rpc.mjs";
 import { FEATURED_OAUTH, providerSummary } from "../model-editor.mjs";
 import { registerGrokBuildProviderOnRuntime } from "../provider-login.mjs";
@@ -819,6 +824,12 @@ test("installer CLI installs from --source, reports status, and fails closed wit
     assert.equal(status.hostEntryPath, path.join(installedDirOf(repoRoot), "agent/dist/host.js"));
     assert.equal(status.terminalConfigured, true);
     assert.equal(status.compatFallback, false);
+    assert.deepEqual(status.compatFallbackAllowlist, [
+      "tier_restricted",
+      "auth_expired",
+      "not_logged_in",
+      "NoAgentHomeError",
+    ]);
     assert.equal(status.mountedViaHostEnv, false);
 
     // Fresh checkout with no source: non-zero + actionable instructions.
@@ -908,8 +919,9 @@ test("canonical portrait path calls the artifact host library and returns its ty
   }
 });
 
-test("canonical tier-gate and auth failures surface without any compat fallback", async () => {
-  const root = tempDir("grok-canonical-err-");
+/** Matrix: what the canonical host error + compat gate together decide. */
+test("canonical tier_restricted surfaces without compat when compatFallback=false", async () => {
+  const root = tempDir("grok-tier-off-");
   try {
     const { repoRoot, agentDir } = await installHostStubPackage(root, {
       hostState: {
@@ -920,21 +932,215 @@ test("canonical tier-gate and auth failures surface without any compat fallback"
     });
     const workspace = path.join(root, "ws");
     const campaignId = makeCampaign(workspace);
+    const compatCalls = [];
+    // Gate closed (default): even with XAI_API_KEY present, no fallback — the
+    // user is told to log in / upgrade.
     await assert.rejects(
       generateCampaignPortrait({
         workspace,
         campaignId,
         prompt: "x",
         outputPath: "tmp/portraits/p.png",
-        env: { PI_AGENT_DIR: agentDir, ...compatEnv() },
+        env: { PI_AGENT_DIR: agentDir, XAI_API_KEY: "must-not-be-used" },
         agentDir,
         repoRoot,
-        fetchImpl: async () => {
-          throw new Error("compat must not run when the canonical call fails");
+        fetchImpl: async (url) => {
+          compatCalls.push(url);
+          throw new Error("compat must not run");
         },
       }),
-      (err) => err.status === 403 && /需要订阅/.test(err.message),
+      (err) => err instanceof XaiImageError && /SuperGrok|订阅|compatFallback/.test(err.message) && err.code === "NO_IMAGE_BACKEND",
     );
+    assert.equal(compatCalls.length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("tier_restricted with explicit compatFallback=true falls back to the deprecated API-key path", async () => {
+  const root = tempDir("grok-tier-on-");
+  try {
+    const { repoRoot, agentDir } = await installHostStubPackage(root, {
+      hostState: {
+        usable: true,
+        loggedIn: true,
+        generateError: { code: "tier_restricted", message: "需要订阅" },
+      },
+    });
+    const workspace = path.join(root, "ws");
+    const campaignId = makeCampaign(workspace);
+    const calls = [];
+    const result = await generateCampaignPortrait({
+      workspace,
+      campaignId,
+      prompt: "x",
+      outputPath: "tmp/portraits/p.png",
+      env: compatEnv({ XAI_API_KEY: "legacy-tier-compat-key", PI_AGENT_DIR: agentDir }),
+      agentDir,
+      repoRoot,
+      fetchImpl: async (url, init) => {
+        calls.push({ url, auth: init.headers.Authorization });
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({ data: [{ b64_json: PNG_B64 }] });
+          },
+        };
+      },
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://api.x.ai/v1/images/generations");
+    assert.equal(calls[0].auth, "Bearer legacy-tier-compat-key");
+    assert.equal(result.ok, true);
+    assert.equal(result.backend, "official");
+    assert.equal(result.deprecated, true);
+    assert.equal(result.canonical, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("tier_restricted with compatFallback=true and a reachable relay uses the deprecated relay", async () => {
+  const root = tempDir("grok-tier-relay-");
+  try {
+    const { repoRoot, agentDir } = await installHostStubPackage(root, {
+      hostState: {
+        usable: true,
+        loggedIn: true,
+        generateError: { code: "tier_restricted", message: "需要订阅" },
+      },
+    });
+    const workspace = path.join(root, "ws");
+    const campaignId = makeCampaign(workspace);
+    const calls = [];
+    const result = await generateCampaignPortrait({
+      workspace,
+      campaignId,
+      prompt: "x",
+      outputPath: "tmp/portraits/p.png",
+      env: compatEnv({
+        PI_AGENT_DIR: agentDir,
+        PIPIUI_GROK_RELAY: "http://127.0.0.1:18891/v1",
+      }),
+      agentDir,
+      repoRoot,
+      probeImpl: async () => true,
+      fetchImpl: async (url, init) => {
+        calls.push({ url, auth: init.headers.Authorization });
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({ data: [{ b64_json: PNG_B64 }] });
+          },
+        };
+      },
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://127.0.0.1:18891/v1/images/generations");
+    assert.equal(calls[0].auth, "Bearer local");
+    assert.equal(result.backend, "pipiui-relay");
+    assert.equal(result.deprecated, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("non-allowlisted canonical errors never fall back, regardless of compatFallback", async () => {
+  const root = tempDir("grok-nonfall-");
+  try {
+    const workspace = path.join(root, "ws");
+    const campaignId = makeCampaign(workspace);
+    const codes = ["invalid_params", "invalid_response", "rate_limited", "upstream_error"];
+    for (const code of codes) {
+      const { repoRoot, agentDir } = await installHostStubPackage(path.join(root, code), {
+        hostState: {
+          usable: true,
+          loggedIn: true,
+          generateError: { code, message: `${code} detail` },
+        },
+      });
+      const calls = [];
+      await assert.rejects(
+        generateCampaignPortrait({
+          workspace,
+          campaignId,
+          prompt: "x",
+          outputPath: `tmp/portraits/${code}.png`,
+          env: compatEnv({ XAI_API_KEY: "must-not-run", PI_AGENT_DIR: agentDir }),
+          agentDir,
+          repoRoot,
+          fetchImpl: async (url) => {
+            calls.push(url);
+            throw new Error("compat must not run");
+          },
+        }),
+        (err) => {
+          assert.equal(err instanceof XaiImageError, true, `${code} should surface as XaiImageError`);
+          assert.match(err.message, new RegExp(code.replace(/_/g, "[ _]?")));
+          return true;
+        },
+        `${code} must surface without fallback`,
+      );
+      assert.equal(calls.length, 0, `${code} must not hit compat transports`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hostErrorAllowsCompatFallback allow-list is exact", () => {
+  assert.equal(hostErrorAllowsCompatFallback({ code: "tier_restricted" }), true);
+  assert.equal(hostErrorAllowsCompatFallback({ code: "auth_expired" }), true);
+  assert.equal(hostErrorAllowsCompatFallback({ code: "not_logged_in" }), true);
+  assert.equal(hostErrorAllowsCompatFallback({ name: "NoAgentHomeError" }), true);
+  for (const code of [
+    "invalid_params",
+    "invalid_response",
+    "rate_limited",
+    "upstream_error",
+    "path_escaped",
+    "ETIMEDOUT",
+    "ABORTED",
+    "network_error",
+  ]) {
+    assert.equal(hostErrorAllowsCompatFallback({ code }), false, code);
+  }
+  assert.equal(hostErrorAllowsCompatFallback(null), false);
+  assert.equal(hostErrorAllowsCompatFallback(new Error("plain")), false);
+});
+
+test("AbortError from the canonical path is not swallowed into compat", async () => {
+  const root = tempDir("grok-abort-");
+  try {
+    const { repoRoot, agentDir } = await installHostStubPackage(root, {
+      hostState: {
+        usable: true,
+        loggedIn: true,
+        generateError: { code: "ABORTED", message: "cancelled" },
+      },
+    });
+    const workspace = path.join(root, "ws");
+    const campaignId = makeCampaign(workspace);
+    const calls = [];
+    await assert.rejects(
+      generateCampaignPortrait({
+        workspace,
+        campaignId,
+        prompt: "x",
+        outputPath: "tmp/portraits/a.png",
+        env: compatEnv({ XAI_API_KEY: "must-not-run", PI_AGENT_DIR: agentDir }),
+        agentDir,
+        repoRoot,
+        fetchImpl: async (url) => {
+          calls.push(url);
+          throw new Error("compat must not run");
+        },
+      }),
+      (err) => err instanceof XaiImageError,
+    );
+    assert.equal(calls.length, 0);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -141,9 +141,19 @@ bytes+metadata 结果全部来自单一源包，本仓不复刻请求逻辑。
 **兼容回退门（deprecated，默认关）**：仅当用户在
 `.pi/coc-agent/extensions/grok-build-oauth.settings.json` 显式设置
 `"ext.grok-build-oauth.compatFallback": true`（或宿主注入同名快照 env）时，
-canonical 不可用才回退旧路径（`XAI_API_KEY` → PipiUI loopback relay →
-auth.json `xai` key），回退传输标记 `deprecated: true`。门关闭时这些旧通道
-**绝不**被使用，并提示 `/login grok-build`。
+才允许进入旧路径（`XAI_API_KEY` → PipiUI loopback relay →
+auth.json `xai` key），回退传输标记 `deprecated: true`。
+
+回退触发面是**显式白名单**，不是任意 canonical 失败都回退：
+- canonical host 调用返回 `tier_restricted`（客户端 advisory tier gate，
+  Free/X Basic；旧 API-key 通道永不被 gate）；
+- `auth_expired` / `not_logged_in`（OAuth 凭证不可用/未配置）；
+- host 无法解析 Pi home（`NoAgentHomeError`，宿主未配置）；
+- canonical 工件未安装/验证失败（`absent`）或凭证不可用（`auth-missing`）。
+
+白名单之外 — `invalid_params`、路径/安全违规、用户取消（abort）、超时、
+上游 4xx/5xx、网络错误 — 直接抛出，**绝不**静默改走 deprecated 通道。
+门关闭时同样提示 `/login grok-build` 或升级订阅，绝不回退。
 
 **RPC 升级边界**：当前 pi 0.84.2 没有 `invokeExtension` RPC，服务端无法热调
 在会话扩展的 `image_gen` 工具；host 入口库是当前唯一非会话 canonical 路径。
