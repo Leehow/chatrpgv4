@@ -130,6 +130,26 @@ def test_social_adjudicate_difficulty_ladder_and_motive(campaign_ws):
     assert plain["data"]["base_difficulty"] == "regular"
     assert plain["data"]["final_difficulty"] == "regular"
     assert plain["data"]["feasibility"] == "roll"
+    assert plain["data"]["roll_operation"] == {
+        "operation": "rules.roll",
+        "invoke_via": "coc_rules_roll",
+        "prefilled_arguments": {
+            "investigator": campaign_ws["investigator_id"],
+            "npc_id": campaign_ws["npc_id"],
+            "skill": plain["data"]["approach_skill"],
+            "difficulty": "regular",
+            "bonus": 0,
+            "penalty": 0,
+            "goal": "承认篡改了档案",
+            "difficulty_basis": "opponent_skill",
+            "social_adjudication_ref": plain["data"]["goal_key"],
+        },
+        "missing_arguments": ["stakes", "decision_id"],
+        "argument_boundary": {
+            "submission_shape": "prefilled_plus_missing_only",
+            "forbidden_arguments": ["target", "reason"],
+        },
+    }
 
     hard = _adjudicate(campaign_ws, "adj-hard", npc_defense_value=55)
     assert hard["data"]["base_difficulty"] == "hard"

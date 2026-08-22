@@ -118,6 +118,152 @@ def test_budget_modes_from_turn_signals(campaign_ws):
     assert ending["data"]["budget"]["max_chars"] == 1500
 
 
+def test_settled_multi_stage_public_checks_fit_budget_and_finalize_first_try(
+    campaign_ws,
+):
+    investigator = campaign_ws["investigator_id"]
+    run_id = "multi-stage-budget-run"
+    reaction_context = {
+        "player_conduct": "调查员出示记者证，礼貌说明查档来意",
+        "scene_constraints": "工作人员仍受档案借阅职责约束",
+        "authored_or_relationship_boundary": "初次见面，没有既有私交",
+        "semantic_reason": "外表与社会身份只影响最初耐心，不越过职责边界",
+    }
+
+    arty = _run(campaign_ws, "npc.reaction", {
+        "npc_id": "npc-arty-wilmot",
+        "npc_display_name": "阿蒂·威尔莫特",
+        "investigator": investigator,
+        "run_id": run_id,
+        "context": reaction_context,
+        "seed": 5,
+        "decision_id": "budget-arty-reaction",
+    })
+    assert arty["ok"] is True, arty
+    assert arty["data"]["achieved_level"] == "failure"
+    arty_engagement = _run(campaign_ws, "state.record_npc_engagement", {
+        "npc_id": "npc-arty-wilmot",
+        "investigator": investigator,
+        "interaction_kind": "dialogue",
+        "first_impression_ref": arty["data"]["first_impression_ref"],
+        "first_impression_realization": {
+            "observable_manner": "阿蒂把登记簿按在手下，先审视记者证",
+            "causal_explanation": "调查员的初次露面没有立刻消除他的戒心",
+            "boundary_preserved": "阿蒂仍坚持查档手续",
+            "opportunity_or_friction": "调查员需要进一步说明来意",
+        },
+        "run_id": run_id,
+        "decision_id": "budget-arty-engagement",
+    })
+    assert arty_engagement["ok"] is True, arty_engagement
+
+    adjudicated = _run(campaign_ws, "rules.social_adjudicate", {
+        "investigator": investigator,
+        "npc_id": "npc-arty-wilmot",
+        "conversation_window_id": "budget-globe-counter",
+        "commitment_id": "budget-request-clippings",
+        "approach": "charm",
+        "goal_summary": "获准查阅旧剪报",
+        "decision_id": "budget-social-adjudication",
+    })
+    assert adjudicated["ok"] is True, adjudicated
+    social = _run(campaign_ws, "rules.roll", {
+        "investigator": investigator,
+        "npc_id": "npc-arty-wilmot",
+        "skill": adjudicated["data"]["approach_skill"],
+        "difficulty": adjudicated["data"]["final_difficulty"],
+        "bonus": adjudicated["data"]["bonus_dice"],
+        "penalty": adjudicated["data"]["penalty_dice"],
+        "goal": "获准查阅旧剪报",
+        "stakes": {
+            "on_success": "阿蒂准许调查员进入剪报库",
+            "on_failure": "阿蒂拒绝开放剪报库",
+        },
+        "difficulty_basis": "opponent_skill",
+        "social_adjudication_ref": adjudicated["data"]["goal_key"],
+        "seed": 11,
+        "decision_id": "budget-social-roll",
+    })
+    assert social["ok"] is True, social
+    assert social["data"]["outcome"] not in {"critical", "fumble"}
+
+    ruth = _run(campaign_ws, "npc.reaction", {
+        "npc_id": "npc-ruth-blake",
+        "npc_display_name": "露丝·布莱克",
+        "investigator": investigator,
+        "run_id": run_id,
+        "context": reaction_context,
+        "seed": 3,
+        "decision_id": "budget-ruth-reaction",
+    })
+    assert ruth["ok"] is True, ruth
+    assert ruth["data"]["achieved_level"] == "regular"
+    ruth_engagement = _run(campaign_ws, "state.record_npc_engagement", {
+        "npc_id": "npc-ruth-blake",
+        "investigator": investigator,
+        "interaction_kind": "dialogue",
+        "first_impression_ref": ruth["data"]["first_impression_ref"],
+        "first_impression_realization": {
+            "observable_manner": "露丝看过记者证后把索引卡推到柜台边",
+            "causal_explanation": "调查员清楚的身份说明让她愿意提供下一步指引",
+            "boundary_preserved": "露丝仍不替调查员绕过借阅规定",
+            "opportunity_or_friction": "她指出了可申请的剪报卷宗",
+        },
+        "run_id": run_id,
+        "decision_id": "budget-ruth-engagement",
+    })
+    assert ruth_engagement["ok"] is True, ruth_engagement
+
+    journal = _run(campaign_ws, "state.journal", {
+        "summary": "调查员在剪报库柜台先后与阿蒂和露丝交涉。",
+        "player_action": "出示记者证并申请查阅旧剪报",
+        "player_text": "我出示记者证，请他们让我查阅旧剪报。",
+        "intent_class": "social",
+        "run_id": run_id,
+        "decision_id": "budget-multi-stage-journal",
+    })
+    assert journal["ok"] is True, journal
+    output = _run(campaign_ws, "turn.output_context")
+    assert output["ok"] is True, output
+    data = output["data"]
+    public_checks = data["mechanics_bundle"]["public_check"]
+    assert len(public_checks) == 3
+    assert data["contract_projection"]["narration_budget"]["max_paragraphs"] >= 3
+
+    setup = "你把记者证平放在柜台上，先向阿蒂说明要查的年份和地址。"
+    arty_result = "阿蒂仍按着登记簿，但听完你的说明后终于把通往剪报库的门推开。"
+    ruth_result = "门后的露丝看过记者证，把对应年份的索引卡推到你手边。"
+    draft = "\n\n".join((setup, arty_result, ruth_result))
+    arty_sources = {
+        arty["data"]["roll_id"],
+        arty["data"]["receipt_id"],
+        social["data"]["roll_id"],
+    }
+    coverage = []
+    for obligation in data["obligations"]:
+        excerpt = arty_result if obligation["source_id"] in arty_sources else ruth_result
+        coverage.append({
+            "obligation_id": obligation["obligation_id"],
+            "realization": "fictional_beat",
+            "action_realization": "调查员出示记者证并清楚说明查档来意",
+            "response": "工作人员按各自职责回应调查员",
+            "causal_explanation": "首见印象和社交检定共同决定工作人员如何放行",
+            "persona_fit": "符合记者以证件和清楚请求交涉的方式",
+            "player_input_handling": "specific_preserved",
+            "exact_excerpt": excerpt,
+            "exceptional_beat": "",
+        })
+
+    finalized = _run(campaign_ws, "turn.finalize", {
+        "draft": draft,
+        "coverage": coverage,
+        "revision": 1,
+        "decision_id": "budget-multi-stage-finalize",
+    })
+    assert finalized["ok"] is True, finalized
+    assert finalized["data"]["accepted_revision"] == 1
+
+
 def _trigger_bout(ws) -> None:
     result = _run(
         ws,
