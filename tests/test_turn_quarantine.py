@@ -295,6 +295,48 @@ def test_resume_skips_creation_bound_luck_roll(campaign_ws):
     ).exists()
 
 
+def test_ending_required_roll_stays_bound_and_delivery_survives_resume(campaign_ws):
+    ended = _run(campaign_ws, "state.end_session", {
+        "kind": "conclusion",
+        "summary": "调查员在委托现场明确拒绝接案并结束调查。",
+        "decision_id": "ending-with-required-luck-roll",
+    })
+    assert ended["ok"] is True, ended
+    settlements = ended["data"]["development"]["settlements"]
+    required_roll_ids = {
+        roll_id
+        for settlement in settlements
+        for roll_id in settlement["receipt"]["player_facing_mechanics"][
+            "required_roll_ids"
+        ]
+    }
+    assert required_roll_ids
+
+    finalized = _finalize_current_turn(
+        campaign_ws, "ending-with-required-luck-roll-finalize"
+    )
+    assert set(finalized["data"]["source_roll_ids"]) == required_roll_ids
+    acknowledged = _run(campaign_ws, "session.delivery_ack", {
+        "finalization_id": finalized["data"]["finalization_id"],
+        "rendered_sha256": finalized["data"]["rendered_sha256"],
+        "ack_kind": "displayed",
+        "source_id": "turn-quarantine-regression-browser",
+        "decision_id": "ending-delivery-ack",
+    })
+    assert acknowledged["ok"] is True, acknowledged
+
+    resumed = _run(campaign_ws, "session.resume", {})
+    assert resumed["ok"] is True, resumed
+    assert resumed["data"]["turn_tail_quarantine"] == {
+        "quarantined_orphan_rolls": [],
+        "restored_commit_snapshot": None,
+        "invalidated_decisions": [],
+        "discarded_development_ticks": {"queue": 0, "claims": 0, "archive": 0},
+    }
+    assert resumed["data"]["delivery"]["status"] == "confirmed"
+    assert resumed["data"]["delivery"]["ack_kind"] == "displayed"
+
+
 def test_resume_quarantines_unfinalized_turn_tail(campaign_ws):
     # Committed turn A: one SAN loss (55 -> 52), finalized.
     _san_check(campaign_ws, decision_id="committed-san", seed=1, loss_success="1D3", loss_failure="1D3")

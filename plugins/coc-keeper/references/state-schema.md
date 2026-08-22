@@ -348,11 +348,13 @@ scene/NPC/causal play, campaign language, and situational Table Wit across
 compaction.
 
 `delivery-receipts.jsonl` is append-only transport evidence. A checkpoint starts
-with delivery unconfirmed. An explicit host acknowledgement or the next exact
-player reply confirms that the prior `rendered_sha256` reached the table. Until
-then, resume may replay only the prior exact `rendered_text` (inline or fetched
-by `session.delivery_text` using its finalization ID and hash); it must never
-reroll, reapply state, or generate substitute prose.
+with delivery unconfirmed. Only an explicit host acknowledgement after the
+hash-bound text reached its player transport confirms that the prior
+`rendered_sha256` reached the table; a later player reply is not delivery
+evidence. Until confirmation, resume may replay only the prior exact
+`rendered_text` (inline or fetched by `session.delivery_text` using its
+finalization ID and hash); it must never reroll, reapply state, or generate
+substitute prose.
 
 `.coc/runtime/host-sessions/` is disposable workspace cache, not campaign
 truth. Plugin hooks mark a new `context_epoch` at startup and compaction. The

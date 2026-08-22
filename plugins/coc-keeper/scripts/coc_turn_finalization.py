@@ -541,6 +541,12 @@ def _referenced_roll_ids(window: list[dict[str, Any]]) -> set[str]:
             for key, value in row.items():
                 if (key == "roll_id" or key.endswith("_roll_id")) and isinstance(value, str) and value:
                     found.add(value)
+                elif key == "required_roll_ids" and isinstance(value, list):
+                    found.update(
+                        roll_id
+                        for roll_id in value
+                        if isinstance(roll_id, str) and roll_id
+                    )
     return found
 
 
