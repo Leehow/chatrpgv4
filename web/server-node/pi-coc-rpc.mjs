@@ -978,12 +978,17 @@ export class PiCocRpcHost {
   }
 
   async setModel(provider, modelId) {
-    if (!provider || !modelId) return;
+    const nextProvider = String(provider || "").trim();
+    const nextModel = String(modelId || "").trim();
+    if (!nextProvider || !nextModel) return;
+    if (nextProvider === this.provider && nextModel === this.model) return;
     await this.#request({
       type: "set_model",
-      provider,
-      modelId,
+      provider: nextProvider,
+      modelId: nextModel,
     });
+    this.provider = nextProvider;
+    this.model = nextModel;
   }
 
   async setThinking(level) {

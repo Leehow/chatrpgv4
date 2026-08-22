@@ -841,6 +841,40 @@ function fakeChild() {
   return child;
 }
 
+test("PiCocRpcHost does not re-submit the model already pinned at startup", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "model-pin",
+    sessionId: "web-model-pin",
+    launcherPath: process.execPath,
+    provider: "zai-coding-cn",
+    model: "glm-5.3",
+    spawnFn: () => child,
+  });
+  host.start();
+
+  await host.setModel("zai-coding-cn", "glm-5.3");
+  assert.deepEqual(written, []);
+
+  const switched = host.setModel("jellytoken", "deepseek-v4-flash");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(written.length, 1);
+  const request = JSON.parse(written[0].trim());
+  assert.deepEqual(
+    { type: request.type, provider: request.provider, modelId: request.modelId },
+    { type: "set_model", provider: "jellytoken", modelId: "deepseek-v4-flash" },
+  );
+  child.stdout.write(`${JSON.stringify({ id: request.id, type: "response", success: true })}\n`);
+  await switched;
+
+  await host.setModel("jellytoken", "deepseek-v4-flash");
+  assert.equal(written.length, 1);
+});
+
 test("PiCocRpcHost prompts until agent_settled and maps live SSE", async () => {
   const child = fakeChild();
   const written = [];
