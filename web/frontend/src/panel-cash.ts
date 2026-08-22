@@ -1,4 +1,4 @@
-export type PanelView = "all" | "character" | "items" | "time";
+export type PanelView = "all" | "character" | "items" | "time" | "materials";
 
 export type CashWallet = {
   amount?: string;

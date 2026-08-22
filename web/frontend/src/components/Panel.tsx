@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Backpack, Clock3, Fingerprint, Landmark, Loader2, Search, Swords, UserRound, Wallet } from "lucide-react";
+import { Backpack, Clock3, Fingerprint, Landmark, Loader2, ScrollText, Search, Swords, UserRound, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,8 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { generatePortrait } from "../api";
-import type { Actor, GameState } from "../types";
+import type { Actor, GameState, HandoutCard } from "../types";
+import { HandoutCardView, HandoutKindBadge } from "./HandoutCard";
 import {
   canGeneratePortrait,
   isAbortError,
@@ -323,6 +324,63 @@ function CashSection({ cash }: { cash: CashDisplay | null }) {
   );
 }
 
+
+/** 资料页签：已交付原文卡列表，点击展开卡片详情（逐字原文 + 来源页）。 */
+function MaterialsSection({ materials }: { materials: HandoutCard[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  if (!materials.length) {
+    return (
+      <section className="panel-section">
+        <SectionTitle icon={<ScrollText className="size-3.5" />} text="资料" />
+        <p className="mt-2.5 text-xs text-muted-foreground">
+          尚未获得原文资料；KP 交付后会在这里出现。
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="panel-section">
+      <SectionTitle icon={<ScrollText className="size-3.5" />} text="资料" />
+      <div className="mt-1.5 text-[11px] text-muted-foreground">
+        已获得 {materials.length} 份
+      </div>
+      <ul className="mt-2 space-y-2">
+        {materials.map((card) => {
+          const open = openId === card.asset_id;
+          return (
+            <li key={card.asset_id}>
+              <button
+                type="button"
+                onClick={() => setOpenId(open ? null : card.asset_id)}
+                aria-expanded={open}
+                className="flex w-full items-center gap-2 rounded-lg border border-border/40 bg-secondary/70 px-2.5 py-1.5 text-left transition-colors hover:bg-secondary"
+              >
+                <HandoutKindBadge kind={card.kind} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                  {card.title}
+                </span>
+                <span
+                  aria-hidden
+                  className={cn(
+                    "shrink-0 text-[10px] text-muted-foreground transition-transform",
+                    open && "rotate-90",
+                  )}
+                >
+                  ▸
+                </span>
+              </button>
+              {open ? (
+                <div className="mt-2">
+                  <HandoutCardView card={card} />
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 /** Shared panel content — reused by the xl fixed column and the narrow-screen Sheet. */
 export function PanelContent({
@@ -685,6 +743,11 @@ export function PanelContent({
           <p className="mt-2.5 text-xs text-muted-foreground">尚未发现线索。</p>
         )}
       </section>}
+
+      {/* 资料 · 已交付原文卡 */}
+      {(view === "all" || view === "materials") && (
+        <MaterialsSection materials={state.materials ?? []} />
+      )}
     </div>
   );
 }
@@ -696,18 +759,19 @@ export function Panel({ state, investigatorId, setupPending, onUseItem }: Props)
     { value: "character", label: "角色" },
     { value: "items", label: "物品" },
     { value: "time", label: "时间" },
+    { value: "materials", label: "资料" },
   ];
   return (
     <aside className="flex h-full w-full flex-col overflow-hidden">
       <div className="border-b border-border px-4 py-3">
-        <div className="grid grid-cols-3 rounded-full bg-secondary/70 p-0.5">
+        <div className="grid grid-cols-4 rounded-full bg-secondary/70 p-0.5">
           {tabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
               onClick={() => setView(tab.value)}
               className={cn(
-                "rounded-full px-2 py-1.5 text-sm transition-[color,background-color,box-shadow]",
+                "rounded-full px-1.5 py-1.5 text-sm transition-[color,background-color,box-shadow]",
                 view === tab.value
                   ? "bg-card font-semibold text-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground",
