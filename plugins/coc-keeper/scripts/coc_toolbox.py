@@ -24618,12 +24618,14 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     # Resolve the current-schema player handout contract before constructing
     # either discovery document.  Handout delivery is optional metadata: a bad
     # structured link becomes an advisory while canonical clue/flag/world
-    # writes continue.  Prose is never classified.
+    # writes continue.  Missing active-language read-aloud content follows the
+    # same optional-delivery boundary and performs no entitlement/presentation
+    # mutation. Structured ids only; prose is never classified.
     linked_handout_id: str | None = None
     linked_handout_newly: list[str] = []
     linked_handout_presentation: dict[str, Any] | None = None
+    handout_delivery_warning: dict[str, Any] | None = None
     linkage_skipped_hidden_card = False
-    handout_delivery_warning: dict[str, str] | None = None
     handout_link_resolution_attempted = False
     handout_catalog: coc_handouts.HandoutCatalog | None = None
     if (
@@ -24643,11 +24645,27 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             handout_delivery_warning = {
                 "code": exc.code,
                 "message": exc.message,
+                **(
+                    {
+                        "handout_id": str(
+                            clue.get("handout_asset_id") or ""
+                        ).strip() or None,
+                    }
+                    if exc.code == "handout_locale_missing"
+                    else {}
+                ),
             }
-            warnings.append(
-                f"optional handout delivery skipped [{exc.code}]: "
-                f"{exc.message}; clue discovery remains authoritative"
-            )
+            if exc.code == "handout_locale_missing":
+                warnings.append(
+                    f"{exc.code}: clue discovery was recorded but its linked "
+                    "handout was not delivered because active-language content "
+                    "is unavailable"
+                )
+            else:
+                warnings.append(
+                    f"optional handout delivery skipped [{exc.code}]: "
+                    f"{exc.message}; clue discovery remains authoritative"
+                )
         else:
             linked_handout_id = linkage.asset_id
             linked_handout_newly = list(linkage.newly)

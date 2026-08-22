@@ -606,6 +606,98 @@ def test_record_clue_delivers_linked_handout_same_transaction(campaign_ws):
     assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
 
 
+def _set_play_language(ws, language: str) -> None:
+    path = ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(path.read_text(encoding="utf-8"))
+    campaign["play_language"] = language
+    _write_json(path, campaign)
+
+
+def test_record_clue_missing_locale_keeps_discovery_without_handout_mutation(
+    campaign_ws,
+):
+    _set_play_language(campaign_ws, "ja-JP")
+    asset_id = "read-aloud:archive:missing-ja"
+    clue_id = "clue-missing-ja-card"
+    _append_handout_clue(
+        campaign_ws, clue_id=clue_id, handout_asset_id=asset_id,
+    )
+    _install_deep_cards(campaign_ws, [{
+        "asset_id": asset_id,
+        "kind": "read_aloud",
+        "title": "Source title",
+        "text": "Source body.",
+        "localized_title": {"zh-Hans": "资料卡"},
+        "localized_text": {"zh-Hans": "资料卡正文。"},
+    }])
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "archive research",
+        "decision_id": "missing-ja-linked-card",
+    })
+
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert result["data"]["handout_presentation"] is None
+    assert result["data"]["handout_delivery_warning"]["code"] == (
+        "handout_locale_missing"
+    )
+    world = _world(campaign_ws)
+    assert clue_id in world["discovered_clue_ids"]
+    assert "delivered_handout_ids" not in world
+    assert "handout_presentation_revisions" not in world
+    assert not [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+    ]
+    assert any(
+        "handout_locale_missing" in warning for warning in result["warnings"]
+    )
+
+
+def test_record_clue_exact_locale_linked_delivery_is_atomic_and_idempotent(
+    campaign_ws,
+):
+    _set_play_language(campaign_ws, "ja-JP")
+    asset_id = "read-aloud:archive:ja"
+    clue_id = "clue-ja-card"
+    _append_handout_clue(
+        campaign_ws, clue_id=clue_id, handout_asset_id=asset_id,
+    )
+    _install_deep_cards(campaign_ws, [{
+        "asset_id": asset_id,
+        "kind": "read_aloud",
+        "title": "Source title",
+        "text": "Source body.",
+        "localized_title": {"ja-JP": "資料カード"},
+        "localized_text": {"ja-JP": "資料カードの本文。"},
+    }])
+
+    first = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "archive research",
+        "decision_id": "ja-linked-card-first",
+    })
+    second = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "archive recheck",
+        "decision_id": "ja-linked-card-second",
+    })
+
+    assert first["ok"] is True and second["ok"] is True
+    assert first["data"]["delivered_handout_id"] == asset_id
+    assert first["data"]["handout_presentation"]["revision"] == 1
+    assert second["data"]["delivered_handout_id"] == asset_id
+    world = _world(campaign_ws)
+    assert world["delivered_handout_ids"] == [asset_id]
+    assert world["handout_presentation_revisions"] == {asset_id: 1}
+    assert len([
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+    ]) == 1
+
+
 def test_fresh_quick_start_shipped_clues_deliver_one_card_exactly_once(
     campaign_ws,
 ):

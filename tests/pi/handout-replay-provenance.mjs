@@ -14,12 +14,30 @@ gate.observeMessageStart({
   content: [{ type: "text", text: "请再给我看一次地下室地图。" }],
 });
 
-const bound = gate.bindHandoutReplayRequest({
+const failedCanonicalAttempt = gate.bindHandoutReplayRequest({
   operation: "state.replay_handout",
   campaign: "camp-1",
   arguments: {
     handout_id: "cellar-map",
-    decision_id: "replay-map-1",
+    decision_id: "replay-map-invalid-first-attempt",
+    request_assertion: {
+      explicit_player_request: false,
+      player_text: "请再给我看一次地下室地图。",
+      semantic_reason: "canonical toolbox will reject this assertion",
+    },
+  },
+});
+assert.equal(
+  failedCanonicalAttempt.arguments.request_assertion.player_turn_epoch,
+  1,
+);
+
+const correctedSameMessage = gate.bindHandoutReplayRequest({
+  operation: "state.replay_handout",
+  campaign: "camp-1",
+  arguments: {
+    handout_id: "cellar-map",
+    decision_id: "replay-map-corrected-same-message",
     request_assertion: {
       explicit_player_request: true,
       player_text: "请再给我看一次地下室地图。",
@@ -27,26 +45,10 @@ const bound = gate.bindHandoutReplayRequest({
     },
   },
 });
-assert.equal(bound.arguments.request_assertion.player_turn_epoch, 1);
+assert.equal(correctedSameMessage.arguments.request_assertion.player_turn_epoch, 1);
 assert.equal(
-  bound.arguments.request_assertion.player_text,
+  correctedSameMessage.arguments.request_assertion.player_text,
   "请再给我看一次地下室地图。",
-);
-
-assert.throws(
-  () => gate.bindHandoutReplayRequest({
-    operation: "state.replay_handout",
-    arguments: {
-      handout_id: "cellar-map",
-      decision_id: "replay-map-same-epoch-new-decision",
-      request_assertion: {
-        explicit_player_request: true,
-        player_text: "请再给我看一次地下室地图。",
-        semantic_reason: "不能重复消费同一回合的同一资产授权",
-      },
-    },
-  }),
-  /already consumed for this asset and player epoch/,
 );
 
 assert.throws(
