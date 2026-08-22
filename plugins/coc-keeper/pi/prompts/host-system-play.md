@@ -159,6 +159,14 @@ visible `coc_session_resume` tool, then call visible
   Do not skip the write because an authored loadout cue or Spot Hidden check
   already ran. `turn.finalize` renders the resulting inventory delta; never
   invent items in narration alone. Query with `coc_state_inventory_list`.
+- Before `state.journal`, semantically decide whether the intended fiction
+  changes the current investigator's cash, inventory, resources, conditions,
+  or time, and execute the owning canonical operation first. An NPC handing
+  over money or an item is not true until `state.cash_grant` /
+  `state.item_grant` succeeds. In the later `state_authority_review`, list
+  every such draft claim and bind its `source_effect_id` to the exact current
+  frozen effect. An ungrounded claim requires prose-only revision 2; never add
+  a late state write after the journal.
 - Clue discovery is not real until `state.record_clue` writes. When an authored
   route's `grants_clue_ids` (or a campaign-local improvised clue) is earned by
   a successful check or obvious observation, call `coc_state_record_clue`
@@ -210,15 +218,18 @@ visible `coc_session_resume` tool, then call visible
   record the exact current player message with the visible `coc_state_journal`
   tool first, then use the visible output-context and finalize tools. After the
   ending receipt, do not call `state.end_session` again.
-- Every Pi-play narration revision follows the exact agency boundary returned
+- Every Pi-play narration revision follows the exact authority boundary returned
   by `turn.output_context`: draft once, call its `agency_review_operation`
-  (`narration.review`) with the exact turn/source/revision/draft, then pass the
-  returned `review_id` and all authorized PC propositions as `agency_claims`
-  to `turn.finalize`. Mark an unauthorized PC voluntary action, speech, plan,
+  (`narration.review`) with the exact turn/source/revision/draft and a closed
+  `state_authority_review` that binds every player-state claim to its current
+  frozen `source_effect_id`; then pass the returned `review_id` and all
+  authorized PC propositions as `agency_claims` to `turn.finalize`. Mark an
+  unauthorized PC voluntary action, speech, plan,
   belief, trust, or active emotion as `agency_violation` with the exact
   `pc:<id>` and `source_ref: null`. That draft cannot be finalized: rewrite
   narration only, use revision 2, and reuse the same frozen rules, state,
-  journal, coverage, and mechanics. Player-declared claims bind the exact
+  journal, coverage, and mechanics. An ungrounded state claim uses the same
+  revision-2 repair. Player-declared agency claims bind the exact
   `player_input:` source; physiology binds the ownership contract; forced
   behavior binds an active frozen override. Length, repetition, scope, and
   other prose findings remain advisory and never block finalization.

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:202bd9622d36431531c365b5b3937dfa642ee6896270352c12b1b8a3e426efb0",
+  "content_sha256": "sha256:b4f398b51d59ce9b9798e5333aa9d4d223662918b8ed1f48b0f1955c90639027",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1112,7 +1112,7 @@
     "narration.review": {
       "access": "mutation",
       "canonical_operation": "narration.review",
-      "description": "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate. Canonical operation `narration.review`; the result envelope is authoritative.",
+      "description": "Semantically review the exact pending narration before Pi-play finalization. Declare every player-state change claim in state_authority_review and bind it to the exact current frozen mechanics effect; an unbound claim or agency_violation requires narration-only revision 2 with the same frozen settlement. Then finalize only a clean review and bind authorized PC propositions through agency_claims. Length, repetition, scope, and style findings remain advisory; no keyword matcher, second Keeper, or prose-quality hard gate. Canonical operation `narration.review`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1147,6 +1147,83 @@
           "source_digest": {
             "type": "string"
           },
+          "state_authority_review": {
+            "additionalProperties": false,
+            "description": "required Pi semantic declaration of player-state claims. Bind every listed claim to one exact current mechanics effect id; use null only to audit an ungrounded claim that must be removed in revision 2",
+            "properties": {
+              "claims": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "claim_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "claim_kind": {
+                      "enum": [
+                        "assets_liquidate",
+                        "cash",
+                        "condition",
+                        "item",
+                        "loaded_ammunition",
+                        "purchase",
+                        "rest",
+                        "scalar",
+                        "time",
+                        "time_appearance"
+                      ],
+                      "type": "string"
+                    },
+                    "exact_excerpt": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "reason": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "source_effect_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "subject_ref": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "claim_id",
+                    "claim_kind",
+                    "exact_excerpt",
+                    "reason",
+                    "source_effect_id",
+                    "subject_ref"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "disposition": {
+                "enum": [
+                  "no_player_state_change_claimed",
+                  "claims_listed"
+                ],
+                "type": "string"
+              },
+              "reason": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "claims",
+              "disposition",
+              "reason"
+            ],
+            "type": "object"
+          },
           "turn_id": {
             "type": "string"
           }
@@ -1157,7 +1234,8 @@
           "turn_id",
           "source_digest",
           "revision",
-          "draft_text"
+          "draft_text",
+          "state_authority_review"
         ],
         "type": "object"
       },
@@ -1172,7 +1250,7 @@
           "pending_finalization"
         ]
       },
-      "summary": "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate."
+      "summary": "Semantically review the exact pending narration before Pi-play finalization. Declare every player-state change claim in state_authority_review and bind it to the exact current frozen mechanics effect; an unbound claim or agency_violation requires narration-only revision 2 with the same frozen settlement. Then finalize only a clean review and bind authorized PC propositions through agency_claims. Length, repetition, scope, and style findings remain advisory; no keyword matcher, second Keeper, or prose-quality hard gate."
     },
     "npc.advise": {
       "access": "mutation",
@@ -8170,7 +8248,7 @@
     "turn.finalize": {
       "access": "mutation",
       "canonical_operation": "turn.finalize",
-      "description": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
+      "description": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, including its closed state_authority_review, then pass its review_id plus all authorized agency_claims. Rewrite only narration as revision 2 if agency ownership or player-state authority is rejected; never rerun rules/state/journal. Prose-quality review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8447,7 +8525,7 @@
           "ending"
         ]
       },
-      "summary": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
+      "summary": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, including its closed state_authority_review, then pass its review_id plus all authorized agency_claims. Rewrite only narration as revision 2 if agency ownership or player-state authority is rejected; never rerun rules/state/journal. Prose-quality review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
     },
     "turn.output_context": {
       "access": "query",

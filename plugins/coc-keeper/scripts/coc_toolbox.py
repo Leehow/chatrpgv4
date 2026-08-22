@@ -112,6 +112,9 @@ coc_working_set_cache = _load_sibling(
 coc_turn_finalization = _load_sibling(
     "coc_turn_finalization", "coc_turn_finalization.py"
 )
+coc_state_authority = _load_sibling(
+    "coc_state_authority_toolbox", "coc_state_authority.py"
+)
 coc_development = _load_sibling("coc_development_toolbox", "coc_development.py")
 coc_runtime_ops = _load_sibling("coc_runtime_ops_toolbox", "coc_runtime_ops.py")
 coc_narrative_enrichment = _load_sibling(
@@ -2400,7 +2403,15 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             missing_params = [
                 key
                 for key in missing_params
-                if key not in {"turn_id", "source_digest", "revision"}
+                if key not in {
+                    "turn_id", "source_digest", "revision",
+                    "state_authority_review",
+                }
+            ]
+        elif name == "narration.review" and not _pi_play_agency_review_required():
+            missing_params = [
+                key for key in missing_params
+                if key != "state_authority_review"
             ]
         if (
             missing_params
@@ -23231,6 +23242,12 @@ def _review_has_agency_violation(review: dict[str, Any]) -> bool:
     )
 
 
+def _review_requires_rewrite(review: dict[str, Any]) -> bool:
+    return (
+        _review_has_agency_violation(review)
+        or review.get("state_authority_gate") == "rewrite_required"
+    )
+
 def _valid_narration_review_digest(review: dict[str, Any]) -> bool:
     digest = review.get("review_digest")
     if not isinstance(digest, str) or not digest:
@@ -23318,7 +23335,7 @@ def _tool_narration_advisory_review(
     ]
 
 
-def _pending_agency_review_revision(
+def _pending_authority_review_revision(
     ctx: Ctx, settled: dict[str, Any]
 ) -> int:
     """Return the only review revision legal for the frozen pending turn."""
@@ -23330,12 +23347,12 @@ def _pending_agency_review_revision(
         and row.get("revision") == 1
         and _valid_narration_review_digest(row)
     ]
-    return 2 if any(_review_has_agency_violation(row) for row in prior_rows) else 1
+    return 2 if any(_review_requires_rewrite(row) for row in prior_rows) else 1
 
 
 @tool(
     "narration.review",
-    "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate.",
+    "Semantically review the exact pending narration before Pi-play finalization. Declare every player-state change claim in state_authority_review and bind it to the exact current frozen mechanics effect; an unbound claim or agency_violation requires narration-only revision 2 with the same frozen settlement. Then finalize only a clean review and bind authorized PC propositions through agency_claims. Length, repetition, scope, and style findings remain advisory; no keyword matcher, second Keeper, or prose-quality hard gate.",
     {
         "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
         "turn_id": {"type": "string", "required": True},
@@ -23343,6 +23360,39 @@ def _pending_agency_review_revision(
         "revision": {"type": "integer", "minimum": 1, "required": True},
         "draft_text": {"type": "string", "required": True, "desc": "exact draft reviewed by the KP"},
         "findings": {"type": "array", "desc": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory"},
+        "state_authority_review": {
+            "type": "object",
+            "required": True,
+            "desc": "required Pi semantic declaration of player-state claims. Bind every listed claim to one exact current mechanics effect id; use null only to audit an ungrounded claim that must be removed in revision 2",
+            "properties": {
+                "disposition": {
+                    "type": "string",
+                    "enum": ["no_player_state_change_claimed", "claims_listed"],
+                },
+                "reason": {"type": "string", "minLength": 1},
+                "claims": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim_id": {"type": "string", "minLength": 1},
+                            "subject_ref": {"type": "string", "minLength": 1},
+                            "claim_kind": {
+                                "type": "string",
+                                "enum": sorted(coc_state_authority.CLAIM_KINDS),
+                            },
+                            "exact_excerpt": {"type": "string", "minLength": 1},
+                            "source_effect_id": {"type": ["string", "null"]},
+                            "reason": {"type": "string", "minLength": 1},
+                        },
+                        "required_fields": sorted(coc_state_authority.CLAIM_FIELDS),
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required_fields": sorted(coc_state_authority.REVIEW_FIELDS),
+            "additionalProperties": False,
+        },
         "investigator": {"type": "string", "desc": "investigator id for budget derivation (defaults to the party's first member)"},
     },
     access="mutation",
@@ -23364,7 +23414,10 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "narration.review requires decision_id and revision 1 or 2")
     request_digest = _canonical_digest({
         key: deepcopy(args.get(key))
-        for key in ("turn_id", "source_digest", "revision", "draft_text", "findings", "investigator")
+        for key in (
+            "turn_id", "source_digest", "revision", "draft_text", "findings",
+            "state_authority_review", "investigator",
+        )
     })
     prior = ctx.ledger_lookup("narration.review", args.get("decision_id"))
     if prior is not None:
@@ -23418,7 +23471,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         expected_revision = int(settled.get("accepted_revision") or 0) + 1
     pending_review_revision = None
     if pending is not None and _pi_play_agency_review_required():
-        pending_review_revision = _pending_agency_review_revision(ctx, settled)
+        pending_review_revision = _pending_authority_review_revision(ctx, settled)
     if (
         args.get("turn_id") != settled.get("turn_id")
         or args.get("source_digest") != settled.get("source_digest")
@@ -23473,6 +23526,18 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 "invalid_param",
                 f"findings[{index}] agency_violation must name a current PC and source_ref=null; authorized claims belong in turn.finalize.agency_claims",
             )
+    try:
+        state_authority_review, state_authority_gate = (
+            coc_state_authority.normalize_review(
+                args.get("state_authority_review"),
+                draft=draft,
+                settled=settled,
+                party_ids=ctx.party_ids(),
+                required=_pi_play_agency_review_required(),
+            )
+        )
+    except coc_state_authority.StateAuthorityError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
     review_id = "narration-review-v1:" + hashlib.sha256(
         f"{ctx.campaign_id}:{decision_id}".encode("utf-8")
     ).hexdigest()[:40]
@@ -23482,6 +23547,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "authority": "advisory",
         "hard_gate": False,
         "agency_hard_gate": _pi_play_agency_review_required(),
+        "state_authority_hard_gate": _pi_play_agency_review_required(),
         "decision_id": decision_id,
         "review_id": review_id,
         "turn_id": str(args["turn_id"]),
@@ -23499,6 +23565,8 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
             )
             if _pi_play_agency_review_required() else "advisory"
         ),
+        "state_authority_review": state_authority_review,
+        "state_authority_gate": state_authority_gate,
     }
     data["review_digest"] = _canonical_digest(data)
     ctx.ledger_record(args["decision_id"], "narration.review", data)
@@ -23511,9 +23579,16 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     ]
     if data["agency_gate"] == "rewrite_required":
         hints.append(
-            "agency ownership is the sole hard review boundary: do not finalize this draft or rerun settlement; rewrite prose only and review revision 2"
+            "agency ownership is a hard review boundary: do not finalize this draft or rerun settlement; rewrite prose only and review revision 2; prose-quality findings remain advisory"
         )
-    else:
+    if data["state_authority_gate"] == "rewrite_required":
+        hints.append(
+            "player-state authority is ungrounded: do not finalize or mutate the frozen settlement; remove/defer the claim in narration-only revision 2"
+        )
+    if (
+        data["agency_gate"] != "rewrite_required"
+        and data["state_authority_gate"] != "rewrite_required"
+    ):
         hints.append(
             "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize"
         )
@@ -31134,13 +31209,18 @@ def _resolve_bound_narration_review(
             "narration review does not bind this exact turn/source/revision/draft",
         )
     if agency_review_required:
+        if row.get("state_authority_gate") == "rewrite_required":
+            raise ToolError(
+                "state_authority_review_blocked",
+                "the bound review identifies a player-state claim without a matching current frozen effect; keep the settlement frozen, rewrite narration only, and review revision 2",
+            )
         if _review_has_agency_violation(row):
             raise ToolError(
                 "agency_review_blocked",
                 "the bound review identifies an unauthorized PC agency claim; keep the settlement frozen, rewrite narration only, and review revision 2",
             )
         if pending is not None:
-            expected_revision = _pending_agency_review_revision(ctx, current)
+            expected_revision = _pending_authority_review_revision(ctx, current)
             if revision != expected_revision:
                 raise ToolError(
                     "narration_review_mismatch",
@@ -31176,7 +31256,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     data["contract_projection_sha256"] = _canonical_digest(contract_projection)
     agency_review_required = contract_projection["agency_review_required"] is True
     agency_review_revision = (
-        _pending_agency_review_revision(ctx, data)
+        _pending_authority_review_revision(ctx, data)
         if agency_review_required else 1
     )
     if agency_review_required:
@@ -31188,10 +31268,13 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
                 "source_digest": data["source_digest"],
                 "revision": agency_review_revision,
             },
-            "missing_arguments": ["decision_id", "draft_text", "findings"],
+            "missing_arguments": [
+                "decision_id", "draft_text", "findings",
+                "state_authority_review",
+            ],
             "discovery_required": False,
-            "authority": "semantic_agency_review",
-            "hard_gate_scope": "agency_ownership_only",
+            "authority": "semantic_agency_and_player_state_review",
+            "hard_gate_scope": "agency_and_player_state_authority_only",
         }
     required_obligation_ids = [
         str(obligation_id)
@@ -31232,7 +31315,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         "if narrative_opportunity actually shaped the draft, pass advisory_uptake with an exact draft excerpt to turn.finalize; only then is the Storylet ledger updated",
         *(
             [
-                "Pi play agency boundary: review this exact draft through agency_review_operation before turn.finalize; unauthorized PC inner/voluntary claims require prose-only revision 2, while all non-agency findings remain advisory",
+                "Pi play authority boundary: review this exact draft through agency_review_operation before turn.finalize; declare every player-state claim in state_authority_review and bind it to the exact current effect id; unauthorized PC agency or ungrounded state claims require prose-only revision 2, while prose-quality findings remain advisory",
                 "do not rerun rules, state writes, state.journal, coverage, or mechanics when rewriting a rejected narration revision",
             ]
             if agency_review_required else []
@@ -31242,7 +31325,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "turn.finalize",
-    "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
+    "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, including its closed state_authority_review, then pass its review_id plus all authorized agency_claims. Rewrite only narration as revision 2 if agency ownership or player-state authority is rejected; never rerun rules/state/journal. Prose-quality review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
     {
         "draft": {
             "type": "string",
