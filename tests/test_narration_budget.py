@@ -228,20 +228,25 @@ def test_settled_multi_stage_public_checks_fit_budget_and_finalize_first_try(
     data = output["data"]
     public_checks = data["mechanics_bundle"]["public_check"]
     assert len(public_checks) == 3
-    assert data["contract_projection"]["narration_budget"]["max_paragraphs"] >= 3
+    assert data["contract_projection"]["narration_budget"]["max_paragraphs"] >= 4
+    assert data["contract_projection"]["narration_budget"]["max_chars"] >= 700
 
     setup = "你把记者证平放在柜台上，先向阿蒂说明要查的年份和地址。"
-    arty_result = "阿蒂仍按着登记簿，但听完你的说明后终于把通往剪报库的门推开。"
+    arty_result = "阿蒂仍按着登记簿，初见的戒心让他先把你的记者证翻来覆去看了两遍。"
+    social_result = "你把查档来意说清楚后，他终于把通往剪报库的门推开。"
     ruth_result = "门后的露丝看过记者证，把对应年份的索引卡推到你手边。"
-    draft = "\n\n".join((setup, arty_result, ruth_result))
-    arty_sources = {
-        arty["data"]["roll_id"],
-        arty["data"]["receipt_id"],
-        social["data"]["roll_id"],
-    }
+    draft = "\n\n".join((setup, arty_result, social_result, ruth_result))
     coverage = []
     for obligation in data["obligations"]:
-        excerpt = arty_result if obligation["source_id"] in arty_sources else ruth_result
+        if obligation["source_id"] in {
+            arty["data"]["roll_id"],
+            arty["data"]["receipt_id"],
+        }:
+            excerpt = arty_result
+        elif obligation["source_id"] == social["data"]["roll_id"]:
+            excerpt = social_result
+        else:
+            excerpt = ruth_result
         coverage.append({
             "obligation_id": obligation["obligation_id"],
             "realization": "fictional_beat",

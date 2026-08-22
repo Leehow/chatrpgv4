@@ -22757,7 +22757,10 @@ def _settled_narration_budget(
         row for row in bundle.get("public_check") or []
         if isinstance(row, dict)
     ])
-    required_paragraphs = max(2, public_check_count)
+    # Default causal placement inserts each public check before the paragraph
+    # containing its result. In the worst case every check has an independent
+    # result paragraph, so all N results need one preceding setup paragraph.
+    required_paragraphs = max(2, public_check_count + 1)
     if required_paragraphs > int(budget["max_paragraphs"]):
         extra_paragraphs = required_paragraphs - int(budget["max_paragraphs"])
         budget = {

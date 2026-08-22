@@ -14,7 +14,37 @@ gate.observeMessageStart({
   content: [{ type: "text", text: "我推门进去。" }],
 });
 const first = gate.takePreInferenceFinalizationSteer(true);
-const duplicate = gate.takePreInferenceFinalizationSteer(true);
+const pendingBeforeDelivery = gate.takePreInferenceFinalizationSteer(true);
+
+const appended = [];
+const sent = [];
+let transientFailure = true;
+const deliveryPi = {
+  appendEntry: (...args) => appended.push(args),
+  sendMessage: (...args) => {
+    if (transientFailure) {
+      transientFailure = false;
+      throw new Error("transient send failure");
+    }
+    sent.push(args);
+  },
+};
+const failedDelivery = main.deliverPendingPreInferenceFinalizationSteer(
+  deliveryPi,
+  gate,
+  true,
+);
+const stillPendingAfterFailure = gate.takePreInferenceFinalizationSteer(true);
+const delivered = main.deliverPendingPreInferenceFinalizationSteer(
+  deliveryPi,
+  gate,
+  true,
+);
+const duplicateAfterSuccess = main.deliverPendingPreInferenceFinalizationSteer(
+  deliveryPi,
+  gate,
+  true,
+);
 
 // Hidden continuations remain inside the same external-user epoch and must
 // not arm a second copy of the pre-inference steer.
@@ -39,13 +69,6 @@ gate.observeMessageStart({
 });
 const nextEpoch = gate.takePreInferenceFinalizationSteer(true);
 
-const appended = [];
-const sent = [];
-const delivered = main.deliverPreInferenceFinalizationSteer({
-  appendEntry: (...args) => appended.push(args),
-  sendMessage: (...args) => sent.push(args),
-}, first);
-
 process.stdout.write(JSON.stringify({
   first: {
     kind: first?.kind,
@@ -58,12 +81,17 @@ process.stdout.write(JSON.stringify({
       && first.instruction.includes("turn.finalize")
       && first.instruction.includes("player-visible"),
   },
-  duplicateSuppressed: duplicate === null,
+  pendingStableBeforeDelivery:
+    pendingBeforeDelivery?.player_turn_epoch === first?.player_turn_epoch,
+  failedDelivery,
+  retryRetainedSameEpoch:
+    stillPendingAfterFailure?.player_turn_epoch === first?.player_turn_epoch,
+  delivered,
+  duplicateAfterSuccess,
   hiddenFollowupSuppressed: afterHidden === null,
   nonFinalizingPhaseSuppressed: openingPhase === null,
   nextEpoch: nextEpoch?.player_turn_epoch,
   delivery: {
-    delivered,
     appended: appended.length,
     sent: sent.length,
     customType: sent[0]?.[0]?.customType,

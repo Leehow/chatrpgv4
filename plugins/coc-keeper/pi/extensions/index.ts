@@ -5269,8 +5269,20 @@ export class OpeningTerminalContinuationGate {
     ) {
       return null;
     }
-    this.preInferenceFinalizationSteerEpoch = this.playerTurnEpoch;
     return buildSettledOutputPreflightEnvelope(this.playerTurnEpoch);
+  }
+
+  markPreInferenceFinalizationSteerDelivered(envelope: JsonObject): boolean {
+    if (
+      envelope.kind !== "settled_output_preflight"
+      || envelope.player_turn_epoch !== this.playerTurnEpoch
+      || this.playerTurnEpoch <= 0
+      || this.preInferenceFinalizationSteerEpoch === this.playerTurnEpoch
+    ) {
+      return false;
+    }
+    this.preInferenceFinalizationSteerEpoch = this.playerTurnEpoch;
+    return true;
   }
 
   coordinatorContinuationContext(
@@ -5946,6 +5958,21 @@ export function deliverPreInferenceFinalizationSteer(
   } catch {
     return false;
   }
+}
+
+export function deliverPendingPreInferenceFinalizationSteer(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  gate: OpeningTerminalContinuationGate,
+  requireFinalization: boolean,
+): "not_required" | "delivered" | "failed" {
+  const envelope = gate.takePreInferenceFinalizationSteer(
+    requireFinalization,
+  );
+  if (envelope === null) return "not_required";
+  if (!deliverPreInferenceFinalizationSteer(pi, envelope)) return "failed";
+  return gate.markPreInferenceFinalizationSteerDelivered(envelope)
+    ? "delivered"
+    : "failed";
 }
 
 function absolute(value: unknown, label: string) {
@@ -9988,12 +10015,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const externalUser = userMessageText(message) !== null;
       openingContinuationGate.observeMessageStart(message);
       if (externalUser && startupResumeGate === null) {
-        deliverPreInferenceFinalizationSteer(
+        const preflightDelivery = deliverPendingPreInferenceFinalizationSteer(
           pi,
-          openingContinuationGate.takePreInferenceFinalizationSteer(
-            turnFinalizationRequiredForPhase(kpPlayPhase),
-          ),
+          openingContinuationGate,
+          turnFinalizationRequiredForPhase(kpPlayPhase),
         );
+        if (preflightDelivery === "failed") {
+          try {
+            pi.appendEntry("coc-settled-output-preflight-delivery-failed", {
+              schema_version: 1,
+              kind: "settled_output_preflight_delivery",
+              status: "failed",
+              failure_class: "steer_send_failed",
+            });
+          } catch { /* delivery failure is still surfaced below */ }
+          throw new Error(
+            "failed to deliver the settled-output preflight steer",
+          );
+        }
       }
       applyKpActiveTools();
     },
