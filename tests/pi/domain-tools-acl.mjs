@@ -579,6 +579,152 @@ assert.equal(
   "recovery",
 );
 
+function writeReadyTableCampaign(root, campaignId, extra = {}) {
+  const dir = path.join(root, ".coc", "campaigns", campaignId);
+  mkdirSync(path.join(dir, "save"), { recursive: true });
+  mkdirSync(path.join(dir, "logs"), { recursive: true });
+  writeFileSync(path.join(dir, "campaign.json"), `${JSON.stringify({
+    schema_version: 1,
+    campaign_id: campaignId,
+    status: extra.status ?? "ready_for_table",
+    setup_handoff: extra.setup_handoff ?? {
+      decision_id: `handoff-${campaignId}`,
+      completed_at: "2026-08-22T12:33:04.162349Z",
+    },
+  })}\n`);
+  writeFileSync(path.join(dir, "save", "world-state.json"), `${JSON.stringify({
+    status: extra.worldStatus ?? "setup",
+    active_subsystem: "setup",
+  })}\n`);
+}
+
+const prefixRoot = mkdtempSync(path.join(tmpdir(), "pi-coc-setup-prefix-"));
+const prefixCampaign = "ready-setup-prefix";
+writeReadyTableCampaign(prefixRoot, prefixCampaign);
+const setupPrefixResume = {
+  mode: "open_turn_recovery",
+  campaign_id: prefixCampaign,
+  next_operations: ["continue_current_turn_from_receipts"],
+  current_turn: {
+    meaningful_row_count: 5,
+    rows: [
+      { tool: "setup.adopt_source_facts", ok: true },
+      { tool: "setup.invoke", ok: true },
+      { tool: "rules.roll_dice", ok: true },
+      { tool: "progressive.opening_bootstrap", ok: true },
+      { tool: "setup.complete", ok: true },
+    ],
+  },
+  checkpoint: null,
+  pending_output_context: null,
+  pending_turn: null,
+  delivery: { status: "none", finalization_id: null, rendered_sha256: null },
+  scene_context: { turn_number: 0 },
+};
+const prefixContext = { workspaceRoot: prefixRoot, campaignId: prefixCampaign };
+assert.equal(
+  mod.playPhaseFromResumeData(setupPrefixResume, prefixContext),
+  "opening",
+  "setup leftover mutations must not become recovery before table opening",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "session.resume",
+    { ok: true, data: setupPrefixResume },
+    "opening",
+    prefixContext,
+  ),
+  "opening",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "session.resume",
+    { ok: true, data: setupPrefixResume },
+    "live_turn",
+    prefixContext,
+  ),
+  "opening",
+  "world-state setup + ready_for_table still opens the table",
+);
+const remappedPrefix = mod.remapUnopenedReadyTableResume(
+  { ok: true, tool: "session.resume", data: setupPrefixResume },
+  prefixContext,
+);
+assert.equal(remappedPrefix.remapped, true);
+assert.equal(remappedPrefix.envelope.data.mode, "table_opening");
+assert.deepEqual(
+  remappedPrefix.envelope.data.next_operations,
+  ["evidence.table_opening"],
+);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_context",
+  operation: "evidence.table_opening",
+  phase: "opening",
+}).ok, true);
+
+const liveRecoveryCampaign = "live-unfinished-turn";
+writeReadyTableCampaign(prefixRoot, liveRecoveryCampaign);
+writeFileSync(
+  path.join(prefixRoot, ".coc", "campaigns", liveRecoveryCampaign, "logs", "table-transcript.jsonl"),
+  `${JSON.stringify({ role: "keeper", turn: 1 })}\n`,
+);
+const liveRecoveryResume = {
+  mode: "open_turn_recovery",
+  campaign_id: liveRecoveryCampaign,
+  next_operations: ["continue_current_turn_from_receipts"],
+  current_turn: { rows: [{ tool: "state.journal", ok: true }] },
+};
+const liveRecoveryContext = {
+  workspaceRoot: prefixRoot,
+  campaignId: liveRecoveryCampaign,
+};
+assert.equal(
+  mod.playPhaseFromResumeData(liveRecoveryResume, liveRecoveryContext),
+  "recovery",
+);
+assert.equal(
+  mod.remapUnopenedReadyTableResume(
+    { ok: true, tool: "session.resume", data: liveRecoveryResume },
+    liveRecoveryContext,
+  ).remapped,
+  false,
+);
+
+const openedCampaign = "already-opened-table";
+writeReadyTableCampaign(prefixRoot, openedCampaign);
+writeFileSync(
+  path.join(prefixRoot, ".coc", "campaigns", openedCampaign, "logs", "table-transcript.jsonl"),
+  `${JSON.stringify({ role: "keeper", turn: 0 })}\n`,
+);
+const openedResume = {
+  mode: "table_opening",
+  campaign_id: openedCampaign,
+  next_operations: ["evidence.table_opening"],
+  current_turn: { rows: [{ tool: "setup.complete", ok: true }] },
+};
+assert.equal(
+  mod.playPhaseFromResumeData(openedResume, {
+    workspaceRoot: prefixRoot,
+    campaignId: openedCampaign,
+  }),
+  "live_turn",
+  "existing opening receipt must not reopen the table",
+);
+assert.equal(
+  mod.playPhaseFromResumeData({
+    ...setupPrefixResume,
+    evidence: { table_opening_id: "opening-1" },
+  }, prefixContext),
+  "recovery",
+);
+const liveOpeningDenied = mod.evaluateExecuteAcl({
+  toolName: "coc_context",
+  operation: "evidence.table_opening",
+  phase: "live_turn",
+});
+assert.equal(liveOpeningDenied.ok, false);
+assert.equal(liveOpeningDenied.code, "phase_forbidden");
+
 // Recovery may close an already-open turn from receipts; no new mutations.
 const recoveryClosure = [
   ["coc_turn", "turn.output_context"],

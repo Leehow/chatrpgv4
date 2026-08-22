@@ -2,7 +2,7 @@
  * Closed Pi-Coc domain wrappers over the one canonical gateway.
  * ACL is execute-time policy, never setActiveTools.
  */
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   DOMAIN_TOOL_NAMES,
@@ -532,6 +532,97 @@ function hostLocalTableStarted(
   return campaignHasStartedTableEvidence(root, campaignId);
 }
 
+function resumeWorkspaceCampaign(
+  data: Record<string, unknown>,
+  context?: PhaseInferenceContext,
+): { root: string; campaignId: string } | null {
+  const root = typeof context?.workspaceRoot === "string" ? context.workspaceRoot : "";
+  const campaignId = nonemptyString(context?.campaignId)
+    ? String(context?.campaignId).trim()
+    : typeof data.campaign_id === "string" ? data.campaign_id.trim() : "";
+  if (!root || !campaignId || !SAFE_CAMPAIGN_ID.test(campaignId)) return null;
+  return { root, campaignId };
+}
+
+/** Read-only campaign.json probe. Never consults world-state.status. */
+export function readCampaignLifecycle(
+  root: string,
+  campaignId: string,
+): { status: string; hasSetupHandoff: boolean } | null {
+  const id = campaignId.trim();
+  if (!root || !SAFE_CAMPAIGN_ID.test(id)) return null;
+  const file = path.join(root, ".coc", "campaigns", id, "campaign.json");
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    const campaign = objectRecord(parsed);
+    if (!campaign) return null;
+    return {
+      status: typeof campaign.status === "string" ? campaign.status : "",
+      hasSetupHandoff: objectRecord(campaign.setup_handoff) !== null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function resumeHasOpeningReceipt(data: Record<string, unknown>): boolean {
+  const evidence = objectRecord(data.evidence);
+  return Boolean(evidence && (evidence.table_opening || evidence.table_opening_id));
+}
+
+/**
+ * ready_for_table + setup_handoff with no opening receipt is still the
+ * setup→opening prefix. world-state.status=setup is leftover and is not
+ * a live turn. Setup-prefix toolbox rows must not become recovery.
+ */
+export function resumeShouldOpenUnopenedTable(
+  data: Record<string, unknown>,
+  context?: PhaseInferenceContext,
+): boolean {
+  if (resumeHasOpeningReceipt(data) || resumeSignalsStartedTable(data)) {
+    return false;
+  }
+  if (hostLocalTableStarted(data, context)) return false;
+  const identity = resumeWorkspaceCampaign(data, context);
+  if (!identity) return false;
+  const campaign = readCampaignLifecycle(identity.root, identity.campaignId);
+  if (!campaign || !campaign.hasSetupHandoff) return false;
+  return campaign.status === "ready_for_table" || campaign.status === "active";
+}
+
+/** Host-visible remap: leftover setup mutations stay table_opening. */
+export function remapUnopenedReadyTableResume(
+  value: unknown,
+  context?: PhaseInferenceContext,
+): { remapped: boolean; envelope: unknown } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { remapped: false, envelope: value };
+  }
+  const envelope = value as Record<string, unknown>;
+  if (envelope.ok !== true) return { remapped: false, envelope: value };
+  if (typeof envelope.tool === "string" && envelope.tool !== "session.resume") {
+    return { remapped: false, envelope: value };
+  }
+  const data = objectRecord(envelope.data);
+  if (!data || data.mode !== "open_turn_recovery") {
+    return { remapped: false, envelope: value };
+  }
+  if (!resumeShouldOpenUnopenedTable(data, context)) {
+    return { remapped: false, envelope: value };
+  }
+  return {
+    remapped: true,
+    envelope: {
+      ...envelope,
+      data: {
+        ...data,
+        mode: "table_opening",
+        next_operations: ["evidence.table_opening"],
+      },
+    },
+  };
+}
+
 export function playPhaseFromResumeData(
   data: Record<string, unknown> | null,
   context?: PhaseInferenceContext,
@@ -542,7 +633,11 @@ export function playPhaseFromResumeData(
   if (mode === "pending_finalization" || data.pending_output_context) {
     return "pending_finalization";
   }
-  if (mode === "open_turn_recovery") return "recovery";
+  if (mode === "open_turn_recovery") {
+    // Campaign lifecycle + opening receipt beat leftover setup mutations.
+    if (resumeShouldOpenUnopenedTable(data, context)) return "opening";
+    return "recovery";
+  }
   // ready_for_table resumes keep mode=table_opening even after opening/play.
   // Do not map every table_opening to live_turn: a fresh handoff stays opening.
   if (mode === "table_opening") {
@@ -613,7 +708,9 @@ export function inferPhaseFromEnvelope(
     const fromResume = playPhaseFromResumeData(data, context);
     if (fromResume !== null) {
       // Same-session mid-play resume may still alias as table_opening.
-      // Never demote an already-live table back to opening ACL.
+      // Never demote an already-live table back to opening ACL. An unopened
+      // ready_for_table handoff is still opening even if the host defaulted
+      // to live_turn before the first play resume.
       if (
         fromResume === "opening"
         && data?.mode === "table_opening"
@@ -622,6 +719,7 @@ export function inferPhaseFromEnvelope(
           || previous === "pending_finalization"
           || previous === "recovery"
         )
+        && !resumeShouldOpenUnopenedTable(data, context)
       ) {
         return previous;
       }

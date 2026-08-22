@@ -91,6 +91,7 @@ import {
   inferPhaseFromEnvelope,
   inferPhaseFromError,
   isCanonicalInvokeSurface,
+  remapUnopenedReadyTableResume,
   sessionRoleFromEnv,
   type PlayPhase,
 } from "../lib/domain-tools.ts";
@@ -9639,9 +9640,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           });
         }
       }
+      const operation = String(params.operation);
+      if (operation === "session.resume") {
+        const remapped = remapUnopenedReadyTableResume(value, {
+          workspaceRoot: typeof params.root === "string" ? params.root : ctx.cwd,
+          campaignId: typeof params.campaign === "string" ? params.campaign : undefined,
+        });
+        if (remapped.remapped) value = remapped.envelope;
+      }
       const envelope = objectOrNull(value);
       const data = objectOrNull(envelope?.data);
-      const operation = String(params.operation);
       openingContinuationGate.observeCanonicalReceipt(operation, envelope);
       emitSetupHandoff(envelope, operation);
       const nextPhase = inferPhaseFromEnvelope(operation, value, kpPlayPhase, {

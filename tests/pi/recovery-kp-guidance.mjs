@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -187,7 +187,7 @@ assert.deepEqual(
 
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-recovery-guide-"));
 
-function harness(responseForCall, startupCampaignId) {
+function harness(responseForCall, startupCampaignId, workspaceCwd = root) {
   const registered = new Map();
   const handlers = new Map();
   const sent = [];
@@ -236,7 +236,7 @@ function harness(responseForCall, startupCampaignId) {
     }),
   });
   const ctx = {
-    cwd: root,
+    cwd: workspaceCwd,
     mode: "rpc",
     model: { provider: "offline", id: "offline" },
     sessionManager: {
@@ -371,6 +371,61 @@ for (const [label, mode, next] of [
   );
   await h.shutdown();
 }
+
+const prefixWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-ready-prefix-"));
+const prefixCampaign = "ready-setup-prefix-host";
+mkdirSync(path.join(prefixWorkspace, ".coc", "campaigns", prefixCampaign, "save"), {
+  recursive: true,
+});
+writeFileSync(
+  path.join(prefixWorkspace, ".coc", "campaigns", prefixCampaign, "campaign.json"),
+  `${JSON.stringify({
+    schema_version: 1,
+    campaign_id: prefixCampaign,
+    status: "ready_for_table",
+    setup_handoff: {
+      decision_id: "handoff-ready-setup-prefix-host",
+      completed_at: "2026-08-22T12:33:04.162349Z",
+    },
+  })}\n`,
+);
+writeFileSync(
+  path.join(prefixWorkspace, ".coc", "campaigns", prefixCampaign, "save", "world-state.json"),
+  `${JSON.stringify({ status: "setup", active_subsystem: "setup" })}\n`,
+);
+const prefixHost = harness((name, params) => {
+  if (params.operation !== "session.resume") {
+    throw new Error(`unexpected ${params.operation}`);
+  }
+  return resumeEnvelope("open_turn_recovery", {
+    campaign_id: prefixCampaign,
+    next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      meaningful_row_count: 3,
+      rows: [
+        { tool: "rules.roll_dice", ok: true },
+        { tool: "progressive.opening_bootstrap", ok: true },
+        { tool: "setup.complete", ok: true },
+      ],
+    },
+  });
+}, prefixCampaign, prefixWorkspace);
+await prefixHost.start();
+const prefixResumed = await invoke(prefixHost, "prefix-resume", {
+  operation: "session.resume",
+  root: prefixWorkspace,
+  campaign: prefixCampaign,
+  arguments: {},
+}, "coc_setup");
+assert.equal(prefixResumed.ok, true);
+assert.equal(prefixResumed.data.mode, "table_opening");
+assert.deepEqual(prefixResumed.data.next_operations, ["evidence.table_opening"]);
+assert.equal(prefixResumed.data.host_recovery_guidance, undefined);
+assert.equal(
+  prefixHost.audits.some((entry) => entry.name === OPEN_TURN_RECOVERY_GUIDANCE_AUDIT),
+  false,
+);
+await prefixHost.shutdown();
 
 const pendingCampaign = "startup-pending-finalization";
 const pending = harness((name, params) => {
