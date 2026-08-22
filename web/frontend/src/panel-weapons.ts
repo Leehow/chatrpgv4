@@ -1,5 +1,9 @@
 import type { Weapon } from "./types";
 
+export function weaponTitleText(weapon: Weapon): string {
+  return weapon.label?.trim() || weapon.title_fallback_label?.trim() || "";
+}
+
 export function weaponMechanicsLine(weapon: Weapon): string {
   if (weaponMechanicsUnresolved(weapon)) {
     return "";
