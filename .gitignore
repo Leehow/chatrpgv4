@@ -14,6 +14,13 @@ node_modules.noindex/
 .pi-subagents/
 .pi/
 
+# Generated local evidence and runtime scratch — retain on disk, never stage
+/artifacts/
+/.tmp/
+/.playwright-cli/
+/driver.pid
+/gui-test-screenshots/*.png
+
 # Large local evidence archives — keep on disk, not in git
 archives/**/*.tar.gz
 
