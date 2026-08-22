@@ -8,6 +8,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isCanonicalCampaignId } from "./campaign-id.mjs";
 
 export const SOURCE_ASSET_TOOL_NAME = "coc_source_assets";
 export const CATALOG_KIND = "coc-source-asset-catalog";
@@ -537,6 +538,107 @@ async function verifyAssetHash(bundleRoot: string, entry: SourceAssetEntry): Pro
   if (digest !== entry.sha256) fail(`asset ${entry.path} SHA-256 does not match catalog`);
 }
 
+const MAX_CAMPAIGN_BINDING_BYTES = 64 * 1024;
+
+export type SourceAssetCampaignBinding = {
+  campaign_id: string;
+  asset_root_id: string;
+  source_bundle_path: string;
+  bundle_sha256?: string;
+};
+
+async function readBoundedJsonObject(path: string): Promise<JsonObject | null> {
+  try {
+    const info = await stat(path);
+    if (!info.isFile() || info.size > MAX_CAMPAIGN_BINDING_BYTES) return null;
+    const raw = await readFile(path, "utf8");
+    if (!raw || Buffer.byteLength(raw, "utf8") > MAX_CAMPAIGN_BINDING_BYTES) return null;
+    return object(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the source-cache binding written by scenario.bind_pdf. Caller: the
+ * Pi host's coc_source_assets wrapper. Consumer: fresh PDF catalog calls.
+ * The campaign record is authoritative; the model never selects this root or
+ * source-bundle path.
+ */
+export async function sourceAssetCampaignBinding(input: {
+  workspace_root: string;
+  campaign_id: string;
+}): Promise<SourceAssetCampaignBinding> {
+  const campaignId = input.campaign_id.trim();
+  if (!isCanonicalCampaignId(campaignId)) {
+    fail("source asset campaign_id is invalid");
+  }
+  const workspace = resolve(input.workspace_root);
+  const campaignsRoot = resolve(workspace, ".coc", "campaigns");
+  const scenarioRoot = resolve(campaignsRoot, campaignId, "scenario");
+  if (!isBelow(scenarioRoot, campaignsRoot)) {
+    fail("source asset campaign path escapes campaigns");
+  }
+  const scenario = await readBoundedJsonObject(resolve(scenarioRoot, "scenario.json"));
+  const source = object(scenario?.source);
+  const assetRootId = typeof scenario?.source_cache_asset_root_id === "string"
+    ? scenario.source_cache_asset_root_id.trim()
+    : typeof scenario?.progressive_asset_root_id === "string"
+      ? scenario.progressive_asset_root_id.trim()
+      : "";
+  const sourceBundlePath = typeof source?.source_bundle_path === "string"
+    ? source.source_bundle_path.trim()
+    : "";
+  if (!assetRootId || !sourceBundlePath) {
+    fail("campaign source asset binding is unavailable");
+  }
+  // Reuse the catalog's single-segment validation before returning a path that
+  // will select its on-disk index.
+  if (assetRootId.includes("..") || assetRootId.includes("/") || assetRootId.includes("\\")) {
+    fail("campaign source asset_root_id is invalid");
+  }
+  return {
+    campaign_id: campaignId,
+    asset_root_id: assetRootId,
+    source_bundle_path: resolve(workspace, sourceBundlePath),
+    ...(typeof source?.bundle_sha256 === "string" && source.bundle_sha256.trim()
+      ? { bundle_sha256: source.bundle_sha256.trim() }
+      : {}),
+  };
+}
+
+/** Fill only omitted catalog coordinates from the selected campaign binding. */
+export async function bindSourceAssetToolParams(input: {
+  workspace_root: string;
+  campaign_id?: string;
+  params: JsonObject;
+}): Promise<JsonObject> {
+  const operation = String(input.params.operation ?? "");
+  const missingAssetRoot = typeof input.params.asset_root_id !== "string"
+    || !input.params.asset_root_id.trim();
+  const missingSourceBundle = operation === "catalog" && (
+    typeof input.params.source_bundle_path !== "string"
+    || !input.params.source_bundle_path.trim()
+  );
+  if (!input.campaign_id || (!missingAssetRoot && !missingSourceBundle)) {
+    return input.params;
+  }
+  const binding = await sourceAssetCampaignBinding({
+    workspace_root: input.workspace_root,
+    campaign_id: input.campaign_id,
+  });
+  return {
+    ...input.params,
+    ...(missingAssetRoot ? { asset_root_id: binding.asset_root_id } : {}),
+    ...(missingSourceBundle ? { source_bundle_path: binding.source_bundle_path } : {}),
+    ...(operation === "catalog"
+      && input.params.bundle_sha256 === undefined
+      && binding.bundle_sha256 !== undefined
+      ? { bundle_sha256: binding.bundle_sha256 }
+      : {}),
+  };
+}
+
 export async function catalogFromBundleManifest(input: {
   workspace_root: string;
   asset_root_id: string;
@@ -625,20 +727,26 @@ export const SOURCE_ASSET_TOOL_SCHEMA = {
 
 export async function executeSourceAssetTool(input: {
   cwd: string;
+  campaign_id?: string;
   params: JsonObject;
 }): Promise<JsonObject> {
-  const operation = String(input.params.operation ?? "");
-  const assetRootId = typeof input.params.asset_root_id === "string" ? input.params.asset_root_id : "";
+  const params = await bindSourceAssetToolParams({
+    workspace_root: input.cwd,
+    campaign_id: input.campaign_id,
+    params: input.params,
+  });
+  const operation = String(params.operation ?? "");
+  const assetRootId = typeof params.asset_root_id === "string" ? params.asset_root_id : "";
   if (operation === "catalog") {
     if (!assetRootId) fail("catalog requires asset_root_id");
-    if (typeof input.params.source_bundle_path !== "string" || !input.params.source_bundle_path.trim()) {
+    if (typeof params.source_bundle_path !== "string" || !params.source_bundle_path.trim()) {
       fail("catalog requires source_bundle_path");
     }
     const built = await catalogFromBundleManifest({
       workspace_root: input.cwd,
       asset_root_id: assetRootId,
-      source_bundle_path: input.params.source_bundle_path,
-      bundle_sha256: typeof input.params.bundle_sha256 === "string" ? input.params.bundle_sha256 : undefined,
+      source_bundle_path: params.source_bundle_path,
+      bundle_sha256: typeof params.bundle_sha256 === "string" ? params.bundle_sha256 : undefined,
     });
     return {
       status: "cataloged",
@@ -652,11 +760,11 @@ export async function executeSourceAssetTool(input: {
   let catalog = await loadSourceAssetCatalog(input.cwd, assetRootId);
   if (operation === "associate") {
     const recorded = recordSemanticAssociation(catalog, {
-      asset_id: String(input.params.asset_id ?? ""),
-      target_kind: String(input.params.target_kind ?? ""),
-      target_id: String(input.params.target_id ?? ""),
-      reason: String(input.params.reason ?? ""),
-      source: String(input.params.source ?? ""),
+      asset_id: String(params.asset_id ?? ""),
+      target_kind: String(params.target_kind ?? ""),
+      target_id: String(params.target_id ?? ""),
+      reason: String(params.reason ?? ""),
+      source: String(params.source ?? ""),
     });
     const catalogPath = await saveSourceAssetCatalog(input.cwd, recorded.catalog);
     return {
@@ -665,28 +773,28 @@ export async function executeSourceAssetTool(input: {
       association: recorded.association,
     };
   }
-  const handouts = parseHandouts(input.params.handouts);
-  const delivered = parseDelivered(input.params.delivered_handout_ids);
+  const handouts = parseHandouts(params.handouts);
+  const delivered = parseDelivered(params.delivered_handout_ids);
   if (operation === "query") {
-    const targetKind = typeof input.params.target_kind === "string" ? input.params.target_kind : "";
-    const targetId = typeof input.params.target_id === "string" ? input.params.target_id : "";
+    const targetKind = typeof params.target_kind === "string" ? params.target_kind : "";
+    const targetId = typeof params.target_id === "string" ? params.target_id : "";
     const rows = querySourceAssets({
       catalog,
       target: targetKind && targetId
         ? { kind: targetKind as AssociationTargetKind, id: targetId }
         : undefined,
-      kind: typeof input.params.kind === "string" ? input.params.kind as SourceAssetKind : undefined,
-      visibility: typeof input.params.visibility === "string"
-        ? input.params.visibility as SourceAssetVisibility
+      kind: typeof params.kind === "string" ? params.kind as SourceAssetKind : undefined,
+      visibility: typeof params.visibility === "string"
+        ? params.visibility as SourceAssetVisibility
         : undefined,
-      audience: input.params.audience === "player" ? "player" : "keeper",
+      audience: params.audience === "player" ? "player" : "keeper",
       handouts,
       delivered_handout_ids: delivered,
     });
-    return { status: "ok", audience: input.params.audience === "player" ? "player" : "keeper", assets: rows };
+    return { status: "ok", audience: params.audience === "player" ? "player" : "keeper", assets: rows };
   }
   if (operation === "plan_delivery") {
-    const assetId = String(input.params.asset_id ?? "").trim();
+    const assetId = String(params.asset_id ?? "").trim();
     const entry = catalog.assets.find((row) => row.asset_id === assetId);
     if (!entry) fail("plan_delivery asset_id is not in the catalog");
     const handout = matchingHandout(entry, handouts);

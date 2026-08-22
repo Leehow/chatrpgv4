@@ -9983,7 +9983,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     async execute(_id: string, params: JsonObject, _signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
       const startupResumeError = startupResumeToolError(SOURCE_ASSET_TOOL_NAME, params);
       if (startupResumeError !== null) throw new Error(startupResumeError);
-      return result(await executeSourceAssetTool({ cwd: ctx.cwd, params }));
+      return result(await executeSourceAssetTool({
+        cwd: ctx.cwd,
+        // The launcher-selected campaign is the source of truth for a fresh
+        // PDF binding. After fresh setup clears its resume gate, retain the
+        // same selector from the wrapper environment.
+        campaign_id: startupResumeGate?.campaignId
+          ?? explicitPiStartupCampaignId()
+          ?? undefined,
+        params,
+      }));
     },
   });
   if (
