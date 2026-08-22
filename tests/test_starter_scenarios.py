@@ -610,6 +610,55 @@ def test_ensure_pregen_fills_missing_equipment_on_existing_player_facing_sheet()
     assert ensured["player_facing_sheet_zh"]["skills"] == []
 
 
+def test_ensure_pregen_refreshes_stale_english_skill_labels():
+    sheet = json.loads(
+        coc_starter._pregen_character_path(
+            "the-haunting", "eleanor-reed"
+        ).read_text(encoding="utf-8")
+    )
+    sheet["player_facing_sheet_zh"] = {
+        "display_name": sheet["name"],
+        "occupation": sheet["occupation"],
+        "skills": [
+            {"key": "Spot Hidden", "label": "Spot Hidden", "value": 50},
+            {"key": "Library Use", "label": "Library Use", "value": 70},
+            {"key": "Language (Own)", "label": "Language (Own)", "value": 80},
+            {"key": "Mystery Skill", "label": "Mystery Skill", "value": 10},
+            {"key": "Custom Knack", "label": "自制诀窍", "value": 5},
+        ],
+        "equipment": ["采访本"],
+    }
+    ensured = coc_starter.ensure_pregen_player_facing_sheet(sheet)
+    labels = {
+        row["key"]: row["label"]
+        for row in ensured["player_facing_sheet_zh"]["skills"]
+    }
+    assert labels["Spot Hidden"] == "侦查"
+    assert labels["Library Use"] == "图书馆使用"
+    assert labels["Language (Own)"] == "母语（英语）"
+    assert labels["Mystery Skill"] == "Mystery Skill"
+    assert labels["Custom Knack"] == "自制诀窍"
+    assert ensured["player_facing_sheet_zh"]["equipment"] == ["采访本"]
+    assert ensured["player_facing_sheet_zh"]["display_name"] == sheet["name"]
+
+
+def test_ensure_pregen_new_sheet_uses_table_vocabulary_beyond_hardcoded_map():
+    sheet = json.loads(
+        coc_starter._pregen_character_path(
+            "the-haunting", "thomas-hayes"
+        ).read_text(encoding="utf-8")
+    )
+    sheet.pop("player_facing_sheet_zh", None)
+    sheet["skills"]["First Aid"] = 40
+    ensured = coc_starter.ensure_pregen_player_facing_sheet(sheet)
+    labels = {
+        row["key"]: row["label"]
+        for row in ensured["player_facing_sheet_zh"]["skills"]
+    }
+    assert labels["First Aid"] == "急救"
+    assert labels["Spot Hidden"] == "侦查"
+
+
 def test_quick_start_installs_campaign_and_pregen(tmp_path):
     root = tmp_path / ".coc"
     result = coc_starter.quick_start(root, "the-haunting", "thomas-hayes")

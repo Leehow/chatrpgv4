@@ -379,6 +379,29 @@ def _project_runtime_assets(
     return out
 
 
+def _skill_display_label(
+    key: str,
+    pf_label: str | None,
+    play_language: str,
+    terms: dict[str, str],
+    coc_language: Any,
+) -> str:
+    """Resolve one skill label for the active play language.
+
+    Canonical table vocabulary wins when the stored player-facing label is
+    missing or is only a copy of the English machine key. Authored labels
+    (localized, reskinned, or true custom names) stay as stored. Unknown
+    skills fall back to the PF label, then the machine key.
+    """
+    localized = coc_language.player_facing_skill_label(
+        key, play_language, terms=terms
+    )
+    stored = str(pf_label).strip() if pf_label else ""
+    if not stored or stored == key:
+        return localized
+    return stored
+
+
 def _display_character(
     workspace: Path,
     character: dict[str, Any],
@@ -389,11 +412,15 @@ def _display_character(
 ) -> dict[str, Any]:
     """Project one character sheet into player-facing display labels.
 
-    Labels come only from canonical sources: the sheet's own
+    Characteristic and equipment labels come from the sheet's own
     ``player_facing_sheet_<lang>`` layer (built by ``coc_starter`` for shipped
-    pregens), otherwise the plugin's ``coc_language`` table vocabulary. When
-    neither covers a term, the canonical English key is kept, exactly like the
-    keeper's own renderers.
+    pregens), otherwise the plugin's ``coc_language`` table vocabulary. Skill
+    labels prefer that vocabulary whenever the stored PF label is missing or
+    is only a copy of the English machine key, so a stale English
+    ``player_facing_sheet_zh`` cannot hide the current ``play_language``.
+    Authored PF labels — localized, era-reskinned, or true custom names — are
+    kept. When neither source covers a term, the canonical English key is
+    kept, exactly like the keeper's own renderers.
 
     When ``inventory`` (normalized campaign-local runtime inventory) is
     given, weapons and items reflect live play: granted gear/weapons appear,
@@ -447,9 +474,12 @@ def _display_character(
     skills = [
         {
             "key": str(key),
-            "label": pf_skills.get(str(key))
-            or coc_language.player_facing_skill_label(
-                str(key), play_language, terms=terms
+            "label": _skill_display_label(
+                str(key),
+                pf_skills.get(str(key)),
+                play_language,
+                terms,
+                coc_language,
             ),
             "value": value,
         }
