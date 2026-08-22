@@ -8104,7 +8104,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       campaign: gate.campaignId,
     };
   };
-  const exactStartupFreshSetupInvocation = (
+  const exactStartupFreshQuickStartInvocation = (
     name: string,
     params: JsonObject,
   ): boolean => {
@@ -8119,6 +8119,53 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && params.campaign === gate.campaignId
       && args !== null
       && args.campaign_id === gate.campaignId
+    );
+  };
+  const exactStartupFreshCampaignCreateInvocation = (
+    name: string,
+    params: JsonObject,
+  ): boolean => {
+    const gate = startupResumeGate;
+    const args = objectOrNull(params.arguments);
+    const payload = objectOrNull(args?.payload);
+    return (
+      gate !== null
+      && gate.phase === "fresh_setup"
+      && isCanonicalInvokeSurface(name)
+      && params.operation === "setup.invoke"
+      && (params.root === undefined || params.root === gate.workspaceRoot)
+      // campaign.create is pre-campaign: the selected identity belongs only
+      // in its payload, never in the transport recovery selector.
+      && params.campaign === undefined
+      && args?.kind === "campaign.create"
+      && payload?.campaign_id === gate.campaignId
+    );
+  };
+  const exactStartupFreshSetupInvocation = (
+    name: string,
+    params: JsonObject,
+  ): boolean => (
+    exactStartupFreshQuickStartInvocation(name, params)
+    || exactStartupFreshCampaignCreateInvocation(name, params)
+  );
+  const exactStartupFreshSetupResult = (
+    value: unknown,
+    campaignId: string,
+  ): boolean => {
+    const envelope = objectOrNull(value);
+    const data = objectOrNull(envelope?.data);
+    const result = objectOrNull(data?.result);
+    if (
+      envelope?.ok !== true
+      || result?.campaign_id !== campaignId
+    ) return false;
+    return (
+      (envelope.tool === "setup.quick_start" && data?.kind === "campaign.quick_start")
+      || (
+        envelope.tool === "setup.invoke"
+        && data?.status === "PASS"
+        && data?.kind === "campaign.create"
+      )
     );
   };
   const startupResumeToolError = (
@@ -8902,11 +8949,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error(startupResumeError);
     }
     const startupResumeAttempt = exactStartupResumeInvocation(name, params);
-    const startupFreshSetupAttempt = exactStartupFreshSetupInvocation(
+    const startupFreshQuickStartAttempt = exactStartupFreshQuickStartInvocation(
       name,
       params,
     );
-    if (startupFreshSetupAttempt) {
+    const startupFreshSetupAttempt = startupFreshQuickStartAttempt
+      || exactStartupFreshCampaignCreateInvocation(name, params);
+    if (startupFreshQuickStartAttempt) {
       // setup.quick_start creates the selected campaign and is canonically
       // needs_campaign=false. The typed wrapper normally mirrors campaign_id
       // into the outer campaign selector, but doing so here makes the MCP
@@ -9364,18 +9413,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       if (startupFreshSetupAttempt) {
         const selectedCampaignId = startupResumeGate?.campaignId ?? "";
-        const freshEnvelope = objectOrNull(value);
-        const freshData = objectOrNull(freshEnvelope?.data);
-        const freshResult = objectOrNull(freshData?.result);
-        if (
-          freshEnvelope?.ok === true
-          && freshEnvelope.tool === "setup.quick_start"
-          && freshData?.kind === "campaign.quick_start"
-          && freshResult?.campaign_id === selectedCampaignId
-        ) {
+        if (exactStartupFreshSetupResult(value, selectedCampaignId)) {
           startupResumeGate = null;
           applyKpActiveTools();
         } else {
+          const freshEnvelope = objectOrNull(value);
           const freshError = objectOrNull(freshEnvelope?.error);
           terminalizeStartupResume(canonicalFailureClass(freshError?.code));
         }

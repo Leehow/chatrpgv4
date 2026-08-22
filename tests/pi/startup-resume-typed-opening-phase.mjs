@@ -469,8 +469,8 @@ await selection.shutdown();
 
 // A missing campaign selected explicitly into a setup-role host is the one
 // startup-resume failure that establishes a fresh setup boundary. The host
-// must allow only an exact quick_start for that selected id; it must not make
-// the KP relaunch or permit a guessed/default campaign id.
+// must allow only exact canonical creation for that selected id; it must not
+// make the KP relaunch or permit a guessed/default campaign id.
 function throwUnknownCampaign() {
   const envelope = {
     ok: false,
@@ -595,6 +595,87 @@ if (afterFresh.ok !== true) {
   throw new Error(`startup gate remained armed after quick_start: ${JSON.stringify(afterFresh)}`);
 }
 await fresh.shutdown();
+
+// Custom tables use the other canonical pre-campaign route: setup.invoke
+// campaign.create. It deliberately has no outer campaign transport selector,
+// because that selector would try to hydrate the not-yet-created campaign.
+const freshCreateCampaign = "typed-opening-fresh-create-campaign";
+let freshCampaignCreated = false;
+const freshCreate = harness((name, params) => {
+  if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+  if (params.operation === "session.resume") throwUnknownCampaign();
+  if (params.operation === "setup.invoke") {
+    if (
+      params.campaign !== undefined
+      || params.root !== root
+      || params.arguments?.kind !== "campaign.create"
+      || params.arguments?.payload?.campaign_id !== freshCreateCampaign
+    ) {
+      throw new Error(`campaign.create identity drift: ${JSON.stringify(params)}`);
+    }
+    freshCampaignCreated = true;
+    return {
+      ok: true,
+      tool: "setup.invoke",
+      data: {
+        schema_version: 1,
+        status: "PASS",
+        kind: "campaign.create",
+        result: { campaign_id: freshCreateCampaign },
+      },
+    };
+  }
+  if (params.operation === "setup.inspect") {
+    return { ok: true, tool: "setup.inspect", data: { schema_version: 1 } };
+  }
+  throw new Error(`unexpected ${params.operation}`);
+}, freshCreateCampaign);
+await freshCreate.start();
+const createResume = await invokeTyped(freshCreate, "coc_session_resume", "fresh-create-resume", {
+  root,
+  campaign: freshCreateCampaign,
+});
+if (createResume.error?.code !== "unknown_campaign") {
+  throw new Error(`fresh create resume did not preserve unknown_campaign: ${JSON.stringify(createResume)}`);
+}
+let wrongCampaignCreateAccepted = false;
+try {
+  await invokeTyped(freshCreate, "coc_setup", "fresh-create-wrong-id", {
+    operation: "setup.invoke",
+    root,
+    arguments: {
+      kind: "campaign.create",
+      payload: { campaign_id: `${freshCreateCampaign}-wrong`, title: "Wrong" },
+    },
+  });
+  wrongCampaignCreateAccepted = true;
+} catch (error) {
+  if (!String(error).includes("selected campaign")) throw error;
+}
+if (wrongCampaignCreateAccepted) {
+  throw new Error("fresh setup accepted campaign.create for a guessed campaign id");
+}
+const created = await invokeTyped(freshCreate, "coc_setup", "fresh-create-exact", {
+  operation: "setup.invoke",
+  root,
+  arguments: {
+    kind: "campaign.create",
+    payload: { campaign_id: freshCreateCampaign, title: "Fresh Custom Table" },
+  },
+});
+if (created.ok !== true || !freshCampaignCreated) {
+  throw new Error(`exact fresh campaign.create was blocked: ${JSON.stringify(created)}`);
+}
+const afterCreate = await invokeTyped(freshCreate, "coc_setup", "fresh-create-inspect", {
+  operation: "setup.inspect",
+  root,
+  campaign: freshCreateCampaign,
+  arguments: {},
+});
+if (afterCreate.ok !== true) {
+  throw new Error(`startup gate remained armed after campaign.create: ${JSON.stringify(afterCreate)}`);
+}
+await freshCreate.shutdown();
 
 // The same unknown_campaign result in a play-role host remains a terminal
 // selection/load failure. It must never turn into campaign creation.
