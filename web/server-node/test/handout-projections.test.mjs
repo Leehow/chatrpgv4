@@ -8,6 +8,7 @@ import {
   campaignBoundAssetRootIds,
   deliveredHandoutIds,
   deliveredHandoutsDisplay,
+  handoutCardContractErrors,
   handoutAssetCandidates,
   handoutAssetImageUrl,
   loadHandoutCards,
@@ -324,6 +325,81 @@ test("all card stores reject the same malformed visibility, body, and asset shap
     resolveHandoutAssetFile(ws, "camp-1", "assets/handouts/secret.png"),
     null,
   );
+});
+
+test("present invalid content_origin never defaults or reaches Materials and SSE", () => {
+  const ws = makeWorkspace();
+  const invalidOrigins = [null, 7, "", {}, [], "unknown"];
+  const scenarioCards = [];
+  const indexCards = [];
+  const delivered = [];
+
+  invalidOrigins.forEach((content_origin, index) => {
+    const scenarioId = `bad-origin-scenario-${index}`;
+    const indexId = `bad-origin-index-${index}`;
+    const entityId = `bad-origin-entity-${index}`;
+    const base = {
+      kind: "document",
+      content_origin,
+      title: "MUST NOT DISPLAY",
+      text: "MUST NOT REACH MATERIALS OR SSE",
+      source_refs: ["pdf_index-1"],
+      player_visible: true,
+    };
+    scenarioCards.push({ asset_id: scenarioId, ...base });
+    indexCards.push({ asset_id: indexId, ...base });
+    putEntity(ws, "root-1", handoutPack({
+      handout_id: entityId,
+      asset_id: entityId,
+      ...base,
+    }));
+    delivered.push(scenarioId, indexId, entityId);
+    assert.ok(handoutCardContractErrors({ asset_id: scenarioId, ...base }).length);
+    assert.equal(
+      playerHandoutCard(ws, "camp-1", { asset_id: scenarioId, ...base }),
+      null,
+    );
+  });
+
+  seedCampaign(ws, {
+    delivered,
+    assets: indexCards,
+    scenarioHandouts: { schema_version: 1, handouts: scenarioCards },
+  });
+  const cards = loadHandoutCards(ws, "camp-1");
+  for (const id of delivered) assert.equal(cards.has(id), false, id);
+  const materialsAndSseSource = JSON.stringify(
+    deliveredHandoutsDisplay(ws, "camp-1"),
+  );
+  assert.equal(materialsAndSseSource, "[]");
+  assert.ok(!materialsAndSseSource.includes("MUST NOT"));
+});
+
+test("card identities with surrounding whitespace are rejected in every Web store", () => {
+  const ws = makeWorkspace();
+  const card = {
+    asset_id: " handout-space ",
+    kind: "document",
+    title: "MUST NOT DISPLAY",
+    text: "MUST NOT REACH MATERIALS OR SSE",
+    source_refs: ["pdf_index-1"],
+  };
+  seedCampaign(ws, {
+    delivered: ["handout-space"],
+    assets: [card],
+    scenarioHandouts: { schema_version: 1, handouts: [card] },
+  });
+  putEntity(ws, "root-1", handoutPack({
+    handout_id: " handout-space ",
+    ...card,
+  }));
+
+  assert.ok(handoutCardContractErrors(card).some((error) =>
+    error.includes("surrounding whitespace")
+  ));
+  assert.equal(loadHandoutCards(ws, "camp-1").has("handout-space"), false);
+  assert.equal(playerHandoutCard(ws, "camp-1", card), null);
+  assert.deepEqual(deliveredHandoutsDisplay(ws, "camp-1"), []);
 });
 
 // ----------------------------------------------------------- player projection

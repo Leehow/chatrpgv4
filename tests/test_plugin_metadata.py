@@ -2143,7 +2143,6 @@ def test_keeper_play_professional_inference_boundary_is_always_on():
     assert "check adjudication flow" in tooling
     # Orientation points KP at the boundary before skill selection.
     assert "professional inference boundary before selecting a skill" in play_main
-
     # Routed ordinary-turn reference expands operational method/goal guidance.
     assert "check adjudication flow (kp owns the choice)" in tooling
     for phrase in (
@@ -2170,3 +2169,16 @@ def test_keeper_play_professional_inference_boundary_is_always_on():
     assert "not corpse-keyword routing" in tooling
     # General-perception success still limited to observable layer.
     assert "general-perception success still yields only the observable layer" in tooling
+
+
+def test_keeper_play_handout_link_guidance_covers_direct_and_reverse_identity():
+    play = " ".join(
+        _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").split()
+    )
+    for phrase in (
+        "direct `handout_asset_id`",
+        "unique exact reverse `clue_refs`",
+        "returned delivery result or warning is authoritative",
+        "No keyword or prose matching",
+    ):
+        assert phrase in play, phrase

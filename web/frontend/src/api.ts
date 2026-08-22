@@ -621,12 +621,17 @@ export async function streamTurn(
       } else if (event === "error") {
         handlers.onError?.(String(data.message ?? "未知错误"));
       } else if (event === "handout") {
+        const contentOrigin = data.content_origin === undefined
+          ? "source_verbatim"
+          : data.content_origin;
+        if (
+          contentOrigin !== "source_verbatim"
+          && contentOrigin !== "authored_derivative"
+        ) continue;
         handlers.onHandout?.({
           asset_id: String(data.asset_id ?? ""),
           kind: normalizeHandoutKind(data.kind),
-          content_origin: data.content_origin === "authored_derivative"
-            ? "authored_derivative"
-            : "source_verbatim",
+          content_origin: contentOrigin,
           title: String(data.title ?? ""),
           card_label: data.card_label == null ? null : String(data.card_label),
           kind_label: data.kind_label == null ? null : String(data.kind_label),

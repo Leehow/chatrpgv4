@@ -120,6 +120,17 @@ test("streamTurn parses handout SSE events into sanitized player-safe cards", as
           kind: "hologram",
           title: "未知类型卡",
         })));
+        for (const [index, content_origin] of [
+          null, 7, "", {}, [], "unknown",
+        ].entries()) {
+          controller.enqueue(enc.encode(sseFrame("handout", {
+            asset_id: `invalid-origin-${index}`,
+            kind: "document",
+            content_origin,
+            title: "MUST NOT DISPLAY",
+            text: "MUST NOT REACH SSE",
+          })));
+        }
         controller.enqueue(enc.encode(sseFrame("end", {})));
         controller.close();
       },
@@ -141,6 +152,7 @@ test("streamTurn parses handout SSE events into sanitized player-safe cards", as
     // 边界解析把未知 kind 归一为严格枚举 document。
     assert.equal(cards[2].kind, "document");
     assert.deepEqual(cards[2].source_pages, []);
+    assert.ok(!JSON.stringify(cards).includes("MUST NOT"));
   } finally {
     globalThis.fetch = originalFetch;
   }

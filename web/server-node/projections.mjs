@@ -713,6 +713,7 @@ export function discoveredCluesDisplay(workspace, campaignId, clueIds, playLangu
 // never cross this module.
 
 export const HANDOUT_KINDS = Object.freeze(new Set(["document", "read_aloud", "map"]));
+const HANDOUT_CONTENT_ORIGINS = new Set(["source_verbatim", "authored_derivative"]);
 const HANDOUT_IMAGE_EXT_RE = /\.(?:png|jpe?g|webp)$/i;
 const HANDOUT_ENTITY_PARSE_STATES = new Set(["deep", "body_parsed"]);
 const HANDOUT_CARD_PACK_FIELDS = Object.freeze([
@@ -821,14 +822,21 @@ export function handoutCardContractErrors(entry, { prefix = "handout" } = {}) {
     const value = entry?.[field];
     if (value != null && (typeof value !== "string" || !value.trim())) {
       out.push(`${prefix}.${field} must be a non-empty string when present`);
+    } else if (typeof value === "string" && value !== value.trim()) {
+      out.push(`${prefix}.${field} must not contain surrounding whitespace`);
     }
   }
   const kind = entry?.kind;
   if (typeof kind !== "string" || !HANDOUT_KINDS.has(kind)) {
     out.push(`${prefix}.kind must be one of document, read_aloud, map`);
   }
-  const contentOrigin = handoutString(entry?.content_origin) || "source_verbatim";
-  if (!new Set(["source_verbatim", "authored_derivative"]).has(contentOrigin)) {
+  const hasContentOrigin = Object.prototype.hasOwnProperty.call(
+    entry ?? {}, "content_origin",
+  );
+  const contentOrigin = hasContentOrigin
+    ? entry.content_origin
+    : "source_verbatim";
+  if (typeof contentOrigin !== "string" || !HANDOUT_CONTENT_ORIGINS.has(contentOrigin)) {
     out.push(`${prefix}.content_origin must be source_verbatim or authored_derivative`);
   }
   for (const field of [
@@ -1063,11 +1071,14 @@ function handoutLabels(kind, contentOrigin, playLanguage) {
 /** Player-safe card projection for SSE / state.materials. */
 export function playerHandoutCard(workspace, campaignId, entry) {
   if (!entry || typeof entry !== "object") return null;
+  if (handoutCardContractErrors(entry).length) return null;
   const assetId = handoutString(entry.asset_id);
   if (!assetId) return null;
   const kind = handoutString(entry.kind);
   const normalizedKind = HANDOUT_KINDS.has(kind) ? kind : "document";
-  const contentOrigin = handoutString(entry.content_origin) || "source_verbatim";
+  const contentOrigin = Object.prototype.hasOwnProperty.call(entry, "content_origin")
+    ? entry.content_origin
+    : "source_verbatim";
   const playLanguage = handoutPlayLanguage(workspace, campaignId);
   const imageRef = handoutString(entry.image_ref);
   const card = {
