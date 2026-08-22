@@ -1622,11 +1622,12 @@ def creation_receipt_bound_roll_ids(
 ) -> set[str]:
     """Collect public-roll ids already verified by investigator.create.
 
-    Quick Fire records bind ``luck_roll_receipt``. KP-guided rolled-character
-    records additionally bind every same-shaped
-    ``characteristic_roll_receipts`` entry. The create runtime has already
-    verified the dice recipe and campaign identity; this read-side helper only
-    recognizes that durable authoritative receipt shape.
+    Quick Fire records bind ``luck_roll_receipt``, every candidate receipt in
+    ``luck_roll_candidates``, and every check/improvement receipt nested under
+    ``edu_improvement_rolls``. KP-guided rolled-character records additionally
+    bind every same-shaped ``characteristic_roll_receipts`` entry. The create
+    runtime has already verified the dice recipe and campaign identity; this
+    read-side helper only recognizes that durable authoritative receipt shape.
     """
     if not isinstance(campaign_id, str) or not campaign_id:
         return set()
@@ -1639,6 +1640,27 @@ def creation_receipt_bound_roll_ids(
         )
         if luck_roll_id is not None:
             bound.add(luck_roll_id)
+        luck_roll_candidates = creation.get("luck_roll_candidates")
+        if isinstance(luck_roll_candidates, list):
+            for candidate in luck_roll_candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                roll_id = _creation_receipt_roll_id(
+                    candidate.get("receipt"), campaign_id=campaign_id,
+                )
+                if roll_id is not None:
+                    bound.add(roll_id)
+        edu_improvement_rolls = creation.get("edu_improvement_rolls")
+        if isinstance(edu_improvement_rolls, list):
+            for record in edu_improvement_rolls:
+                if not isinstance(record, dict):
+                    continue
+                for field in ("check_receipt", "improve_receipt"):
+                    roll_id = _creation_receipt_roll_id(
+                        record.get(field), campaign_id=campaign_id,
+                    )
+                    if roll_id is not None:
+                        bound.add(roll_id)
         characteristic_receipts = creation.get("characteristic_roll_receipts")
         if not isinstance(characteristic_receipts, dict):
             continue
