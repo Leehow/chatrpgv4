@@ -69,6 +69,7 @@ class Delivery:
     already: tuple[str, ...]
     delivered_total: int
     card: dict[str, Any]
+    presentation: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,16 @@ class LinkedDelivery:
     asset_id: str | None
     newly: tuple[str, ...]
     hidden_card: bool
+    presentation: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class Replay:
+    """One explicit re-presentation of an already-delivered material."""
+
+    asset_id: str
+    card: dict[str, Any]
+    presentation: dict[str, Any]
 
 
 class HandoutCatalog:
@@ -226,12 +237,18 @@ class HandoutCatalog:
                 "the card registration if player delivery was intended",
             )
         newly, already = _apply_delivery(world, [handout_id])
+        presentation = (
+            _create_presentation(world, handout_id, first_delivery=True)
+            if newly
+            else None
+        )
         return Delivery(
             asset_id=handout_id,
             newly=tuple(newly),
             already=tuple(already),
             delivered_total=len(_delivered_ids(world)),
             card=_player_view(card, {handout_id}, self._play_language),
+            presentation=presentation,
         )
 
     def link_delivery(self, world: dict[str, Any], handout_id: str) -> LinkedDelivery:
@@ -246,6 +263,11 @@ class HandoutCatalog:
             asset_id=handout_id,
             newly=tuple(newly),
             hidden_card=False,
+            presentation=(
+                _create_presentation(world, handout_id, first_delivery=True)
+                if newly
+                else None
+            ),
         )
 
     def resolve_clue_delivery(
@@ -273,6 +295,37 @@ class HandoutCatalog:
             asset_id=asset_id,
             newly=tuple(newly),
             hidden_card=False,
+            presentation=(
+                _create_presentation(world, asset_id, first_delivery=True)
+                if newly
+                else None
+            ),
+        )
+
+    def replay(self, world: dict[str, Any], handout_id: str) -> Replay:
+        """Create one presentation event without changing delivery authority."""
+        card = self._cards.get(handout_id)
+        if card is None:
+            raise HandoutError(
+                "unknown_handout",
+                f"handout '{handout_id}' is not a registered valid card",
+            )
+        if card.get("player_visible", True) is not True:
+            raise HandoutError(
+                "handout_not_player_visible",
+                f"handout '{handout_id}' is not player-visible",
+            )
+        if handout_id not in _delivered_ids(world):
+            raise HandoutError(
+                "handout_not_delivered",
+                f"handout '{handout_id}' must be delivered before it can be replayed",
+            )
+        return Replay(
+            asset_id=handout_id,
+            card=_player_view(card, {handout_id}),
+            presentation=_create_presentation(
+                world, handout_id, first_delivery=False
+            ),
         )
 
     def opening_candidates(self, world: dict[str, Any]) -> list[dict[str, Any]]:
@@ -399,3 +452,51 @@ def _apply_delivery(
     if newly:
         world["delivered_handout_ids"] = sorted(delivered)
     return newly, already
+
+
+def _presentation_revisions(world: dict[str, Any]) -> dict[str, int]:
+    raw = world.get("handout_presentation_revisions")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise HandoutError(
+            "state_corrupt", "handout_presentation_revisions must be an object"
+        )
+    revisions: dict[str, int] = {}
+    for raw_id, raw_revision in raw.items():
+        asset_id = str(raw_id).strip()
+        if (
+            not asset_id
+            or isinstance(raw_revision, bool)
+            or not isinstance(raw_revision, int)
+            or raw_revision < 1
+        ):
+            raise HandoutError(
+                "state_corrupt",
+                "handout_presentation_revisions contains an invalid row",
+            )
+        revisions[asset_id] = raw_revision
+    return revisions
+
+
+def _create_presentation(
+    world: dict[str, Any],
+    asset_id: str,
+    *,
+    first_delivery: bool,
+) -> dict[str, Any]:
+    revisions = _presentation_revisions(world)
+    current = revisions.get(asset_id, 0)
+    revision = 1 if first_delivery else max(current, 1) + 1
+    if first_delivery and current:
+        raise HandoutError(
+            "state_corrupt",
+            f"new delivery '{asset_id}' already owns presentation revision {current}",
+        )
+    revisions[asset_id] = revision
+    world["handout_presentation_revisions"] = dict(sorted(revisions.items()))
+    return {
+        "presentation_id": f"{asset_id}:presentation:{revision}",
+        "asset_id": asset_id,
+        "revision": revision,
+    }

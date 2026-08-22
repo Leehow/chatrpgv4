@@ -233,6 +233,93 @@ def test_padded_index_asset_id_is_rejected_by_compiler_and_runtime(campaign_ws):
     assert "clue-padded-index-card" in _world(campaign_ws)["discovered_clue_ids"]
 
 
+def _explicit_replay_request(**overrides) -> dict:
+    evidence = {
+        "explicit_player_request": True,
+        "player_text": "请再给我看一次那张剪报。",
+        "semantic_reason": "玩家明确要求再次展示已交付的剪报",
+        "player_turn_epoch": 4,
+    }
+    evidence.update(overrides)
+    return evidence
+
+
+def test_replay_handout_requires_prior_delivery_and_explicit_request(campaign_ws):
+    _install_cards(campaign_ws)
+
+    before_delivery = _run(campaign_ws, "state.replay_handout", {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(),
+        "decision_id": "replay-before-delivery",
+    })
+    assert before_delivery["ok"] is False
+    assert before_delivery["error"]["code"] == "handout_not_delivered"
+
+    _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "handout-newspaper",
+        "decision_id": "replay-test-delivery",
+    })
+    ambiguous = _run(campaign_ws, "state.replay_handout", {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(
+            explicit_player_request=False,
+            player_text="刚才那张……",
+            semantic_reason="玩家指代不明确，应先确认",
+        ),
+        "decision_id": "replay-ambiguous",
+    })
+    assert ambiguous["ok"] is False
+    assert ambiguous["error"]["code"] == "explicit_player_request_required"
+    assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
+
+
+def test_replay_handout_creates_new_presentation_without_second_delivery(campaign_ws):
+    _install_cards(campaign_ws)
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "handout-newspaper",
+        "decision_id": "presentation-delivery",
+    })
+    assert delivered["data"]["presentation"] == {
+        "presentation_id": "handout-newspaper:presentation:1",
+        "asset_id": "handout-newspaper",
+        "revision": 1,
+    }
+
+    args = {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(),
+        "decision_id": "presentation-replay",
+    }
+    replayed = _run(campaign_ws, "state.replay_handout", args)
+    repeated = _run(campaign_ws, "state.replay_handout", args)
+
+    assert replayed["ok"] is True, replayed
+    assert repeated["data"] == replayed["data"]
+    assert replayed["data"]["presentation"] == {
+        "presentation_id": "handout-newspaper:presentation:2",
+        "asset_id": "handout-newspaper",
+        "revision": 2,
+    }
+    assert replayed["data"]["card"]["text"] == "教堂记录被移交县档案馆。"
+    world = _world(campaign_ws)
+    assert world["delivered_handout_ids"] == ["handout-newspaper"]
+    assert world["handout_presentation_revisions"] == {"handout-newspaper": 2}
+
+    presentations = [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") in {"handout_delivered", "handout_presented"}
+    ]
+    assert [event["presentation_id"] for event in presentations] == [
+        "handout-newspaper:presentation:1",
+        "handout-newspaper:presentation:2",
+    ]
+    replay_event = presentations[1]
+    assert replay_event["source"] == "state.replay_handout"
+    assert replay_event["request_assertion"]["player_turn_epoch"] == 4
+    assert replay_event["request_assertion"]["player_text"] == "请再给我看一次那张剪报。"
+    assert replay_event["request_assertion"]["player_text_sha256"].startswith("sha256:")
+
+
 def test_malformed_scenario_cards_cannot_be_queried_or_delivered(campaign_ws):
     store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
     malformed = [

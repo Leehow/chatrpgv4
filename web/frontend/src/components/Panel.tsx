@@ -23,6 +23,7 @@ import {
   type PortraitView,
 } from "../panel-portrait";
 import { safeDisplayText } from "../safe-display";
+import { dedupeHandoutMaterials } from "../handout-presentation";
 import {
   cashLedgerRows,
   cashWhenLabel,
@@ -329,7 +330,8 @@ function CashSection({ cash }: { cash: CashDisplay | null }) {
 /** 资料页签：已交付资料卡列表；卡片自身标明来源原文或剧情内道具。 */
 function MaterialsSection({ materials }: { materials: HandoutCard[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  if (!materials.length) {
+  const uniqueMaterials = dedupeHandoutMaterials(materials);
+  if (!uniqueMaterials.length) {
     return (
       <section className="panel-section">
         <SectionTitle icon={<ScrollText className="size-3.5" />} text="资料" />
@@ -343,10 +345,10 @@ function MaterialsSection({ materials }: { materials: HandoutCard[] }) {
     <section className="panel-section">
       <SectionTitle icon={<ScrollText className="size-3.5" />} text="资料" />
       <div className="mt-1.5 text-[11px] text-muted-foreground">
-        已获得 {materials.length} 份
+        已获得 {uniqueMaterials.length} 份
       </div>
       <ul className="mt-2 space-y-2">
-        {materials.map((card) => {
+        {uniqueMaterials.map((card) => {
           const open = openId === card.asset_id;
           return (
             <li key={card.asset_id}>

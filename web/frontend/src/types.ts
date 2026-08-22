@@ -322,6 +322,10 @@ export type HandoutKind = "document" | "read_aloud" | "map";
 /** 玩家安全资料卡投影（web/server-node 只读产出，仅含已交付卡）。 */
 export interface HandoutCard {
   asset_id: string;
+  /** Inline event identity; changes only for an explicit validated replay. */
+  presentation_id?: string;
+  /** Monotonic per-material presentation revision. */
+  presentation_revision?: number;
   kind: HandoutKind;
   content_origin?: "source_verbatim" | "authored_derivative";
   title: string;
@@ -433,8 +437,8 @@ export interface SessionInfo {
   host?: "pi-coc";
   /** Fresh host, or investigator-less setup: frontend should attach. */
   host_opening?: boolean;
-  /** Every already-delivered handout card at session load — restored inline
-   *  into the narration flow without waiting for a turn. */
+  /** Every already-delivered handout card for persistent Materials hydration.
+   *  Session load must not synthesize a new inline presentation. */
   handouts?: HandoutCard[];
   state: GameState;
 }

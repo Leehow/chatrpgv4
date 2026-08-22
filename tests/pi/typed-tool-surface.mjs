@@ -33,6 +33,7 @@ const SPOTLIGHT = [
   "state.cash_query",
   "state.cash_spend",
   "state.deliver_handout",
+  "state.replay_handout",
   "state.journal",
   "turn.output_context",
   "turn.finalize",
@@ -86,6 +87,7 @@ test("live play exposes cash and handout state operations as exact typed tools",
     "state.cash_query",
     "state.cash_spend",
     "state.deliver_handout",
+    "state.replay_handout",
   ]) {
     const tool = catalog.byOperation.get(operation);
     assert.ok(tool, operation);

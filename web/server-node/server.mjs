@@ -1009,9 +1009,9 @@ async function handleCreateSession(req, res) {
     investigator_id: investigatorId,
   };
   SESSIONS.set(sessionId, info);
-  // Session load returns every already-delivered card inline. Seed this
-  // session's SSE cursor from the same projection so later turns stream only
-  // cards delivered after this response.
+  // Session load returns delivered materials for the persistent Materials
+  // panel, while hydration seeds presentation ids so refresh never fabricates
+  // a new inline presentation event.
   let handouts;
   try {
     handouts = HANDOUT_DELIVERY.hydrate(
@@ -1019,7 +1019,7 @@ async function handleCreateSession(req, res) {
     );
   } catch {
     handouts = [];
-    HANDOUT_DELIVERY.seed(sessionId, handouts);
+    HANDOUT_DELIVERY.seed(sessionId, []);
   }
   const opening = sessionOpeningFlags({
     spawned,

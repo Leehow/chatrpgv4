@@ -630,6 +630,13 @@ export async function streamTurn(
         ) continue;
         handlers.onHandout?.({
           asset_id: String(data.asset_id ?? ""),
+          presentation_id: typeof data.presentation_id === "string" && data.presentation_id
+            ? data.presentation_id
+            : undefined,
+          presentation_revision: Number.isSafeInteger(data.presentation_revision)
+            && Number(data.presentation_revision) > 0
+            ? Number(data.presentation_revision)
+            : undefined,
           kind: normalizeHandoutKind(data.kind),
           content_origin: contentOrigin,
           title: String(data.title ?? ""),

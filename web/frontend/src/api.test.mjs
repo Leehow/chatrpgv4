@@ -102,11 +102,22 @@ test("streamTurn parses handout SSE events into sanitized player-safe cards", as
         const enc = new TextEncoder();
         controller.enqueue(enc.encode(sseFrame("handout", {
           asset_id: "doc-letter",
+          presentation_id: "doc-letter:presentation:2",
+          presentation_revision: 2,
           kind: "document",
           title: "芝加哥来信",
           text: "逐字原文…",
           image_url: "/api/campaigns/camp-1/handout-assets/assets/handouts/letter.png",
           source_pages: ["pdf_index-16"],
+        })));
+        controller.enqueue(enc.encode(sseFrame("handout", {
+          asset_id: "read-aloud-1",
+          presentation_id: "read-aloud-1:presentation:1",
+          presentation_revision: 1,
+          kind: "read_aloud",
+          title: "门后的响动",
+          text: "门轴发出低沉的呻吟。",
+          source_pages: ["pdf_index-9"],
         })));
         controller.enqueue(enc.encode(sseFrame("handout", {
           asset_id: "map-1",
@@ -142,15 +153,17 @@ test("streamTurn parses handout SSE events into sanitized player-safe cards", as
     await streamTurn("sid", "", "p", "m", "off", undefined, {
       onHandout: (card) => cards.push(card),
     }, undefined, { attach: true });
-    assert.equal(cards.length, 3);
+    assert.equal(cards.length, 4);
     assert.equal(cards[0].asset_id, "doc-letter");
+    assert.equal(cards[0].presentation_id, "doc-letter:presentation:2");
+    assert.equal(cards[0].presentation_revision, 2);
     assert.equal(cards[0].kind, "document");
     assert.equal(cards[0].text, "逐字原文…");
     assert.deepEqual(cards[0].source_pages, ["pdf_index-16"]);
-    assert.equal(cards[1].image_url, null);
-    assert.deepEqual(cards[1].source_pages, []);
-    // 边界解析把未知 kind 归一为严格枚举 document。
-    assert.equal(cards[2].kind, "document");
+    assert.equal(cards[1].kind, "read_aloud");
+    assert.equal(cards[1].presentation_id, "read-aloud-1:presentation:1");
+    assert.equal(cards[2].kind, "map");
+    assert.equal(cards[2].image_url, null);
     assert.deepEqual(cards[2].source_pages, []);
     assert.ok(!JSON.stringify(cards).includes("MUST NOT"));
   } finally {

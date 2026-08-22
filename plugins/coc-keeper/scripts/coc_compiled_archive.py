@@ -622,6 +622,25 @@ def build_documents(
                 "san_triggers": deepcopy(on_enter.get("san_triggers") or []),
                 "affordance_operations": keeper_ops,
                 "secret_ref_ids": secret_ids,
+                "pending_handout_cards": [
+                    {
+                        "asset_id": (
+                            f"read-aloud:{sid}:"
+                            f"{str(row.get('id') or '').strip()}"
+                        ),
+                        "kind": "read_aloud",
+                        "title": (
+                            row.get("title")
+                            or scene.get("display_name")
+                            or str(row.get("id") or "")
+                        ),
+                        "trigger": row.get("trigger"),
+                        "condition": row.get("condition"),
+                        "source_refs": deepcopy(row.get("source_refs") or []),
+                    }
+                    for row in (scene.get("read_aloud") or [])
+                    if isinstance(row, dict) and str(row.get("id") or "").strip()
+                ],
                 # Source mentions remain Keeper context only. They do not
                 # assert live presence, discovery, or player knowledge.
                 "source_context_mentions": deepcopy(

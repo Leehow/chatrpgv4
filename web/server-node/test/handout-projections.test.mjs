@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   campaignBoundAssetRootIds,
   deliveredHandoutIds,
+  deliveredHandoutPresentationsDisplay,
   deliveredHandoutsDisplay,
   handoutCardContractErrors,
   handoutAssetCandidates,
@@ -50,7 +51,11 @@ function readHandouts(file) {
 
 /** Campaign skeleton in the exact plugin shapes. */
 function seedCampaign(ws, {
-  delivered = [], assets = [], scenarioHandouts = null, playLanguage = "zh-Hans",
+  delivered = [],
+  presentationRevisions = {},
+  assets = [],
+  scenarioHandouts = null,
+  playLanguage = "zh-Hans",
 } = {}) {
   const campaignDir = path.join(ws, ".coc", "campaigns", "camp-1");
   writeJson(path.join(campaignDir, "campaign.json"), {
@@ -72,6 +77,9 @@ function seedCampaign(ws, {
     scenario_id: "scen-1",
     discovered_clue_ids: [],
     ...(delivered.length ? { delivered_handout_ids: [...delivered].sort() } : {}),
+    ...(Object.keys(presentationRevisions).length
+      ? { handout_presentation_revisions: presentationRevisions }
+      : {}),
   });
   writeJson(path.join(campaignDir, "scenario", "scenario.json"), {
     schema_version: 1,
@@ -546,6 +554,35 @@ test("authored derivative selects the active Japanese language map", () => {
   assert.equal(card.card_label, "劇中資料");
   assert.equal(card.kind_label, "文書");
   assert.equal(card.source_label, null);
+});
+
+test("presentation projection keeps stable material identity and advances event identity", () => {
+  const ws = makeWorkspace();
+  const campaignDir = seedCampaign(ws, {
+    delivered: ["doc-1"],
+    presentationRevisions: { "doc-1": 2 },
+  });
+  writeJson(path.join(campaignDir, "scenario", "handouts.json"), {
+    schema_version: 1,
+    handouts: [{
+      asset_id: "doc-1",
+      kind: "read_aloud",
+      title: "门后的声音",
+      localized_text: "门轴发出低沉的呻吟。",
+      source_refs: ["pdf_index-9"],
+      player_visible: true,
+    }],
+  });
+
+  const materials = deliveredHandoutsDisplay(ws, "camp-1");
+  const presentations = deliveredHandoutPresentationsDisplay(ws, "camp-1");
+  assert.equal(materials.length, 1);
+  assert.equal("presentation_id" in materials[0], false);
+  assert.deepEqual(presentations, [{
+    ...materials[0],
+    presentation_id: "doc-1:presentation:2",
+    presentation_revision: 2,
+  }]);
 });
 
 // --------------------------------------------------------- ref normalization

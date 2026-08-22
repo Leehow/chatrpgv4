@@ -250,6 +250,15 @@ opening procedure is normative in
   handouts deliver right after the table opening through the same path.
   Delivery timing is your semantic judgment — no quota, no fixed pipeline;
   the deliver tool records state and never gates narration.
+  Document, read-aloud, image, and player-visible map cards all use this same
+  material path. Automatic delivery presents a card only once. Call
+  `state.replay_handout` only when the card is already player-visible and the
+  current player message explicitly asks to see or hear that same material
+  again; pass the exact current player message and a concise semantic reason
+  in `request_assertion` (the Pi gateway binds the current turn epoch). Never
+  infer replay from a vague hint, prose fragment, keyword, or regex. If the
+  request could mean either recall or a fresh presentation, ask the player to
+  clarify and do not call the replay tool on that turn.
 - **Operational invisibility.** Parse/cache/queue/IR status, host work,
   `deep pack`, “已深解析”, tool latency, and reuse diagnostics are KP-internal
   evidence. Never narrate them to the player. Render only their diegetic

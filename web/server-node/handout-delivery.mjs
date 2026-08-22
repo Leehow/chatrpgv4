@@ -1,27 +1,35 @@
-import { deliveredHandoutsDisplay } from "./projections.mjs";
+import {
+  deliveredHandoutPresentationsDisplay,
+  deliveredHandoutsDisplay,
+} from "./projections.mjs";
 
 /** Per-session delivery cursor shared by refresh hydration, state.materials,
  * and turn SSE. The projection remains the sole player-safety authority. */
 export class HandoutSessionDelivery {
-  constructor({ project = deliveredHandoutsDisplay } = {}) {
-    this.project = project;
+  constructor({
+    projectMaterials = deliveredHandoutsDisplay,
+    projectPresentations = deliveredHandoutPresentationsDisplay,
+  } = {}) {
+    this.projectMaterials = projectMaterials;
+    this.projectPresentations = projectPresentations;
     this.seenBySession = new Map();
   }
 
   materials(workspace, campaignId) {
-    return this.project(workspace, campaignId);
+    return this.projectMaterials(workspace, campaignId);
   }
 
   hydrate(workspace, sessionId, campaignId) {
-    const cards = this.materials(workspace, campaignId);
-    this.seed(sessionId, cards);
-    return cards;
+    const materials = this.materials(workspace, campaignId);
+    const presentations = this.projectPresentations(workspace, campaignId);
+    this.seed(sessionId, presentations);
+    return materials;
   }
 
   seed(sessionId, cards) {
     this.seenBySession.set(
       sessionId,
-      new Set((cards || []).map((card) => card?.asset_id).filter(Boolean)),
+      new Set((cards || []).map((card) => card?.presentation_id).filter(Boolean)),
     );
   }
 
@@ -32,7 +40,7 @@ export class HandoutSessionDelivery {
   pushNew(workspace, sessionId, campaignId, write) {
     let delivered;
     try {
-      delivered = this.materials(workspace, campaignId);
+      delivered = this.projectPresentations(workspace, campaignId);
     } catch {
       return 0;
     }
@@ -43,11 +51,11 @@ export class HandoutSessionDelivery {
     }
     let pushed = 0;
     for (const card of delivered) {
-      if (seen.has(card.asset_id)) continue;
+      if (!card.presentation_id || seen.has(card.presentation_id)) continue;
       // A dropped response must retry on the next turn; mark only after the
       // exact SSE frame writer confirms success.
       if (write("handout", card)) {
-        seen.add(card.asset_id);
+        seen.add(card.presentation_id);
         pushed += 1;
       }
     }

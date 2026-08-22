@@ -1239,7 +1239,10 @@ def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
         prefix = f"location read_aloud[{index}]"
         if not isinstance(row, dict):
             raise ModuleAssetsError(f"{prefix} must be an object")
-        extra = set(row) - {"id", "trigger", "text", "source_refs", "condition"}
+        extra = set(row) - {
+            "id", "trigger", "title", "text", "localized_text",
+            "source_refs", "condition",
+        }
         if extra:
             raise ModuleAssetsError(
                 f"{prefix} has unsupported fields: {sorted(extra)}"
@@ -1264,6 +1267,14 @@ def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
             raise ModuleAssetsError(
                 f"{prefix} with trigger=on_clue requires a condition"
             )
+        for field in ("title", "localized_text"):
+            value = row.get(field)
+            if value is not None and (
+                not isinstance(value, str) or not value.strip()
+            ):
+                raise ModuleAssetsError(
+                    f"{prefix}.{field} must be a non-empty string when supplied"
+                )
         refs = row.get("source_refs")
         if not isinstance(refs, list) or not refs:
             raise ModuleAssetsError(
