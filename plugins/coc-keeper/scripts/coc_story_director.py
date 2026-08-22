@@ -903,6 +903,7 @@ def build_director_context(
         "module_meta": module_meta,
         "story_graph": story_graph,
         "clue_graph": clue_graph,
+        "flags": _read_json(save / "flags.json", {}),
         "npc_agendas": npc_agendas,
         "epistemic_graph": _read_json(scenario / "epistemic-graph.json", {"questions": [], "evidence_links": []}),
         "reveal_contracts": _read_json(scenario / "reveal-contracts.json", {"contracts": []}),
@@ -1168,13 +1169,20 @@ def _move_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
     if resolved_destination:
         flags_doc = ctx.get("flags") if isinstance(ctx.get("flags"), dict) else {}
         raw_flags = flags_doc.get("flags") if isinstance(flags_doc.get("flags"), dict) else {}
+        clue_records = (
+            flags_doc.get("clues_found")
+            if isinstance(flags_doc.get("clues_found"), dict)
+            else {}
+        )
+        authored_discovered = coc_scene_graph.authored_discovered_clue_ids(
+            ctx.get("clue_graph"),
+            planning_world.get("discovered_clue_ids"),
+            clue_records,
+        )
         planning_unlocks = coc_scene_graph.evaluate_unlocks(
             story_graph,
             planning_world,
-            discovered_clue_ids={
-                str(value) for value in (planning_world.get("discovered_clue_ids") or [])
-                if value
-            },
+            discovered_clue_ids=authored_discovered,
             flags_set={str(key) for key, value in raw_flags.items() if value},
         )
         coc_scene_graph.apply_unlocks_to_world(planning_world, planning_unlocks)

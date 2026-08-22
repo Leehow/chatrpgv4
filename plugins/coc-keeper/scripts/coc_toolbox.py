@@ -3346,26 +3346,19 @@ def _authored_unlock_world(
     reevaluation after another clue is discovered.
     """
     projected = deepcopy(world)
-    authored_ids = {
-        str(clue.get("clue_id"))
-        for clue in _all_clues(ctx.clue_graph)
-        if clue.get("clue_id") not in (None, "")
-    }
     if clue_records is None:
         flags = ctx.flags()
         found = flags.get("clues_found")
         clue_records = found if isinstance(found, dict) else {}
+    eligible = coc_scene_graph.authored_discovered_clue_ids(
+        ctx.clue_graph,
+        world.get("discovered_clue_ids"),
+        clue_records,
+    )
     projected["discovered_clue_ids"] = [
-        clue_id
+        str(raw)
         for raw in world.get("discovered_clue_ids") or []
-        if (clue_id := str(raw)) in authored_ids
-        and not (
-            isinstance(clue_records.get(clue_id), dict)
-            and (
-                clue_records[clue_id].get("local_only") is True
-                or clue_records[clue_id].get("can_unlock_authored_milestone") is False
-            )
-        )
+        if str(raw) in eligible
     ]
     return projected
 
@@ -24480,15 +24473,17 @@ def _tool_state_set_flag(ctx: Ctx, args: dict[str, Any]):
     # append/ledger stage.  A replay repairs these IDs additively and never
     # recalculates previous_value/provenance from later state.
     world = ctx.world()
-    projected_world = deepcopy(world)
+    unlock_world = _authored_unlock_world(
+        ctx, world, clue_records=flags.get("clues_found")
+    )
     unlock_candidates = coc_scene_graph.evaluate_unlocks(
         ctx.story_graph,
-        projected_world,
+        unlock_world,
         clock_reached=_clock_reached(ctx),
         flags_set={str(key) for key, enabled in flag_map.items() if enabled},
     )
     newly_unlocked = coc_scene_graph.apply_unlocks_to_world(
-        projected_world, unlock_candidates
+        world, unlock_candidates
     )
     data = {
         "flag_id": flag_id,
@@ -24507,7 +24502,7 @@ def _tool_state_set_flag(ctx: Ctx, args: dict[str, Any]):
     _put_source_receipt(flags, receipt)
     ctx.save_flags(flags)
     if newly_unlocked:
-        ctx.save_world(projected_world)
+        ctx.save_world(world)
     _ensure_operation_event(ctx, receipt)
     ctx.ledger_record(
         decision_id,

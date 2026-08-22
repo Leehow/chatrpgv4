@@ -3012,6 +3012,15 @@ def _apply_scene_unlock_pass(
     """Evaluate scene_edges unlock conditions; emit ``scene_unlocked`` events."""
     flags_doc = _read_json(save / "flags.json", {})
     flags_set = _truthy_flag_ids(flags_doc)
+    clue_graph = _read_json(
+        campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []}
+    )
+    clue_records = flags_doc.get("clues_found")
+    authored_discovered = coc_scene_graph.authored_discovered_clue_ids(
+        clue_graph,
+        discovered,
+        clue_records if isinstance(clue_records, dict) else {},
+    )
 
     def clock_reached(clock_id: str | None, threshold: int) -> bool:
         if coc_threat_state is None:
@@ -3032,7 +3041,7 @@ def _apply_scene_unlock_pass(
     newly = coc_scene_graph.evaluate_unlocks(
         story,
         world,
-        discovered_clue_ids={str(c) for c in discovered},
+        discovered_clue_ids=authored_discovered,
         clock_reached=clock_reached,
         flags_set=flags_set,
     )

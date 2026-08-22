@@ -29,6 +29,9 @@ coc_starter = _load("coc_starter_scene_contract", SCRIPTS / "coc_starter.py")
 coc_story_director = _load(
     "coc_story_director_contract", SCRIPTS / "coc_story_director.py"
 )
+coc_director_apply = _load(
+    "coc_director_apply_scene_contract", SCRIPTS / "coc_director_apply.py"
+)
 coc_module_project = _load(
     "coc_module_project_scene_contract", SCRIPTS / "coc_module_project.py"
 )
@@ -321,6 +324,84 @@ def test_prior_improvised_clue_stays_ineligible_when_later_authored_clue_unlocks
     )
     assert targets[0] not in world["unlocked_scene_ids"]
     assert targets[1] in world["unlocked_scene_ids"]
+
+
+def test_improvised_clue_stays_ineligible_after_unrelated_flag_change(campaign_ws):
+    clue_graph = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "clue-graph.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    authored_id = str(clue_graph["conclusions"][0]["clues"][0]["clue_id"])
+    unknown_id = "clue-improvised-before-flag"
+    target = _install_unlock_edges(
+        campaign_ws, unknown_id=unknown_id, authored_id=authored_id
+    )[0]
+
+    improvised = _run(
+        campaign_ws,
+        "state.record_clue",
+        {"clue_id": unknown_id, "decision_id": "local-before-flag-1"},
+    )
+    assert improvised["ok"] is True
+    changed = _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "unrelated-scene-fact",
+            "value": True,
+            "decision_id": "unrelated-flag-1",
+        },
+    )
+    assert changed["ok"] is True, changed
+    assert changed["data"]["newly_unlocked_scenes"] == []
+    world = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert target not in world["unlocked_scene_ids"]
+
+
+def test_director_apply_reevaluation_excludes_improvised_clue(campaign_ws):
+    clue_graph = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "clue-graph.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    authored_id = str(clue_graph["conclusions"][0]["clues"][0]["clue_id"])
+    unknown_id = "clue-improvised-before-director-apply"
+    target = _install_unlock_edges(
+        campaign_ws, unknown_id=unknown_id, authored_id=authored_id
+    )[0]
+    assert _run(
+        campaign_ws,
+        "state.record_clue",
+        {"clue_id": unknown_id, "decision_id": "local-before-apply-1"},
+    )["ok"] is True
+
+    campaign_dir = campaign_ws["campaign_dir"]
+    world_path = campaign_dir / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    story = json.loads(
+        (campaign_dir / "scenario" / "story-graph.json").read_text(encoding="utf-8")
+    )
+    events: list[dict] = []
+    unlocked = coc_director_apply._apply_scene_unlock_pass(
+        campaign_dir,
+        campaign_dir / "save",
+        world,
+        story,
+        discovered=list(world["discovered_clue_ids"]),
+        decision_id="director-reevaluate-1",
+        investigator_id=campaign_ws["investigator_id"],
+        ts="2026-08-22T00:00:00Z",
+        events=events,
+        logs=campaign_dir / "logs",
+    )
+    assert unlocked == []
+    assert target not in world["unlocked_scene_ids"]
+    assert events == []
 
 
 def test_promote_scene_records_divergence_and_updates_effective_role(campaign_ws):
