@@ -204,6 +204,10 @@ output evidence boundary, not a replacement prose engine:
    the same prose-only revision 2 and frozen settlement. Length, repetition,
    scope, style, and all other prose findings remain advisory. Outside this Pi
    authority boundary, narration review remains optional advice.
+   A `no_player_state_change_claimed` declaration with empty claims is KP
+   semantic attestation, not proof of absence; fresh Pi/Grok browser replay
+   remains mandatory acceptance evidence. This accepted residual adds no
+   keyword gate or second model: the live KP remains the sole semantic judge.
 
 **Mechanical output gate.** Formal mechanical markers — `【明骰】`, dice lines
 (`掷骰：N`), and SAN/HP numeric transfers (`SAN 50→46`, `HP 6→4`, `损失 N 点`) —
