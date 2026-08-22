@@ -118,6 +118,10 @@ the active campaign's resolver through the kernel registry
   difficulty ladder, motive/leverage adjustments, tactical dice policy, and
   approach-skill mapping. The kernel resolves stable commitment identity and
   canonical provenance before calling it.
+- Optional `social_skill_names()` — package-owned list of NPC social skills
+  whose `rules.roll` calls require and consume a canonical social adjudication.
+- Optional `psychology_check_contract(npc_psychology)` — package-owned hidden
+  observation skill, opposing-value ladder, difficulty basis, and stakes.
 - Optional `psychology_policy(check_result, question_kind)` — package-owned
   concealed-observation inference ceiling and fumble policy. The kernel owns
   one-window identity, concealed persistence, and player-safe realization

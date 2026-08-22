@@ -131,9 +131,25 @@ contract above still applies. This is the natural rhythm:
    leverage replays the original adjudication — switching from Persuade to
    Fast Talk does not reopen it. When it returns `conditional`, work the
    recorded requirements instead of rerolling.
+   When feasibility is `roll`, pass the returned `goal_key` as
+   `social_adjudication_ref` to `rules.roll` together with the exact returned
+   skill, difficulty, bonus/penalty dice, and `npc_id`. That reference is
+   consumed by the one canonical roll; a fresh `decision_id` cannot reroll the
+   same commitment. A legal Push still uses `rules.push`. The bound roll also
+   carries the structured `outcome_ceiling`; narration may realize only the
+   recorded goal scope, target-NPC fact refs, scene truth tier, and forbidden
+   fact boundary.
    **Psychology runs keeper-concealed by default.** Use
-   `rules.psychology_observe` (one settled judgment per observer/NPC/scene/
-   NPC-state-revision window) and narrate only behavior-level observations:
+   `rules.psychology_observe` in two steps. First `action=settle` binds
+   `observer_scope + npc_id + conversation_window_id + observation_revision`
+   to player-known `observable_fact_refs` and settles one hidden roll. Then
+   call `action=realize` with that `insight_id`, the same full identity, and
+   player-safe `visible_observation`; only this second payload may enter
+   narration. A revision above zero requires a distinct canonical
+   `revision_event_ref` whose event type is an allowed boundary (decisive new
+   evidence, identity exposure, threat/hostility change, confession/betrayal,
+   re-encounter, or scene change). One event opens exactly one next revision;
+   ordinary NPC-state changes do not reopen it. Narrate only behavior-level observations:
    the player never sees the roll, the outcome, or whether it failed. Success
    yields an evidence-grade read ("his answer was not improvised"), not the
    NPC's inner monologue; ordinary failure gives shallow or inconclusive

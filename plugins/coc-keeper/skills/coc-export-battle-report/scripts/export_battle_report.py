@@ -830,10 +830,12 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             or partial_path.exists()
         ),
     ) or []
-    if transcript_origin == "canonical" and metadata.get("run_id"):
+    if transcript_origin == "canonical":
         transcript = [
             row for row in transcript
-            if isinstance(row, dict) and row.get("run_id") == metadata["run_id"]
+            if isinstance(row, dict)
+            and row.get("run_segment_id") == metadata.get("run_segment_id")
+            and row.get("session_id") == metadata.get("session_id")
         ]
         manifest[transcript_relative]["included_record_count"] = len(transcript)
         manifest[transcript_relative]["projection"] = "current_run_exact_table_text"
@@ -1136,10 +1138,15 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         "ruleset_id",
         "ruleset_version",
     )
+    identity_sentinels = {
+        "missing", "unknown", "unset", "placeholder", "none", "null", "n/a", "na"
+    }
     missing_run_identity = [
         field
         for field in required_run_identity
-        if not isinstance(metadata.get(field), str) or not metadata[field].strip()
+        if not isinstance(metadata.get(field), str)
+        or not metadata[field].strip()
+        or metadata[field].strip().casefold() in identity_sentinels
     ]
     run_identity_findings = [
         f"required run identity field {field} is missing"
@@ -1220,12 +1227,58 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         transcript_findings.append(
             f"run status is {run_status}; transcript cannot be claimed final"
         )
-    transcript_complete = transcript_candidate_present and not transcript_findings
+    accepted_findings = list(transcript_findings)
+    finalization_by_id = {
+        str(row.get("finalization_id")): row
+        for row in turn_finalizations or []
+        if isinstance(row, dict) and isinstance(row.get("finalization_id"), str)
+    }
+    accepted_keeper_rows = [
+        row for row in transcript
+        if isinstance(row, dict) and _dialogue_side(row) == "keeper"
+    ]
+    required_accepted_fields = (
+        "run_segment_id", "session_id", "turn_id", "finalization_id",
+        "accepted_revision", "rendered_text_sha256",
+    )
+    for index, row in enumerate(accepted_keeper_rows, start=1):
+        absent = [
+            field for field in required_accepted_fields
+            if row.get(field) in (None, "")
+        ]
+        if absent:
+            accepted_findings.append(
+                f"accepted Keeper row {index} is NOT_PROVEN: missing " + ", ".join(absent)
+            )
+            continue
+        if (
+            row.get("run_segment_id") != metadata.get("run_segment_id")
+            or row.get("session_id") != metadata.get("session_id")
+        ):
+            accepted_findings.append(
+                f"accepted Keeper row {index} is NOT_PROVEN: run/session identity mismatch"
+            )
+            continue
+        if isinstance(row.get("accepted_revision"), bool) or not isinstance(row.get("accepted_revision"), int) or row["accepted_revision"] < 1:
+            accepted_findings.append(
+                f"accepted Keeper row {index} is NOT_PROVEN: accepted_revision is invalid"
+            )
+            continue
+        receipt = finalization_by_id.get(str(row.get("finalization_id")))
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("rendered_sha256") != row.get("rendered_text_sha256")
+            or receipt.get("rendered_text") != row.get("text")
+        ):
+            accepted_findings.append(
+                f"accepted Keeper row {index} is NOT_PROVEN: finalization text/hash binding is absent or conflicting"
+            )
+    transcript_complete = transcript_candidate_present and not accepted_findings
     dimension(
-        "exact_transcript",
+        "accepted_transcript",
         transcript_complete,
-        *(transcript_findings or [
-            "every journaled player message and finalized Keeper response is present exactly once"
+        *(accepted_findings or [
+            "every accepted Keeper row binds run segment, session, turn, finalization, revision, and rendered-text hash"
         ]),
     )
     dice_ok = (

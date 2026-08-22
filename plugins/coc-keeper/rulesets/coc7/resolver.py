@@ -136,6 +136,7 @@ def social_difficulty(
         feasibility = "roll"
     return {
         "approach_skill": _SOCIAL_APPROACH_SKILLS[approach],
+        "defense_skills": ["Psychology", _SOCIAL_APPROACH_SKILLS[approach]],
         "base_difficulty": _SOCIAL_DIFFICULTIES[base],
         "motive_adjustment": motive_delta,
         "strategic_adjustment": -strategic_count,
@@ -146,15 +147,20 @@ def social_difficulty(
     }
 
 
+def social_skill_names() -> tuple[str, ...]:
+    """Skills which require a bound social adjudication for an NPC goal."""
+    return tuple(_SOCIAL_APPROACH_SKILLS.values())
+
+
 def psychology_policy(check_result: dict[str, Any], question_kind: str) -> dict[str, Any]:
     """Return the Keeper-only CoC 7e realization ceiling for a concealed read."""
     del question_kind  # semantic question classification is Keeper-owned in v1.
     outcome = str(check_result.get("outcome") or "failure")
-    if outcome in {"critical", "extreme_success"}:
+    if outcome in {"critical", "extreme"}:
         depth = "deep_conflict"
-    elif outcome == "hard_success":
+    elif outcome == "hard":
         depth = "motive_link"
-    elif outcome == "success":
+    elif outcome == "regular":
         depth = "immediate_intent"
     else:
         depth = "uncertain"
@@ -163,6 +169,31 @@ def psychology_policy(check_result: dict[str, Any], question_kind: str) -> dict[
         "misread_policy": (
             "plausible_wrong_on_fumble" if outcome == "fumble" else "none"
         ),
+    }
+
+
+def psychology_check_contract(npc_psychology: int | None) -> dict[str, Any]:
+    """Return the package-owned concealed Psychology check contract."""
+    if npc_psychology is not None and (
+        isinstance(npc_psychology, bool)
+        or not isinstance(npc_psychology, int)
+        or not 0 <= npc_psychology <= 100
+    ):
+        raise ValueError("npc_psychology must be an integer 0-100 or None")
+    difficulty = (
+        "regular"
+        if npc_psychology is None or npc_psychology < 50
+        else "hard" if npc_psychology < 90 else "extreme"
+    )
+    return {
+        "skill": "Psychology",
+        "defense_skills": ["Psychology"],
+        "difficulty": difficulty,
+        "difficulty_basis": "opponent_skill",
+        "stakes": {
+            "on_success": "the observer reads the current behavior correctly",
+            "on_failure": "the observer cannot settle the truth of the read",
+        },
     }
 
 
@@ -645,10 +676,20 @@ def public_api_index() -> dict[str, dict[str, Any]]:
             "signature": "social_difficulty(request, npc_defense)",
             "returns": "CoC 7e social difficulty, adjustment, and tactical-dice policy",
         },
+        "social_skill_names": {
+            "aliases": [],
+            "signature": "social_skill_names()",
+            "returns": "package-owned NPC social check skill names",
+        },
         "psychology_policy": {
             "aliases": [],
             "signature": "psychology_policy(check_result, question_kind)",
             "returns": "Keeper-only concealed Psychology realization ceiling",
+        },
+        "psychology_check_contract": {
+            "aliases": [],
+            "signature": "psychology_check_contract(npc_psychology)",
+            "returns": "CoC 7e concealed Psychology skill, difficulty, and stakes contract",
         },
         "roll_dice": {
             "aliases": ["roll_expression"],

@@ -18,7 +18,12 @@ def _load():
     return module
 
 
-def _finalization_receipt(finalization_id, roll_ids):
+def _canonical_digest(value):
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _finalization_receipt(finalization_id, roll_ids, *, rendered_text=""):
     """Minimal binding receipt: the exporter reads finalization_id and the
     union of source_roll_ids (receipt completeness is enforced write-side)."""
     return {
@@ -27,14 +32,24 @@ def _finalization_receipt(finalization_id, roll_ids):
         "decision_id": f"{finalization_id}-decision",
         "journal_decision_id": f"{finalization_id}-journal",
         "source_roll_ids": list(roll_ids),
+        "rendered_text": rendered_text,
+        "rendered_sha256": _canonical_digest(rendered_text),
     }
 
 
 def _bind_rolls(run: Path, finalization_id, roll_ids):
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    transcript_path = run / "transcript.jsonl"
+    transcript = [
+        json.loads(raw) for raw in transcript_path.read_text(encoding="utf-8").splitlines()
+        if raw.strip()
+    ]
+    keeper = next(row for row in transcript if row.get("role") == "keeper_under_test")
+    keeper["finalization_id"] = finalization_id
+    _write_jsonl(transcript_path, transcript)
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
-        [_finalization_receipt(finalization_id, roll_ids)],
+        [_finalization_receipt(finalization_id, roll_ids, rendered_text=keeper["text"])],
     )
 
 
@@ -61,8 +76,9 @@ def _fixture(run: Path, *, metadata_name="run.json"):
         "ruleset_version": "1.0.0",
         "seed": 17,
     }
+    keeper_text = "门上写着 **勿入**。\n第二行有 `code`。"
     transcript = [
-        {"turn": 1, "role": "keeper_under_test", "speaker_display": "KP[门卫]", "text": "门上写着 **勿入**。\n第二行有 `code`。"},
+        {"turn": 1, "turn_id": "turn-1", "role": "keeper_under_test", "speaker_display": "KP[门卫]", "text": keeper_text, "run_segment_id": "run-1", "session_id": "session-1", "finalization_id": "fin-1", "accepted_revision": 1, "rendered_text_sha256": _canonical_digest(keeper_text)},
         {"turn": 2, "role": "system", "text": "RUNNER_PROMPT_SECRET"},
         {"turn": 3, "role": "player_simulator", "speaker": "Ada King", "text": "我说：\"进去\" | yes 🚪"},
     ]
@@ -104,7 +120,7 @@ def _fixture(run: Path, *, metadata_name="run.json"):
     _write_jsonl(campaign / "logs" / "rolls.jsonl", rolls)
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
-        [_finalization_receipt("fin-1", ["public-1"])],
+        [_finalization_receipt("fin-1", ["public-1"], rendered_text=keeper_text)],
     )
     _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [{
         "schema_version": 2,
@@ -191,6 +207,19 @@ def test_missing_required_run_identity_is_incomplete(tmp_path, missing):
     dimension = report["completeness"]["dimensions"]["run_identity"]
     assert dimension["status"] == "FAIL"
     assert any(missing in finding for finding in dimension["findings"])
+
+
+@pytest.mark.parametrize("sentinel", ["MISSING", "unknown", "placeholder"])
+def test_placeholder_run_identity_is_incomplete(tmp_path, sentinel):
+    module = _load()
+    run = tmp_path / sentinel
+    fixture = _fixture(run)
+    metadata = dict(fixture["metadata"])
+    metadata["run_segment_id"] = sentinel
+    _write_json(run / "run.json", metadata)
+    report = module.export_battle_report(run)
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert report["completeness"]["dimensions"]["run_identity"]["status"] == "FAIL"
 
 
 def test_exports_allowlisted_model_evidence_without_rendering_it(tmp_path):
@@ -486,10 +515,26 @@ def test_exact_transcript_dimension_reports_the_actual_missing_role(
         [row for row in data["transcript"] if row.get("role") == kept_role],
     )
     report = module.export_battle_report(run)
-    dimension = report["completeness"]["dimensions"]["exact_transcript"]
+    dimension = report["completeness"]["dimensions"]["accepted_transcript"]
     assert dimension["status"] == "FAIL"
     assert expected_reason in dimension["findings"]
     assert "final ordered transcript contains both table roles" not in dimension["findings"]
+
+
+def test_accepted_transcript_requires_revision_hash_and_session_binding(tmp_path):
+    module = _load()
+    run = tmp_path / "unbound-accepted"
+    data = _fixture(run)
+    transcript = list(data["transcript"])
+    keeper = dict(transcript[0])
+    keeper.pop("accepted_revision")
+    transcript[0] = keeper
+    _write_jsonl(run / "transcript.jsonl", transcript)
+    report = module.export_battle_report(run)
+    dimension = report["completeness"]["dimensions"]["accepted_transcript"]
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert dimension["status"] == "FAIL"
+    assert any("NOT_PROVEN" in finding and "accepted_revision" in finding for finding in dimension["findings"])
 
 
 def test_unrelated_artifact_is_preserved_and_output_symlink_is_rejected(tmp_path):
@@ -549,10 +594,28 @@ def test_play_conduct_signals_restate_structured_facts_without_changing_complete
         [
             {
                 "turn": turn,
+                "turn_id": f"turn-{turn}",
                 "role": "keeper_under_test" if turn % 2 else "player_simulator",
                 "text": f"turn {turn} dialogue",
+                **(
+                    {
+                        "run_segment_id": "run-1",
+                        "session_id": "session-1",
+                        "finalization_id": f"fin-{turn}",
+                        "accepted_revision": 1,
+                        "rendered_text_sha256": _canonical_digest(f"turn {turn} dialogue"),
+                    }
+                    if turn % 2 else {}
+                ),
             }
             for turn in range(1, 13)
+        ],
+    )
+    _write_jsonl(
+        campaign / "logs" / "turn-finalizations.jsonl",
+        [
+            _finalization_receipt(f"fin-{turn}", [], rendered_text=f"turn {turn} dialogue")
+            for turn in range(1, 13, 2)
         ],
     )
     _write_jsonl(campaign / "logs" / "rolls.jsonl", [])

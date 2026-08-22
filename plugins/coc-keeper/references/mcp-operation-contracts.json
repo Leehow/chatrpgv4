@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:426f1c567ae143f8e49419377e91a389d28e3e069841f4716073c1d6b3f8a211",
+  "content_sha256": "sha256:6086168dcfb2d30e9314d33ed6248291bf49d71ac086b7ef753df7d97af69ce6",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3156,6 +3156,10 @@
           },
           "skill": {
             "description": "skill name on the sheet (e.g. 'Library Use')",
+            "type": "string"
+          },
+          "social_adjudication_ref": {
+            "description": "goal_key returned by rules.social_adjudicate; required for that social commitment and consumed by its one canonical roll",
             "type": "string"
           },
           "stakes": {

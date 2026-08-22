@@ -81,6 +81,16 @@ def campaign_ws(tmp_path: Path):
         "".join(json.dumps(row) + "\n" for row in event_rows),
         encoding="utf-8",
     )
+    clue_ids = [
+        "clue-house-built-1835",
+        "clue-neighbor-lawsuit-1852",
+        "clue-second-lawsuit-outcome-unrecorded",
+        "clue-basement-burial-lawsuit",
+    ]
+    world_path = campaign_dir / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["discovered_clue_ids"] = clue_ids
+    _write_json(world_path, world)
     return {
         "workspace": workspace,
         "coc_root": coc_root,
@@ -161,9 +171,9 @@ def test_social_adjudicate_leverage_cap_and_conditional(campaign_ws):
         npc_defense_value=55,
         motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
         leverage=[
-            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "event:event-public-1", "independence_group": "film", "credibility": "verified", "relevance": "direct", "reason": "实体证据"},
-            {"leverage_id": "protection-offer", "type": "promise", "source_ref": "event:event-public-2", "independence_group": "protection", "credibility": "verified", "relevance": "direct", "reason": "保护方案"},
-            {"leverage_id": "ignored-third", "type": "evidence", "source_ref": "event:event-public-3", "independence_group": "third", "credibility": "verified", "relevance": "direct", "reason": "第三项"},
+            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "clue:clue-house-built-1835", "independence_group": "film", "credibility": "verified", "relevance": "direct", "reason": "实体证据"},
+            {"leverage_id": "protection-offer", "type": "promise", "source_ref": "clue:clue-neighbor-lawsuit-1852", "independence_group": "protection", "credibility": "verified", "relevance": "direct", "reason": "保护方案"},
+            {"leverage_id": "ignored-third", "type": "evidence", "source_ref": "clue:clue-second-lawsuit-outcome-unrecorded", "independence_group": "third", "credibility": "verified", "relevance": "direct", "reason": "第三项"},
         ],
         tactical={"bonus": 1, "penalty": 0},
     )
@@ -227,7 +237,7 @@ def test_social_adjudicate_goal_key_replay(campaign_ws):
         "adj-goal-3",
         motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
         leverage=[
-            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "event:event-public-1", "independence_group": "film", "credibility": "verified", "relevance": "direct", "reason": "实体证据"},
+            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "clue:clue-house-built-1835", "independence_group": "film", "credibility": "verified", "relevance": "direct", "reason": "实体证据"},
         ],
         **shared,
     )
@@ -252,9 +262,9 @@ def test_social_adjudicate_conflicting_decision_and_duplicate_provenance(campaig
         "adj-duplicate-source",
         npc_defense_value=55,
         leverage=[
-            {"leverage_id": "one", "source_ref": "event:event-public-1", "independence_group": "physical", "credibility": "verified", "relevance": "direct", "reason": "same sample"},
-            {"leverage_id": "two", "source_ref": "event:event-public-1", "independence_group": "copy", "credibility": "verified", "relevance": "direct", "reason": "duplicate description"},
-            {"leverage_id": "three", "source_ref": "event:event-public-2", "independence_group": "physical", "credibility": "verified", "relevance": "direct", "reason": "same independence group"},
+            {"leverage_id": "one", "source_ref": "clue:clue-house-built-1835", "independence_group": "physical", "credibility": "verified", "relevance": "direct", "reason": "same sample"},
+            {"leverage_id": "two", "source_ref": "clue:clue-house-built-1835", "independence_group": "copy", "credibility": "verified", "relevance": "direct", "reason": "duplicate description"},
+            {"leverage_id": "three", "source_ref": "clue:clue-neighbor-lawsuit-1852", "independence_group": "physical", "credibility": "verified", "relevance": "direct", "reason": "same independence group"},
         ],
     )
     assert duplicate["ok"] is True
@@ -270,6 +280,52 @@ def test_social_adjudicate_conflicting_decision_and_duplicate_provenance(campaig
     )
     assert secret["ok"] is False
     assert secret["error"]["code"] == "leverage_source_invalid"
+
+    bare_public = _adjudicate(
+        campaign_ws,
+        "adj-undelivered-event",
+        leverage=[
+            {"leverage_id": "undelivered", "source_ref": "event:event-public-1", "independence_group": "bare", "credibility": "verified", "relevance": "direct", "reason": "visibility label only"},
+        ],
+    )
+    assert bare_public["ok"] is False
+    assert bare_public["error"]["code"] == "leverage_source_invalid"
+
+
+def test_social_defense_is_immutable_and_one_roll_closes_goal(campaign_ws):
+    shared = {"conversation_window_id": "conv-bound", "commitment_id": "admit"}
+    adjudicated = _adjudicate(
+        campaign_ws, "adj-roll-bound", npc_defense_value=55, **shared
+    )
+    assert adjudicated["ok"] is True
+    conflict = _adjudicate(
+        campaign_ws, "adj-roll-defense-change", npc_defense_value=90, **shared
+    )
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "social_goal_already_settled"
+
+    roll_args = {
+        "investigator": campaign_ws["investigator_id"],
+        "npc_id": campaign_ws["npc_id"],
+        "skill": adjudicated["data"]["approach_skill"],
+        "difficulty": adjudicated["data"]["final_difficulty"],
+        "bonus": adjudicated["data"]["bonus_dice"],
+        "penalty": adjudicated["data"]["penalty_dice"],
+        "goal": "承认篡改了档案",
+        "stakes": {"on_success": "NPC 承认", "on_failure": "NPC 拒绝"},
+        "difficulty_basis": "opponent_skill",
+        "social_adjudication_ref": adjudicated["data"]["goal_key"],
+        "seed": 11,
+        "decision_id": "social-roll-1",
+    }
+    first_roll = _run(campaign_ws, "rules.roll", roll_args)
+    assert first_roll["ok"] is True, first_roll
+    assert first_roll["data"]["outcome_ceiling"] == adjudicated["data"]["outcome_ceiling"]
+    replay = _run(campaign_ws, "rules.roll", roll_args)
+    assert replay["ok"] is True
+    fresh = _run(campaign_ws, "rules.roll", {**roll_args, "decision_id": "social-roll-2"})
+    assert fresh["ok"] is False
+    assert fresh["error"]["code"] == "social_goal_already_settled"
 
 
 def test_social_adjudicate_authored_defense_and_validation(campaign_ws):
@@ -301,13 +357,33 @@ def test_social_adjudicate_authored_defense_and_validation(campaign_ws):
         feasibility_refs=[f"npc_agenda:{campaign_ws['npc_id']}"],
         outcome_ceiling={
             "goal_scope": "解释自己并不知道的实体本质",
-            "npc_knowledge_refs": [f"npc_agenda:{campaign_ws['npc_id']}"],
+            "npc_knowledge_refs": [f"npc_fact:{campaign_ws['npc_id']}/fact-knott-commission"],
             "scene_truth_max_tier": 2,
-            "forbidden_fact_refs": ["mythos_fact:entity-identity"],
+            "forbidden_fact_refs": ["clue:clue-basement-burial-lawsuit"],
         },
     )
     assert impossible["ok"] is True, impossible
     assert impossible["data"]["feasibility"] == "impossible"
+
+    unscoped = _adjudicate(
+        campaign_ws,
+        "adj-unscoped-ceiling",
+        outcome_ceiling={
+            "goal_scope": "说明所知",
+            "npc_knowledge_refs": [f"npc_agenda:{campaign_ws['npc_id']}"],
+            "scene_truth_max_tier": 2,
+        },
+    )
+    assert unscoped["ok"] is False
+    assert unscoped["error"]["code"] == "invalid_param"
+
+    invalid_tier = _adjudicate(
+        campaign_ws,
+        "adj-invalid-tier",
+        outcome_ceiling={"goal_scope": "说明所知", "scene_truth_max_tier": 5},
+    )
+    assert invalid_tier["ok"] is False
+    assert invalid_tier["error"]["code"] == "invalid_param"
 
 
 def _observe(ws, decision_id: str, **overrides) -> dict:
@@ -318,7 +394,7 @@ def _observe(ws, decision_id: str, **overrides) -> dict:
         "conversation_window_id": "conv-psych",
         "observation_revision": 0,
         "question": "他在害怕谁？",
-        "observable_fact_refs": ["event:event-public-4"],
+        "observable_fact_refs": ["clue:clue-basement-burial-lawsuit"],
         "seed": 7,
         "decision_id": decision_id,
     }
@@ -363,6 +439,17 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert realized["data"]["visible_observation"] == "他说到区里检查时，先看了门口。"
     assert realized["data"]["request_digest"].startswith("sha256:")
 
+    wrong_identity = _observe(
+        campaign_ws,
+        "psych-realize-wrong-observer",
+        action="realize",
+        observer_scope="team:other",
+        insight_id=first["data"]["insight_id"],
+        visible_observation="不应绑定。",
+    )
+    assert wrong_identity["ok"] is False
+    assert wrong_identity["error"]["code"] == "revision_conflict"
+
     updated = _run(
         campaign_ws,
         "state.npc_update",
@@ -391,6 +478,31 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert decisive["data"]["resolution"] == "settled"
     assert decisive["data"]["insight_id"] != first["data"]["insight_id"]
     assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 2
+    reused_boundary = _observe(
+        campaign_ws,
+        "psych-5",
+        observation_revision=2,
+        revision_event_ref="event:event-decisive",
+    )
+    assert reused_boundary["ok"] is False
+    assert reused_boundary["error"]["code"] == "observation_revision_invalid"
+
+
+def test_psychology_policy_uses_real_coc_outcome_vocabulary():
+    resolver = _load(
+        "coc7_resolver_psych_policy",
+        REPO / "plugins" / "coc-keeper" / "rulesets" / "coc7" / "resolver.py",
+    )
+    expected = {
+        "regular": "immediate_intent",
+        "hard": "motive_link",
+        "extreme": "deep_conflict",
+        "critical": "deep_conflict",
+        "failure": "uncertain",
+        "fumble": "uncertain",
+    }
+    for outcome, depth in expected.items():
+        assert resolver.psychology_policy({"outcome": outcome}, "question")["inference_depth"] == depth
 
 
 def test_psychology_observe_decision_conflict_and_invalid_revision(campaign_ws):

@@ -3649,12 +3649,16 @@ _PERCENTILE_INVOCATION_FIELDS = frozenset({
     "required_level", "bonus", "penalty", "goal", "stakes",
     "difficulty_basis", "reason", "fumble_consequence", "pushed",
     "method_changed", "failure_consequence", "original_check_decision_id",
-    "npc_id", "visibility",
+    "npc_id", "visibility", "social_adjudication_ref",
 })
 _LEGACY_PERCENTILE_INVOCATION_FIELD_SETS = (
+    frozenset(_PERCENTILE_INVOCATION_FIELDS - {"social_adjudication_ref"}),
     frozenset(_PERCENTILE_INVOCATION_FIELDS - {"npc_id"}),
     frozenset(_PERCENTILE_INVOCATION_FIELDS - {"visibility"}),
     frozenset(_PERCENTILE_INVOCATION_FIELDS - {"npc_id", "visibility"}),
+    frozenset(_PERCENTILE_INVOCATION_FIELDS - {"social_adjudication_ref", "npc_id"}),
+    frozenset(_PERCENTILE_INVOCATION_FIELDS - {"social_adjudication_ref", "visibility"}),
+    frozenset(_PERCENTILE_INVOCATION_FIELDS - {"social_adjudication_ref", "npc_id", "visibility"}),
 )
 _PERCENTILE_RESOLUTION_FIELDS = frozenset({
     "investigator_id", "resolved_label", "resolved_target", "target_source",
@@ -3666,12 +3670,12 @@ _DIFFICULTY_BASIS_VALUES = frozenset({
 _PUSH_INHERITED_ARGUMENTS = frozenset({
     "investigator", "skill", "characteristic", "target", "difficulty",
     "bonus", "penalty", "goal", "stakes", "difficulty_basis", "reason",
-    "npc_id", "visibility",
+    "npc_id", "visibility", "social_adjudication_ref",
 })
 _PUSH_INHERITED_OPERATION_FIELDS = frozenset({
     "investigator", "skill", "characteristic", "explicit_target",
     "required_level", "bonus", "penalty", "goal", "stakes",
-    "difficulty_basis", "reason", "npc_id", "visibility",
+    "difficulty_basis", "reason", "npc_id", "visibility", "social_adjudication_ref",
 })
 _DICE_RESOLUTION_FIELDS = frozenset({
     "expression", "count", "sides", "modifier"
@@ -4169,6 +4173,7 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
         difficulty_basis = operation.get("difficulty_basis")
         reason = operation.get("reason")
         target_npc_id = operation.get("npc_id")
+        social_adjudication_ref = operation.get("social_adjudication_ref")
         fumble_consequence = operation.get("fumble_consequence")
         pushed = operation.get("pushed")
         method_changed = operation.get("method_changed")
@@ -4282,6 +4287,14 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
                 )
             )
             or not (
+                social_adjudication_ref is None
+                or (
+                    isinstance(social_adjudication_ref, str)
+                    and bool(social_adjudication_ref)
+                    and social_adjudication_ref == social_adjudication_ref.strip()
+                )
+            )
+            or not (
                 fumble_consequence is None
                 or (
                     isinstance(fumble_consequence, str)
@@ -4369,6 +4382,22 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             )
             or not _optional_scalar_evidence_matches(
                 "npc_id", target_npc_id, data, record, payload
+            )
+            or not _optional_scalar_evidence_matches(
+                "social_adjudication_ref", social_adjudication_ref, data, record, payload
+            )
+            or not _optional_scalar_evidence_matches(
+                "social_goal_key", social_adjudication_ref, data, record, payload
+            )
+            or (
+                social_adjudication_ref is not None
+                and (
+                    not isinstance(data.get("outcome_ceiling"), dict)
+                    or any(
+                        container.get("outcome_ceiling") != data.get("outcome_ceiling")
+                        for container in (record, payload)
+                    )
+                )
             )
             or not _optional_consequence_evidence_matches(
                 "fumble_consequence",
@@ -7072,6 +7101,9 @@ def _normalize_percentile_invocation(
         raise ToolError(
             "invalid_param", "visibility must be public or keeper_only"
         )
+    social_adjudication_ref = (
+        str(args.get("social_adjudication_ref") or "").strip() or None
+    )
     operation = {
         "investigator": investigator,
         "skill": skill,
@@ -7094,6 +7126,7 @@ def _normalize_percentile_invocation(
         "original_check_decision_id": None,
         "npc_id": npc_id,
         "visibility": visibility,
+        "social_adjudication_ref": social_adjudication_ref,
     }
     if (
         isinstance(frozen_operation, dict)
@@ -7756,6 +7789,67 @@ def _roll_common(
     difficulty = str(operation["required_level"])
     bonus = int(operation["bonus"])
     penalty = int(operation["penalty"])
+    social_document: dict[str, Any] | None = None
+    social_goal: dict[str, Any] | None = None
+    social_ref = str(operation.get("social_adjudication_ref") or "").strip()
+    if operation.get("npc_id") and not social_ref:
+        social_skills = _rules_resolver(ctx, "social_skill_names").social_skill_names()
+        if label in social_skills:
+            raise ToolError(
+                "social_adjudication_required",
+                "NPC social rolls require social_adjudication_ref from rules.social_adjudicate",
+            )
+    if social_ref and not pushed:
+        social_document = _load_json_document(
+            ctx, "social-resolutions.json", 2, "resolutions"
+        )
+        social_goal = social_document["resolutions"].get(social_ref)
+        adjudication = (
+            social_goal.get("adjudication")
+            if isinstance(social_goal, dict)
+            and isinstance(social_goal.get("adjudication"), dict)
+            else None
+        )
+        if not isinstance(adjudication, dict):
+            raise ToolError(
+                "social_adjudication_invalid",
+                "social_adjudication_ref must name a current canonical adjudication",
+            )
+        settled_receipt = next(
+            (
+                receipt
+                for receipt in (document.get("receipts", {}).get("rules.roll") or {}).values()
+                if isinstance(receipt, dict)
+                and (receipt.get("operation") or {}).get("social_adjudication_ref") == social_ref
+            ),
+            None,
+        )
+        if isinstance(settled_receipt, dict) or isinstance(social_goal.get("roll_binding"), dict):
+            raise ToolError(
+                "social_goal_already_settled",
+                "this social commitment already has a canonical roll; reuse it or Push the failed roll",
+            )
+        expected = {
+            "investigator_id": adjudication.get("investigator_id"),
+            "npc_id": adjudication.get("npc_id"),
+            "skill": adjudication.get("approach_skill"),
+            "difficulty": adjudication.get("final_difficulty"),
+            "bonus": adjudication.get("bonus_dice"),
+            "penalty": adjudication.get("penalty_dice"),
+        }
+        actual = {
+            "investigator_id": investigator_id,
+            "npc_id": operation.get("npc_id"),
+            "skill": label,
+            "difficulty": difficulty,
+            "bonus": bonus,
+            "penalty": penalty,
+        }
+        if adjudication.get("feasibility") != "roll" or actual != expected:
+            raise ToolError(
+                "social_adjudication_invalid",
+                "rules.roll does not exactly match the referenced social adjudication",
+            )
     context_warnings: list[str] = []
     resolution_context: dict[str, Any] | None
     if pushed:
@@ -7818,6 +7912,15 @@ def _roll_common(
         result["reason"] = str(operation["reason"])
     if operation.get("npc_id"):
         result["npc_id"] = str(operation["npc_id"])
+    if social_ref and isinstance(social_goal, dict):
+        adjudication = social_goal["adjudication"]
+        result["social_goal_key"] = social_ref
+        result["social_adjudication_ref"] = social_ref
+        result["outcome_ceiling"] = deepcopy(adjudication["outcome_ceiling"])
+    elif pushed and social_ref and isinstance(original_data, dict):
+        result["social_goal_key"] = social_ref
+        result["social_adjudication_ref"] = social_ref
+        result["outcome_ceiling"] = deepcopy(original_data["outcome_ceiling"])
     if resolution_context is not None:
         result["resolution_context"] = deepcopy(resolution_context)
     if prior_attempt_advisory is not None:
@@ -7969,6 +8072,14 @@ def _roll_common(
         hints=hints,
     )
     _commit_new_roll_receipt(ctx, document, receipt)
+    if social_ref and isinstance(social_document, dict) and isinstance(social_goal, dict):
+        social_goal["roll_binding"] = {
+            "tool": tool_name,
+            "decision_id": decision_id,
+            "roll_id": result["roll_id"],
+            "outcome_ceiling_digest": _canonical_digest(result["outcome_ceiling"]),
+        }
+        _save_json_document(ctx, "social-resolutions.json", social_document)
     _route_receipt, route_warnings = _settle_contextual_route(
         ctx,
         resolution_context,
@@ -9485,6 +9596,7 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
         "penalty": {"type": "integer", "desc": "penalty dice 0-2"},
         "reason": {"type": "string", "desc": "optional audit note distinct from the authoritative goal/stakes contract"},
         "npc_id": {"type": "string", "desc": "structured NPC target for a social check; required to match/consume an NPC-scoped relationship reward"},
+        "social_adjudication_ref": {"type": "string", "desc": "goal_key returned by rules.social_adjudicate; required for that social commitment and consumed by its one canonical roll"},
         "visibility": {"type": "string", "enum": ["public", "keeper_only"], "desc": "roll visibility: public (default, rendered to the player) | keeper_only (concealed; recorded for audit, never rendered)"},
         "fumble_consequence": {
             "type": "string",
@@ -9708,13 +9820,12 @@ def _npc_authored_skill_value(ctx: Ctx, npc_id: str, skill: str) -> int | None:
 
 
 def _npc_authored_social_defense(
-    ctx: Ctx, npc_id: str, approach_skill: str
+    ctx: Ctx, npc_id: str, defense_skills: list[str]
 ) -> tuple[int | None, str | None]:
-    """Authored NPC defense for one social approach: the higher of Psychology or
-    the approach's own social skill (7e social-resolution guidance)."""
+    """Resolve the highest authored value from package-declared defense skills."""
     candidates = [
         (skill, value)
-        for skill in ("Psychology", approach_skill)
+        for skill in defense_skills
         if (value := _npc_authored_skill_value(ctx, npc_id, skill)) is not None
     ]
     if not candidates:
@@ -9758,6 +9869,22 @@ def _resolve_contract_ref(
     player_known = False
     if kind == "npc_agenda":
         record = _npc_by_id(ctx.npc_agendas, identifier)
+    elif kind == "npc_fact":
+        npc_ref, separator, fact_id = identifier.partition("/")
+        npc = _npc_by_id(ctx.npc_agendas, npc_ref)
+        if separator and isinstance(npc, dict):
+            facts = npc.get("facts") if isinstance(npc.get("facts"), list) else []
+            fact = next(
+                (
+                    value for value in facts
+                    if isinstance(value, dict) and value.get("fact_id") == fact_id
+                ),
+                None,
+            )
+            if isinstance(fact, dict) and fact_id in {
+                str(value) for value in npc.get("known_fact_ids") or []
+            }:
+                record = {"npc_id": npc_ref, "fact": fact}
     elif kind == "npc_state":
         path = ctx.campaign_dir / "save" / "npc-state.json"
         if path.is_file():
@@ -9785,10 +9912,28 @@ def _resolve_contract_ref(
             raise ToolError("state_corrupt", f"event source {identifier!r} is duplicated")
         if matches:
             record = matches[0]
-            player_known = (
+            journal_id = str(
+                record.get("journal_decision_id") or record.get("decision_id") or ""
+            ).strip()
+            finalizations = [
+                row for row in _jsonl_rows(ctx.campaign_dir / "logs" / "turn-finalizations.jsonl")
+                if str(row.get("journal_decision_id") or "") == journal_id
+                and isinstance(row.get("finalization_id"), str)
+                and isinstance(row.get("rendered_sha256"), str)
+            ]
+            deliveries = _jsonl_rows(
+                ctx.campaign_dir / "save" / "continuation" / "delivery-receipts.jsonl"
+            )
+            declared_player_visible = (
                 record.get("player_visible") is True
                 or str(record.get("visibility") or "").casefold()
                 in {"public", "player", "player_visible"}
+            )
+            player_known = declared_player_visible and len(finalizations) == 1 and any(
+                delivery.get("status") == "confirmed"
+                and delivery.get("finalization_id") == finalizations[0]["finalization_id"]
+                and delivery.get("rendered_sha256") == finalizations[0]["rendered_sha256"]
+                for delivery in deliveries
             )
     if not isinstance(record, dict):
         raise ToolError("leverage_source_invalid", f"source_ref {source_ref!r} does not resolve")
@@ -9909,14 +10054,38 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     goal_summary = str(args["goal_summary"] or "").strip()
     if not goal_summary:
         raise ToolError("invalid_param", "goal_summary must be non-empty")
+    goal_key = hashlib.sha256(
+        "\x00".join((npc_id, conversation_window_id, commitment_id)).encode("utf-8")
+    ).hexdigest()[:16]
+    document = _load_json_document(ctx, "social-resolutions.json", 2, "resolutions")
+    resolutions = document["resolutions"]
+    prior_goal = resolutions.get(goal_key)
 
     warnings: list[str] = []
     defense = args.get("npc_defense_value")
     defense_source = "explicit"
     defense_key: str | None = "explicit"
+    if (
+        defense is not None
+        and isinstance(prior_goal, dict)
+        and defense != prior_goal.get("defense_value")
+    ):
+        raise ToolError(
+            "social_goal_already_settled",
+            "the social goal is already bound to a different immutable NPC defense",
+        )
     if defense is None:
-        defense, defense_key = _npc_authored_social_defense(ctx, npc_id, approach_skill)
-        defense_source = "authored" if defense is not None else "unknown"
+        if isinstance(prior_goal, dict):
+            defense = prior_goal.get("defense_value")
+            defense_source = str(prior_goal.get("defense_source") or "unknown")
+            defense_key = prior_goal.get("defense_key")
+        else:
+            defense, defense_key = _npc_authored_social_defense(
+                ctx,
+                npc_id,
+                [str(value) for value in approach_policy.get("defense_skills") or []],
+            )
+            defense_source = "authored" if defense is not None else "unknown"
     if defense is not None and (
         isinstance(defense, bool)
         or not isinstance(defense, int)
@@ -10043,6 +10212,21 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     outcome_ceiling = args.get("outcome_ceiling") or {}
     if not isinstance(outcome_ceiling, dict):
         raise ToolError("invalid_param", "outcome_ceiling must be an object")
+    allowed_ceiling_fields = {
+        "goal_scope", "npc_knowledge_refs", "scene_truth_max_tier", "forbidden_fact_refs"
+    }
+    if set(outcome_ceiling) - allowed_ceiling_fields:
+        raise ToolError("invalid_param", "outcome_ceiling contains unknown fields")
+    goal_scope = str(outcome_ceiling.get("goal_scope") or goal_summary).strip()
+    if not goal_scope:
+        raise ToolError("invalid_param", "outcome_ceiling.goal_scope must be non-empty")
+    scene_truth_max_tier = outcome_ceiling.get("scene_truth_max_tier")
+    if scene_truth_max_tier is not None and (
+        isinstance(scene_truth_max_tier, bool)
+        or not isinstance(scene_truth_max_tier, int)
+        or not 0 <= scene_truth_max_tier <= 4
+    ):
+        raise ToolError("invalid_param", "outcome_ceiling.scene_truth_max_tier must be 0-4")
     knowledge_refs = [
         str(value).strip()
         for value in outcome_ceiling.get("npc_knowledge_refs") or []
@@ -10052,30 +10236,43 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
         _resolve_contract_ref(ctx, source_ref, require_player_known=False)
         for source_ref in knowledge_refs
     ]
+    if any(
+        ref.get("kind") != "npc_fact"
+        or not str(ref.get("identifier") or "").startswith(npc_id + "/")
+        for ref in resolved_knowledge_refs
+    ):
+        raise ToolError(
+            "invalid_param",
+            "outcome_ceiling.npc_knowledge_refs must name scoped npc_fact refs for the target NPC",
+        )
+    forbidden_refs = [
+        str(value).strip()
+        for value in outcome_ceiling.get("forbidden_fact_refs") or []
+        if str(value).strip()
+    ]
+    resolved_forbidden_refs = [
+        _resolve_contract_ref(ctx, source_ref, require_player_known=False)
+        for source_ref in forbidden_refs
+    ]
     normalized_ceiling = {
-        "goal_scope": str(outcome_ceiling.get("goal_scope") or goal_summary).strip(),
+        "goal_scope": goal_scope,
         "npc_knowledge_refs": knowledge_refs,
-        "scene_truth_max_tier": outcome_ceiling.get("scene_truth_max_tier"),
-        "forbidden_fact_refs": [
-            str(value).strip()
-            for value in outcome_ceiling.get("forbidden_fact_refs") or []
-            if str(value).strip()
-        ],
+        "scene_truth_max_tier": scene_truth_max_tier,
+        "forbidden_fact_refs": forbidden_refs,
         "resolved_npc_knowledge_refs": resolved_knowledge_refs,
+        "resolved_forbidden_fact_refs": resolved_forbidden_refs,
     }
 
-    goal_key = hashlib.sha256(
-        "\x00".join((npc_id, conversation_window_id, commitment_id)).encode("utf-8")
-    ).hexdigest()[:16]
-
-    document = _load_json_document(ctx, "social-resolutions.json", 2, "resolutions")
-    resolutions = document["resolutions"]
-    prior_goal = resolutions.get(goal_key)
     current_leverage_ids = sorted(item["leverage_id"] for item in leverage_counted)
     adjudication_source_digest = _canonical_digest({
         "npc_id": npc_id,
         "conversation_window_id": conversation_window_id,
         "commitment_id": commitment_id,
+        "defense": {
+            "value": defense,
+            "source": defense_source,
+            "key": defense_key,
+        },
         "motive": {
             "direction": direction,
             "intensity": intensity,
@@ -10164,6 +10361,8 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
         "leverage_ids": current_leverage_ids,
         "motive_key": [direction, intensity],
         "defense_value": defense,
+        "defense_source": defense_source,
+        "defense_key": defense_key,
         "source_digest": adjudication_source_digest,
         "decision_id": str(args["decision_id"]),
         "ts": _now_iso(),
@@ -10269,6 +10468,9 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
         if (
             matching.get("conversation_window_id") != conversation_window_id
             or matching.get("observation_revision") != revision
+            or matching.get("observer_scope") != observer_scope
+            or matching.get("npc_id") != npc_id
+            or matching.get("investigator_id") != investigator_id
         ):
             raise ToolError("revision_conflict", "realization does not match the settled observation window")
         existing_realization = realizations.get(insight_id)
@@ -10284,6 +10486,11 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
             "insight_id": insight_id,
             "conversation_window_id": conversation_window_id,
             "observation_revision": revision,
+            "investigator_id": investigator_id,
+            "observer_scope": observer_scope,
+            "npc_id": npc_id,
+            "question": matching["question"],
+            "observable_fact_refs": deepcopy(matching["observable_fact_refs"]),
             "visible_observation": visible_observation,
         }
         realizations[insight_id] = deepcopy(data)
@@ -10354,7 +10561,20 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
                 "observation_revision_invalid",
                 "revision event is not an allowed semantic observation boundary",
             )
-        expected_revision = (max(matching_revisions) + 1) if matching_revisions else revision
+        used_revision_refs = {
+            str(row.get("revision_event_ref") or "")
+            for row in observations.values()
+            if isinstance(row, dict)
+            and row.get("observer_scope") == observer_scope
+            and row.get("npc_id") == npc_id
+            and row.get("conversation_window_id") == conversation_window_id
+        }
+        if revision_ref in used_revision_refs:
+            raise ToolError(
+                "observation_revision_invalid",
+                "revision_event_ref has already opened one observation revision",
+            )
+        expected_revision = (max(matching_revisions) + 1) if matching_revisions else 0
         if revision != expected_revision:
             raise ToolError(
                 "observation_revision_invalid",
@@ -10365,22 +10585,28 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
             "observation_revision_invalid",
             "revision 0 cannot reopen an already revised conversation window",
         )
-    defense = _npc_authored_skill_value(ctx, npc_id, "Psychology")
-    difficulty = (
-        "regular" if defense is None or defense < 50
-        else "hard" if defense < 90
-        else "extreme"
+    resolver = _rules_resolver(ctx, "psychology_check_contract")
+    provisional = resolver.psychology_check_contract(None)
+    defense_skills = provisional.get("defense_skills") or []
+    defense = max(
+        (
+            value
+            for skill_name in defense_skills
+            if (value := _npc_authored_skill_value(ctx, npc_id, str(skill_name))) is not None
+        ),
+        default=None,
     )
+    try:
+        check_contract = resolver.psychology_check_contract(defense)
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
     roll_args: dict[str, Any] = {
         "investigator": investigator_id,
-        "skill": "Psychology",
-        "difficulty": difficulty,
-        "difficulty_basis": "opponent_skill",
+        "skill": check_contract["skill"],
+        "difficulty": check_contract["difficulty"],
+        "difficulty_basis": check_contract["difficulty_basis"],
         "goal": question,
-        "stakes": {
-            "on_success": "the observer reads the current behavior correctly",
-            "on_failure": "the observer cannot settle the truth of the read",
-        },
+        "stakes": deepcopy(check_contract["stakes"]),
         "visibility": "keeper_only",
         "decision_id": f"{args['decision_id']}:roll",
     }
@@ -10405,6 +10631,7 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
         "npc_id": npc_id,
         "conversation_window_id": conversation_window_id,
         "observation_revision": revision,
+        "revision_event_ref": str(args.get("revision_event_ref") or "").strip() or None,
         "question": question,
         "observable_fact_refs": resolved_observable_refs,
         "roll_id": roll_data["roll_id"],
