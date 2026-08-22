@@ -159,6 +159,33 @@ assert.equal(sent.length, 4, "a new session epoch may inject the same path once"
 await emit(userWithPdf);
 assert.equal(sent.length, 4, "still once per session");
 
+// Two same-path events may both reach the asynchronous file check, but only
+// one may reserve and deliver after that check completes.
+const concurrentPdf = path.join(temp, "concurrent-same-path.pdf");
+await writeFile(concurrentPdf, "%PDF-1.4 concurrent fixture");
+const concurrentMessage = {
+  role: "user",
+  content: [{ type: "text", text: `并发打开：${concurrentPdf}` }],
+};
+await Promise.all([emit(concurrentMessage), emit(concurrentMessage)]);
+assert.equal(sent.length, 5, "concurrent same-path messages inject exactly once");
+
+// A file check admitted by an old epoch must not deliver after the epoch
+// changes, and must not reserve the path in the newer session's dedup state.
+const staleEpochPdf = path.join(temp, "stale-epoch.pdf");
+await writeFile(staleEpochPdf, "%PDF-1.4 stale epoch fixture");
+const staleEpochMessage = {
+  role: "user",
+  content: [{ type: "text", text: `旧会话开始：${staleEpochPdf}` }],
+};
+epoch.value = 3;
+const staleDelivery = emit(staleEpochMessage);
+epoch.value = 4;
+await staleDelivery;
+assert.equal(sent.length, 5, "old epoch completion does not send");
+await emit(staleEpochMessage);
+assert.equal(sent.length, 6, "old epoch completion does not poison new dedup state");
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

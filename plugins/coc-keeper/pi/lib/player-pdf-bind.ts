@@ -153,7 +153,17 @@ export function registerPlayerPdfBindInstruction(
       return;
     }
     if (!fileStat.isFile()) return;
-
+    // The file check yields. Revalidate session ownership afterward, then make
+    // the has/add reservation in one synchronous segment so concurrent events
+    // cannot both send and an old completion cannot poison a newer epoch.
+    if (
+      options.epoch() !== epoch
+      || stateEpoch !== epoch
+      || !options.isCurrent(epoch)
+      || injectedPaths.has(detection.pdfPath)
+    ) {
+      return;
+    }
     injectedPaths.add(detection.pdfPath);
     try {
       pi.sendMessage({
