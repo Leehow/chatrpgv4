@@ -14495,6 +14495,12 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                     )
                     or []
                 ),
+                "_archive_pending_handout_cards": deepcopy(
+                    (scene_shard.get("keeper_only") or {}).get(
+                        "pending_handout_cards"
+                    )
+                    or []
+                ),
                 "_archive_source_refs": deepcopy(
                     (scene_shard.get("provenance") or {}).get("source_refs")
                     or []
@@ -14946,6 +14952,39 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         or (scene or {}).get("source_refs")
         or []
     )
+    delivered_handout_ids = {
+        str(value)
+        for value in (world.get("delivered_handout_ids") or [])
+        if str(value).strip()
+    }
+    raw_pending_handouts = (scene or {}).get("_archive_pending_handout_cards")
+    if not isinstance(raw_pending_handouts, list):
+        raw_pending_handouts = [
+            {
+                "asset_id": (
+                    f"read-aloud:{str(active_id or '')}:"
+                    f"{str(row.get('id') or '').strip()}"
+                ),
+                "kind": "read_aloud",
+                "title": (
+                    row.get("title")
+                    or (scene or {}).get("display_name")
+                    or str(row.get("id") or "")
+                ),
+                "trigger": row.get("trigger"),
+                "condition": row.get("condition"),
+                "source_refs": deepcopy(row.get("source_refs") or []),
+            }
+            for row in ((scene or {}).get("read_aloud") or [])
+            if isinstance(row, dict) and str(row.get("id") or "").strip()
+        ]
+    pending_handouts = [
+        deepcopy(row)
+        for row in raw_pending_handouts
+        if isinstance(row, dict)
+        and str(row.get("asset_id") or "").strip()
+        and str(row.get("asset_id")) not in delivered_handout_ids
+    ]
 
     data = {
         "campaign_id": ctx.campaign_id,
@@ -15016,6 +15055,10 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "pending_san_triggers": [
             trigger for trigger in pending_san_triggers if trigger["status"] == "pending"
         ],
+        # Body-free source card metadata for semantic Keeper timing. The
+        # canonical handout query remains the only way to read an undelivered
+        # card body; this list never authorizes or auto-triggers delivery.
+        "pending_handouts": pending_handouts,
         "keeper_mechanics": {
             "secret": True,
             "affordance_operations": affordance_operations,
@@ -24137,6 +24180,7 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
             "event_type": "handout_delivered",
             "asset_id": handout_id,
             "source": "state.deliver_handout",
+            **(delivery.presentation or {}),
             **({"scene_id": scene_id} if scene_id else {}),
             **({"reason": reason} if reason else {}),
             "ts": _now_iso(),
@@ -24148,6 +24192,7 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
         "already_delivered": already,
         "delivered_total": delivery.delivered_total,
         "card": delivery.card,
+        "presentation": delivery.presentation,
     }
     hints: list[str] = []
     if newly:
@@ -24158,6 +24203,121 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
         )
     ctx.ledger_record(args.get("decision_id"), "state.deliver_handout", data)
     return data, warnings, hints
+
+
+def _normalize_handout_replay_assertion(value: Any) -> dict[str, Any]:
+    """Validate structured KP judgment without classifying player prose."""
+    if not isinstance(value, dict):
+        raise ToolError("invalid_param", "request_assertion must be an object")
+    allowed = {
+        "explicit_player_request", "player_text", "semantic_reason",
+        "player_turn_epoch",
+    }
+    extra = set(value) - allowed
+    if extra:
+        raise ToolError(
+            "invalid_param",
+            f"request_assertion has unsupported fields: {sorted(extra)}",
+        )
+    if value.get("explicit_player_request") is not True:
+        raise ToolError(
+            "explicit_player_request_required",
+            "replay requires the Keeper to assert an explicit player request; "
+            "ask a clarifying question instead when the reference is ambiguous",
+        )
+    player_text = value.get("player_text")
+    if not isinstance(player_text, str) or not player_text.strip():
+        raise ToolError(
+            "invalid_param", "request_assertion.player_text must be exact and nonblank"
+        )
+    semantic_reason = value.get("semantic_reason")
+    if not isinstance(semantic_reason, str) or not semantic_reason.strip():
+        raise ToolError(
+            "invalid_param", "request_assertion.semantic_reason is required"
+        )
+    epoch = value.get("player_turn_epoch")
+    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 1:
+        raise ToolError(
+            "invalid_param",
+            "request_assertion.player_turn_epoch must be the current host player epoch",
+        )
+    return {
+        "explicit_player_request": True,
+        "player_text": player_text,
+        "player_text_sha256": "sha256:" + hashlib.sha256(
+            player_text.encode("utf-8")
+        ).hexdigest(),
+        "semantic_reason": semantic_reason.strip(),
+        "player_turn_epoch": epoch,
+    }
+
+
+@tool(
+    "state.replay_handout",
+    "Present an already-delivered player-visible card again only after the "
+    "Keeper semantically confirms an explicit request in the current player "
+    "message. This creates a new presentation identity without changing "
+    "delivery/material state. Ambiguous references require a clarifying "
+    "question and no tool call; code never keyword-classifies player prose.",
+    {
+        "handout_id": {
+            "type": "string",
+            "required": True,
+            "desc": "asset_id of an already-delivered player-visible card",
+        },
+        "request_assertion": {
+            "type": "object",
+            "required": True,
+            "desc": "structured Keeper assertion bound to the exact current player message; Pi injects player_turn_epoch after checking player_text",
+            "properties": {
+                "explicit_player_request": {"type": "boolean"},
+                "player_text": {"type": "string"},
+                "semantic_reason": {"type": "string"},
+                "player_turn_epoch": {"type": "integer", "minimum": 1},
+            },
+            "required_fields": [
+                "explicit_player_request", "player_text", "semantic_reason",
+            ],
+            "additionalProperties": False,
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_replay_handout(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.replay_handout"
+    handout_id = str(args["handout_id"]).strip()
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled presentation"
+        ], []
+    assertion = _normalize_handout_replay_assertion(args.get("request_assertion"))
+    world = ctx.world()
+    try:
+        replay = coc_handouts.HandoutCatalog.load(ctx).replay(world, handout_id)
+    except coc_handouts.HandoutError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    ctx.save_world(world)
+    ctx.log_event({
+        "event_type": "handout_presented",
+        **replay.presentation,
+        "source": tool_name,
+        "request_assertion": assertion,
+        "ts": _now_iso(),
+    })
+    data = {
+        "asset_id": replay.asset_id,
+        "delivered": True,
+        "delivery_changed": False,
+        "presentation": replay.presentation,
+        "card": replay.card,
+        "request_assertion": assertion,
+    }
+    ctx.ledger_record(args.get("decision_id"), tool_name, data)
+    return data, [], [
+        "present this exact card again; do not paraphrase its body or create "
+        "another delivery/material entry"
+    ]
 
 
 @tool(
@@ -24209,6 +24369,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     # untouched.  This uses structured ids only; prose is never classified.
     linked_handout_id: str | None = None
     linked_handout_newly: list[str] = []
+    linked_handout_presentation: dict[str, Any] | None = None
     linkage_skipped_hidden_card = False
     handout_catalog: coc_handouts.HandoutCatalog | None = None
     if (
@@ -24227,6 +24388,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             raise ToolError(exc.code, exc.message) from exc
         linked_handout_id = linkage.asset_id
         linked_handout_newly = list(linkage.newly)
+        linked_handout_presentation = linkage.presentation
 
     scene_contract = (
         (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
@@ -24278,6 +24440,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             )
             linked_handout_id = linkage.asset_id
             linked_handout_newly = list(linkage.newly)
+            linked_handout_presentation = linkage.presentation
             linkage_skipped_hidden_card = linkage.hidden_card
     # Persist provenance before the world discovery.  A crash between these
     # two current-state files therefore fails closed for authored unlocks: a
@@ -24290,6 +24453,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             "event_type": "handout_delivered",
             "asset_id": linked_handout_newly[0],
             "source": "clue_linkage",
+            **(linked_handout_presentation or {}),
             "clue_id": clue_id,
             "scene_id": active,
             "ts": _now_iso(),
@@ -24439,6 +24603,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "discovered_total": len(discovered),
         "newly_unlocked_scenes": newly_unlocked,
         "delivered_handout_id": linked_handout_id,
+        "handout_presentation": linked_handout_presentation,
         "route_completion": deepcopy(route_completion),
     }
     if clue is None:
@@ -31538,6 +31703,7 @@ _MUTATING_TOOLS = frozenset({
     "state.cash_semantic",
     "state.record_clue",
     "state.deliver_handout",
+    "state.replay_handout",
     "state.move_scene",
     "state.set_flag",
     "state.clear_transient_condition",

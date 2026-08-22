@@ -1003,6 +1003,7 @@ export class OpeningTerminalContinuationGate {
   private agentActive = false;
   private queuedVisibleDispositions: QueuedVisibleAssistantDisposition[] = [];
   private playerTurnEpoch = 0;
+  private currentExternalPlayerText: string | null = null;
   private finalizedOutput: {
     epoch: number;
     renderedText: string;
@@ -5195,13 +5196,43 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
-  markExternalUserInput(): void {
+  markExternalUserInput(playerText: string | null = null): void {
     this.playerTurnEpoch += 1;
+    this.currentExternalPlayerText = playerText;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
     this.currentDependencySuppression = null;
     this.currentVisibleCampaignId = null;
     this.pendingMechanicalOutputGateEnvelope = null;
+  }
+
+  bindHandoutReplayRequest(params: JsonObject): JsonObject {
+    if (params.operation !== "state.replay_handout") return params;
+    const args = objectOrNull(params.arguments);
+    const assertion = objectOrNull(args?.request_assertion);
+    const playerText = typeof assertion?.player_text === "string"
+      ? assertion.player_text
+      : null;
+    if (
+      this.playerTurnEpoch < 1
+      || this.currentExternalPlayerText === null
+      || playerText !== this.currentExternalPlayerText
+    ) {
+      throw new Error(
+        "state.replay_handout request_assertion.player_text must equal the "
+        + "exact current external player message",
+      );
+    }
+    return {
+      ...params,
+      arguments: {
+        ...args,
+        request_assertion: {
+          ...assertion,
+          player_turn_epoch: this.playerTurnEpoch,
+        },
+      },
+    };
   }
 
   observeCanonicalReceipt(
@@ -5349,7 +5380,7 @@ export class OpeningTerminalContinuationGate {
       details?: unknown;
     };
     if (value.role === "user") {
-      this.markExternalUserInput();
+      this.markExternalUserInput(userMessageText(message));
       return;
     }
     if (
@@ -5722,6 +5753,7 @@ export class OpeningTerminalContinuationGate {
     this.agentActive = false;
     this.queuedVisibleDispositions = [];
     this.playerTurnEpoch = 0;
+    this.currentExternalPlayerText = null;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
     this.epochMechanicalReceipts.clear();
@@ -8741,6 +8773,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
     }
+    params = openingContinuationGate.bindHandoutReplayRequest(params);
     params = bindStartupResumeInvocation(name, params);
     params = openingContinuationGate.bindRetainedOpeningRoute(params);
     const epoch = sessionEpoch;

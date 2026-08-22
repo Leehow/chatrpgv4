@@ -602,6 +602,77 @@ def _relationship_from_role_tags(value: Any) -> str | None:
     return None
 
 
+def _read_aloud_card_source_refs(refs: Any) -> list[str]:
+    """Project exact location-pack page evidence into card source labels."""
+    out: list[str] = []
+    for ref in refs or []:
+        if isinstance(ref, str) and ref.strip():
+            label = ref.strip()
+        elif (
+            isinstance(ref, dict)
+            and isinstance(ref.get("pdf_index"), int)
+            and not isinstance(ref.get("pdf_index"), bool)
+            and ref["pdf_index"] >= 0
+        ):
+            label = f"pdf_index-{ref['pdf_index']}"
+        else:
+            raise ModuleProjectError(
+                "read_aloud source_refs must contain exact page refs"
+            )
+        if label not in out:
+            out.append(label)
+    if not out:
+        raise ModuleProjectError("read_aloud card requires exact source refs")
+    return out
+
+
+def _project_location_read_aloud_cards(
+    out: dict[str, Any],
+    *,
+    scene_id: str,
+    scene_title: str,
+    rows: Any,
+) -> None:
+    """Upsert source-backed location passages into the unified card store."""
+    doc = out.setdefault("handouts.json", {"schema_version": 1, "handouts": []})
+    if not isinstance(doc, dict):
+        raise ModuleProjectError("handouts.json IR entry must be an object")
+    cards = doc.setdefault("handouts", [])
+    if not isinstance(cards, list):
+        raise ModuleProjectError("handouts.json.handouts must be a list")
+    for row in rows or []:
+        row_id = str(row.get("id") or "").strip()
+        asset_id = f"read-aloud:{scene_id}:{row_id}"
+        title = str(row.get("title") or scene_title or row_id).strip()
+        card: dict[str, Any] = {
+            "asset_id": asset_id,
+            "kind": "read_aloud",
+            "title": title,
+            "text": str(row["text"]),
+            "when_to_deliver": str(row["trigger"]),
+            "source_refs": _read_aloud_card_source_refs(row.get("source_refs")),
+            "scene_refs": [scene_id],
+            "player_visible": True,
+            "parse_state": "deep",
+            "origin": "source",
+        }
+        if row.get("localized_text") is not None:
+            card["localized_text"] = str(row["localized_text"])
+        existing = next(
+            (
+                candidate for candidate in cards
+                if isinstance(candidate, dict)
+                and candidate.get("asset_id") == asset_id
+            ),
+            None,
+        )
+        if existing is None:
+            cards.append(card)
+        else:
+            existing.clear()
+            existing.update(card)
+
+
 def merge_deep_location_into_ir(
     ir: dict[str, Any],
     pack: dict[str, Any],
@@ -656,6 +727,14 @@ def merge_deep_location_into_ir(
         # player-facing text, so they travel with the scene rather than into
         # the Keeper-only channel below.
         scene["read_aloud"] = json.loads(json.dumps(pack.get("read_aloud") or []))
+        _project_location_read_aloud_cards(
+            out,
+            scene_id=lid,
+            scene_title=str(
+                scene.get("display_name") or pack.get("title") or lid
+            ),
+            rows=pack.get("read_aloud") or [],
+        )
     if pack.get("keeper_only") is not None:
         # Keeper notes ride under one clearly named key so every player-facing
         # projection has a single thing to exclude.  Scattering them among

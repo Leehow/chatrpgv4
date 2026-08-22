@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:96c0ab07fba4a8932283fe62aad04bed2ec941f9d78e7afda34cc62d4b12340e",
+  "content_sha256": "sha256:baf5f8d45c57f61b4df588de41f909676c0a4b375995b1a03459c01701824699",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 124,
+  "operation_count": 125,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -7167,6 +7167,75 @@
         ]
       },
       "summary": "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth."
+    },
+    "state.replay_handout": {
+      "access": "mutation",
+      "canonical_operation": "state.replay_handout",
+      "description": "Present an already-delivered player-visible card again only after the Keeper semantically confirms an explicit request in the current player message. This creates a new presentation identity without changing delivery/material state. Ambiguous references require a clarifying question and no tool call; code never keyword-classifies player prose. Canonical operation `state.replay_handout`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "handout_id": {
+            "description": "asset_id of an already-delivered player-visible card",
+            "type": "string"
+          },
+          "request_assertion": {
+            "additionalProperties": false,
+            "description": "structured Keeper assertion bound to the exact current player message; Pi injects player_turn_epoch after checking player_text",
+            "properties": {
+              "explicit_player_request": {
+                "type": "boolean"
+              },
+              "player_text": {
+                "type": "string"
+              },
+              "player_turn_epoch": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "semantic_reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "explicit_player_request",
+              "player_text",
+              "semantic_reason"
+            ],
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "handout_id",
+          "request_assertion",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Present an already-delivered player-visible card again only after the Keeper semantically confirms an explicit request in the current player message. This creates a new presentation identity without changing delivery/material state. Ambiguous references require a clarifying question and no tool call; code never keyword-classifies player prose."
     },
     "state.set_flag": {
       "access": "mutation",

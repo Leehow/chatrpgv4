@@ -76,35 +76,64 @@ function seedCampaign(workspace, { delivered = [] } = {}) {
 }
 
 test("per-session handout SSE cursor is exactly-once and retries failed writes", () => {
-  let cards = [{ asset_id: "already" }];
-  const delivery = new HandoutSessionDelivery({ project: () => cards });
-  assert.deepEqual(delivery.hydrate("unused", "session-a", "camp-1"), cards);
-  delivery.seed("session-b", cards);
+  let materials = [{ asset_id: "already" }];
+  let presentations = [{
+    asset_id: "already",
+    presentation_id: "already:presentation:1",
+    presentation_revision: 1,
+  }];
+  const delivery = new HandoutSessionDelivery({
+    projectMaterials: () => materials,
+    projectPresentations: () => presentations,
+  });
+  assert.deepEqual(delivery.hydrate("unused", "session-a", "camp-1"), materials);
+  delivery.hydrate("unused", "session-b", "camp-1");
 
-  cards = [{ asset_id: "already" }, { asset_id: "new-card" }];
+  materials = [{ asset_id: "already" }, { asset_id: "new-card" }];
+  presentations = [
+    presentations[0],
+    { asset_id: "new-card", presentation_id: "new-card:presentation:1", presentation_revision: 1 },
+  ];
   const a = [];
   const b = [];
   assert.equal(delivery.pushNew("unused", "session-a", "camp-1", (event, card) => {
-    a.push([event, card.asset_id]);
+    a.push([event, card.asset_id, card.presentation_id]);
     return true;
   }), 1);
   assert.equal(delivery.pushNew("unused", "session-a", "camp-1", () => true), 0);
   assert.equal(delivery.pushNew("unused", "session-b", "camp-1", (event, card) => {
-    b.push([event, card.asset_id]);
+    b.push([event, card.asset_id, card.presentation_id]);
     return true;
   }), 1);
-  assert.deepEqual(a, [["handout", "new-card"]]);
-  assert.deepEqual(b, [["handout", "new-card"]]);
+  assert.deepEqual(a, [["handout", "new-card", "new-card:presentation:1"]]);
+  assert.deepEqual(b, [["handout", "new-card", "new-card:presentation:1"]]);
 
-  cards = [...cards, { asset_id: "retry-card" }];
+  materials = [...materials, { asset_id: "retry-card" }];
+  presentations = [...presentations, {
+    asset_id: "retry-card",
+    presentation_id: "retry-card:presentation:1",
+    presentation_revision: 1,
+  }];
   assert.equal(delivery.pushNew("unused", "session-a", "camp-1", () => false), 0);
   const retried = [];
   assert.equal(delivery.pushNew("unused", "session-a", "camp-1", (event, card) => {
-    retried.push([event, card.asset_id]);
+    retried.push([event, card.asset_id, card.presentation_id]);
     return true;
   }), 1);
-  assert.deepEqual(retried, [["handout", "retry-card"]]);
+  assert.deepEqual(retried, [["handout", "retry-card", "retry-card:presentation:1"]]);
   assert.equal(delivery.pushNew("unused", "session-a", "camp-1", () => true), 0);
+
+  // Replay reuses the material asset but advances the presentation identity.
+  presentations = presentations.map((card) => card.asset_id === "already"
+    ? { ...card, presentation_id: "already:presentation:2", presentation_revision: 2 }
+    : card);
+  const replayed = [];
+  assert.equal(delivery.pushNew("unused", "session-a", "camp-1", (event, card) => {
+    replayed.push([event, card.asset_id, card.presentation_id]);
+    return true;
+  }), 1);
+  assert.deepEqual(replayed, [["handout", "already", "already:presentation:2"]]);
+  assert.equal(delivery.materials("unused", "camp-1").length, 3);
 });
 
 test("state.materials production seam refreshes from authoritative delivery state", () => {

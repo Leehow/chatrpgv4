@@ -25,6 +25,7 @@ coc_operation_policy = coc_toolbox.coc_operation_policy
 def test_every_registered_operation_has_valid_policy():
     names = sorted(coc_toolbox.TOOLS)
     assert "state.deliver_handout" in names
+    assert "state.replay_handout" in names
     policies = coc_operation_policy.policies_for_operations(names)
     assert set(policies) == set(names)
     for name, policy in policies.items():

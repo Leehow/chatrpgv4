@@ -23,6 +23,7 @@ def _load(name: str, rel: str):
 
 assets = _load("coc_module_assets_ra_test", str(SCRIPTS / "coc_module_assets.py"))
 project = _load("coc_module_project_ra_test", str(SCRIPTS / "coc_module_project.py"))
+archive = _load("coc_compiled_archive_ra_test", str(SCRIPTS / "coc_compiled_archive.py"))
 
 REFS = [{"source_id": "pdf:test", "pdf_index": 7}]
 
@@ -47,7 +48,9 @@ def _aloud(**over):
     row = {
         "id": "ra-opening",
         "trigger": "on_first_enter",
+        "title": "餐桌上的气味",
         "text": "你把餐点从袋子里拿出来放到桌上，一股浓郁的香料味扑鼻而来。",
+        "localized_text": "你把餐点从袋子里拿出来放到桌上，一股浓郁的香料味扑鼻而来。",
         "source_refs": REFS,
     }
     row.update(over)
@@ -177,6 +180,50 @@ def test_merge_keeps_keeper_notes_under_one_excludable_key():
     # having to recognize Keeper material scattered across scene fields.
     assert "失踪的邻居" not in str(scene.get("player_safe_summary") or "")
     assert "失踪的邻居" not in str(scene.get("read_aloud") or "")
+
+
+def test_merge_projects_read_aloud_into_one_unified_card_with_stable_identity():
+    merged = project.merge_deep_location_into_ir(
+        _ir(), _pack(read_aloud=[_aloud()]),
+    )
+
+    cards = merged["handouts.json"]["handouts"]
+    assert cards == [{
+        "asset_id": "read-aloud:loc-flat:ra-opening",
+        "kind": "read_aloud",
+        "title": "餐桌上的气味",
+        "text": "你把餐点从袋子里拿出来放到桌上，一股浓郁的香料味扑鼻而来。",
+        "localized_text": "你把餐点从袋子里拿出来放到桌上，一股浓郁的香料味扑鼻而来。",
+        "when_to_deliver": "on_first_enter",
+        "source_refs": ["pdf_index-7"],
+        "scene_refs": ["loc-flat"],
+        "player_visible": True,
+        "parse_state": "deep",
+        "origin": "source",
+    }]
+
+
+def test_compiled_scene_keeps_only_pending_read_aloud_metadata_not_body():
+    merged = project.merge_deep_location_into_ir(
+        _ir(), _pack(read_aloud=[_aloud()]),
+    )
+    _manifest, shards = archive.build_documents(merged, campaign_id="ra-campaign")
+    scene = next(
+        shard for shard in shards.values()
+        if shard.get("kind") == archive.SCENE_KIND
+    )
+
+    pending = scene["keeper_only"]["pending_handout_cards"]
+    assert pending == [{
+        "asset_id": "read-aloud:loc-flat:ra-opening",
+        "kind": "read_aloud",
+        "title": "餐桌上的气味",
+        "trigger": "on_first_enter",
+        "condition": None,
+        "source_refs": REFS,
+    }]
+    assert "text" not in pending[0]
+    assert "香料味" not in str(scene)
 
 
 def test_merge_leaves_the_fields_absent_when_the_pack_has_none():

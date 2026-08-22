@@ -37,6 +37,7 @@ import {
   responsiveSidebarClasses,
   shouldUploadLayoutFallback,
 } from "./sidebar-layout";
+import { appendHandoutPresentation } from "./handout-presentation";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -82,19 +83,12 @@ function playerMessage(text: string, at: number = Date.now()): ChatMessage {
   return { kind: "player", text, at };
 }
 
-/** 新交付的原文卡内嵌进叙述流（按 asset_id 去重：服务器重启后的
- *  会话加载重放不会重复渲染同一张卡）。 */
+/** Only a server-issued presentation event enters the narration flow. */
 function appendHandoutMessage(
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   card: HandoutCard,
 ) {
-  if (!card.asset_id) return;
-  setMessages((prev) => {
-    if (prev.some((m) => m.kind === "handout" && m.card.asset_id === card.asset_id)) {
-      return prev;
-    }
-    return [...prev, { kind: "handout" as const, card, at: Date.now() }];
-  });
+  setMessages((prev) => appendHandoutPresentation(prev, card, Date.now()));
 }
 
 function transcriptMessages(messages: TranscriptMessage[]): ChatMessage[] {
@@ -665,12 +659,8 @@ export default function App() {
         } catch {
           replaceMessagesFromTranscript(setMessages, [], sameCampaign);
         }
-        // Restore already-delivered handout cards into the narration flow
-        // right at session load (dedup by asset_id inside).
-        for (const card of info.handouts ?? []) {
-          if (openGen !== openGenRef.current) return null;
-          appendHandoutMessage(setMessages, card);
-        }
+        // info.handouts hydrates state.materials only. Refresh is not a new
+        // presentation event, so it must not append cards to the transcript.
         // Every newly spawned pi-coc host must be attached until its startup
         // resume/setup chain genuinely settles. Historical transcript text is
         // display hydration only; it is not evidence that this new RPC child

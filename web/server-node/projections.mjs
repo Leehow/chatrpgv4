@@ -1025,6 +1025,28 @@ export function deliveredHandoutsDisplay(workspace, campaignId) {
   return out;
 }
 
+/** Current inline-presentation event for each delivered material. Stable
+ * asset identity remains on the card; only this event identity advances when
+ * the Keeper performs a validated explicit replay. */
+export function deliveredHandoutPresentationsDisplay(workspace, campaignId) {
+  const world = readJsonFile(
+    path.join(campaignDir(workspace, campaignId), "save", "world-state.json"),
+  );
+  const revisions = world?.handout_presentation_revisions;
+  const safeRevisions = revisions && typeof revisions === "object" && !Array.isArray(revisions)
+    ? revisions
+    : {};
+  return deliveredHandoutsDisplay(workspace, campaignId).map((card) => {
+    const stored = safeRevisions[card.asset_id];
+    const revision = Number.isSafeInteger(stored) && stored > 0 ? stored : 1;
+    return {
+      ...card,
+      presentation_id: `${card.asset_id}:presentation:${revision}`,
+      presentation_revision: revision,
+    };
+  });
+}
+
 export function mimeForHandoutAssetFile(filePath) {
   const ext = path.extname(String(filePath || "")).toLowerCase();
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
