@@ -29322,15 +29322,16 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
             *uptake_hints,
         ]
     if args.get("validate_only"):
-        violations = coc_turn_finalization.collect_finalize_violations(
-            ctx.campaign_dir,
-            draft=args.get("draft"),
-            coverage=args.get("coverage"),
-            mechanics_placements=args.get("mechanics_placements"),
-        )
-        if violations:
-            first = violations[0]
-            raise ToolError(first["code"], first["message"], violations=violations)
+        try:
+            coc_turn_finalization.build_finalization_receipt(
+                ctx.campaign_dir,
+                decision_id=decision_id,
+                draft=args.get("draft"),
+                coverage=args.get("coverage"),
+                mechanics_placements=args.get("mechanics_placements"),
+            )
+        except coc_turn_finalization.TurnContractError as exc:
+            raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
         return (
             {"would_finalize": True, "violations": []},
             [],

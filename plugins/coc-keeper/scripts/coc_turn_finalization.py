@@ -3122,7 +3122,13 @@ def build_undelivered_repair_receipt(
         "source_roll_ids": deepcopy(source_receipt["source_roll_ids"]),
         "obligation_ids": deepcopy(source_receipt["obligation_ids"]),
         "coverage_ids": deepcopy(source_receipt["coverage_ids"]),
-        "draft_sha256": canonical_digest(draft),
+        "draft_sha256": canonical_digest(
+            "\n\n".join(
+                segment["text"]
+                for segment in segments
+                if segment["segment_type"] == "fiction"
+            )
+        ),
         "coverage_sha256": canonical_digest(normalized_coverage),
         "bundle_sha256": canonical_digest(bundle),
         "rendered_sha256": canonical_digest(rendered),
@@ -3211,7 +3217,13 @@ def build_finalization_receipt(
         "source_roll_ids": context["source_roll_ids"],
         "obligation_ids": context["required_obligation_ids"],
         "coverage_ids": [row["obligation_id"] for row in normalized_coverage],
-        "draft_sha256": canonical_digest(draft),
+        "draft_sha256": canonical_digest(
+            "\n\n".join(
+                segment["text"]
+                for segment in segments
+                if segment["segment_type"] == "fiction"
+            )
+        ),
         "coverage_sha256": canonical_digest(normalized_coverage),
         "bundle_sha256": canonical_digest(bundle),
         "rendered_sha256": canonical_digest(rendered),
@@ -3256,7 +3268,14 @@ def replay_matches(
     except TurnContractError:
         return False
     return (
-        receipt.get("draft_sha256") == canonical_digest(draft)
+        receipt.get("draft_sha256")
+        == canonical_digest(
+            "\n\n".join(
+                segment["text"]
+                for segment in _segments
+                if segment["segment_type"] == "fiction"
+            )
+        )
         and receipt.get("coverage_sha256") == canonical_digest(normalized)
         and receipt.get("rendered_sha256") == canonical_digest(rendered)
     )

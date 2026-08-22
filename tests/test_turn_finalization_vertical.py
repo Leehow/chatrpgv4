@@ -1578,7 +1578,7 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
     output_context = call("turn.output_context")["data"]
     obligations = output_context["obligations"]
     assert obligations
-    setup = "调查员把语气放缓，把来意又说了一遍。"
+    setup = "调查员把语气放缓，向 Macario 把来意又说了一遍。"
     result_par = "档案员盯着他看了几秒，手指悬在警铃上方。"
     draft = setup + "\n\n" + result_par
 
@@ -1705,7 +1705,14 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
             "decision_id": "collect-final",
         },
     )
-    assert finalized["data"]["rendered_text"]
+    assert "马卡里奥" in finalized["data"]["rendered_text"]
+    assert "Macario" not in finalized["data"]["rendered_text"]
+    assert coc_turn_finalization.replay_matches(
+        finalized["data"],
+        draft=draft,
+        coverage=good_coverage,
+        mechanics_placements=valid_placements,
+    )
 
 
 def test_first_impression_line_and_fiction_localize_english_names() -> None:
