@@ -504,6 +504,9 @@ frontend-only delivery is invalid.
 | A15 | Existing evidence remains physically present and no tracked file is removed | before/after inventory |
 | A16 | Hotspot refactors preserve canonical interfaces and behavior while giving distinct logic units disjoint ownership/edit surfaces; no line-count threshold is used | module ownership map, focused/full tests, and independent-lane edit review |
 | A17 | Worktree/branch inventory is complete and no unowned target is deleted | signed inventory report |
+| A18 | A PDF-extracted player-safe image and a source-backed `read_aloud` card are presented through normal Pi-Coc play only when the current fiction semantically needs them; each appears inline once, remains available once in Materials, and survives refresh without duplicate presentation | synthetic project-owned PDF bundle, deterministic projection/SSE tests, and fresh browser play |
+| A19 | A player-safe `kind: map` card is presented when the current fiction earns it, while Keeper-only maps and unrevealed source material never enter player projection | secrecy/path tests plus fresh browser play using a synthetic map asset |
+| A20 | An explicit player request creates a new presentation of an already delivered card/image/map without duplicating its material entitlement or delivery mutation; an ambiguous possible request produces a Keeper clarification and no replay operation | typed replay tests, SSE/frontend dedupe tests, and two fresh natural browser turns |
 
 ## 7. Validation plan
 
@@ -607,7 +610,7 @@ Stop before implementation or integration when:
 
 ## 10. Done definition
 
-The remediation is done only when A1–A17 are classified `Done` with the named
+The remediation is done only when A1–A20 are classified `Done` with the named
 evidence, every current-task worktree is lifecycle-classified, full validation
 runs from the accepted integration commit, and real Pi-Coc/Web acceptance
 proves the repaired player workflows.
