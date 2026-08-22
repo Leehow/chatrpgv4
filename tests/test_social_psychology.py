@@ -69,6 +69,18 @@ def campaign_ws(tmp_path: Path):
     npcs = json.loads(
         (campaign_dir / "scenario" / "npc-agendas.json").read_text(encoding="utf-8")
     ).get("npcs") or []
+    event_rows = [
+        {
+            "event_id": f"event-public-{index}",
+            "event_type": "player_visible_evidence",
+            "visibility": "public",
+        }
+        for index in range(1, 5)
+    ]
+    (campaign_dir / "logs" / "events.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in event_rows),
+        encoding="utf-8",
+    )
     return {
         "workspace": workspace,
         "coc_root": coc_root,
@@ -92,6 +104,8 @@ def _adjudicate(ws, decision_id: str, **overrides) -> dict:
     args = {
         "investigator": ws["investigator_id"],
         "npc_id": ws["npc_id"],
+        "conversation_window_id": "conv-main",
+        "commitment_id": decision_id,
         "approach": "persuade",
         "goal_summary": "承认篡改了档案",
         "decision_id": decision_id,
@@ -117,7 +131,7 @@ def test_social_adjudicate_difficulty_ladder_and_motive(campaign_ws):
         campaign_ws,
         "adj-opposed",
         npc_defense_value=45,
-        motive={"direction": "oppose", "intensity": 1, "evidence": ["npc_state:fear"]},
+        motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
     assert opposed["data"]["final_difficulty"] == "hard"
     assert opposed["data"]["motive_delta"] == 1
@@ -126,7 +140,7 @@ def test_social_adjudicate_difficulty_ladder_and_motive(campaign_ws):
         campaign_ws,
         "adj-supported",
         npc_defense_value=55,
-        motive={"direction": "support", "intensity": 1, "evidence": ["clue:shared-goal"]},
+        motive={"direction": "support", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
     assert supported["data"]["final_difficulty"] == "regular"
     assert supported["data"]["motive_delta"] == -1
@@ -135,7 +149,7 @@ def test_social_adjudicate_difficulty_ladder_and_motive(campaign_ws):
         campaign_ws,
         "adj-automatic",
         npc_defense_value=45,
-        motive={"direction": "support", "intensity": 1, "evidence": ["clue:shared-goal"]},
+        motive={"direction": "support", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
     assert automatic["data"]["feasibility"] == "automatic"
 
@@ -145,11 +159,11 @@ def test_social_adjudicate_leverage_cap_and_conditional(campaign_ws):
         campaign_ws,
         "adj-leverage",
         npc_defense_value=55,
-        motive={"direction": "oppose", "intensity": 1, "evidence": ["npc_state:fear"]},
+        motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
         leverage=[
-            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "event-1"},
-            {"leverage_id": "protection-offer", "type": "promise", "source_ref": "event-2"},
-            {"leverage_id": "ignored-third", "type": "evidence", "source_ref": "event-3"},
+            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "event:event-public-1", "independence_group": "film", "credibility": "verified", "relevance": "direct", "reason": "实体证据"},
+            {"leverage_id": "protection-offer", "type": "promise", "source_ref": "event:event-public-2", "independence_group": "protection", "credibility": "verified", "relevance": "direct", "reason": "保护方案"},
+            {"leverage_id": "ignored-third", "type": "evidence", "source_ref": "event:event-public-3", "independence_group": "third", "credibility": "verified", "relevance": "direct", "reason": "第三项"},
         ],
         tactical={"bonus": 1, "penalty": 0},
     )
@@ -158,13 +172,13 @@ def test_social_adjudicate_leverage_cap_and_conditional(campaign_ws):
     # hard(1) + oppose(1) - leverage(2) = 0 -> regular
     assert leveraged["data"]["final_difficulty"] == "regular"
     assert leveraged["data"]["bonus_dice"] == 1
-    assert any("first two" in warning for warning in leveraged["warnings"])
+    assert any("more than two" in warning for warning in leveraged["warnings"])
 
     conditional = _adjudicate(
         campaign_ws,
         "adj-conditional",
         npc_defense_value=30,
-        motive={"direction": "oppose", "intensity": 2, "evidence": ["npc_state:red-line"]},
+        motive={"direction": "oppose", "intensity": 2, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
     assert conditional["data"]["feasibility"] == "conditional"
     assert any("requirements" in warning for warning in conditional["warnings"])
@@ -173,25 +187,36 @@ def test_social_adjudicate_leverage_cap_and_conditional(campaign_ws):
         campaign_ws,
         "adj-beyond",
         npc_defense_value=92,
-        motive={"direction": "oppose", "intensity": 1, "evidence": ["npc_state:fear"]},
+        motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
     assert beyond["data"]["feasibility"] == "conditional"
 
 
 def test_social_adjudicate_goal_key_replay(campaign_ws):
+    agendas_path = campaign_ws["campaign_dir"] / "scenario" / "npc-agendas.json"
+    agendas = json.loads(agendas_path.read_text(encoding="utf-8"))
+    for npc in agendas.get("npcs") or []:
+        if npc.get("npc_id") == campaign_ws["npc_id"]:
+            npc["skills"] = {"Psychology": 10, "Persuade": 55, "Charm": 90}
+    _write_json(agendas_path, agendas)
+    shared = {
+        "conversation_window_id": "conv-replay",
+        "commitment_id": "admit-tampering",
+    }
     first = _adjudicate(
         campaign_ws,
         "adj-goal-1",
-        npc_defense_value=55,
-        motive={"direction": "oppose", "intensity": 1, "evidence": ["npc_state:fear"]},
+        motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
+        **shared,
     )
     assert first["data"]["replayed"] is False
 
     same = _adjudicate(
         campaign_ws,
         "adj-goal-2",
-        npc_defense_value=55,
-        motive={"direction": "oppose", "intensity": 1, "evidence": ["npc_state:fear"]},
+        approach="charm",
+        motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
+        **shared,
     )
     assert same["data"]["replayed"] is True
     assert same["data"]["goal_key"] == first["data"]["goal_key"]
@@ -200,15 +225,51 @@ def test_social_adjudicate_goal_key_replay(campaign_ws):
     changed = _adjudicate(
         campaign_ws,
         "adj-goal-3",
-        npc_defense_value=55,
-        motive={"direction": "oppose", "intensity": 1, "evidence": ["npc_state:fear"]},
+        motive={"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
         leverage=[
-            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "event-1"},
+            {"leverage_id": "film-sample", "type": "evidence", "source_ref": "event:event-public-1", "independence_group": "film", "credibility": "verified", "relevance": "direct", "reason": "实体证据"},
         ],
+        **shared,
     )
     assert changed["data"]["replayed"] is False
     # hard(1) + oppose(1) - leverage(1) = 1 -> hard
     assert changed["data"]["final_difficulty"] == "hard"
+
+
+def test_social_adjudicate_conflicting_decision_and_duplicate_provenance(campaign_ws):
+    motive = {"direction": "oppose", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]}
+    first = _adjudicate(campaign_ws, "adj-bound", npc_defense_value=55, motive=motive)
+    assert first["ok"] is True
+    replay = _adjudicate(campaign_ws, "adj-bound", npc_defense_value=55, motive=motive)
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+    conflict = _adjudicate(campaign_ws, "adj-bound", npc_defense_value=90, motive=motive)
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+
+    duplicate = _adjudicate(
+        campaign_ws,
+        "adj-duplicate-source",
+        npc_defense_value=55,
+        leverage=[
+            {"leverage_id": "one", "source_ref": "event:event-public-1", "independence_group": "physical", "credibility": "verified", "relevance": "direct", "reason": "same sample"},
+            {"leverage_id": "two", "source_ref": "event:event-public-1", "independence_group": "copy", "credibility": "verified", "relevance": "direct", "reason": "duplicate description"},
+            {"leverage_id": "three", "source_ref": "event:event-public-2", "independence_group": "physical", "credibility": "verified", "relevance": "direct", "reason": "same independence group"},
+        ],
+    )
+    assert duplicate["ok"] is True
+    assert duplicate["data"]["leverage_delta"] == 1
+    assert len(duplicate["data"]["leverage"]) == 1
+
+    secret = _adjudicate(
+        campaign_ws,
+        "adj-secret-source",
+        leverage=[
+            {"leverage_id": "secret", "source_ref": f"npc_agenda:{campaign_ws['npc_id']}", "independence_group": "secret", "credibility": "verified", "relevance": "direct", "reason": "keeper-only agenda"},
+        ],
+    )
+    assert secret["ok"] is False
+    assert secret["error"]["code"] == "leverage_source_invalid"
 
 
 def test_social_adjudicate_authored_defense_and_validation(campaign_ws):
@@ -233,13 +294,31 @@ def test_social_adjudicate_authored_defense_and_validation(campaign_ws):
     assert invalid["ok"] is False
     assert invalid["error"]["code"] == "invalid_param"
 
+    impossible = _adjudicate(
+        campaign_ws,
+        "adj-impossible",
+        feasibility="impossible",
+        feasibility_refs=[f"npc_agenda:{campaign_ws['npc_id']}"],
+        outcome_ceiling={
+            "goal_scope": "解释自己并不知道的实体本质",
+            "npc_knowledge_refs": [f"npc_agenda:{campaign_ws['npc_id']}"],
+            "scene_truth_max_tier": 2,
+            "forbidden_fact_refs": ["mythos_fact:entity-identity"],
+        },
+    )
+    assert impossible["ok"] is True, impossible
+    assert impossible["data"]["feasibility"] == "impossible"
+
 
 def _observe(ws, decision_id: str, **overrides) -> dict:
     args = {
         "investigator": ws["investigator_id"],
+        "observer_scope": "team:party",
         "npc_id": ws["npc_id"],
+        "conversation_window_id": "conv-psych",
+        "observation_revision": 0,
         "question": "他在害怕谁？",
-        "visible_observation": "他回答前先看了门口，右手始终压着抽屉。",
+        "observable_fact_refs": ["event:event-public-4"],
         "seed": 7,
         "decision_id": decision_id,
     }
@@ -251,6 +330,7 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     first = _observe(campaign_ws, "psych-1")
     assert first["ok"] is True, first
     assert first["data"]["resolution"] == "settled"
+    assert "visible_observation" not in first["data"]
     roll_id = first["data"]["roll_id"]
 
     rows = {
@@ -268,6 +348,21 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     row_count = len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"))
     assert row_count == 1
 
+    realized = _observe(
+        campaign_ws,
+        "psych-realize-1",
+        action="realize",
+        insight_id=first["data"]["insight_id"],
+        visible_observation="他说到区里检查时，先看了门口。",
+    )
+    assert realized["ok"] is True, realized
+    assert realized["data"]["resolution"] == "realized"
+    assert realized["data"]["insight_id"] == first["data"]["insight_id"]
+    assert realized["data"]["conversation_window_id"] == "conv-psych"
+    assert realized["data"]["observation_revision"] == 0
+    assert realized["data"]["visible_observation"] == "他说到区里检查时，先看了门口。"
+    assert realized["data"]["request_digest"].startswith("sha256:")
+
     updated = _run(
         campaign_ws,
         "state.npc_update",
@@ -280,6 +375,39 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert updated["ok"] is True, updated
     reopened = _observe(campaign_ws, "psych-3")
     assert reopened["ok"] is True
-    assert reopened["data"]["resolution"] == "settled"
-    assert reopened["data"]["insight_id"] != first["data"]["insight_id"]
+    assert reopened["data"]["resolution"] == "reuse"
+    assert reopened["data"]["insight_id"] == first["data"]["insight_id"]
+    assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 1
+
+    with (campaign_ws["campaign_dir"] / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"event_id": "event-decisive", "event_type": "decisive_evidence_presented", "visibility": "public"}) + "\n")
+    decisive = _observe(
+        campaign_ws,
+        "psych-4",
+        observation_revision=1,
+        revision_event_ref="event:event-decisive",
+    )
+    assert decisive["ok"] is True, decisive
+    assert decisive["data"]["resolution"] == "settled"
+    assert decisive["data"]["insight_id"] != first["data"]["insight_id"]
     assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 2
+
+
+def test_psychology_observe_decision_conflict_and_invalid_revision(campaign_ws):
+    premature = _observe(
+        campaign_ws,
+        "psych-premature-realization",
+        visible_observation="他肯定在撒谎。",
+    )
+    assert premature["ok"] is False
+    assert premature["error"]["code"] == "invalid_param"
+
+    first = _observe(campaign_ws, "psych-bound")
+    assert first["ok"] is True
+    conflict = _observe(campaign_ws, "psych-bound", question="他准备攻击吗？")
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+
+    invalid = _observe(campaign_ws, "psych-invalid-revision", observation_revision=1)
+    assert invalid["ok"] is False
+    assert invalid["error"]["code"] == "observation_revision_invalid"

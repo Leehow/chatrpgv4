@@ -114,6 +114,14 @@ the active campaign's resolver through the kernel registry
   `{ "sheet": {...}, "resources": {...} }`, with one integer value for every
   manifest resource. CoC7 preserves its established `investigator.create`
   path and does not advertise this optional operation.
+- Optional `social_difficulty(request, npc_defense)` — package-owned social
+  difficulty ladder, motive/leverage adjustments, tactical dice policy, and
+  approach-skill mapping. The kernel resolves stable commitment identity and
+  canonical provenance before calling it.
+- Optional `psychology_policy(check_result, question_kind)` — package-owned
+  concealed-observation inference ceiling and fumble policy. The kernel owns
+  one-window identity, concealed persistence, and player-safe realization
+  binding.
 - Optional subsystem session types (combat/chase/sanity equivalents) behind
   the same context/execute/end tool pattern the kernel already exposes.
 

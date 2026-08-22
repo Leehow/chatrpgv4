@@ -77,6 +77,94 @@ _RESOURCE_KEYS = frozenset({"hp", "san", "mp", "luck"})
 
 _DIRECTIONS = frozenset({"loss", "gain"})
 
+_SOCIAL_APPROACH_SKILLS = {
+    "charm": "Charm",
+    "fast_talk": "Fast Talk",
+    "intimidate": "Intimidate",
+    "persuade": "Persuade",
+}
+_SOCIAL_DIFFICULTIES = ("regular", "hard", "extreme")
+
+
+def social_difficulty(
+    request: dict[str, Any], npc_defense: int | None
+) -> dict[str, Any]:
+    """Apply the CoC 7e social ladder after kernel provenance validation.
+
+    The request contains only already-validated structured values.  Resolving
+    references, stable attempt identity, and persistence remain kernel work.
+    """
+    approach = str(request.get("approach") or "")
+    if approach not in _SOCIAL_APPROACH_SKILLS:
+        raise ValueError("unknown CoC 7e social approach")
+    if npc_defense is not None and (
+        isinstance(npc_defense, bool)
+        or not isinstance(npc_defense, int)
+        or not 0 <= npc_defense <= 100
+    ):
+        raise ValueError("npc_defense must be an integer 0-100 or None")
+    direction = str(request.get("motive_direction") or "neutral")
+    intensity = request.get("motive_intensity", 0)
+    strategic_count = request.get("strategic_count", 0)
+    bonus = request.get("bonus", 0)
+    penalty = request.get("penalty", 0)
+    if direction not in {"support", "neutral", "oppose"}:
+        raise ValueError("invalid motive direction")
+    if isinstance(intensity, bool) or intensity not in {0, 1, 2}:
+        raise ValueError("invalid motive intensity")
+    if isinstance(strategic_count, bool) or not isinstance(strategic_count, int):
+        raise ValueError("strategic_count must be an integer")
+    if not 0 <= strategic_count <= 2:
+        raise ValueError("strategic_count must be 0-2")
+    if any(isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2 for value in (bonus, penalty)):
+        raise ValueError("bonus and penalty must be integers 0-2")
+
+    base = 0 if npc_defense is None or npc_defense < 50 else (1 if npc_defense < 90 else 2)
+    motive_delta = (
+        intensity
+        if direction == "oppose"
+        else (-1 if direction == "support" and intensity > 0 else 0)
+    )
+    final = base + motive_delta - strategic_count
+    if direction == "oppose" and intensity == 2 and strategic_count == 0:
+        feasibility = "conditional"
+    elif final > 2:
+        feasibility = "conditional"
+    elif final < 0:
+        feasibility = "automatic"
+    else:
+        feasibility = "roll"
+    return {
+        "approach_skill": _SOCIAL_APPROACH_SKILLS[approach],
+        "base_difficulty": _SOCIAL_DIFFICULTIES[base],
+        "motive_adjustment": motive_delta,
+        "strategic_adjustment": -strategic_count,
+        "final_difficulty": _SOCIAL_DIFFICULTIES[max(0, min(2, final))],
+        "feasibility": feasibility,
+        "bonus_dice": bonus,
+        "penalty_dice": penalty,
+    }
+
+
+def psychology_policy(check_result: dict[str, Any], question_kind: str) -> dict[str, Any]:
+    """Return the Keeper-only CoC 7e realization ceiling for a concealed read."""
+    del question_kind  # semantic question classification is Keeper-owned in v1.
+    outcome = str(check_result.get("outcome") or "failure")
+    if outcome in {"critical", "extreme_success"}:
+        depth = "deep_conflict"
+    elif outcome == "hard_success":
+        depth = "motive_link"
+    elif outcome == "success":
+        depth = "immediate_intent"
+    else:
+        depth = "uncertain"
+    return {
+        "inference_depth": depth,
+        "misread_policy": (
+            "plausible_wrong_on_fumble" if outcome == "fumble" else "none"
+        ),
+    }
+
 
 def check(
     target: int,
@@ -551,6 +639,16 @@ def public_api_index() -> dict[str, dict[str, Any]]:
                 "direction='loss', maximum=None, rng=None)"
             ),
             "returns": "validated pool arithmetic receipt (no state write)",
+        },
+        "social_difficulty": {
+            "aliases": [],
+            "signature": "social_difficulty(request, npc_defense)",
+            "returns": "CoC 7e social difficulty, adjustment, and tactical-dice policy",
+        },
+        "psychology_policy": {
+            "aliases": [],
+            "signature": "psychology_policy(check_result, question_kind)",
+            "returns": "Keeper-only concealed Psychology realization ceiling",
         },
         "roll_dice": {
             "aliases": ["roll_expression"],

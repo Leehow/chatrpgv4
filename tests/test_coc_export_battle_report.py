@@ -51,7 +51,16 @@ def _write_jsonl(path: Path, rows):
 def _fixture(run: Path, *, metadata_name="run.json"):
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
     investigator = run / "sandbox" / ".coc" / "investigators" / "ada"
-    metadata = {"run_id": "run-1", "campaign_id": "case-1", "seed": 17}
+    metadata = {
+        "run_segment_id": "run-1",
+        "run_id": "run-1",
+        "campaign_id": "case-1",
+        "session_id": "session-1",
+        "plugin_version": "0.4.0-alpha.0",
+        "ruleset_id": "coc7",
+        "ruleset_version": "1.0.0",
+        "seed": 17,
+    }
     transcript = [
         {"turn": 1, "role": "keeper_under_test", "speaker_display": "KP[门卫]", "text": "门上写着 **勿入**。\n第二行有 `code`。"},
         {"turn": 2, "role": "system", "text": "RUNNER_PROMPT_SECRET"},
@@ -134,7 +143,7 @@ def test_writes_the_single_final_report_pair_deterministically(tmp_path):
     assert payload["report_type"] == "coc_actual_play_battle_report_evidence"
     assert payload["run_metadata"] == expected["metadata"]
     assert payload["completeness"]["classification"] == "COMPLETE"
-    assert payload["schema_version"] == 5
+    assert payload["schema_version"] == 6
     assert payload["keeper_internal"]["tool_call_count"] == 1
     assert payload["keeper_internal"]["advisory_adoption_count"] == 1
     assert payload["exceptional_effects"][0]["effect_id"] == "effect-1"
@@ -155,6 +164,33 @@ def test_accepts_simplified_run_or_legacy_playtest_metadata(tmp_path, metadata_n
     report = module.export_battle_report(run)
     assert report["source_identity"]["metadata_source"] == metadata_name
     assert report["source_identity"]["run_id"] == "run-1"
+    assert report["source_identity"]["run_segment_id"] == "run-1"
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "run_segment_id",
+        "session_id",
+        "plugin_version",
+        "ruleset_id",
+        "ruleset_version",
+    ],
+)
+def test_missing_required_run_identity_is_incomplete(tmp_path, missing):
+    module = _load()
+    run = tmp_path / missing
+    fixture = _fixture(run)
+    metadata = dict(fixture["metadata"])
+    metadata.pop(missing)
+    _write_json(run / "run.json", metadata)
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    dimension = report["completeness"]["dimensions"]["run_identity"]
+    assert dimension["status"] == "FAIL"
+    assert any(missing in finding for finding in dimension["findings"])
 
 
 def test_exports_allowlisted_model_evidence_without_rendering_it(tmp_path):

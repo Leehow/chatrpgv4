@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 JSON_OUTPUT = "battle-report-evidence.json"
 MARKDOWN_OUTPUT = "battle-report.md"
 METADATA_CANDIDATES = ("run.json", "playtest.json")
@@ -1128,6 +1128,30 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     def dimension(name: str, passed: bool, *findings: str) -> None:
         dimensions[name] = {"status": "PASS" if passed else "FAIL", "findings": list(findings)}
 
+    required_run_identity = (
+        "run_segment_id",
+        "campaign_id",
+        "session_id",
+        "plugin_version",
+        "ruleset_id",
+        "ruleset_version",
+    )
+    missing_run_identity = [
+        field
+        for field in required_run_identity
+        if not isinstance(metadata.get(field), str) or not metadata[field].strip()
+    ]
+    run_identity_findings = [
+        f"required run identity field {field} is missing"
+        for field in missing_run_identity
+    ]
+    if campaign_relative is None:
+        run_identity_findings.append("campaign source directory is missing")
+    dimension(
+        "run_identity",
+        not run_identity_findings,
+        *(run_identity_findings or ["exact run segment, campaign, session, plugin, and ruleset identity resolved"]),
+    )
     dimension("source_identity", bool(metadata) and campaign_relative is not None, "run metadata and campaign directory resolved" if metadata and campaign_relative else "run metadata or campaign directory is missing")
     transcript_findings: list[str] = []
     if not transcript_candidate_present:
@@ -1492,6 +1516,11 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "campaign_id": metadata.get("campaign_id"),
             "campaign_source_directory": campaign_relative,
             "run_id": metadata.get("run_id"),
+            "run_segment_id": metadata.get("run_segment_id"),
+            "session_id": metadata.get("session_id"),
+            "plugin_version": metadata.get("plugin_version"),
+            "ruleset_id": metadata.get("ruleset_id"),
+            "ruleset_version": metadata.get("ruleset_version"),
             "transcript_sha256": manifest[transcript_relative].get("sha256"),
             "transcript_source": transcript_relative,
         },
@@ -1632,8 +1661,13 @@ def _safe_metadata(metadata: Any) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         return {}
     allowed = (
+        "run_segment_id",
         "run_id",
         "campaign_id",
+        "session_id",
+        "plugin_version",
+        "ruleset_id",
+        "ruleset_version",
         "seed",
         "play_language",
         "run_kind",
@@ -2025,7 +2059,7 @@ def _markdown(report: dict[str, Any]) -> str:
         "# COC Actual-Play Battle Report", "",
         "This is the final player-readable report produced directly from a real playtest run.", "",
         f"- Report ID: `{report['report_id']}`",
-        f"- Run: `{metadata.get('run_id', 'MISSING')}`",
+        f"- Run segment: `{metadata.get('run_segment_id', 'MISSING')}`",
         f"- Campaign: `{metadata.get('campaign_id', 'MISSING')}`",
         f"- Completeness: **{completeness['classification']}**", "",
         "> Completeness covers report-source evidence only. It does not certify prose quality, Director use, or whole-product KP quality.", "",

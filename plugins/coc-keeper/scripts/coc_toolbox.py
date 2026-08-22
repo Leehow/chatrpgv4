@@ -720,6 +720,8 @@ _RULE_TOOL_CAPABILITIES = {
     "rules.weekly_recovery": "weekly_recovery",
     "rules.dying_check": "dying_check",
     "rules.catalog_search": "catalog_search",
+    "rules.social_adjudicate": "social_difficulty",
+    "rules.psychology_observe": "psychology_policy",
 }
 
 _RULE_TOOL_RESOURCE_REQUIREMENTS = {
@@ -9693,15 +9695,6 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
     return data, [], hints
 
 
-_SOCIAL_APPROACH_SKILLS = {
-    "charm": "Charm",
-    "fast_talk": "Fast Talk",
-    "intimidate": "Intimidate",
-    "persuade": "Persuade",
-}
-_DIFFICULTY_LADDER = ("regular", "hard", "extreme")
-
-
 def _npc_authored_skill_value(ctx: Ctx, npc_id: str, skill: str) -> int | None:
     """One numeric skill from the optional npc-agendas `skills` block."""
     npc = _npc_by_id(ctx.npc_agendas, npc_id)
@@ -9715,19 +9708,121 @@ def _npc_authored_skill_value(ctx: Ctx, npc_id: str, skill: str) -> int | None:
 
 
 def _npc_authored_social_defense(
-    ctx: Ctx, npc_id: str, approach: str
+    ctx: Ctx, npc_id: str, approach_skill: str
 ) -> tuple[int | None, str | None]:
     """Authored NPC defense for one social approach: the higher of Psychology or
     the approach's own social skill (7e social-resolution guidance)."""
     candidates = [
         (skill, value)
-        for skill in ("Psychology", _SOCIAL_APPROACH_SKILLS[approach])
+        for skill in ("Psychology", approach_skill)
         if (value := _npc_authored_skill_value(ctx, npc_id, skill)) is not None
     ]
     if not candidates:
         return None, None
     key, value = max(candidates, key=lambda row: row[1])
     return value, key
+
+
+def _jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            value = json.loads(raw)
+            if isinstance(value, dict):
+                rows.append(value)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ToolError("state_corrupt", f"{path.name} is unreadable") from exc
+    return rows
+
+
+def _resolve_contract_ref(
+    ctx: Ctx,
+    source_ref: str,
+    *,
+    require_player_known: bool,
+) -> dict[str, Any]:
+    """Resolve one typed reference without interpreting free prose.
+
+    This is deliberately a small structural resolver over canonical records;
+    credibility and relevance remain explicit Keeper judgments on the request.
+    """
+    kind, separator, identifier = source_ref.partition(":")
+    identifier = identifier.strip()
+    if not separator or not kind or not identifier:
+        raise ToolError("leverage_source_invalid", f"invalid structured source_ref {source_ref!r}")
+    record: dict[str, Any] | None = None
+    player_known = False
+    if kind == "npc_agenda":
+        record = _npc_by_id(ctx.npc_agendas, identifier)
+    elif kind == "npc_state":
+        path = ctx.campaign_dir / "save" / "npc-state.json"
+        if path.is_file():
+            try:
+                state = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ToolError("state_corrupt", "save/npc-state.json is unreadable") from exc
+            psych = state.get("psych") if isinstance(state, dict) and isinstance(state.get("psych"), dict) else {}
+            value = psych.get(identifier)
+            record = value if isinstance(value, dict) else None
+    elif kind == "clue":
+        clue = _clue_by_id(ctx.clue_graph, identifier)
+        if isinstance(clue, dict):
+            record = clue
+            player_known = identifier in {
+                str(value) for value in ctx.world().get("discovered_clue_ids") or []
+            }
+    elif kind == "event":
+        matches = [
+            row
+            for row in _jsonl_rows(ctx.campaign_dir / "logs" / "events.jsonl")
+            if str(row.get("event_id") or "") == identifier
+        ]
+        if len(matches) > 1:
+            raise ToolError("state_corrupt", f"event source {identifier!r} is duplicated")
+        if matches:
+            record = matches[0]
+            player_known = (
+                record.get("player_visible") is True
+                or str(record.get("visibility") or "").casefold()
+                in {"public", "player", "player_visible"}
+            )
+    if not isinstance(record, dict):
+        raise ToolError("leverage_source_invalid", f"source_ref {source_ref!r} does not resolve")
+    if require_player_known and not player_known:
+        raise ToolError(
+            "leverage_source_invalid",
+            f"source_ref {source_ref!r} is not established as player-known",
+        )
+    return {
+        "source_ref": source_ref,
+        "kind": kind,
+        "identifier": identifier,
+        "player_known": player_known,
+        "record_digest": _canonical_digest(record),
+    }
+
+
+def _request_digest(args: dict[str, Any]) -> str:
+    return _canonical_digest(args)
+
+
+def _replay_bound_decision(
+    ctx: Ctx, tool_name: str, args: dict[str, Any]
+) -> dict[str, Any] | None:
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is None:
+        return None
+    data = prior.get("data") if isinstance(prior.get("data"), dict) else {}
+    if data.get("request_digest") != _request_digest(args):
+        raise ToolError(
+            "idempotency_conflict",
+            f"{tool_name} decision_id is already bound to different immutable arguments",
+        )
+    return deepcopy(data)
 
 
 def _load_json_document(ctx: Ctx, relative: str, schema_version: int, root_key: str) -> dict[str, Any]:
@@ -9757,16 +9852,18 @@ def _save_json_document(ctx: Ctx, relative: str, document: dict[str, Any]) -> No
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "required": True, "desc": "target NPC id"},
+        "conversation_window_id": {"type": "string", "required": True, "desc": "stable direct-conversation window id"},
+        "commitment_id": {"type": "string", "required": True, "desc": "Keeper semantic id for the requested commitment; never inferred from prose"},
         "approach": {"type": "string", "required": True, "enum": ["charm", "fast_talk", "intimidate", "persuade"], "desc": "social approach skill family"},
         "goal_summary": {"type": "string", "required": True, "desc": "one-sentence concrete commitment the player wants from the NPC"},
         "npc_defense_value": {"type": "integer", "desc": "explicit NPC defense value (higher of Psychology or the approach skill); defaults to the authored npc skills block, then regular"},
         "motive": {
             "type": "object",
-            "desc": "structured NPC motive: {direction: support|neutral|oppose, intensity: 0|1|2, evidence: [refs]}; intensity>0 requires evidence",
+            "desc": "structured NPC motive: {direction: support|neutral|oppose, intensity: 0|1|2, evidence_refs: [typed refs]}; intensity>0 requires resolved evidence",
         },
         "leverage": {
             "type": "array",
-            "desc": "strategic leverage items [{leverage_id, type, source_ref}]; at most two independent items count",
+            "desc": "strategic leverage [{leverage_id,type,source_ref,independence_group,credibility,relevance,reason}]; resolved player-known sources and distinct groups count once, capped at two",
         },
         "tactical": {
             "type": "object",
@@ -9776,23 +9873,39 @@ def _save_json_document(ctx: Ctx, relative: str, document: dict[str, Any]) -> No
             "type": "array",
             "desc": "KP-authored unlock conditions when feasibility is conditional (recorded, advisory)",
         },
+        "feasibility": {"type": "string", "enum": ["automatic", "roll", "conditional", "impossible"], "desc": "optional source-bound semantic feasibility override"},
+        "feasibility_refs": {"type": "array", "desc": "typed canonical refs grounding an explicit feasibility override"},
+        "outcome_ceiling": {"type": "object", "desc": "structured goal/NPC-knowledge/scene-scope ceiling; references are validated, never inferred"},
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("rules.social_adjudicate", args.get("decision_id"))
+    prior = _replay_bound_decision(ctx, "rules.social_adjudicate", args)
     if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+        return prior, ["duplicate decision_id: returning the previously settled result"], []
     investigator_id = _resolve_investigator(ctx, args)
     npc_id = str(args["npc_id"]).strip()
     if not npc_id:
         raise ToolError("invalid_param", "npc_id must be non-empty")
-    approach = str(args["approach"]).strip()
-    if approach not in _SOCIAL_APPROACH_SKILLS:
+    conversation_window_id = str(args["conversation_window_id"]).strip()
+    commitment_id = str(args["commitment_id"]).strip()
+    if not conversation_window_id or not commitment_id:
         raise ToolError(
             "invalid_param",
-            f"approach must be one of {sorted(_SOCIAL_APPROACH_SKILLS)}",
+            "conversation_window_id and commitment_id must be non-empty",
         )
+    approach = str(args["approach"]).strip()
+    resolver = _rules_resolver(ctx, "social_difficulty")
+    try:
+        approach_policy = resolver.social_difficulty(
+            {"approach": approach}, None
+        )
+    except ValueError as exc:
+        raise ToolError(
+            "invalid_param",
+            str(exc),
+        ) from exc
+    approach_skill = str(approach_policy["approach_skill"])
     goal_summary = str(args["goal_summary"] or "").strip()
     if not goal_summary:
         raise ToolError("invalid_param", "goal_summary must be non-empty")
@@ -9802,7 +9915,7 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     defense_source = "explicit"
     defense_key: str | None = "explicit"
     if defense is None:
-        defense, defense_key = _npc_authored_social_defense(ctx, npc_id, approach)
+        defense, defense_key = _npc_authored_social_defense(ctx, npc_id, approach_skill)
         defense_source = "authored" if defense is not None else "unknown"
     if defense is not None and (
         isinstance(defense, bool)
@@ -9825,34 +9938,80 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     intensity = motive.get("intensity", 0)
     if isinstance(intensity, bool) or not isinstance(intensity, int) or intensity not in (0, 1, 2):
         raise ToolError("invalid_param", "motive.intensity must be 0, 1, or 2")
-    motive_evidence = [str(v) for v in (motive.get("evidence") or []) if str(v).strip()]
+    motive_evidence = [
+        str(value).strip()
+        for value in (motive.get("evidence_refs") or [])
+        if str(value).strip()
+    ]
     if intensity > 0 and not motive_evidence:
         raise ToolError(
-            "invalid_param", "motive.intensity > 0 requires motive.evidence references"
+            "invalid_param", "motive.intensity > 0 requires motive.evidence_refs"
         )
+    resolved_motive_refs = [
+        _resolve_contract_ref(ctx, source_ref, require_player_known=False)
+        for source_ref in motive_evidence
+    ]
 
     raw_leverage = args.get("leverage") or []
     if not isinstance(raw_leverage, list):
         raise ToolError("invalid_param", "leverage must be an array")
-    leverage_items: list[dict[str, str]] = []
+    leverage_items: list[dict[str, Any]] = []
+    counted_sources: set[str] = set()
+    counted_groups: set[str] = set()
     for index, item in enumerate(raw_leverage):
         if not isinstance(item, dict):
             raise ToolError("invalid_param", f"leverage[{index}] must be an object")
         leverage_id = str(item.get("leverage_id") or "").strip()
         source_ref = str(item.get("source_ref") or "").strip()
-        if not leverage_id or not source_ref:
+        independence_group = str(item.get("independence_group") or "").strip()
+        credibility = str(item.get("credibility") or "").strip()
+        relevance = str(item.get("relevance") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if not all((leverage_id, source_ref, independence_group, reason)):
             raise ToolError(
-                "invalid_param", f"leverage[{index}] requires leverage_id and source_ref"
+                "invalid_param",
+                f"leverage[{index}] requires leverage_id, source_ref, independence_group, and reason",
             )
-        leverage_items.append({
+        if credibility != "verified" or relevance != "direct":
+            raise ToolError(
+                "leverage_source_invalid",
+                f"leverage[{index}] must record credibility=verified and relevance=direct",
+            )
+        resolved = _resolve_contract_ref(ctx, source_ref, require_player_known=True)
+        normalized = {
             "leverage_id": leverage_id,
             "type": str(item.get("type") or "unspecified").strip() or "unspecified",
             "source_ref": source_ref,
-        })
-    leverage_counted = leverage_items[:2]
-    if len(leverage_items) > 2:
+            "independence_group": independence_group,
+            "credibility": credibility,
+            "relevance": relevance,
+            "reason": reason,
+            "resolved_source": resolved,
+        }
+        if source_ref in counted_sources:
+            warnings.append(
+                f"leverage source {source_ref!r} was duplicated and counts only once"
+            )
+            continue
+        if independence_group in counted_groups:
+            warnings.append(
+                f"leverage independence_group {independence_group!r} was duplicated and counts only once"
+            )
+            continue
+        if len(leverage_items) >= 2:
+            warnings.append(
+                "more than two independent leverage items supplied; additional items do not count"
+            )
+            continue
+        counted_sources.add(source_ref)
+        counted_groups.add(independence_group)
+        leverage_items.append(normalized)
+    leverage_counted = leverage_items
+    if len(raw_leverage) > len(leverage_counted) and not any(
+        "more than two" in warning for warning in warnings
+    ):
         warnings.append(
-            "more than two leverage items supplied; only the first two independent items count"
+            "duplicate leverage sources or independence groups do not count twice"
         )
 
     tactical = args.get("tactical") or {}
@@ -9866,78 +10025,146 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
 
     requirements = [str(v).strip() for v in (args.get("requirements") or []) if str(v).strip()]
 
+    feasibility_override = str(args.get("feasibility") or "").strip()
+    feasibility_refs = [
+        str(value).strip()
+        for value in (args.get("feasibility_refs") or [])
+        if str(value).strip()
+    ]
+    if feasibility_override and not feasibility_refs:
+        raise ToolError(
+            "invalid_param", "an explicit feasibility override requires feasibility_refs"
+        )
+    resolved_feasibility_refs = [
+        _resolve_contract_ref(ctx, source_ref, require_player_known=False)
+        for source_ref in feasibility_refs
+    ]
+
+    outcome_ceiling = args.get("outcome_ceiling") or {}
+    if not isinstance(outcome_ceiling, dict):
+        raise ToolError("invalid_param", "outcome_ceiling must be an object")
+    knowledge_refs = [
+        str(value).strip()
+        for value in outcome_ceiling.get("npc_knowledge_refs") or []
+        if str(value).strip()
+    ]
+    resolved_knowledge_refs = [
+        _resolve_contract_ref(ctx, source_ref, require_player_known=False)
+        for source_ref in knowledge_refs
+    ]
+    normalized_ceiling = {
+        "goal_scope": str(outcome_ceiling.get("goal_scope") or goal_summary).strip(),
+        "npc_knowledge_refs": knowledge_refs,
+        "scene_truth_max_tier": outcome_ceiling.get("scene_truth_max_tier"),
+        "forbidden_fact_refs": [
+            str(value).strip()
+            for value in outcome_ceiling.get("forbidden_fact_refs") or []
+            if str(value).strip()
+        ],
+        "resolved_npc_knowledge_refs": resolved_knowledge_refs,
+    }
+
     goal_key = hashlib.sha256(
-        "\x00".join((npc_id, approach, goal_summary.casefold())).encode("utf-8")
+        "\x00".join((npc_id, conversation_window_id, commitment_id)).encode("utf-8")
     ).hexdigest()[:16]
 
-    document = _load_json_document(ctx, "social-resolutions.json", 1, "resolutions")
+    document = _load_json_document(ctx, "social-resolutions.json", 2, "resolutions")
     resolutions = document["resolutions"]
     prior_goal = resolutions.get(goal_key)
     current_leverage_ids = sorted(item["leverage_id"] for item in leverage_counted)
+    adjudication_source_digest = _canonical_digest({
+        "npc_id": npc_id,
+        "conversation_window_id": conversation_window_id,
+        "commitment_id": commitment_id,
+        "motive": {
+            "direction": direction,
+            "intensity": intensity,
+            "evidence_refs": motive_evidence,
+        },
+        "leverage": leverage_counted,
+        "tactical": {"bonus": bonus, "penalty": penalty},
+        "requirements": requirements,
+        "feasibility": feasibility_override,
+        "feasibility_refs": feasibility_refs,
+        "outcome_ceiling": normalized_ceiling,
+    })
     if (
         isinstance(prior_goal, dict)
-        and prior_goal.get("leverage_ids") == current_leverage_ids
-        and prior_goal.get("motive_key") == [direction, intensity]
-        and prior_goal.get("defense_value") == defense
+        and prior_goal.get("source_digest") == adjudication_source_digest
     ):
         data = dict(prior_goal["adjudication"])
         data["replayed"] = True
+        data["resolution"] = "reuse"
+        data["request_digest"] = _request_digest(args)
         ctx.ledger_record(args.get("decision_id"), "rules.social_adjudicate", data)
         return data, [
             "same goal key with unchanged motive/leverage: replaying the original "
             "adjudication — switching the approach skill name does not reopen the goal"
         ], []
 
-    base = 0 if defense is None else (0 if defense < 50 else (1 if defense < 90 else 2))
-    motive_delta = (
-        intensity if direction == "oppose"
-        else (-1 if direction == "support" and intensity > 0 else 0)
-    )
     leverage_delta = len(leverage_counted)
-    final = base + motive_delta - leverage_delta
-
-    if direction == "oppose" and intensity == 2 and leverage_delta == 0:
-        feasibility = "conditional"
-    elif final > 2:
-        feasibility = "conditional"
-    elif final < 0:
-        feasibility = "automatic"
-    else:
-        feasibility = "roll"
+    try:
+        policy = resolver.social_difficulty(
+            {
+                "approach": approach,
+                "motive_direction": direction,
+                "motive_intensity": intensity,
+                "strategic_count": leverage_delta,
+                "bonus": bonus,
+                "penalty": penalty,
+            },
+            defense,
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    feasibility = feasibility_override or str(policy["feasibility"])
     if feasibility == "conditional" and not requirements:
         warnings.append(
             "feasibility is conditional but no requirements were recorded; attach "
             "unlock conditions so later play has something to pursue"
         )
-    final_difficulty = _DIFFICULTY_LADDER[max(0, min(2, final))]
+    final_difficulty = str(policy["final_difficulty"])
     data = {
-        "schema_version": 1,
+        "schema_version": 2,
         "investigator_id": investigator_id,
         "npc_id": npc_id,
+        "conversation_window_id": conversation_window_id,
+        "commitment_id": commitment_id,
         "approach": approach,
-        "approach_skill": _SOCIAL_APPROACH_SKILLS[approach],
+        "approach_skill": approach_skill,
         "goal_summary": goal_summary,
         "goal_key": goal_key,
         "feasibility": feasibility,
         "defense_value": defense,
         "defense_source": defense_source,
         "defense_key": defense_key,
-        "base_difficulty": _DIFFICULTY_LADDER[base],
-        "motive": {"direction": direction, "intensity": intensity, "evidence": motive_evidence},
-        "motive_delta": motive_delta,
+        "base_difficulty": policy["base_difficulty"],
+        "motive": {
+            "direction": direction,
+            "intensity": intensity,
+            "evidence_refs": motive_evidence,
+            "resolved_evidence": resolved_motive_refs,
+        },
+        "motive_delta": policy["motive_adjustment"],
         "leverage": leverage_counted,
         "leverage_delta": leverage_delta,
         "final_difficulty": final_difficulty,
         "bonus_dice": bonus,
         "penalty_dice": penalty,
         "requirements": requirements,
+        "feasibility_refs": resolved_feasibility_refs,
+        "outcome_ceiling": normalized_ceiling,
+        "source_digest": adjudication_source_digest,
+        "resolution": "new",
         "replayed": False,
+        "request_digest": _request_digest(args),
     }
     resolutions[goal_key] = {
         "adjudication": {key: value for key, value in data.items() if key != "replayed"},
         "leverage_ids": current_leverage_ids,
         "motive_key": [direction, intensity],
         "defense_value": defense,
+        "source_digest": adjudication_source_digest,
         "decision_id": str(args["decision_id"]),
         "ts": _now_iso(),
     }
@@ -9945,7 +10172,7 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     hints: list[str] = []
     if feasibility == "roll":
         hints.append(
-            f"roll {_SOCIAL_APPROACH_SKILLS[approach]} at {final_difficulty} difficulty "
+            f"roll {approach_skill} at {final_difficulty} difficulty "
             f"with difficulty_basis=opponent_skill; bonus={bonus} penalty={penalty}"
         )
     elif feasibility == "automatic":
@@ -9962,53 +10189,126 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     return data, warnings, hints
 
 
-def _npc_state_revision(ctx: Ctx, npc_id: str) -> str:
-    """Content digest of the NPC's live psych entry; any state change opens a new window."""
-    path = ctx.campaign_dir / "save" / "npc-state.json"
-    entry: Any = None
-    if path.is_file():
-        try:
-            state = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            state = {}
-        psych = state.get("psych") if isinstance(state.get("psych"), dict) else {}
-        entry = psych.get(npc_id)
-    if entry is None:
-        return "no-state"
-    return hashlib.sha256(
-        json.dumps(entry, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    ).hexdigest()[:12]
+_PSYCHOLOGY_REVISION_EVENTS = frozenset({
+    "decisive_evidence_presented",
+    "identity_exposed",
+    "threat_state_changed",
+    "hostility_state_changed",
+    "confession_or_betrayal",
+    "left_and_reencountered",
+    "scene_changed",
+})
 
 
 @tool(
     "rules.psychology_observe",
-    "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed.",
+    "Keeper-concealed Psychology observation: settle once per explicit observer/NPC/conversation/revision window, then bind a separate player-safe realization. Ordinary NPC state deltas never reopen the window.",
     {
+        "action": {"type": "string", "enum": ["settle", "realize"], "desc": "settle a concealed insight (default) or bind its player-safe realization"},
         "investigator": {"type": "string", "desc": "investigator id (observer)"},
+        "observer_scope": {"type": "string", "desc": "single investigator id or stable team observation id"},
         "npc_id": {"type": "string", "required": True, "desc": "observed NPC id"},
+        "conversation_window_id": {"type": "string", "required": True, "desc": "stable direct-conversation window id"},
+        "observation_revision": {"type": "integer", "required": True, "desc": "explicit nonnegative semantic observation revision"},
+        "revision_event_ref": {"type": "string", "desc": "required canonical event ref when opening revision > 0"},
         "question": {"type": "string", "required": True, "desc": "the concrete observation question (e.g. 'what is he afraid of?')"},
-        "visible_observation": {"type": "string", "required": True, "desc": "KP-authored player-safe observation text (behavior-level; no roll/outcome meta)"},
+        "observable_fact_refs": {"type": "array", "desc": "player-known canonical behavior/fact refs grounding settlement"},
+        "insight_id": {"type": "string", "desc": "settled insight to realize when action=realize"},
+        "visible_observation": {"type": "string", "desc": "player-safe external observation used only when action=realize"},
         "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("rules.psychology_observe", args.get("decision_id"))
+    prior = _replay_bound_decision(ctx, "rules.psychology_observe", args)
     if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+        return prior, ["duplicate decision_id: returning the previously settled result"], []
     investigator_id = _resolve_investigator(ctx, args)
     npc_id = str(args["npc_id"]).strip()
     question = str(args["question"] or "").strip()
-    visible_observation = str(args["visible_observation"] or "").strip()
-    if not npc_id or not question or not visible_observation:
+    observer_scope = str(args.get("observer_scope") or investigator_id).strip()
+    conversation_window_id = str(args["conversation_window_id"]).strip()
+    revision = args["observation_revision"]
+    if (
+        not npc_id
+        or not question
+        or not observer_scope
+        or not conversation_window_id
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision < 0
+    ):
         raise ToolError(
-            "invalid_param", "npc_id, question, and visible_observation are required"
+            "invalid_param",
+            "npc_id, question, observer_scope, conversation_window_id, and a nonnegative observation_revision are required",
         )
-    scene_id = str(ctx.world().get("active_scene_id") or "")
-    revision = _npc_state_revision(ctx, npc_id)
-    window_key = "\x00".join((investigator_id, npc_id, scene_id, revision))
-    document = _load_json_document(ctx, "psychology-observations.json", 1, "observations")
+    window_key = "\x00".join(
+        (observer_scope, npc_id, conversation_window_id, str(revision))
+    )
+    document = _load_json_document(ctx, "psychology-observations.json", 2, "observations")
     observations = document["observations"]
+    realizations = document.setdefault("realizations", {})
+
+    action = str(args.get("action") or "settle")
+    if action == "realize":
+        insight_id = str(args.get("insight_id") or "").strip()
+        visible_observation = str(args.get("visible_observation") or "").strip()
+        matching = next(
+            (
+                row
+                for row in observations.values()
+                if isinstance(row, dict) and row.get("insight_id") == insight_id
+            ),
+            None,
+        )
+        if not insight_id or not visible_observation or not isinstance(matching, dict):
+            raise ToolError(
+                "invalid_param",
+                "action=realize requires an existing insight_id and non-empty visible_observation",
+            )
+        if (
+            matching.get("conversation_window_id") != conversation_window_id
+            or matching.get("observation_revision") != revision
+        ):
+            raise ToolError("revision_conflict", "realization does not match the settled observation window")
+        existing_realization = realizations.get(insight_id)
+        if isinstance(existing_realization, dict):
+            if existing_realization.get("visible_observation") != visible_observation:
+                raise ToolError("revision_conflict", "insight already has a different player-safe realization")
+            data = deepcopy(existing_realization)
+            data["request_digest"] = _request_digest(args)
+            ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", data)
+            return data, ["player-safe realization already bound; replaying it"], []
+        data = {
+            "resolution": "realized",
+            "insight_id": insight_id,
+            "conversation_window_id": conversation_window_id,
+            "observation_revision": revision,
+            "visible_observation": visible_observation,
+        }
+        realizations[insight_id] = deepcopy(data)
+        _save_json_document(ctx, "psychology-observations.json", document)
+        ledger_data = {**data, "request_digest": _request_digest(args)}
+        ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", ledger_data)
+        return ledger_data, [], ["use only this player-safe realization in narration; concealed settlement fields remain Keeper-only"]
+
+    if str(args.get("visible_observation") or "").strip():
+        raise ToolError(
+            "invalid_param",
+            "settle the concealed roll before supplying player-safe realization prose",
+        )
+
+    observable_fact_refs = [
+        str(value).strip()
+        for value in args.get("observable_fact_refs") or []
+        if str(value).strip()
+    ]
+    if not observable_fact_refs:
+        raise ToolError("invalid_param", "settlement requires observable_fact_refs")
+    resolved_observable_refs = [
+        _resolve_contract_ref(ctx, source_ref, require_player_known=True)
+        for source_ref in observable_fact_refs
+    ]
     existing = observations.get(window_key)
     if isinstance(existing, dict):
         data = {
@@ -10016,15 +10316,61 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
             "insight_id": existing["insight_id"],
             "window_key": window_key,
             "question": existing["question"],
-            "visible_observation": existing["visible_observation"],
+            "conversation_window_id": conversation_window_id,
+            "observation_revision": revision,
+            "request_digest": _request_digest(args),
         }
         ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", data)
         return data, [], [
             "no new observable change: reuse the settled judgment — do not reroll "
             "Psychology on the same window"
         ]
+    matching_revisions = [
+        int(row.get("observation_revision"))
+        for row in observations.values()
+        if isinstance(row, dict)
+        and row.get("observer_scope") == observer_scope
+        and row.get("npc_id") == npc_id
+        and row.get("conversation_window_id") == conversation_window_id
+        and isinstance(row.get("observation_revision"), int)
+    ]
+    if revision > 0:
+        revision_ref = str(args.get("revision_event_ref") or "").strip()
+        if not revision_ref:
+            raise ToolError(
+                "observation_revision_invalid",
+                "observation_revision > 0 requires revision_event_ref",
+            )
+        resolved_revision = _resolve_contract_ref(
+            ctx, revision_ref, require_player_known=False
+        )
+        event = next(
+            row
+            for row in _jsonl_rows(ctx.campaign_dir / "logs" / "events.jsonl")
+            if str(row.get("event_id") or "") == resolved_revision["identifier"]
+        )
+        if str(event.get("event_type") or "") not in _PSYCHOLOGY_REVISION_EVENTS:
+            raise ToolError(
+                "observation_revision_invalid",
+                "revision event is not an allowed semantic observation boundary",
+            )
+        expected_revision = (max(matching_revisions) + 1) if matching_revisions else revision
+        if revision != expected_revision:
+            raise ToolError(
+                "observation_revision_invalid",
+                f"observation_revision must advance exactly to {expected_revision}",
+            )
+    elif matching_revisions:
+        raise ToolError(
+            "observation_revision_invalid",
+            "revision 0 cannot reopen an already revised conversation window",
+        )
     defense = _npc_authored_skill_value(ctx, npc_id, "Psychology")
-    difficulty = "regular" if defense is None or defense < 50 else "hard"
+    difficulty = (
+        "regular" if defense is None or defense < 50
+        else "hard" if defense < 90
+        else "extreme"
+    )
     roll_args: dict[str, Any] = {
         "investigator": investigator_id,
         "skill": "Psychology",
@@ -10043,6 +10389,11 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
     roll_data, _roll_warnings, _roll_hints = _roll_common(
         ctx, roll_args, pushed=False, tool_name="rules.roll"
     )
+    resolver = _rules_resolver(ctx, "psychology_policy")
+    try:
+        policy = resolver.psychology_policy(roll_data, "concrete_observation")
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
     insight_id = (
         f"psych-insight-{hashlib.sha256(window_key.encode('utf-8')).hexdigest()[:12]}"
     )
@@ -10050,12 +10401,16 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
         "insight_id": insight_id,
         "window_key": window_key,
         "investigator_id": investigator_id,
+        "observer_scope": observer_scope,
         "npc_id": npc_id,
-        "scene_id": scene_id,
-        "npc_revision": revision,
+        "conversation_window_id": conversation_window_id,
+        "observation_revision": revision,
         "question": question,
-        "visible_observation": visible_observation,
+        "observable_fact_refs": resolved_observable_refs,
         "roll_id": roll_data["roll_id"],
+        "outcome": roll_data.get("outcome"),
+        "inference_depth": policy["inference_depth"],
+        "misread_policy": policy["misread_policy"],
         "created_at": _now_iso(),
     }
     observations[window_key] = record
@@ -10065,16 +10420,19 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
         "insight_id": insight_id,
         "window_key": window_key,
         "question": question,
-        "visible_observation": visible_observation,
+        "conversation_window_id": conversation_window_id,
+        "observation_revision": revision,
+        "inference_depth": policy["inference_depth"],
+        "misread_policy": policy["misread_policy"],
         "outcome": roll_data.get("outcome"),
         "roll_id": roll_data["roll_id"],
+        "request_digest": _request_digest(args),
     }
     hints = [
         "the roll and outcome are keeper-concealed: the player sees only your "
         "observation prose; on a fumble, give one confident but wrong read instead "
         "of exposing the failure",
-        "this window is locked until the NPC state or scene changes; later requests "
-        "on the same window return the settled judgment without a new roll",
+        "this window is locked until an explicit allowed observation revision event; ordinary NPC state deltas do not reopen it",
     ]
     ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", data)
     return data, [], hints
