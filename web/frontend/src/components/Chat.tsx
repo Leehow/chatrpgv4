@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Markdown } from "./Markdown";
 import { ModelMenu } from "./ModelMenu";
 import { ThinkingMenu } from "./ThinkingMenu";
+import { HandoutCardView } from "./HandoutCard";
 import { toolToStatus, trailToCurrentStatus } from "../toolStatus";
 import type {
   CashChangeDisplay,
@@ -1138,6 +1139,14 @@ const MessageRow = memo(function MessageRow({
           {msg.text}
         </div>
         <MessageMeta msg={msg} />
+      </div>
+    );
+  }
+  if (msg.kind === "handout") {
+    // 原文信息卡：叙述流内嵌的纸张质感卡片，原文逐字直达玩家。
+    return (
+      <div className="flex w-full justify-center py-1">
+        <HandoutCardView card={msg.card} />
       </div>
     );
   }

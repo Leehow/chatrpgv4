@@ -38,6 +38,7 @@ import {
   characterSetupPendingFromOpeningPhase,
   combatInitiativeDisplay,
   cocRoot,
+  deliveredHandoutsDisplay,
   discoveredCluesDisplay,
   enrichTranscriptFromEvents,
   findBundleByPdfSha256,
@@ -47,6 +48,7 @@ import {
   listSourceBundles,
   modelsPayload,
   readJsonFile,
+  resolveHandoutAssetFile,
   resolvePlaySceneId,
   sceneDisplayLabel,
   sha256Bytes,
@@ -326,6 +328,8 @@ async function statePayload(info) {
     state.discovered_clue_ids,
     lang,
   );
+  // 原文信息卡：会话加载/状态拉取时全量已交付卡供「资料」页签。
+  state.materials = deliveredHandoutsDisplay(WORKSPACE, info.campaign_id);
   state.combat = combatInitiativeDisplay(WORKSPACE, info.campaign_id, {
     investigatorId: liveInvestigator,
     investigatorName: state.character?.name ?? null,
@@ -558,6 +562,24 @@ function handleInvestigatorPortrait(req, res, investigatorId, filename) {
   const resolved = resolvePortraitStaticFile(WORKSPACE, investigatorId, filename);
   if (!resolved) {
     sendJson(res, 404, { error: "portrait not found" });
+    return;
+  }
+  const body = fs.readFileSync(resolved.file);
+  res.writeHead(200, {
+    "Content-Type": resolved.mime,
+    "Content-Length": body.length,
+    "Cache-Control": "private, max-age=0, must-revalidate",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(body);
+}
+
+/** Static handout image with delivery gating: the file must be referenced by
+ *  an already-delivered card, otherwise 404 (no existence leak). */
+function handleCampaignHandoutAsset(req, res, campaignId, file) {
+  const resolved = resolveHandoutAssetFile(WORKSPACE, campaignId, file);
+  if (!resolved) {
+    sendJson(res, 404, { error: "handout asset not found" });
     return;
   }
   const body = fs.readFileSync(resolved.file);
@@ -979,6 +1001,17 @@ async function handleCreateSession(req, res) {
     investigator_id: investigatorId,
   };
   SESSIONS.set(sessionId, info);
+  // Session load: re-arm the per-campaign pushed set so the next SSE stream
+  // re-flushes any card delivered after this response, and return every
+  // already-delivered card inline so the browser restores the narration
+  // inline cards immediately (no turn needed).
+  resetPushedHandouts(campaignId);
+  let handouts;
+  try {
+    handouts = deliveredHandoutsDisplay(WORKSPACE, campaignId);
+  } catch {
+    handouts = [];
+  }
   const opening = sessionOpeningFlags({
     spawned,
     phase: openingPhase?.phase ?? null,
@@ -991,6 +1024,7 @@ async function handleCreateSession(req, res) {
     host_opening: opening.host_opening,
     campaign_id: campaignId,
     investigator_id: investigatorId,
+    handouts,
     state: await statePayload(info),
   });
 }
@@ -1033,6 +1067,40 @@ async function handleTranscript(req, res, sid) {
 
 function sseWrite(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+/** Handout cards already pushed to the browser, per campaign (server
+ *  process scope). Diffed against the campaign projection so newly
+ *  delivered cards — including ones delivered while this browser was
+ *  closed — stream as `handout` events exactly once per session load. */
+const pushedHandouts = new Map();
+
+/** Reset a campaign's pushed set: a fresh browser session load re-flushes
+ *  every delivered card on the next stream, so a restored browser regains
+ *  the inline narration cards (the panel gets them from state.materials).
+ *  The frontend dedupes by asset_id, so a concurrent re-flush is harmless. */
+function resetPushedHandouts(campaignId) {
+  pushedHandouts.delete(campaignId);
+}
+
+function handoutSseDiff(campaignId, write) {
+  let delivered;
+  try {
+    delivered = deliveredHandoutsDisplay(WORKSPACE, campaignId);
+  } catch {
+    return;
+  }
+  let seen = pushedHandouts.get(campaignId);
+  if (!seen) {
+    seen = new Set();
+    pushedHandouts.set(campaignId, seen);
+  }
+  for (const card of delivered) {
+    if (seen.has(card.asset_id)) continue;
+    // Mark as pushed only after the frame was actually written — a dropped
+    // client (safeWrite false) must get the card again on its next stream.
+    if (write("handout", card)) seen.add(card.asset_id);
+  }
 }
 
 async function handleTurn(req, res, sid) {
@@ -1097,6 +1165,8 @@ async function handleTurn(req, res, sid) {
     } catch (err) {
       state = { error: `${err?.constructor?.name || "Error"}: ${err?.message || err}` };
     }
+    // 原文卡交付事件：turn 结束时对已推送集合求差分注入。
+    handoutSseDiff(info.campaign_id, safeWrite);
     const usage = activeHost.lastUsage;
     safeWrite("turn", {
       events: [],
@@ -2010,6 +2080,14 @@ async function route(req, res) {
       parts[3] === "portraits"
     ) {
       return handleInvestigatorPortrait(req, res, parts[2], parts[4]);
+    }
+    if (
+      parts.length >= 5 &&
+      parts[0] === "api" &&
+      parts[1] === "campaigns" &&
+      parts[3] === "handout-assets"
+    ) {
+      return handleCampaignHandoutAsset(req, res, parts[2], parts.slice(4).join("/"));
     }
     if (urlPath.startsWith("/api/")) throw httpError(404, "not found");
     return serveStatic(req, res, urlPath);

@@ -93,3 +93,55 @@ test("generatePortrait posts campaign and investigator ids without a client prom
     globalThis.fetch = originalFetch;
   }
 });
+
+test("streamTurn parses handout SSE events into sanitized player-safe cards", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const enc = new TextEncoder();
+        controller.enqueue(enc.encode(sseFrame("handout", {
+          asset_id: "doc-letter",
+          kind: "document",
+          title: "芝加哥来信",
+          text: "逐字原文…",
+          image_url: "/api/campaigns/camp-1/handout-assets/assets/handouts/letter.png",
+          source_pages: ["pdf_index-16"],
+        })));
+        controller.enqueue(enc.encode(sseFrame("handout", {
+          asset_id: "map-1",
+          kind: "map",
+          title: "农舍地图",
+          image_url: null,
+          source_pages: [],
+        })));
+        controller.enqueue(enc.encode(sseFrame("handout", {
+          asset_id: "weird-1",
+          kind: "hologram",
+          title: "未知类型卡",
+        })));
+        controller.enqueue(enc.encode(sseFrame("end", {})));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200 });
+  };
+  try {
+    const cards = [];
+    await streamTurn("sid", "", "p", "m", "off", undefined, {
+      onHandout: (card) => cards.push(card),
+    }, undefined, { attach: true });
+    assert.equal(cards.length, 3);
+    assert.equal(cards[0].asset_id, "doc-letter");
+    assert.equal(cards[0].kind, "document");
+    assert.equal(cards[0].text, "逐字原文…");
+    assert.deepEqual(cards[0].source_pages, ["pdf_index-16"]);
+    assert.equal(cards[1].image_url, null);
+    assert.deepEqual(cards[1].source_pages, []);
+    // 边界解析把未知 kind 归一为严格枚举 document。
+    assert.equal(cards[2].kind, "document");
+    assert.deepEqual(cards[2].source_pages, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

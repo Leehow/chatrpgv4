@@ -41,6 +41,7 @@ import type {
   BootstrapResult,
   ChatMessage,
   GameState,
+  HandoutCard,
   ModelsResponse,
   PlayerIntent,
   SessionInfo,
@@ -81,6 +82,21 @@ function playerMessage(text: string, at: number = Date.now()): ChatMessage {
   return { kind: "player", text, at };
 }
 
+/** 新交付的原文卡内嵌进叙述流（按 asset_id 去重：服务器重启后的
+ *  会话加载重放不会重复渲染同一张卡）。 */
+function appendHandoutMessage(
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+  card: HandoutCard,
+) {
+  if (!card.asset_id) return;
+  setMessages((prev) => {
+    if (prev.some((m) => m.kind === "handout" && m.card.asset_id === card.asset_id)) {
+      return prev;
+    }
+    return [...prev, { kind: "handout" as const, card, at: Date.now() }];
+  });
+}
+
 function transcriptMessages(messages: TranscriptMessage[]): ChatMessage[] {
   return messages.map((message) =>
     message.role === "player"
@@ -98,11 +114,10 @@ function transcriptMessages(messages: TranscriptMessage[]): ChatMessage[] {
 
 function sameTranscriptMessage(left: ChatMessage, right: ChatMessage): boolean {
   const normalizedText = (value: string) => value.replace(/\r\n/g, "\n").trim();
-  return (
-    left.kind === right.kind &&
-    (left.kind === "player" || left.kind === "keeper") &&
-    normalizedText(left.text) === normalizedText(right.text)
-  );
+  if (left.kind !== "player" && left.kind !== "keeper") return false;
+  if (right.kind !== "player" && right.kind !== "keeper") return false;
+  if (left.kind !== right.kind) return false;
+  return normalizedText(left.text) === normalizedText(right.text);
 }
 
 /** pi-coc conversation lives on the host session; campaign table-transcript
@@ -650,6 +665,12 @@ export default function App() {
         } catch {
           replaceMessagesFromTranscript(setMessages, [], sameCampaign);
         }
+        // Restore already-delivered handout cards into the narration flow
+        // right at session load (dedup by asset_id inside).
+        for (const card of info.handouts ?? []) {
+          if (openGen !== openGenRef.current) return null;
+          appendHandoutMessage(setMessages, card);
+        }
         // Every newly spawned pi-coc host must be attached until its startup
         // resume/setup chain genuinely settles. Historical transcript text is
         // display hydration only; it is not evidence that this new RPC child
@@ -781,6 +802,10 @@ export default function App() {
               });
               setError(friendlyError(message));
             },
+            onHandout: (card) => {
+              if (openGen !== openGenRef.current) return;
+              appendHandoutMessage(setMessages, card);
+            },
             onNotice: (message) => {
               if (openGen !== openGenRef.current) return;
               if (!message) return;
@@ -820,7 +845,7 @@ export default function App() {
         });
         if (stopped) {
           setMessages((prev) => [
-            ...prev.filter((row) => row.text !== "正在打开 pi-coc 桌面……"),
+            ...prev.filter((row) => row.kind !== "note" || row.text !== "正在打开 pi-coc 桌面……"),
             {
               kind: "note",
               text: "已停止本回合。",
@@ -848,8 +873,9 @@ export default function App() {
         }
         setMessages((prev) => {
           const withoutOpeningChrome = prev.filter((row) =>
-            row.text !== "正在打开建卡引导……"
-            && row.text !== "正在打开 pi-coc 桌面……"
+            row.kind !== "note"
+            || (row.text !== "正在打开建卡引导……"
+              && row.text !== "正在打开 pi-coc 桌面……")
           );
           // attachOpening may replay the already-hydrated last assistant
           // response when a restored host has no new visible startup text.
@@ -1235,6 +1261,9 @@ export default function App() {
           setToolSteps([]);
           setLiveUsage(null);
           liveUsageRef.current = null;
+        },
+        onHandout: (card) => {
+          appendHandoutMessage(setMessages, card);
         },
         onNotice: (message) => {
           if (!message) return;

@@ -3,6 +3,7 @@
 // same files as `node --test test/*.test.mjs`.
 import "./agent-dir.test.mjs";
 import "./character-setup-briefing.test.mjs";
+import "./handout-projections.test.mjs";
 import "./model-editor.test.mjs";
 import "./model-thinking.test.mjs";
 import "./ocr-secrets.test.mjs";

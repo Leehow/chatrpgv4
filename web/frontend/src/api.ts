@@ -1,6 +1,8 @@
 import type {
   BootstrapResponse,
   GameState,
+  HandoutCard,
+  HandoutKind,
   ModelsResponse,
   RuntimeEvent,
   SessionInfo,
@@ -8,6 +10,11 @@ import type {
   TranscriptMessage,
   PlayerIntent,
 } from "./types";
+
+/** 服务器/事件载荷中的 kind 值归一为严格枚举；未知值回退 document。 */
+function normalizeHandoutKind(value: unknown): HandoutKind {
+  return value === "read_aloud" || value === "map" ? value : "document";
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(path, init);
@@ -494,6 +501,8 @@ export interface TurnHandlers {
     message?: TranscriptMessage;
   }) => void;
   onError?: (message: string) => void;
+  /** 新交付的原文卡（turn 结束时对 campaign 投影求差后注入）。 */
+  onHandout?: (card: HandoutCard) => void;
   /** Advisory transparency notice (e.g. a turn settled with no visible text). */
   onNotice?: (message: string) => void;
   /** Setup→play host handoff (customType coc_setup_handoff). */
@@ -611,6 +620,18 @@ export async function streamTurn(
         );
       } else if (event === "error") {
         handlers.onError?.(String(data.message ?? "未知错误"));
+      } else if (event === "handout") {
+        handlers.onHandout?.({
+          asset_id: String(data.asset_id ?? ""),
+          kind: normalizeHandoutKind(data.kind),
+          title: String(data.title ?? ""),
+          text: data.text == null ? null : String(data.text),
+          summary: data.summary == null ? null : String(data.summary),
+          image_url: typeof data.image_url === "string" && data.image_url ? data.image_url : null,
+          source_pages: Array.isArray(data.source_pages)
+            ? data.source_pages.map(String)
+            : [],
+        });
       } else if (event === "notice") {
         handlers.onNotice?.(String(data.message ?? ""));
       } else if (event === "coc_setup_handoff" || data.type === "coc_setup_handoff") {

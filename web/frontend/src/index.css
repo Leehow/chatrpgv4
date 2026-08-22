@@ -338,6 +338,26 @@
   line-height: 1;
 }
 
+/* 原文信息卡：黄铜包边的旧纸质感，浅色/深色主题共用。 */
+.handout-card {
+  border: 1px solid color-mix(in oklab, var(--brass) 48%, var(--border));
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='h'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23h)' opacity='0.05'/%3E%3C/svg%3E"),
+    linear-gradient(
+      158deg,
+      color-mix(in oklab, var(--card) 92%, var(--brass) 9%),
+      color-mix(in oklab, var(--card) 97%, var(--brass) 4%) 55%,
+      color-mix(in oklab, var(--card) 94%, var(--brass) 7%)
+    );
+  box-shadow:
+    0 1px 2px rgb(var(--paper-ink) / 0.05),
+    0 10px 26px rgb(var(--paper-ink) / 0.05);
+}
+
+.handout-card .handout-body {
+  text-wrap: pretty;
+}
+
 .dice-receipt {
   display: flex;
   align-items: center;
