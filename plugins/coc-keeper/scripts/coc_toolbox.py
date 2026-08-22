@@ -2109,6 +2109,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                         )
             pending_turn_manifest = None
             pending_exact_replay = None
+            prior_idempotency_entry = None
             context_rehydration_advisory = None
             if spec["needs_campaign"] and ctx.campaign_dir is not None:
                 host_marker = coc_host_context.current_marker(ctx.root)
@@ -2137,7 +2138,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     # Check the durable decision disposition before any
                     # handler-specific receipt replay can resurrect a branch
                     # whose state was removed by session.resume.
-                    ctx.ledger_lookup(name, str(args["decision_id"]))
+                    prior_idempotency_entry = ctx.ledger_lookup(
+                        name, str(args["decision_id"])
+                    )
             if (
                 pending_turn_manifest is not None
                 and spec.get("access", "mutation") != "query"
@@ -2309,7 +2312,17 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             }
             if cache_metadata is not None:
                 envelope["cache"] = cache_metadata
-            if pending_exact_replay is not None:
+            # Successful state handlers return their frozen prior data on an
+            # exact decision replay. Compare that structured result with the
+            # durable ledger entry so the call row carries an explicit marker;
+            # warning text is never used as replay authority.
+            exact_prior_state_replay = (
+                name.startswith("state.")
+                and prior_idempotency_entry is not None
+                and isinstance(data, dict)
+                and data == prior_idempotency_entry.get("data")
+            )
+            if pending_exact_replay is not None or exact_prior_state_replay:
                 envelope["idempotent_replay"] = True
             if context_rehydration_advisory is not None:
                 envelope.setdefault("warnings", []).append(
@@ -23517,7 +23530,6 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "draft_sha256": _canonical_digest(draft),
         "request_digest": request_digest,
         "findings": findings,
-        "recommendation": "consider_revision" if findings else "no_revision_suggested",
         "agency_gate": (
             (
                 "rewrite_required"
@@ -23529,6 +23541,12 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "state_authority_review": state_authority_review,
         "state_authority_gate": state_authority_gate,
     }
+    if _review_requires_rewrite(data):
+        data["recommendation"] = "revision_required"
+    elif findings:
+        data["recommendation"] = "consider_revision"
+    else:
+        data["recommendation"] = "no_revision_suggested"
     data["review_digest"] = _canonical_digest(data)
     ctx.ledger_record(args["decision_id"], "narration.review", data)
     coc_state.append_jsonl(

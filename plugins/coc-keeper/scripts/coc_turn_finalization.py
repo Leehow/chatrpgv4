@@ -2440,6 +2440,12 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     except coc_turn_manifest.TurnManifestError as exc:
         raise TurnContractError(exc.code, str(exc)) from exc
     finalizations = load_finalizations(campaign_dir)
+    # Durable exact-replay rows remain audit evidence in the source window but
+    # are not a new settlement. Exclude them before every mechanics projection.
+    window = [
+        call for call in window
+        if call.get("idempotent_replay") is not True
+    ]
     start = int(manifest["source_start_index"])
     end = int(manifest["journal_call_index"])
     hidden_roll_ids = _superseded_roll_ids(campaign_dir)

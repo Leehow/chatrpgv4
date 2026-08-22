@@ -2040,6 +2040,18 @@ def test_pi_play_host_prompt_keeps_prejournal_player_state_authority():
         assert phrase in prompt, phrase
 
 
+def test_active_pi_skill_states_state_authority_attestation_limit():
+    skill = " ".join(
+        _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").split()
+    )
+    for phrase in (
+        "semantic attestation, not proof of absence",
+        "fresh Pi/Grok browser replay remains mandatory acceptance evidence",
+        "no keyword gate or second model",
+    ):
+        assert phrase in skill, phrase
+
+
 def test_required_canonical_skills_are_present():
     names = {
         path.name

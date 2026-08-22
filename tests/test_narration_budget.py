@@ -546,6 +546,7 @@ def test_pi_state_authority_blocks_captured_cash_and_key_without_receipts(
     assert review["ok"] is True, review
     assert review["data"]["state_authority_hard_gate"] is True
     assert review["data"]["state_authority_gate"] == "rewrite_required"
+    assert review["data"]["recommendation"] == "revision_required"
 
     blocked = _finalize_agency_turn(
         campaign_ws,
@@ -651,6 +652,143 @@ def test_pi_state_authority_accepts_grounded_cash_and_item_claims(
     assert finalized["ok"] is True, finalized
     assert finalized["data"]["rendered_text"].count("委托预付定金") == 1
     assert finalized["data"]["rendered_text"].count("黄铜钥匙") == 2
+
+
+@pytest.mark.parametrize("effect_kind", ["cash", "item"])
+def test_pi_state_authority_excludes_prior_state_replay_from_next_turn(
+    campaign_ws, monkeypatch, effect_kind
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    if effect_kind == "cash":
+        tool = "state.cash_grant"
+        mutation = {
+            "investigator": investigator,
+            "amount": 5,
+            "currency": "USD",
+            "source": "npc-thomas-notte",
+            "reason": "two-turn replay fixture",
+            "localized_reason": "首轮预付",
+            "decision_id": "grant-once-cash",
+        }
+        first_draft = "诺特把五美元交到你手里。"
+        first_excerpt = "五美元交到你手里"
+    else:
+        tool = "state.item_grant"
+        mutation = {
+            "investigator": investigator,
+            "kind": "gear",
+            "label": "黄铜钥匙",
+            "item_id": "two-turn-replay-key",
+            "note": "two-turn replay fixture",
+            "decision_id": "grant-once-item",
+        }
+        first_draft = "诺特把黄铜钥匙交到你手里。"
+        first_excerpt = "黄铜钥匙交到你手里"
+
+    granted = _run(campaign_ws, tool, mutation)
+    assert granted["ok"] is True, granted
+    first_context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过这次交付。",
+        decision_id=f"journal-replay-first-{effect_kind}",
+    )
+    first_effect = next(
+        row for row in first_context["mechanics_bundle"]["state_delta"]
+        if row["effect_kind"] == effect_kind
+    )
+    first_review = _agency_review(
+        campaign_ws,
+        first_context,
+        draft=first_draft,
+        revision=1,
+        decision_id=f"review-replay-first-{effect_kind}",
+        state_authority_review={
+            "disposition": "claims_listed",
+            "reason": "首轮草稿声称调查员取得权威状态中的交付物。",
+            "claims": [{
+                "claim_id": f"claim-replay-first-{effect_kind}",
+                "subject_ref": f"pc:{investigator}",
+                "claim_kind": effect_kind,
+                "exact_excerpt": first_excerpt,
+                "source_effect_id": first_effect["effect_id"],
+                "reason": "绑定首轮真实状态写入。",
+            }],
+        },
+    )
+    assert first_review["ok"] is True, first_review
+    first_finalized = _finalize_agency_turn(
+        campaign_ws,
+        draft=first_draft,
+        revision=1,
+        review_id=first_review["data"]["review_id"],
+        decision_id=f"finalize-replay-first-{effect_kind}",
+        mechanics_placements=None,
+    )
+    assert first_finalized["ok"] is True, first_finalized
+
+    replayed = _run(campaign_ws, tool, mutation)
+    assert replayed["ok"] is True, replayed
+    assert replayed["idempotent_replay"] is True
+    replay_rows = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+        )
+        if row.get("tool") == tool
+        and (row.get("args") or {}).get("decision_id") == mutation["decision_id"]
+    ]
+    assert len(replay_rows) == 2
+    assert replay_rows[-1]["idempotent_replay"] is True
+
+    second_context = _open_agency_turn(
+        campaign_ws,
+        player_text="我继续等候。",
+        decision_id=f"journal-replay-second-{effect_kind}",
+    )
+    assert second_context["mechanics_bundle"]["state_delta"] == []
+    stale_claim = _agency_review(
+        campaign_ws,
+        second_context,
+        draft=first_draft,
+        revision=1,
+        decision_id=f"review-replay-stale-{effect_kind}",
+        state_authority_review={
+            "disposition": "claims_listed",
+            "reason": "尝试把首轮效果错误地绑定到第二轮草稿。",
+            "claims": [{
+                "claim_id": f"claim-replay-stale-{effect_kind}",
+                "subject_ref": f"pc:{investigator}",
+                "claim_kind": effect_kind,
+                "exact_excerpt": first_excerpt,
+                "source_effect_id": first_effect["effect_id"],
+                "reason": "这个效果只属于首轮。",
+            }],
+        },
+    )
+    assert stale_claim["ok"] is False
+    assert stale_claim["error"]["code"] == "state_authority_source_unknown"
+
+    clean_draft = "诺特仍坐在桌后，没有作出新的交付。"
+    clean_review = _agency_review(
+        campaign_ws,
+        second_context,
+        draft=clean_draft,
+        revision=1,
+        decision_id=f"review-replay-clean-{effect_kind}",
+    )
+    assert clean_review["ok"] is True, clean_review
+    second_finalized = _finalize_agency_turn(
+        campaign_ws,
+        draft=clean_draft,
+        revision=1,
+        review_id=clean_review["data"]["review_id"],
+        decision_id=f"finalize-replay-second-{effect_kind}",
+    )
+    assert second_finalized["ok"] is True, second_finalized
+    assert len(_read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "turn-finalizations.jsonl"
+    )) == 2
 
 
 @pytest.mark.parametrize(
