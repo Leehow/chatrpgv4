@@ -1002,6 +1002,25 @@ def campaigns_using_asset(workspace: Path, asset_root_id: str) -> list[str]:
     return found
 
 
+def play_languages_using_asset(workspace: Path, asset_root_id: str) -> list[str]:
+    """Active table languages that source work must localize player text for."""
+    languages: set[str] = set()
+    campaigns_root = coc_state.coc_root(Path(workspace).resolve()) / "campaigns"
+    for campaign_id in campaigns_using_asset(workspace, asset_root_id):
+        path = campaigns_root / campaign_id / "campaign.json"
+        try:
+            campaign = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        language = (
+            str(campaign.get("play_language") or "").strip()
+            if isinstance(campaign, dict)
+            else ""
+        )
+        languages.add(language or "zh-Hans")
+    return sorted(languages)
+
+
 def requeue_stale_in_flight(
     workspace: Path,
     asset_root_id: str,
@@ -1437,6 +1456,7 @@ def _write_host_work_request(
     if not source:
         source = identity_source
     entity_kind = coc_module_assets._job_entity_kind(str(job.get("kind") or ""))
+    play_languages = play_languages_using_asset(workspace, asset_root_id)
     target_id = str(job.get("target_id") or "")
     job_kind = str(job.get("kind") or "")
     if job_kind in {"partial_opening", "locate_mechanics_index"}:
@@ -1674,6 +1694,7 @@ def _write_host_work_request(
             and job.get("consumer_refs")
             else "legacy_unowned"
         ),
+        "play_languages": play_languages,
         "instruction": (
             "Source scope is unknown. Do not open or scan the PDF and do not "
             "scan unrelated cached pages. Leave this request unresolved until "
@@ -1843,7 +1864,11 @@ def _write_host_work_request(
             "evidence_gap=false, source_page_indices, and host_timing; the "
             "fulfillment operation binds the request transiently, and later "
             "questions must query that pack rather than reopen the same PDF "
-            "scope. Do not invent handout/secret bodies without page evidence."
+            "scope. Do not invent handout/secret bodies without page evidence. "
+            "For every source-backed read_aloud, preserve source title/text in "
+            "title/text and provide full localized_title/localized_text locale "
+            "maps for every play_languages entry; never substitute source prose "
+            "for a missing table-language value."
         ),
     }
     if payload["consumer_refs"] is None:

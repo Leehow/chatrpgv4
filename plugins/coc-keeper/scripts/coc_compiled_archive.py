@@ -81,6 +81,30 @@ class CompiledArchiveError(ValueError):
         self.code = code
 
 
+def pending_read_aloud_metadata(
+    scene_id: str,
+    scene_title: Any,
+    rows: Any,
+) -> list[dict[str, Any]]:
+    """Pure Keeper-only metadata projection; never includes passage bodies."""
+    projected: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        row_id = str(row.get("id") or "").strip()
+        if not row_id:
+            continue
+        projected.append({
+            "asset_id": f"read-aloud:{scene_id}:{row_id}",
+            "kind": "read_aloud",
+            "title": row.get("title") or scene_title or row_id,
+            "trigger": row.get("trigger"),
+            "condition": row.get("condition"),
+            "source_refs": deepcopy(row.get("source_refs") or []),
+        })
+    return projected
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -622,25 +646,11 @@ def build_documents(
                 "san_triggers": deepcopy(on_enter.get("san_triggers") or []),
                 "affordance_operations": keeper_ops,
                 "secret_ref_ids": secret_ids,
-                "pending_handout_cards": [
-                    {
-                        "asset_id": (
-                            f"read-aloud:{sid}:"
-                            f"{str(row.get('id') or '').strip()}"
-                        ),
-                        "kind": "read_aloud",
-                        "title": (
-                            row.get("title")
-                            or scene.get("display_name")
-                            or str(row.get("id") or "")
-                        ),
-                        "trigger": row.get("trigger"),
-                        "condition": row.get("condition"),
-                        "source_refs": deepcopy(row.get("source_refs") or []),
-                    }
-                    for row in (scene.get("read_aloud") or [])
-                    if isinstance(row, dict) and str(row.get("id") or "").strip()
-                ],
+                "pending_handout_cards": pending_read_aloud_metadata(
+                    sid,
+                    scene.get("display_name"),
+                    scene.get("read_aloud") or [],
+                ),
                 # Source mentions remain Keeper context only. They do not
                 # assert live presence, discovery, or player knowledge.
                 "source_context_mentions": deepcopy(

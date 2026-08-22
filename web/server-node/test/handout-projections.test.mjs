@@ -230,8 +230,9 @@ test("loadHandoutCards merges the three stores with entity > scenario > index pr
     asset_id: "entity-only",
     kind: "read_aloud",
     title: "朗读框",
-    text: null,
-    localized_text: null,
+    text: "Source read-aloud body.",
+    localized_title: { "zh-Hans": "朗读框" },
+    localized_text: { "zh-Hans": "朗读框正文。" },
     source_refs: ["pdf_index-5"],
   }));
 
@@ -280,6 +281,11 @@ test("all card stores reject the same malformed visibility, body, and asset shap
       localized_text: { "zh-Hans": ["must stay secret"] },
     },
     {
+      asset_id: "bad-localized-language",
+      kind: "document",
+      localized_text: { "": "must stay secret" },
+    },
+    {
       asset_id: "bad-body",
       kind: "document",
       text: { body: "must stay secret" },
@@ -298,8 +304,8 @@ test("all card stores reject the same malformed visibility, body, and asset shap
     },
   ];
   const delivered = [
-    "bad-visible", "bad-localized", "bad-body", "bad-asset", "17",
-    ...malformed.slice(0, 4).map((card) => `entity-${card.asset_id}`),
+    "bad-visible", "bad-localized", "bad-localized-language", "bad-body", "bad-asset", "17",
+    ...malformed.slice(0, 5).map((card) => `entity-${card.asset_id}`),
     "entity-bad-id",
   ];
   const campaignDir = seedCampaign(ws, {
@@ -307,7 +313,7 @@ test("all card stores reject the same malformed visibility, body, and asset shap
     assets: malformed,
     scenarioHandouts: { schema_version: 1, handouts: malformed },
   });
-  for (const card of malformed.slice(0, 4)) {
+  for (const card of malformed.slice(0, 5)) {
     const id = `entity-${card.asset_id}`;
     putEntity(ws, "root-1", handoutPack({
       ...card,
@@ -568,7 +574,9 @@ test("presentation projection keeps stable material identity and advances event 
       asset_id: "doc-1",
       kind: "read_aloud",
       title: "门后的声音",
-      localized_text: "门轴发出低沉的呻吟。",
+      text: "The hinges groan.",
+      localized_title: { "zh-Hans": "门后的声音" },
+      localized_text: { "zh-Hans": "门轴发出低沉的呻吟。" },
       source_refs: ["pdf_index-9"],
       player_visible: true,
     }],
@@ -582,6 +590,51 @@ test("presentation projection keeps stable material identity and advances event 
     ...materials[0],
     presentation_id: "doc-1:presentation:2",
     presentation_revision: 2,
+  }]);
+});
+
+test("read-aloud projection uses only the exact campaign play language", () => {
+  const ws = makeWorkspace();
+  const campaignDir = seedCampaign(ws, {
+    delivered: ["read-ja", "read-missing-ja"],
+    playLanguage: "ja-JP",
+  });
+  writeJson(path.join(campaignDir, "scenario", "handouts.json"), {
+    schema_version: 1,
+    handouts: [
+      {
+        asset_id: "read-ja",
+        kind: "read_aloud",
+        title: "At the door",
+        text: "The hinges groan in the dark.",
+        localized_title: { "ja-JP": "扉の前" },
+        localized_text: { "ja-JP": "暗闇で蝶番が低くきしむ。" },
+        source_refs: ["pdf_index-9"],
+        player_visible: true,
+      },
+      {
+        asset_id: "read-missing-ja",
+        kind: "read_aloud",
+        title: "Source title must not leak",
+        text: "Source body must not leak",
+        localized_title: { "zh-Hans": "门前" },
+        localized_text: { "zh-Hans": "黑暗中门轴低鸣。" },
+        source_refs: ["pdf_index-10"],
+        player_visible: true,
+      },
+    ],
+  });
+
+  assert.deepEqual(deliveredHandoutsDisplay(ws, "camp-1"), [{
+    asset_id: "read-ja",
+    kind: "read_aloud",
+    content_origin: "source_verbatim",
+    title: "扉の前",
+    text: "暗闇で蝶番が低くきしむ。",
+    source_pages: ["pdf_index-9"],
+    kind_label: "読み上げ",
+    card_label: "原文資料",
+    source_label: "出典ページ",
   }]);
 });
 

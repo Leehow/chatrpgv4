@@ -862,12 +862,20 @@ export function handoutCardContractErrors(entry, { prefix = "handout" } = {}) {
       && Object.entries(value).every(([language, localized]) =>
         Boolean(language.trim()) && typeof localized === "string" && Boolean(localized.trim())
       );
-    if (!(typeof value === "string" || validMap)) {
+    if (typeof value === "string" && !value.trim()) {
+      out.push(`${prefix}.${field} must not be blank`);
+    } else if (!(typeof value === "string" || validMap)) {
       out.push(`${prefix}.${field} must be a string or play_language map`);
     }
     if (validMap && entry?.localized_language != null) {
       out.push(`${prefix}.localized_language must be absent with ${field} map`);
     }
+  }
+  if (
+    entry?.localized_language != null
+    && (typeof entry.localized_language !== "string" || !entry.localized_language.trim())
+  ) {
+    out.push(`${prefix}.localized_language must be a non-empty string`);
   }
   const text = entry?.text;
   const sourceRefs = entry?.source_refs;
@@ -1030,6 +1038,19 @@ function handoutPlayLanguage(workspace, campaignId) {
   return handoutString(campaign?.play_language) || "zh-Hans";
 }
 
+function handoutLocaleValue(entry, field, playLanguage) {
+  const value = entry?.[field];
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return handoutString(value[playLanguage]);
+  }
+  if (typeof value === "string") {
+    const tagged = handoutString(entry?.localized_language);
+    if (tagged) return tagged === playLanguage ? handoutString(value) : null;
+    if (entry?.kind !== "read_aloud") return handoutString(value);
+  }
+  return null;
+}
+
 function localizedHandoutValue(entry, field, playLanguage) {
   const rawLocalized = entry?.[`localized_${field}`];
   if (rawLocalized && typeof rawLocalized === "object" && !Array.isArray(rawLocalized)) {
@@ -1068,6 +1089,13 @@ function handoutLabels(kind, contentOrigin, playLanguage) {
   };
 }
 
+function handoutDisplayText(entry, playLanguage) {
+  // Player projection prefers the localized full translation, then the
+  // verbatim source text. Undelivered bodies never reach here at all.
+  return handoutLocaleValue(entry, "localized_text", playLanguage)
+    || (entry?.kind === "read_aloud" ? null : handoutString(entry?.text));
+}
+
 /** Player-safe card projection for SSE / state.materials. */
 export function playerHandoutCard(workspace, campaignId, entry) {
   if (!entry || typeof entry !== "object") return null;
@@ -1080,17 +1108,26 @@ export function playerHandoutCard(workspace, campaignId, entry) {
     ? entry.content_origin
     : "source_verbatim";
   const playLanguage = handoutPlayLanguage(workspace, campaignId);
+  const localizedTitle = handoutLocaleValue(
+    entry, "localized_title", playLanguage,
+  );
+  const displayText = handoutDisplayText(entry, playLanguage);
+  if (normalizedKind === "read_aloud" && (!localizedTitle || !displayText)) {
+    return null;
+  }
   const imageRef = handoutString(entry.image_ref);
   const card = {
     asset_id: assetId,
     kind: normalizedKind,
     content_origin: contentOrigin,
-    title: localizedHandoutValue(entry, "title", playLanguage) || assetId,
-    text: (
-      localizedHandoutValue(entry, "text", playLanguage)
-      || handoutString(entry.authored_text)
-      || null
-    ),
+    title: normalizedKind === "read_aloud"
+      ? localizedTitle
+      : localizedHandoutValue(entry, "title", playLanguage) || assetId,
+    text: normalizedKind === "read_aloud"
+      ? displayText
+      : localizedHandoutValue(entry, "text", playLanguage)
+        || handoutString(entry.authored_text)
+        || null,
     source_pages: contentOrigin === "source_verbatim"
       ? handoutStringList(entry.source_refs)
       : [],

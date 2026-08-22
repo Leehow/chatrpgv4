@@ -170,7 +170,9 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
                 for language, localized in value.items()
             )
         )
-        if not (isinstance(value, str) or valid_map):
+        if isinstance(value, str) and not value.strip():
+            errors.append(f"{prefix}.{field} must not be blank")
+        elif not (isinstance(value, str) or valid_map):
             errors.append(
                 f"{prefix}.{field} must be a string or a non-empty "
                 "play_language-to-string map when present"
@@ -180,6 +182,11 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
                 f"{prefix}.localized_language must be absent when {field} "
                 "uses a language map"
             )
+    localized_language = entry.get("localized_language")
+    if localized_language is not None and (
+        not isinstance(localized_language, str) or not localized_language.strip()
+    ):
+        errors.append(f"{prefix}.localized_language must be a non-empty string")
     text = entry.get("text")
     source_refs = entry.get("source_refs")
     if source_refs is not None:

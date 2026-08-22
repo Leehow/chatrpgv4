@@ -18,6 +18,7 @@ keyword matching occurs here; card identity and visibility are structured.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -89,14 +90,21 @@ class Replay:
     asset_id: str
     card: dict[str, Any]
     presentation: dict[str, Any]
+    request_assertion: dict[str, Any]
+    already_consumed: bool = False
 
 
 class HandoutCatalog:
     """Validated campaign card catalog with projection and delivery policy."""
 
-    def __init__(self, cards: dict[str, dict[str, Any]]):
+    def __init__(
+        self,
+        cards: dict[str, dict[str, Any]],
+        *,
+        play_language: str = "zh-Hans",
+    ):
         self._cards = cards
-        self._play_language = "zh-Hans"
+        self._play_language = play_language
 
     @classmethod
     def load(cls, ctx: Any) -> HandoutCatalog:
@@ -104,6 +112,18 @@ class HandoutCatalog:
         cards: dict[str, dict[str, Any]] = {}
         if ctx.campaign_dir is None:
             return cls(cards)
+        play_language = "zh-Hans"
+        campaign_path = ctx.campaign_dir / "campaign.json"
+        try:
+            campaign = json.loads(
+                campaign_path.read_text(encoding="utf-8")
+            )
+            if isinstance(campaign, dict) and isinstance(
+                campaign.get("play_language"), str
+            ) and campaign["play_language"].strip():
+                play_language = campaign["play_language"].strip()
+        except (OSError, ValueError):
+            pass
 
         cards.update(coc_scenario.load_handout_assets(ctx.campaign_dir))
         doc = ctx.scenario("handouts.json")
@@ -149,18 +169,7 @@ class HandoutCatalog:
                     except coc_module_project.ModuleProjectError:
                         continue
                     cards[card["asset_id"]] = card
-        catalog = cls(cards)
-        try:
-            campaign = json.loads(
-                (ctx.campaign_dir / "campaign.json").read_text(encoding="utf-8")
-            )
-        except (OSError, UnicodeError, ValueError):
-            campaign = {}
-        if isinstance(campaign, dict):
-            language = str(campaign.get("play_language") or "").strip()
-            if language:
-                catalog._play_language = language
-        return catalog
+        return cls(cards, play_language=play_language)
 
     def project(self, world: dict[str, Any], audience: str) -> dict[str, Any]:
         """Return the complete Keeper view or fail-closed player view."""
@@ -236,6 +245,7 @@ class HandoutCatalog:
                 "keeper-facing material and cannot be delivered to players; fix "
                 "the card registration if player delivery was intended",
             )
+        player_card = _player_view(card, {handout_id}, self._play_language)
         newly, already = _apply_delivery(world, [handout_id])
         presentation = (
             _create_presentation(world, handout_id, first_delivery=True)
@@ -247,7 +257,7 @@ class HandoutCatalog:
             newly=tuple(newly),
             already=tuple(already),
             delivered_total=len(_delivered_ids(world)),
-            card=_player_view(card, {handout_id}, self._play_language),
+            card=player_card,
             presentation=presentation,
         )
 
@@ -258,6 +268,9 @@ class HandoutCatalog:
             return LinkedDelivery(asset_id=None, newly=(), hidden_card=False)
         if card.get("player_visible", True) is not True:
             return LinkedDelivery(asset_id=None, newly=(), hidden_card=True)
+        # Linked first delivery has the same player-language boundary as a
+        # direct delivery; never entitle a card whose body cannot be shown.
+        _player_view(card, {handout_id}, self._play_language)
         newly, _already = _apply_delivery(world, [handout_id])
         return LinkedDelivery(
             asset_id=handout_id,
@@ -302,8 +315,14 @@ class HandoutCatalog:
             ),
         )
 
-    def replay(self, world: dict[str, Any], handout_id: str) -> Replay:
-        """Create one presentation event without changing delivery authority."""
+    def replay(
+        self,
+        world: dict[str, Any],
+        handout_id: str,
+        *,
+        request_assertion: dict[str, Any],
+    ) -> Replay:
+        """Consume one explicit-request authority per asset and player epoch."""
         card = self._cards.get(handout_id)
         if card is None:
             raise HandoutError(
@@ -320,12 +339,40 @@ class HandoutCatalog:
                 "handout_not_delivered",
                 f"handout '{handout_id}' must be delivered before it can be replayed",
             )
+        receipts = _replay_receipts(world)
+        player_turn_epoch = int(request_assertion["player_turn_epoch"])
+        player_text_sha256 = str(request_assertion["player_text_sha256"])
+        epoch_key = str(player_turn_epoch)
+        prior = receipts.get(handout_id, {}).get(epoch_key)
+        if prior is not None:
+            if prior["player_text_sha256"] != player_text_sha256:
+                raise HandoutError(
+                    "replay_epoch_conflict",
+                    "the asset replay authority for this player epoch was already "
+                    "consumed by different provenance",
+                )
+            return Replay(
+                asset_id=handout_id,
+                card=_player_view(card, {handout_id}, self._play_language),
+                presentation=dict(prior["presentation"]),
+                request_assertion=json.loads(json.dumps(prior["request_assertion"])),
+                already_consumed=True,
+            )
+        presentation = _create_presentation(
+            world, handout_id, first_delivery=False
+        )
+        asset_receipts = receipts.setdefault(handout_id, {})
+        asset_receipts[epoch_key] = {
+            "player_text_sha256": player_text_sha256,
+            "presentation": dict(presentation),
+            "request_assertion": json.loads(json.dumps(request_assertion)),
+        }
+        world["handout_replay_receipts"] = receipts
         return Replay(
             asset_id=handout_id,
-            card=_player_view(card, {handout_id}),
-            presentation=_create_presentation(
-                world, handout_id, first_delivery=False
-            ),
+            card=_player_view(card, {handout_id}, self._play_language),
+            presentation=presentation,
+            request_assertion=json.loads(json.dumps(request_assertion)),
         )
 
     def opening_candidates(self, world: dict[str, Any]) -> list[dict[str, Any]]:
@@ -383,6 +430,22 @@ def _display_value(
     return card.get(field)
 
 
+def _localized_card_value(
+    card: dict[str, Any], field: str, play_language: str
+) -> str | None:
+    value = card.get(field)
+    if isinstance(value, dict):
+        localized = value.get(play_language)
+        return localized.strip() if isinstance(localized, str) and localized.strip() else None
+    if isinstance(value, str) and value.strip():
+        tagged_language = card.get("localized_language")
+        if isinstance(tagged_language, str) and tagged_language.strip():
+            return value.strip() if tagged_language.strip() == play_language else None
+        if card.get("kind") != "read_aloud":
+            return value.strip()
+    return None
+
+
 def _player_view(
     card: dict[str, Any], delivered: set[str], play_language: str
 ) -> dict[str, Any]:
@@ -400,20 +463,38 @@ def _player_view(
             "secret": True,
             "content_available_after": "state.deliver_handout",
         }
+    read_aloud = card.get("kind") == "read_aloud"
+    localized_title = _localized_card_value(
+        card, "localized_title", play_language
+    )
+    localized_text = _localized_card_value(card, "localized_text", play_language)
+    if read_aloud and (localized_title is None or localized_text is None):
+        raise HandoutError(
+            "handout_locale_missing",
+            f"read-aloud card '{asset_id}' lacks full title/body for active "
+            f"play_language {play_language!r}",
+        )
     display_text = (
-        _display_value(card, "text", play_language)
+        localized_text
+        if read_aloud
+        else _display_value(card, "text", play_language)
         or card.get("authored_text")
     )
-    localized_text = (
-        display_text
-        if display_text not in {card.get("text"), card.get("authored_text")}
-        else None
-    )
+    if not read_aloud:
+        localized_text = (
+            display_text
+            if display_text not in {card.get("text"), card.get("authored_text")}
+            else None
+        )
     view: dict[str, Any] = {
         "asset_id": asset_id,
         "kind": card.get("kind"),
         "content_origin": card.get("content_origin", "source_verbatim"),
-        "title": _display_value(card, "title", play_language),
+        "title": (
+            localized_title
+            if read_aloud
+            else _display_value(card, "title", play_language)
+        ),
         "text": display_text,
         "localized_text": localized_text,
         "image_ref": card.get("image_ref"),
@@ -477,6 +558,79 @@ def _presentation_revisions(world: dict[str, Any]) -> dict[str, int]:
             )
         revisions[asset_id] = raw_revision
     return revisions
+
+
+def _replay_receipts(
+    world: dict[str, Any],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    raw = world.get("handout_replay_receipts")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise HandoutError(
+            "state_corrupt", "handout_replay_receipts must be an object"
+        )
+    receipts: dict[str, dict[str, dict[str, Any]]] = {}
+    for raw_asset_id, raw_epochs in raw.items():
+        asset_id = str(raw_asset_id).strip()
+        if not asset_id or not isinstance(raw_epochs, dict):
+            raise HandoutError(
+                "state_corrupt", "handout_replay_receipts contains an invalid asset row"
+            )
+        epochs: dict[str, dict[str, Any]] = {}
+        for raw_epoch, raw_receipt in raw_epochs.items():
+            epoch = str(raw_epoch)
+            presentation = (
+                raw_receipt.get("presentation")
+                if isinstance(raw_receipt, dict)
+                else None
+            )
+            assertion = (
+                raw_receipt.get("request_assertion")
+                if isinstance(raw_receipt, dict)
+                else None
+            )
+            assertion_text = (
+                assertion.get("player_text") if isinstance(assertion, dict) else None
+            )
+            expected_assertion_sha = (
+                "sha256:" + hashlib.sha256(assertion_text.encode("utf-8")).hexdigest()
+                if isinstance(assertion_text, str) and assertion_text.strip()
+                else None
+            )
+            if (
+                not epoch.isdigit()
+                or int(epoch) < 1
+                or not isinstance(raw_receipt, dict)
+                or not isinstance(raw_receipt.get("player_text_sha256"), str)
+                or not raw_receipt["player_text_sha256"].startswith("sha256:")
+                or not isinstance(presentation, dict)
+                or presentation.get("asset_id") != asset_id
+                or not isinstance(presentation.get("presentation_id"), str)
+                or isinstance(presentation.get("revision"), bool)
+                or not isinstance(presentation.get("revision"), int)
+                or presentation["revision"] < 2
+                or presentation.get("presentation_id")
+                != f"{asset_id}:presentation:{presentation['revision']}"
+                or not isinstance(assertion, dict)
+                or assertion.get("explicit_player_request") is not True
+                or not isinstance(assertion.get("semantic_reason"), str)
+                or not assertion["semantic_reason"].strip()
+                or assertion.get("player_turn_epoch") != int(epoch)
+                or assertion.get("player_text_sha256")
+                != raw_receipt.get("player_text_sha256")
+                or assertion.get("player_text_sha256") != expected_assertion_sha
+            ):
+                raise HandoutError(
+                    "state_corrupt", "handout_replay_receipts contains an invalid receipt"
+                )
+            epochs[epoch] = {
+                "player_text_sha256": raw_receipt["player_text_sha256"],
+                "presentation": dict(presentation),
+                "request_assertion": json.loads(json.dumps(assertion)),
+            }
+        receipts[asset_id] = epochs
+    return receipts
 
 
 def _create_presentation(

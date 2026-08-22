@@ -14959,25 +14959,11 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     }
     raw_pending_handouts = (scene or {}).get("_archive_pending_handout_cards")
     if not isinstance(raw_pending_handouts, list):
-        raw_pending_handouts = [
-            {
-                "asset_id": (
-                    f"read-aloud:{str(active_id or '')}:"
-                    f"{str(row.get('id') or '').strip()}"
-                ),
-                "kind": "read_aloud",
-                "title": (
-                    row.get("title")
-                    or (scene or {}).get("display_name")
-                    or str(row.get("id") or "")
-                ),
-                "trigger": row.get("trigger"),
-                "condition": row.get("condition"),
-                "source_refs": deepcopy(row.get("source_refs") or []),
-            }
-            for row in ((scene or {}).get("read_aloud") or [])
-            if isinstance(row, dict) and str(row.get("id") or "").strip()
-        ]
+        raw_pending_handouts = coc_compiled_archive.pending_read_aloud_metadata(
+            str(active_id or ""),
+            (scene or {}).get("display_name"),
+            (scene or {}).get("read_aloud") or [],
+        )
     pending_handouts = [
         deepcopy(row)
         for row in raw_pending_handouts
@@ -24549,27 +24535,38 @@ def _tool_state_replay_handout(ctx: Ctx, args: dict[str, Any]):
     assertion = _normalize_handout_replay_assertion(args.get("request_assertion"))
     world = ctx.world()
     try:
-        replay = coc_handouts.HandoutCatalog.load(ctx).replay(world, handout_id)
+        replay = coc_handouts.HandoutCatalog.load(ctx).replay(
+            world,
+            handout_id,
+            request_assertion=assertion,
+        )
     except coc_handouts.HandoutError as exc:
         raise ToolError(exc.code, exc.message) from exc
-    ctx.save_world(world)
-    ctx.log_event({
-        "event_type": "handout_presented",
-        **replay.presentation,
-        "source": tool_name,
-        "request_assertion": assertion,
-        "ts": _now_iso(),
-    })
+    if not replay.already_consumed:
+        ctx.save_world(world)
+        ctx.log_event({
+            "event_type": "handout_presented",
+            **replay.presentation,
+            "source": tool_name,
+            "request_assertion": replay.request_assertion,
+            "ts": _now_iso(),
+        })
     data = {
         "asset_id": replay.asset_id,
         "delivered": True,
         "delivery_changed": False,
         "presentation": replay.presentation,
         "card": replay.card,
-        "request_assertion": assertion,
+        "request_assertion": replay.request_assertion,
     }
     ctx.ledger_record(args.get("decision_id"), tool_name, data)
-    return data, [], [
+    warnings = (
+        ["replay authority already consumed for this asset and player epoch; "
+         "returning the original presentation"]
+        if replay.already_consumed
+        else []
+    )
+    return data, warnings, [
         "present this exact card again; do not paraphrase its body or create "
         "another delivery/material entry"
     ]

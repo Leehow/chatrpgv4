@@ -1005,6 +1005,7 @@ export class OpeningTerminalContinuationGate {
   private queuedVisibleDispositions: QueuedVisibleAssistantDisposition[] = [];
   private playerTurnEpoch = 0;
   private currentExternalPlayerText: string | null = null;
+  private readonly boundHandoutReplayAssets = new Map<number, Set<string>>();
   private finalizedOutput: {
     epoch: number;
     renderedText: string;
@@ -5199,6 +5200,7 @@ export class OpeningTerminalContinuationGate {
 
   markExternalUserInput(playerText: string | null = null): void {
     this.playerTurnEpoch += 1;
+    this.boundHandoutReplayAssets.clear();
     this.currentExternalPlayerText = playerText;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
@@ -5211,6 +5213,9 @@ export class OpeningTerminalContinuationGate {
     if (params.operation !== "state.replay_handout") return params;
     const args = objectOrNull(params.arguments);
     const assertion = objectOrNull(args?.request_assertion);
+    const assetId = typeof args?.handout_id === "string"
+      ? args.handout_id.trim()
+      : "";
     const playerText = typeof assertion?.player_text === "string"
       ? assertion.player_text
       : null;
@@ -5224,6 +5229,21 @@ export class OpeningTerminalContinuationGate {
         + "exact current external player message",
       );
     }
+    if (!assetId) {
+      throw new Error("state.replay_handout handout_id must be non-empty");
+    }
+    let consumed = this.boundHandoutReplayAssets.get(this.playerTurnEpoch);
+    if (consumed === undefined) {
+      consumed = new Set<string>();
+      this.boundHandoutReplayAssets.set(this.playerTurnEpoch, consumed);
+    }
+    if (consumed.has(assetId)) {
+      throw new Error(
+        "state.replay_handout authority was already consumed for this asset "
+        + "and player epoch",
+      );
+    }
+    consumed.add(assetId);
     return {
       ...params,
       arguments: {
