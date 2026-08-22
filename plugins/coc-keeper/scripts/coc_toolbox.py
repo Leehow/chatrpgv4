@@ -3333,10 +3333,55 @@ def _clock_reached(ctx: Ctx) -> Callable[[str | None, int], bool]:
     return reached
 
 
-def _evaluate_and_apply_unlocks(ctx: Ctx, world: dict[str, Any]) -> list[str]:
+def _authored_unlock_world(
+    ctx: Ctx,
+    world: dict[str, Any],
+    *,
+    clue_records: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Player world projected through authored-milestone provenance rules.
+
+    Improvised facts remain in the real world and reports.  Only the copy used
+    by authored graph predicates excludes local-only facts, including on later
+    reevaluation after another clue is discovered.
+    """
+    projected = deepcopy(world)
+    authored_ids = {
+        str(clue.get("clue_id"))
+        for clue in _all_clues(ctx.clue_graph)
+        if clue.get("clue_id") not in (None, "")
+    }
+    if clue_records is None:
+        flags = ctx.flags()
+        found = flags.get("clues_found")
+        clue_records = found if isinstance(found, dict) else {}
+    projected["discovered_clue_ids"] = [
+        clue_id
+        for raw in world.get("discovered_clue_ids") or []
+        if (clue_id := str(raw)) in authored_ids
+        and not (
+            isinstance(clue_records.get(clue_id), dict)
+            and (
+                clue_records[clue_id].get("local_only") is True
+                or clue_records[clue_id].get("can_unlock_authored_milestone") is False
+            )
+        )
+    ]
+    return projected
+
+
+def _evaluate_and_apply_unlocks(
+    ctx: Ctx,
+    world: dict[str, Any],
+    *,
+    clue_records: dict[str, Any] | None = None,
+) -> list[str]:
+    unlock_world = _authored_unlock_world(
+        ctx, world, clue_records=clue_records
+    )
     newly = coc_scene_graph.evaluate_unlocks(
         ctx.story_graph,
-        world,
+        unlock_world,
         clock_reached=_clock_reached(ctx),
         flags_set=_flags_set(ctx),
     )
@@ -14136,6 +14181,36 @@ def _scene_contract_projection(
         or contract.get("role")
         or ""
     )
+    authored_contract_id = str(contract.get("scene_contract_id") or "").strip()
+    effective_contract_id = str(
+        (promotions[-1].get("to_contract_id") if promotions else None)
+        or authored_contract_id
+    ).strip()
+    drift_findings: list[dict[str, Any]] = []
+    for row in _jsonl_rows(ctx.campaign_dir / "logs" / "events.jsonl"):
+        if (
+            row.get("event_type") != "scene_scope_drift"
+            or str(row.get("scene_id") or "") != str(active_id or "")
+        ):
+            continue
+        finding = deepcopy(row)
+        event_id = str(finding.get("event_id") or "")
+        resolution = next(
+            (
+                promotion
+                for promotion in reversed(promotions)
+                if event_id
+                and event_id
+                in {str(value) for value in promotion.get("source_event_ids") or []}
+            ),
+            None,
+        )
+        if resolution is not None:
+            finding["status"] = "resolved"
+            finding["resolved_by_promotion_id"] = resolution.get("promotion_id")
+        else:
+            finding["status"] = "unpromoted"
+        drift_findings.append(finding)
     flags = ctx.flags()
     clues_found = flags.get("clues_found") if isinstance(flags.get("clues_found"), dict) else {}
     improvised_clues = sum(
@@ -14168,9 +14243,15 @@ def _scene_contract_projection(
         if binding.get("status") == "improvised":
             improvised_npcs += 1
     return {
+        "schema_version": contract.get("schema_version", 1),
+        "scene_contract_id": effective_contract_id or None,
+        "authored_scene_contract_id": authored_contract_id or None,
+        "scene_id": active_id,
         "role": contract.get("role"),
+        "authored_purposes": contract.get("authored_purposes"),
         "effective_role": effective_role,
         "promoted": bool(promotions),
+        "promotion": deepcopy(promotions[-1]) if promotions else None,
         "truth_scope": contract.get("truth_scope"),
         "improv_budget": contract.get("improv_budget"),
         "budget_consumption": {
@@ -14178,6 +14259,7 @@ def _scene_contract_projection(
             "improvised_npcs": improvised_npcs,
         },
         "exit_affordances": contract.get("exit_affordances"),
+        "drift_findings": drift_findings,
     }
 
 
@@ -22847,13 +22929,22 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
             "desc": "new effective role",
         },
         "reason": {"type": "string", "required": True, "desc": "why committed play justifies the promotion"},
+        "source_event_ids": {
+            "type": "array",
+            "required": True,
+            "items": {"type": "string"},
+            "desc": "non-empty stable event ids that causally justify this campaign-local promotion; only named scene_scope_drift ids resolve drift evidence",
+        },
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_state_promote_scene(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("state.promote_scene", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously recorded promotion"], []
+    replay = _replay_bound_decision(ctx, "state.promote_scene", args)
+    if replay is not None:
+        return replay, ["duplicate decision_id: returning the previously recorded promotion"], []
+    decision_id = str(args.get("decision_id") or "").strip()
+    if not decision_id:
+        raise ToolError("invalid_param", "decision_id must be non-empty")
     to_role = str(args["to_role"]).strip()
     if to_role not in {"side_investigation", "investigation", "main", "climax"}:
         raise ToolError(
@@ -22863,14 +22954,56 @@ def _tool_state_promote_scene(ctx: Ctx, args: dict[str, Any]):
     reason = str(args["reason"] or "").strip()
     if not reason:
         raise ToolError("invalid_param", "reason must be non-empty")
+    raw_source_event_ids = args.get("source_event_ids")
+    if not isinstance(raw_source_event_ids, list) or not raw_source_event_ids:
+        raise ToolError("invalid_param", "source_event_ids must be a non-empty array")
+    source_event_ids: list[str] = []
+    for raw in raw_source_event_ids:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ToolError(
+                "invalid_param", "source_event_ids must contain non-empty strings"
+            )
+        event_id = raw.strip()
+        if event_id in source_event_ids:
+            raise ToolError("invalid_param", "source_event_ids must be unique")
+        source_event_ids.append(event_id)
+    events_by_id: dict[str, dict[str, Any]] = {}
+    for row in _jsonl_rows(ctx.campaign_dir / "logs" / "events.jsonl"):
+        event_id = str(row.get("event_id") or "").strip()
+        if not event_id:
+            continue
+        if event_id in events_by_id:
+            raise ToolError(
+                "state_corrupt", f"canonical event id {event_id!r} is duplicated"
+            )
+        events_by_id[event_id] = row
+    missing_sources = [
+        event_id for event_id in source_event_ids if event_id not in events_by_id
+    ]
+    if missing_sources:
+        raise ToolError(
+            "source_event_invalid",
+            "source_event_ids do not resolve: " + ", ".join(missing_sources),
+        )
     world = ctx.world()
     active = str(world.get("active_scene_id") or "")
     scene_id = str(args.get("scene_id") or active or "").strip()
     if not scene_id:
         raise ToolError("invalid_param", "scene_id is required when no scene is active")
     scene = _scene_by_id(ctx.story_graph, scene_id)
+    authored_contract = (
+        (scene or {}).get("scene_contract")
+        if isinstance((scene or {}).get("scene_contract"), dict)
+        else {}
+    )
+    existing_scene_promotions = [
+        row
+        for row in (world.get("scene_promotions") or [])
+        if isinstance(row, dict) and str(row.get("scene_id") or "") == scene_id
+    ]
     from_role = str(
-        ((scene or {}).get("scene_contract") or {}).get("role")
+        (existing_scene_promotions[-1].get("to_role") if existing_scene_promotions else None)
+        or authored_contract.get("role")
         or (scene or {}).get("scene_type")
         or "unknown"
     )
@@ -22879,19 +23012,57 @@ def _tool_state_promote_scene(ctx: Ctx, args: dict[str, Any]):
         for row in (world.get("scene_promotions") or [])
         if isinstance(row, dict)
     ]
+    event_id = _operation_event_id("state.promote_scene", decision_id)
+    promotion_id = "scene-promotion-v1:" + _canonical_digest(
+        {"scene_id": scene_id, "decision_id": decision_id}
+    ).removeprefix("sha256:")
+    from_contract_id = str(
+        (existing_scene_promotions[-1].get("to_contract_id") if existing_scene_promotions else None)
+        or authored_contract.get("scene_contract_id")
+        or (
+            "scene-contract-v1:"
+            + _canonical_digest(
+                {"scene_id": scene_id, "role": from_role, "source": "campaign-local"}
+            ).removeprefix("sha256:")
+        )
+    )
+    to_contract_id = "scene-contract-v1:" + _canonical_digest(
+        {
+            "scene_id": scene_id,
+            "from_contract_id": from_contract_id,
+            "to_role": to_role,
+            "promotion_id": promotion_id,
+        }
+    ).removeprefix("sha256:")
+    resolved_drift_event_ids = [
+        source_id
+        for source_id in source_event_ids
+        if events_by_id[source_id].get("event_type") == "scene_scope_drift"
+        and str(events_by_id[source_id].get("scene_id") or "") == scene_id
+    ]
     promotion = {
+        "schema_version": 1,
+        "event_id": event_id,
+        "event_type": "scene_promotion",
+        "promotion_id": promotion_id,
         "scene_id": scene_id,
         "from_role": from_role,
         "to_role": to_role,
+        "from_contract_id": from_contract_id,
+        "to_contract_id": to_contract_id,
         "reason": reason,
+        "source_event_ids": source_event_ids,
+        "resolved_drift_event_ids": resolved_drift_event_ids,
+        "source_decision_id": decision_id,
         "module_divergence": True,
+        "request_digest": _request_digest(args),
         "ts": _now_iso(),
     }
     promotions.append(promotion)
     world["scene_promotions"] = promotions
     ctx.save_world(world)
-    ctx.log_event({"event_type": "scene_promotion", **promotion})
-    ctx.ledger_record(args["decision_id"], "state.promote_scene", promotion)
+    ctx.log_event(deepcopy(promotion))
+    ctx.ledger_record(decision_id, "state.promote_scene", promotion)
     warnings: list[str] = []
     if scene is None:
         warnings.append(
@@ -23568,11 +23739,46 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                 "or consciously rule a free reveal"
             )
 
+    scene_contract = (
+        (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
+    )
+    scene_contract_id = (
+        str(scene_contract.get("scene_contract_id") or "").strip()
+        if isinstance(scene_contract, dict)
+        else ""
+    )
+    decision_id = str(args.get("decision_id") or "").strip()
+    event_key = decision_id or f"unbound:{active}:{clue_id}"
+    source_event_id = _operation_event_id("state.record_clue", event_key)
+    flags = ctx.flags()
+    clues_found = flags.get("clues_found") or {}
+    existing_clue_record = clues_found.get(clue_id)
+    clue_record = (
+        deepcopy(existing_clue_record)
+        if clue_id in discovered and isinstance(existing_clue_record, dict)
+        else {"ts": _now_iso(), "method": args.get("method")}
+    )
+    if clue is None and not (
+        clue_id in discovered and isinstance(existing_clue_record, dict)
+    ):
+        clue_record.update({
+            "provenance": "improvised",
+            "scene_contract_id": scene_contract_id or None,
+            "scene_id": active,
+            "local_only": True,
+            "can_unlock_authored_milestone": False,
+            "source_event_id": source_event_id,
+        })
+    clues_found[clue_id] = clue_record
+    flags["clues_found"] = clues_found
+
     already = clue_id in discovered
     if not already:
         discovered.append(clue_id)
         world["discovered_clue_ids"] = discovered
-    newly_unlocked = _evaluate_and_apply_unlocks(ctx, world)
+    newly_unlocked = _evaluate_and_apply_unlocks(
+        ctx, world, clue_records=clues_found
+    )
     # Same-transaction linkage: a clue that carries a registered handout card
     # delivers that card with the discovery write (single source of truth —
     # the clue record's handout_asset_id, never a prose keyword).
@@ -23594,6 +23800,10 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                 linked_handout_id = asset_id
             elif linked_card is not None:
                 linkage_skipped_hidden_card = True
+    # Persist provenance before the world discovery.  A crash between these
+    # two current-state files therefore fails closed for authored unlocks: a
+    # local-only clue can never briefly exist as an unlabelled prerequisite.
+    ctx.save_flags(flags)
     ctx.save_world(world)
     if linked_handout_newly:
         ctx.log_event({
@@ -23605,20 +23815,24 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             "ts": _now_iso(),
         })
 
-    flags = ctx.flags()
-    clues_found = flags.get("clues_found") or {}
-    clue_record = {"ts": _now_iso(), "method": args.get("method")}
-    if clue is None:
-        clue_record.update({
-            "provenance": "improvised",
+    if not already:
+        clue_event = {
+            "event_id": source_event_id,
+            "event_type": "clue_discovered",
+            "clue_id": clue_id,
+            "method": args.get("method"),
             "scene_id": active,
-            "local_only": True,
-        })
-    clues_found[clue_id] = clue_record
-    flags["clues_found"] = clues_found
-    ctx.save_flags(flags)
+        }
+        if clue is None:
+            clue_event.update({
+                "provenance": "improvised",
+                "scene_contract_id": scene_contract_id or None,
+                "local_only": True,
+                "can_unlock_authored_milestone": False,
+                "source_event_id": source_event_id,
+            })
+        ctx.log_event(clue_event)
 
-    scene_contract = (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
     if isinstance(scene_contract, dict):
         if clue is not None:
             scope = (
@@ -23640,6 +23854,50 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                     f"contract ceiling {max_tier} — delivering it here outruns the "
                     "authored pacing; consider a bridge clue instead (advisory)"
                 )
+                scene_promotions = [
+                    row
+                    for row in (world.get("scene_promotions") or [])
+                    if isinstance(row, dict)
+                    and str(row.get("scene_id") or "") == str(active or "")
+                ]
+                effective_role = str(
+                    (
+                        scene_promotions[-1].get("to_role")
+                        if scene_promotions
+                        else None
+                    )
+                    or scene_contract.get("role")
+                    or ""
+                )
+                drift_event = {
+                    "schema_version": 1,
+                    "event_id": _operation_event_id(
+                        "state.record_clue.scene_scope_drift", event_key
+                    ),
+                    "event_type": "scene_scope_drift",
+                    "scene_id": active,
+                    "scene_contract_id": scene_contract_id or None,
+                    "source_decision_id": decision_id or None,
+                    "source_event_id": source_event_id,
+                    "source_clue_id": clue_id,
+                    "truth_tier": tier,
+                    "max_tier": max_tier,
+                    "effective_role": effective_role,
+                    "status": "unpromoted",
+                    "acceptance_severity": (
+                        "hard"
+                        if effective_role == "transit" and tier in {3, 4}
+                        else "advisory"
+                    ),
+                    "options": [
+                        "downgrade_to_symptom",
+                        "convert_to_bridge",
+                        "local_consequence",
+                        "promote_scene",
+                    ],
+                }
+                if not already:
+                    ctx.log_event(drift_event)
         else:
             budget = (
                 scene_contract.get("improv_budget")
@@ -23703,9 +23961,10 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "delivered_handout_id": linked_handout_id,
         "route_completion": deepcopy(route_completion),
     }
+    if clue is None:
+        data["provenance"] = deepcopy(clue_record)
     progressive_hints: list[str] = []
     if not already:
-        ctx.log_event({"event_type": "clue_discovered", "clue_id": clue_id, "method": args.get("method")})
         # Progressive dig queue: structured mentions on the clue only (no free-prose scan).
         try:
             if ctx.campaign_dir is not None and coc_module_project.campaign_asset_root_id(

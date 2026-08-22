@@ -131,11 +131,15 @@
   - `tone` (string[])：调性关键词（感官/氛围词）。
   - `allowed_improvisation` (string[])：该场景内允许即兴的范围（含反向约束如 "do not invent new cult fact"）。
   - `scene_contract` (object, optional)：**场景合同**——把"这个场景允许揭示多少真相、允许多少即兴"编译进结构化数据。缺省完全合法（运行时无合同约束）。子字段：
+    - `schema_version` (int)：当前为 `1`；投影层只校验来源显式提供的合同，来源没有合同时保持 `null`，不得根据场景类型自动合成真相范围或即兴预算。
+    - `scene_contract_id` / `scene_id`：投影层把规范化后的 v1 合同与精确 `scene_id` 绑定为确定性 `scene-contract-v1:*` 身份；生产者如提供这两个字段，必须与当前场景及合同内容完全一致，否则在写入部分 Scenario IR 前拒绝。
     - `role` (string)：场景角色，枚举 `transit` | `investigation` | `main` | `climax` | `epilogue`。`transit` 场景在导演层按桥接场景处理（等价旧 `_BRIDGE_SCENE_KINDS` 语义；`location_tags` 含 `waypoint` 是无 contract 时的回退）。
-    - `truth_scope` (object, optional)：`{max_tier: 0-4, forbidden_domains: string[]}`。真相等级：0 氛围/感官，1 本地事实，2 指向其他场景的桥接线索，3 主线结构/反派计划，4 神话真相/结局级。运行时对照 clue 的 `truth_tier` 发 advisory warning（**不阻断**，宪法保持线索投递为 advisory），并把越级交付记入证据。
-    - `improv_budget` (object, optional)：`{named_npcs: int, new_locations: int, local_clues: int, complications: int, soft_turn_limit: int, hard_turn_limit: int}`——即兴预算与停留阈值。运行时按 `flags.clues_found` 的 improvised 标记与 NPC engagement receipts 统计消耗，超预算发 advisory warning。
+    - `authored_purposes` (string[], optional)：来源明确给出的场景职责；非空、不得重复。
+    - `truth_scope` (object, optional)：`{max_tier: 0-4, max_bridge_clues?: 非负 int, allowed_domains?: string[], forbidden_domains?: string[]}`。域列表只含非空且不重复的结构化域。真相等级：0 氛围/感官，1 本地事实，2 指向其他场景的桥接线索，3 主线结构/反派计划，4 神话真相/结局级。运行时对照 clue 的 `truth_tier` 发 advisory warning（**不阻断**，宪法保持线索投递为 advisory），并把越级交付记入稳定 `scene_scope_drift` 证据；只有未正式 promotion 的 transit tier 3/4 漂移在事后验收中为 hard。
+    - `improv_budget` (object, optional)：`{named_npcs: 非负 int, new_locations: 非负 int, local_clues: 非负 int, complications: 非负 int, soft_turn_limit: 非负 int, review_turn_limit: 非负 int}`——即兴预算与停留阈值。运行时按 `flags.clues_found` 的 improvised 标记与 NPC engagement receipts 统计消耗，超预算发 advisory warning；`review_turn_limit` 是验收诊断，不是自动结束场景的配额。
     - `exit_affordances` (string[], optional)：引导玩家自然离开的可行动出口（如"车辆修好""天气窗口将关闭"）。
-    - 运行期角色变更：玩家深度投入使场景事实上升级时，由 `state.promote_scene` 记录正式 `scene_promotion` 事件（`from_role`/`to_role`/`reason`/`module_divergence: true`）；此后 `scene.context` 以 promoted role 呈现合同。场景**不得**无记录地从中转变成高潮。
+    - 运行期角色变更：玩家深度投入使场景事实上升级时，由 `state.promote_scene` 记录正式 `scene_promotion` 事件（`event_id`/`promotion_id`、`from_role`/`to_role`、`from_contract_id`/`to_contract_id`、`reason`、非空 `source_event_ids`、`module_divergence: true`）；此后 `scene.context` 以 promoted role 呈现合同。只有 promotion 精确引用的同场 `scene_scope_drift.event_id` 被标为已解决，后补的泛化升级不能洗掉早先漂移。场景**不得**无记录地从中转变成高潮。
+    - 未收录在 clue graph 的即兴线索仍写入战役正史与报告，但其 provenance 固定包含 `local_only: true` 与 `can_unlock_authored_milestone: false`；任何后续 authored clue 触发的重新求值也不得让它满足 authored unlock 条件。
   - `on_enter` (object, optional)：场景首次进入时引擎自动触发的钩子。子字段：
     - `san_triggers` (object[])：进入场景时自动发起的 SAN 检定。每条含 `trigger_id`（去重标识）、`source`（SAN 来源描述）、`san_loss_success`（成功时损失，如 0）、`san_loss_fail_expr`（失败时损失表达式，如 "1"、"1D6"、"1D6/1D12"）、可选 `creature_type`（怪物类型，用于"习惯化"上限）、`tag`（violence/unnatural/helplessness 等分类）。同一 trigger_id 只触发一次。
     - `clock_ticks` (object[])：进入场景时自动推进的威胁时钟。每条含 `clock_id`（引用 threat-fronts.json 的 clock）和可选 `reason`。

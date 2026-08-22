@@ -41,6 +41,21 @@ ROLE_TAG_RELATIONSHIP_ALIASES = {
     "superior": "superior_officer",
     "commanding": "commanding_officer",
 }
+SCENE_CONTRACT_SCHEMA_VERSION = 1
+SCENE_CONTRACT_ROLES = frozenset({
+    "transit", "investigation", "main", "climax", "epilogue",
+})
+SCENE_CONTRACT_TRUTH_KEYS = frozenset({
+    "max_tier", "max_bridge_clues", "allowed_domains", "forbidden_domains",
+})
+SCENE_CONTRACT_BUDGET_KEYS = frozenset({
+    "named_npcs", "new_locations", "local_clues", "complications",
+    "soft_turn_limit", "review_turn_limit",
+})
+SCENE_CONTRACT_KEYS = frozenset({
+    "schema_version", "scene_contract_id", "scene_id", "role",
+    "authored_purposes", "truth_scope", "improv_budget", "exit_affordances",
+})
 
 
 def _load_sibling(name: str, filename: str):
@@ -80,6 +95,145 @@ class OpeningPreparationError(ModuleProjectError):
 
 class OpeningStructuredCollisionError(ModuleProjectError):
     """One structured row aliases multiple authored opening identities."""
+
+
+def _scene_contract_string_list(
+    value: Any, *, field: str,
+) -> list[str]:
+    if not isinstance(value, list):
+        raise ModuleProjectError(f"scene_contract.{field} must be a string array")
+    normalized: list[str] = []
+    for raw in value:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ModuleProjectError(
+                f"scene_contract.{field} must contain non-empty strings"
+            )
+        item = raw.strip()
+        if item in normalized:
+            raise ModuleProjectError(
+                f"scene_contract.{field} must not contain duplicates"
+            )
+        normalized.append(item)
+    return normalized
+
+
+def _scene_contract_nonnegative_int(value: Any, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ModuleProjectError(
+            f"scene_contract.{field} must be a non-negative integer"
+        )
+    return value
+
+
+def _scene_contract_digest(scene_id: str, payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        {"scene_id": scene_id, "contract": payload},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"scene-contract-v1:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def normalize_scene_contract(scene_id: str, raw: Any) -> dict[str, Any]:
+    """Validate and bind one explicitly supplied authored scene contract.
+
+    Absence is handled by callers and remains legal.  This function never
+    invents a truth scope, purpose, budget, or exit for an absent contract.
+    """
+    stable_scene_id = str(scene_id or "").strip()
+    if not stable_scene_id:
+        raise ModuleProjectError("scene_contract requires a non-empty scene_id")
+    if not isinstance(raw, dict):
+        raise ModuleProjectError("scene_contract must be an object when supplied")
+    unknown = sorted(set(raw) - SCENE_CONTRACT_KEYS)
+    if unknown:
+        raise ModuleProjectError(
+            "scene_contract has unsupported field(s): " + ", ".join(unknown)
+        )
+    supplied_scene_id = raw.get("scene_id")
+    if supplied_scene_id is not None and str(supplied_scene_id).strip() != stable_scene_id:
+        raise ModuleProjectError("scene_contract.scene_id does not match the scene")
+    schema_version = raw.get("schema_version", SCENE_CONTRACT_SCHEMA_VERSION)
+    if schema_version != SCENE_CONTRACT_SCHEMA_VERSION:
+        raise ModuleProjectError("scene_contract.schema_version must equal 1")
+    role = str(raw.get("role") or "").strip()
+    if role not in SCENE_CONTRACT_ROLES:
+        raise ModuleProjectError(
+            "scene_contract.role must be transit|investigation|main|climax|epilogue"
+        )
+
+    normalized: dict[str, Any] = {
+        "schema_version": SCENE_CONTRACT_SCHEMA_VERSION,
+        "scene_id": stable_scene_id,
+        "role": role,
+    }
+    if "authored_purposes" in raw:
+        normalized["authored_purposes"] = _scene_contract_string_list(
+            raw["authored_purposes"], field="authored_purposes"
+        )
+    if "truth_scope" in raw:
+        scope = raw["truth_scope"]
+        if not isinstance(scope, dict):
+            raise ModuleProjectError("scene_contract.truth_scope must be an object")
+        unknown_scope = sorted(set(scope) - SCENE_CONTRACT_TRUTH_KEYS)
+        if unknown_scope:
+            raise ModuleProjectError(
+                "scene_contract.truth_scope has unsupported field(s): "
+                + ", ".join(unknown_scope)
+            )
+        if "max_tier" not in scope:
+            raise ModuleProjectError("scene_contract.truth_scope.max_tier is required")
+        max_tier = scope["max_tier"]
+        if (
+            isinstance(max_tier, bool)
+            or not isinstance(max_tier, int)
+            or not 0 <= max_tier <= 4
+        ):
+            raise ModuleProjectError(
+                "scene_contract.truth_scope.max_tier must be an integer from 0 to 4"
+            )
+        normalized_scope: dict[str, Any] = {"max_tier": max_tier}
+        if "max_bridge_clues" in scope:
+            normalized_scope["max_bridge_clues"] = _scene_contract_nonnegative_int(
+                scope["max_bridge_clues"], field="truth_scope.max_bridge_clues"
+            )
+        for field in ("allowed_domains", "forbidden_domains"):
+            if field in scope:
+                normalized_scope[field] = _scene_contract_string_list(
+                    scope[field], field=f"truth_scope.{field}"
+                )
+        normalized["truth_scope"] = normalized_scope
+    if "improv_budget" in raw:
+        budget = raw["improv_budget"]
+        if not isinstance(budget, dict):
+            raise ModuleProjectError("scene_contract.improv_budget must be an object")
+        unknown_budget = sorted(set(budget) - SCENE_CONTRACT_BUDGET_KEYS)
+        if unknown_budget:
+            raise ModuleProjectError(
+                "scene_contract.improv_budget has unsupported field(s): "
+                + ", ".join(unknown_budget)
+            )
+        normalized["improv_budget"] = {
+            key: _scene_contract_nonnegative_int(
+                value, field=f"improv_budget.{key}"
+            )
+            for key, value in budget.items()
+        }
+    if "exit_affordances" in raw:
+        normalized["exit_affordances"] = _scene_contract_string_list(
+            raw["exit_affordances"], field="exit_affordances"
+        )
+
+    payload = json.loads(json.dumps(normalized))
+    expected_id = _scene_contract_digest(stable_scene_id, payload)
+    supplied_id = raw.get("scene_contract_id")
+    if supplied_id is not None and str(supplied_id).strip() != expected_id:
+        raise ModuleProjectError(
+            "scene_contract.scene_contract_id does not bind this scene and payload"
+        )
+    normalized["scene_contract_id"] = expected_id
+    return normalized
 
 
 def _now_iso() -> str:
@@ -145,8 +299,8 @@ def skeleton_scene_from_location(loc: dict[str, Any], *, is_start: bool) -> dict
         "source_refs": json.loads(json.dumps(loc.get("source_refs") or [])),
         "source_page_indices": list(loc.get("source_page_indices") or []),
         "scene_contract": (
-            json.loads(json.dumps(loc["scene_contract"]))
-            if isinstance(loc.get("scene_contract"), dict)
+            normalize_scene_contract(lid, loc["scene_contract"])
+            if "scene_contract" in loc
             else None
         ),
     }
@@ -533,10 +687,15 @@ def merge_deep_location_into_ir(
     for key in (
         "source_refs", "source_span", "source_page_indices",
         "page_text_sha256", "source_evidence", "source_discrepancies",
-        "location_tags", "entry_conditions", "importance", "scene_contract",
+        "location_tags", "entry_conditions", "importance",
     ):
         if pack.get(key) is not None:
             scene[key] = json.loads(json.dumps(pack[key]))
+    if "scene_contract" in pack:
+        scene["scene_contract"] = normalize_scene_contract(
+            str(scene.get("scene_id") or pack.get("location_id") or ""),
+            pack["scene_contract"],
+        )
 
     # Clues: attach under a progressive conclusion bucket
     conclusions = out["clue-graph.json"].setdefault("conclusions", [])

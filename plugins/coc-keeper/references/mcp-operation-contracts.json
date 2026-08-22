@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:9fa1533e1a0423e79c60fbdb2d4ede5caf3252b48f14de0e9d79b0357484b94e",
+  "content_sha256": "sha256:f189c3c42524314f050560fd24a3b2dd72d41fdaaa3508412742d863e79d25cb",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -6781,6 +6781,13 @@
             "description": "scene to promote (defaults to the active scene)",
             "type": "string"
           },
+          "source_event_ids": {
+            "description": "non-empty stable event ids that causally justify this campaign-local promotion; only named scene_scope_drift ids resolve drift evidence",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "to_role": {
             "description": "new effective role",
             "enum": [
@@ -6796,6 +6803,7 @@
           "campaign",
           "to_role",
           "reason",
+          "source_event_ids",
           "decision_id"
         ],
         "type": "object"

@@ -674,9 +674,24 @@ def test_project_skeleton_topology(tmp_path: Path):
 def test_project_skeleton_carries_scene_contract(tmp_path: Path):
     skeleton = json.loads(json.dumps(_skeleton()))
     contract = {
+        "schema_version": 1,
         "role": "transit",
-        "truth_scope": {"max_tier": 1, "max_bridge_clues": 1},
-        "improv_budget": {"named_npcs": 1, "local_clues": 1},
+        "authored_purposes": ["refuel", "show local fear"],
+        "truth_scope": {
+            "max_tier": 1,
+            "max_bridge_clues": 1,
+            "allowed_domains": ["route_information"],
+            "forbidden_domains": ["mainline_resolution"],
+        },
+        "improv_budget": {
+            "named_npcs": 1,
+            "new_locations": 0,
+            "local_clues": 1,
+            "complications": 1,
+            "soft_turn_limit": 6,
+            "review_turn_limit": 10,
+        },
+        "exit_affordances": ["vehicle repaired"],
     }
     skeleton["locations"][0]["scene_contract"] = contract
     assets.init_module_root(
@@ -688,10 +703,109 @@ def test_project_skeleton_carries_scene_contract(tmp_path: Path):
     project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
     sg = json.loads((camp / "scenario" / "story-graph.json").read_text(encoding="utf-8"))
     opening = next(s for s in sg["scenes"] if s["scene_id"] == "opening")
-    assert opening["scene_contract"] == contract
+    normalized = opening["scene_contract"]
+    assert normalized["schema_version"] == 1
+    assert normalized["scene_id"] == "opening"
+    assert normalized["scene_contract_id"].startswith("scene-contract-v1:")
+    assert {key: value for key, value in normalized.items() if key not in {"scene_id", "scene_contract_id"}} == contract
     assert opening["scene_contract"] is not contract  # deep-copied
     library = next(s for s in sg["scenes"] if s["scene_id"] == "library")
     assert library["scene_contract"] is None
+
+
+def test_scene_contract_normalization_is_stable_across_skeleton_and_deep_pack(
+    tmp_path: Path,
+):
+    skeleton = json.loads(json.dumps(_skeleton()))
+    raw = {
+        "role": "investigation",
+        "authored_purposes": ["establish the commission"],
+        "truth_scope": {
+            "max_tier": 3,
+            "max_bridge_clues": 1,
+            "allowed_domains": ["commission"],
+            "forbidden_domains": ["final_resolution"],
+        },
+        "improv_budget": {"named_npcs": 2, "local_clues": 2},
+        "exit_affordances": ["follow the address"],
+    }
+    skeleton["locations"][0]["scene_contract"] = raw
+    expected = project.normalize_scene_contract("opening", raw)
+    _put_source_bound_skeleton(tmp_path, skeleton)
+    pack = _deep_opening_pack()
+    pack["scene_contract"] = raw
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    camp = _make_campaign(tmp_path)
+
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    graph = json.loads(
+        (camp / "scenario" / "story-graph.json").read_text(encoding="utf-8")
+    )
+    opening = next(scene for scene in graph["scenes"] if scene["scene_id"] == "opening")
+    assert opening["scene_contract"] == expected
+
+
+@pytest.mark.parametrize(
+    "bad_contract",
+    [
+        "transit",
+        {"role": "corridor", "truth_scope": {"max_tier": 1}},
+        {"role": "transit", "truth_scope": {"max_tier": 5}},
+        {"role": "transit", "truth_scope": {"max_tier": 1, "allowed_domains": [""]}},
+        {"role": "transit", "improv_budget": {"local_clues": -1}},
+        {"role": "transit", "authored_purposes": ["same", "same"]},
+        {"role": "transit", "exit_affordances": "leave"},
+    ],
+)
+def test_malformed_supplied_scene_contract_rejects_before_scenario_write(
+    tmp_path: Path, bad_contract: object,
+):
+    skeleton = json.loads(json.dumps(_skeleton()))
+    skeleton["locations"][0]["scene_contract"] = bad_contract
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="prog-demo",
+        identity={"canonical_module_id": "prog-demo"},
+        file_sha256=FAKE_SHA,
+    )
+    assets.put_skeleton(tmp_path, "prog-demo", skeleton)
+    camp = _make_campaign(tmp_path)
+
+    with pytest.raises(project.ModuleProjectError, match="scene_contract"):
+        project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    assert not (camp / "scenario" / "story-graph.json").exists()
+
+
+def test_supplied_scene_contract_id_must_bind_scene_and_payload():
+    raw = {"role": "transit", "truth_scope": {"max_tier": 1}}
+    normalized = project.normalize_scene_contract("opening", raw)
+    with pytest.raises(project.ModuleProjectError, match="scene_contract_id"):
+        project.normalize_scene_contract(
+            "opening",
+            {**raw, "scene_contract_id": "scene-contract-v1:" + "0" * 64},
+        )
+    with pytest.raises(project.ModuleProjectError, match="scene_id"):
+        project.normalize_scene_contract(
+            "library", {**normalized, "scene_id": "opening"}
+        )
+
+
+def test_malformed_deep_pack_scene_contract_rejects_before_scenario_write(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["scene_contract"] = {
+        "role": "investigation",
+        "truth_scope": {"max_tier": 3},
+        "improv_budget": {"local_clues": True},
+    }
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    camp = _make_campaign(tmp_path)
+
+    with pytest.raises(project.ModuleProjectError, match="scene_contract"):
+        project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    assert not (camp / "scenario" / "story-graph.json").exists()
 
 
 def test_project_skeleton_reapplies_stored_deep_packs(tmp_path: Path):
@@ -707,7 +821,9 @@ def test_project_skeleton_reapplies_stored_deep_packs(tmp_path: Path):
     opening = next(s for s in sg["scenes"] if s["scene_id"] == "opening")
     assert opening["parse_state"] == "deep"
     assert "clue-commission" in opening["available_clues"]
-    assert opening["scene_contract"] == pack["scene_contract"]
+    assert opening["scene_contract"] == project.normalize_scene_contract(
+        "opening", pack["scene_contract"]
+    )
     cg = json.loads((camp / "scenario" / "clue-graph.json").read_text(encoding="utf-8"))
     merged = [
         clue
