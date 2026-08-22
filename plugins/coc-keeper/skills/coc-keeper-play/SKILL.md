@@ -148,7 +148,12 @@ output evidence boundary, not a replacement prose engine:
    a concrete question about an NPC's observable intent, emotion, concealment,
    or reaction, use `rules.psychology_observe` (`coc_rules_psychology_observe`),
    never `rules.roll` and never a public Psychology marker. Settle the exact
-   observer/NPC/conversation/revision window once, then bind only a player-safe
+   observer/NPC/conversation/revision window once. For same-turn grounding,
+   first use `npc.query` and form the exact
+   `npc_fact:<npc_id>/<fact_id>` from its returned `facts[]`; bare IDs and
+   invented text are invalid. Previously delivered evidence uses
+   `clue:<clue_id>` / `event:<event_id>` only after it is player-known. Then
+   bind only a player-safe
    visible realization. An unchanged window reuses its frozen insight; only a
    contract-valid revision event opens a new settlement. Without a concrete
    observable question or behavior, do not roll and do not invent a definitive

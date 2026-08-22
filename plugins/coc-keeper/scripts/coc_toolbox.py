@@ -1230,6 +1230,10 @@ def _error_recovery_hints(code: str) -> list[str]:
             "call rules.psychology_observe action=settle with the exact observer, NPC, conversation window, revision, and concrete observation question; then bind only a player-safe visible_observation with action=realize",
             "repeat observation in the unchanged window/revision through rules.psychology_observe so it returns reuse instead of rolling again",
         ],
+        "psychology_grounding_invalid": [
+            "first call npc.query for the exact target, then copy a returned facts[].fact_id as npc_fact:<npc_id>/<fact_id>; bare fact/clue ids are invalid",
+            "use clue:<clue_id> or event:<event_id> only for an already player-known observation; then settle before realize, and never put keeper truth into visible_observation",
+        ],
         "invalid_param": [
             "call describe for the tool schema, then retry with corrected structured arguments"
         ],
@@ -10039,6 +10043,65 @@ def _resolve_contract_ref(
     }
 
 
+def _resolve_psychology_grounding_ref(
+    ctx: Ctx,
+    source_ref: str,
+    *,
+    target_npc_id: str,
+) -> dict[str, Any]:
+    """Resolve Psychology grounding without treating Keeper truth as leverage.
+
+    Target-bound NPC truth is Keeper-only provenance for the concealed
+    settlement.  Player evidence retains the stricter established-knowledge
+    check used by social leverage.  No source body is projected here.
+    """
+    kind, separator, identifier = source_ref.partition(":")
+    identifier = identifier.strip()
+    if not separator or not kind or not identifier:
+        raise ToolError(
+            "psychology_grounding_invalid",
+            f"invalid Psychology grounding ref {source_ref!r}; use an exact typed ref, not a bare id",
+        )
+    keeper_target_truth = kind in {"npc_agenda", "npc_fact", "npc_state"}
+    player_observation = kind in {"clue", "event"}
+    if not keeper_target_truth and not player_observation:
+        raise ToolError(
+            "psychology_grounding_invalid",
+            "Psychology grounding must be target-bound npc_agenda:/npc_fact:/npc_state: "
+            "or an established player-known clue:/event: ref",
+        )
+    try:
+        resolved = _resolve_contract_ref(
+            ctx,
+            source_ref,
+            require_player_known=player_observation,
+        )
+    except ToolError as exc:
+        if exc.code != "leverage_source_invalid":
+            raise
+        raise ToolError(
+            "psychology_grounding_invalid",
+            f"Psychology grounding {source_ref!r} is unresolved or not established for its required scope",
+        ) from exc
+    if keeper_target_truth:
+        target_matches = (
+            identifier.startswith(target_npc_id + "/")
+            if kind == "npc_fact"
+            else identifier == target_npc_id
+        )
+        if not target_matches:
+            raise ToolError(
+                "psychology_grounding_invalid",
+                "Keeper-truth Psychology grounding must belong to the observed target NPC",
+            )
+    return {
+        **resolved,
+        "grounding_scope": (
+            "keeper_target_truth" if keeper_target_truth else "player_known_observation"
+        ),
+    }
+
+
 def _request_digest(args: dict[str, Any]) -> str:
     return _canonical_digest(args)
 
@@ -10489,7 +10552,7 @@ _PSYCHOLOGY_REVISION_EVENTS = frozenset({
 
 @tool(
     "rules.psychology_observe",
-    "Keeper-concealed Psychology observation: settle once per explicit observer/NPC/conversation/revision window, then bind a separate player-safe realization. Ordinary NPC state deltas never reopen the window.",
+    "Keeper-concealed Psychology observation. Order: (1) call npc.query for the exact target; (2) action=settle with a typed grounding ref such as npc_fact:<npc_id>/<fact_id> copied from returned facts[], or a previously established clue:<clue_id>/event:<event_id>; (3) action=realize with a player-safe realization containing only external behavior. Bare ids are invalid. Settle once per explicit observer/NPC/conversation/revision window and reuse it; Keeper truth is stored only as audit digest and never directly revealed. Ordinary NPC state deltas never reopen the window.",
     {
         "action": {"type": "string", "enum": ["settle", "realize"], "desc": "settle a concealed insight (default) or bind its player-safe realization"},
         "investigator": {"type": "string", "desc": "investigator id (observer)"},
@@ -10499,7 +10562,7 @@ _PSYCHOLOGY_REVISION_EVENTS = frozenset({
         "observation_revision": {"type": "integer", "required": True, "desc": "explicit nonnegative semantic observation revision"},
         "revision_event_ref": {"type": "string", "desc": "required canonical event ref when opening revision > 0"},
         "question": {"type": "string", "required": True, "desc": "the concrete observation question (e.g. 'what is he afraid of?')"},
-        "observable_fact_refs": {"type": "array", "desc": "player-known canonical behavior/fact refs grounding settlement"},
+        "observable_fact_refs": {"type": "array", "desc": "non-empty exact typed refs. Same-turn target truth: npc_fact:<npc_id>/<fact_id> copied from npc.query facts[] (or target-bound npc_agenda:<npc_id>/npc_state:<npc_id>); these remain Keeper-only digest provenance. Previously delivered observation: clue:<clue_id> or event:<event_id>, which must already be player-known. Bare ids and arbitrary text are invalid. Required only for action=settle"},
         "insight_id": {"type": "string", "desc": "settled insight to realize when action=realize"},
         "visible_observation": {"type": "string", "desc": "player-safe external observation used only when action=realize"},
         "seed": {"type": "integer", "desc": "deterministic RNG seed"},
@@ -10615,9 +10678,17 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
         if str(value).strip()
     ]
     if not observable_fact_refs:
-        raise ToolError("invalid_param", "settlement requires observable_fact_refs")
+        raise ToolError(
+            "psychology_grounding_invalid",
+            "action=settle requires at least one exact typed observable_fact_ref; "
+            "call npc.query first and prefer npc_fact:<npc_id>/<fact_id>",
+        )
     resolved_observable_refs = [
-        _resolve_contract_ref(ctx, source_ref, require_player_known=True)
+        _resolve_psychology_grounding_ref(
+            ctx,
+            source_ref,
+            target_npc_id=npc_id,
+        )
         for source_ref in observable_fact_refs
     ]
     existing = observations.get(window_key)
@@ -10761,6 +10832,7 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
         "misread_policy": policy["misread_policy"],
         "outcome": roll_data.get("outcome"),
         "roll_id": roll_data["roll_id"],
+        "observable_fact_refs": deepcopy(resolved_observable_refs),
         "request_digest": _request_digest(args),
     }
     hints = [

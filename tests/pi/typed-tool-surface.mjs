@@ -54,8 +54,11 @@ test("live play exposes the concealed Psychology window contract as an exact too
   assert.ok(psychology);
   assert.ok(play.includes("coc_rules_psychology_observe"));
   assert.match(psychology.description, /Keeper-concealed Psychology observation/);
-  assert.match(psychology.description, /settle once per explicit observer\/NPC\/conversation\/revision window/);
+  assert.match(psychology.description, /settle once per explicit observer\/NPC\/conversation\/revision window/i);
   assert.match(psychology.description, /player-safe realization/);
+  assert.match(psychology.description, /npc_fact:<npc_id>\/<fact_id>/);
+  assert.match(psychology.description, /npc\.query/);
+  assert.match(psychology.description, /Bare ids are invalid/);
 });
 
 test("derived names are deterministic and fail closed on collision", () => {

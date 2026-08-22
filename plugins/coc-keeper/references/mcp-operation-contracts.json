@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:2c09adc67b2783d5a0013a10a77dd7450f436782ff62219cf4001d51580def3a",
+  "content_sha256": "sha256:fdff51ffbedc4ce2182123617d11ce59363e48eb2419c77b12bb9c6802e1a4de",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -2883,7 +2883,7 @@
     "rules.psychology_observe": {
       "access": "mutation",
       "canonical_operation": "rules.psychology_observe",
-      "description": "Keeper-concealed Psychology observation: settle once per explicit observer/NPC/conversation/revision window, then bind a separate player-safe realization. Ordinary NPC state deltas never reopen the window. Canonical operation `rules.psychology_observe`; the result envelope is authoritative.",
+      "description": "Keeper-concealed Psychology observation. Order: (1) call npc.query for the exact target; (2) action=settle with a typed grounding ref such as npc_fact:<npc_id>/<fact_id> copied from returned facts[], or a previously established clue:<clue_id>/event:<event_id>; (3) action=realize with a player-safe realization containing only external behavior. Bare ids are invalid. Settle once per explicit observer/NPC/conversation/revision window and reuse it; Keeper truth is stored only as audit digest and never directly revealed. Ordinary NPC state deltas never reopen the window. Canonical operation `rules.psychology_observe`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2920,7 +2920,7 @@
             "type": "string"
           },
           "observable_fact_refs": {
-            "description": "player-known canonical behavior/fact refs grounding settlement",
+            "description": "non-empty exact typed refs. Same-turn target truth: npc_fact:<npc_id>/<fact_id> copied from npc.query facts[] (or target-bound npc_agenda:<npc_id>/npc_state:<npc_id>); these remain Keeper-only digest provenance. Previously delivered observation: clue:<clue_id> or event:<event_id>, which must already be player-known. Bare ids and arbitrary text are invalid. Required only for action=settle",
             "type": "array"
           },
           "observation_revision": {
@@ -2972,7 +2972,7 @@
           "live_turn"
         ]
       },
-      "summary": "Keeper-concealed Psychology observation: settle once per explicit observer/NPC/conversation/revision window, then bind a separate player-safe realization. Ordinary NPC state deltas never reopen the window."
+      "summary": "Keeper-concealed Psychology observation. Order: (1) call npc.query for the exact target; (2) action=settle with a typed grounding ref such as npc_fact:<npc_id>/<fact_id> copied from returned facts[], or a previously established clue:<clue_id>/event:<event_id>; (3) action=realize with a player-safe realization containing only external behavior. Bare ids are invalid. Settle once per explicit observer/NPC/conversation/revision window and reuse it; Keeper truth is stored only as audit digest and never directly revealed. Ordinary NPC state deltas never reopen the window."
     },
     "rules.push": {
       "access": "mutation",

@@ -281,6 +281,23 @@ def test_social_adjudicate_conflicting_decision_and_duplicate_provenance(campaig
     assert secret["ok"] is False
     assert secret["error"]["code"] == "leverage_source_invalid"
 
+    keeper_fact = _adjudicate(
+        campaign_ws,
+        "adj-keeper-fact-source",
+        leverage=[
+            {
+                "leverage_id": "keeper-fact",
+                "source_ref": f"npc_fact:{campaign_ws['npc_id']}/fact-knott-commission",
+                "independence_group": "keeper-fact",
+                "credibility": "verified",
+                "relevance": "direct",
+                "reason": "undiscovered Keeper fact",
+            },
+        ],
+    )
+    assert keeper_fact["ok"] is False
+    assert keeper_fact["error"]["code"] == "leverage_source_invalid"
+
     bare_public = _adjudicate(
         campaign_ws,
         "adj-undelivered-event",
@@ -394,7 +411,9 @@ def _observe(ws, decision_id: str, **overrides) -> dict:
         "conversation_window_id": "conv-psych",
         "observation_revision": 0,
         "question": "他在害怕谁？",
-        "observable_fact_refs": ["clue:clue-basement-burial-lawsuit"],
+        "observable_fact_refs": [
+            f"npc_fact:{ws['npc_id']}/fact-knott-commission"
+        ],
         "seed": 7,
         "decision_id": decision_id,
     }
@@ -407,6 +426,12 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert first["ok"] is True, first
     assert first["data"]["resolution"] == "settled"
     assert "visible_observation" not in first["data"]
+    assert first["data"]["observable_fact_refs"][0]["kind"] == "npc_fact"
+    assert first["data"]["observable_fact_refs"][0]["player_known"] is False
+    assert (
+        first["data"]["observable_fact_refs"][0]["grounding_scope"]
+        == "keeper_target_truth"
+    )
     roll_id = first["data"]["roll_id"]
 
     rows = {
@@ -466,8 +491,19 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert reopened["data"]["insight_id"] == first["data"]["insight_id"]
     assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 1
 
-    with (campaign_ws["campaign_dir"] / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"event_id": "event-decisive", "event_type": "decisive_evidence_presented", "visibility": "public"}) + "\n")
+    with (campaign_ws["campaign_dir"] / "logs" / "events.jsonl").open(
+        "a", encoding="utf-8"
+    ) as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "event_id": "event-decisive",
+                    "event_type": "decisive_evidence_presented",
+                    "visibility": "public",
+                }
+            )
+            + "\n"
+        )
     decisive = _observe(
         campaign_ws,
         "psych-4",
@@ -487,6 +523,43 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert reused_boundary["ok"] is False
     assert reused_boundary["error"]["code"] == "observation_revision_invalid"
 
+
+@pytest.mark.parametrize(
+    "source_ref",
+    [
+        "fact-knott-commission",
+        "clue-knott-commission",
+        "npc_fact:npc-steven-knott/fact-does-not-exist",
+        "npc_fact:npc-dooley/fact-dooley-macario",
+    ],
+)
+def test_psychology_grounding_rejects_bare_unknown_and_other_npc_refs(
+    campaign_ws, source_ref
+):
+    rejected = _observe(
+        campaign_ws,
+        f"psych-bad-grounding-{source_ref}",
+        observable_fact_refs=[source_ref],
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "psychology_grounding_invalid"
+    assert "npc_fact:<npc_id>/<fact_id>" in rejected["hints"][0]
+
+
+def test_psychology_can_still_use_a_canonical_player_known_clue(campaign_ws):
+    observed = _observe(
+        campaign_ws,
+        "psych-player-known-clue",
+        conversation_window_id="conv-player-known-clue",
+        observable_fact_refs=["clue:clue-basement-burial-lawsuit"],
+    )
+    assert observed["ok"] is True, observed
+    assert observed["data"]["observable_fact_refs"][0]["kind"] == "clue"
+    assert observed["data"]["observable_fact_refs"][0]["player_known"] is True
+    assert (
+        observed["data"]["observable_fact_refs"][0]["grounding_scope"]
+        == "player_known_observation"
+    )
 
 def test_psychology_policy_uses_real_coc_outcome_vocabulary():
     resolver = _load(

@@ -142,7 +142,13 @@ contract above still applies. This is the natural rhythm:
    **Psychology runs keeper-concealed by default.** Use
    `rules.psychology_observe` in two steps. First `action=settle` binds
    `observer_scope + npc_id + conversation_window_id + observation_revision`
-   to player-known `observable_fact_refs` and settles one hidden roll. Use the
+   to exact typed `observable_fact_refs` and settles one hidden roll. For a
+   first meeting or same-turn observation, call `npc.query` for the exact
+   target and form `npc_fact:<npc_id>/<fact_id>` from a returned `facts[]`
+   row. This target-bound Keeper truth is digest-only audit grounding, not
+   strategic leverage and not player knowledge. Previously delivered
+   observations use `clue:<clue_id>` or `event:<event_id>` only after they are
+   player-known. Bare IDs and arbitrary free text are invalid. Use the
    selected party investigator id or literal `team:party` as the entry; both
    normalize to the same canonical current-party window, while the selected
    `investigator` remains the skill owner. Never invent team aliases. Then

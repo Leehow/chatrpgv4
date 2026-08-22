@@ -183,7 +183,12 @@ visible `coc_session_resume` tool, then call visible
   it a Psychology check. Never use public or keeper-only `coc_rules_roll` for
   Psychology. First call `action=settle` with the current observer, NPC,
   direct-conversation window, semantic observation revision, and concrete
-  question; then call `action=realize` for that `insight_id` with only the
+  question. Before settle, call `npc.query` for that exact NPC and copy a
+  returned `facts[].fact_id` into the exact typed form
+  `npc_fact:<npc_id>/<fact_id>` for same-turn Keeper-only truth grounding;
+  never pass a bare fact/clue id or invented text. A `clue:<clue_id>` or
+  `event:<event_id>` grounding is valid only after it is player-known. Then
+  call `action=realize` for that `insight_id` with only the
   player-safe external observation you will narrate. The concealed die,
   outcome, and NPC truth never enter player prose. Repeating the same
   window/revision reuses the frozen insight instead of rolling again. A new
