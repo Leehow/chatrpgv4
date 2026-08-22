@@ -1211,6 +1211,7 @@ def refresh_pending_window(
             row.get("ok") is True
             and row.get("tool") == "state.journal"
             and args.get("decision_id") == manifest["journal_decision_id"]
+            and row.get("idempotent_replay") is not True
         ):
             journal_position = position
             journal_row = row
@@ -1221,7 +1222,11 @@ def refresh_pending_window(
             "the journal state committed but its toolbox receipt is not yet durable; retry turn.output_context",
         )
 
-    selected = [deepcopy(row) for row, _end in rows[: journal_position + 1]]
+    selected = [
+        deepcopy(row)
+        for row, _end in rows[: journal_position + 1]
+        if row.get("idempotent_replay") is not True
+    ]
     repairs: list[dict[str, Any]] = []
     retry_boundary_seen = False
     for row, _row_end in rows[journal_position + 1 :]:
@@ -1236,22 +1241,29 @@ def refresh_pending_window(
             # same validation and never writes a receipt, so it cannot be a
             # post-journal settlement.
             continue
-        if row.get("idempotent_replay") is True:
-            # The dispatcher emits this marker only after a read-only proof
-            # that the exact source receipt, event, and ledger were already
-            # complete before state.journal.  It is not a later settlement.
-            if tool != "state.record_npc_engagement":
-                raise TurnManifestError(
-                    "state_corrupt",
-                    "unsupported post-journal idempotent replay marker",
-                )
-            continue
         if tool == "state.journal":
             if args.get("decision_id") == manifest["journal_decision_id"]:
+                # Exact journal retries remain append-only transport/audit
+                # evidence. The original unmarked receipt continues to own the
+                # frozen source boundary and digest.
                 continue
             # A different journal after ours means a retry attempt started.
             # All subsequent rows belong to that retry, not to our turn.
             retry_boundary_seen = True
+            continue
+        if row.get("idempotent_replay") is True:
+            # The dispatcher emits this marker only after durable proof that
+            # the exact state result already existed. These two state tools are
+            # the only non-journal state operations permitted to reach this
+            # post-journal scan; their exact replay is audit, not settlement.
+            if tool not in {
+                "state.record_npc_engagement",
+                "state.exceptional_effect",
+            }:
+                raise TurnManifestError(
+                    "state_corrupt",
+                    "unsupported post-journal idempotent replay marker",
+                )
             continue
         if retry_boundary_seen:
             continue
