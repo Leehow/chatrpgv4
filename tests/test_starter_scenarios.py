@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -480,6 +481,116 @@ def test_install_starter_the_haunting_copies_scenario_files(tmp_path):
     starts = [s for s in story["scenes"] if s.get("is_start")]
     assert len(starts) == 1
     assert starts[0]["scene_edges"], "start scene must declare real scene_edges"
+
+
+def test_install_starter_the_haunting_copies_optional_original_handout_store(
+    tmp_path,
+):
+    root = tmp_path / ".coc"
+    import coc_state  # noqa: E402
+
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "haunt-handout", "Handout Test", era="1920s")
+
+    scenario_dir = coc_starter.install_starter(
+        root, "haunt-handout", "the-haunting"
+    )
+
+    store = json.loads((scenario_dir / "handouts.json").read_text("utf-8"))
+    assert store["schema_version"] == 1
+    assert len(store["handouts"]) == 1
+    card = store["handouts"][0]
+    assert card["asset_id"] == "handout-globe-unpublished-1918"
+    assert card["origin"] == "starter-original-derivative"
+    assert card["source_refs"] == [
+        "starter-original-derivative:the-haunting:globe-unpublished-1918"
+    ]
+    assert card["provenance"]["authority"] == "starter_original_derivative"
+    assert isinstance(card["text"], str) and card["text"].strip()
+    assert isinstance(card["localized_text"], str) and card["localized_text"].strip()
+    assert sorted(card["clue_refs"]) == [
+        "clue-globe-unpublished-story",
+        "clue-macario-tragedy",
+    ]
+
+    graph = json.loads((scenario_dir / "clue-graph.json").read_text("utf-8"))
+    linked = {
+        clue["clue_id"]: clue.get("handout_asset_id")
+        for conclusion in graph["conclusions"]
+        for clue in conclusion.get("clues", [])
+        if clue.get("clue_id") in set(card["clue_refs"])
+    }
+    assert linked == {
+        "clue-globe-unpublished-story": card["asset_id"],
+        "clue-macario-tragedy": card["asset_id"],
+    }
+
+
+def test_install_starter_rejects_orphan_player_handout_before_copy(
+    tmp_path,
+    monkeypatch,
+):
+    starter_root = tmp_path / "starters"
+    invalid = starter_root / "invalid-handout-starter"
+    shutil.copytree(
+        PLUGIN_ROOT / "references" / "starter-scenarios" / "the-haunting",
+        invalid,
+    )
+    graph_path = invalid / "clue-graph.json"
+    graph = json.loads(graph_path.read_text("utf-8"))
+    target = next(
+        clue
+        for conclusion in graph["conclusions"]
+        for clue in conclusion.get("clues", [])
+        if clue.get("clue_id") == "clue-globe-unpublished-story"
+    )
+    target.pop("handout_asset_id")
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    monkeypatch.setattr(coc_starter, "STARTER_DIR", starter_root)
+
+    root = tmp_path / ".coc"
+    coc_starter.coc_state.ensure_workspace(root)
+    coc_starter.coc_state.create_campaign(
+        root, "invalid-handout-campaign", "Invalid Handout", era="1920s"
+    )
+
+    with pytest.raises(ValueError, match="handout_asset_id"):
+        coc_starter.install_starter(
+            root,
+            "invalid-handout-campaign",
+            "invalid-handout-starter",
+        )
+
+    scenario_dir = root / "campaigns" / "invalid-handout-campaign" / "scenario"
+    assert not any(
+        (scenario_dir / filename).exists()
+        for filename in coc_starter.STARTER_SCENARIO_FILES
+    )
+
+    with pytest.raises(ValueError, match="handout_asset_id"):
+        coc_starter.quick_start(
+            root,
+            "invalid-handout-starter",
+            None,
+            campaign_id="invalid-handout-quick-start",
+        )
+    assert not (
+        root / "campaigns" / "invalid-handout-quick-start"
+    ).exists()
+
+
+def test_all_shipped_player_handout_clues_have_one_valid_visible_card():
+    import coc_scenario_compile  # noqa: E402
+
+    for starter in sorted(coc_starter.STARTER_DIR.iterdir()):
+        if not starter.is_dir():
+            continue
+        result = coc_scenario_compile.validate_scenario(starter)
+        handout_errors = [
+            error for error in result["errors"]
+            if "handout" in error
+        ]
+        assert handout_errors == [], f"{starter.name}: {handout_errors}"
 
 
 def test_the_haunting_passes_r5_validator_with_zero_errors():

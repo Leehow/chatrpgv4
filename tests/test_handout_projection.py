@@ -126,6 +126,7 @@ def _handout_pack(**overrides):
         "localized_text": "第二页逐字信件正文。",
         "when_to_deliver": "调查员检查书桌时",
         "source_refs": ["pdf_index-2"],
+        "clue_refs": ["clue-letter"],
         "player_visible": True,
         "parse_state": "deep",
         "evidence_gap": False,
@@ -178,6 +179,7 @@ def test_deep_handout_pack_reapplies_into_campaign_ir(tmp_path):
     assert card["text"] == "The verbatim letter body from page 2."
     assert card["localized_text"] == "第二页逐字信件正文。"
     assert card["source_refs"] == ["pdf_index-2"]
+    assert card["clue_refs"] == ["clue-letter"]
     assert card["player_visible"] is True
     assert card["parse_state"] == "deep"
     # Machinery evidence fields do not leak into the card record.
@@ -200,6 +202,42 @@ def test_merge_deep_entity_into_ir_supports_handout_and_upserts(tmp_path):
     cards = ir["handouts.json"]["handouts"]
     assert len(cards) == 1
     assert cards[0]["title"] == "未署名的信（修订）"
+
+
+@pytest.mark.parametrize(
+    "merge_order",
+    [("clue", "handout"), ("handout", "clue")],
+)
+def test_deep_clue_and_handout_merge_order_preserves_reverse_link(merge_order):
+    ir = project.project_skeleton_to_ir(_skeleton())
+    packs = {
+        "clue": {
+            "clue_id": "clue-letter",
+            "conclusion_id": "conclusion-letter",
+            "delivery_kind": "handout",
+            "visibility": "player-safe",
+            "player_safe_summary": "A letter was recovered.",
+            "parse_state": "deep",
+            "evidence_gap": False,
+        },
+        "handout": _handout_pack(),
+    }
+
+    for kind in merge_order:
+        ir = project.merge_deep_entity_into_ir(ir, kind, packs[kind])
+
+    clue = next(
+        row
+        for conclusion in ir["clue-graph.json"]["conclusions"]
+        for row in conclusion.get("clues", [])
+        if row.get("clue_id") == "clue-letter"
+    )
+    card = next(
+        row for row in ir["handouts.json"]["handouts"]
+        if row.get("asset_id") == "handout-letter"
+    )
+    assert "handout_asset_id" not in clue
+    assert card["clue_refs"] == ["clue-letter"]
 
 
 @pytest.mark.parametrize(

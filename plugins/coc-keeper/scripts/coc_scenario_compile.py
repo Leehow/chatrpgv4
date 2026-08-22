@@ -43,6 +43,7 @@ coc_director_strategies = _load_sibling(
 coc_mechanics = _load_sibling(
     "coc_mechanics_scenario_compile", "coc_mechanics.py"
 )
+coc_scenario = _load_sibling("coc_scenario_compile_cards", "coc_scenario.py")
 
 import coc_pdf_source
 import coc_epistemic_lifecycle
@@ -1817,6 +1818,92 @@ def _check_mechanics_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
     return findings
 
 
+def _check_handout_link_contract(
+    compiled: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Validate structured player-handout clue identity linkage."""
+    findings: list[dict[str, str]] = []
+    declared_cards: dict[str, dict[str, Any]] = {}
+    valid_cards: dict[str, dict[str, Any]] = {}
+    assets_by_clue: dict[str, set[str]] = {}
+    for index, card in enumerate(
+        (compiled.get("handouts") or {}).get("handouts") or []
+    ):
+        if not isinstance(card, dict):
+            continue
+        asset_id = str(card.get("asset_id") or "").strip()
+        if not asset_id:
+            continue
+        declared_cards[asset_id] = card
+        if not coc_scenario.validate_handout_card(
+            card, prefix=f"handouts.handouts[{index}]"
+        ):
+            valid_cards[asset_id] = card
+            for raw_ref in card.get("clue_refs") or []:
+                clue_ref = str(raw_ref).strip()
+                if clue_ref:
+                    assets_by_clue.setdefault(clue_ref, set()).add(asset_id)
+    for path, clue in _iter_clues(compiled):
+        if (
+            str(clue.get("delivery_kind") or "") != "handout"
+            or str(clue.get("visibility") or "") != "player-safe"
+        ):
+            continue
+        clue_id = str(clue.get("clue_id") or "").strip()
+        asset_id = str(clue.get("handout_asset_id") or "").strip()
+        if not asset_id:
+            findings.append(_finding(
+                "handout_link_missing",
+                "error",
+                f"clue '{clue_id}' is player-safe delivery_kind=handout but "
+                "has no non-empty handout_asset_id",
+                path=path,
+            ))
+            continue
+        if asset_id not in declared_cards:
+            findings.append(_finding(
+                "unknown_handout",
+                "error",
+                f"clue '{clue_id}' references handout '{asset_id}', but it is "
+                "not a registered valid card",
+                path=path,
+            ))
+        elif asset_id not in valid_cards:
+            findings.append(_finding(
+                "invalid_handout_card",
+                "error",
+                f"clue '{clue_id}' references handout '{asset_id}', but the "
+                "registered card is invalid",
+                path=path,
+            ))
+        elif valid_cards[asset_id].get("player_visible", True) is not True:
+            findings.append(_finding(
+                "handout_not_player_visible",
+                "error",
+                f"clue '{clue_id}' requires handout '{asset_id}' to be "
+                "player_visible:true",
+                path=path,
+            ))
+        reverse_ids = sorted(assets_by_clue.get(clue_id, set()))
+        if len(reverse_ids) > 1:
+            findings.append(_finding(
+                "handout_link_ambiguous",
+                "error",
+                f"clue '{clue_id}' is referenced by multiple valid cards: "
+                f"{', '.join(reverse_ids)}",
+                path=path,
+            ))
+        elif reverse_ids and reverse_ids[0] != asset_id:
+            findings.append(_finding(
+                "handout_link_conflict",
+                "error",
+                f"clue '{clue_id}' explicitly references '{asset_id}' but "
+                f"valid card '{reverse_ids[0]}' claims it through clue_refs",
+                path=path,
+            ))
+    return findings
+
+
 def validate_compiled_scenario(
     compiled: dict[str, Any],
     source_segments: list[dict[str, Any]] | None = None,
@@ -1848,6 +1935,7 @@ def validate_compiled_scenario(
     findings.extend(_check_threat_clock_identity_contract(compiled))
     findings.extend(_check_npc_disclosure_contract(compiled))
     findings.extend(_check_mechanics_contract(compiled))
+    findings.extend(_check_handout_link_contract(compiled))
     findings.extend(_check_time_loop_signal_contract(compiled))
     findings.extend(_check_epistemic_sidecars(compiled, id_maps))
     findings.extend(_check_source_evidence(
@@ -1910,6 +1998,30 @@ def doctor(*, rules_dir: Path | None = None) -> list[dict[str, Any]]:
     return results
 
 
+def _load_compiled_handouts(scenario_dir: Path) -> dict[str, Any]:
+    """Merge static card stores with the same index→scenario authority order."""
+    cards: dict[str, Any] = {}
+    index_path = scenario_dir.parent / "index" / "handout-assets.json"
+    if index_path.exists():
+        index_doc = _read(index_path)
+        if isinstance(index_doc, dict):
+            for card in index_doc.get("assets") or []:
+                if isinstance(card, dict):
+                    asset_id = str(card.get("asset_id") or "").strip()
+                    if asset_id:
+                        cards[asset_id] = card
+    scenario_path = scenario_dir / "handouts.json"
+    if scenario_path.exists():
+        scenario_doc = _read(scenario_path)
+        if isinstance(scenario_doc, dict):
+            for card in scenario_doc.get("handouts") or []:
+                if isinstance(card, dict):
+                    asset_id = str(card.get("asset_id") or "").strip()
+                    if asset_id:
+                        cards[asset_id] = card
+    return {"schema_version": 1, "handouts": list(cards.values())}
+
+
 def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
     """Load on-disk scenario JSON files into the in-memory compiled shape."""
     return {
@@ -1921,6 +2033,7 @@ def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
         "epistemic_graph": _read(scenario_dir / "epistemic-graph.json") if (scenario_dir / "epistemic-graph.json").exists() else {},
         "reveal_contracts": _read(scenario_dir / "reveal-contracts.json") if (scenario_dir / "reveal-contracts.json").exists() else {},
         "compile_confidence": _read(scenario_dir / "compile-confidence.json") if (scenario_dir / "compile-confidence.json").exists() else {},
+        "handouts": _load_compiled_handouts(scenario_dir),
     }
 
 
@@ -2233,6 +2346,7 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
     compiled = load_compiled_from_dir(scenario_dir)
     epi_findings = _check_epistemic_sidecars(compiled, _collect_id_maps(compiled))
     epi_findings.extend(_check_mechanics_contract(compiled))
+    epi_findings.extend(_check_handout_link_contract(compiled))
     index_dir = scenario_dir.parent / "index"
     source_bundle = None
     if (index_dir / "page-map.json").exists() or (index_dir / "parse-manifest.json").exists():

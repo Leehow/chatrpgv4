@@ -24104,6 +24104,31 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                 "or consciously rule a free reveal"
             )
 
+    # Resolve the current-schema player handout contract before constructing
+    # either discovery document.  Missing, ambiguous, conflicting, unknown, or
+    # hidden linkage therefore leaves both world and flags byte-for-byte
+    # untouched.  This uses structured ids only; prose is never classified.
+    linked_handout_id: str | None = None
+    linked_handout_newly: list[str] = []
+    linkage_skipped_hidden_card = False
+    handout_catalog: coc_handouts.HandoutCatalog | None = None
+    if (
+        clue is not None
+        and str(clue.get("delivery_kind") or "") == "handout"
+        and str(clue.get("visibility") or "") == "player-safe"
+    ):
+        handout_catalog = coc_handouts.HandoutCatalog.load(ctx)
+        try:
+            linkage = handout_catalog.resolve_clue_delivery(
+                world,
+                clue_id,
+                str(clue.get("handout_asset_id") or "").strip() or None,
+            )
+        except coc_handouts.HandoutError as exc:
+            raise ToolError(exc.code, exc.message) from exc
+        linked_handout_id = linkage.asset_id
+        linked_handout_newly = list(linkage.newly)
+
     scene_contract = (
         (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
     )
@@ -24144,15 +24169,12 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     newly_unlocked = _evaluate_and_apply_unlocks(
         ctx, world, clue_records=clues_found
     )
-    # Same-transaction linkage: a clue carrying an explicitly registered
-    # handout delivers that player-visible card with the clue discovery.
-    linked_handout_id: str | None = None
-    linked_handout_newly: list[str] = []
-    linkage_skipped_hidden_card = False
-    if clue is not None:
+    # Same-transaction linkage: preserve the existing best-effort behavior for
+    # non-handout clues that carry an explicitly registered companion card.
+    if clue is not None and linked_handout_id is None:
         asset_id = str(clue.get("handout_asset_id") or "").strip()
         if asset_id:
-            linkage = coc_handouts.HandoutCatalog.load(ctx).link_delivery(
+            linkage = (handout_catalog or coc_handouts.HandoutCatalog.load(ctx)).link_delivery(
                 world, asset_id
             )
             linked_handout_id = linkage.asset_id

@@ -111,7 +111,7 @@ def _valid_scenario(root: Path) -> Path:
         "origin": "source",
         "clues": [
             {"clue_id": "clue-a", "delivery_kind": "obvious", "visibility": "player-safe", "player_safe_summary": "An altered date.", "leads_to": ["finale"], "origin": "source"},
-            {"clue_id": "clue-b", "delivery_kind": "handout", "visibility": "player-safe", "player_safe_summary": "A preserved name.", "leads_to": ["finale"], "origin": "source"},
+            {"clue_id": "clue-b", "delivery_kind": "handout", "visibility": "player-safe", "player_safe_summary": "A preserved name.", "handout_asset_id": "handout-clue-b", "leads_to": ["finale"], "origin": "source"},
             {"clue_id": "clue-c", "delivery_kind": "environmental", "visibility": "player-safe", "player_safe_summary": "A sealed room.", "leads_to": ["finale"], "origin": "source"},
         ],
     }]})
@@ -125,6 +125,17 @@ def _valid_scenario(root: Path) -> Path:
             "id": "secret-x",
             "category": "cult",
             "description": "RAW KEEPER PROSE MUST NOT LEAK",
+        }],
+    })
+    _write_json(scenario / "handouts.json", {
+        "schema_version": 1,
+        "handouts": [{
+            "asset_id": "handout-clue-b",
+            "kind": "document",
+            "text": "Exact fixture handout body.",
+            "source_refs": ["starter-original-derivative:test:clue-b"],
+            "player_visible": True,
+            "clue_refs": ["clue-b"],
         }],
     })
     return scenario

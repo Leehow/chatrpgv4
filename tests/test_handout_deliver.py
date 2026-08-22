@@ -290,7 +290,9 @@ def test_malformed_progressive_entities_cannot_be_queried_or_delivered(campaign_
         _write_json(entities / f"handout-{handout_id}.json", pack)
 
     keeper = _run(campaign_ws, "clues.query", {})
-    assert keeper["data"]["handouts"]["cards"] == []
+    assert [
+        card["asset_id"] for card in keeper["data"]["handouts"]["cards"]
+    ] == ["handout-globe-unpublished-1918"]
     assert "must stay secret" not in json.dumps(keeper, ensure_ascii=False)
     for index, handout_id in enumerate(malformed):
         result = _run(campaign_ws, "state.deliver_handout", {
@@ -323,6 +325,55 @@ def _add_clue_with_handout(ws) -> None:
     path.write_text(
         json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
     )
+
+
+def _append_handout_clue(
+    ws,
+    *,
+    clue_id: str,
+    handout_asset_id: str | None = None,
+) -> None:
+    path = ws["campaign_dir"] / "scenario" / "clue-graph.json"
+    graph = json.loads(path.read_text(encoding="utf-8"))
+    clue = {
+        "clue_id": clue_id,
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+        "player_safe_summary": f"Player-safe summary for {clue_id}.",
+    }
+    if handout_asset_id is not None:
+        clue["handout_asset_id"] = handout_asset_id
+    graph["conclusions"].append({
+        "conclusion_id": f"conclusion-{clue_id}",
+        "importance": "supporting",
+        "minimum_routes": 1,
+        "clues": [clue],
+    })
+    _write_json(path, graph)
+
+
+def _install_deep_cards(ws, cards: list[dict]) -> None:
+    root_id = "deep-linked-handouts"
+    _write_json(ws["campaign_dir"] / "scenario" / "scenario.json", {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "progressive_asset_root_id": root_id,
+    })
+    entities = ws["coc_root"] / "module-assets" / root_id / "entities"
+    for card in cards:
+        asset_id = card["asset_id"]
+        _write_json(entities / f"handout-{asset_id}.json", {
+            "handout_id": asset_id,
+            "kind": "document",
+            "title": f"Deep card {asset_id}",
+            "text": f"Exact deep body for {asset_id}.",
+            "localized_text": f"{asset_id} 的深层卡片正文。",
+            "source_refs": ["pdf_index-0"],
+            "player_visible": True,
+            "parse_state": "deep",
+            "evidence_gap": False,
+            **card,
+        })
 
 
 def test_record_clue_delivers_linked_handout_same_transaction(campaign_ws):
@@ -359,10 +410,161 @@ def test_record_clue_delivers_linked_handout_same_transaction(campaign_ws):
     assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
 
 
+def test_fresh_quick_start_shipped_clues_deliver_one_card_exactly_once(
+    campaign_ws,
+):
+    first = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-globe-unpublished-story",
+        "method": "newspaper research",
+        "decision_id": "fresh-handout-first",
+    })
+    second = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-macario-tragedy",
+        "method": "read the same feature",
+        "decision_id": "fresh-handout-second",
+    })
+
+    asset_id = "handout-globe-unpublished-1918"
+    assert first["ok"] is True, first
+    assert second["ok"] is True, second
+    assert first["data"]["delivered_handout_id"] == asset_id
+    assert second["data"]["delivered_handout_id"] == asset_id
+    world = _world(campaign_ws)
+    assert world["delivered_handout_ids"] == [asset_id]
+    assert world["discovered_clue_ids"].count(
+        "clue-globe-unpublished-story"
+    ) == 1
+    assert world["discovered_clue_ids"].count("clue-macario-tragedy") == 1
+    delivered = [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+        and event.get("asset_id") == asset_id
+    ]
+    assert len(delivered) == 1
+
+
+@pytest.mark.parametrize("write_order", ["clue-first", "card-first"])
+def test_record_clue_resolves_unique_deep_card_reverse_ref_in_either_merge_order(
+    campaign_ws,
+    write_order,
+):
+    clue_id = f"clue-deep-reverse-{write_order}"
+    card = {
+        "asset_id": f"handout-deep-reverse-{write_order}",
+        "clue_refs": [clue_id],
+    }
+    if write_order == "clue-first":
+        _append_handout_clue(campaign_ws, clue_id=clue_id)
+        _install_deep_cards(campaign_ws, [card])
+    else:
+        _install_deep_cards(campaign_ws, [card])
+        _append_handout_clue(campaign_ws, clue_id=clue_id)
+
+    first = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "source-backed research",
+        "decision_id": f"discover-{write_order}",
+    })
+    replay = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "source-backed research",
+        "decision_id": f"discover-{write_order}",
+    })
+
+    assert first["ok"] is True, first
+    assert first["data"]["delivered_handout_id"] == card["asset_id"]
+    assert replay["data"] == first["data"]
+    world = _world(campaign_ws)
+    assert world["discovered_clue_ids"].count(clue_id) == 1
+    assert world["delivered_handout_ids"].count(card["asset_id"]) == 1
+    delivery_events = [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+        and event.get("asset_id") == card["asset_id"]
+    ]
+    assert len(delivery_events) == 1
+
+
+@pytest.mark.parametrize(
+    ("explicit_id", "cards", "error_code"),
+    [
+        (None, [], "handout_link_missing"),
+        (
+            None,
+            [{
+                "asset_id": "handout-near-match",
+                "clue_refs": ["clue-bad-link-extra"],
+                "when_to_deliver": "prose mentions clue-bad-link",
+            }],
+            "handout_link_missing",
+        ),
+        ("handout-unknown", [], "unknown_handout"),
+        (
+            "handout-explicit",
+            [
+                {"asset_id": "handout-explicit"},
+                {"asset_id": "handout-reverse", "clue_refs": ["clue-bad-link"]},
+            ],
+            "handout_link_conflict",
+        ),
+        (
+            None,
+            [
+                {"asset_id": "handout-a", "clue_refs": ["clue-bad-link"]},
+                {"asset_id": "handout-b", "clue_refs": ["clue-bad-link"]},
+            ],
+            "handout_link_ambiguous",
+        ),
+        (
+            None,
+            [{
+                "asset_id": "handout-hidden",
+                "clue_refs": ["clue-bad-link"],
+                "player_visible": False,
+            }],
+            "handout_not_player_visible",
+        ),
+    ],
+)
+def test_record_clue_invalid_handout_link_fails_before_discovery_write(
+    campaign_ws,
+    explicit_id,
+    cards,
+    error_code,
+):
+    _append_handout_clue(
+        campaign_ws,
+        clue_id="clue-bad-link",
+        handout_asset_id=explicit_id,
+    )
+    if cards:
+        _install_deep_cards(campaign_ws, cards)
+    before_world = _world(campaign_ws)
+    flags_path = campaign_ws["campaign_dir"] / "save" / "flags.json"
+    before_flags = flags_path.read_bytes()
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-bad-link",
+        "method": "invalid structured linkage",
+        "decision_id": f"reject-{error_code}",
+    })
+
+    assert result["ok"] is False, result
+    assert result["error"]["code"] == error_code
+    assert _world(campaign_ws) == before_world
+    assert flags_path.read_bytes() == before_flags
+    assert not [
+        event for event in _events(campaign_ws)
+        if event.get("clue_id") == "clue-bad-link"
+    ]
+
+
 def test_record_clue_without_card_linkage_is_unchanged(campaign_ws):
     before = _run(campaign_ws, "clues.query", {})
     assert before["ok"] is True
-    assert before["data"]["handouts"]["cards"] == []
+    assert [
+        card["asset_id"] for card in before["data"]["handouts"]["cards"]
+    ] == ["handout-globe-unpublished-1918"]
 
     result = _run(campaign_ws, "state.record_clue", {
         "clue_id": "clue-house-built-1835",
@@ -672,7 +874,7 @@ def test_deliver_handout_refuses_keeper_facing_card(campaign_ws):
     ]
 
 
-def test_record_clue_linkage_skips_keeper_facing_card(campaign_ws):
+def test_record_clue_linkage_refuses_keeper_facing_card_before_discovery(campaign_ws):
     _install_cards(campaign_ws)
     path = campaign_ws["campaign_dir"] / "scenario" / "clue-graph.json"
     graph = json.loads(path.read_text(encoding="utf-8"))
@@ -698,11 +900,9 @@ def test_record_clue_linkage_skips_keeper_facing_card(campaign_ws):
         "decision_id": "clue-kp-notes",
     })
 
-    assert result["ok"] is True, result
-    assert result["data"]["delivered_handout_id"] is None
-    assert any(
-        "player_visible:false" in hint for hint in result["hints"]
-    )
+    assert result["ok"] is False, result
+    assert result["error"]["code"] == "handout_not_player_visible"
+    assert "clue-kp-marginalia" not in _world(campaign_ws)["discovered_clue_ids"]
     assert "delivered_handout_ids" not in _world(campaign_ws)
     assert not [
         e for e in _events(campaign_ws)
