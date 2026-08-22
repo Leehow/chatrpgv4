@@ -246,6 +246,53 @@ const built = await mod.executeSourceAssetTool({
     source_bundle_path: bundle,
   },
 });
+
+async function writeFreshPdfCampaign(campaignId, assetRootId) {
+  const scenarioDir = path.join(
+    workspace, ".coc", "campaigns", campaignId, "scenario",
+  );
+  await mkdir(scenarioDir, { recursive: true });
+  await writeFile(path.join(scenarioDir, "scenario.json"), `${JSON.stringify({
+    schema_version: 1,
+    source_cache_asset_root_id: assetRootId,
+    source: {
+      bundle_sha256: bundleSha,
+      source_bundle_path: bundle,
+    },
+  }, null, 2)}\n`);
+}
+
+const freshCampaignId = "fresh-pdf-direct";
+await writeFreshPdfCampaign(freshCampaignId, "fresh-pdf-direct-root");
+const freshCatalog = await mod.executeSourceAssetTool({
+  cwd: workspace,
+  campaign_id: freshCampaignId,
+  params: { operation: "catalog" },
+});
+assert.equal(freshCatalog.status, "cataloged");
+assert.equal(freshCatalog.catalog.asset_root_id, "fresh-pdf-direct-root");
+assert.equal(
+  freshCatalog.catalog.source_bundle_path,
+  path.relative(workspace, bundle),
+);
+assert.ok(freshCatalog.catalog.assets.length > 0);
+const freshPlan = await mod.executeSourceAssetTool({
+  cwd: workspace,
+  campaign_id: freshCampaignId,
+  params: {
+    operation: "plan_delivery",
+    asset_id: freshCatalog.asset_ids[0],
+    handouts: [{
+      asset_id: freshCatalog.asset_ids[0],
+      player_visible: true,
+      image_ref: freshCatalog.catalog.assets[0].image_ref,
+    }],
+  },
+});
+assert.deepEqual(freshPlan.delivery, {
+  path: "state.deliver_handout",
+  handout_id: freshCatalog.asset_ids[0],
+});
 assert.equal(built.status, "cataloged");
 assert.equal(built.catalog.assets.length, 4);
 assert.deepEqual(built.asset_ids, first.assets.map((row) => row.asset_id));
@@ -322,6 +369,7 @@ const indexSource = await readFile(
 );
 assert.match(indexSource, /name: SOURCE_ASSET_TOOL_NAME/);
 assert.match(indexSource, /executeSourceAssetTool/);
+assert.match(indexSource, /campaign_id: startupResumeGate\?\.campaignId/);
 
 process.stdout.write(JSON.stringify({
   ok: true,
@@ -334,6 +382,7 @@ process.stdout.write(JSON.stringify({
     "semantic-associate-and-query",
     "visibility-and-delivery",
     "tool-persist-roundtrip",
-    "host-tool-wired",
+    "fresh-campaign-auto-binding-and-delivery",
+    "host-tool-wired-static",
   ],
 }));
