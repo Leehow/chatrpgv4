@@ -104,6 +104,42 @@ def _pregen_equipment_zh(pregen_id: str) -> list[str] | None:
     return list(labels) if labels is not None else None
 
 
+def _localized_pregen_skill_label(key: str) -> str:
+    """Authored starter map, then table vocabulary, then the machine key."""
+    mapped = _ZH_SKILLS.get(key)
+    if isinstance(mapped, str) and mapped.strip():
+        return mapped
+    try:
+        import coc_language
+    except ImportError:
+        return key
+    label = coc_language.player_facing_skill_label(key, "zh-Hans")
+    if isinstance(label, str) and label.strip():
+        return label
+    return key
+
+
+def _refresh_stale_pregen_skill_labels(skills: Any) -> list[Any] | None:
+    """Replace PF skill labels that merely echo the English machine key."""
+    if not isinstance(skills, list) or not skills:
+        return None
+    refreshed: list[Any] = []
+    changed = False
+    for entry in skills:
+        if not isinstance(entry, dict) or not entry.get("key"):
+            refreshed.append(entry)
+            continue
+        key = str(entry["key"])
+        current = str(entry.get("label") or key)
+        localized = _localized_pregen_skill_label(key)
+        if current == key and localized != key:
+            entry = dict(entry)
+            entry["label"] = localized
+            changed = True
+        refreshed.append(entry)
+    return refreshed if changed else None
+
+
 def _player_facing_equipment_labels(equipment: Any) -> list[str]:
     """Normalize a player-facing equipment list into display strings."""
     if not isinstance(equipment, list):
@@ -127,15 +163,24 @@ def ensure_pregen_player_facing_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     zh_equipment = _pregen_equipment_zh(pregen_id)
     existing = sheet.get("player_facing_sheet_zh")
     if isinstance(existing, dict):
-        # Older pregens already carry a pf sheet without equipment; fill only
-        # the missing display field without rewriting the rest.
-        if _player_facing_equipment_labels(existing.get("equipment")):
-            return sheet
-        if zh_equipment is None:
+        # Older pregens may already carry a pf sheet. Fill missing equipment
+        # and replace skill labels that are only copies of the English key,
+        # without rewriting authored localized or custom labels.
+        out_pf = dict(existing)
+        changed = False
+        if (
+            not _player_facing_equipment_labels(existing.get("equipment"))
+            and zh_equipment is not None
+        ):
+            out_pf["equipment"] = zh_equipment
+            changed = True
+        refreshed_skills = _refresh_stale_pregen_skill_labels(existing.get("skills"))
+        if refreshed_skills is not None:
+            out_pf["skills"] = refreshed_skills
+            changed = True
+        if not changed:
             return sheet
         out = dict(sheet)
-        out_pf = dict(existing)
-        out_pf["equipment"] = zh_equipment
         out["player_facing_sheet_zh"] = out_pf
         return out
     out = dict(sheet)
@@ -158,7 +203,7 @@ def ensure_pregen_player_facing_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
             continue
         player_weapons.append({
             "label": weapon.get("name") or weapon.get("weapon_id"),
-            "skill_label": _ZH_SKILLS.get(str(weapon.get("skill")), weapon.get("skill")),
+            "skill_label": _localized_pregen_skill_label(str(weapon.get("skill"))),
             "damage": weapon.get("damage"),
             "range": weapon.get("range"),
             "ammo_capacity": weapon.get("ammo", "—"),
@@ -179,7 +224,7 @@ def ensure_pregen_player_facing_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
         "skills": [
             {
                 "key": key,
-                "label": _ZH_SKILLS.get(key, key),
+                "label": _localized_pregen_skill_label(key),
                 "value": int(value),
                 "half": int(value) // 2,
                 "fifth": int(value) // 5,
