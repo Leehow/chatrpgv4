@@ -653,6 +653,26 @@ def test_partial_requires_opt_in_and_stays_incomplete(tmp_path):
     assert validation["source_identity"]["transcript_source"] == "partial-transcript.jsonl"
 
 
+def test_partial_cli_exits_zero_with_player_safe_summary(tmp_path, capsys):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    _canonical_transcript_path(run).unlink()
+    (run / "transcript.jsonl").rename(run / "partial-transcript.jsonl")
+
+    assert module.main([str(run), "--allow-partial"]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary == {
+        "classification": "INCOMPLETE",
+        "outputs": [
+            f"artifacts/{JSON_OUTPUT}",
+            f"artifacts/{MARKDOWN_OUTPUT}",
+        ],
+    }
+    assert (run / "artifacts" / JSON_OUTPUT).is_file()
+    assert (run / "artifacts" / MARKDOWN_OUTPUT).is_file()
+
+
 def test_secrets_and_non_dialogue_rows_are_excluded_from_both_outputs(tmp_path):
     module = _load()
     run = tmp_path / "run"

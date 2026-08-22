@@ -16,6 +16,10 @@ From the repository root, run:
 uv run --frozen python plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py <run-dir>
 ```
 
+On success, the CLI exits zero and prints a player-safe JSON summary containing
+only the completeness classification and the two player artifact paths. The
+internal `report_id` remains audit-only in `artifacts/audit/manifest.json`.
+
 The run directory may use `run.json` or `playtest.json` for identity. It should
 contain:
 

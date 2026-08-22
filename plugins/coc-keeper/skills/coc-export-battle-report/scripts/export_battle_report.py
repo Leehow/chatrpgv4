@@ -3774,7 +3774,6 @@ def main(argv: list[str] | None = None) -> int:
                     f"artifacts/{JSON_OUTPUT}",
                     f"artifacts/{MARKDOWN_OUTPUT}",
                 ],
-                "report_id": report["report_id"],
             },
             ensure_ascii=False,
             sort_keys=True,
