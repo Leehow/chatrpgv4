@@ -4929,6 +4929,7 @@ def test_mcp_wire_projects_hot_turn_receipts_without_repeating_full_payloads():
     assert finalize_operation["discovery_required"] is False
     assert finalize_operation["prefilled_arguments"] == {
         "decision_id": "journal-a:finalize",
+        "revision": 1,
         "coverage": [],
     }
     assert finalize_operation["missing_arguments"] == ["draft"]
@@ -4943,11 +4944,18 @@ def test_mcp_wire_projects_hot_turn_receipts_without_repeating_full_payloads():
             "ok": True,
             "tool": "turn.finalize",
             "data": {
-                "schema_version": 1,
+                "schema_version": 2,
                 "finalization_id": "final-a",
                 "decision_id": "decision-a",
                 "journal_decision_id": "journal-a",
-                "rendered_sha256": "sha256:rendered",
+                "run_segment_id": "run-a",
+                "session_id": "session-a",
+                "turn_id": "turn-a",
+                "accepted_revision": 1,
+                "settlement_snapshot_id": "snapshot-a",
+                "accepted_draft_sha256": "sha256:draft",
+                "rendered_text_sha256": "sha256:rendered",
+                "contract_projection_sha256": "sha256:contract",
                 "rendered_text": "最终玩家可见文本。",
                 "mechanics_bundle": {"large": "重复机械包" * 3000},
                 "segments": [{"large": "重复分段" * 2000}],
@@ -4959,12 +4967,19 @@ def test_mcp_wire_projects_hot_turn_receipts_without_repeating_full_payloads():
         contract_digest=server.CONTRACTS["content_sha256"],
     )
     assert finalized["data"] == {
-        "schema_version": 1,
-        "finalization_id": "final-a",
-        "decision_id": "decision-a",
-        "journal_decision_id": "journal-a",
-        "rendered_sha256": "sha256:rendered",
-        "rendered_text": "最终玩家可见文本。",
+            "schema_version": 2,
+            "finalization_id": "final-a",
+            "decision_id": "decision-a",
+            "journal_decision_id": "journal-a",
+            "run_segment_id": "run-a",
+            "session_id": "session-a",
+            "turn_id": "turn-a",
+            "accepted_revision": 1,
+            "settlement_snapshot_id": "snapshot-a",
+            "accepted_draft_sha256": "sha256:draft",
+            "rendered_text_sha256": "sha256:rendered",
+            "contract_projection_sha256": "sha256:contract",
+            "rendered_text": "最终玩家可见文本。",
     }
     assert finalized["continuation"] == {"checkpoint_id": "checkpoint-a"}
     for envelope in (actions, output, finalized):
@@ -5016,6 +5031,7 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
     card = projected["data"]["finalize_operation"]
     assert card["prefilled_arguments"] == {
         "decision_id": "journal-with-obligations:finalize",
+        "revision": 1,
     }
     assert card["missing_arguments"] == ["draft", "coverage"]
     assert card["coverage_contract"]["obligation_ids"] == [

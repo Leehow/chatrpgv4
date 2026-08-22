@@ -178,6 +178,23 @@ visible `coc_session_resume` tool, then call visible
   combatant id, obtain one via scene/NPC/mechanics tools, or tell the player the
   target cannot be confirmed and wait. Do **not** judge the rifle ineffective or
   invent bloodless hits in prose.
+- A concrete attempt to read an NPC's observable intent, emotion, concealment,
+  or reaction uses `coc_rules_psychology_observe`, even when the player calls
+  it a Psychology check. Never use public or keeper-only `coc_rules_roll` for
+  Psychology. First call `action=settle` with the current observer, NPC,
+  direct-conversation window, semantic observation revision, and concrete
+  question. Before settle, call `npc.query` for that exact NPC and copy a
+  returned `facts[].fact_id` into the exact typed form
+  `npc_fact:<npc_id>/<fact_id>` for same-turn Keeper-only truth grounding;
+  never pass a bare fact/clue id or invented text. A `clue:<clue_id>` or
+  `event:<event_id>` grounding is valid only after it is player-known. Then
+  call `action=realize` for that `insight_id` with only the
+  player-safe external observation you will narrate. The concealed die,
+  outcome, and NPC truth never enter player prose. Repeating the same
+  window/revision reuses the frozen insight instead of rolling again. A new
+  revision requires the contract's explicit canonical revision event; ordinary
+  NPC state changes do not reopen it. If there is no concrete observable
+  question or behavior, do not roll and do not assert a definitive hidden read.
 - When the investigator first materially meets a stable NPC, use `npc.reaction`
   (public D100 against the higher of APP or Credit Rating), not a generic
   `rules.roll` or Persuade check. Record the receipt; never reroll-shop. Its
@@ -193,6 +210,18 @@ visible `coc_session_resume` tool, then call visible
   record the exact current player message with the visible `coc_state_journal`
   tool first, then use the visible output-context and finalize tools. After the
   ending receipt, do not call `state.end_session` again.
+- Every Pi-play narration revision follows the exact agency boundary returned
+  by `turn.output_context`: draft once, call its `agency_review_operation`
+  (`narration.review`) with the exact turn/source/revision/draft, then pass the
+  returned `review_id` and all authorized PC propositions as `agency_claims`
+  to `turn.finalize`. Mark an unauthorized PC voluntary action, speech, plan,
+  belief, trust, or active emotion as `agency_violation` with the exact
+  `pc:<id>` and `source_ref: null`. That draft cannot be finalized: rewrite
+  narration only, use revision 2, and reuse the same frozen rules, state,
+  journal, coverage, and mechanics. Player-declared claims bind the exact
+  `player_input:` source; physiology binds the ownership contract; forced
+  behavior binds an active frozen override. Length, repetition, scope, and
+  other prose findings remain advisory and never block finalization.
 - Long-term story memory is advisory context, never truth. Proactively call
   `memory.search` (on `coc_context`) when an NPC reunion occurs, pacing lulls
   and an old thread could resurface, or the player references past events;

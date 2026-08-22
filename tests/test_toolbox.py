@@ -201,6 +201,7 @@ def _finalize_pending_turn_for_test(
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": mechanics_placements,
+            "revision": 1,
             "decision_id": decision_id,
         },
     )
@@ -1362,7 +1363,7 @@ def test_missing_required_args_are_reported_together(campaign_ws):
     assert envelope["ok"] is False
     assert envelope["error"]["code"] == "missing_param"
     assert envelope["error"]["details"]["missing_parameters"] == [
-        "draft", "coverage", "decision_id",
+        "draft", "coverage", "decision_id", "revision",
     ]
     assert envelope["error"]["details"]["provided_parameters"] == ["text"]
 
@@ -1934,25 +1935,31 @@ def test_rules_roll_uses_rulebook_base_for_known_unlisted_skill(campaign_ws):
     assert any("base chance 5%" in hint for hint in envelope["hints"])
 
 
-def test_rules_roll_resolves_zh_alias_to_sheet_skill(campaign_ws):
+@pytest.mark.parametrize("skill", ["Psychology", "心理学"])
+def test_rules_roll_rejects_psychology_in_favor_of_hidden_window_contract(
+    campaign_ws, skill
+):
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    before = rolls_path.read_text(encoding="utf-8") if rolls_path.exists() else ""
     envelope = _run(
         campaign_ws,
         "rules.roll",
         {
             "investigator": campaign_ws["investigator_id"],
-            "skill": "心理学",
+            "skill": skill,
             "seed": 7,
             "decision_id": "zh-alias-psychology",
         },
     )
 
-    assert envelope["ok"] is True
-    assert envelope["data"]["skill"] == "Psychology"
-    assert envelope["data"]["target"] == 45
-    assert envelope["data"]["target_source"] == "sheet"
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "psychology_observe_required"
+    assert "rules.psychology_observe" in envelope["error"]["message"]
+    after = rolls_path.read_text(encoding="utf-8") if rolls_path.exists() else ""
+    assert after == before
 
 
-def test_rules_roll_zh_alias_preserves_sheet_key_spelling(campaign_ws):
+def test_rules_roll_rejects_psychology_with_lowercase_sheet_key(campaign_ws):
     character_path = (
         campaign_ws["coc_root"]
         / "investigators"
@@ -1974,10 +1981,8 @@ def test_rules_roll_zh_alias_preserves_sheet_key_spelling(campaign_ws):
         },
     )
 
-    assert envelope["ok"] is True
-    assert envelope["data"]["skill"] == "psychology"
-    assert envelope["data"]["target"] == 45
-    assert envelope["data"]["target_source"] == "sheet"
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "psychology_observe_required"
 
 
 @pytest.mark.parametrize(
@@ -2060,7 +2065,7 @@ def test_rules_roll_zh_alias_records_canonical_improvement_tick(campaign_ws):
         "rules.roll",
         {
             "investigator": campaign_ws["investigator_id"],
-            "skill": "心理学",
+            "skill": "侦查",
             "target": 99,
             "seed": 88,
             "decision_id": "zh-alias-canonical-tick",
@@ -2069,7 +2074,7 @@ def test_rules_roll_zh_alias_records_canonical_improvement_tick(campaign_ws):
 
     assert envelope["ok"] is True
     assert envelope["data"]["success"] is True
-    assert envelope["data"]["skill"] == "Psychology"
+    assert envelope["data"]["skill"] == "Spot Hidden"
     state = json.loads(
         (
             campaign_ws["campaign_dir"]
@@ -2078,7 +2083,7 @@ def test_rules_roll_zh_alias_records_canonical_improvement_tick(campaign_ws):
             / f"{campaign_ws['investigator_id']}.json"
         ).read_text(encoding="utf-8")
     )
-    assert state["skill_checks_earned"] == ["Psychology"]
+    assert state["skill_checks_earned"] == ["Spot Hidden"]
 
 
 def test_sheet_with_alias_duplicate_skill_fails_closed(campaign_ws):
@@ -4034,6 +4039,7 @@ def test_terminal_state_precedes_journal_and_finalization(campaign_ws):
 
     finalized = _run(campaign_ws, "turn.finalize", {
         "coverage": [],
+        "revision": 1,
         "decision_id": "terminal-state-before-finalize:receipt",
         "draft": "调查员没有接过钥匙，转身离开。这个故事至此结束。",
     })
@@ -5855,6 +5861,7 @@ def test_state_end_session_appends_session_ending_event(campaign_ws):
 
     finalized = _run(campaign_ws, "turn.finalize", {
         "coverage": [],
+        "revision": 1,
         "decision_id": "toolbox-end-1-finalize",
         "draft": "The session closes here.",
     })
@@ -7668,6 +7675,7 @@ def test_actions_advise_combines_stable_storylet_and_adoption_updates_ledger(
         "draft": "纸页在指间沙沙作响。\n\n" + excerpt,
         "coverage": [],
         "mechanics_placements": [],
+        "revision": 1,
         "decision_id": "finalize-longrun-pressure",
         "advisory_uptake": {
             "advice_id": opportunity["advice_id"],

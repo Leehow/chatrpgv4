@@ -44,6 +44,39 @@ _DESTINATION_ACCESS_KEYS = {
 }
 
 
+def authored_discovered_clue_ids(
+    clue_graph: dict[str, Any] | None,
+    discovered_clue_ids: list[Any] | set[Any] | tuple[Any, ...] | None,
+    clue_records: dict[str, Any] | None,
+) -> set[str]:
+    """Return discovered authored clues eligible for story-graph gates.
+
+    Campaign-local clues remain durable world facts, but records explicitly
+    marked local-only or ineligible can never satisfy an authored milestone.
+    All runtime unlock evaluators share this projection so a later flag,
+    director-apply, or read-only planning pass cannot reintroduce them.
+    """
+    # ``clue_graph`` remains part of the boundary because callers project
+    # authored story state, but in-flight Director reveals may precede their
+    # clue-record write.  The durable negative provenance is authoritative:
+    # an explicit local-only/ineligible record always wins, while absence does
+    # not silently demote a Director-committed authored clue.
+    _ = clue_graph
+    records = clue_records if isinstance(clue_records, dict) else {}
+    return {
+        clue_id
+        for raw in discovered_clue_ids or []
+        if (clue_id := str(raw))
+        and not (
+            isinstance(records.get(clue_id), dict)
+            and (
+                records[clue_id].get("local_only") is True
+                or records[clue_id].get("can_unlock_authored_milestone") is False
+            )
+        )
+    }
+
+
 def destination_access_contract(scene: dict[str, Any] | None) -> dict[str, Any] | None:
     """Return a canonical structured destination-access contract.
 

@@ -289,6 +289,7 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
         "draft": draft,
         "coverage": coverage,
         "mechanics_placements": _placements(output["mechanics_bundle"]),
+        "revision": 1,
         "decision_id": "finalize-multi-first-impression",
     })
     rendered = finalized["data"]["rendered_text"]
@@ -459,6 +460,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
         "draft": unrelated_draft,
         "coverage": unrelated_coverage,
         "mechanics_placements": _placements(unrelated_output["mechanics_bundle"]),
+        "revision": 1,
         "decision_id": "finalize-unrelated-npc-does-not-consume-reward",
     })
     assert unrelated_finalized["data"]["rendered_text"].count(
@@ -540,6 +542,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
         "draft": draft,
         "coverage": coverage,
         "mechanics_placements": _placements(output["mechanics_bundle"]),
+        "revision": 1,
         "decision_id": "finalize-relationship-reward",
     })
     assert finalized["data"]["rendered_text"].count("【关系/印象奖励】") == 1

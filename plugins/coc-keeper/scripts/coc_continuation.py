@@ -51,12 +51,15 @@ CHECKPOINT_FIELDS = frozenset({
     "refs", "content_sha256",
 })
 CHECKPOINT_SOURCE_FIELDS = frozenset({
-    "finalization_id", "journal_decision_id", "rendered_sha256",
-    "source_digest", "integrity_digest",
+    "run_segment_id", "session_id", "turn_id", "finalization_id",
+    "journal_decision_id", "accepted_revision", "settlement_snapshot_id",
+    "rendered_text_sha256", "contract_projection_sha256", "source_digest",
+    "integrity_digest",
 })
 DELIVERY_FIELDS = frozenset({
     "schema_version", "kind", "delivery_id", "campaign_id",
-    "finalization_id", "rendered_sha256", "status", "ack_kind",
+    "run_segment_id", "session_id", "turn_id", "finalization_id",
+    "accepted_revision", "rendered_text_sha256", "status", "ack_kind",
     "source_id", "created_at",
 })
 SEMANTIC_FIELDS = frozenset({
@@ -490,8 +493,11 @@ def _validate_checkpoint(payload: Any, campaign_id: str) -> dict[str, Any]:
         or any(
             not isinstance(payload["source"].get(key), str)
             or not payload["source"][key]
-            for key in CHECKPOINT_SOURCE_FIELDS
+            for key in CHECKPOINT_SOURCE_FIELDS - {"accepted_revision"}
         )
+        or isinstance(payload["source"].get("accepted_revision"), bool)
+        or not isinstance(payload["source"].get("accepted_revision"), int)
+        or payload["source"]["accepted_revision"] not in {1, 2}
         or not isinstance(payload.get("canonical_projection"), dict)
         or not isinstance(payload.get("transcript_tail"), list)
         or not isinstance(payload.get("refs"), dict)
@@ -518,7 +524,7 @@ def _validate_checkpoint(payload: Any, campaign_id: str) -> dict[str, Any]:
             (
                 isinstance(keeper_text, str)
                 and canonical_digest(keeper_text)
-                == payload["source"]["rendered_sha256"]
+                == payload["source"]["rendered_text_sha256"]
             )
             or (
                 keeper_text is None
@@ -536,7 +542,11 @@ def _validate_checkpoint(payload: Any, campaign_id: str) -> dict[str, Any]:
         or keeper_rows[0].get("finalization_id")
         != payload["source"]["finalization_id"]
         or keeper_rows[0].get("text_sha256")
-        != payload["source"]["rendered_sha256"]
+        != payload["source"]["rendered_text_sha256"]
+        or keeper_rows[0].get("rendered_text_sha256")
+        != payload["source"]["rendered_text_sha256"]
+        or keeper_rows[0].get("accepted_revision")
+        != payload["source"]["accepted_revision"]
         or not keeper_projection_valid
     ):
         raise ContinuationError(
@@ -643,14 +653,16 @@ def _latest_finalization(campaign_dir: Path) -> dict[str, Any] | None:
         return None
     receipt = rows[-1]
     required = (
-        "finalization_id", "journal_decision_id", "rendered_sha256",
-        "rendered_text", "integrity_digest", "source_digest",
+        "run_segment_id", "session_id", "turn_id", "finalization_id",
+        "journal_decision_id", "rendered_text_sha256", "rendered_text",
+        "integrity_digest", "source_digest", "settlement_snapshot_id",
+        "contract_projection_sha256",
     )
     if any(not isinstance(receipt.get(key), str) or not receipt[key] for key in required):
         raise ContinuationError(
             "state_corrupt", "latest finalization receipt is incomplete"
         )
-    if canonical_digest(receipt["rendered_text"]) != receipt["rendered_sha256"]:
+    if canonical_digest(receipt["rendered_text"]) != receipt["rendered_text_sha256"]:
         raise ContinuationError(
             "state_corrupt", "latest finalization rendered hash mismatch"
         )
@@ -681,7 +693,12 @@ def _matching_transcript_tail(
     keeper = keeper_rows[0]
     if (
         keeper.get("finalization_id") != receipt["finalization_id"]
-        or keeper.get("text_sha256") != receipt["rendered_sha256"]
+        or keeper.get("accepted_revision") != receipt["accepted_revision"]
+        or keeper.get("rendered_text_sha256") != receipt["rendered_text_sha256"]
+        or keeper.get("text_sha256") != receipt["rendered_text_sha256"]
+        or keeper.get("run_segment_id") != receipt["run_segment_id"]
+        or keeper.get("session_id") != receipt["session_id"]
+        or keeper.get("turn_id") != receipt["turn_id"]
         or keeper.get("text") != receipt["rendered_text"]
     ):
         raise ContinuationError(
@@ -777,14 +794,16 @@ def publish_finalized_checkpoint(
     if not isinstance(receipt, dict):
         raise ContinuationError("invalid_param", "finalization receipt must be an object")
     for key in (
-        "finalization_id", "journal_decision_id", "rendered_sha256",
-        "rendered_text", "source_digest", "integrity_digest",
+        "run_segment_id", "session_id", "turn_id", "finalization_id",
+        "journal_decision_id", "rendered_text_sha256", "rendered_text",
+        "source_digest", "settlement_snapshot_id", "contract_projection_sha256",
+        "integrity_digest",
     ):
         if not isinstance(receipt.get(key), str) or not receipt[key]:
             raise ContinuationError(
                 "state_corrupt", f"finalization receipt {key} is invalid"
             )
-    if canonical_digest(receipt["rendered_text"]) != receipt["rendered_sha256"]:
+    if canonical_digest(receipt["rendered_text"]) != receipt["rendered_text_sha256"]:
         raise ContinuationError(
             "state_corrupt", "finalization rendered text does not match its hash"
         )
@@ -838,9 +857,15 @@ def publish_finalized_checkpoint(
         "status": "awaiting_player",
         "created_at": created_at,
         "source": {
+            "run_segment_id": receipt["run_segment_id"],
+            "session_id": receipt["session_id"],
+            "turn_id": receipt["turn_id"],
             "finalization_id": receipt["finalization_id"],
             "journal_decision_id": receipt["journal_decision_id"],
-            "rendered_sha256": receipt["rendered_sha256"],
+            "accepted_revision": receipt["accepted_revision"],
+            "settlement_snapshot_id": receipt["settlement_snapshot_id"],
+            "rendered_text_sha256": receipt["rendered_text_sha256"],
+            "contract_projection_sha256": receipt["contract_projection_sha256"],
             "source_digest": receipt["source_digest"],
             "integrity_digest": receipt["integrity_digest"],
         },
@@ -1009,6 +1034,8 @@ def delivery_projection(
             "status": "none",
             "finalization_id": None,
             "rendered_sha256": None,
+            "rendered_text_sha256": None,
+            "accepted_revision": None,
             "exact_text": None,
         }
     source = checkpoint["source"]
@@ -1026,13 +1053,20 @@ def delivery_projection(
         if (
             isinstance(latest, dict)
             and latest.get("finalization_id") == finalization_id
-            and latest.get("rendered_sha256") == source["rendered_sha256"]
+            and latest.get("rendered_text_sha256") == source["rendered_text_sha256"]
         ):
             exact_text = latest.get("rendered_text")
     return {
         "status": "confirmed" if matching else "unconfirmed",
         "finalization_id": finalization_id,
-        "rendered_sha256": source["rendered_sha256"],
+        "run_segment_id": source["run_segment_id"],
+        "session_id": source["session_id"],
+        "turn_id": source["turn_id"],
+        "accepted_revision": source["accepted_revision"],
+        "rendered_text_sha256": source["rendered_text_sha256"],
+        # Public ack argument retained for transport compatibility; it is the
+        # exact canonical rendered_text_sha256 value, never an independent hash.
+        "rendered_sha256": source["rendered_text_sha256"],
         "exact_text": exact_text if not matching else None,
         "exact_text_ref": (
             "logs/turn-finalizations.jsonl#" + str(finalization_id)
@@ -1094,7 +1128,7 @@ def acknowledge_delivery(
     source = checkpoint["source"]
     if (
         finalization_id != source.get("finalization_id")
-        or rendered_sha256 != source.get("rendered_sha256")
+        or rendered_sha256 != source.get("rendered_text_sha256")
     ):
         raise ContinuationError(
             "delivery_conflict", "delivery acknowledgement does not match latest output"
@@ -1114,8 +1148,12 @@ def acknowledge_delivery(
         "kind": DELIVERY_KIND,
         "delivery_id": delivery_id,
         "campaign_id": campaign_dir.name,
+        "run_segment_id": source["run_segment_id"],
+        "session_id": source["session_id"],
+        "turn_id": source["turn_id"],
         "finalization_id": finalization_id,
-        "rendered_sha256": rendered_sha256,
+        "accepted_revision": source["accepted_revision"],
+        "rendered_text_sha256": rendered_sha256,
         "status": "confirmed",
         "ack_kind": ack_kind,
         "source_id": _validate_text(source_id, field="delivery source_id", max_length=240),

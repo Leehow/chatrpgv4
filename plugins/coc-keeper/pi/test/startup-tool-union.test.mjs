@@ -89,6 +89,7 @@ test("pending non-resume stays phase_forbidden while schema unions projected too
   assert.ok(mod.domainToolSchema("coc_turn").properties.operation.enum.includes("turn.finalize"));
   assert.ok(played.includes("coc_session_resume"));
   assert.ok(played.includes("coc_rules_roll"));
+  assert.ok(played.includes("coc_rules_psychology_observe"));
   assert.ok(played.includes("coc_turn_finalize"));
   assert.ok(played.includes("coc_npc_reaction"));
   assert.ok(!played.includes("coc_rules"));
@@ -125,6 +126,7 @@ test("already live fallback does not collapse to recovery-only", async () => {
   });
   const recovery = mod.activeToolsForPhase("recovery", "play");
   assert.ok(tools.includes("coc_rules_roll"));
+  assert.ok(tools.includes("coc_rules_psychology_observe"));
   assert.ok(tools.includes("coc_session_resume"));
   assert.ok(!tools.includes("coc_rules"));
   assert.notDeepEqual(tools, recovery);

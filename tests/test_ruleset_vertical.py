@@ -360,6 +360,7 @@ def test_public_second_ruleset_create_check_and_resource_receipts(
                     "source_ids": [projected[0]["effect_id"]],
                 },
             ],
+            "revision": 1,
             "decision_id": "spark-finalize-1",
         },
     )

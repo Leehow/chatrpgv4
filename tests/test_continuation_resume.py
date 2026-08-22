@@ -18,6 +18,7 @@ if str(SCRIPTS) not in sys.path:
 
 import coc_continuation
 import coc_host_context
+import coc_mcp_wire
 import coc_starter
 import coc_toolbox
 
@@ -154,6 +155,7 @@ def _finalize(ws: dict[str, object], *, decision_id: str) -> dict:
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": placements,
+            "revision": 1,
             "decision_id": decision_id,
         },
     )
@@ -191,6 +193,12 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
     )
     assert checkpoint is not None
     assert checkpoint["source"]["finalization_id"] == finalized["data"]["finalization_id"]
+    for field in (
+        "run_segment_id", "session_id", "turn_id", "accepted_revision",
+        "settlement_snapshot_id", "rendered_text_sha256",
+        "contract_projection_sha256",
+    ):
+        assert checkpoint["source"][field] == finalized["data"][field]
     assert checkpoint["semantic_capsule"]["unresolved_intent"].startswith("确认划痕")
     assert checkpoint["semantic_capsule"]["threads"][0]["thread_id"] == "scratch-route"
     assert any("桌边冷幽默" in row for row in checkpoint["semantic_capsule"]["style_commitments"])
@@ -204,6 +212,24 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
     assert resumed["current_turn"]["meaningful_row_count"] == 0
     assert resumed["delivery"]["status"] == "unconfirmed"
     assert resumed["delivery"]["exact_text"] == finalized["data"]["rendered_text"]
+    assert resumed["delivery"]["accepted_revision"] == 1
+    assert resumed["delivery"]["rendered_text_sha256"] == finalized["data"]["rendered_text_sha256"]
+    wire_resume = coc_mcp_wire.project_envelope(
+        "session.resume",
+        {"ok": True, "tool": "session.resume", "data": resumed},
+        contract_digest="sha256:test-contract",
+    )["data"]
+    for field in (
+        "run_segment_id", "session_id", "turn_id", "accepted_revision",
+        "rendered_text_sha256",
+    ):
+        assert wire_resume["delivery"][field] == resumed["delivery"][field]
+    for field in (
+        "run_segment_id", "session_id", "turn_id", "accepted_revision",
+        "settlement_snapshot_id", "rendered_text_sha256",
+        "contract_projection_sha256",
+    ):
+        assert wire_resume["checkpoint"]["source"][field] == checkpoint["source"][field]
     assert "semantic_capsule" not in resumed["checkpoint"]
     assert "transcript_tail" not in resumed["checkpoint"]
     assert resumed["semantic_capsule"]["threads"][0]["thread_id"] == "scratch-route"

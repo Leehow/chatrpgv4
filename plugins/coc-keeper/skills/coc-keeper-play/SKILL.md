@@ -143,6 +143,21 @@ output evidence boundary, not a replacement prose engine:
    SAN" figure that appears in no receipt does not exist and must not be
    rendered. If the roll was never executed, execute it first — do not
    narrate a result.
+
+   Psychology observation is the dedicated exception to ordinary checks. For
+   a concrete question about an NPC's observable intent, emotion, concealment,
+   or reaction, use `rules.psychology_observe` (`coc_rules_psychology_observe`),
+   never `rules.roll` and never a public Psychology marker. Settle the exact
+   observer/NPC/conversation/revision window once. For same-turn grounding,
+   first use `npc.query` and form the exact
+   `npc_fact:<npc_id>/<fact_id>` from its returned `facts[]`; bare IDs and
+   invented text are invalid. Previously delivered evidence uses
+   `clue:<clue_id>` / `event:<event_id>` only after it is player-known. Then
+   bind only a player-safe
+   visible realization. An unchanged window reuses its frozen insight; only a
+   contract-valid revision event opens a new settlement. Without a concrete
+   observable question or behavior, do not roll and do not invent a definitive
+   read.
 2. **State writes go through tools.** Clue discoveries, scene moves, HP/SAN
    changes, time, items, cash, handout deliveries, and turn receipts are recorded
    with `state.*` / `rules.*` tools (atomic, idempotent via `decision_id`) — never by
@@ -156,11 +171,36 @@ output evidence boundary, not a replacement prose engine:
    and state writes, call `state.journal` with the current external player
    message copied byte-for-byte into `player_text` (keep `player_action` as a
    separate summary), then call `turn.output_context`. Draft causal fiction for
-   every returned obligation and call `turn.finalize`. Echo its
+   every returned obligation and call `turn.finalize` with `revision: 1`. Echo its
    `rendered_text` exactly. The finalizer owns public dice and visible
    HP/SAN/MP/Luck, current loaded-magazine, item, cash, condition, time, and
    first-contact context lines. Never recompute, omit, duplicate, prepend to,
    append to, or rewrite those deterministic segments.
+
+   `turn.output_context.contract_projection` is the frozen drafting contract:
+   it binds the exact run/session/turn and settlement snapshot to the current
+   scene contract, narration budget, player source, and active control
+   overrides. Re-reading unchanged settlement is stable. If an undelivered
+   accepted draft alone needs correction, the only allowed replacement is
+   `revision: 2` with `repair_finalization_id`; there is no revision 3, and
+   delivery acknowledgement closes repair. Never rerun rules, state writes,
+   journal, coverage, or mechanics for that prose-only replacement.
+
+   `agency_claims` are structured source bindings, not a prose classifier:
+   cite an exact excerpt for each submitted claim. Voluntary investigator
+   action, speech, plan, belief, trust, or active emotion must bind the exact
+   current `player_input:<journal decision_id>`; forced behavior must bind an
+   active frozen override by stable `override_id`, subject, rule source, and
+   expiry. An empty claim list does **not** prove absence of agency violations.
+   In Pi play, `turn.output_context.agency_review_operation` is required for
+   every pending narration revision. Call `narration.review` on the exact
+   turn/source/revision/draft, then bind its review ID and all authorized PC
+   propositions in `turn.finalize.agency_claims`. An `agency_violation` is the
+   sole hard review finding: do not finalize that draft; rewrite narration as
+   revision 2 against the same frozen settlement and never rerun rules, state,
+   journal, coverage, or mechanics. Length, repetition, scope, style, and all
+   other review findings remain advisory. Outside this Pi agency boundary,
+   narration review remains optional advice.
 
 **Mechanical output gate.** Formal mechanical markers — `【明骰】`, dice lines
 (`掷骰：N`), and SAN/HP numeric transfers (`SAN 50→46`, `HP 6→4`, `损失 N 点`) —
@@ -267,7 +307,9 @@ opening procedure is normative in
 - **No mandatory Director/Storylet calls.** `director.advise`,
   `storylets.suggest`, `narration.brief`, `narration.review`, and related
   advisory tools are optional; skip them when fiction already has momentum.
-  Absence never fails a turn.
+  Absence never fails a turn. The one explicit exception is Pi play's
+  user-authorized agency-ownership review before accepted output; it does not
+  make any other prose-quality finding mandatory or blocking.
 
 Log-style summary, AI-summary voice, translationese, or restating tool/clue/roll
 payloads as if they were finished table prose is **not acceptable player-**
@@ -343,8 +385,11 @@ settled finalization.
    disposition; optionally record that choice with `evidence.record_adoption`.
    On stalls or complex beats, standalone
    `director.advise` / `storylets.suggest` remain available;
-   `narration.brief` / `narration.review` are only for beats that are genuinely
-   hard to self-review. Never call review every turn for an empty receipt. A
+   `narration.brief` and prose-quality review are only for beats that are genuinely
+   hard to self-review. Pi play nevertheless uses the same
+   `narration.review` once per pending draft revision for the narrow agency
+   ownership contract; a clean review is required evidence, while every
+   non-agency finding remains advisory. A
    `coc_advisory_sidecar_v1=true` host may use the optional background adviser
    contract in `references/turn-tooling-and-typed-ops.md` on a genuinely complex
    beat; it never waits, becomes a second KP, or replaces semantic/rules/state/
@@ -363,7 +408,7 @@ settled finalization.
    unit. The tool stamps `game_time` — do not pass
    wall-clock time. Players see only the localized reason and game time from
    `turn.finalize`.
-   Then `state.journal` → `turn.output_context` →
+   Then `state.journal` → `turn.output_context` → draft → Pi agency review →
    coverage → `turn.finalize` → deliver exact `rendered_text`. Normally omit
    `mechanics_placements`: the finalizer inserts public rolls before their
    covered result and groups later changes once. Put setup and consequence in

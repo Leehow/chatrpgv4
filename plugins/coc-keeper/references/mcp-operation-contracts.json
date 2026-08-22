@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:a7255787b1dd0b545a9747d2e2663e66685248e70263c986399ff24419827e4e",
+  "content_sha256": "sha256:0ea6d222e76cf9e71b69ea6ea51f1eef1db4f1cb3d48a23d77f042b53d724a1d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1112,7 +1112,7 @@
     "narration.review": {
       "access": "mutation",
       "canonical_operation": "narration.review",
-      "description": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
+      "description": "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate. Canonical operation `narration.review`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1129,21 +1129,34 @@
             "type": "string"
           },
           "findings": {
-            "description": "semantic findings with rule_id and reason; empty when the draft is sound",
+            "description": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory",
             "type": "array"
           },
           "investigator": {
             "description": "investigator id for budget derivation (defaults to the party's first member)",
             "type": "string"
           },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_digest": {
+            "type": "string"
+          },
+          "turn_id": {
             "type": "string"
           }
         },
         "required": [
           "campaign",
           "decision_id",
+          "turn_id",
+          "source_digest",
+          "revision",
           "draft_text"
         ],
         "type": "object"
@@ -1159,7 +1172,7 @@
           "pending_finalization"
         ]
       },
-      "summary": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate."
+      "summary": "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate."
     },
     "npc.advise": {
       "access": "mutation",
@@ -2870,16 +2883,32 @@
     "rules.psychology_observe": {
       "access": "mutation",
       "canonical_operation": "rules.psychology_observe",
-      "description": "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed. Canonical operation `rules.psychology_observe`; the result envelope is authoritative.",
+      "description": "Keeper-concealed Psychology observation. Order: (1) call npc.query for the exact target; (2) action=settle with a typed grounding ref such as npc_fact:<npc_id>/<fact_id> copied from returned facts[], or a previously established clue:<clue_id>/event:<event_id>; (3) action=realize with a player-safe realization containing only external behavior. Bare ids are invalid. Settle once per explicit observer/NPC/conversation/revision window and reuse it; Keeper truth is stored only as audit digest and never directly revealed. Ordinary NPC state deltas never reopen the window. Canonical operation `rules.psychology_observe`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "action": {
+            "description": "settle a concealed insight (default) or bind its player-safe realization",
+            "enum": [
+              "settle",
+              "realize"
+            ],
+            "type": "string"
+          },
           "campaign": {
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "conversation_window_id": {
+            "description": "stable direct-conversation window id",
+            "type": "string"
+          },
           "decision_id": {
             "description": "idempotency key",
+            "type": "string"
+          },
+          "insight_id": {
+            "description": "settled insight to realize when action=realize",
             "type": "string"
           },
           "investigator": {
@@ -2890,8 +2919,24 @@
             "description": "observed NPC id",
             "type": "string"
           },
+          "observable_fact_refs": {
+            "description": "non-empty exact typed refs. Same-turn target truth: npc_fact:<npc_id>/<fact_id> copied from npc.query facts[] (or target-bound npc_agenda:<npc_id>/npc_state:<npc_id>); these remain Keeper-only digest provenance. Previously delivered observation: clue:<clue_id> or event:<event_id>, which must already be player-known. Bare ids and arbitrary text are invalid. Required only for action=settle",
+            "type": "array"
+          },
+          "observation_revision": {
+            "description": "explicit nonnegative semantic observation revision",
+            "type": "integer"
+          },
+          "observer_scope": {
+            "description": "observer entry: a canonical current-party investigator id or literal team:party; every valid entry normalizes to the same current-party observation window and arbitrary aliases are rejected",
+            "type": "string"
+          },
           "question": {
             "description": "the concrete observation question (e.g. 'what is he afraid of?')",
+            "type": "string"
+          },
+          "revision_event_ref": {
+            "description": "required canonical event ref when opening revision > 0",
             "type": "string"
           },
           "root": {
@@ -2903,15 +2948,16 @@
             "type": "integer"
           },
           "visible_observation": {
-            "description": "KP-authored player-safe observation text (behavior-level; no roll/outcome meta)",
+            "description": "player-safe external observation used only when action=realize",
             "type": "string"
           }
         },
         "required": [
           "campaign",
           "npc_id",
+          "conversation_window_id",
+          "observation_revision",
           "question",
-          "visible_observation",
           "decision_id"
         ],
         "type": "object"
@@ -2926,7 +2972,7 @@
           "live_turn"
         ]
       },
-      "summary": "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed."
+      "summary": "Keeper-concealed Psychology observation. Order: (1) call npc.query for the exact target; (2) action=settle with a typed grounding ref such as npc_fact:<npc_id>/<fact_id> copied from returned facts[], or a previously established clue:<clue_id>/event:<event_id>; (3) action=realize with a player-safe realization containing only external behavior. Bare ids are invalid. Settle once per explicit observer/NPC/conversation/revision window and reuse it; Keeper truth is stored only as audit digest and never directly revealed. Ordinary NPC state deltas never reopen the window."
     },
     "rules.push": {
       "access": "mutation",
@@ -3045,7 +3091,7 @@
     "rules.roll": {
       "access": "mutation",
       "canonical_operation": "rules.roll",
-      "description": "Contextual percentile skill/characteristic check for NON-COMBAT tasks. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
+      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3125,6 +3171,10 @@
             "description": "skill name on the sheet (e.g. 'Library Use')",
             "type": "string"
           },
+          "social_adjudication_ref": {
+            "description": "goal_key returned by rules.social_adjudicate; required for that social commitment and consumed by its one canonical roll",
+            "type": "string"
+          },
           "stakes": {
             "additionalProperties": true,
             "description": "exactly {on_success, on_failure}, both non-empty player-action consequences",
@@ -3175,7 +3225,7 @@
           "live_turn"
         ]
       },
-      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT tasks. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
+      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
     },
     "rules.roll_dice": {
       "access": "mutation",
@@ -3366,9 +3416,31 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "commitment_id": {
+            "description": "Keeper semantic id for the requested commitment; never inferred from prose",
+            "type": "string"
+          },
+          "conversation_window_id": {
+            "description": "stable direct-conversation window id",
+            "type": "string"
+          },
           "decision_id": {
             "description": "idempotency key",
             "type": "string"
+          },
+          "feasibility": {
+            "description": "optional source-bound semantic feasibility override",
+            "enum": [
+              "automatic",
+              "roll",
+              "conditional",
+              "impossible"
+            ],
+            "type": "string"
+          },
+          "feasibility_refs": {
+            "description": "typed canonical refs grounding an explicit feasibility override",
+            "type": "array"
           },
           "goal_summary": {
             "description": "one-sentence concrete commitment the player wants from the NPC",
@@ -3379,12 +3451,12 @@
             "type": "string"
           },
           "leverage": {
-            "description": "strategic leverage items [{leverage_id, type, source_ref}]; at most two independent items count",
+            "description": "strategic leverage [{leverage_id,type,source_ref,independence_group,credibility,relevance,reason}]; resolved player-known sources and distinct groups count once, capped at two",
             "type": "array"
           },
           "motive": {
             "additionalProperties": true,
-            "description": "structured NPC motive: {direction: support|neutral|oppose, intensity: 0|1|2, evidence: [refs]}; intensity>0 requires evidence",
+            "description": "structured NPC motive: {direction: support|neutral|oppose, intensity: 0|1|2, evidence_refs: [typed refs]}; intensity>0 requires resolved evidence",
             "type": "object"
           },
           "npc_defense_value": {
@@ -3394,6 +3466,11 @@
           "npc_id": {
             "description": "target NPC id",
             "type": "string"
+          },
+          "outcome_ceiling": {
+            "additionalProperties": true,
+            "description": "structured goal/NPC-knowledge/scene-scope ceiling; references are validated, never inferred",
+            "type": "object"
           },
           "requirements": {
             "description": "KP-authored unlock conditions when feasibility is conditional (recorded, advisory)",
@@ -3412,6 +3489,8 @@
         "required": [
           "campaign",
           "npc_id",
+          "conversation_window_id",
+          "commitment_id",
           "approach",
           "goal_summary",
           "decision_id"
@@ -6715,6 +6794,13 @@
             "description": "scene to promote (defaults to the active scene)",
             "type": "string"
           },
+          "source_event_ids": {
+            "description": "non-empty stable event ids that causally justify this campaign-local promotion; only named scene_scope_drift ids resolve drift evidence",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "to_role": {
             "description": "new effective role",
             "enum": [
@@ -6730,6 +6816,7 @@
           "campaign",
           "to_role",
           "reason",
+          "source_event_ids",
           "decision_id"
         ],
         "type": "object"
@@ -8014,7 +8101,7 @@
     "turn.finalize": {
       "access": "mutation",
       "canonical_operation": "turn.finalize",
-      "description": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
+      "description": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8066,6 +8153,61 @@
               "exact_excerpt"
             ],
             "type": "object"
+          },
+          "agency_claims": {
+            "description": "all authorized PC propositions found during semantic review: voluntary claims bind the exact current player_input; physiology binds the ownership contract; forced behavior binds an active frozen override. Empty is valid only when the bound clean review found no PC proposition",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "claim_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "claim_type": {
+                  "enum": [
+                    "forced_behavior",
+                    "involuntary_physiology",
+                    "voluntary_action",
+                    "voluntary_active_emotion",
+                    "voluntary_belief",
+                    "voluntary_plan",
+                    "voluntary_speech",
+                    "voluntary_trust"
+                  ],
+                  "type": "string"
+                },
+                "exact_excerpt": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "override_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source_ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "subject_ref": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "claim_id",
+                "claim_type",
+                "exact_excerpt",
+                "override_id",
+                "source_ref",
+                "subject_ref"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "campaign": {
             "description": "Campaign id. Required for campaign-bound operations.",
@@ -8192,9 +8334,18 @@
             },
             "type": "array"
           },
+          "narration_review_id": {
+            "description": "exact narration.review id bound to this turn/source/revision/draft; required for Pi play accepted output",
+            "type": "string"
+          },
           "repair_finalization_id": {
             "description": "optional latest finalization id; permits a prose/placement-only replacement only while that exact output remains delivery-unconfirmed",
             "type": "string"
+          },
+          "revision": {
+            "description": "narration-only revision; initial=1, one undelivered repair=2",
+            "minimum": 1,
+            "type": "integer"
           },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
@@ -8209,7 +8360,8 @@
           "campaign",
           "draft",
           "coverage",
-          "decision_id"
+          "decision_id",
+          "revision"
         ],
         "type": "object"
       },
@@ -8226,7 +8378,7 @@
           "ending"
         ]
       },
-      "summary": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
+      "summary": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
     },
     "turn.output_context": {
       "access": "query",

@@ -314,6 +314,7 @@ def _journal_and_finalize(root: Path, campaign_id: str, suffix: str) -> dict:
             "draft": setup + "\n\n" + consequence,
             "coverage": coverage,
             "mechanics_placements": placements,
+            "revision": 1,
             "decision_id": f"finalize-{suffix}",
         },
     )

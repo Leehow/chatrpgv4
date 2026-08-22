@@ -2222,7 +2222,18 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
                 "params": {
                     "operation": "turn.finalize",
                     "campaign": "hoyk-pi-grok-fix7-20260727",
-                    "arguments": {},
+                    "arguments": {
+                        "revision": 1,
+                        "narration_review_id": "narration-review-v1:probe",
+                        "agency_claims": [{
+                            "claim_id": "claim-probe",
+                            "subject_ref": "pc:probe",
+                            "claim_type": "voluntary_action",
+                            "exact_excerpt": "你接过那份蜡封卷轴",
+                            "source_ref": "player_input:probe",
+                            "override_id": None,
+                        }],
+                    },
                 },
             },
             {
@@ -2238,7 +2249,18 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
                 "params": {
                     "operation": "turn.finalize",
                     "campaign": "hoyk-pi-grok-fix7-20260727",
-                    "arguments": {},
+                    "arguments": {
+                        "revision": 1,
+                        "narration_review_id": "narration-review-v1:probe",
+                        "agency_claims": [{
+                            "claim_id": "claim-probe",
+                            "subject_ref": "pc:probe",
+                            "claim_type": "voluntary_action",
+                            "exact_excerpt": "你接过那份蜡封卷轴",
+                            "source_ref": "player_input:probe",
+                            "override_id": None,
+                        }],
+                    },
                 },
             },
         ],

@@ -16,6 +16,10 @@ From the repository root, run:
 uv run --frozen python plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py <run-dir>
 ```
 
+On success, the CLI exits zero and prints a player-safe JSON summary containing
+only the completeness classification and the two player artifact paths. The
+internal `report_id` remains audit-only in `artifacts/audit/manifest.json`.
+
 The run directory may use `run.json` or `playtest.json` for identity. It should
 contain:
 
@@ -41,13 +45,20 @@ contain:
 Use `--allow-partial` only for an interrupted run containing
 `partial-transcript.jsonl`. The report remains visibly `INCOMPLETE`.
 
-The exporter atomically writes the final pair under `artifacts/`:
+The exporter atomically writes the final player pair under `artifacts/`:
 
 - `battle-report.md`: the final readable, player-safe actual-play report;
-- `battle-report-evidence.json`: deterministic structured source hashes,
-  explicitly allowlisted player-safe evidence plus a clearly marked
-  `keeper_internal` section containing exact structured toolbox results,
-  advisory adoption receipts, and per-turn capsules for development audit.
+- `battle-report-evidence.json`: explicitly allowlisted player-safe evidence.
+
+Keeper/development evidence is emitted separately under `artifacts/audit/`,
+including exact transcript, all rolls, rule decisions, social resolutions,
+concealed Psychology, scene-budget/drift evidence, narration revisions,
+genuine typed state diffs, report validation, and deterministic manifest/hash
+files. Neither player artifact contains `keeper_internal`, the source manifest,
+concealed identifiers, raw session/decision/source/NPC/clue/roll identifiers,
+or raw audit objects. Player-facing checks use presentation order and labels;
+multi-ending settlements use stable player-safe ending ordinals; exact machine
+identities remain in Keeper/development audit evidence only.
 
 The Markdown renders the full initial investigator card, final `current_*`
 state, development deltas, personal-horror weave/payoff receipts, visited path,
@@ -63,22 +74,36 @@ source-traceable numerical evidence. Each is rendered exactly once. A missing
 roll log, duplicate ID, or malformed required public roll makes the report
 `INCOMPLETE`; a valid empty log reports a public roll count of zero.
 
-The Markdown excludes Keeper-only rolls, Keeper-view logs, module/scenario
-truth, hidden event logs, runner prompts, structured JSON fragments, and
-secret/private fields. The JSON evidence is Keeper-internal and may preserve
-structured tool results (including secret-marked reference data) so developers
-can audit what the KP actually saw and used; never publish it as a player
-artifact.
+Both player artifacts exclude Keeper-only rolls, Keeper-view logs,
+module/scenario truth, hidden event logs, runner prompts, structured audit
+objects, and secret/private fields. Audit files may preserve structured Keeper
+results and must never be included in the player distribution.
 Never reconstruct missing dice or hidden facts from prose. Before delivery,
 read `battle-report.md` end to end and inspect the evidence JSON's
 `completeness` and `public_rolls` sections. State an `INCOMPLETE` result
 honestly.
 
-Completeness is split into source identity, exact transcript, dice,
-character/final state, progression, ending/development, and player-safe
-projection dimensions. The compatibility `COMPLETE`/`INCOMPLETE` classification
+Completeness explicitly includes run identity, exact accepted transcript, dice,
+state, settlement uniqueness, scene scope, agency, secrecy, and projection
+hashes, while retaining useful legacy source subfindings. Agency is
+`NOT_PROVEN` without a semantic review whose frozen raw-draft hash binds every
+accepted narration revision; an empty agency-claim list is not proof. Every
+recorded voluntary claim must bind the exact frozen `player_input`, physiology
+must bind a typed ownership source, and forced behavior must bind its full
+active frozen override. The compatibility
+`COMPLETE`/`INCOMPLETE` classification
 means report-source evidence completeness only. It does **not** certify prose
 quality, Director/Storylet use, or whole-product KP quality.
+
+Formal accepted-transcript, dice, state, and agency evidence is authoritative
+only when every referenced schema-v2 receipt passes the canonical
+`coc_turn_finalization._valid_finalization` validator. Legacy/unbound transcript
+is partial evidence and cannot pass accepted-transcript completeness. The
+canonical player row must bind the exact run segment, session, turn, and
+`state.journal` decision, while its Keeper row binds the exact accepted
+revision and finalization receipt. State passes only when the current
+authoritative save tree exactly matches the latest accepted commit snapshot;
+unregistered or shape-only state calls never become `state-diffs.jsonl` rows.
 
 Both outputs also carry an observational **Play Conduct Signals** section
 (`play_conduct_signals` in the evidence JSON). It restates structured facts

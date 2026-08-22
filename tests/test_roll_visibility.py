@@ -106,7 +106,7 @@ def _concealed_roll(ws, decision_id: str) -> dict:
         "rules.roll",
         {
             "investigator": ws["investigator_id"],
-            "skill": "Psychology",
+            "skill": "Listen",
             "visibility": "keeper_only",
             "seed": 7,
             "decision_id": decision_id,
@@ -239,6 +239,7 @@ def test_finalize_closes_concealed_roll_without_visible_beat(campaign_ws):
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": mechanics_placements,
+            "revision": 1,
             "decision_id": "concealed-finalize",
         },
     )

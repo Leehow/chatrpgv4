@@ -196,4 +196,8 @@ same signature image every turn. `narration.brief` returns a per-turn length
 `budget` (mode/max_chars/max_paragraphs): stay within it — ordinary beats
 are short by design; only climaxes, bouts of madness, and endings earn the
 long form. `narration.review` records semantic findings and a deterministic
-over-length note for audit; neither blocks delivery.
+over-length note for audit; it binds the exact turn/source/revision/draft but
+does not block delivery. `turn.finalize.agency_claims` may bind exact excerpts
+to player-authored sources or active frozen control overrides; that validates
+only declared bindings. An empty claim list is never proof that the prose
+contains no agency violation.

@@ -50,7 +50,10 @@ FINALIZE_ARGUMENTS = (
     "draft",
     "coverage",
     "decision_id",
+    "revision",
     "mechanics_placements",
+    "narration_review_id",
+    "agency_claims",
     "repair_finalization_id",
     "validate_only",
     "advisory_uptake",
@@ -192,7 +195,13 @@ def _compact_checkpoint(
         (
             "finalization_id",
             "journal_decision_id",
-            "rendered_sha256",
+            "run_segment_id",
+            "session_id",
+            "turn_id",
+            "accepted_revision",
+            "settlement_snapshot_id",
+            "rendered_text_sha256",
+            "contract_projection_sha256",
             "source_digest",
             "integrity_digest",
         ),
@@ -229,7 +238,12 @@ def _compact_checkpoint(
         projected.pop("campaign_id", None)
         projected["source"] = _pick(
             source,
-            ("finalization_id", "journal_decision_id", "rendered_sha256"),
+            (
+                "run_segment_id", "session_id", "turn_id", "finalization_id",
+                "journal_decision_id", "accepted_revision",
+                "settlement_snapshot_id", "rendered_text_sha256",
+                "contract_projection_sha256",
+            ),
         )
         projected["refs"] = _pick(
             projected.get("refs"),
@@ -1423,6 +1437,9 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
             "obligations",
             "required_obligation_ids",
             "mechanics_bundle_sha256",
+            "settlement_snapshot_id",
+            "contract_projection_sha256",
+            "contract_projection",
             "npc_performance_constraints",
             "candidate_factors",
             "missing_substantive_effects",
@@ -1444,26 +1461,47 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         if isinstance(obligation_id, str) and obligation_id
     ]
     journal_decision_id = value.get("journal_decision_id")
+    agency_review_operation = value.get("agency_review_operation")
+    agency_review_required = isinstance(agency_review_operation, dict)
+    agency_review_revision = (
+        int((agency_review_operation.get("prefilled_arguments") or {}).get("revision") or 1)
+        if agency_review_required else 1
+    )
+    if agency_review_required:
+        projected["agency_review_operation"] = deepcopy(agency_review_operation)
     prefilled: dict[str, Any] = {}
     if isinstance(journal_decision_id, str) and journal_decision_id:
         prefilled["decision_id"] = f"{journal_decision_id}:finalize"
+    prefilled["revision"] = agency_review_revision
     missing = ["draft"]
     if required_obligation_ids:
         missing.append("coverage")
     else:
         prefilled["coverage"] = []
+    if agency_review_required:
+        missing.extend(["narration_review_id", "agency_claims"])
     finalize_operation = _operation_card(
         "turn.finalize",
         prefilled=prefilled,
         missing=missing,
     )
+    if agency_review_required:
+        finalize_operation["invoke_via"] = "coc_turn_finalize"
     finalize_operation["argument_contract"] = {
-        "required_arguments": ["draft", "coverage", "decision_id"],
+        "required_arguments": [
+            "draft", "coverage", "decision_id", "revision",
+            *(
+                ["narration_review_id", "agency_claims"]
+                if agency_review_required else []
+            ),
+        ],
         "allowed_arguments": list(FINALIZE_ARGUMENTS),
         "forbidden_aliases": ["draft_text", "journal_decision_id"],
         "instruction": (
             "Merge prefilled_arguments unchanged, add only missing_arguments, "
-            "and invoke directly without coc_discover."
+            "and invoke directly without coc_discover. When agency review is "
+            "required, call agency_review_operation on the exact draft first; "
+            "only agency ownership violations block acceptance."
         ),
     }
     if required_obligation_ids:
@@ -2060,10 +2098,16 @@ def _project_finalize(data: Any) -> Any:
             "finalization_id",
             "decision_id",
             "journal_decision_id",
+            "run_segment_id",
+            "session_id",
             "turn_id",
             "turn_number",
             "source_digest",
-            "rendered_sha256",
+            "settlement_snapshot_id",
+            "accepted_revision",
+            "accepted_draft_sha256",
+            "rendered_text_sha256",
+            "contract_projection_sha256",
             "rendered_text",
             "integrity_digest",
             "created_at",
@@ -2163,6 +2207,12 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
         "journal_decision_id",
         "roll_id",
         "finalization_id",
+        "run_segment_id",
+        "session_id",
+        "accepted_revision",
+        "settlement_snapshot_id",
+        "rendered_text_sha256",
+        "contract_projection_sha256",
         "rendered_sha256",
         "checkpoint_id",
         "source_digest",
