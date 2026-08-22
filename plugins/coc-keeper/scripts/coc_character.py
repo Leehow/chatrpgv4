@@ -2290,10 +2290,12 @@ def _kp_guided_skill_sources(
     for skill_id in skills:
         entry = provenance.get(skill_id)
         if entry is None:
-            if skill_id not in catalog:
-                errors.append(f"KP-guided custom skill {skill_id!r} requires skill_provenance")
-            else:
+            if skill_id in catalog or language_other_skill_id(skill_id) == skill_id:
+                # Language (Other) specializations are persisted by chargen
+                # but are not catalog rows and need no skill_provenance.
                 sources[skill_id] = skill_id
+            else:
+                errors.append(f"KP-guided custom skill {skill_id!r} requires skill_provenance")
             continue
         if not isinstance(entry, dict):
             errors.append(f"skill_provenance.{skill_id!r} must be an object")
@@ -2393,8 +2395,11 @@ def _kp_guided_skill_value_errors(
     if isinstance(starting_cap, bool) or not isinstance(starting_cap, int) or starting_cap <= 0:
         return ["guided creation starting-skill cap policy is invalid"]
     for skill_id, source_skill_id in sources.items():
+        spec = _chargen_skill_spec(source_skill_id, catalog)
         try:
-            base = _guided_skill_base(source_skill_id, catalog[source_skill_id], sheet["characteristics"])
+            if not isinstance(spec, dict):
+                raise KeyError(source_skill_id)
+            base = _guided_skill_base(source_skill_id, spec, sheet["characteristics"])
         except (KeyError, TypeError, ValueError) as exc:
             errors.append(str(exc))
             continue
@@ -2406,7 +2411,7 @@ def _kp_guided_skill_value_errors(
             )
         if expected <= starting_cap:
             continue
-        derived_base = catalog[source_skill_id].get("base_chance") in {"half_DEX", "EDU"}
+        derived_base = spec.get("base_chance") in {"half_DEX", "EDU"}
         if derived_base and base > starting_cap and delta == 0:
             continue
         if derived_base and base > starting_cap:
@@ -2457,8 +2462,13 @@ def _kp_guided_localized_skill_errors(
             and own_language.strip()
         ):
             expected_label = f"语言（{own_language.strip()}）"
+        elif language_other_skill_id(skill_id) == skill_id:
+            inner = skill_id[len("Language ("):-1]
+            expected_label = f"语言（{_LANGUAGE_OTHER_LABEL_ZH.get(inner, inner)}）"
         else:
-            labels = catalog[sources[skill_id]].get("localized_labels")
+            source_skill_id = sources.get(skill_id)
+            spec = catalog.get(source_skill_id) if source_skill_id else None
+            labels = spec.get("localized_labels") if isinstance(spec, dict) else None
             expected_label = labels.get("zh-Hans") if isinstance(labels, dict) else None
         if row.get("value") != skills[skill_id]:
             errors.append(f"KP-guided era-adaptive localized skill {skill_id!r} value must match machine skill")

@@ -621,6 +621,35 @@ def test_assert_unique_canonical_skills_tolerates_missing_or_invalid_skills():
     assert coc_character.assert_unique_canonical_skills({"skills": []}) is None
 
 
+def test_validate_character_create_sheet_accepts_era_adaptive_language_other():
+    sheet, creation, _meta = coc_character.build_era_adaptive_chargen_payload(
+        investigator_id="ada-en",
+        name="Ada Lark",
+        occupation_name="Journalist",
+        era="1890s",
+        luck_roll_total=12,
+        luck_roll_receipt={
+            "campaign_id": "gaslight",
+            "decision_id": "ada-en-luck",
+            "roll_id": "roll-ada-en-luck",
+        },
+        occupation_skill_names=["Spot Hidden", "Listen", "Language (English)"],
+        interest_skill_names=["Occult", "First Aid", "Language (English)"],
+        age=19,
+        edu_improvement_rolls=[],
+    )
+
+    assert "Language (English)" in sheet["skills"]
+    assert "Language (English)" not in sheet["skill_provenance"]
+    assert coc_character.validate_character_create_sheet(sheet, creation) == []
+    labels = {
+        row["key"]: row["label"]
+        for row in sheet["player_facing_sheet_zh"]["skills"]
+        if isinstance(row, dict)
+    }
+    assert labels["Language (English)"] == "语言（英语）"
+
+
 def test_kp_guided_occupation_formula_options_fail_closed_on_rule_literal_drift(
     monkeypatch,
 ):
