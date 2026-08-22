@@ -433,6 +433,26 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "scene_edges[].to": "not scene_edges[].destination",
     }
     assert body_requirements["parent_repair_allowed"] is False
+    handout = contract["packet"]["handout_card"]
+    assert handout["request_kind"] == "deepen_handout"
+    assert handout["result_contract_id"] == "coc.handout-card-pack.v1"
+    assert handout["required_request_fields"] == [
+        "job_id",
+        "target_id",
+        "requested_pdf_indices",
+        "cached_page_refs",
+        "allowed_registered_asset_refs",
+        "result_contract",
+    ]
+    assert handout["result_contract_requirements"] == {
+        "closed": True,
+        "player_visible": True,
+        "exact_cached_page_refs_only": True,
+        "exact_registered_asset_refs_only": True,
+        "related_packs": "must_be_empty",
+        "parent_repair_allowed": False,
+        "semantic_card_identification_not_keyword_gate": True,
+    }
     assert opening_setup["start_clock_source_ref_required_fields"] == [
         "source_id", "pdf_index",
     ]
@@ -619,6 +639,9 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "compile exactly one `coc.source-pack-worker.v1` json object",
         "request_purpose=foreground_opening_slice",
         "request.result_contract",
+        "coc.handout-card-pack.v1",
+        "allowed_registered_asset_refs",
+        "never use keywords or regex to identify a card",
         "`deepen_location`, `partial_neighbor`, or `partial_opening`",
         "`location_id` rather than `entity_id`",
         "`title` rather than `name`",

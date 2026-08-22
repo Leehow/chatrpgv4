@@ -7,26 +7,21 @@ description: Pi-Coc PDF 地图、插图与纯图像 handout 的强制检查、�
 
 适用轨道：`ACTIVE_IMPLEMENTATION_TRACK=pi-coc`。本 skill 只保证 KP 能看见有来源的原页图像；它不转写图片、不替 KP 判断地图含义，也不把守秘素材送进玩家通道。
 
-## 为什么必须检查
+## 候选页从哪里来
 
-pdf-inspector native 可能把地图页降成仅标题或图注，且这类页面仍会被标作 native text，**不会**自动进入 `needs_ocr`。所以每个已取得的 native `pages/` 缓存都要先运行确定性清单；不能仅依赖 OCR 队列，也不能因页面有几个文字而跳过。
+上游在语义审阅页面后，以结构化 `candidate_pdf_indices` 指出需要原图视觉供给的页。这个判断是语义编译结果；不得由标题关键词、正则、文字密度或 Markdown 片段替代。`needs_ocr` 仍是 producer 给出的独立技术清单，不代表页面是地图、玩家 handout 或 Keeper 图。
 
-## 强制检查清单
+## 结构化候选检查
 
-KP 在拿到 native 页面缓存、并派发 `steward-scene` 前调用 Pi 工具：
+KP 收到候选页后调用 Pi 工具验证这些页确实存在于已接受的 `pages/` 缓存：
 
 ```text
-coc_map_supply({operation:"detect", pages_dir:"<absolute pages dir>", needs_ocr:[<pdf_index>...]})
+coc_map_supply({operation:"detect", pages_dir:"<absolute pages dir>", candidate_pdf_indices:[<pdf_index>...], needs_ocr:[<pdf_index>...]})
 ```
 
-该检测器标记以下任一页为 `needs_image`：
+返回的 `needs_image` 只是已验证存在的结构化候选页；`needs_ocr_or_image` 是它与既有 `needs_ocr` 的去重并集。候选页缺失时失败关闭。检测器不读取页面正文，也不判断地图含义、玩家可见性或场景关联。
 
-1. Markdown 标题恰为或以「图 N／地图 N／插图／示意图」命名；
-2. 清理 Markdown 标记后的文字密度不超过 80 个字符。
-
-返回的 `needs_ocr_or_image` 是与既有 `needs_ocr` 的去重并集。标题和低密度仅是**强制视觉检查**的确定性信号，不是地图含义、玩家可见性或场景关联的语义判断。
-
-将 `needs_image`、每页 `reasons` 和后续 asset refs 一并给 `steward-scene`。管家据原页、图注和场景上下文确认 `Map{id,caption,page_ref,linked_locations,image_ref}`；不确定关联时保留页引用，不臆造地点。
+将 `needs_image`、每页 `reasons=structured_candidate_ref` 和后续 asset refs 一并给 `steward-scene`。管家据原页、图注和场景上下文确认 `Map{id,caption,page_ref,linked_locations,image_ref}`；不确定关联时保留页引用，不臆造地点。
 
 ## 渲染与资产
 
@@ -51,7 +46,7 @@ export COC_MAP_RENDER_COMMAND=/absolute/path/to/map-page-renderer
 KP 调用：
 
 ```text
-coc_map_supply({operation:"render", pages_dir:"<absolute pages dir>", asset_root_id:"<asset root>", source_pdf_path:"/absolute/module.pdf", needs_ocr:[...]})
+coc_map_supply({operation:"render", pages_dir:"<absolute pages dir>", candidate_pdf_indices:[...], asset_root_id:"<asset root>", source_pdf_path:"/absolute/module.pdf", needs_ocr:[...]})
 ```
 
 Pi 只接受输出目录内的 png/jpeg/webp、大小不超过 20 MiB 的图像，计算 SHA-256，并写 `images/map-supply/manifest.json`。外部 command 缺失、失败、JSON 非法、路径逃逸或少页时失败关闭；不得以 OCR 文字、截图描述或 KP 想象代替原图。
@@ -70,7 +65,7 @@ Pi 用 `display:false` custom message 注入 text + base64 image content。该�
 
 ## 玩家可见地图卡（原文卡路径）
 
-`maps_ref` 的既有语义是 keeper_only：`present` 仅供 KP 视觉消费，这条边界不变。玩家可见地图不再由 KP 转述，而是走原文信息卡路径：一张 `kind:"map"` 且 `image_ref` 指向已校验 map-supply 资产（或 bundle 资产相对路径）的 handout 条目，带 `source_refs` 与语义化的 `when_to_deliver`，与手稿/朗读卡共用同一交付机制（`state.deliver_handout`）。判定"这页图是玩家应得的地图"是页义/场景语义判断；detect 的标题与低密度信号只强制视觉检查，不构成卡识别。
+`maps_ref` 的既有语义是 keeper_only：`present` 仅供 KP 视觉消费，这条边界不变。玩家可见地图不再由 KP 转述，而是走原文信息卡路径：一张 `kind:"map"` 且 `image_ref` 指向已校验 map-supply 资产（或 bundle 资产相对路径）的 handout 条目，带 `source_refs` 与语义化的 `when_to_deliver`，与手稿/朗读卡共用同一交付机制（`state.deliver_handout`）。判定"这页图是玩家应得的地图"是页义/场景语义判断；结构化候选只授权校验/渲染页引用，不构成卡识别或交付决定。
 
 交付后，玩家经交付投影看到地图图面；KP 叙述只做 framing（在哪里、由谁得到），不复述图像内容。守秘地图（守秘人专用标注、未揭示布局）仍只走 `present`，永不进入 handout。
 

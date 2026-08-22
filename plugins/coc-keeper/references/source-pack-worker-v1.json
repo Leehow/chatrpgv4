@@ -465,6 +465,36 @@
         "submit status=abstain with results=[] when required fields cannot be supplied; never ask the parent to repair a usable result"
       ]
     },
+    "handout_card": {
+      "request_kind": "deepen_handout",
+      "source_aspect": "body",
+      "required_request_fields": [
+        "job_id",
+        "target_id",
+        "requested_pdf_indices",
+        "cached_page_refs",
+        "allowed_registered_asset_refs",
+        "result_contract"
+      ],
+      "result_contract_id": "coc.handout-card-pack.v1",
+      "result_contract_requirements": {
+        "closed": true,
+        "player_visible": true,
+        "exact_cached_page_refs_only": true,
+        "exact_registered_asset_refs_only": true,
+        "related_packs": "must_be_empty",
+        "parent_repair_allowed": false,
+        "semantic_card_identification_not_keyword_gate": true
+      },
+      "rules": [
+        "copy the closed request.result_contract fields exactly and return the handout entity itself",
+        "use target_id as both handout_id and asset_id and preserve the fixed deep source player-visible fields",
+        "select source refs only from exact cached_page_refs and optional image_ref only from allowed_registered_asset_refs",
+        "choose kind and when_to_deliver by semantic review of the bounded source pages; never use keywords, regex, headings, or text density as card authority",
+        "exclude Keeper-only notes, hidden annotations, module secrets, and unsupported aliases or extra fields",
+        "keep related_packs empty; if the closed pack cannot be supplied, return status=abstain with results=[]"
+      ]
+    },
     "mechanics_locator_pass": {
       "request_kind": "locate_mechanics_index",
       "request_purpose": "mechanics_locator_pass",

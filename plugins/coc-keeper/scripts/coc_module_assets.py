@@ -14,7 +14,9 @@ import base64
 import hashlib
 import importlib.util
 import json
+import os
 import re
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -454,6 +456,124 @@ def validate_host_work_consumer_refs(value: Any) -> list[dict[str, Any]]:
     return [unique[key] for key in sorted(unique)]
 
 
+def handout_card_result_contract(
+    *,
+    job_id: str,
+    target_id: str,
+    cached_page_refs: list[dict[str, Any]],
+    allowed_registered_asset_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return the one trusted closed source-card contract shape."""
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.handout-card-pack.v1",
+        "closed": True,
+        "fixed_fields": {
+            "handout_id": target_id,
+            "asset_id": target_id,
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "origin": "source",
+            "player_visible": True,
+        },
+        "allowed_pack_fields": [
+            "handout_id", "asset_id", "kind", "title", "summary",
+            "text", "localized_text", "when_to_deliver", "image_ref",
+            "source_refs", "scene_refs", "clue_refs", "player_visible",
+            "parse_state", "evidence_gap", "origin", "provenance",
+        ],
+        "required_pack_fields": [
+            "handout_id", "asset_id", "kind", "title", "source_refs",
+            "player_visible", "parse_state", "evidence_gap", "origin",
+            "provenance",
+        ],
+        "kind_values": ["document", "read_aloud", "map"],
+        "allowed_exact_source_refs": [
+            {
+                "source_id": str(ref.get("source_id") or ""),
+                "pdf_index": int(ref["pdf_index"]),
+                "text_sha256": str(ref.get("text_sha256") or ""),
+                "card_source_ref": f"pdf_index-{int(ref['pdf_index'])}",
+            }
+            for ref in cached_page_refs
+        ],
+        "allowed_registered_asset_refs": json.loads(json.dumps(
+            allowed_registered_asset_refs
+        )),
+        "provenance": {
+            "required": {
+                "authority": "source_authored",
+                "basis": "host_pack",
+            },
+        },
+        "result_item": {
+            "fixed_fields": {"job_id": job_id},
+            "related_packs": "must_be_empty",
+        },
+        "rules": [
+            "card source_refs are a non-empty exact subset of allowed_exact_source_refs.card_source_ref",
+            "image_ref is omitted or equals one allowed_registered_asset_refs.image_ref",
+            "player_visible is true; Keeper-only material is not a handout result",
+            "when_to_deliver is semantic advice for Keeper judgment, never a machine condition",
+            "no aliases, extra fields, prose scan, keyword classification, or parent repair",
+        ],
+    }
+
+
+def _validate_handout_registered_asset_refs(value: Any) -> list[dict[str, Any]]:
+    """Validate the closed asset rows exposed to one handout source worker."""
+    if not isinstance(value, list):
+        raise ModuleAssetsError(
+            "allowed_registered_asset_refs must be an array"
+        )
+    normalized: list[dict[str, Any]] = []
+    for position, row in enumerate(value):
+        field = f"allowed_registered_asset_refs[{position}]"
+        if not isinstance(row, dict) or set(row) != {
+            "image_ref", "media_type", "sha256", "size_bytes",
+            "bundle_sha256",
+        }:
+            raise ModuleAssetsError(f"{field} has unsupported fields")
+        image_ref = row.get("image_ref")
+        if (
+            not isinstance(image_ref, str)
+            or not image_ref
+            or "\\" in image_ref
+            or Path(image_ref).is_absolute()
+            or Path(image_ref).parts[:1] != ("assets",)
+            or any(part in {"", ".", ".."} for part in Path(image_ref).parts)
+        ):
+            raise ModuleAssetsError(f"{field}.image_ref is not confined")
+        media_type = row.get("media_type")
+        if media_type not in {"image/png", "image/jpeg", "image/webp"}:
+            raise ModuleAssetsError(f"{field}.media_type is unsupported")
+        size_bytes = row.get("size_bytes")
+        if (
+            isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, int)
+            or not 0 < size_bytes <= coc_pdf_bundle.MAX_IMAGE_ASSET_BYTES
+        ):
+            raise ModuleAssetsError(f"{field}.size_bytes is invalid")
+        normalized.append({
+            "image_ref": image_ref,
+            "media_type": media_type,
+            "sha256": _require_sha256(row.get("sha256"), f"{field}.sha256"),
+            "size_bytes": size_bytes,
+            "bundle_sha256": _require_sha256(
+                row.get("bundle_sha256"), f"{field}.bundle_sha256",
+            ),
+        })
+    unique = {
+        (row["image_ref"], row["bundle_sha256"]): row for row in normalized
+    }
+    if len(unique) != len(normalized):
+        raise ModuleAssetsError("allowed_registered_asset_refs repeats an asset")
+    return sorted(
+        normalized,
+        key=lambda row: (row["image_ref"], row["bundle_sha256"]),
+    )
+
+
 def validate_host_work_request_shape(request: Any) -> None:
     """Reject non-current durable rows instead of inferring contract fields."""
     if not isinstance(request, dict):
@@ -480,7 +600,7 @@ def validate_host_work_request_shape(request: Any) -> None:
     kind = str(request.get("kind") or "")
     if kind not in JOB_KINDS:
         raise ModuleAssetsError("host-work kind is invalid")
-    _require_id(request.get("target_id"), "host-work.target_id")
+    target_id = _require_id(request.get("target_id"), "host-work.target_id")
     level, dependency_ref = validate_host_work_contract(
         request.get("work_level"), request.get("dependency_ref"),
     )
@@ -500,6 +620,35 @@ def validate_host_work_request_shape(request: Any) -> None:
             raise ModuleAssetsError("host-work consumer_refs are not canonical")
         if request.get("consumer_state") not in {None, "owned"}:
             raise ModuleAssetsError("owned host-work consumer_state is invalid")
+    if kind == "deepen_handout":
+        cached_page_refs = request.get("cached_page_refs")
+        if not isinstance(cached_page_refs, list):
+            raise ModuleAssetsError(
+                "deepen_handout requires cached_page_refs and "
+                "allowed_registered_asset_refs arrays"
+            )
+        allowed_assets = _validate_handout_registered_asset_refs(
+            request.get("allowed_registered_asset_refs")
+        )
+        if allowed_assets != request.get("allowed_registered_asset_refs"):
+            raise ModuleAssetsError(
+                "allowed_registered_asset_refs are not canonical"
+            )
+        try:
+            expected_contract = handout_card_result_contract(
+                job_id=str(request["job_id"]),
+                target_id=target_id,
+                cached_page_refs=cached_page_refs,
+                allowed_registered_asset_refs=allowed_assets,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ModuleAssetsError(
+                "deepen_handout cached page refs are invalid"
+            ) from exc
+        if request.get("result_contract") != expected_contract:
+            raise ModuleAssetsError(
+                "deepen_handout result_contract is not the canonical closed card contract"
+            )
 
 
 def _same_entity_work(row: dict[str, Any], job_kind: str, target_id: str) -> bool:
@@ -3834,6 +3983,299 @@ def _canonicalize_source_bundle(bundle: Any) -> dict[str, Any]:
     return result
 
 
+def _write_bytes_atomic(path: Path, payload: bytes) -> None:
+    """Publish one immutable binary asset without exposing a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb", dir=path.parent, delete=False,
+        ) as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary = Path(handle.name)
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _prepare_source_bundle_assets(
+    bundle: dict[str, Any],
+    target_module_root: Path,
+) -> list[dict[str, Any]]:
+    """Validate every bundle asset and target collision before cache mutation."""
+    raw_assets = bundle.get("assets") or []
+    if not raw_assets:
+        return []
+    source = bundle.get("source")
+    source_root_value = (
+        source.get("source_bundle_path") if isinstance(source, dict) else None
+    )
+    if not isinstance(source_root_value, str) or not source_root_value.strip():
+        raise ModuleAssetsError(
+            "source bundle assets require source.source_bundle_path"
+        )
+    source_root = Path(source_root_value).expanduser().resolve()
+    if not source_root.is_dir():
+        raise ModuleAssetsError("source bundle asset root is unavailable")
+    module_root = target_module_root.resolve()
+    manifest_path = target_module_root / "source-assets.json"
+    existing_rows: dict[str, dict[str, Any]] = {}
+    if manifest_path.exists():
+        try:
+            existing_manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ModuleAssetsError("registered source asset manifest is unreadable") from exc
+        if (
+            not isinstance(existing_manifest, dict)
+            or existing_manifest.get("schema_version") != 1
+            or not isinstance(existing_manifest.get("assets"), list)
+        ):
+            raise ModuleAssetsError("registered source asset manifest is invalid")
+        existing_rows = {
+            str(row.get("source_bundle_path") or ""): row
+            for row in existing_manifest["assets"]
+            if isinstance(row, dict) and str(row.get("source_bundle_path") or "")
+        }
+
+    prepared: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for position, raw in enumerate(raw_assets):
+        field = f"source bundle assets[{position}]"
+        if not isinstance(raw, dict):
+            raise ModuleAssetsError(f"{field} must be an object")
+        relative_text = raw.get("path")
+        if (
+            not isinstance(relative_text, str)
+            or not relative_text
+            or "\\" in relative_text
+            or Path(relative_text).is_absolute()
+        ):
+            raise ModuleAssetsError(f"{field}.path must be a portable relative path")
+        relative_path = Path(relative_text)
+        if (
+            relative_path.parts[:1] != ("assets",)
+            or any(part in {"", ".", ".."} for part in relative_path.parts)
+            or relative_text in seen_paths
+        ):
+            raise ModuleAssetsError(
+                f"{field}.path must be a unique confined assets/... path"
+            )
+        seen_paths.add(relative_text)
+        try:
+            source_path = (source_root / relative_path).resolve(strict=True)
+            source_path.relative_to(source_root)
+        except (OSError, ValueError) as exc:
+            raise ModuleAssetsError(f"{field}.path escapes the source bundle") from exc
+        if not source_path.is_file():
+            raise ModuleAssetsError(f"{field}.path is not a readable file")
+        payload = source_path.read_bytes()
+        if len(payload) > coc_pdf_bundle.MAX_IMAGE_ASSET_BYTES:
+            raise ModuleAssetsError(f"{field} exceeds 20 MiB")
+        if not payload:
+            raise ModuleAssetsError(f"{field} must not be empty")
+        try:
+            media_type = coc_pdf_bundle._image_media_type(
+                source_path, payload, field,
+            )
+        except coc_pdf_bundle.PdfSourceBundleError as exc:
+            raise ModuleAssetsError(str(exc)) from exc
+        declared_hash = _require_sha256(raw.get("sha256"), f"{field}.sha256")
+        actual_hash = hashlib.sha256(payload).hexdigest()
+        if actual_hash != declared_hash:
+            raise ModuleAssetsError(f"{field} SHA-256 does not match manifest")
+        if raw.get("media_type") not in (None, media_type):
+            raise ModuleAssetsError(f"{field}.media_type does not match image media")
+        if raw.get("size_bytes") not in (None, len(payload)):
+            raise ModuleAssetsError(f"{field}.size_bytes does not match asset bytes")
+        destination = target_module_root / relative_path
+        try:
+            destination.resolve().relative_to(module_root)
+        except ValueError as exc:
+            raise ModuleAssetsError(f"{field}.path escapes the module asset root") from exc
+        if destination.is_symlink():
+            raise ModuleAssetsError(f"{field}.path resolves through a symlink")
+        if destination.exists():
+            if not destination.is_file():
+                raise ModuleAssetsError(f"{field}.path collides with a non-file")
+            if hashlib.sha256(destination.read_bytes()).hexdigest() != actual_hash:
+                raise ModuleAssetsError(
+                    f"asset path collision for {relative_text}: existing hash differs"
+                )
+        previous = existing_rows.get(relative_text)
+        if previous is not None and str(previous.get("sha256") or "") != actual_hash:
+            raise ModuleAssetsError(
+                f"asset path collision for {relative_text}: manifest hash differs"
+            )
+        bundle_hashes = sorted({
+            *(
+                str(value) for value in (previous or {}).get("bundle_sha256s") or []
+                if isinstance(value, str) and value
+            ),
+            str(bundle["bundle_sha256"]),
+        })
+        prepared.append({
+            "source_bundle_path": relative_text,
+            "image_ref": relative_text,
+            "media_type": media_type,
+            "sha256": actual_hash,
+            "size_bytes": len(payload),
+            "bundle_sha256s": bundle_hashes,
+            "_payload": payload,
+            "_destination": destination,
+        })
+    return sorted(prepared, key=lambda row: row["source_bundle_path"])
+
+
+def _publish_source_bundle_assets(
+    target_module_root: Path,
+    prepared: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Idempotently materialize exact bytes and the structured asset map."""
+    if not prepared:
+        return []
+    manifest_path = target_module_root / "source-assets.json"
+    merged: dict[str, dict[str, Any]] = {}
+    if manifest_path.is_file():
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        merged = {
+            str(row["source_bundle_path"]): json.loads(json.dumps(row))
+            for row in existing.get("assets") or []
+            if isinstance(row, dict) and isinstance(row.get("source_bundle_path"), str)
+        }
+    public_rows: list[dict[str, Any]] = []
+    for row in prepared:
+        destination = row["_destination"]
+        if not destination.exists():
+            _write_bytes_atomic(destination, row["_payload"])
+        public_rows.append({
+            key: json.loads(json.dumps(value))
+            for key, value in row.items()
+            if not key.startswith("_")
+        })
+        merged[row["source_bundle_path"]] = public_rows[-1]
+    _write_json(
+        manifest_path,
+        {
+            "schema_version": 1,
+            "assets": [merged[key] for key in sorted(merged)],
+        },
+    )
+    return public_rows
+
+
+def registered_source_asset_refs(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    requested_pdf_indices: list[int],
+) -> list[dict[str, Any]]:
+    """Project only assets from a bundle covering this exact page request."""
+    if not requested_pdf_indices:
+        return []
+    mod = _module_dir(workspace, asset_root_id)
+    manifest_path = mod / "source-assets.json"
+    identity_path = mod / "identity.json"
+    if not manifest_path.is_file() or not identity_path.is_file():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ModuleAssetsError("registered source asset index is unreadable") from exc
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or not isinstance(manifest.get("assets"), list)
+    ):
+        raise ModuleAssetsError("registered source asset index is invalid")
+    requested = set(requested_pdf_indices)
+    eligible_bundles = {
+        str(row.get("bundle_sha256") or "")
+        for row in identity.get("source_bundles") or []
+        if isinstance(row, dict)
+        and requested <= {
+            value for value in row.get("pdf_indices") or []
+            if isinstance(value, int) and not isinstance(value, bool)
+        }
+        and str(row.get("bundle_sha256") or "")
+    }
+    refs: list[dict[str, Any]] = []
+    for row in manifest["assets"]:
+        if not isinstance(row, dict):
+            raise ModuleAssetsError("registered source asset row is invalid")
+        matching_bundles = sorted(
+            eligible_bundles.intersection(row.get("bundle_sha256s") or [])
+        )
+        if not matching_bundles:
+            continue
+        image_ref = row.get("image_ref")
+        if (
+            not isinstance(image_ref, str)
+            or not image_ref
+            or "\\" in image_ref
+            or Path(image_ref).is_absolute()
+            or Path(image_ref).parts[:1] != ("assets",)
+            or any(part in {"", ".", ".."} for part in Path(image_ref).parts)
+        ):
+            raise ModuleAssetsError("registered source asset drift: image_ref is invalid")
+        expected_sha256 = _require_sha256(
+            row.get("sha256"), "registered source asset sha256",
+        )
+        asset_path = mod / image_ref
+        try:
+            resolved_asset = asset_path.resolve(strict=True)
+            resolved_asset.relative_to(mod.resolve())
+        except (OSError, ValueError) as exc:
+            raise ModuleAssetsError(
+                "registered source asset drift: image path is unavailable or escapes"
+            ) from exc
+        if resolved_asset != asset_path.absolute() or not resolved_asset.is_file():
+            raise ModuleAssetsError(
+                "registered source asset drift: image path uses a symlink or is not a file"
+            )
+        try:
+            payload = resolved_asset.read_bytes()
+        except OSError as exc:
+            raise ModuleAssetsError(
+                "registered source asset drift: image bytes are unreadable"
+            ) from exc
+        actual_sha256 = hashlib.sha256(payload).hexdigest()
+        if actual_sha256 != expected_sha256 or row.get("size_bytes") != len(payload):
+            raise ModuleAssetsError(
+                "registered source asset drift: image hash or size changed"
+            )
+        try:
+            actual_media_type = coc_pdf_bundle._image_media_type(
+                resolved_asset, payload, "registered source asset",
+            )
+        except coc_pdf_bundle.PdfSourceBundleError as exc:
+            raise ModuleAssetsError(
+                "registered source asset drift: image media is invalid"
+            ) from exc
+        if row.get("media_type") != actual_media_type:
+            raise ModuleAssetsError(
+                "registered source asset drift: image media type changed"
+            )
+        for bundle_sha256 in matching_bundles:
+            refs.append({
+                "image_ref": image_ref,
+                "media_type": actual_media_type,
+                "sha256": expected_sha256,
+                "size_bytes": len(payload),
+                "bundle_sha256": bundle_sha256,
+            })
+    return sorted(
+        refs,
+        key=lambda row: (row["image_ref"], row["bundle_sha256"]),
+    )
+
+
 def register_source_bundle(
     workspace: Path,
     source_bundle: Path | str | dict[str, Any],
@@ -3923,8 +4365,12 @@ def register_source_bundle(
         # stable-id locks, then reacquire source-bundles.lock to append the
         # bundle row.  This prevents lost rows without holding one advisory
         # lock inside another.
+        target_module_root = _module_dir(workspace, target_root_id)
+        prepared_assets = _prepare_source_bundle_assets(
+            bundle, target_module_root,
+        )
         bundle_identity_lock = (
-            _module_dir(workspace, target_root_id) / "source-bundles.lock"
+            target_module_root / "source-bundles.lock"
         )
         with coc_fileio.advisory_file_lock(bundle_identity_lock):
             mod = init_module_root(
@@ -3936,6 +4382,15 @@ def register_source_bundle(
                 recovered_from_asset_root_id=recovered_from,
                 recovery_family_root_id=recovery_family_root_id,
                 publish_registry=False,
+            )
+
+        with coc_fileio.advisory_file_lock(mod / "source-assets.lock"):
+            # Revalidate collisions under the publishing lock.  The first
+            # pass above fails malformed bundles before module mutation; this
+            # second pass closes the concurrent-registration TOCTOU window.
+            prepared_assets = _prepare_source_bundle_assets(bundle, mod)
+            registered_assets = _publish_source_bundle_assets(
+                mod, prepared_assets,
             )
 
         page_results: list[dict[str, Any]] = []
@@ -4192,6 +4647,7 @@ def register_source_bundle(
                 if row.get("referenced_cached")
             ),
             "bundle_validation_and_cache_ms": elapsed_ms,
+            "registered_assets": registered_assets,
         }
 
     drifted_pdf_index = _first_cached_page_drift(
@@ -6814,6 +7270,7 @@ def claim_host_work_requests(
                         "cached_scope_complete", "batch_subjects",
                         "request_purpose", "requested_source_scope",
                         "source_scope_signature", "result_contract",
+                        "allowed_registered_asset_refs",
                         "work_level", "consumer_refs", "consumer_state",
                     )
                 }

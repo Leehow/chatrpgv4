@@ -23,6 +23,7 @@ MANIFEST_NAME = "manifest.json"
 MAX_PAGES = 32
 MAX_CHARACTERS = 300_000
 MAX_STRUCTURED_PAGE_BYTES = 5_000_000
+MAX_IMAGE_ASSET_BYTES = 20 * 1024 * 1024
 ACCEPTED_REVIEW_STATES = frozenset({"auto_accepted", "manual_accepted"})
 STRUCTURED_PAGE_FORMATS = frozenset({"paddleocr-vl-layout-v1"})
 OCR_REVISION_LAYERS = frozenset({"fast", "detail"})
@@ -32,6 +33,12 @@ OCR_REVISION_KEYS = frozenset({
 })
 _HEX = frozenset("0123456789abcdef")
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+IMAGE_MEDIA_BY_SUFFIX = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
 
 
 class PdfSourceBundleError(ValueError):
@@ -79,6 +86,29 @@ def _bundle_file(root: Path, relative: Any, field: str) -> Path:
     if not path.is_file():
         raise PdfSourceBundleError(f"{field} is not a readable file: {relative}")
     return path
+
+
+def _image_media_type(path: Path, payload: bytes, field: str) -> str:
+    """Validate one bounded host-extracted image without decoding it."""
+    media_type = IMAGE_MEDIA_BY_SUFFIX.get(path.suffix.lower())
+    if media_type is None:
+        raise PdfSourceBundleError(
+            f"{field} has unsupported image media; use PNG, JPEG, or WebP"
+        )
+    signatures = {
+        "image/png": payload.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg": payload.startswith(b"\xff\xd8\xff"),
+        "image/webp": (
+            len(payload) >= 12
+            and payload.startswith(b"RIFF")
+            and payload[8:12] == b"WEBP"
+        ),
+    }
+    if not signatures[media_type]:
+        raise PdfSourceBundleError(
+            f"{field} bytes do not match image media {media_type}"
+        )
+    return media_type
 
 
 def _normalize_markdown(text: str) -> str:
@@ -395,9 +425,21 @@ def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
             raise PdfSourceBundleError(f"duplicate asset path: {relative}")
         seen_assets.add(relative)
         declared_hash = _require_sha256(raw_asset.get("sha256"), f"{field}.sha256")
-        if sha256_file(asset_path) != declared_hash:
+        size_bytes = asset_path.stat().st_size
+        if size_bytes <= 0:
+            raise PdfSourceBundleError(f"{field} must not be empty")
+        if size_bytes > MAX_IMAGE_ASSET_BYTES:
+            raise PdfSourceBundleError(f"{field} exceeds 20 MiB")
+        payload = asset_path.read_bytes()
+        media_type = _image_media_type(asset_path, payload, field)
+        if hashlib.sha256(payload).hexdigest() != declared_hash:
             raise PdfSourceBundleError(f"{field} SHA-256 does not match manifest")
-        assets.append({"path": relative, "sha256": declared_hash})
+        assets.append({
+            "path": relative,
+            "sha256": declared_hash,
+            "media_type": media_type,
+            "size_bytes": size_bytes,
+        })
     assets.sort(key=lambda item: item["path"])
 
     source_id = raw_source.get("source_id")
