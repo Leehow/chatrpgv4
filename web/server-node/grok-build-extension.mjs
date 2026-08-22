@@ -1058,6 +1058,9 @@ export function grokBuildExtensionStatus({
     terminalConfigured = false;
   }
   const compatFallback = grokBuildCompatFallbackEnabled({ repoRoot, cocHome, env: {} });
+  // What a compatFallback=true setting would actually unlock (mirrors the
+  // xai-image allow-list): tier gate / auth unconfigured / host unavailable.
+  const compatFallbackAllowlist = ["tier_restricted", "auth_expired", "not_logged_in", "NoAgentHomeError"];
   return {
     installed: installed.ok,
     verified: installed.ok && installed.verified === true,
@@ -1071,6 +1074,7 @@ export function grokBuildExtensionStatus({
     mountedViaHostEnv: grokBuildMountedViaHostEnv(env),
     terminalConfigured,
     compatFallback,
+    compatFallbackAllowlist,
     cocHome: home,
     settingsPath,
     sidecarPath: grokBuildSettingsSidecarPath({ repoRoot, cocHome, env: {} }),

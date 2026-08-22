@@ -39,6 +39,7 @@ import { resolveProductAgentDir } from "./agent-dir.mjs";
 import { campaignDir } from "./projections.mjs";
 import {
   DEFAULT_REPO_ROOT,
+  GROK_BUILD_SETTINGS_ENV as GROK_BUILD_SETTINGS_ENV_NAME,
   grokBuildCompatFallbackEnabled,
   loadGrokBuildHostLibrary,
 } from "./grok-build-extension.mjs";
@@ -328,6 +329,38 @@ function hostErrorStatus(err) {
 }
 
 /**
+ * Canonical-host error codes that MAY fall through to the deprecated compat
+ * transports — and only when the user explicitly enabled
+ * `ext.grok-build-oauth.compatFallback` (spec D6/D8: "未登录/被 gate/受限时按
+ * compat 回退").
+ *
+ * - `tier_restricted` — advisory client-side gate (Free/empty/X Basic tier);
+ *   the legacy XAI_API_KEY path is never tier-gated (US-22/US-30).
+ * - `auth_expired` / `not_logged_in` — OAuth credential unusable/unconfigured
+ *   on the canonical path.
+ * - `NoAgentHomeError` — the canonical host cannot resolve a Pi home
+ *   (host unconfigured), so there is nothing canonical to protect.
+ *
+ * Everything else — invalid_params, invalid_response, path containment /
+ * security violations, aborts, timeouts, upstream 4xx/5xx, network errors —
+ * surfaces as-is: caller mistakes, transport faults, and cancellations must
+ * not silently re-run against a deprecated backend.
+ */
+const HOST_ERRORS_COMPAT_FALLBACK = Object.freeze(new Set([
+  "tier_restricted",
+  "auth_expired",
+  "not_logged_in",
+  "NoAgentHomeError",
+]));
+
+/** True only for the explicitly allow-listed canonical host errors above. */
+export function hostErrorAllowsCompatFallback(err) {
+  if (!err) return false;
+  const code = String(err?.code || err?.name || "");
+  return HOST_ERRORS_COMPAT_FALLBACK.has(code);
+}
+
+/**
  * Canonical portrait path: dynamically import the installed artifact's
  * manifest-declared `host.entry` (`agent/dist/host.js`) and call its stable
  * host API (`createGrokBuildHostLibrary`). The library owns the credential
@@ -335,12 +368,18 @@ function hostErrorStatus(err) {
  * gate, `resolution=1k`, `x-grok-session-id`, and typed bytes+metadata
  * results — this file never re-implements that request logic.
  *
+ * The artifact resolves its settings snapshot from the ambient process env
+ * (`PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH`) at call time; the caller's `env`
+ * value (already sanitized upstream) is exported around the call so tier /
+ * compat decisions match the requesting session. Restored afterwards.
+ *
  * Returns one of:
  * - { status: "ready", result: HostImageResult } — typed canonical result;
  * - { status: "absent" } — artifact not installed/verified (or no library);
  * - { status: "auth-missing", loggedIn, expired } — installed but no usable
  *   grok-build credential (caller decides via the compatFallback gate);
- * - { status: "error", error } — canonical call failed (surface, no compat).
+ * - { status: "error", error } — canonical call failed (surface unless the
+ *   code is allow-listed for the gated compat fallback).
  */
 export async function generatePortraitViaGrokBuildHostLibrary({
   env = process.env,
@@ -360,6 +399,20 @@ export async function generatePortraitViaGrokBuildHostLibrary({
       userData: env?.COC_DESKTOP_USER_DATA,
     });
   if (!dir) return { status: "absent" };
+  const previousSnapshot = process.env[GROK_BUILD_SETTINGS_ENV_NAME];
+  const hadPrevious = Object.prototype.hasOwnProperty.call(process.env, GROK_BUILD_SETTINGS_ENV_NAME);
+  const snapshot = trimKey(env?.[GROK_BUILD_SETTINGS_ENV_NAME]);
+  if (snapshot) process.env[GROK_BUILD_SETTINGS_ENV_NAME] = snapshot;
+  else delete process.env[GROK_BUILD_SETTINGS_ENV_NAME];
+  try {
+    return await callGrokBuildHostLibrary({ host, dir, prompt, aspectRatio, signal, fetchImpl, log });
+  } finally {
+    if (hadPrevious) process.env[GROK_BUILD_SETTINGS_ENV_NAME] = previousSnapshot;
+    else delete process.env[GROK_BUILD_SETTINGS_ENV_NAME];
+  }
+}
+
+async function callGrokBuildHostLibrary({ host, dir, prompt, aspectRatio, signal, fetchImpl, log }) {
   let lib;
   try {
     lib = host.createHostLibrary({
@@ -403,6 +456,13 @@ export function hostLibraryImageError(err) {
   return new XaiImageError(message, { status: hostErrorStatus(err), code: err?.code });
 }
 
+function noBackendError({ tierGated = false } = {}) {
+  const hint = tierGated
+    ? "当前 Grok Build tier 受限（图像需 SuperGrok 订阅），且旧 xAI 兼容通道未开启（compatFallback 默认关闭）。"
+    : "未登录 Grok Build（/login grok-build），且旧 xAI 兼容通道未开启（compatFallback 默认关闭）。";
+  return imageError(401, hint, "NO_IMAGE_BACKEND");
+}
+
 /**
  * DEPRECATED compat-only transport resolver. Called only after the canonical
  * grok-build host path is unavailable AND the user explicitly enabled
@@ -416,13 +476,10 @@ export async function resolveXaiImageTransport({
   agentDir,
   probeImpl,
   repoRoot = DEFAULT_REPO_ROOT,
+  tierGated = false,
 } = {}) {
   if (!grokBuildCompatFallbackEnabled({ repoRoot, env })) {
-    throw imageError(
-      401,
-      "未登录 Grok Build（/login grok-build），且旧 xAI 兼容通道未开启（compatFallback 默认关闭）。",
-      "NO_IMAGE_BACKEND",
-    );
+    throw noBackendError({ tierGated });
   }
   const official = resolveOfficialXaiApiKey({ env, agentDir });
   if (official.source === "env") {
@@ -463,11 +520,7 @@ export async function resolveXaiImageTransport({
       deprecated: true,
     };
   }
-  throw imageError(
-    401,
-    "未登录 Grok Build（/login grok-build），且旧 xAI 兼容通道未开启（compatFallback 默认关闭）。",
-    "NO_IMAGE_BACKEND",
-  );
+  throw noBackendError({ tierGated });
 }
 
 export function parseGeneratePortraitBody(body) {
@@ -802,12 +855,21 @@ export function writePortraitFile(outputPath, bytes) {
 /**
  * Generate one Imagine image and write it to the caller-specified portrait path.
  * Does not mutate investigator/character state.
+ *//**
+ * DEPRECATED compat-only transport resolver. Called only after the canonical
+ * investigator portrait flow): canonical grok-build host library first, then
+ * the deprecated compat transports — which resolveXaiImageTransport hands out
+ * ONLY when `ext.grok-build-oauth.compatFallback` is explicitly enabled.
+ * Returns `{ bytes, mimeType, model, backend, deprecated? }`.
  */
 /**
  * Shared xAI-family portrait dispatch (used by both the HTTP route and the
  * investigator portrait flow): canonical grok-build host library first, then
  * the deprecated compat transports — which resolveXaiImageTransport hands out
  * ONLY when `ext.grok-build-oauth.compatFallback` is explicitly enabled.
+ * When the canonical host call itself fails, only the allow-listed codes
+ * (`hostErrorAllowsCompatFallback`: tier gate / auth unconfigured / host
+ * unavailable) may fall through to compat; everything else surfaces.
  * Returns `{ bytes, mimeType, model, backend, deprecated? }`.
  */
 export async function generateXaiFamilyPortraitBytes({
@@ -834,6 +896,7 @@ export async function generateXaiFamilyPortraitBytes({
     fetchImpl,
     log,
   });
+  let tierGated = false;
   if (canonical.status === "ready") {
     const result = canonical.result;
     return {
@@ -846,10 +909,26 @@ export async function generateXaiFamilyPortraitBytes({
     };
   }
   if (canonical.status === "error") {
-    throw hostLibraryImageError(canonical.error);
+    const err = canonical.error;
+    // Only the explicitly allow-listed canonical errors (tier gate / auth
+    // unconfigured / host-unavailable) may fall through to the deprecated
+    // compat transports, and only when compatFallback is explicitly enabled.
+    // invalid_params, path/security violations, aborts, timeouts, upstream and
+    // network failures surface as-is — never silently rerun on a deprecated
+    // backend.
+    if (hostErrorAllowsCompatFallback(err)) {
+      tierGated = String(err?.code || err?.name || "") === "tier_restricted";
+      log?.("xai_image_compat_fallback_eligible", {
+        code: String(err?.code || err?.name || ""),
+        canonical: true,
+      });
+      // Falls through to the gated resolver below.
+    } else {
+      throw hostLibraryImageError(err);
+    }
   }
   // absent / auth-missing → deprecated compat paths, gated inside the resolver.
-  const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl, repoRoot });
+  const transport = await resolveXaiImageTransport({ env, agentDir, probeImpl, repoRoot, tierGated });
   log?.("xai_image_generate", {
     token_source: transport.tokenSource,
     backend: transport.backend,
