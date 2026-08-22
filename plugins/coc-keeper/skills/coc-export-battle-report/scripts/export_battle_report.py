@@ -1918,11 +1918,11 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         *(scene_findings or ["no unpromoted hard drift or improvised authored-milestone unlock"]),
     )
 
-    reviews_by_id = {
-        str(row.get("review_id")): row
-        for row in narration_reviews_doc or []
-        if isinstance(row, dict) and isinstance(row.get("review_id"), str)
-    }
+    reviews_by_id: dict[str, list[dict[str, Any]]] = {}
+    for row in narration_reviews_doc or []:
+        if not isinstance(row, dict) or not isinstance(row.get("review_id"), str):
+            continue
+        reviews_by_id.setdefault(str(row["review_id"]), []).append(row)
     agency_findings: list[str] = []
     agency_not_proven: list[str] = []
     if invalid_finalization_rows:
@@ -1941,8 +1941,13 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             str(review_ref.get("review_id") or "")
             if isinstance(review_ref, dict) else ""
         )
-        review = reviews_by_id.get(review_id)
-        if (
+        review_matches = reviews_by_id.get(review_id, [])
+        review = review_matches[0] if len(review_matches) == 1 else None
+        if len(review_matches) > 1:
+            agency_findings.append(
+                f"accepted revision {finalization_id} has duplicate narration review id {review_id}"
+            )
+        elif (
             not review_id
             or not isinstance(review, dict)
             or not _review_digest_valid(review)

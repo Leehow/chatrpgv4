@@ -1682,6 +1682,35 @@ def test_legacy_review_reference_without_raw_draft_hash_is_not_proven(tmp_path):
     assert report["completeness"]["dimensions"]["agency"]["status"] == "NOT_PROVEN"
 
 
+@pytest.mark.parametrize("conflict_first", [True, False])
+def test_duplicate_review_id_is_conflicting_agency_evidence_in_both_orders(
+    tmp_path, conflict_first,
+):
+    module = _load()
+    run = tmp_path / f"duplicate-review-{conflict_first}"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    legal = _review("review-fin-1")
+    conflict = _review(
+        "review-fin-1", draft_text="冲突草稿。", findings=[{
+            "rule_id": "agency_violation", "subject_ref": "pc:ada",
+            "source_ref": None, "reason": "同一 review_id 的冲突证据",
+        }],
+    )
+    rows = [conflict, legal] if conflict_first else [legal, conflict]
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", rows)
+
+    report = module.export_battle_report(run)
+
+    agency = report["completeness"]["dimensions"]["agency"]
+    assert agency["status"] == "FAIL"
+    audit_agency = _audit_completeness(run)["dimensions"]["agency"]
+    assert any(
+        "duplicate narration review id" in row
+        for row in audit_agency["findings"]
+    )
+
+
 @pytest.mark.parametrize(
     ("claim_type", "source_ref"),
     [
