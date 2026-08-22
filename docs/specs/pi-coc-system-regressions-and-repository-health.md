@@ -27,6 +27,15 @@ Success looks like:
 - a delivered handout travels through one complete canonical chain from module
   evidence to state, Pi, server projection, SSE, narration, and the Materials
   panel;
+- PDF-extracted player-safe images and source-backed `read_aloud` cards appear
+  through that same canonical delivery chain when the live Keeper judges the
+  current fiction has reached their structured delivery condition;
+- a player-safe map appears only through a delivered `kind: "map"` handout;
+  Keeper-only `scene.map` / map-supply assets never leak into the player UI;
+- each image, information card, and map is automatically presented at most
+  once per table delivery identity and survives refresh; it is presented again
+  only after an explicit player request, while an ambiguous possible request
+  is clarified semantically by the Keeper instead of guessed by keywords;
 - unknown or custom item labels never acquire invented weapon mechanics;
 - every narration contract identifies the campaign's actual `play_language`
   and does not claim a deterministic language guard it does not implement;
@@ -318,6 +327,36 @@ with distinct:
 - invariants and error modes;
 - test surfaces;
 - likely implementation owners.
+
+### 4.8 Source-backed visual, read-aloud, and map presentation
+
+PDF extraction remains external to the repository and must produce the
+versioned source-bundle evidence contract. Repository code consumes only
+validated page Markdown, bounded assets, hashes, review evidence, and deep
+entity packs. It must not add a PDF parser or reopen source pages during a live
+turn.
+
+Player presentation uses one canonical card contract:
+
+- `kind: "document"` for source-backed textual or image-bearing documents;
+- `kind: "read_aloud"` for verbatim player-facing passages;
+- `kind: "map"` for player-safe maps whose `image_ref` is confined to the
+  campaign handout root or its bound module-assets root.
+
+`delivered_handout_ids` remains delivery authority. Asset availability,
+`clue_refs`, `maps_ref`, a Keeper-only `scene.map` result, or a PDF image alone
+must never make a player card visible. The initial delivery may be linked
+atomically to an earned clue or explicitly written through
+`state.deliver_handout` before narration.
+
+Automatic presentation is exactly once per table delivery identity. Session
+hydration restores the Materials card without creating another inline event.
+An explicit player request may present the already delivered card again without
+creating a second delivery or state mutation. Whether a free-form player line
+is such a request is Keeper semantic judgment; code must not classify it by
+keywords, regexes, or phrase lists. When the request is genuinely ambiguous,
+the Keeper asks which card/image/map the player wants to see before replaying
+anything.
 
 The new seams should let independent agents own disjoint behavior without
 editing the same composition file for ordinary changes. Each extracted module

@@ -12,7 +12,10 @@ restore cash and handout product paths, remove fabricated weapon mechanics,
 make narration language and static-file confinement truthful, protect local
 evidence from accidental staging, then deepen the two major hotspots by
 logical ownership rather than line count and inventory repository lifecycle
-debt without destructive cleanup.
+debt without destructive cleanup. The active goal additionally requires the
+existing PDF-image, source-backed read-aloud-card, and player-safe map paths to
+present at the fictionally appropriate moment, exactly once by default, with
+explicit-request replay and semantic clarification for ambiguous replay intent.
 
 ## Authorization and track
 
@@ -53,6 +56,8 @@ debt without destructive cleanup.
 | R8 lifecycle inventory | Done | lifecycle-inventory | first wave | Dated 41-worktree snapshot integrated; all uncertain targets retained. |
 | Deterministic/full validation | Partial | lead + later verifier lanes | integration | Integrated Node 375/375, Python 106/106, Pi Node 36/36; final aggregate waits on R3/R7. |
 | Real Pi-Coc/Web acceptance | Not Done | lead | integrated deterministic green | Fresh campaign; preserve evidence. |
+| R9 PDF image + read-aloud presentation | In Progress | media-map diagnosis / later worker | R2 + live diagnosis | Source-bundle evidence, semantic trigger, exactly-once, refresh, explicit replay. |
+| R10 player-safe map presentation | In Progress | media-map diagnosis / later worker | R2 + R9 | `kind: map` only; Keeper-only map supply remains secret. |
 | Lifecycle closeout | In Progress | lead | terminal lanes | static/registry/inventory closed; weapon terminal retained; integration active. |
 
 ## First-wave lane ownership
@@ -108,3 +113,6 @@ Pi policy, handouts, weapon projection/UI, or perform any cleanup.
 | A15 | Done (non-destructive) | Tracked evidence remained present; no tracked evidence deletion. |
 | A16 | Not Done | Logical-unit deepening starts only after R1-R6 are green. |
 | A17 | Done (snapshot) | Dated exhaustive inventory committed; no unowned target deleted. |
+| A18 | Not Done | A PDF-extracted player-safe image and one `read_aloud` card are delivered through normal Pi-Coc play, appear inline once and in Materials, and survive refresh without duplication. |
+| A19 | Not Done | A player-safe `kind: map` card is delivered only when fiction earns it; Keeper-only maps never enter player projection. |
+| A20 | Not Done | An explicit player replay request re-presents the already-delivered asset without a second delivery/state mutation; an ambiguous request produces a Keeper clarification instead of keyword-based replay. |
