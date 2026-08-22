@@ -403,14 +403,15 @@ genuinely ambiguous.
 
 ## Plugin-Native Acceptance Contract
 
-Whole-product acceptance uses the real canonical plugin, never a scripted
-player, fixed profile, evaluation matrix, or parallel Keeper runtime.
+Whole-product acceptance uses the real canonical plugin through the active
+track's product host, never a scripted player, fixed profile, evaluation
+matrix, or parallel Keeper runtime. For the standing Pi-Coc track, the
+normative topology is the Pi-Coc RPC method below.
 
-- The **main Codex** is the live Keeper through normal `coc-main` and
-  `coc-keeper-play`. One player collaboration agent uses
-  `fork_turns: "none"` and receives only player-safe narration, its sheet,
-  public rolls, and explicit choices. It never sees module truth, Keeper state,
-  tool rationale, or hidden logs.
+- The configured Keeper model is the live Keeper through normal `coc-main`
+  and `coc-keeper-play`. The main session or designated player agent receives
+  only player-safe narration, its sheet, public rolls, and explicit choices.
+  It never sees module truth, Keeper state, tool rationale, or hidden logs.
 - Shared filesystem means protocol isolation, not a cryptographic sandbox;
   record that limitation honestly.
 - Every run uses a fresh isolated workspace and exact-current-schema campaign.

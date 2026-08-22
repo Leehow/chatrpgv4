@@ -217,7 +217,7 @@ def _fixture(run: Path, *, metadata_name="run.json"):
         "run_id": "run-1",
         "campaign_id": "case-1",
         "session_id": "session-1",
-        "plugin_version": "0.4.0-alpha.0",
+        "plugin_version": "0.6.2-alpha.0",
         "ruleset_id": "coc7",
         "ruleset_version": "1.0.0",
         "seed": 17,

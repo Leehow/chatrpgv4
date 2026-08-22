@@ -2,7 +2,9 @@
 
 - 日期：2026-08-10
 - 轨道：ACTIVE_IMPLEMENTATION_TRACK=pi-coc（Codex 轨 off-limits）
-- 状态：设计定稿，待实现排期
+- 状态：部分实现（2026-08-22 更新）。`steward.scene_supply`、scene bundle
+  状态、专职 steward agent、Pi 迁移门控和确定性测试已存在；尚缺一次从原始来源
+  开始、跑到结构化结局的 fresh Pi-Coc RPC 验收，因此不能宣称本设计整体完成。
 - 前置事实来源：`/Users/haoli/Documents/TRPG/克苏鲁的呼唤/` 14 份 PDF 普查（10 本模组正文抽样）；Firecrawl pdf-inspector 实测（Cold Harvest 48 页：42 native / 6 OCR，分类 24ms / 提取 212ms）；OCR 切片实测（拆 6 页 → baiduocr 2s，页码映射验证通过）；三路只读研究（pi-subagents 异步机制、pi-coc 隐藏通道、PipiUI 异步处理模式）。
 
 ## 1. 目标与问题

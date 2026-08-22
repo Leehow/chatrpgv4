@@ -1090,7 +1090,7 @@ def _handle(message: dict[str, Any]) -> dict[str, Any] | None:
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {
                     "name": server_name,
-                    "version": "0.4.0-alpha.0",
+                    "version": "0.6.2-alpha.0",
                 },
             },
         )

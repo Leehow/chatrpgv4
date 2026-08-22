@@ -15,15 +15,15 @@ implementation under `plugins/coc-keeper/`. Playable hosts must install the
 full skill tree (Codex-parity); thin manifests or routing entries are packaging
 only and are not a substitute for the full plugin.
 
-当前版本是 **`0.4.0-alpha.0`**（发布名 **0.4.0a**，Python 包版本
-`0.4.0a0`）。当前发布状态和已知限制见 [当前状态](docs/status/CURRENT.md)。
+当前版本是 **`0.6.2-alpha.0`**（发布名 **0.6.2a**，Python 包版本
+`0.6.2a0`）。当前发布状态和已知限制见 [当前状态](docs/status/CURRENT.md)。
 
 ## 安装 / Installation
 
 ### Codex
 
 ```bash
-codex plugin marketplace add Leehow/chatrpgv4 --ref main
+codex plugin marketplace add Leehow/chatrpgv4 --ref 0.6.2a
 ```
 
 在 Codex 中打开 `/plugins`，从 `COC Keeper Plugins` 安装 `COC Keeper`，然后
@@ -130,20 +130,18 @@ Plugins → Marketplace → `+` 添加仓库路径，或添加 GitHub 仓库后�
 
 ### Pi
 
-Pi 0.81.1 可以从 canonical plugin root 安装同一棵 kernel/ruleset skill 树和
-COC typed-gateway extension：
+当前锁定的 Pi 版本是 0.84.2。COC 会话必须使用仓库隔离的 `pi-coc` 启动器和
+`{this-repo}/.pi/coc-agent`，不要把插件安装到全局 `~/.pi/agent`：
 
 ```bash
-pi install "$(pwd)"
+plugins/coc-keeper/pi/bin/pi-coc --new
 ```
 
 配置与 Progressive OCR 的用户级 `.env` 方式见
 [`plugins/coc-keeper/pi/README.md`](plugins/coc-keeper/pi/README.md)。Pi Package
 不会向 `runtime/adapters/pi/` 的 narrator-only compatibility component 添加
-产品行为。两层 source coordinator transport 已跑通真实隔离 Pi 0.81.1
-lifecycle probe（claim → 嵌套 leaf → 精确 fulfill），capability 晋升为
-`experimental`；探针是 engineering-probe，仍不是 parity 或 window-equivalent
-验收证据。
+产品行为。早期 0.81.1 两层 source-coordinator lifecycle probe 是保留的历史
+工程证据；当前产品验收以锁定的 Pi 0.84.2、pi-coc RPC 和新建战役为准。
 
 Cursor、Grok、Kimi、ZCode、Pi 的 MCP gateway 都只转发到现有
 `plugins/coc-keeper/scripts/coc_toolbox.py`，不维护第二套规则、状态或叙事实现。
@@ -156,8 +154,8 @@ Cursor、Grok、Kimi、ZCode、Pi 的 MCP gateway 都只转发到现有
 - 通过确定性工具处理骰点、HP/SAN、技能成长、战斗与追逐。
 - 以事务化、幂等方式保存当前 schema 的战役状态。
 - 让 Keeper LLM 驱动每个游玩回合；工具只强制规则算术、状态写入与秘密边界。
-- 用真实 Codex 插件与无上下文 subagent 玩家做全局验收，并由最终战报 skill
-  统一生成可读报告。
+- 用真实 pi-coc RPC 会话、真实 Keeper 模型和单一自然玩家做整体验收，并由最终
+  战报 skill 统一生成玩家报告与独立规则审计。
 
 第一次使用可以说：
 
@@ -165,7 +163,7 @@ Cursor、Grok、Kimi、ZCode、Pi 的 MCP gateway 都只转发到现有
 进入 COC 模式。
 帮我创建一个调查员。
 把这个剧本导入成 COC Keeper 可运行的模组。
-用一个无上下文 subagent 当玩家，对当前插件做一次完整测试。
+用 pi-coc RPC 开一个新战役，让 Keeper 从头跑到结构化结局并导出战报。
 ```
 
 ## 内置剧本 / Built-in Scenarios
@@ -234,21 +232,20 @@ PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest \
 
 ### 全局测试 / Whole-product Acceptance
 
-全局验收直接运行真正的 Codex 插件：
+Pi-Coc 整体验收使用产品本身的 RPC 通道：
 
-1. 主 Codex 打开 canonical `coc-keeper` 插件并担任 KP。
-2. 每次测试创建全新的隔离 workspace 和当前 schema 战役，不续用旧测试状态。
-3. 启动 `fork_turns: "none"` 的 collaboration subagent 作为玩家；它不继承 KP
-   上下文、模块真相或内部状态。
-4. 主 Codex 只向玩家转发玩家可见的叙述、角色卡、公开骰点和明确选择；玩家回复
-   也只作为玩家行动送回 KP。
-5. 按普通 `coc-main` / `coc-keeper-play` 流程运行到结构化结局，或诚实记录明确的
-   运行阻塞。
-6. 结束后只由 `coc-export-battle-report` skill 生成最终可读
-   `artifacts/battle-report.md` 和完整性证据。没有通过完整性检查就不能宣称战报完整。
+1. 通过 `pi-coc --mode rpc` 启动 canonical plugin，并在激活前固定 Keeper 模型。
+2. 每次测试创建全新的隔离 workspace 和当前 schema 战役，不续用历史测试状态。
+3. Keeper 模型负责全部判断、NPC、规则调用和最终叙事；主会话或指定代理只当一名
+   玩家，一次发送一句自然回复，不读取模组真相或 Keeper 日志。
+4. 正常游玩到结构化结局或真实运行阻塞；不得用批处理、固定脚本或 canned scene
+   制造覆盖率和回合数。
+5. 结束后只由 `coc-export-battle-report` 生成 `artifacts/battle-report.md`、玩家安全
+   evidence 和独立 `artifacts/audit/`。短 smoke 可诚实导出 `INCOMPLETE`，但不能
+   冒充完整战役验收。
 
-subagent 与主 Codex 共享工作区，因此这是一种受协议约束的无上下文玩家隔离，
-不是密码学沙箱。验收报告必须如实说明这一点。
+共享文件系统只提供协议隔离，不是密码学沙箱；运行证据必须保留，不能为下一次
+测试删除旧 campaign、transcript、roll 或 report。
 
 ## 仓库结构 / Layout
 

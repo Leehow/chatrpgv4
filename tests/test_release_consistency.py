@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = ROOT / "plugins" / "coc-keeper"
-RELEASE_VERSION = "0.4.0-alpha.0"
-PYTHON_RELEASE_VERSION = "0.4.0a0"
+RELEASE_VERSION = "0.6.2-alpha.0"
+PYTHON_RELEASE_VERSION = "0.6.2a0"
 CURRENT_STATUS_PATH = "docs/status/CURRENT.md"
 
 
@@ -26,6 +26,7 @@ def manifest_versions():
         _read_json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".claude-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".cursor-plugin" / "plugin.json")["version"],
+        _read_json(PLUGIN_ROOT / ".grok-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".zcode-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".kimi-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".kimi-plugin" / "kimi.plugin.json")["version"],
@@ -71,7 +72,7 @@ def tracked_extract_paths():
 
 
 def test_release_versions_are_consistent():
-    assert manifest_versions() == [RELEASE_VERSION] * 7
+    assert manifest_versions() == [RELEASE_VERSION] * 8
     project = tomllib.loads(_text(ROOT / "pyproject.toml"))["project"]
     assert project["version"] == PYTHON_RELEASE_VERSION
 
@@ -86,14 +87,14 @@ def test_release_documents_share_version_and_current_status_authority():
     assert f"## [Unreleased] — manifest `{RELEASE_VERSION}`" in changelog
     assert f"**Current manifest version:** `{RELEASE_VERSION}`" in current
     assert "only live status source" in current
-    assert "0.4.0a" in readme and "0.4.0a" in changelog and "0.4.0a" in current
+    assert "0.6.2a" in readme and "0.6.2a" in changelog and "0.6.2a" in current
 
 
 def test_readme_matches_packaged_starters():
     assert documented_starter_ids() == packaged_starter_ids()
 
 
-def test_active_docs_define_plugin_native_subagent_acceptance():
+def test_active_docs_define_pi_coc_rpc_acceptance():
     paths = (
         ROOT / "README.md",
         ROOT / "AGENTS.md",
@@ -103,8 +104,9 @@ def test_active_docs_define_plugin_native_subagent_acceptance():
     combined = "\n".join(_text(path) for path in paths)
     compact = " ".join(combined.split()).lower()
     for phrase in (
-        "main codex",
-        "fork_turns: \"none\"",
+        "pi-coc --mode rpc",
+        "keeper model",
+        "one natural reply",
         "player-safe",
         "fresh isolated workspace",
         "coc-export-battle-report",

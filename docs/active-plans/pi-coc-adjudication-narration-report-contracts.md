@@ -1,7 +1,7 @@
 # Pi-Coc adjudication, narration, and evidence contracts
 
 Work ID: `pi-coc-adjudication-narration-report-contracts`
-Status: `Implemented`
+Status: `Done`
 Last updated: `2026-08-22`
 
 ## Goal
@@ -38,7 +38,7 @@ Pi-Coc RPC sessions pinned to the configured ZAI GLM route.
 | Deterministic/adversarial validation | Done | Focused Python, Pi Node, Web RPC, and plugin metadata suites executed after integration. |
 | ZAI GLM fresh session A | Done | Preserved under the implementation worktree artifacts with explicit ZAI route evidence. |
 | ZAI GLM fresh session B | Done | Preserved under the implementation worktree artifacts with an independent session id. |
-| Lifecycle closeout | In Progress | Integration worktree remains until target-branch merge and final audit complete. |
+| Lifecycle closeout | Done | Target branch `0.6.1a` points at `4cd379e9`; task-owned integration worktree closed with final `audit_ok`. |
 
 ## Validation evidence
 
@@ -54,10 +54,11 @@ Pi-Coc RPC sessions pinned to the configured ZAI GLM route.
 
 ## Blockers
 
-- The primary checkout still contains unrelated overlapping uncommitted work;
-  merge completion must preserve it without staging or overwriting it.
+- None for this completed work item. The unrelated primary-checkout changes
+  remain preserved on `codex/preserve-primary-dirty-20260822`.
 
 ## Next action
 
-Finish target-branch integration, rerun the post-merge ZAI GLM acceptance pair,
-then audit and close or retain every task-owned worktree.
+No implementation action remains. A later release candidate may run a complete
+Pi-Coc RPC campaign to terminal evidence; the two preserved post-merge GLM
+sessions are contract smoke evidence, not a completed-campaign acceptance.

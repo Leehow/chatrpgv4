@@ -6,20 +6,18 @@ worker handoffs, or weaken validation. The Codex lead owns updates by default.
 
 ## Status Terms
 
-`Done`, `In Progress`, `Not Done`, `Partial`, `Blocked`, and `Deferred`.
+`Done`, `In Progress`, `Not Done`, `Partial`, `Blocked`, `Deferred`, and
+`Superseded`.
 
 ## Active Plans
 
 | Work ID | Plan | Status | Last Updated | Next Action |
 |---|---|---|---:|---|
-| pi-coc-adjudication-narration-report-contracts | [Pi-Coc adjudication, narration, and evidence contracts](pi-coc-adjudication-narration-report-contracts.md) | `Implemented` | 2026-08-22 | Complete target-branch integration and the post-merge ZAI GLM acceptance pair. |
-| coc-gate-recoverability | [Gate recoverability (开场闸门可恢复性)](coc-gate-recoverability.md) | `In Progress` | 2026-08-06 | 第 0 步全局排查完成([清单](coc-gate-recoverability-step0-scan.md)):canonical 侧 67 处 blocked 无卡、`failed_fields` 零实现、~55 种手工拒绝形状;pi 侧重复契约判断 28、观察黑洞 18、执行前拦截 12。下一步是第 1 步:把不变量写成测试,优先 startup 投影簇(`index.ts:7020-7378`)与 canonical 开场 8 gate。 |
+| coc-gate-recoverability | [Gate recoverability (开场闸门可恢复性)](coc-gate-recoverability.md) | `In Progress` | 2026-08-08 | Continue the systemic startup/operation-policy repair from the preserved concurrent lane; do not treat the historical six-instance notes as current completion evidence. |
 | coc-investigator-sheet-schema-discovery | [Investigator sheet schema discovery](coc-investigator-sheet-schema-discovery.md) | `Partial` | 2026-07-23 | Discoverability vertical is integrated and focused-validated. Executable validator/materializer migration and reusable-investigator ruleset identity remain Deferred until separately approved. |
-| ruleset-vertical-green | [Ruleset vertical integration and green baseline](ruleset-vertical-green.md) | `Done` | 2026-07-21 | Public non-CoC vertical, frozen external plugin runtime, canonical evidence, and full-suite zero-red validation complete. |
-| coc-tiered-background-orchestration | [Tiered background orchestration and first-contact readiness](coc-tiered-background-orchestration.md) | `In Progress` | 2026-07-21 | Run the window-equivalent three-minute opening and multi-NPC path in a fresh Luna fast-iteration window, then one fresh Terra/Sol quality-confirmation window. Codex coordinator is proven and experimental; Cursor remains fail-closed. |
-| coc-bounded-working-set-runtime | [Bounded working-set runtime](coc-bounded-working-set-runtime.md) | `In Progress` | 2026-07-19 | Compact the largest hot-path responses (`combat.*`, item grants, ending settlement), then add NPC presence deltas and authoritative-card projections. |
-| coc-on-demand-module-skeleton | [On-demand module skeleton + durable asset store](coc-on-demand-module-skeleton.md) | `Done` (vertical) | 2026-07-18 | Slices 1–8 landed. Host deep-extract for new rooms remains host-side; no daemon worker (inline process-queue). |
-| coc-clean-slate-host-evidence | [COC clean-slate persistence and Codex-host evidence](coc-clean-slate-host-evidence.md) | `In Progress` | 2026-07-16 | Finish and review the Codex-host battle-report bridge, then implement the P0 clean-slate boundary. |
+| coc-tiered-background-orchestration | [Tiered background orchestration and first-contact readiness](coc-tiered-background-orchestration.md) | `Partial` | 2026-08-22 | Revalidate source supply and multi-NPC readiness through fresh Pi 0.84.2 RPC/Grok play; old Luna/Terra Codex-window instructions are historical evidence only. |
+| coc-bounded-working-set-runtime | [Bounded working-set runtime](coc-bounded-working-set-runtime.md) | `In Progress` | 2026-08-22 | Measure the shipped bounded resume/context-fold path in a fresh Pi-Coc RPC campaign, then prioritize only observed oversized hot-path responses. |
+| pi-coc-steward-supply-redesign | [Pi-Coc steward supply redesign](pi-coc-steward-supply-redesign.md) | `Partial` | 2026-08-22 | Scene-supply gate, steward state, agents, typed operation, and Pi integration exist; run a fresh source-authored RPC campaign before claiming the original end-to-end target. |
 
 ## Related design notes (not separate work IDs)
 
@@ -31,3 +29,7 @@ worker handoffs, or weaken validation. The Codex lead owns updates by default.
 
 | Work ID | Plan | Closed | Outcome |
 |---|---|---:|---|
+| pi-coc-adjudication-narration-report-contracts | [Pi-Coc adjudication, narration, and evidence contracts](pi-coc-adjudication-narration-report-contracts.md) | 2026-08-22 | Integrated into `0.6.1a`; deterministic suites and two fresh post-merge GLM RPC smoke sessions completed, with short-run reports honestly `INCOMPLETE`. |
+| ruleset-vertical-green | [Ruleset vertical integration and green baseline](ruleset-vertical-green.md) | 2026-07-21 | Public non-CoC vertical and canonical evidence completed; later repository-wide red baselines are tracked independently. |
+| coc-on-demand-module-skeleton | [On-demand module skeleton + durable asset store](coc-on-demand-module-skeleton.md) | 2026-07-18 | Slices 1–8 landed; later steward/source-supply work owns subsequent evolution. |
+| coc-clean-slate-host-evidence | [COC clean-slate persistence and Codex-host evidence](coc-clean-slate-host-evidence.md) | 2026-08-22 | Superseded by exact-schema persistence, Pi-Coc RPC product acceptance, schema-v2 finalization, and the canonical dual-projection exporter. |

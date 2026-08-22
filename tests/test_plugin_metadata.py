@@ -17,7 +17,7 @@ COC7_RULE_SKILLS = {
     "coc-mythos-reference",
     "coc-development",
 }
-EXPECTED_PLUGIN_VERSION = "0.4.0-alpha.0"
+EXPECTED_PLUGIN_VERSION = "0.6.2-alpha.0"
 
 
 def _json(path: Path):
@@ -38,7 +38,7 @@ def _skill_package_text(skill_dir: Path) -> str:
     return "\n".join(parts)
 
 
-def test_all_host_manifests_share_the_040a_version():
+def test_all_host_manifests_share_the_release_version():
     marketplace = _json(ROOT / ".claude-plugin" / "marketplace.json")
     versions = {
         _json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")["version"],

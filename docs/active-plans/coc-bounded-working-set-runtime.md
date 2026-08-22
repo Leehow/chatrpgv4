@@ -2,7 +2,7 @@
 
 Work ID: `coc-bounded-working-set-runtime`
 Status: `In Progress`
-Last updated: `2026-07-19`
+Last updated: `2026-08-22`
 
 ## Product question
 
@@ -193,11 +193,12 @@ Implementation uses thin deterministic tests only for the touched contracts:
 - compaction lifecycle/source references without prose keyword tests;
 - exact dice/mechanics/finalization preservation.
 
-Do not repeatedly run broad suites during early construction. As soon as the
-first integrated slice is usable, run a fresh plugin-native session with the
-main Codex as Keeper and a `fork_turns: "none"` Agent player. Continue to a
-real ending or honestly documented operational blocker. The canonical exporter
-alone writes the battle report; read the report and evidence end to end.
+Do not repeatedly run broad suites during early construction. Validate current
+product behavior through a fresh `pi-coc --mode rpc` campaign on locked Pi
+0.84.2: the configured Keeper model owns the table and one isolated player
+sends one natural reply at a time. Continue to a real ending or honestly
+documented operational blocker. The canonical exporter alone writes the battle
+report; read the report and evidence end to end.
 
 Primary real-run evidence is table quality plus hot-context bytes, input
 tokens, tool calls, cache hits/misses and invalidation reasons, and comparable

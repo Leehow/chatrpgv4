@@ -414,7 +414,7 @@ main Keeper (depth 0) -> source coordinator (depth 1) -> source-pack leaves (dep
 ```
 
 The published manifest loads only the main extension. It starts the coordinator
-with Pi 0.81.1's explicit `--no-extensions --no-skills --no-prompt-templates
+with Pi 0.84.2's explicit `--no-extensions --no-skills --no-prompt-templates
 --no-context-files --no-builtin-tools` isolation flags, a role-fixed `--tools`
 allowlist, a private extension, explicit canonical skill directories, and a
 one-use capability pipe; that coordinator has
@@ -470,7 +470,7 @@ used `openai/gpt-5.6-luna`
 provider evidence for the configured `xai/grok-4.5` Keeper. Typed-thinking
 framing has component coverage. The repository `pi-coc` wrapper forwards an
 explicit `--thinking off` unchanged and now checks the selected model metadata
-before Pi starts. Pi 0.81.1's bundled `xai/grok-4.5` model declares
+before Pi starts. The current Pi 0.84.2 model metadata for `xai/grok-4.5` declares
 `thinkingLevelMap.off=null`; without this guard Pi clamps that unsupported
 request to `low` and may stream typed thinking blocks. `pi-coc` therefore
 refuses that combination instead of silently downgrading it. True Grok

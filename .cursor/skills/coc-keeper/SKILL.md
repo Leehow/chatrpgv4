@@ -220,12 +220,12 @@ mechanics or reveals concealed evidence.
 
 ## Acceptance routing
 
-Deterministic contract tests may run on Cursor, but whole-product acceptance is
-Codex-only: the main Codex opens this canonical plugin as KP and a collaboration
-subagent created with `fork_turns: "none"` acts as the player. Only player-safe
-content crosses that boundary, and every run starts in a fresh exact-schema
-workspace. Follow root `AGENTS.md`; do not create a Cursor-
-specific player, test harness, or evaluation skill.
+Deterministic contract tests may run on Cursor, but canonical Pi-Coc
+whole-product acceptance uses a fresh `pi-coc --mode rpc` campaign: the
+configured Keeper model owns the table and one isolated player sends one
+natural reply at a time. Only player-safe content crosses that boundary.
+Follow root `AGENTS.md`; do not create a Cursor-specific player, test harness,
+or evaluation skill.
 
 Only `coc-export-battle-report` may produce the final readable
 `artifacts/battle-report.md` and completeness evidence. Never rewrite generated

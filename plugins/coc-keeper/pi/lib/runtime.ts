@@ -2162,7 +2162,7 @@ export class McpJsonlClient {
           ));
         }
       });
-      await this.direct("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "coc-keeper-pi", version: "0.4.0-alpha.0" } });
+      await this.direct("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "coc-keeper-pi", version: "0.6.2-alpha.0" } });
     } finally {
       this.starting = null;
     }

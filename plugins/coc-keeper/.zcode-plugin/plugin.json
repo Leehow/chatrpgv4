@@ -1,6 +1,6 @@
 {
   "name": "coc-keeper",
-  "version": "0.4.0-alpha.0",
+  "version": "0.6.2-alpha.0",
   "description": "Call of Cthulhu Keeper mode with canonical skills, deterministic rules, transactional campaign state, and auditable play evidence.",
   "author": {
     "name": "Leehow"

@@ -8,7 +8,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = ROOT / "plugins" / "coc-keeper"
-EXPECTED_VERSION = "0.4.0-alpha.0"
+EXPECTED_VERSION = "0.6.2-alpha.0"
 
 
 def read_json(path: Path):

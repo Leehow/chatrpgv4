@@ -9,7 +9,7 @@
     {
       "name": "coc-keeper",
       "description": "Call of Cthulhu Keeper mode — structured rules and persistent campaign state. Portraits use host-native image tools; Claude Code has none and skips them.",
-      "version": "0.4.0-alpha.0",
+      "version": "0.6.2-alpha.0",
       "source": "./plugins/coc-keeper",
       "author": {
         "name": "Leehow"

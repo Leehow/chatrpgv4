@@ -2,7 +2,7 @@
 
 Work ID: `coc-tiered-background-orchestration`
 Status: `In Progress`
-Last updated: `2026-07-22`
+Last updated: `2026-08-22`
 
 ## Product question
 
@@ -297,21 +297,18 @@ Pi Package implementation slice (approved 2026-07-22):
   receives only versioned source bundles and must not gain a repository PDF
   parser. Minor OCR prose/layout noise is acceptable and is not a binding
   gate; source identity, page scope, hashes, and bundle integrity remain hard.
-- Component/package smoke must leave Pi capability `unavailable`. Only a real
-  Pi 0.81.1 `claim -> nested leaf -> exact fulfill` run may promote the adapter
-  to `experimental`; real window-equivalent play is still required before any
-  Pi parity or Slice F acceptance claim.
+- Component/package smoke alone leaves Pi capability `unavailable`. The
+  preserved Pi 0.81.1 `claim -> nested leaf -> exact fulfill` engineering probe
+  promoted the adapter to `experimental`; current parity or Slice F acceptance
+  still requires fresh window-equivalent Pi 0.84.2 RPC play.
 
 ## Validation order
 
-Acceptance evidence is model-scoped. Use a fresh `gpt-5.6-luna`
-`fast_iteration` window first for the three-minute opening, lifecycle, and
-multi-NPC recurrence loop. Keep the selected model fixed from before
-`coc-main` activation through the player, source coordinator, and source
-leaves; all child tasks inherit the parent model. After the fast lane is
-stable, use a separate fresh `quality_confirmation` window on an available
-`gpt-5.6-terra` or `gpt-5.6-sol` for complex KP semantics, portrayal, pacing,
-and improvisation. Neither lane proves cross-model parity, and a mid-run model
+Acceptance evidence is model-scoped. Use fresh Pi 0.84.2 RPC campaigns with the
+Keeper model selected before `coc-main` activation and held fixed through all
+source workers. First exercise the three-minute opening and lifecycle path;
+then use an independent fresh campaign for multi-NPC portrayal, pacing, and
+improvisation. Neither lane proves cross-model parity, and a mid-run model
 switch makes that run mixed-model exploratory evidence rather than a
 single-model acceptance run.
 

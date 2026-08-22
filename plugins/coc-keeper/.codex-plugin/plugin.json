@@ -1,6 +1,6 @@
 {
   "name": "coc-keeper",
-  "version": "0.4.0-alpha.0",
+  "version": "0.6.2-alpha.0",
   "description": "Call of Cthulhu Keeper mode plugin for Codex with structured rules, persistent campaign state, and plugin-native subagent playtesting.",
   "author": {
     "name": "Leehow"

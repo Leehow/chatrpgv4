@@ -7,7 +7,24 @@
 不再要求读者从历史文件拼接版本变化。
 唯一实时状态来源是 `docs/status/CURRENT.md`。
 
-## [Unreleased] — manifest `0.4.0-alpha.0` (release name `0.4.0a`)
+## [Unreleased] — manifest `0.6.2-alpha.0` (release name `0.6.2a`)
+
+### Changed for 0.6.2a
+
+- Pi-Coc Web/Electron 的产品回合通道统一为真实 `pi-coc --mode rpc` 宿主；setup
+  与 play 双专职会话通过 typed handoff 交接，旧 runtime SDK turn shell 不再是 UI
+  产品路径。
+- 社交难度、隐藏心理学窗口、场景真相/即兴预算、叙事长度、调查员控制权和双轨
+  战报落为可验证合同。叙事重试复用冻结裁定，不能重复投骰或再次写入状态。
+- `turn.finalize` schema v2 绑定 run/session/turn、玩家原文、状态提交、场景合同、
+  语义 agency review、accepted revision 与最终文本 hash；未绑定或重复审查不能
+  形成完整战报证据。
+- 玩家战报与 Keeper/规则审计从同一运行证据分别投影。隐藏心理学骰、NPC 秘密、
+  内部 ID 和审计推导不会进入玩家报告；公开骰与可见状态变化必须恰好出现一次。
+- 统一所有宿主 manifest/npm 版本为 `0.6.2-alpha.0`，Python 包版本为
+  `0.6.2a0`，并同步当前 README、状态页、Pi 0.84.2 与 Pi-Coc 验收说明。
+
+## [0.4.0a] — manifest `0.4.0-alpha.0`
 
 ### Changed for 0.4.0a
 

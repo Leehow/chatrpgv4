@@ -1,10 +1,10 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-07-17
+**Last updated:** 2026-08-22
 
-**Current manifest version:** `0.4.0-alpha.0`
+**Current manifest version:** `0.6.2-alpha.0`
 
-**Release name:** `0.4.0a`
+**Release name:** `0.6.2a`
 
 **Release tag:** not created
 
@@ -29,7 +29,7 @@
   Haunting distribution basis and plugin-image provenance remain `UNVERIFIED`;
   see `CONTENT_LICENSES.md`.
 - Historical scripted players, fixed profiles, evaluation matrices, suite
-  aggregators, and parallel report generators are not part of the 0.4.0a test
+  aggregators, and parallel report generators are not part of the 0.6.2a test
   strategy.
 - Runtime saves must match the exact current schema. Old or mismatched runtime
   state is rejected and replaced with a fresh campaign generation; historical
@@ -37,22 +37,21 @@
 
 ## Whole-product acceptance
 
-The only canonical global test is a real plugin-native session:
+The canonical Pi-Coc global test is a real `pi-coc --mode rpc` session:
 
-1. The main Codex opens the canonical COC Keeper plugin and acts as KP through
-   `coc-main` and `coc-keeper-play`.
-2. The run uses a fresh isolated workspace and an exact-current-schema campaign.
-3. A collaboration subagent created with `fork_turns: "none"` acts as the
-   player. It receives only player-visible narration, character information,
-   public rolls, and explicit choices.
+1. The configured Keeper model opens the canonical plugin and owns all Keeper
+   judgment through `coc-main` and `coc-keeper-play`.
+2. The run uses a fresh isolated workspace and exact-current-schema campaign.
+3. The main session or designated player agent acts as the only player, sending
+   one natural reply at a time and receiving only player-visible material.
 4. Play continues to structured terminal evidence, or records a concrete
    operational blocker without converting missing evidence into success.
-5. `coc-export-battle-report` alone writes the final readable
-   `artifacts/battle-report.md` and its completeness evidence.
+5. `coc-export-battle-report` alone writes `artifacts/battle-report.md`, its
+   player-safe evidence JSON, and the separate Keeper/development audit tree.
 
-The collaboration subagent shares the filesystem with the main Codex. The
-isolation claim is therefore protocol-enforced no-context/player-safe relay,
-not a cryptographic sandbox.
+The player and Keeper may share a filesystem. Isolation is protocol-enforced,
+not a cryptographic sandbox, and all campaign/transcript/roll/report evidence
+must be preserved after a real run.
 
 ## Deterministic verification
 
@@ -122,6 +121,17 @@ via `module-assets` without re-extract when `file_sha256` hits.
   commands, player-safe narration briefs, semantic narration review, and
   advisory-adoption evidence. Advice remains optional and never becomes a
   fixed turn pipeline or narrative gate.
+- Social adjudication now freezes feasibility, NPC defense, motive, leverage,
+  modifiers, and result ceilings under a stable goal identity. Concealed
+  Psychology freezes one observation per observer/NPC/conversation/revision
+  window and never projects its die or success level to the player report.
+- Every settled turn uses one schema-v2 finalization receipt bound to the exact
+  player source, settlement snapshot, scene contract, narration revision,
+  semantic agency review, and rendered-text hash. Narration retry cannot rerun
+  rules or state mutations.
+- Scene truth ceilings and improvisation budgets remain advisory to the Keeper
+  but are preserved as structured audit evidence. Player-readable reports and
+  Keeper/rules audits are separate projections from the same canonical run.
 - Narration briefs preserve the current player declaration as player-safe
   `action_uptake` evidence and merge already-settled direct roll receipts. The
   Keeper enacts committed methods, precautions, constraints, and meaningful
@@ -144,14 +154,14 @@ via `module-assets` without re-extract when `file_sha256` hits.
 
 - The Haunting distribution basis and plugin-image provenance are
   `UNVERIFIED`.
-- A release candidate is not accepted until a fresh real plugin/subagent run
+- A release candidate is not accepted until a fresh real Pi-Coc RPC run
   reaches terminal evidence and its final report completeness receipt passes.
-- Focused real-host probes now show action uptake and deterministic roll
-  projection on both Codex and Pi. They do not replace a fresh natural-need
-  session reaching terminal report evidence on both surfaces, so 0.4.0a does
-  not yet claim full cross-host experience parity.
-- Context-free subagent isolation is not filesystem isolation; player-safe
-  relay discipline remains part of the acceptance procedure.
+- Two post-integration GLM 5.2 Pi-Coc RPC smoke sessions passed agency, secrecy,
+  dice, projection-hash, and scene-scope checks. Because they stopped after one
+  played turn, their reports correctly remain `INCOMPLETE` and do not replace a
+  fresh natural campaign reaching terminal evidence.
+- Shared-filesystem player isolation is not cryptographic isolation;
+  player-safe relay discipline remains part of the acceptance procedure.
 
 ## Verification entry points
 
