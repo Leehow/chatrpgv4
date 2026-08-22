@@ -23,18 +23,54 @@ def _canonical_digest(value):
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def _finalization_receipt(finalization_id, roll_ids, *, rendered_text=""):
+def _review(review_id, *, turn_id="turn-1", revision=1, findings=None):
+    row = {
+        "schema_version": 1,
+        "visibility": "keeper_internal",
+        "authority": "advisory",
+        "hard_gate": False,
+        "decision_id": f"{review_id}-decision",
+        "review_id": review_id,
+        "turn_id": turn_id,
+        "source_digest": "sha256:source-1",
+        "revision": revision,
+        "draft_sha256": "sha256:draft-1",
+        "request_digest": "sha256:request-1",
+        "findings": list(findings or []),
+        "recommendation": "consider_revision" if findings else "no_revision_suggested",
+    }
+    row["review_digest"] = _canonical_digest(row)
+    return row
+
+
+def _finalization_receipt(
+    finalization_id, roll_ids, *, rendered_text="", turn_id="turn-1",
+    revision=1, review=None, agency_claims=None, control_overrides=None,
+):
     """Minimal binding receipt: the exporter reads finalization_id and the
     union of source_roll_ids (receipt completeness is enforced write-side)."""
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "finalization_id": finalization_id,
         "decision_id": f"{finalization_id}-decision",
         "journal_decision_id": f"{finalization_id}-journal",
         "source_roll_ids": list(roll_ids),
+        "run_segment_id": "run-1",
+        "session_id": "session-1",
+        "turn_id": turn_id,
+        "source_digest": "sha256:source-1",
         "rendered_text": rendered_text,
-        "rendered_sha256": _canonical_digest(rendered_text),
-        "accepted_revision": 1,
+        "rendered_text_sha256": _canonical_digest(rendered_text),
+        "accepted_revision": revision,
+        "narration_review": (
+            {"review_id": review["review_id"], "review_digest": review["review_digest"]}
+            if isinstance(review, dict) else None
+        ),
+        "agency_claims": list(agency_claims or []),
+        "contract_projection": {
+            "control_overrides": list(control_overrides or []),
+        },
+        "bundle": {"state_delta": [], "asset_delta": []},
     }
 
 
@@ -48,10 +84,13 @@ def _bind_rolls(run: Path, finalization_id, roll_ids):
     keeper = next(row for row in transcript if row.get("role") == "keeper_under_test")
     keeper["finalization_id"] = finalization_id
     _write_jsonl(transcript_path, transcript)
+    review = _review(f"review-{finalization_id}")
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
-        [_finalization_receipt(finalization_id, roll_ids, rendered_text=keeper["text"])],
+        [_finalization_receipt(finalization_id, roll_ids, rendered_text=keeper["text"], review=review)],
     )
+    (campaign / "save" / "commit-snapshots" / finalization_id).mkdir(parents=True, exist_ok=True)
 
 
 def _write_json(path: Path, value):
@@ -62,6 +101,12 @@ def _write_json(path: Path, value):
 def _write_jsonl(path: Path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def _audit_completeness(run: Path):
+    return json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )["completeness"]
 
 
 def _fixture(run: Path, *, metadata_name="run.json"):
@@ -119,10 +164,13 @@ def _fixture(run: Path, *, metadata_name="run.json"):
     _write_json(campaign / "save" / "development-settlements" / "endings" / ending_id / "ada.json", {"ending_id": ending_id, "investigator_id": "ada", "receipt": {"status": "PASS", "result": {"improvement_checks": [{"skill": "Library Use", "check_roll": 90, "gain": 3, "value_before": 70, "value_after": 73, "applied_delta": 3, "improved": True}], "luck_recovery": {"luck_before": 50, "luck_after": 55, "gained": 5}}}})
     _write_jsonl(run / "transcript.jsonl", transcript)
     _write_jsonl(campaign / "logs" / "rolls.jsonl", rolls)
+    review = _review("review-fin-1")
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
-        [_finalization_receipt("fin-1", ["public-1"], rendered_text=keeper_text)],
+        [_finalization_receipt("fin-1", ["public-1"], rendered_text=keeper_text, review=review)],
     )
+    (campaign / "save" / "commit-snapshots" / "fin-1").mkdir(parents=True, exist_ok=True)
     _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [{
         "schema_version": 2,
         "turn_number": 1,
@@ -160,12 +208,11 @@ def test_writes_the_single_final_report_pair_deterministically(tmp_path):
     assert payload["report_type"] == "coc_actual_play_battle_report_evidence"
     assert payload["run_metadata"] == expected["metadata"]
     assert payload["completeness"]["classification"] == "COMPLETE"
-    assert payload["schema_version"] == 6
-    assert payload["keeper_internal"]["tool_call_count"] == 1
-    assert payload["keeper_internal"]["advisory_adoption_count"] == 1
+    assert payload["schema_version"] == 7
+    assert "keeper_internal" not in payload
     assert payload["exceptional_effects"][0]["effect_id"] == "effect-1"
     assert "source_roll" not in payload["exceptional_effects"][0]
-    assert payload["keeper_internal"]["turn_capsules"][0]["tool_calls"][0]["data"]["keeper_secret"] == "INTERNAL_ONLY"
+    assert "source_manifest" not in payload
     assert "INTERNAL_ONLY" not in markdown_before.decode()
     assert "Kept the pressure" not in markdown_before.decode()
     assert "今晚不能再调阅档案原件" in markdown_before.decode()
@@ -179,8 +226,11 @@ def test_accepts_simplified_run_or_legacy_playtest_metadata(tmp_path, metadata_n
     run = tmp_path / metadata_name
     _fixture(run, metadata_name=metadata_name)
     report = module.export_battle_report(run)
-    assert report["source_identity"]["metadata_source"] == metadata_name
-    assert report["source_identity"]["run_id"] == "run-1"
+    validation = json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    assert validation["source_identity"]["metadata_source"] == metadata_name
+    assert report["run_metadata"]["run_id"] == "run-1"
     assert report["source_identity"]["run_segment_id"] == "run-1"
 
 
@@ -205,7 +255,7 @@ def test_missing_required_run_identity_is_incomplete(tmp_path, missing):
     report = module.export_battle_report(run)
 
     assert report["completeness"]["classification"] == "INCOMPLETE"
-    dimension = report["completeness"]["dimensions"]["run_identity"]
+    dimension = _audit_completeness(run)["dimensions"]["run_identity"]
     assert dimension["status"] == "FAIL"
     assert any(missing in finding for finding in dimension["findings"])
 
@@ -406,7 +456,10 @@ def test_evidence_hashes_sources_and_renders_public_roll_exactly_once(tmp_path):
     run = tmp_path / "run"
     _fixture(run)
     report = module.export_battle_report(run)
-    manifest = {entry["path"]: entry for entry in report["source_manifest"]}
+    validation = json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    manifest = {entry["path"]: entry for entry in validation["source_manifest"]}
     transcript = run / "transcript.jsonl"
     assert manifest["transcript.jsonl"]["sha256"] == hashlib.sha256(transcript.read_bytes()).hexdigest()
     rolls_path = "sandbox/.coc/campaigns/case-1/logs/rolls.jsonl"
@@ -431,8 +484,8 @@ def test_valid_empty_roll_log_explicitly_reports_zero(tmp_path):
     report = module.export_battle_report(run)
     assert report["public_rolls"]["status"] == "PASS"
     binding = report["public_rolls"]["finalization_binding"]
-    assert binding["zero_roll_receipt_ids"] == ["fin-zero-turn"]
-    assert binding["undispositioned_orphans"] == []
+    assert binding["zero_roll_turn_count"] == 1
+    assert binding["undispositioned_orphan_count"] == 0
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "Public roll count: **0**" in markdown
     assert "No public or consequence-public rolls occurred." in markdown
@@ -457,7 +510,7 @@ def test_public_roll_completeness_fails_closed(tmp_path, mutation, reason):
     report = module.export_battle_report(run)
     assert report["completeness"]["classification"] == "INCOMPLETE"
     assert report["public_rolls"]["status"] == "FAIL"
-    assert any(reason in item for item in report["completeness"]["reasons"])
+    assert any(reason in item for item in _audit_completeness(run)["reasons"])
 
 
 def test_partial_requires_opt_in_and_stays_incomplete(tmp_path):
@@ -469,7 +522,10 @@ def test_partial_requires_opt_in_and_stays_incomplete(tmp_path):
         module.export_battle_report(run)
     report = module.export_battle_report(run, allow_partial=True)
     assert report["completeness"]["classification"] == "INCOMPLETE"
-    assert report["source_identity"]["transcript_source"] == "partial-transcript.jsonl"
+    validation = json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    assert validation["source_identity"]["transcript_source"] == "partial-transcript.jsonl"
 
 
 def test_secrets_and_non_dialogue_rows_are_excluded_from_both_outputs(tmp_path):
@@ -516,7 +572,7 @@ def test_exact_transcript_dimension_reports_the_actual_missing_role(
         [row for row in data["transcript"] if row.get("role") == kept_role],
     )
     report = module.export_battle_report(run)
-    dimension = report["completeness"]["dimensions"]["accepted_transcript"]
+    dimension = _audit_completeness(run)["dimensions"]["accepted_transcript"]
     assert dimension["status"] == "FAIL"
     assert expected_reason in dimension["findings"]
     assert "final ordered transcript contains both table roles" not in dimension["findings"]
@@ -532,7 +588,7 @@ def test_accepted_transcript_requires_revision_hash_and_session_binding(tmp_path
     transcript[0] = keeper
     _write_jsonl(run / "transcript.jsonl", transcript)
     report = module.export_battle_report(run)
-    dimension = report["completeness"]["dimensions"]["accepted_transcript"]
+    dimension = _audit_completeness(run)["dimensions"]["accepted_transcript"]
     assert report["completeness"]["classification"] == "INCOMPLETE"
     assert dimension["status"] == "FAIL"
     assert any("NOT_PROVEN" in finding and "accepted_revision" in finding for finding in dimension["findings"])
@@ -557,7 +613,7 @@ def test_accepted_transcript_requires_exact_finalization_bijection(tmp_path):
     )
 
     report = module.export_battle_report(run)
-    dimension = report["completeness"]["dimensions"]["accepted_transcript"]
+    dimension = _audit_completeness(run)["dimensions"]["accepted_transcript"]
     assert report["completeness"]["classification"] == "INCOMPLETE"
     assert dimension["status"] == "FAIL"
     assert any("duplicate finalization bindings" in finding for finding in dimension["findings"])
@@ -638,13 +694,25 @@ def test_play_conduct_signals_restate_structured_facts_without_changing_complete
             for turn in range(1, 13)
         ],
     )
+    reviews = [
+        _review(f"review-fin-{turn}", turn_id=f"turn-{turn}")
+        for turn in range(1, 13, 2)
+    ]
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", reviews)
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
         [
-            _finalization_receipt(f"fin-{turn}", [], rendered_text=f"turn {turn} dialogue")
-            for turn in range(1, 13, 2)
+            _finalization_receipt(
+                f"fin-{turn}", [], rendered_text=f"turn {turn} dialogue",
+                turn_id=f"turn-{turn}", review=review,
+            )
+            for turn, review in zip(range(1, 13, 2), reviews)
         ],
     )
+    for turn in range(1, 13, 2):
+        (campaign / "save" / "commit-snapshots" / f"fin-{turn}").mkdir(
+            parents=True, exist_ok=True
+        )
     _write_jsonl(campaign / "logs" / "rolls.jsonl", [])
     _write_clue_graph(run, [
         {"clue_id": "clue-ledger", "delivery_kind": "skill_check", "skill": "Library Use", "player_safe_summary": "LEDGER_CONTENT"},
@@ -798,10 +866,10 @@ def test_player_report_renders_only_rolls_bound_to_finalization_receipts(tmp_pat
     assert [row["roll_id"] for row in report["public_rolls"]["records"]] == ["bound-1"]
     binding = report["public_rolls"]["finalization_binding"]
     assert binding["bound_roll_id_count"] == 1
-    assert binding["undispositioned_orphans"] == []
+    assert binding["undispositioned_orphan_count"] == 0
     assert binding["dispositioned_orphan_count"] == 1
-    audit = report["keeper_internal"]["dispositioned_orphan_rolls"]
-    assert audit == {"count": 1, "roll_ids": ["disposed-1"]}
+    audit_rolls = (run / "artifacts" / "audit" / "rolls.jsonl").read_text(encoding="utf-8")
+    assert "disposed-1" in audit_rolls
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert markdown.count("### `bound-1`") == 1
     assert "disposed-1" not in markdown
@@ -862,7 +930,7 @@ def test_creation_luck_receipt_binds_public_roll_without_finalization(tmp_path):
     ]
     binding = report["public_rolls"]["finalization_binding"]
     assert binding["bound_roll_id_count"] == 2
-    assert binding["undispositioned_orphans"] == []
+    assert binding["undispositioned_orphan_count"] == 0
 
 
 def test_undispositioned_orphan_public_roll_fails_dice_loudly(tmp_path):
@@ -885,17 +953,15 @@ def test_undispositioned_orphan_public_roll_fails_dice_loudly(tmp_path):
 
     assert report["completeness"]["classification"] == "INCOMPLETE"
     assert report["public_rolls"]["status"] == "FAIL"
-    dimension = report["completeness"]["dimensions"]["dice"]
+    dimension = _audit_completeness(run)["dimensions"]["dice"]
     assert dimension["status"] == "FAIL"
     assert any("orphan-public" in finding and "source line 3" in finding for finding in dimension["findings"])
     assert any(
         "1 public roll rows are bound to no canonical receipt and carry no abandonment disposition" in reason
         and "orphan-public" in reason
-        for reason in report["completeness"]["reasons"]
+        for reason in _audit_completeness(run)["reasons"]
     )
-    assert report["public_rolls"]["finalization_binding"]["undispositioned_orphans"] == [
-        {"roll_id": "orphan-public", "source_line": 3}
-    ]
+    assert report["public_rolls"]["finalization_binding"]["undispositioned_orphan_count"] == 1
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "### `orphan-public`" not in markdown
     assert markdown.count("### `public-1`") == 1
@@ -912,7 +978,7 @@ def test_campaign_without_finalization_receipts_becomes_loudly_incomplete(tmp_pa
 
     assert report["completeness"]["classification"] == "INCOMPLETE"
     assert report["completeness"]["dimensions"]["dice"]["status"] == "FAIL"
-    assert any("public-1" in reason for reason in report["completeness"]["reasons"])
+    assert any("public-1" in reason for reason in _audit_completeness(run)["reasons"])
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "### `public-1`" not in markdown
     assert "INCOMPLETE" in markdown
@@ -1114,6 +1180,9 @@ def test_audit_channel_written_with_hashes_and_no_leak_into_evidence(tmp_path):
     expected = {
         "rules-audit.md", "rolls.jsonl", "sanity-events.jsonl",
         "settlements.json", "dispositions.json", "report-validation.json",
+        "transcript.jsonl", "rule-decisions.jsonl", "social-resolutions.jsonl",
+        "psychology-hidden.jsonl", "scene-budget.jsonl",
+        "narration-revisions.jsonl", "state-diffs.jsonl",
         "manifest.json", "hashes.sha256",
     }
     assert expected == {path.name for path in audit_dir.iterdir()}
@@ -1141,7 +1210,9 @@ def test_audit_channel_written_with_hashes_and_no_leak_into_evidence(tmp_path):
         assert _hashlib.sha256(content).hexdigest() == digest
     manifest = json.loads((audit_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["report_id"] == report["report_id"]
-    assert set(manifest["files"]) == expected - {"manifest.json", "hashes.sha256"}
+    assert set(manifest["files"]) == (
+        expected - {"manifest.json", "hashes.sha256"}
+    ) | {"../battle-report-evidence.json", "../battle-report.md"}
 
     validation = json.loads(
         (audit_dir / "report-validation.json").read_text(encoding="utf-8")
@@ -1221,3 +1292,285 @@ def test_audit_counts_narration_review_findings(tmp_path):
     # Review findings stay out of the primary evidence output.
     evidence_text = (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
     assert "narration_reviews" not in evidence_text
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("turn_id", "turn-wrong"),
+        ("session_id", "session-wrong"),
+        ("rendered_text_sha256", "sha256:wrong"),
+        ("accepted_revision", None),
+    ],
+)
+def test_accepted_transcript_requires_the_exact_v2_tuple(tmp_path, field, value):
+    module = _load()
+    run = tmp_path / field
+    data = _fixture(run)
+    transcript = list(data["transcript"])
+    keeper = dict(transcript[0])
+    if value is None:
+        keeper.pop(field)
+    else:
+        keeper[field] = value
+    transcript[0] = keeper
+    _write_jsonl(run / "transcript.jsonl", transcript)
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+
+
+def test_canonical_player_row_requires_exact_journal_tuple_and_bijection(tmp_path):
+    module = _load()
+    run = tmp_path / "canonical-player"
+    data = _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    keeper = dict(data["transcript"][0])
+    keeper["role"] = "keeper"
+    player = {
+        "role": "player", "text": "我查看门锁。", "turn_id": "turn-player-1",
+        "run_segment_id": "run-1", "session_id": "session-1",
+        "journal_decision_id": "journal-1",
+    }
+    _write_jsonl(campaign / "logs" / "table-transcript.jsonl", [player, keeper])
+    calls = [
+        {"tool": "state.journal", "ok": True, "args": {"decision_id": "journal-1"}, "data": {}},
+        {"tool": "director.advise", "ok": True, "args": {"decision_id": "d1"}, "data": {}},
+    ]
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", calls)
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "PASS"
+
+    player.pop("turn_id")
+    _write_jsonl(campaign / "logs" / "table-transcript.jsonl", [player, keeper])
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert any(
+        "accepted player row" in finding and "turn_id" in finding
+        for finding in _audit_completeness(run)["dimensions"]["accepted_transcript"]["findings"]
+    )
+
+
+def test_dispositioned_revision_is_audit_only(tmp_path):
+    module = _load()
+    run = tmp_path / "revision"
+    data = _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    old_text = "旧稿：你已经决定相信他。"
+    accepted_text = "新稿：他把手从抽屉上移开。"
+    accepted_review = _review("review-fin-2", revision=2)
+    receipt = _finalization_receipt(
+        "fin-2", ["public-1"], rendered_text=accepted_text,
+        revision=2, review=accepted_review,
+    )
+    transcript = list(data["transcript"])
+    transcript[0] = {
+        **transcript[0],
+        "text": accepted_text,
+        "finalization_id": "fin-2",
+        "accepted_revision": 2,
+        "rendered_text_sha256": _canonical_digest(accepted_text),
+    }
+    _write_jsonl(run / "transcript.jsonl", transcript)
+    _write_jsonl(campaign / "logs" / "turn-finalizations.jsonl", [receipt])
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [accepted_review])
+    _write_jsonl(campaign / "logs" / "undelivered-output-repairs.jsonl", [{
+        "source_finalization_id": "fin-1",
+        "source_revision": 1,
+        "source_rendered_text": old_text,
+        "replacement_finalization_id": "fin-2",
+        "replacement_revision": 2,
+    }])
+    (campaign / "save" / "commit-snapshots" / "fin-2").mkdir(parents=True)
+
+    module.export_battle_report(run)
+    primary = (
+        (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+        + (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    )
+    revisions = (run / "artifacts" / "audit" / "narration-revisions.jsonl").read_text(encoding="utf-8")
+    assert accepted_text in primary
+    assert old_text not in primary
+    assert old_text in revisions
+
+
+def test_scene_scope_requires_named_promotion_and_rejects_improvised_unlock(tmp_path):
+    module = _load()
+    run = tmp_path / "scene"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    events = [
+        {"event_id": "drift-1", "event_type": "scene_scope_drift", "scene_id": "transit", "acceptance_severity": "hard", "truth_tier": 4},
+        {"event_id": "promotion-1", "event_type": "scene_promotion", "scene_id": "transit", "source_event_ids": ["other-event"]},
+        {"event_id": "improv-1", "event_type": "clue_discovered", "clue_id": "improv", "provenance": "improvised", "local_only": True, "can_unlock_authored_milestone": True},
+        {"event_type": "session_ending", "ending_id": "ending-1", "scene_id": "archive", "kind": "conclusion", "summary": "done"},
+    ]
+    _write_jsonl(campaign / "logs" / "events.jsonl", events)
+
+    report = module.export_battle_report(run)
+    dimension = _audit_completeness(run)["dimensions"]["scene_scope"]
+    assert dimension["status"] == "FAIL"
+    assert any("drift-1" in finding for finding in dimension["findings"])
+    assert any("improv-1" in finding for finding in dimension["findings"])
+
+    events[1]["source_event_ids"] = ["drift-1"]
+    events[2]["can_unlock_authored_milestone"] = False
+    _write_jsonl(campaign / "logs" / "events.jsonl", events)
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["scene_scope"]["status"] == "PASS"
+
+
+def test_agency_is_not_proven_without_bound_review_and_accepted_violation_fails(tmp_path):
+    module = _load()
+    run = tmp_path / "agency"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8").splitlines()[0])
+    receipt["narration_review"] = None
+    _write_jsonl(receipt_path, [receipt])
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [])
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "NOT_PROVEN"
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+
+    violation = _review("review-violation", findings=[{
+        "rule_id": "agency_violation", "subject_ref": "pc:ada",
+        "source_ref": None, "reason": "替玩家决定相信 NPC",
+    }])
+    receipt["narration_review"] = {
+        "review_id": violation["review_id"],
+        "review_digest": violation["review_digest"],
+    }
+    _write_jsonl(receipt_path, [receipt])
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [violation])
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "FAIL"
+
+
+def test_dispositioned_agency_finding_does_not_condemn_accepted_revision(tmp_path):
+    module = _load()
+    run = tmp_path / "dispositioned-agency"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    old = _review("review-old", findings=[{
+        "rule_id": "agency_violation", "subject_ref": "pc:ada",
+        "source_ref": None, "reason": "old draft violation",
+    }])
+    accepted = _review("review-accepted")
+    receipt = _finalization_receipt(
+        "fin-1", ["public-1"], rendered_text="门上写着 **勿入**。\n第二行有 `code`。",
+        review=accepted,
+    )
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [old, accepted])
+    _write_jsonl(campaign / "logs" / "turn-finalizations.jsonl", [receipt])
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "PASS"
+    audit = (run / "artifacts" / "audit" / "narration-revisions.jsonl").read_text(encoding="utf-8")
+    assert "old draft violation" in audit
+
+
+def test_forced_claim_requires_frozen_active_override(tmp_path):
+    module = _load()
+    run = tmp_path / "forced"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8").splitlines()[0])
+    receipt["agency_claims"] = [{
+        "claim_id": "forced-1", "claim_type": "forced_behavior",
+        "subject_ref": "pc:ada", "source_ref": "rule:bout-1",
+        "override_id": "override-1", "exact_excerpt": "尖叫",
+    }]
+    receipt["contract_projection"]["control_overrides"] = [{
+        "override_id": "override-1", "subject_ref": "pc:ada",
+        "source_ref": "rule:bout-1", "active": False,
+    }]
+    _write_jsonl(receipt_path, [receipt])
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "FAIL"
+
+
+def test_hidden_psychology_isolated_and_impressions_are_not_confirmed_clues(tmp_path):
+    module = _load()
+    run = tmp_path / "psych"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_json(campaign / "save" / "psychology-observations.json", {
+        "schema_version": 2,
+        "observations": {"window-secret": {
+            "insight_id": "insight-secret", "window_key": "window-secret",
+            "roll_id": "psych-roll-secret", "outcome": "fumble",
+        }},
+        "realizations": {"insight-secret": {
+            "insight_id": "insight-secret", "question": "他害怕谁？",
+            "visible_observation": "他提到检查时先看了门口。",
+        }},
+    })
+    module.export_battle_report(run)
+    primary = (
+        (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+        + (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    )
+    hidden = (run / "artifacts" / "audit" / "psychology-hidden.jsonl").read_text(encoding="utf-8")
+    assert "他提到检查时先看了门口。" in primary
+    for identifier in ("psych-roll-secret", "insight-secret", "window-secret", "fumble"):
+        assert identifier not in primary
+        assert identifier in hidden
+    assert "Investigator Impressions (Not Confirmed Facts)" in primary
+
+
+def test_projection_manifest_detects_tamper_and_audit_order_is_deterministic(tmp_path):
+    module = _load()
+    run = tmp_path / "hashes"
+    _fixture(run)
+    module.export_battle_report(run)
+    audit = run / "artifacts" / "audit"
+    before = {path.name: path.read_bytes() for path in audit.iterdir()}
+    module.export_battle_report(run)
+    assert before == {path.name: path.read_bytes() for path in audit.iterdir()}
+    manifest = json.loads((audit / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["files"]["../battle-report.md"]["distribution"] == "player"
+    assert manifest["files"]["psychology-hidden.jsonl"]["distribution"] == "keeper_development_audit"
+    assert "hashes.sha256" not in manifest["files"]
+    (run / "artifacts" / MARKDOWN_OUTPUT).write_text("tampered", encoding="utf-8")
+    assert any("hash mismatch" in finding for finding in module._verify_projection_artifacts(run / "artifacts"))
+
+
+def test_state_dimension_never_fabricates_a_fold_or_diff(tmp_path):
+    module = _load()
+    run = tmp_path / "state"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [{
+        "tool": "state.set_flag", "ok": True,
+        "args": {"decision_id": "flag-1"}, "data": {"flag": "x", "value": True},
+    }])
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["state"]["status"] == "PASS"
+    assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text(encoding="utf-8") == ""
+    (campaign / "save" / "commit-snapshots" / "fin-1").rmdir()
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["state"]["status"] == "FAIL"
+
+
+def test_soft_over_length_on_accepted_revision_does_not_fail_completeness(tmp_path):
+    module = _load()
+    run = tmp_path / "soft"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    review = _review("review-soft", findings=[{
+        "rule_id": "over_length", "subject_ref": None,
+        "source_ref": None, "reason": "too long",
+    }])
+    receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8").splitlines()[0])
+    receipt["narration_review"] = {
+        "review_id": review["review_id"], "review_digest": review["review_digest"],
+    }
+    _write_jsonl(receipt_path, [receipt])
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
+    report = module.export_battle_report(run)
+    assert report["completeness"]["classification"] == "COMPLETE"
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "PASS"
