@@ -254,7 +254,7 @@ def test_creation_receipts_bind_luck_and_characteristic_rolls():
     assert bound == {"creation-luck-roll", "creation-str-roll"}
 
 
-def test_resume_skips_creation_bound_luck_roll(campaign_ws):
+def test_resume_quarantines_late_receipt_in_imported_creation(campaign_ws):
     creation_luck = _run(
         campaign_ws,
         "rules.roll_dice",
@@ -283,17 +283,16 @@ def test_resume_skips_creation_bound_luck_roll(campaign_ws):
 
     assert coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(
         campaign_ws["campaign_dir"]
-    ) == {creation_luck["data"]["roll_id"]}
+    ) == set()
     assert coc_turn_finalization.unbound_public_roll_ids(
         campaign_ws["campaign_dir"]
-    ) == []
+    ) == [creation_luck["data"]["roll_id"]]
 
     resumed = _run(campaign_ws, "session.resume", {})
     assert resumed["ok"] is True, resumed
-    assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == []
-    assert not (
-        campaign_ws["campaign_dir"] / "save" / "roll-dispositions.json"
-    ).exists()
+    assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == [
+        creation_luck["data"]["roll_id"]
+    ]
 
 
 def test_ending_required_roll_stays_bound_and_delivery_survives_resume(campaign_ws):

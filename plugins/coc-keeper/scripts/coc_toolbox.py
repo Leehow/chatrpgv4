@@ -30171,6 +30171,17 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     if not decision_id:
         raise ToolError("invalid_param", "state.journal requires a stable decision_id")
     player_text = _required_exact_player_text(args)
+    try:
+        source_boundary = coc_turn_manifest.effective_source_boundary(
+            ctx.campaign_dir
+        )
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    if source_boundary["cursor_close_owner"] == "evidence.table_opening":
+        raise ToolError(
+            "table_opening_required",
+            "record evidence.table_opening before the first player journal",
+        )
     prior = ctx.ledger_lookup("state.journal", decision_id)
     if prior is not None:
         prior_data = prior.get("data") or {}
@@ -30211,20 +30222,12 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     run_id = str(run_binding["run_segment_id"])
     try:
         pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
-        source_boundary = coc_turn_manifest.effective_source_boundary(
-            ctx.campaign_dir
-        )
     except coc_turn_manifest.TurnManifestError as exc:
         raise ToolError(exc.code, str(exc)) from exc
     if pending is not None and pending["journal_decision_id"] != decision_id:
         raise ToolError(
             "turn_finalization_pending",
             "the previous journaled turn must be finalized or repaired before another turn can close",
-        )
-    if source_boundary["cursor_close_owner"] == "evidence.table_opening":
-        raise ToolError(
-            "table_opening_required",
-            "record evidence.table_opening before the first player journal",
         )
     pacing = ctx.pacing()
     next_turn_number = int(pacing.get("turn_number") or 0) + 1

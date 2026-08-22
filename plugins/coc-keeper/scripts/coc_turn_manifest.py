@@ -25,6 +25,10 @@ PENDING_FILENAME = "pending-turn.json"
 MANIFEST_DIRNAME = "turn-manifests"
 TOOLBOX_LOG = Path("logs") / "toolbox-calls.jsonl"
 FINALIZATION_LOG = Path("logs") / "turn-finalizations.jsonl"
+_SETUP_HANDOFF_FIELDS = frozenset({
+    "schema_version", "decision_id", "campaign_id", "investigator_ids",
+    "completed_at", "opening_projection_ref", "lane_interrupted_at_handoff",
+})
 
 CURSOR_FIELDS = frozenset({
     "schema_version",
@@ -436,24 +440,53 @@ def _count_rows(path: Path, start_offset: int, end_offset: int) -> int:
 
 
 def _persisted_setup_handoff(campaign_dir: Path) -> dict[str, Any] | None:
-    """Load only an exact current setup handoff; malformed state seals nothing."""
+    """Distinguish an absent handoff from present-but-corrupt campaign state."""
     campaign_path = Path(campaign_dir) / "campaign.json"
     if campaign_path.is_symlink() or not campaign_path.is_file():
-        return None
+        raise TurnManifestError(
+            "state_corrupt", "campaign.json is missing or is not a regular file",
+        )
     try:
         campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise TurnManifestError("state_corrupt", "campaign.json is unreadable") from exc
+    if not isinstance(campaign, dict):
+        raise TurnManifestError("state_corrupt", "campaign.json must be an object")
+    if "setup_handoff" not in campaign:
         return None
-    handoff = campaign.get("setup_handoff") if isinstance(campaign, dict) else None
+    handoff = campaign["setup_handoff"]
     decision_id = handoff.get("decision_id") if isinstance(handoff, dict) else None
+    investigator_ids = (
+        handoff.get("investigator_ids") if isinstance(handoff, dict) else None
+    )
     if (
         not isinstance(handoff, dict)
+        or set(handoff) != _SETUP_HANDOFF_FIELDS
         or handoff.get("schema_version") != 1
         or handoff.get("campaign_id") != Path(campaign_dir).name
         or not isinstance(decision_id, str)
         or not decision_id.strip()
+        or not isinstance(investigator_ids, list)
+        or not investigator_ids
+        or any(
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            or value in {".", ".."}
+            or "/" in value
+            or "\\" in value
+            for value in investigator_ids
+        )
+        or len(set(investigator_ids)) != len(investigator_ids)
+        or not isinstance(handoff.get("completed_at"), str)
+        or not handoff["completed_at"].strip()
+        or handoff.get("opening_projection_ref") is not None
+        and not isinstance(handoff.get("opening_projection_ref"), dict)
+        or not isinstance(handoff.get("lane_interrupted_at_handoff"), bool)
     ):
-        return None
+        raise TurnManifestError(
+            "state_corrupt", "persisted setup_handoff is not an exact schema-v1 receipt",
+        )
     return deepcopy(handoff)
 
 

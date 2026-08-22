@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+import coc_character
 import coc_first_impression
 import coc_fileio
 import coc_language
@@ -1684,17 +1685,36 @@ def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
     except (OSError, UnicodeError, json.JSONDecodeError):
         return []
     raw_party_ids = party.get("investigator_ids") if isinstance(party, dict) else None
-    if not isinstance(raw_party_ids, list):
+    raw_active_ids = (
+        party.get("active_investigator_ids") if isinstance(party, dict) else None
+    )
+    if (
+        not isinstance(party, dict)
+        or party.get("schema_version") != 1
+        or party.get("campaign_id") != campaign_dir.name
+        or not isinstance(raw_party_ids, list)
+        or not isinstance(raw_active_ids, list)
+    ):
         return []
-    party_ids = {
-        value for value in raw_party_ids
-        if isinstance(value, str)
-        and value
-        and value == value.strip()
-        and value not in {".", ".."}
-        and "/" not in value
-        and "\\" not in value
-    }
+    def valid_investigator_id(value: Any) -> bool:
+        return bool(
+            isinstance(value, str)
+            and value
+            and value == value.strip()
+            and value not in {".", ".."}
+            and "/" not in value
+            and "\\" not in value
+        )
+
+    if (
+        any(not valid_investigator_id(value) for value in raw_party_ids)
+        or any(not valid_investigator_id(value) for value in raw_active_ids)
+        or len(set(raw_party_ids)) != len(raw_party_ids)
+        or len(set(raw_active_ids)) != len(raw_active_ids)
+        or not set(raw_active_ids).issubset(set(raw_party_ids))
+    ):
+        return []
+    party_ids = set(raw_party_ids)
 
     campaign_path = campaign_dir / "campaign.json"
     if campaign_path.is_symlink() or not campaign_path.is_file():
@@ -1738,6 +1758,23 @@ def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
             or creation.get("schema_version") != 1
             or creation.get("investigator_id") != investigator_id
         ):
+            continue
+        character_path = investigator_dir / "character.json"
+        if character_path.is_symlink() or not character_path.is_file():
+            continue
+        try:
+            character = json.loads(character_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(character, dict)
+            or character.get("id") != investigator_id
+            or coc_character.validate_character_create_sheet(character, creation)
+        ):
+            continue
+        if creation.get("input_mode") not in {
+            "guided_quick_fire", coc_character.ERA_ADAPTIVE_INPUT_MODE,
+        }:
             continue
         records.append(creation)
     return records
