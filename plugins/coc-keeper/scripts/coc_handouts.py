@@ -338,6 +338,7 @@ class HandoutCatalog:
                 f"handout '{asset_id}' linked to clue '{clue_id}' is marked "
                 "player_visible:false and cannot satisfy player delivery",
             )
+        _player_view(card, {asset_id}, self._play_language)
         newly, _already = _apply_delivery(world, [asset_id])
         return LinkedDelivery(
             asset_id=asset_id,

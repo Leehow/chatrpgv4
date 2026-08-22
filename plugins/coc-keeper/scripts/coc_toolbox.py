@@ -24361,12 +24361,16 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             )
 
     # Resolve the current-schema player handout contract before constructing
-    # either discovery document.  Missing, ambiguous, conflicting, unknown, or
-    # hidden linkage therefore leaves both world and flags byte-for-byte
-    # untouched.  This uses structured ids only; prose is never classified.
+    # either discovery document. Missing, ambiguous, conflicting, unknown, or
+    # hidden linkage leaves both world and flags untouched. Missing active-
+    # language read-aloud content is the one optional-delivery boundary: the
+    # clue remains discoverable, while delivery returns a structured warning
+    # and performs no entitlement/presentation mutation. Structured ids only;
+    # prose is never classified.
     linked_handout_id: str | None = None
     linked_handout_newly: list[str] = []
     linked_handout_presentation: dict[str, Any] | None = None
+    handout_delivery_warning: dict[str, Any] | None = None
     linkage_skipped_hidden_card = False
     handout_catalog: coc_handouts.HandoutCatalog | None = None
     if (
@@ -24382,10 +24386,23 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                 str(clue.get("handout_asset_id") or "").strip() or None,
             )
         except coc_handouts.HandoutError as exc:
-            raise ToolError(exc.code, exc.message) from exc
-        linked_handout_id = linkage.asset_id
-        linked_handout_newly = list(linkage.newly)
-        linked_handout_presentation = linkage.presentation
+            if exc.code != "handout_locale_missing":
+                raise ToolError(exc.code, exc.message) from exc
+            handout_delivery_warning = {
+                "code": exc.code,
+                "message": exc.message,
+                "handout_id": str(clue.get("handout_asset_id") or "").strip()
+                or None,
+            }
+            warnings.append(
+                f"{exc.code}: clue discovery was recorded but its linked "
+                "handout was not delivered because active-language content "
+                "is unavailable"
+            )
+        else:
+            linked_handout_id = linkage.asset_id
+            linked_handout_newly = list(linkage.newly)
+            linked_handout_presentation = linkage.presentation
 
     scene_contract = (
         (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
@@ -24429,7 +24446,11 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     )
     # Same-transaction linkage: preserve the existing best-effort behavior for
     # non-handout clues that carry an explicitly registered companion card.
-    if clue is not None and linked_handout_id is None:
+    if (
+        clue is not None
+        and linked_handout_id is None
+        and str(clue.get("delivery_kind") or "") != "handout"
+    ):
         asset_id = str(clue.get("handout_asset_id") or "").strip()
         if asset_id:
             linkage = (handout_catalog or coc_handouts.HandoutCatalog.load(ctx)).link_delivery(
@@ -24603,6 +24624,8 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "handout_presentation": linked_handout_presentation,
         "route_completion": deepcopy(route_completion),
     }
+    if handout_delivery_warning is not None:
+        data["handout_delivery_warning"] = deepcopy(handout_delivery_warning)
     if clue is None:
         data["provenance"] = deepcopy(clue_record)
     progressive_hints: list[str] = []
