@@ -375,11 +375,15 @@ export function hostErrorAllowsCompatFallback(err) {
  *
  * Returns one of:
  * - { status: "ready", result: HostImageResult } — typed canonical result;
- * - { status: "absent" } — artifact not installed/verified (or no library);
- * - { status: "auth-missing", loggedIn, expired } — installed but no usable
- *   grok-build credential (caller decides via the compatFallback gate);
- * - { status: "error", error } — canonical call failed (surface unless the
- *   code is allow-listed for the gated compat fallback).
+ * - { status: "absent" } — ONLY genuine module/installation absence: no
+ *   verified install, no host library export, no resolvable agent home;
+ * - { status: "auth-missing", loggedIn, expired } — installed, library
+ *   constructed, status() answered, but no usable grok-build credential
+ *   (caller decides via the compatFallback gate);
+ * - { status: "error", error } — the canonical path itself failed (host
+ *   library construction, status(), or generateImage). The error's code is
+ *   preserved and passes through the same precise compat allow-list;
+ *   non-allow-listed codes surface as-is and compat can never bypass them.
  */
 export async function generatePortraitViaGrokBuildHostLibrary({
   env = process.env,
@@ -392,7 +396,10 @@ export async function generatePortraitViaGrokBuildHostLibrary({
   log,
 } = {}) {
   const host = await loadGrokBuildHostLibrary({ repoRoot, env });
-  if (!host) return { status: "absent" };
+  // Only genuine absence classifies as `absent`; a verified-but-unloadable
+  // artifact is an `error` that goes through the compat allow-list.
+  if (host.status === "absent") return { status: "absent" };
+  if (host.status === "error") return { status: "error", error: host.error };
   const dir = trimKey(agentDir)
     || resolveProductAgentDir({
       agentDir: env?.PI_AGENT_DIR,
@@ -406,6 +413,14 @@ export async function generatePortraitViaGrokBuildHostLibrary({
   else delete process.env[GROK_BUILD_SETTINGS_ENV_NAME];
   try {
     return await callGrokBuildHostLibrary({ host, dir, prompt, aspectRatio, signal, fetchImpl, log });
+  } catch (err) {
+    // Only genuine module/installation absence may classify as `absent`.
+    // Any failure to CONSTRUCT the host library or to READ its status —
+    // credential-store symlink/permission/corruption, security violations,
+    // upstream faults — is preserved as `error` with its code so it passes
+    // through the same precise compat allow-list instead of silently
+    // downgrading to a legacy transport when compatFallback is on.
+    return { status: "error", error: err };
   } finally {
     if (hadPrevious) process.env[GROK_BUILD_SETTINGS_ENV_NAME] = previousSnapshot;
     else delete process.env[GROK_BUILD_SETTINGS_ENV_NAME];
@@ -413,21 +428,11 @@ export async function generatePortraitViaGrokBuildHostLibrary({
 }
 
 async function callGrokBuildHostLibrary({ host, dir, prompt, aspectRatio, signal, fetchImpl, log }) {
-  let lib;
-  try {
-    lib = host.createHostLibrary({
-      authPath: path.join(dir, AUTH_NAME),
-      ...(fetchImpl ? { fetchImpl } : {}),
-    });
-  } catch {
-    return { status: "absent" };
-  }
-  let status;
-  try {
-    status = await lib.status();
-  } catch {
-    return { status: "absent" };
-  }
+  const lib = host.createHostLibrary({
+    authPath: path.join(dir, AUTH_NAME),
+    ...(fetchImpl ? { fetchImpl } : {}),
+  });
+  const status = await lib.status();
   if (!status || status.usable !== true) {
     return {
       status: "auth-missing",

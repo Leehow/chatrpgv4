@@ -109,6 +109,15 @@ id/version/逐文件 hash，多出文件、篡改或 symlink 替换都会拒绝�
 `extensions` entry（fresh checkout 直接创建与 pi-coc 引导相同形状的 settings，
 其它键原样保留）；找不到源时以非 0 退出并打印安装指令。
 
+**settings 扩展白名单（项目 Pi home 隔离）**：settings 的 `extensions` 只保留
+(a) repo-local COC home 内确实存在的常规文件（如已验证安装的
+`grok-build-oauth` entry），与 (b) 本仓自己的 host 扩展
+（`web/server-node/pi-extensions/*.ts`）。其它一律移除——包括全局
+`~/.pi/agent/extensions/*.ts`（如旧 `xai-server-tools.ts`）与其他项目路径。
+install 自动清洗；也可手动：
+`node web/server-node/grok-build-extension.mjs clean`（`status` 会列出
+`disallowedExtensionEntries`）。写入原子，其它 settings 键不动。
+
 不传 `--source` 时按序解析：`GROK_BUILD_OAUTH_PACKAGE` 环境变量 → PipiUI
 bundled runtime（`PIPIUI_REPO_ROOT` 或同级 `../pipiui` checkout）→ 已安装的
 repo-local 目录（验证后幂等重配）。
@@ -154,6 +163,11 @@ auth.json `xai` key），回退传输标记 `deprecated: true`。
 白名单之外 — `invalid_params`、路径/安全违规、用户取消（abort）、超时、
 上游 4xx/5xx、网络错误 — 直接抛出，**绝不**静默改走 deprecated 通道。
 门关闭时同样提示 `/login grok-build` 或升级订阅，绝不回退。
+
+这一分类同样覆盖 canonical 路径的构造与状态读取：`createHostLibrary()`
+或 `status()` 抛出的任何异常都保留原始 code 并过同一白名单——只有真正的
+模块/安装缺失才计为 `absent`；凭证存储 symlink/权限/损坏、已验证工件的
+import 失败等都按 `error` 处理，compat 无法绕过。
 
 **RPC 升级边界**：当前 pi 0.84.2 没有 `invokeExtension` RPC，服务端无法热调
 在会话扩展的 `image_gen` 工具；host 入口库是当前唯一非会话 canonical 路径。

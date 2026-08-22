@@ -14,6 +14,7 @@ import {
   PIPIUI_REPO_ROOT_ENV,
   GrokBuildExtensionError,
   applyGrokBuildExtensionSettingsEnv,
+  cleanTerminalGrokBuildSettings,
   configureTerminalGrokBuildExtension,
   grokBuildCompatFallbackEnabled,
   grokBuildExtensionMountArgs,
@@ -22,6 +23,7 @@ import {
   resolveGrokBuildInstallSource,
   resolveInstalledGrokBuildPackage,
   sanitizeGrokBuildSettingsSnapshot,
+  sanitizeTerminalExtensionEntries,
   validateGrokBuildPackage,
   verifyInstalledGrokBuildPackage,
   runGrokBuildInstallerCli,
@@ -561,6 +563,7 @@ test("configureTerminalGrokBuildExtension creates missing settings atomically an
   try {
     const cocHome = path.join(root, ".pi/coc-agent");
     const entry = path.join(cocHome, "extensions", GROK_BUILD_EXTENSION_ID, "agent/dist/index.js");
+    writeText(entry, "export default function () {}\n"); // installed entry exists on disk
 
     // Missing settings.json: created with the repo-pinned bootstrap + entry.
     const created = configureTerminalGrokBuildExtension({ cocHome, entryPath: entry, repoRoot: root });
@@ -570,7 +573,8 @@ test("configureTerminalGrokBuildExtension creates missing settings atomically an
     assert.deepEqual(settings.packages, [root]);
     assert.equal(settings.theme, "light");
 
-    // Existing settings: amend, preserving every other key; idempotent.
+    // Existing settings: amend, preserving every other key; the global
+    // ~/.pi/agent entry is REMOVED (project Pi-home isolation).
     writeJson(path.join(cocHome, "settings.json"), {
       packages: ["/repo"],
       defaultProvider: "grok-relay",
@@ -579,14 +583,17 @@ test("configureTerminalGrokBuildExtension creates missing settings atomically an
       quietStartup: true,
       extensions: ["/Users/x/.pi/agent/extensions/xai-server-tools.ts"],
     });
-    const first = configureTerminalGrokBuildExtension({ cocHome, entryPath: entry });
+    const cleanups = [];
+    const first = configureTerminalGrokBuildExtension({
+      cocHome,
+      entryPath: entry,
+      onSettingsCleanup: (removed) => cleanups.push(...removed),
+    });
     assert.equal(first.added, true);
     assert.equal(first.created, false);
+    assert.deepEqual(first.removed.map((r) => r.reason), ["outside-repo-local-home"]);
     const amended = JSON.parse(fs.readFileSync(path.join(cocHome, "settings.json"), "utf8"));
-    assert.deepEqual(amended.extensions, [
-      "/Users/x/.pi/agent/extensions/xai-server-tools.ts",
-      entry,
-    ]);
+    assert.deepEqual(amended.extensions, [entry]);
     assert.equal(amended.defaultProvider, "grok-relay");
     assert.equal(amended.defaultModel, "grok-4.5");
     assert.equal(amended.theme, "light");
@@ -594,7 +601,7 @@ test("configureTerminalGrokBuildExtension creates missing settings atomically an
 
     const second = configureTerminalGrokBuildExtension({ cocHome, entryPath: entry });
     assert.equal(second.added, false);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(cocHome, "settings.json"), "utf8")).extensions.length, 2);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(cocHome, "settings.json"), "utf8")).extensions.length, 1);
 
     // Corrupt settings: fail closed, file untouched.
     writeText(path.join(cocHome, "settings.json"), "{ not json");
@@ -1085,6 +1092,304 @@ test("non-allowlisted canonical errors never fall back, regardless of compatFall
       );
       assert.equal(calls.length, 0, `${code} must not hit compat transports`);
     }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createHostLibrary throw preserves the error code and can never silently downgrade to compat", async () => {
+  const root = tempDir("grok-ctor-throw-");
+  try {
+    const repoRoot = path.join(root, "repo");
+    // Build a package whose host.js throws on createHostLibrary with a
+    // SECURITY-flavored code (non-allow-listed) and an allow-listed variant.
+    const mk = async (code) => {
+      const src = makeBuiltPackage(path.join(root, code));
+      writeText(
+        path.join(src, "agent/dist/host.js"),
+        `export function createGrokBuildHostLibrary() {
+          const err = new Error("ctor failed");
+          err.code = ${JSON.stringify(code)};
+          throw err;
+        }
+        export const HOST_LIBRARY_VERSION = "1.0.0";
+`,
+      );
+      installGrokBuildExtension({ source: src, repoRoot: path.join(root, "repo-" + code), env: {} });
+      return path.join(root, "repo-" + code);
+    };
+    const workspace = path.join(root, "ws");
+    const campaignId = makeCampaign(workspace);
+
+    // Non-allow-listed construction failure (e.g. a credential-store
+    // symlink/path violation surfacing at construction) must surface.
+    const secRoot = await mk("path_escaped");
+    const calls = [];
+    await assert.rejects(
+      generateCampaignPortrait({
+        workspace,
+        campaignId,
+        prompt: "x",
+        outputPath: "tmp/portraits/sec.png",
+        env: compatEnv({ XAI_API_KEY: "must-not-run", PI_AGENT_DIR: path.join(root, "ah") }),
+        agentDir: path.join(root, "ah"),
+        repoRoot: secRoot,
+        fetchImpl: async (url) => {
+          calls.push(url);
+          throw new Error("compat must not run");
+        },
+      }),
+      (err) => err instanceof XaiImageError && /ctor failed/.test(err.message),
+    );
+    assert.equal(calls.length, 0);
+
+    // Allow-listed construction failure with compat=true falls back.
+    const authRoot = await mk("not_logged_in");
+    const result = await generateCampaignPortrait({
+      workspace,
+      campaignId,
+      prompt: "x",
+      outputPath: "tmp/portraits/auth.png",
+      env: compatEnv({ XAI_API_KEY: "ctor-compat-key", PI_AGENT_DIR: path.join(root, "ah") }),
+      agentDir: path.join(root, "ah"),
+      repoRoot: authRoot,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({ data: [{ b64_json: PNG_B64 }] });
+        },
+      }),
+    });
+    assert.equal(result.backend, "official");
+    assert.equal(result.deprecated, true);
+    assert.equal(result.canonical, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("status() throw preserves the error code through the same allow-list", async () => {
+  const root = tempDir("grok-status-throw-");
+  try {
+    const mk = (code, dir) => {
+      const src = makeBuiltPackage(path.join(root, dir));
+      writeText(
+        path.join(src, "agent/dist/host.js"),
+        `export function createGrokBuildHostLibrary() {
+          return {
+            async status() {
+              const err = new Error("status read failed");
+              err.code = ${JSON.stringify(code)};
+              throw err;
+            },
+            async generateImage() { throw new Error("unreached"); },
+            async editImage() { throw new Error("unreached"); },
+          };
+        }
+        export const HOST_LIBRARY_VERSION = "1.0.0";
+`,
+      );
+      installGrokBuildExtension({ source: src, repoRoot: path.join(root, "repo-" + dir), env: {} });
+      return path.join(root, "repo-" + dir);
+    };
+    const workspace = path.join(root, "ws");
+    const campaignId = makeCampaign(workspace);
+
+    // Corrupt credential store surfacing at status() (EACCES-flavored) must
+    // surface even with compat on.
+    const badRoot = mk("EACCES", "eaces");
+    const calls = [];
+    await assert.rejects(
+      generateCampaignPortrait({
+        workspace,
+        campaignId,
+        prompt: "x",
+        outputPath: "tmp/portraits/s1.png",
+        env: compatEnv({ XAI_API_KEY: "must-not-run", PI_AGENT_DIR: path.join(root, "ah") }),
+        agentDir: path.join(root, "ah"),
+        repoRoot: badRoot,
+        fetchImpl: async (url) => {
+          calls.push(url);
+          throw new Error("compat must not run");
+        },
+      }),
+      (err) => err instanceof XaiImageError && /status read failed/.test(err.message),
+    );
+    assert.equal(calls.length, 0);
+
+    // Allow-listed status failure with compat=true falls back.
+    const okRoot = mk("auth_expired", "expired");
+    const result = await generateCampaignPortrait({
+      workspace,
+      campaignId,
+      prompt: "x",
+      outputPath: "tmp/portraits/s2.png",
+      env: compatEnv({ XAI_API_KEY: "status-compat-key", PI_AGENT_DIR: path.join(root, "ah") }),
+      agentDir: path.join(root, "ah"),
+      repoRoot: okRoot,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({ data: [{ b64_json: PNG_B64 }] });
+        },
+      }),
+    });
+    assert.equal(result.deprecated, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("verified-but-unloadable artifact is an error, not absent", async () => {
+  const root = tempDir("grok-unloadable-");
+  try {
+    const repoRoot = path.join(root, "repo");
+    const source = makeBuiltPackage(path.join(root, "source"));
+    installGrokBuildExtension({ source, repoRoot, env: {} });
+    // Break the module graph while keeping hashes intact is impossible without
+    // invalidating the receipt — so emulate the contract break instead: a host
+    // entry with no createGrokBuildHostLibrary export.
+    const noExport = makeBuiltPackage(path.join(root, "no-export"));
+    writeText(path.join(noExport, "agent/dist/host.js"), "export const somethingElse = 1;\n");
+    installGrokBuildExtension({ source: noExport, repoRoot: path.join(root, "repo2"), env: {} });
+    const { loadGrokBuildHostLibrary } = await import("../grok-build-extension.mjs");
+    const result = await loadGrokBuildHostLibrary({ repoRoot: path.join(root, "repo2"), env: {} });
+    assert.equal(result.status, "error");
+    assert.match(result.error.message, /createGrokBuildHostLibrary/);
+
+    const absent = await loadGrokBuildHostLibrary({ repoRoot: path.join(root, "nothing"), env: {} });
+    assert.equal(absent.status, "absent");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("sanitizeTerminalExtensionEntries keeps only COC-home and repo-host entries", () => {
+  const root = tempDir("grok-sanitize-");
+  try {
+    const cocHome = path.join(root, ".pi/coc-agent");
+    const installedEntry = path.join(cocHome, "extensions/grok-build-oauth/agent/dist/index.js");
+    writeText(installedEntry, "export default function () {}\n");
+    const hostExt = path.join(root, "web/server-node/pi-extensions/web-search.ts");
+    writeText(hostExt, "export default function () {}\n");
+    const result = sanitizeTerminalExtensionEntries(
+      [
+        installedEntry,
+        hostExt,
+        "/Users/" + "x/.pi/agent/extensions/xai-server-tools.ts",
+        path.join(os.homedir(), ".pi/agent/extensions/xai-server-tools.ts"),
+        path.join(root, "other-project/ext.ts"),
+        path.join(cocHome, "extensions/missing-entry/index.js"),
+        "relative-entry.ts",
+        "",
+        installedEntry, // duplicate collapses
+      ],
+      { cocHome, repoRoot: root },
+    );
+    assert.deepEqual(result.kept, [installedEntry, hostExt]);
+    assert.deepEqual(
+      result.removed.map((r) => r.reason),
+      [
+        "outside-repo-local-home", // /Users/x (not this home)
+        "global-pi-home", // the real ~/.pi/agent path
+        "outside-repo-local-home", // other project
+        "missing-or-symlink-under-coc-home", // declared but missing
+        "missing-or-symlink-under-coc-home", // relative resolves missing
+      ],
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cleanTerminalGrokBuildSettings removes global-home entries and preserves all other keys", () => {
+  const root = tempDir("grok-clean-");
+  try {
+    const cocHome = path.join(root, ".pi/coc-agent");
+    const entry = path.join(cocHome, "extensions/grok-build-oauth/agent/dist/index.js");
+    writeText(entry, "export default function () {}\n");
+    const globalEntry = path.join(os.homedir(), ".pi/agent/extensions/xai-server-tools.ts");
+    writeJson(path.join(cocHome, "settings.json"), {
+      packages: [root],
+      theme: "light",
+      quietStartup: true,
+      defaultProvider: "grok-relay",
+      defaultModel: "grok-4.5",
+      extensions: [globalEntry, entry],
+    });
+    const result = cleanTerminalGrokBuildSettings({ cocHome, repoRoot: root });
+    assert.equal(result.cleaned, true);
+    assert.deepEqual(result.removed.map((r) => r.entry), [globalEntry]);
+    const settings = JSON.parse(fs.readFileSync(path.join(cocHome, "settings.json"), "utf8"));
+    assert.deepEqual(settings.extensions, [entry]);
+    assert.equal(settings.defaultProvider, "grok-relay");
+    assert.equal(settings.defaultModel, "grok-4.5");
+    assert.deepEqual(settings.packages, [root]);
+
+    // Idempotent: second run is a no-op.
+    const again = cleanTerminalGrokBuildSettings({ cocHome, repoRoot: root });
+    assert.equal(again.cleaned, false);
+
+    // Missing settings / no extensions key: no-op, never creates.
+    const emptyHome = path.join(root, "other-home");
+    assert.equal(cleanTerminalGrokBuildSettings({ cocHome: emptyHome }).cleaned, false);
+    writeJson(path.join(emptyHome, "settings.json"), { theme: "dark" });
+    assert.equal(cleanTerminalGrokBuildSettings({ cocHome: emptyHome }).cleaned, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fresh install sanitizes legacy global entries and existing installs clean via CLI", () => {
+  const root = tempDir("grok-clean-cli-");
+  try {
+    const repoRoot = path.join(root, "repo");
+    const source = makeBuiltPackage(path.join(root, "source"));
+    // Pre-seed the COC home with the legacy global extension entry.
+    const cocHome = path.join(repoRoot, ".pi/coc-agent");
+    const globalEntry = path.join(os.homedir(), ".pi/agent/extensions/xai-server-tools.ts");
+    writeJson(path.join(cocHome, "settings.json"), {
+      packages: [repoRoot],
+      defaultProvider: "grok-relay",
+      defaultModel: "grok-4.5",
+      extensions: [globalEntry],
+    });
+    installGrokBuildExtension({ source, repoRoot, env: {} });
+    const settings = JSON.parse(fs.readFileSync(path.join(cocHome, "settings.json"), "utf8"));
+    assert.deepEqual(settings.extensions, [installedEntryOf(repoRoot)]);
+    assert.equal(settings.defaultProvider, "grok-relay");
+
+    // CLI status surfaces any disallowed entries; clean removes them.
+    writeJson(path.join(cocHome, "settings.json"), {
+      ...settings,
+      extensions: [globalEntry, installedEntryOf(repoRoot)],
+    });
+    const statusLines = [];
+    runGrokBuildInstallerCli({
+      argv: ["status", "--repo-root", repoRoot],
+      env: {},
+      stdout: { write: (l) => statusLines.push(l) },
+      stderr: { write: () => {} },
+    });
+    const status = JSON.parse(statusLines.filter(Boolean).at(-1));
+    assert.deepEqual(status.disallowedExtensionEntries, [globalEntry]);
+
+    const out = [];
+    const code = runGrokBuildInstallerCli({
+      argv: ["clean", "--repo-root", repoRoot],
+      env: {},
+      stdout: { write: (l) => out.push(l) },
+      stderr: { write: () => {} },
+    });
+    assert.equal(code, 0);
+    const cleaned = JSON.parse(out.filter(Boolean).at(-1));
+    assert.equal(cleaned.cleaned, true);
+    assert.deepEqual(cleaned.removed.map((r) => r.entry), [globalEntry]);
+    const after = JSON.parse(fs.readFileSync(path.join(cocHome, "settings.json"), "utf8"));
+    assert.deepEqual(after.extensions, [installedEntryOf(repoRoot)]);
+    assert.equal(after.defaultProvider, "grok-relay");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
