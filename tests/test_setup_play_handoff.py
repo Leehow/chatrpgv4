@@ -613,6 +613,131 @@ def test_persisted_handoff_without_toolbox_receipt_fails_closed(
     assert "setup_source_prefix_seal" not in resumed["data"]["current_turn"]
 
 
+@pytest.mark.parametrize(
+    ("corruption", "expected_code"),
+    [
+        ("schema", "state_corrupt"),
+        ("campaign", "state_corrupt"),
+        ("decision", "state_corrupt"),
+        ("non_object", "state_corrupt"),
+        ("investigator_ids", "state_corrupt"),
+        ("extra_field", "state_corrupt"),
+        ("full_receipt_mismatch", "table_opening_required"),
+    ],
+)
+def test_malformed_persisted_handoff_never_opens_journal_boundary(
+    tmp_path: Path, corruption: str, expected_code: str,
+) -> None:
+    campaign_id = f"malformed-handoff-{corruption}"
+    campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    handoff = campaign["setup_handoff"]
+    if corruption == "schema":
+        handoff["schema_version"] = 2
+    elif corruption == "campaign":
+        handoff["campaign_id"] = "different-campaign"
+    elif corruption == "decision":
+        handoff["decision_id"] = " "
+    elif corruption == "non_object":
+        campaign["setup_handoff"] = "not-an-object"
+    elif corruption == "investigator_ids":
+        handoff["investigator_ids"] = ["../outside"]
+    elif corruption == "extra_field":
+        handoff["unexpected"] = True
+    else:
+        handoff["completed_at"] = "2099-01-01T00:00:00+00:00"
+    campaign_path.write_text(
+        json.dumps(campaign, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    tracked = [
+        campaign_dir / "save" / "pacing-state.json",
+        campaign_dir / "logs" / "events.jsonl",
+        campaign_dir / "memory" / "session-summaries.jsonl",
+        campaign_dir / "save" / "toolbox-ledger.json",
+        campaign_dir / "logs" / "table-transcript.jsonl",
+        campaign_dir / "save" / "pending-turn.json",
+    ]
+    before = {path: path.read_bytes() if path.is_file() else None for path in tracked}
+
+    journaled = coc_toolbox.run_tool(
+        "state.journal",
+        tmp_path,
+        campaign_id,
+        {
+            "summary": "损坏 handoff 不能打开 journal 边界。",
+            "player_action": "等待恢复",
+            "player_text": "我等待状态修复。",
+            "run_id": f"run-{campaign_id}",
+            "decision_id": f"journal-{campaign_id}",
+        },
+    )
+
+    assert journaled["ok"] is False
+    assert journaled["error"]["code"] == expected_code
+    assert {path: path.read_bytes() if path.is_file() else None for path in tracked} == before
+    assert coc_toolbox.coc_turn_manifest.pending_manifest(campaign_dir) is None
+
+
+def test_campaign_without_setup_handoff_keeps_ordinary_cursor_semantics(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "no-setup-handoff-boundary"
+    coc_state.create_campaign(tmp_path, campaign_id, "No handoff", era="1920s")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
+
+    boundary = coc_toolbox.coc_turn_manifest.effective_source_boundary(campaign_dir)
+    assert boundary["kind"] == "durable_cursor"
+    assert boundary["cursor_close_owner"] == "turn.finalize"
+    manifest = coc_toolbox.coc_turn_manifest.start_pending_turn(
+        campaign_dir,
+        journal_decision_id="no-handoff-journal",
+        turn_number=1,
+    )
+    assert manifest["source_start_index"] == 0
+
+
+def test_damaged_preopening_journal_replay_cannot_recreate_transcript(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "damaged-preopening-journal-replay"
+    campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    handoff = campaign.pop("setup_handoff")
+    campaign_path.write_text(
+        json.dumps(campaign, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    args = {
+        "summary": "模拟受损历史 journal。",
+        "player_action": "受损历史行动",
+        "player_text": "这条 transcript 将被模拟丢失。",
+        "run_id": f"run-{campaign_id}",
+        "decision_id": f"journal-{campaign_id}",
+    }
+    original = coc_toolbox.run_tool(
+        "state.journal", tmp_path, campaign_id, args,
+    )
+    assert original["ok"] is True, original
+    campaign["setup_handoff"] = handoff
+    campaign_path.write_text(
+        json.dumps(campaign, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    transcript_path = campaign_dir / "logs" / "table-transcript.jsonl"
+    transcript_path.unlink()
+
+    replay = coc_toolbox.run_tool(
+        "state.journal", tmp_path, campaign_id, args,
+    )
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "table_opening_required"
+    assert not transcript_path.exists()
+
+
 def test_post_opening_pending_turn_excludes_setup_through_finalization(
     tmp_path: Path,
 ) -> None:
@@ -753,3 +878,77 @@ def test_unlinked_same_campaign_creation_cannot_bind_orphan_roll(
     assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == [
         orphan["data"]["roll_id"]
     ]
+
+
+def test_linked_malformed_creation_cannot_launder_roll(tmp_path: Path) -> None:
+    campaign_id = "linked-malformed-creation"
+    campaign_dir, chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    canonical_roll_ids = set(chargen["data"]["result"]["roll_ids"])
+    assert canonical_roll_ids <= (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    )
+    orphan = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        campaign_id,
+        {
+            "expression": "1D100",
+            "reason": "linked malformed laundering attempt",
+            "decision_id": "linked-malformed-launder",
+        },
+    )
+    assert orphan["ok"] is True, orphan
+    investigator_id = f"inv-{campaign_id}"
+    creation_path = (
+        tmp_path / ".coc" / "investigators" / investigator_id / "creation.json"
+    )
+    creation_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "investigator_id": investigator_id,
+                "input_mode": "guided_quick_fire",
+                "edu_improvement_rolls": [
+                    {
+                        "check_receipt": {
+                            "campaign_id": campaign_id,
+                            "decision_id": "linked-malformed-launder",
+                            "roll_id": orphan["data"]["roll_id"],
+                        }
+                    }
+                ],
+            },
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+    assert orphan["data"]["roll_id"] not in (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    )
+
+
+@pytest.mark.parametrize("party_corruption", ["schema", "campaign"])
+def test_creation_binding_rejects_malformed_party(
+    tmp_path: Path, party_corruption: str,
+) -> None:
+    campaign_id = f"malformed-party-{party_corruption}"
+    campaign_dir, chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    canonical_roll_ids = set(chargen["data"]["result"]["roll_ids"])
+    assert canonical_roll_ids <= (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    )
+    party_path = campaign_dir / "party.json"
+    party = json.loads(party_path.read_text(encoding="utf-8"))
+    party["schema_version" if party_corruption == "schema" else "campaign_id"] = (
+        2 if party_corruption == "schema" else "different-campaign"
+    )
+    party_path.write_text(
+        json.dumps(party, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+        == set()
+    )
