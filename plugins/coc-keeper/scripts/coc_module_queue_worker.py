@@ -1850,7 +1850,24 @@ def _write_host_work_request(
         payload.pop("consumer_refs")
     if dependency_ref is not None:
         payload["dependency_ref"] = dependency_ref
-    coc_module_assets.validate_host_work_request_shape(payload)
+    if job_kind == "deepen_handout":
+        allowed_assets = coc_module_assets.registered_source_asset_refs(
+            workspace,
+            asset_root_id,
+            requested_pdf_indices=requested_indices,
+        )
+        payload["allowed_registered_asset_refs"] = allowed_assets
+        payload["instruction"] = (
+            "Host PDF skill: read only cached_page_refs for this exact "
+            "deepen_handout request. Return one direct card pack following the "
+            "closed coc.handout-card-pack.v1 result_contract. Copy only exact "
+            "cached page refs as pdf_index-N strings and use image_ref only "
+            "from allowed_registered_asset_refs. Card identification, kind, "
+            "and when_to_deliver are semantic readings of these pages; never "
+            "scan prose with keywords or regex. Return player_visible=true "
+            "source material only, related_packs=[], and no aliases, extra "
+            "fields, Keeper notes, secret prose, or parent repair."
+        )
     if job_kind == "partial_opening":
         payload["result_contract"] = _foreground_opening_result_contract()
     elif job_kind in {"deepen_location", "partial_neighbor"}:
@@ -1912,6 +1929,16 @@ def _write_host_work_request(
             cached_page_refs=cached_page_refs,
             batch_subjects=batch_subjects,
         )
+    elif job_kind == "deepen_handout":
+        payload["result_contract"] = coc_module_assets.handout_card_result_contract(
+            job_id=jid,
+            target_id=target_id,
+            cached_page_refs=cached_page_refs,
+            allowed_registered_asset_refs=payload[
+                "allowed_registered_asset_refs"
+            ],
+        )
+    coc_module_assets.validate_host_work_request_shape(payload)
     pending_supersedes = sorted({
         str(value).strip()
         for value in job.get("supersedes_host_job_ids") or []

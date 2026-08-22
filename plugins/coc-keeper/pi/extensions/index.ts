@@ -190,6 +190,7 @@ const mapSupplySchema = {
   properties: {
     operation: { type: "string", enum: ["detect", "render", "present"] },
     pages_dir: { type: "string" },
+    candidate_pdf_indices: { type: "array", maxItems: 256, items: { type: "integer", minimum: 0 } },
     needs_ocr: { type: "array", maxItems: 256, items: { type: "integer", minimum: 0 } },
     asset_root_id: { type: "string" },
     source_pdf_path: { type: "string" },
@@ -9739,16 +9740,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   pi.registerTool({
     name: "coc_map_supply", label: "COC map supply",
-    description: "Detect native-text image pages, validate externally rendered map assets, or privately inject one map image for the Keeper.", parameters: mapSupplySchema,
+    description: "Validate explicit structured image-page candidates, validate externally rendered map assets, or privately inject one map image for the Keeper.", parameters: mapSupplySchema,
     ...compactToolRenderers("coc_map_supply"),
     async execute(_id: string, params: JsonObject, _signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
       const operation = String(params.operation ?? "");
       const needsOcr = Array.isArray(params.needs_ocr)
         ? params.needs_ocr.filter((value): value is number => Number.isInteger(value) && value >= 0)
         : [];
+      const candidatePdfIndices = Array.isArray(params.candidate_pdf_indices)
+        ? params.candidate_pdf_indices.filter((value): value is number => Number.isInteger(value) && value >= 0)
+        : [];
       if (operation === "detect") {
         if (typeof params.pages_dir !== "string" || !params.pages_dir.trim()) throw new Error("detect requires pages_dir");
-        return result(await detectMapSupplyPageDirectory(params.pages_dir, needsOcr));
+        return result(await detectMapSupplyPageDirectory(params.pages_dir, candidatePdfIndices, needsOcr));
       }
       if (operation === "render") {
         if (
@@ -9756,7 +9760,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           || typeof params.asset_root_id !== "string" || !params.asset_root_id.trim()
           || typeof params.source_pdf_path !== "string" || !params.source_pdf_path.trim()
         ) throw new Error("render requires pages_dir, asset_root_id, and source_pdf_path");
-        const selection = await detectMapSupplyPageDirectory(params.pages_dir, needsOcr);
+        const selection = await detectMapSupplyPageDirectory(params.pages_dir, candidatePdfIndices, needsOcr);
         if (!selection.needs_image.length) return result({ ...selection, assets: [], status: "nothing_to_render" });
         return result({
           ...selection,

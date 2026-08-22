@@ -280,6 +280,19 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   trigger a replacement opening pack or a blocking NPC deep scan before play.
 - Locations: nested clues use **`player_safe_summary` only** (never bare
   `summary`). Affordances use `id` (not `affordance_id`).
+- For `kind=deepen_handout`, follow the closed
+  `coc.handout-card-pack.v1` object in `request.result_contract`. Return the
+  handout entity itself with `handout_id` and `asset_id` both copied from
+  `target_id`; copy the fixed `parse_state=deep`, `evidence_gap=false`,
+  `origin=source`, and `player_visible=true` fields. Select only exact
+  `source_refs` from this request's `cached_page_refs`, and use an optional
+  `image_ref` only when it exactly matches one row in
+  `allowed_registered_asset_refs`. Choose `kind` and `when_to_deliver` by
+  semantic review of the bounded source pages. Never use keywords or regex to
+  identify a card. Do not include Keeper-only notes, hidden annotations,
+  secrets, unsupported aliases, or extra fields. Keep `related_packs=[]`; if
+  the exact closed card cannot be supplied, return `status=abstain` with
+  `results=[]` rather than asking the parent to repair it.
 - **`read_aloud`**: the boxed passages the module prints for the Keeper to read
   out. Nearly every published scenario has them and none of them print them as
   a titled section, so they are only reachable here. Copy each one as authored

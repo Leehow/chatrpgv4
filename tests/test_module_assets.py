@@ -576,6 +576,177 @@ def _write_host_bundle(
     return bundle, file_sha, hashlib.sha256(page_bytes).hexdigest()
 
 
+def _write_host_bundle_with_assets(
+    tmp_path: Path,
+    assets_by_path: dict[str, bytes],
+    *,
+    bundle_name: str = "bound-source-assets",
+) -> Path:
+    """Create one real host bundle whose declared assets exercise registration."""
+    bundle, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    target = tmp_path / bundle_name
+    bundle.rename(target)
+    manifest_path = target / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    rows = []
+    for relative, payload in assets_by_path.items():
+        path = target / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+        rows.append({
+            "path": relative,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        })
+    manifest["assets"] = rows
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return target
+
+
+def test_register_source_bundle_preserves_validated_image_assets(tmp_path: Path):
+    png = b"\x89PNG\r\n\x1a\n" + b"project-authored-png"
+    jpeg = b"\xff\xd8\xff\xe0" + b"project-authored-jpeg" + b"\xff\xd9"
+    webp = b"RIFF" + (20).to_bytes(4, "little") + b"WEBPVP8 " + b"fixture"
+    bundle = _write_host_bundle_with_assets(tmp_path, {
+        "assets/cellar.png": png,
+        "assets/letter.jpg": jpeg,
+        "assets/route.webp": webp,
+    })
+
+    first = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="media-source",
+    )
+    second = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="media-source",
+    )
+
+    module_root = tmp_path / ".coc" / "module-assets" / "media-source"
+    assert (module_root / "assets/cellar.png").read_bytes() == png
+    assert (module_root / "assets/letter.jpg").read_bytes() == jpeg
+    assert (module_root / "assets/route.webp").read_bytes() == webp
+    expected = [
+        {
+            "source_bundle_path": "assets/cellar.png",
+            "image_ref": "assets/cellar.png",
+            "media_type": "image/png",
+            "sha256": hashlib.sha256(png).hexdigest(),
+            "size_bytes": len(png),
+            "bundle_sha256s": [first["bundle_sha256"]],
+        },
+        {
+            "source_bundle_path": "assets/letter.jpg",
+            "image_ref": "assets/letter.jpg",
+            "media_type": "image/jpeg",
+            "sha256": hashlib.sha256(jpeg).hexdigest(),
+            "size_bytes": len(jpeg),
+            "bundle_sha256s": [first["bundle_sha256"]],
+        },
+        {
+            "source_bundle_path": "assets/route.webp",
+            "image_ref": "assets/route.webp",
+            "media_type": "image/webp",
+            "sha256": hashlib.sha256(webp).hexdigest(),
+            "size_bytes": len(webp),
+            "bundle_sha256s": [first["bundle_sha256"]],
+        },
+    ]
+    manifest = json.loads((module_root / "source-assets.json").read_text())
+    assert manifest == {"schema_version": 1, "assets": expected}
+    assert first["registered_assets"] == expected
+    assert second["registered_assets"] == expected
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("unsupported", "unsupported image media"),
+        ("bad_magic", "match image media"),
+        ("oversize", "exceeds 20 MiB"),
+    ],
+)
+def test_register_source_bundle_rejects_invalid_assets_before_mutation(
+    tmp_path: Path,
+    case: str,
+    message: str,
+):
+    if case == "unsupported":
+        relative, payload = "assets/not-image.txt", b"not an image"
+    elif case == "bad_magic":
+        relative, payload = "assets/fake.png", b"not a png"
+    else:
+        relative = "assets/too-large.png"
+        payload = b"\x89PNG\r\n\x1a\n" + b"x" * (20 * 1024 * 1024)
+    bundle = _write_host_bundle_with_assets(tmp_path, {relative: payload})
+
+    with pytest.raises((assets.ModuleAssetsError, ValueError), match=message):
+        assets.register_source_bundle(
+            tmp_path, bundle, asset_root_id="rejected-media",
+        )
+
+    assert not (
+        tmp_path / ".coc" / "module-assets" / "rejected-media"
+    ).exists()
+
+
+def test_register_source_bundle_rejects_asset_collision_without_page_mutation(
+    tmp_path: Path,
+):
+    first_png = b"\x89PNG\r\n\x1a\nfirst"
+    first_bundle = _write_host_bundle_with_assets(
+        tmp_path, {"assets/map.png": first_png}, bundle_name="asset-window-one",
+    )
+    assets.register_source_bundle(
+        tmp_path, first_bundle, asset_root_id="asset-collision",
+    )
+    module_root = tmp_path / ".coc" / "module-assets" / "asset-collision"
+    page_before = (module_root / "pages/0000.md").read_bytes()
+
+    second_png = b"\x89PNG\r\n\x1a\nsecond"
+    second_bundle = _write_host_bundle_with_assets(
+        tmp_path, {"assets/map.png": second_png}, bundle_name="asset-window-two",
+    )
+    with pytest.raises(assets.ModuleAssetsError, match="asset path collision"):
+        assets.register_source_bundle(
+            tmp_path, second_bundle, asset_root_id="asset-collision",
+        )
+
+    assert (module_root / "assets/map.png").read_bytes() == first_png
+    assert (module_root / "pages/0000.md").read_bytes() == page_before
+
+
+def test_register_source_bundle_rejects_target_asset_symlink_escape(
+    tmp_path: Path,
+):
+    initial, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    assets.register_source_bundle(
+        tmp_path, initial, asset_root_id="asset-symlink-escape",
+    )
+    module_root = (
+        tmp_path / ".coc/module-assets/asset-symlink-escape"
+    )
+    page_before = (module_root / "pages/0000.md").read_bytes()
+    outside = tmp_path / "escaped-assets"
+    outside.mkdir()
+    (module_root / "assets").symlink_to(outside, target_is_directory=True)
+    incoming_payload = b"\x89PNG\r\n\x1a\nconfined"
+    (initial / "assets").mkdir()
+    (initial / "assets/map.png").write_bytes(incoming_payload)
+    manifest_path = initial / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["assets"] = [{
+        "path": "assets/map.png",
+        "sha256": hashlib.sha256(incoming_payload).hexdigest(),
+    }]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(assets.ModuleAssetsError, match="escapes"):
+        assets.register_source_bundle(
+            tmp_path, initial, asset_root_id="asset-symlink-escape",
+        )
+
+    assert list(outside.iterdir()) == []
+    assert (module_root / "pages/0000.md").read_bytes() == page_before
+
+
 def _write_revision_bundle(
     tmp_path: Path,
     *,

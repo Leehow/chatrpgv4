@@ -250,6 +250,48 @@ def test_rejects_markdown_path_traversal(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("traversal", "escapes"),
+        ("symlink_escape", "escapes"),
+        ("missing", "not a readable file"),
+        ("hash_drift", "SHA-256"),
+    ],
+)
+def test_rejects_untrusted_image_asset_paths_before_registration(
+    tmp_path: Path,
+    case: str,
+    message: str,
+):
+    root = _bundle(tmp_path)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"\x89PNG\r\n\x1a\nproject-owned")
+    manifest = _manifest(root)
+    if case == "traversal":
+        relative = "../outside.png"
+    elif case == "symlink_escape":
+        (root / "assets").mkdir()
+        (root / "assets/escape.png").symlink_to(outside)
+        relative = "assets/escape.png"
+    elif case == "missing":
+        relative = "assets/missing.png"
+    else:
+        (root / "assets").mkdir()
+        (root / "assets/drift.png").write_bytes(outside.read_bytes())
+        relative = "assets/drift.png"
+    manifest["assets"] = [{
+        "path": relative,
+        "sha256": (
+            "0" * 64 if case == "hash_drift" else _sha(outside.read_bytes())
+        ),
+    }]
+    _write_manifest(root, manifest)
+
+    with pytest.raises(bundle_module.PdfSourceBundleError, match=message):
+        bundle_module.load_host_bundle(root)
+
+
+@pytest.mark.parametrize(
     ("mutation", "message"),
     [
         (lambda page: page.pop("review_state"), "review_state"),

@@ -18637,6 +18637,130 @@ _LOCATION_PACK_STRUCTURAL_FIELDS = frozenset({
 _LOCATION_PACK_DEFAULT_SEMANTIC_FIELDS = ("title", "player_safe_summary")
 
 
+def _require_closed_handout_worker_pack(
+    pack: dict[str, Any],
+    request: dict[str, Any],
+    *,
+    root_id: str,
+    root: Path,
+    target_id: str,
+    related_packs: Any,
+) -> None:
+    """Reject handout child output outside its exact pages/assets before put."""
+    contract = request.get("result_contract")
+    if (
+        not isinstance(contract, dict)
+        or contract.get("contract_id") != "coc.handout-card-pack.v1"
+        or contract.get("closed") is not True
+    ):
+        raise ToolError(
+            "invalid_state", "deepen_handout request lacks its closed card contract",
+        )
+    if related_packs not in (None, []):
+        raise ToolError(
+            "invalid_source_worker_pack", "handout fulfillment requires related_packs=[]",
+        )
+    allowed_fields = set(contract.get("allowed_pack_fields") or [])
+    required_fields = set(contract.get("required_pack_fields") or [])
+    # host_timing is injected above by repository lease measurement; it is
+    # never a worker-allowed semantic field in the closed card contract.
+    worker_fields = set(pack) - {"host_timing"}
+    extra = sorted(worker_fields - allowed_fields)
+    missing = sorted(required_fields - worker_fields)
+    if extra or missing:
+        detail = (
+            f"unsupported fields: {', '.join(extra)}" if extra
+            else f"missing required fields: {', '.join(missing)}"
+        )
+        raise ToolError("invalid_source_worker_pack", detail)
+    fixed = contract.get("fixed_fields")
+    if not isinstance(fixed, dict):
+        raise ToolError("invalid_state", "handout result contract fixed fields are invalid")
+    for field, expected in fixed.items():
+        if pack.get(field) != expected:
+            message = (
+                "player_visible=true is required for a source handout result"
+                if field == "player_visible"
+                else f"pack.{field} must equal the request-bound value"
+            )
+            raise ToolError("invalid_source_worker_pack", message)
+    if pack.get("handout_id") != target_id or pack.get("asset_id") != target_id:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout_id and asset_id must equal the request target_id",
+        )
+    if pack.get("kind") not in set(contract.get("kind_values") or []):
+        raise ToolError("invalid_source_worker_pack", "handout kind is unsupported")
+    if not isinstance(pack.get("title"), str) or not str(pack["title"]).strip():
+        raise ToolError("invalid_source_worker_pack", "handout title must be non-empty")
+    provenance = pack.get("provenance")
+    expected_provenance = (contract.get("provenance") or {}).get("required")
+    if provenance != expected_provenance:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout provenance must be exactly source_authored host_pack",
+        )
+    allowed_source_refs = {
+        str(row.get("card_source_ref") or "")
+        for row in contract.get("allowed_exact_source_refs") or []
+        if isinstance(row, dict) and str(row.get("card_source_ref") or "")
+    }
+    supplied_refs = pack.get("source_refs")
+    if (
+        not isinstance(supplied_refs, list)
+        or not supplied_refs
+        or any(not isinstance(ref, str) for ref in supplied_refs)
+        or len(supplied_refs) != len(set(supplied_refs))
+        or not set(supplied_refs) <= allowed_source_refs
+    ):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout source_refs must be a unique exact cached page subset",
+        )
+    image_ref = pack.get("image_ref")
+    if image_ref is not None:
+        allowed_assets = request.get("allowed_registered_asset_refs")
+        if not isinstance(allowed_assets, list) or image_ref not in {
+            str(row.get("image_ref") or "")
+            for row in allowed_assets if isinstance(row, dict)
+        }:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout image_ref must equal one exact registered asset ref",
+            )
+        try:
+            current_assets = (
+                coc_module_project.coc_module_assets.registered_source_asset_refs(
+                    root,
+                    root_id,
+                    requested_pdf_indices=list(
+                        request.get("requested_pdf_indices") or []
+                    ),
+                )
+            )
+        except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"registered asset drifted after request creation: {exc}",
+            ) from exc
+        expected_rows = [
+            row for row in allowed_assets
+            if isinstance(row, dict) and row.get("image_ref") == image_ref
+        ]
+        current_rows = [row for row in current_assets if row.get("image_ref") == image_ref]
+        if current_rows != expected_rows:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "registered asset hash or bundle binding drifted after request creation",
+            )
+    text = pack.get("text")
+    if image_ref is None and (not isinstance(text, str) or not text.strip()):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout card requires source text or an exact registered image",
+        )
+
+
 def _location_pack_required_semantic_fields(
     request: dict[str, Any],
 ) -> list[str]:
@@ -19809,6 +19933,15 @@ def _fulfill_host_work_for_asset_unlocked(
             force_host_job=True,
         )
     else:
+        if job_kind == "deepen_handout":
+            _require_closed_handout_worker_pack(
+                pack,
+                request,
+                root_id=root_id,
+                root=ctx.root,
+                target_id=target_id,
+                related_packs=args.get("related_packs"),
+            )
         expected_state = (
             "partial"
             if job_kind in {"partial_neighbor", "partial_opening"}
