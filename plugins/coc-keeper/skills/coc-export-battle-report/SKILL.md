@@ -53,7 +53,8 @@ genuine typed state diffs, report validation, and deterministic manifest/hash
 files. Neither player artifact contains `keeper_internal`, the source manifest,
 concealed identifiers, raw session/decision/source/NPC/clue/roll identifiers,
 or raw audit objects. Player-facing checks use presentation order and labels;
-exact machine identities remain in Keeper/development audit evidence only.
+multi-ending settlements use stable player-safe ending ordinals; exact machine
+identities remain in Keeper/development audit evidence only.
 
 The Markdown renders the full initial investigator card, final `current_*`
 state, development deltas, personal-horror weave/payoff receipts, visited path,

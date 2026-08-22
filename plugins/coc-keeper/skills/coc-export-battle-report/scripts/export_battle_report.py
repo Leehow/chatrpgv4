@@ -2705,6 +2705,7 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "explicit per-source allowlists applied": "已应用逐来源显式白名单",
         " — not recorded as woven": " — 未记录已融入剧情",
         " · payoff recorded": " · 已记录回收",
+        " · Ending ": " · 结局 ",
         " (custom)": "（自创）",
         "; allocations: none": "; 分配：无",
         "; allocations:": "; 分配：",
@@ -2960,7 +2961,7 @@ def _markdown(report: dict[str, Any]) -> str:
                 "#### Initial Skills",
                 "",
                 " | ".join(
-                    f"{_display_skill(skill_labels, investigator['investigator_id'], key)}: {_display(value)}"
+                    f"{_display_skill(skill_labels, investigator.get('investigator_display_name') or name, key)}: {_display(value)}"
                     for key, value in character["initial_skills"].items()
                 ),
                 "",
@@ -3013,7 +3014,9 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.extend(["No structured ending was recorded.", ""])
     for settlement in report.get("development_settlements", []):
         display_name = settlement.get("investigator_display_name") or "Investigator"
-        lines.extend([f"### {display_name} Development", ""])
+        ending_ordinal = settlement.get("ending_ordinal")
+        suffix = f" · Ending {ending_ordinal}" if ending_ordinal else ""
+        lines.extend([f"### {display_name} Development{suffix}", ""])
         for row in settlement.get("improvement_checks", []):
             lines.append(f"- {row.get('skill')}: {row.get('value_before')} → {row.get('value_after')} (gain {row.get('applied_delta', row.get('gain'))}; check {row.get('check_roll')})")
         luck = settlement.get("luck_recovery")
@@ -3480,7 +3483,10 @@ def _strip_player_internal_identity(value: Any) -> Any:
             key == "id"
             or key.endswith("_id")
             or key.endswith("_ids")
-            or key in {"source_ref", "source_path", "source_line"}
+            or key in {
+                "source_ref", "source_path", "source_line",
+                "settlement_capsule_ref",
+            }
             or key.endswith("_sha256")
             or key.endswith("_digest")
         ):
@@ -3508,6 +3514,14 @@ def _attach_player_display_labels(source: dict[str, Any]) -> None:
             display = investigator_names.get(str(row.get("investigator_id") or ""))
             if display:
                 row["investigator_display_name"] = display
+    ending_refs: dict[str, int] = {}
+    for settlement in source.get("development_settlements") or []:
+        if not isinstance(settlement, dict):
+            continue
+        ending_id = str(settlement.get("ending_id") or "")
+        if ending_id:
+            ending_refs.setdefault(ending_id, len(ending_refs) + 1)
+            settlement["ending_ordinal"] = ending_refs[ending_id]
     for key in ("social_rolls",):
         for row in source.get(key) or []:
             if isinstance(row, dict):

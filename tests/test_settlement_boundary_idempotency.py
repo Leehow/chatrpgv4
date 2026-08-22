@@ -339,10 +339,9 @@ def test_report_renders_canonical_boundary_receipt_not_last_ending(tmp_path):
     assert len(settlements) == 1
     settlement = settlements[0]
     first_ending_id = first["result"]["ending_evidence"]["ending_id"]
-    assert settlement["ending_id"] == first_ending_id
-    assert settlement["boundary_id"] == (
-        first["result"]["settlement_boundary"]["boundary_id"]
-    )
+    assert settlement["ending_ordinal"] == 1
+    assert "ending_id" not in settlement
+    assert "boundary_id" not in settlement
     assert set(settlement["settlement_types"]) == {
         "skill_development",
         "luck_recovery",
@@ -361,7 +360,11 @@ def test_report_renders_canonical_boundary_receipt_not_last_ending(tmp_path):
         f"Luck: {planned_luck['planned_luck_before']} → "
         f"{planned_luck['luck_after']}"
     ) in markdown
-    assert result["report_id"].startswith("coc-battle-report-")
+    assert "report_id" not in result
+    validation = (run / "artifacts" / "audit" / "report-validation.json").read_text(
+        encoding="utf-8"
+    )
+    assert first_ending_id in validation
 
 
 def test_report_covers_every_ending_receipt_for_pre_ledger_runs(tmp_path):
@@ -444,10 +447,23 @@ def test_report_covers_every_ending_receipt_for_pre_ledger_runs(tmp_path):
     )
     settlements = payload["development_settlements"]
     assert len(settlements) == 2
-    first = next(row for row in settlements if row["ending_id"] == "ending-one")
+    assert [row["ending_ordinal"] for row in settlements] == [1, 2]
+    assert all("ending_id" not in row for row in settlements)
+    first = next(row for row in settlements if row["ending_ordinal"] == 1)
     assert first["luck_recovery"]["luck_before"] == 55
     assert first["luck_recovery"]["luck_after"] == 65
     markdown = (run / "artifacts" / "battle-report.md").read_text(
         encoding="utf-8"
     )
     assert "Luck: 55 → 65" in markdown
+    evidence_text = (run / "artifacts" / "battle-report-evidence.json").read_text(
+        encoding="utf-8"
+    )
+    primary = markdown + evidence_text
+    assert "ending-one" not in primary
+    assert "ending-two" not in primary
+    validation = (run / "artifacts" / "audit" / "report-validation.json").read_text(
+        encoding="utf-8"
+    )
+    assert "ending-one" in validation
+    assert "ending-two" in validation
