@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:a8dfca8cd4f6edcf489d65f4ed7c25a95db0ba92fb90326caecea6c9afc4756c",
+  "content_sha256": "sha256:864716b8f69fd2bcd2a5f0c1f4b2738f1d8a3ac9a80b00b7137b3797d2ea9dd9",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 123,
+  "operation_count": 124,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -5695,6 +5695,57 @@
         ]
       },
       "summary": "Replace the in-fiction civil-calendar anchor for an explicit time shift, loop reset, dream transition, or correction while preserving monotonic elapsed time and relative deadlines."
+    },
+    "state.deliver_handout": {
+      "access": "mutation",
+      "canonical_operation": "state.deliver_handout",
+      "description": "Deliver a verbatim info card (handout) to the players. Idempotent via decision_id. This only writes delivery state — judging WHEN a card is delivered stays with the Keeper; narration frames the find, the card body is presented verbatim, never paraphrased. Canonical operation `state.deliver_handout`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "handout_id": {
+            "description": "asset_id of the handout card (clues.query handouts section lists them all)",
+            "type": "string"
+          },
+          "reason": {
+            "description": "why now (evidence)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "scene where the card is handed over (evidence)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "handout_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Deliver a verbatim info card (handout) to the players. Idempotent via decision_id. This only writes delivery state — judging WHEN a card is delivered stays with the Keeper; narration frames the find, the card body is presented verbatim, never paraphrased."
     },
     "state.end_session": {
       "access": "mutation",
