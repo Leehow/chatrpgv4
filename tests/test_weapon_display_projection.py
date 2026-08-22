@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 import runtime.sdk.web_views as web_views
-import runtime.sdk.weapon_display as weapon_display
 from runtime.sdk.web_views import display_character
 from runtime.sdk.weapon_display import (
     enrich_weapon_row,
@@ -26,6 +25,12 @@ MECHANICS_FIELDS = (
     "weapon_class",
     "template_weapon_id",
 )
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def canonical_ruleset_data_dir(ruleset_id: str) -> Path:
+    coc_rulesets = web_views._load_plugin_module(REPO_ROOT, "coc_rulesets")
+    return coc_rulesets.ruleset_data_dir(ruleset_id)
 
 
 @pytest.mark.parametrize("label", UNKNOWN_LABELS)
@@ -52,7 +57,9 @@ def test_label_only_known_content_is_not_resolved_from_prose() -> None:
 def test_exact_ruleset_catalog_id_resolves_authoritative_params() -> None:
     row = enrich_weapon_row(
         {"weapon_id": "revolver_45", "label": ".45 左轮"},
-        presets=load_weapon_presets(ruleset_id="coc7"),
+        presets=load_weapon_presets(
+            ruleset_data_dir=canonical_ruleset_data_dir("coc7")
+        ),
     )
 
     assert row["weapon_id"] == "revolver_45"
@@ -65,7 +72,10 @@ def test_exact_ruleset_catalog_id_resolves_authoritative_params() -> None:
 
 
 def test_exact_module_weapon_id_resolves_authoritative_params() -> None:
-    presets = load_weapon_presets(ruleset_id="coc7", module_id="the-white-war")
+    presets = load_weapon_presets(
+        ruleset_data_dir=canonical_ruleset_data_dir("coc7"),
+        module_id="the-white-war",
+    )
     row = enrich_weapon_row(
         {"weapon_id": "mannlicher_carcano_rifle", "label": "卡卡诺步枪"},
         presets=presets,
@@ -80,7 +90,10 @@ def test_exact_module_weapon_id_resolves_authoritative_params() -> None:
 
 
 def test_exact_module_weapon_id_inherits_its_structured_catalog_base() -> None:
-    presets = load_weapon_presets(ruleset_id="coc7", module_id="the-haunting")
+    presets = load_weapon_presets(
+        ruleset_data_dir=canonical_ruleset_data_dir("coc7"),
+        module_id="the-haunting",
+    )
     row = enrich_weapon_row(
         {"weapon_id": "corbitt-ritual-dagger", "label": "科比特的仪式匕首"},
         presets=presets,
@@ -410,10 +423,13 @@ def test_imported_active_module_authored_weapon_profile_resolves_by_exact_id(
     assert weapon["mechanics_available"] is True
 
 
-def test_weapon_loader_requires_an_installed_matching_ruleset() -> None:
+def test_weapon_loader_requires_a_canonical_ruleset_data_dir() -> None:
     assert load_weapon_presets() == {}
-    assert load_weapon_presets(ruleset_id="missing") == {}
-    assert "revolver_45" in load_weapon_presets(ruleset_id="coc7")
+    with pytest.raises(ValueError, match="unknown ruleset"):
+        canonical_ruleset_data_dir("missing")
+    assert "revolver_45" in load_weapon_presets(
+        ruleset_data_dir=canonical_ruleset_data_dir("coc7")
+    )
 
 
 def test_non_coc7_campaign_cannot_receive_coc7_weapon_mechanics(
@@ -454,7 +470,7 @@ def test_non_coc7_campaign_cannot_receive_coc7_weapon_mechanics(
 
 def test_imported_profile_cannot_override_ruleset_stable_id() -> None:
     presets = load_weapon_presets(
-        ruleset_id="coc7",
+        ruleset_data_dir=canonical_ruleset_data_dir("coc7"),
         module_profiles={
             "revolver_45": {
                 "weapon_id": "revolver_45",
@@ -506,9 +522,13 @@ def test_ruleset_catalog_is_isolated_and_wins_over_bundled_module(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(weapon_display, "_RULESETS_DIR", rulesets_dir)
+    coc_rulesets = web_views._load_plugin_module(REPO_ROOT, "coc_rulesets")
+    monkeypatch.setattr(coc_rulesets, "RULESETS_ROOT", rulesets_dir)
 
-    presets = load_weapon_presets(ruleset_id="spark", module_id="spark-module")
+    presets = load_weapon_presets(
+        ruleset_data_dir=coc_rulesets.ruleset_data_dir("spark"),
+        module_id="spark-module",
+    )
 
     assert presets["revolver_45"]["damage"] == "spark-damage"
     assert presets["revolver_45"]["skill"] == "Spark Aim"
@@ -565,7 +585,7 @@ def test_malformed_source_authored_weapon_mechanics_fail_closed(
     }
     profile[bad_field] = bad_value
     presets = load_weapon_presets(
-        ruleset_id="coc7",
+        ruleset_data_dir=canonical_ruleset_data_dir("coc7"),
         module_profiles={"module:test-weapon": profile},
     )
 

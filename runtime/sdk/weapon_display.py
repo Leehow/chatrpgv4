@@ -12,29 +12,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_RULESETS_DIR = _REPO_ROOT / "plugins" / "coc-keeper" / "rulesets"
-
 _MECHANICS_FIELDS = ("damage", "skill_label", "range", "ammo")
-
-
-def _ruleset_json_dir(ruleset_id: str | None) -> Path | None:
-    """Resolve one installed ruleset package without falling back to CoC 7."""
-    if not isinstance(ruleset_id, str) or not ruleset_id.strip():
-        return None
-    stable_id = ruleset_id.strip()
-    if Path(stable_id).name != stable_id or "/" in stable_id or "\\" in stable_id:
-        return None
-    package_dir = _RULESETS_DIR / stable_id
-    manifest_path = package_dir / "manifest.json"
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(manifest, dict) or manifest.get("ruleset_id") != stable_id:
-        return None
-    rules_json_dir = package_dir / "rules-json"
-    return rules_json_dir if rules_json_dir.is_dir() else None
 
 
 def _nonempty_string(value: Any) -> bool:
@@ -122,15 +100,14 @@ def _inherit_weapon_fields(
 
 def load_weapon_presets(
     *,
-    ruleset_id: str | None = None,
+    ruleset_data_dir: Path | None = None,
     module_id: str | None = None,
     module_profiles: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     presets: dict[str, dict[str, Any]] = {}
-    ruleset_json_dir = _ruleset_json_dir(ruleset_id)
-    if ruleset_json_dir is None:
+    if not isinstance(ruleset_data_dir, Path) or not ruleset_data_dir.is_dir():
         return presets
-    weapons_json = ruleset_json_dir / "weapons.json"
+    weapons_json = ruleset_data_dir / "weapons.json"
     if weapons_json.is_file():
         try:
             payload = json.loads(weapons_json.read_text(encoding="utf-8"))
@@ -146,7 +123,7 @@ def load_weapon_presets(
     if module_id:
         module_paths = {
             path.stem: path
-            for path in ruleset_json_dir.glob("*.json")
+            for path in ruleset_data_dir.glob("*.json")
             if path.name != "weapons.json"
         }
         path = module_paths.get(module_id)
