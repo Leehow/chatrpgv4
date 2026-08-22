@@ -15158,133 +15158,6 @@ def _turn_recovery_meaningful_tools() -> frozenset[str]:
     )
 
 
-def _row_matches_setup_handoff(
-    ctx: Ctx, row: dict[str, Any], handoff: dict[str, Any],
-) -> bool:
-    """Return whether one log row is the exact durable setup handoff."""
-    args = row.get("args") if isinstance(row.get("args"), dict) else {}
-    data = row.get("data") if isinstance(row.get("data"), dict) else {}
-    result = data.get("result") if isinstance(data.get("result"), dict) else {}
-    return bool(
-        row.get("schema_version") == 2
-        and row.get("ok") is True
-        and row.get("tool") == "setup.complete"
-        and args.get("campaign_id") == str(ctx.campaign_id)
-        and args.get("decision_id") == handoff.get("decision_id")
-        and data.get("schema_version") == 1
-        and data.get("status") == "PASS"
-        and data.get("kind") == "campaign.complete"
-        and result.get("campaign_id") == str(ctx.campaign_id)
-        and result.get("ready_for_table") is True
-        and result.get("next") == "table_opening"
-        and result.get("handoff") == handoff
-    )
-
-
-def _sealed_setup_source_prefix(
-    ctx: Ctx, rows: list[dict[str, Any]],
-) -> tuple[int, dict[str, Any] | None]:
-    """Locate the first successful setup.complete matching durable handoff.
-
-    ``setup.complete`` seals setup/chargen work as a source prefix, but does
-    not advance the turn cursor: ``evidence.table_opening`` remains the single
-    owner that closes the combined setup/opening boundary.  Only the first
-    exact log receipt is a seal so an idempotent replay cannot hide real work
-    written after the original handoff.
-    """
-    try:
-        campaign = coc_state.load_campaign_state(ctx.campaign_dir)
-    except (OSError, ValueError):
-        return 0, None
-    handoff = campaign.get("setup_handoff") if isinstance(campaign, dict) else None
-    if not isinstance(handoff, dict):
-        return 0, None
-    decision_id = handoff.get("decision_id")
-    if (
-        handoff.get("schema_version") != 1
-        or handoff.get("campaign_id") != str(ctx.campaign_id)
-        or not isinstance(decision_id, str)
-        or not decision_id.strip()
-    ):
-        return 0, None
-    for index, row in enumerate(rows):
-        if _row_matches_setup_handoff(ctx, row, handoff):
-            return index + 1, deepcopy(handoff)
-    return 0, None
-
-
-def _setup_source_tail_rows(
-    ctx: Ctx,
-) -> tuple[list[dict[str, Any]], dict[str, Any] | None, int]:
-    """Return exact post-handoff rows while leaving the physical cursor open."""
-    rows = coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir)
-    prefix_length, handoff = _sealed_setup_source_prefix(ctx, rows)
-    tail = rows[prefix_length:]
-    if handoff is not None:
-        tail = [
-            row for row in tail
-            if not _row_matches_setup_handoff(ctx, row, handoff)
-        ]
-    return tail, handoff, prefix_length
-
-
-def _apply_setup_source_prefix_seal(
-    ctx: Ctx, window: dict[str, Any],
-) -> dict[str, Any]:
-    """Project only post-handoff work as the recoverable current turn."""
-    tail, handoff, prefix_length = _setup_source_tail_rows(ctx)
-    if handoff is None:
-        return window
-    meaningful_tools = _turn_recovery_meaningful_tools()
-    meaningful_tail = [
-        row for row in tail
-        if row.get("ok") is True
-        and str(row.get("tool") or "") in meaningful_tools
-    ]
-    first_tail_call_index = int(window["source_start_index"]) + prefix_length
-    projected_tail = [
-        row for row in window.get("rows") or []
-        if int(row.get("call_index", -1)) >= first_tail_call_index
-        and not (
-            row.get("tool") == "setup.complete"
-            and isinstance(row.get("args"), dict)
-            and row["args"].get("campaign_id") == str(ctx.campaign_id)
-            and row["args"].get("decision_id") == handoff.get("decision_id")
-        )
-    ]
-    projected_meaningful = sum(
-        1 for row in projected_tail
-        if row.get("ok") is True
-        and str(row.get("tool") or "") in meaningful_tools
-    )
-    reference_only = sum(
-        1 for row in projected_tail
-        if "row_ref" in row and "data" not in row
-    )
-    omitted = max(0, len(meaningful_tail) - projected_meaningful)
-    projected = deepcopy(window)
-    projected.update({
-        "source_row_count": len(tail),
-        "meaningful_row_count": len(meaningful_tail),
-        "operational_row_count": len(tail) - len(meaningful_tail),
-        "projected_row_count": len(projected_tail),
-        "omitted_row_count": omitted,
-        "reference_only_row_count": reference_only,
-        "overflow": bool(omitted or reference_only),
-        "source_digest": _canonical_digest(tail),
-        "rows": projected_tail,
-        "setup_source_prefix_seal": {
-            "schema_version": 1,
-            "decision_id": handoff["decision_id"],
-            "sealed_source_row_count": prefix_length,
-            "effective_source_start_index": first_tail_call_index,
-            "cursor_closed": False,
-            "cursor_close_owner": "evidence.table_opening",
-        },
-    })
-    return projected
-
-
 def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
     """Void public rolls bound to no finalization; restore save/ to the last commit.
 
@@ -15321,7 +15194,7 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
 
     invalidation_candidates: set[tuple[str, str]] = set()
     if not has_pending_turn:
-        source_tail, _handoff, _prefix_length = _setup_source_tail_rows(ctx)
+        source_tail = coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir)
         for row in source_tail:
             tool_name = str(row.get("tool") or "")
             tool_spec = TOOLS.get(tool_name)
@@ -15588,7 +15461,6 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         ctx.campaign_dir,
         meaningful_tools=_turn_recovery_meaningful_tools(),
     )
-    current_window = _apply_setup_source_prefix_seal(ctx, current_window)
     delivery = coc_continuation.delivery_projection(
         ctx.campaign_dir, checkpoint
     )
@@ -30339,13 +30211,20 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     run_id = str(run_binding["run_segment_id"])
     try:
         pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
-        coc_turn_manifest.load_or_create_cursor(ctx.campaign_dir)
+        source_boundary = coc_turn_manifest.effective_source_boundary(
+            ctx.campaign_dir
+        )
     except coc_turn_manifest.TurnManifestError as exc:
         raise ToolError(exc.code, str(exc)) from exc
     if pending is not None and pending["journal_decision_id"] != decision_id:
         raise ToolError(
             "turn_finalization_pending",
             "the previous journaled turn must be finalized or repaired before another turn can close",
+        )
+    if source_boundary["cursor_close_owner"] == "evidence.table_opening":
+        raise ToolError(
+            "table_opening_required",
+            "record evidence.table_opening before the first player journal",
         )
     pacing = ctx.pacing()
     next_turn_number = int(pacing.get("turn_number") or 0) + 1

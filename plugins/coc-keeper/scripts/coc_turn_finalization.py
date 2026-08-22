@@ -1674,30 +1674,77 @@ def creation_receipt_bound_roll_ids(
 
 
 def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
-    """Read current creation receipts without treating malformed files as proof."""
+    """Read creation receipts only for the campaign's confirmed party/handoff."""
+    campaign_dir = Path(campaign_dir)
+    party_path = campaign_dir / "party.json"
+    if party_path.is_symlink() or not party_path.is_file():
+        return []
+    try:
+        party = json.loads(party_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    raw_party_ids = party.get("investigator_ids") if isinstance(party, dict) else None
+    if not isinstance(raw_party_ids, list):
+        return []
+    party_ids = {
+        value for value in raw_party_ids
+        if isinstance(value, str)
+        and value
+        and value == value.strip()
+        and value not in {".", ".."}
+        and "/" not in value
+        and "\\" not in value
+    }
+
+    campaign_path = campaign_dir / "campaign.json"
+    if campaign_path.is_symlink() or not campaign_path.is_file():
+        return []
+    try:
+        campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    handoff = campaign.get("setup_handoff") if isinstance(campaign, dict) else None
+    if isinstance(handoff, dict):
+        raw_handoff_ids = handoff.get("investigator_ids")
+        if (
+            handoff.get("schema_version") != 1
+            or handoff.get("campaign_id") != campaign_dir.name
+            or not isinstance(raw_handoff_ids, list)
+        ):
+            return []
+        handoff_ids = {
+            value for value in raw_handoff_ids
+            if isinstance(value, str) and value in party_ids
+        }
+        party_ids &= handoff_ids
+
     investigators_dir = Path(campaign_dir).parent.parent / "investigators"
     if not investigators_dir.is_dir() or investigators_dir.is_symlink():
         return []
-    try:
-        investigator_dirs = sorted(investigators_dir.iterdir(), key=lambda path: path.name)
-    except OSError:
-        return []
     records: list[Any] = []
-    for investigator_dir in investigator_dirs:
+    for investigator_id in sorted(party_ids):
+        investigator_dir = investigators_dir / investigator_id
         if investigator_dir.is_symlink() or not investigator_dir.is_dir():
             continue
         creation_path = investigator_dir / "creation.json"
         if creation_path.is_symlink() or not creation_path.is_file():
             continue
         try:
-            records.append(json.loads(creation_path.read_text(encoding="utf-8")))
+            creation = json.loads(creation_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             continue
+        if (
+            not isinstance(creation, dict)
+            or creation.get("schema_version") != 1
+            or creation.get("investigator_id") != investigator_id
+        ):
+            continue
+        records.append(creation)
     return records
 
 
 def campaign_creation_receipt_bound_roll_ids(campaign_dir: Path) -> set[str]:
-    """Return creation-bound roll ids for this campaign's investigator root."""
+    """Return creation-bound roll ids for the confirmed campaign party only."""
     campaign_dir = Path(campaign_dir)
     return creation_receipt_bound_roll_ids(
         campaign_dir.name,
