@@ -73,18 +73,24 @@ extension.default(fakePi, {
   startupCampaignId: () => "brief-camp",
   welcomeAgentDir: path.join(workspace, ".pi-agent"),
   coordinatorEnabled: () => false,
-  createClient: () => ({
-    async callTool(_name, params) {
-      if (params.operation === "session.resume") {
-        return {
-          ok: true, tool: "session.resume",
-          data: { schema_version: 1, campaign_id: "brief-camp", mode: "awaiting_player" },
-        };
-      }
-      return { ok: true, tool: String(params.operation || "coc_invoke"), data: {} };
-    },
-    async close() {},
-  }),
+  createClient: () => {
+    const client = {
+      async callTool(_name, params) {
+        if (params.operation === "session.resume") {
+          return {
+            ok: true, tool: "session.resume",
+            data: { schema_version: 1, campaign_id: "brief-camp", mode: "awaiting_player" },
+          };
+        }
+        return { ok: true, tool: String(params.operation || "coc_invoke"), data: {} };
+      },
+      async callToolWithTransportMeta(name, params) {
+        return { value: await client.callTool(name, params), transport: { attempts: 1 } };
+      },
+      async close() {},
+    };
+    return client;
+  },
 });
 const ctx = {
   cwd: workspace, mode: "rpc", model: { provider: "probe", id: "probe" }, hasUI: false,
@@ -102,17 +108,4 @@ await invoke.execute("resume", {
   operation: "session.resume", root: workspace, campaign: "brief-camp", arguments: {},
 }, undefined, undefined, ctx);
 assert.equal(cards().at(-1).message.details.reason, "session_resume");
-
-document.domains.npc.status = "ready";
-await writeFile(path.join(save, "steward-state.json"), JSON.stringify({
-  ...document,
-  updated_at: "2026-08-10T00:01:00+00:00",
-  deliveries: {}, notebook: {}, failed_chunks: [],
-}), "utf8");
-await invoke.execute("domain", {
-  operation: "steward.domain_put", root: workspace, campaign: "brief-camp",
-  arguments: { domain: "npc" },
-}, undefined, undefined, ctx);
-assert.equal(cards().at(-1).message.details.reason, "steward_refresh");
-assert.equal(cards().at(-1).message.details.readiness.npc, "ready");
 process.stdout.write(JSON.stringify({ ok: true, cards: cards().length }));

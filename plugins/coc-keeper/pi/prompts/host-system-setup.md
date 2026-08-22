@@ -138,6 +138,9 @@ deliver opening narration here.
   keeper-only package to you for construction. The hidden card itself is not
   campaign mutation, and
   the source-facts receipt is not investigator creation or linkage.
+- After a source bundle is bound, call `coc_source_assets` `catalog` on that
+  existing bundle so extracted maps/briefings/KP plates get code-derived ids.
+  Pass the catalog to `steward-scene`; never invent asset ids or re-extract.
 - During source-backed character creation, dispatch the initial steward wave
   (`steward-npc`, `steward-scene`, `steward-rule`) asynchronously with short
   path-and-intent tasks. Reuse the same retained child with `resume` for a
@@ -160,8 +163,8 @@ deliver opening narration here.
     key_connection, occupation_label, own_language.
     Present the complete draft the same turn (no invented dice or cash).
   - **Partial:** some dimensions given. After a first answer that is only
-    name+occupation without that grant, ask one more meaningful creation
-    question in table voice — never call `coc_chargen_delegate`, `setup.chargen_run`,
+    name+occupation without that grant, ask one more meaningful creation question
+    in table voice — never call `coc_chargen_delegate`, `setup.chargen_run`,
     `investigator.create`, or `setup.complete` on that turn. Continue at most
     1–3 evocative questions, one at a time, only for still-missing strands
     among 来历与外貌、人格信念、如何卷入眼前模组事件、随身之物.

@@ -11,7 +11,7 @@
       "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine"
     ],
     "prompt": "plugins/coc-keeper/pi/prompts/host-system-setup.md",
-    "tools": ["coc_chargen_delegate"]
+    "tools": ["coc_chargen_delegate", "coc_source_assets"]
   },
   "play": {
     "skills": [
@@ -31,6 +31,7 @@
       "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine",
       "plugins/coc-keeper/rulesets/coc7/skills/coc-sanity"
     ],
-    "prompt": "plugins/coc-keeper/pi/prompts/host-system-play.md"
+    "prompt": "plugins/coc-keeper/pi/prompts/host-system-play.md",
+    "tools": ["coc_source_assets"]
   }
 }

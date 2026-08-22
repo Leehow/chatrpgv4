@@ -30,6 +30,7 @@ export const RESERVED_HOST_TOOL_NAMES = new Set<string>([
   "coc_capabilities",
   "coc_dispatch_source_work",
   "coc_map_supply",
+  "coc_source_assets",
   "coc_progressive_ocr",
   "coc_chargen_delegate",
   "read",

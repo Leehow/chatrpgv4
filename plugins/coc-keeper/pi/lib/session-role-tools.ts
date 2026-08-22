@@ -14,15 +14,17 @@ const MANIFEST_PATH = join(
 );
 
 export function extraToolsForSessionRole(role: SessionRole | null): string[] {
-  if (role === "play") return [];
   try {
     const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
       setup?: { tools?: unknown };
+      play?: { tools?: unknown };
     };
-    const tools = manifest.setup?.tools;
-    if (!Array.isArray(tools)) return ["coc_chargen_delegate"];
+    const tools = role === "play" ? manifest.play?.tools : manifest.setup?.tools;
+    if (!Array.isArray(tools)) {
+      return role === "play" ? [] : ["coc_chargen_delegate"];
+    }
     return tools.filter((name): name is string => typeof name === "string" && name.length > 0);
   } catch {
-    return ["coc_chargen_delegate"];
+    return role === "play" ? [] : ["coc_chargen_delegate"];
   }
 }
