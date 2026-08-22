@@ -230,7 +230,7 @@ opening procedure is normative in
   Prefer `localized_text[play_language]` / `localized_terms[play_language]`
   when present. Diegetic foreign speech is the only comprehension-skill
   exception — load `references/style-scene-craft.md` for tiers.
-- **Verbatim handout delivery.** When play semantically meets a handout
+- **Exact handout delivery.** When play semantically meets a handout
   card's delivery condition (`when_to_deliver`), call `state.deliver_handout`
   (idempotent via `decision_id`, with `scene_id`/`reason` evidence) before the
   prose that presents the card as delivered — a card in the player's hands
@@ -238,9 +238,11 @@ opening procedure is normative in
   Recording a clue that carries `handout_asset_id` delivers its linked card
   in the same transaction; never re-deliver it by hand. Around the card you
   own only framing — who finds it, in what situation — rendered in
-  `play_language`; the card body is the card's `localized_text` when present,
-  otherwise its verbatim `text`: never rewrite, summarize, or paraphrase it
-  into your own prose. Undelivered card text is keeper-only: query cards
+  `play_language`; use the active-language body returned by the delivery.
+  Source-verbatim cards preserve their cited excerpt; `authored_derivative`
+  cards preserve their explicitly registered in-world prop body and must not
+  be described as source text. Never rewrite, summarize, or paraphrase either
+  body into your own prose. Undelivered card text is keeper-only: query cards
   through the keeper-side handout query and never dump them. Opening
   handouts deliver right after the table opening through the same path.
   Delivery timing is your semantic judgment — no quota, no fixed pipeline;

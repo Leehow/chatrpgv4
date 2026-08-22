@@ -212,7 +212,7 @@ def test_malformed_scenario_cards_cannot_be_queried_or_delivered(campaign_ws):
         {
             "asset_id": "bad-localized",
             "kind": "document",
-            "localized_text": {"zh-Hans": "must stay secret"},
+            "localized_text": {"zh-Hans": ["must stay secret"]},
         },
         {
             "asset_id": "bad-body",
@@ -270,7 +270,9 @@ def test_malformed_progressive_entities_cannot_be_queried_or_delivered(campaign_
     )
     malformed = {
         "entity-bad-visible": {"player_visible": "false"},
-        "entity-bad-localized": {"localized_text": {"zh-Hans": "must stay secret"}},
+        "entity-bad-localized": {
+            "localized_text": {"zh-Hans": ["must stay secret"]}
+        },
         "entity-bad-body": {"text": {"body": "must stay secret"}},
         "entity-bad-asset": {"image_ref": ["assets/handouts/secret.png"]},
         "entity-bad-id": {"asset_id": 17},
@@ -441,6 +443,60 @@ def test_fresh_quick_start_shipped_clues_deliver_one_card_exactly_once(
         and event.get("asset_id") == asset_id
     ]
     assert len(delivered) == 1
+    player = _run(
+        campaign_ws, "clues.query", {"handouts_projection": "player"}
+    )
+    card = player["data"]["handouts"]["cards"][0]
+    assert card["content_origin"] == "authored_derivative"
+    assert card["title"].startswith("《波士顿环球报》")
+    assert card["summary"].startswith("由项目贡献者")
+    assert card["source_refs"] == []
+
+
+def test_authored_derivative_falls_back_to_its_english_body_for_english_play(
+    campaign_ws,
+):
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = "en"
+    _write_json(campaign_path, campaign)
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-globe-unpublished-story",
+        "method": "newspaper research",
+        "decision_id": "english-authored-prop",
+    })
+
+    assert result["ok"] is True, result
+    card = result["data"]["delivered_handout_id"]
+    assert card == "handout-globe-unpublished-1918"
+    player = _run(
+        campaign_ws, "clues.query", {"handouts_projection": "player"}
+    )["data"]["handouts"]["cards"][0]
+    assert player["title"].startswith("Boston Globe")
+    assert player["text"].startswith("BOSTON GLOBE")
+    assert "波士顿" not in json.dumps(player, ensure_ascii=False)
+
+
+def test_authored_derivative_uses_japanese_fields_for_japanese_play(campaign_ws):
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = "ja-JP"
+    _write_json(campaign_path, campaign)
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-globe-unpublished-story",
+        "method": "新聞調査",
+        "decision_id": "japanese-authored-prop",
+    })
+
+    assert result["ok"] is True, result
+    player = _run(
+        campaign_ws, "clues.query", {"handouts_projection": "player"}
+    )["data"]["handouts"]["cards"][0]
+    assert player["title"].startswith("『ボストン・グローブ』")
+    assert player["text"].startswith("『ボストン・グローブ』")
+    assert "波士顿" not in json.dumps(player, ensure_ascii=False)
 
 
 @pytest.mark.parametrize("write_order", ["clue-first", "card-first"])
@@ -526,7 +582,7 @@ def test_record_clue_resolves_unique_deep_card_reverse_ref_in_either_merge_order
         ),
     ],
 )
-def test_record_clue_invalid_handout_link_fails_before_discovery_write(
+def test_record_clue_invalid_handout_link_warns_but_preserves_discovery(
     campaign_ws,
     explicit_id,
     cards,
@@ -539,24 +595,57 @@ def test_record_clue_invalid_handout_link_fails_before_discovery_write(
     )
     if cards:
         _install_deep_cards(campaign_ws, cards)
-    before_world = _world(campaign_ws)
-    flags_path = campaign_ws["campaign_dir"] / "save" / "flags.json"
-    before_flags = flags_path.read_bytes()
-
     result = _run(campaign_ws, "state.record_clue", {
         "clue_id": "clue-bad-link",
         "method": "invalid structured linkage",
         "decision_id": f"reject-{error_code}",
     })
 
-    assert result["ok"] is False, result
-    assert result["error"]["code"] == error_code
-    assert _world(campaign_ws) == before_world
-    assert flags_path.read_bytes() == before_flags
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert result["data"]["handout_delivery_warning"]["code"] == error_code
+    assert any(error_code in warning for warning in result["warnings"])
+    world = _world(campaign_ws)
+    assert "clue-bad-link" in world["discovered_clue_ids"]
+    assert "delivered_handout_ids" not in world
+    assert [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "clue_discovered"
+        and event.get("clue_id") == "clue-bad-link"
+    ]
     assert not [
         event for event in _events(campaign_ws)
-        if event.get("clue_id") == "clue-bad-link"
+        if event.get("event_type") == "handout_delivered"
+        and event.get("clue_id") == "clue-bad-link"
     ]
+
+
+def test_record_clue_optional_companion_card_failure_preserves_discovery(
+    campaign_ws,
+):
+    _append_handout_clue(
+        campaign_ws,
+        clue_id="clue-optional-card",
+        handout_asset_id="handout-missing-companion",
+    )
+    path = campaign_ws["campaign_dir"] / "scenario" / "clue-graph.json"
+    graph = json.loads(path.read_text(encoding="utf-8"))
+    graph["conclusions"][-1]["clues"][0]["delivery_kind"] = "obvious"
+    _write_json(path, graph)
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-optional-card",
+        "method": "ordinary discovery with broken companion metadata",
+        "decision_id": "optional-card-failure",
+    })
+
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert "handout_delivery_warning" in result["data"], result
+    assert result["data"]["handout_delivery_warning"]["code"] == "unknown_handout"
+    world = _world(campaign_ws)
+    assert "clue-optional-card" in world["discovered_clue_ids"]
+    assert "delivered_handout_ids" not in world
 
 
 def test_record_clue_without_card_linkage_is_unchanged(campaign_ws):
@@ -675,6 +764,7 @@ def test_deep_handout_wins_over_scenario_and_index_for_keeper_and_player(
         "handout_id": "handout-newspaper",
         "asset_id": "handout-newspaper",
         "kind": "document",
+        "content_origin": "source_verbatim",
         "title": "Deep clipping",
         "text": "Deep entity card body.",
         "localized_text": "深层实体卡片正文。",
@@ -702,6 +792,7 @@ def test_deep_handout_wins_over_scenario_and_index_for_keeper_and_player(
         {
             "asset_id": "handout-newspaper",
             "kind": "document",
+            "content_origin": "source_verbatim",
             "title": "Deep clipping",
             "text": "深层实体卡片正文。",
             "localized_text": "深层实体卡片正文。",
@@ -874,7 +965,7 @@ def test_deliver_handout_refuses_keeper_facing_card(campaign_ws):
     ]
 
 
-def test_record_clue_linkage_refuses_keeper_facing_card_before_discovery(campaign_ws):
+def test_record_clue_linkage_skips_keeper_card_but_keeps_discovery(campaign_ws):
     _install_cards(campaign_ws)
     path = campaign_ws["campaign_dir"] / "scenario" / "clue-graph.json"
     graph = json.loads(path.read_text(encoding="utf-8"))
@@ -900,9 +991,10 @@ def test_record_clue_linkage_refuses_keeper_facing_card_before_discovery(campaig
         "decision_id": "clue-kp-notes",
     })
 
-    assert result["ok"] is False, result
-    assert result["error"]["code"] == "handout_not_player_visible"
-    assert "clue-kp-marginalia" not in _world(campaign_ws)["discovered_clue_ids"]
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert result["data"]["handout_delivery_warning"]["code"] == "handout_not_player_visible"
+    assert "clue-kp-marginalia" in _world(campaign_ws)["discovered_clue_ids"]
     assert "delivered_handout_ids" not in _world(campaign_ws)
     assert not [
         e for e in _events(campaign_ws)

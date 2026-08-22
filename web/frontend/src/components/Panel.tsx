@@ -326,7 +326,7 @@ function CashSection({ cash }: { cash: CashDisplay | null }) {
 }
 
 
-/** 资料页签：已交付原文卡列表，点击展开卡片详情（逐字原文 + 来源页）。 */
+/** 资料页签：已交付资料卡列表；卡片自身标明来源原文或剧情内道具。 */
 function MaterialsSection({ materials }: { materials: HandoutCard[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   if (!materials.length) {
@@ -334,7 +334,7 @@ function MaterialsSection({ materials }: { materials: HandoutCard[] }) {
       <section className="panel-section">
         <SectionTitle icon={<ScrollText className="size-3.5" />} text="资料" />
         <p className="mt-2.5 text-xs text-muted-foreground">
-          尚未获得原文资料；KP 交付后会在这里出现。
+          尚未获得资料卡；KP 交付后会在这里出现。
         </p>
       </section>
     );
@@ -356,7 +356,11 @@ function MaterialsSection({ materials }: { materials: HandoutCard[] }) {
                 aria-expanded={open}
                 className="flex w-full items-center gap-2 rounded-lg border border-border/40 bg-secondary/70 px-2.5 py-1.5 text-left transition-colors hover:bg-secondary"
               >
-                <HandoutKindBadge kind={card.kind} className="shrink-0" />
+                <HandoutKindBadge
+                  kind={card.kind}
+                  label={card.kind_label}
+                  className="shrink-0"
+                />
                 <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
                   {card.title}
                 </span>
@@ -754,7 +758,7 @@ export function PanelContent({
         )}
       </section>}
 
-      {/* 资料 · 已交付原文卡 */}
+      {/* 资料 · 已交付资料卡 */}
       {(view === "all" || view === "materials") && (
         <MaterialsSection materials={state.materials ?? []} />
       )}

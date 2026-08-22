@@ -624,7 +624,13 @@ export async function streamTurn(
         handlers.onHandout?.({
           asset_id: String(data.asset_id ?? ""),
           kind: normalizeHandoutKind(data.kind),
+          content_origin: data.content_origin === "authored_derivative"
+            ? "authored_derivative"
+            : "source_verbatim",
           title: String(data.title ?? ""),
+          card_label: data.card_label == null ? null : String(data.card_label),
+          kind_label: data.kind_label == null ? null : String(data.kind_label),
+          source_label: data.source_label == null ? null : String(data.source_label),
           text: data.text == null ? null : String(data.text),
           summary: data.summary == null ? null : String(data.summary),
           image_url: typeof data.image_url === "string" && data.image_url ? data.image_url : null,

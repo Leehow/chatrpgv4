@@ -502,12 +502,19 @@ def test_install_starter_the_haunting_copies_optional_original_handout_store(
     card = store["handouts"][0]
     assert card["asset_id"] == "handout-globe-unpublished-1918"
     assert card["origin"] == "starter-original-derivative"
-    assert card["source_refs"] == [
-        "starter-original-derivative:the-haunting:globe-unpublished-1918"
-    ]
+    assert card["content_origin"] == "authored_derivative"
+    assert "source_refs" not in card
+    assert "text" not in card
     assert card["provenance"]["authority"] == "starter_original_derivative"
-    assert isinstance(card["text"], str) and card["text"].strip()
-    assert isinstance(card["localized_text"], str) and card["localized_text"].strip()
+    assert isinstance(card["authored_text"], str) and card["authored_text"].strip()
+    assert "localized_language" not in card
+    for field in ("localized_title", "localized_summary", "localized_text"):
+        localized = card[field]
+        assert set(localized) == {"zh-Hans", "ja-JP"}
+        assert all(
+            isinstance(value, str) and value.strip()
+            for value in localized.values()
+        )
     assert sorted(card["clue_refs"]) == [
         "clue-globe-unpublished-story",
         "clue-macario-tragedy",
@@ -546,6 +553,12 @@ def test_install_starter_rejects_orphan_player_handout_before_copy(
     )
     target.pop("handout_asset_id")
     graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    handouts_path = invalid / "handouts.json"
+    handouts = json.loads(handouts_path.read_text("utf-8"))
+    handouts["handouts"][0]["clue_refs"].remove(
+        "clue-globe-unpublished-story"
+    )
+    handouts_path.write_text(json.dumps(handouts), encoding="utf-8")
     monkeypatch.setattr(coc_starter, "STARTER_DIR", starter_root)
 
     root = tmp_path / ".coc"
@@ -554,7 +567,7 @@ def test_install_starter_rejects_orphan_player_handout_before_copy(
         root, "invalid-handout-campaign", "Invalid Handout", era="1920s"
     )
 
-    with pytest.raises(ValueError, match="handout_asset_id"):
+    with pytest.raises(ValueError, match="handout_link_missing"):
         coc_starter.install_starter(
             root,
             "invalid-handout-campaign",

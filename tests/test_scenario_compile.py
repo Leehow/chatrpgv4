@@ -82,7 +82,7 @@ def test_validate_valid_scenario_no_errors(tmp_path):
     assert result["errors"] == []
 
 
-def test_validate_player_handout_clue_requires_explicit_asset_id(tmp_path):
+def test_validate_player_handout_clue_accepts_unique_reverse_asset_link(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     path = sc / "clue-graph.json"
     graph = json.loads(path.read_text())
@@ -91,13 +91,13 @@ def test_validate_player_handout_clue_requires_explicit_asset_id(tmp_path):
         "visibility": "player-safe",
     })
     path.write_text(json.dumps(graph))
+    _write_handout_store(sc, [
+        _valid_handout_card(clue_refs=["a"]),
+    ])
 
     result = coc_scenario_compile.validate_scenario(sc)
 
-    assert any(
-        "handout_asset_id" in error and "clue 'a'" in error
-        for error in result["errors"]
-    )
+    assert result["errors"] == []
 
 
 def test_validate_player_handout_clue_rejects_unknown_asset_id(tmp_path):
@@ -138,6 +138,53 @@ def _valid_handout_card(**overrides):
     }
     card.update(overrides)
     return card
+
+
+def test_validate_rejects_every_malformed_card_even_when_unlinked(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _write_handout_store(sc, [{
+        "asset_id": "malformed-unlinked",
+        "kind": "not-a-card-kind",
+        "opening_card": True,
+    }])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "handouts.handouts[0].kind must be one of" in error
+        for error in result["errors"]
+    )
+
+
+def test_validate_rejects_unlinked_card_without_static_asset_id(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _write_handout_store(sc, [{
+        "kind": "document",
+        "title": "No static identity",
+        "opening_card": True,
+    }])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "handouts.handouts[0].asset_id is required" in error
+        for error in result["errors"]
+    )
+
+
+def test_validate_rejects_duplicate_handout_asset_id_before_store_collapse(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _write_handout_store(sc, [
+        _valid_handout_card(),
+        _valid_handout_card(title="Second card with the same id"),
+    ])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "duplicate_handout_asset_id" in error and "handout-a" in error
+        for error in result["errors"]
+    )
 
 
 def test_validate_player_handout_clue_rejects_hidden_card(tmp_path):

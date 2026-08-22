@@ -1037,8 +1037,10 @@ def merge_deep_threat_into_ir(
 
 
 HANDOUT_CARD_PROJECTION_FIELDS = (
-    "asset_id", "kind", "title", "summary", "player_visible",
-    "when_to_deliver", "opening_card", "text", "localized_text", "image_ref",
+    "asset_id", "kind", "content_origin", "title", "summary",
+    "localized_title", "localized_summary", "localized_language",
+    "player_visible", "when_to_deliver", "opening_card", "text",
+    "authored_text", "localized_text", "image_ref",
     "source_refs", "scene_refs", "clue_refs",
 )
 
