@@ -37,6 +37,7 @@ import {
   showsAssetsSection,
   type SheetAssets,
 } from "../panel-assets";
+import { weaponMechanicsText } from "../panel-weapons";
 
 interface Props {
   state: GameState | null;
@@ -646,20 +647,19 @@ export function PanelContent({
         <section className="panel-section">
           <SectionTitle icon={<Swords className="size-3.5" />} text="武器" />
           <div className="mt-2.5 space-y-1.5">
-            {weapons.map((w, i) => (
-              <div
-                key={i}
-                className="rounded-lg border border-border/40 bg-secondary/70 px-2.5 py-1.5"
-              >
-                <div className="text-sm font-medium text-foreground">{w.label ?? "武器"}</div>
-                <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                  {w.damage ?? ""}
-                  {w.skill_label ? ` · ${w.skill_label}` : ""}
-                  {w.range !== undefined && w.range !== null && w.range !== "" ? ` · 射程 ${w.range}` : ""}
-                  {w.ammo !== undefined && w.ammo !== null ? ` · 弹药 ${w.ammo}` : ""}
+            {weapons.map((w, i) => {
+              return (
+                <div
+                  key={i}
+                  className="rounded-lg border border-border/40 bg-secondary/70 px-2.5 py-1.5"
+                >
+                  <div className="text-sm font-medium text-foreground">{w.label ?? "武器"}</div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    {weaponMechanicsText(w, state.play_language)}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

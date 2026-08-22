@@ -386,6 +386,7 @@ def _display_character(
     inventory: dict[str, Any] | None = None,
     cash: dict[str, Any] | None = None,
     assets: dict[str, Any] | None = None,
+    module_id: str | None = None,
 ) -> dict[str, Any]:
     """Project one character sheet into player-facing display labels.
 
@@ -488,7 +489,7 @@ def _display_character(
             if wid and isinstance(label, str) and label.strip():
                 entry_weapon_labels[wid] = label.strip()
     weapons: list[dict[str, Any]] = []
-    _weapon_presets = load_weapon_presets()
+    _weapon_presets = load_weapon_presets(module_id=module_id)
     for weapon in weapon_rows:
         if not isinstance(weapon, dict):
             continue
@@ -666,7 +667,17 @@ def display_character(
     inventory: dict[str, Any] | None = None
     cash: dict[str, Any] | None = None
     assets: dict[str, Any] | None = None
+    module_id: str | None = None
     if campaign_id:
+        campaign_path = _campaign_dir(workspace, campaign_id) / "campaign.json"
+        try:
+            campaign = json.loads(campaign_path.read_text("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            campaign = None
+        if isinstance(campaign, dict):
+            candidate_module_id = campaign.get("active_scenario_id")
+            if isinstance(candidate_module_id, str) and candidate_module_id.strip():
+                module_id = candidate_module_id.strip()
         state_path = (
             _campaign_dir(workspace, campaign_id)
             / "save"
@@ -713,6 +724,7 @@ def display_character(
         inventory=inventory,
         cash=cash,
         assets=assets,
+        module_id=module_id,
     )
 
 

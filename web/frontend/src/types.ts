@@ -117,8 +117,10 @@ export interface Weapon {
   label?: string;
   skill_label?: string;
   damage?: string;
-  range?: string;
+  range?: number | string;
   ammo?: number | string;
+  params_source?: "explicit" | "ruleset_catalog" | "module_preset" | "unresolved";
+  mechanics_available?: boolean;
 }
 
 /** One live inventory entry merged from the character sheet plus the
