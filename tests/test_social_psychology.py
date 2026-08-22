@@ -545,3 +545,80 @@ def test_psychology_observer_scope_aliases_cannot_reopen_team_window(campaign_ws
         assert rejected["ok"] is False
         assert rejected["error"]["code"] == "invalid_param"
     assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 1
+
+
+def test_psychology_individual_and_team_entries_share_one_window(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    individual_first = _observe(
+        campaign_ws,
+        "psych-individual-first",
+        observer_scope=investigator_id,
+        conversation_window_id="conv-individual-team",
+    )
+    team_second = _observe(
+        campaign_ws,
+        "psych-team-second",
+        observer_scope="team:party",
+        conversation_window_id="conv-individual-team",
+    )
+    assert individual_first["data"]["resolution"] == "settled"
+    assert team_second["data"]["resolution"] == "reuse"
+    assert team_second["data"]["insight_id"] == individual_first["data"]["insight_id"]
+
+    team_first = _observe(
+        campaign_ws,
+        "psych-team-first",
+        observer_scope="team:party",
+        conversation_window_id="conv-team-individual",
+    )
+    individual_second = _observe(
+        campaign_ws,
+        "psych-individual-second",
+        observer_scope=investigator_id,
+        conversation_window_id="conv-team-individual",
+    )
+    assert team_first["data"]["resolution"] == "settled"
+    assert individual_second["data"]["resolution"] == "reuse"
+    assert individual_second["data"]["insight_id"] == team_first["data"]["insight_id"]
+    assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 2
+
+
+def test_psychology_four_party_investigators_share_one_team_window(campaign_ws):
+    original_id = campaign_ws["investigator_id"]
+    member_ids = [original_id, "investigator-b", "investigator-c", "investigator-d"]
+    coc_root = campaign_ws["coc_root"]
+    original_sheet = json.loads(
+        (coc_root / "investigators" / original_id / "character.json").read_text(encoding="utf-8")
+    )
+    original_state = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "investigator-state" / f"{original_id}.json").read_text(encoding="utf-8")
+    )
+    for member_id in member_ids[1:]:
+        sheet = dict(original_sheet)
+        sheet["id"] = member_id
+        _write_json(coc_root / "investigators" / member_id / "character.json", sheet)
+        state = dict(original_state)
+        state["investigator_id"] = member_id
+        _write_json(
+            campaign_ws["campaign_dir"] / "save" / "investigator-state" / f"{member_id}.json",
+            state,
+        )
+    party_path = campaign_ws["campaign_dir"] / "party.json"
+    party = json.loads(party_path.read_text(encoding="utf-8"))
+    party["investigator_ids"] = member_ids
+    _write_json(party_path, party)
+
+    results = [
+        _observe(
+            campaign_ws,
+            f"psych-party-{member_id}",
+            investigator=member_id,
+            observer_scope=member_id,
+            conversation_window_id="conv-four-party",
+        )
+        for member_id in member_ids
+    ]
+    assert results[0]["data"]["resolution"] == "settled"
+    assert [result["data"]["resolution"] for result in results[1:]] == ["reuse"] * 3
+    assert len({result["data"]["insight_id"] for result in results}) == 1
+    assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 1

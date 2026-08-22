@@ -10405,7 +10405,7 @@ _PSYCHOLOGY_REVISION_EVENTS = frozenset({
     {
         "action": {"type": "string", "enum": ["settle", "realize"], "desc": "settle a concealed insight (default) or bind its player-safe realization"},
         "investigator": {"type": "string", "desc": "investigator id (observer)"},
-        "observer_scope": {"type": "string", "desc": "observer identity: omit/use the investigator id for an individual, or literal team:party for the canonical current party; arbitrary aliases are rejected"},
+        "observer_scope": {"type": "string", "desc": "observer entry: a canonical current-party investigator id or literal team:party; every valid entry normalizes to the same current-party observation window and arbitrary aliases are rejected"},
         "npc_id": {"type": "string", "required": True, "desc": "observed NPC id"},
         "conversation_window_id": {"type": "string", "required": True, "desc": "stable direct-conversation window id"},
         "observation_revision": {"type": "integer", "required": True, "desc": "explicit nonnegative semantic observation revision"},
@@ -10429,26 +10429,19 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
         args.get("observer_scope") or investigator_id
     ).strip()
     party_ids = sorted(set(ctx.party_ids()))
-    if requested_observer_scope == investigator_id:
-        observer_scope = investigator_id
-    elif requested_observer_scope == "team:party":
-        if investigator_id not in party_ids:
-            raise ToolError(
-                "invalid_param",
-                "team:party observer must be a member of the canonical campaign party",
-            )
-        observer_scope = (
-            investigator_id
-            if len(party_ids) == 1
-            else "team:party:" + hashlib.sha256(
-                "\x00".join(party_ids).encode("utf-8")
-            ).hexdigest()[:16]
-        )
-    else:
+    if investigator_id not in party_ids:
         raise ToolError(
             "invalid_param",
-            "observer_scope must be the resolved investigator id or literal team:party",
+            "Psychology observer must be a member of the canonical campaign party",
         )
+    if requested_observer_scope != "team:party" and requested_observer_scope not in party_ids:
+        raise ToolError(
+            "invalid_param",
+            "observer_scope must be a canonical party investigator id or literal team:party",
+        )
+    observer_scope = "team:party:" + hashlib.sha256(
+        "\x00".join(party_ids).encode("utf-8")
+    ).hexdigest()[:16]
     conversation_window_id = str(args["conversation_window_id"]).strip()
     revision = args["observation_revision"]
     if (

@@ -143,9 +143,9 @@ contract above still applies. This is the natural rhythm:
    `rules.psychology_observe` in two steps. First `action=settle` binds
    `observer_scope + npc_id + conversation_window_id + observation_revision`
    to player-known `observable_fact_refs` and settles one hidden roll. Use the
-   resolved investigator id for an individual observation, or the
-   literal `team:party` for the canonical current-party observation; never
-   invent team aliases. Then
+   selected party investigator id or literal `team:party` as the entry; both
+   normalize to the same canonical current-party window, while the selected
+   `investigator` remains the skill owner. Never invent team aliases. Then
    call `action=realize` with that `insight_id`, the same full identity, and
    player-safe `visible_observation`; only this second payload may enter
    narration. A revision above zero requires a distinct canonical
