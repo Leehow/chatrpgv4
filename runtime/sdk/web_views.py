@@ -423,6 +423,7 @@ def _display_character(
     inventory: dict[str, Any] | None = None,
     cash: dict[str, Any] | None = None,
     assets: dict[str, Any] | None = None,
+    ruleset_id: str | None = None,
     module_id: str | None = None,
     module_weapon_profiles: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -529,6 +530,7 @@ def _display_character(
     weapons: list[dict[str, Any]] = []
     weapon_chrome = _table_chrome(workspace, play_language)
     _weapon_presets = load_weapon_presets(
+        ruleset_id=ruleset_id,
         module_id=module_id,
         module_profiles=module_weapon_profiles,
     )
@@ -738,6 +740,7 @@ def display_character(
     inventory: dict[str, Any] | None = None
     cash: dict[str, Any] | None = None
     assets: dict[str, Any] | None = None
+    ruleset_id: str | None = None
     module_id: str | None = None
     module_weapon_profiles: dict[str, dict[str, Any]] | None = None
     if campaign_id:
@@ -747,6 +750,12 @@ def display_character(
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             campaign = None
         if isinstance(campaign, dict):
+            candidate_ruleset_id = campaign.get("ruleset_id")
+            if (
+                isinstance(candidate_ruleset_id, str)
+                and candidate_ruleset_id.strip()
+            ):
+                ruleset_id = candidate_ruleset_id.strip()
             candidate_module_id = campaign.get("active_scenario_id")
             if isinstance(candidate_module_id, str) and candidate_module_id.strip():
                 module_id = candidate_module_id.strip()
@@ -799,6 +808,7 @@ def display_character(
         inventory=inventory,
         cash=cash,
         assets=assets,
+        ruleset_id=ruleset_id,
         module_id=module_id,
         module_weapon_profiles=module_weapon_profiles,
     )
