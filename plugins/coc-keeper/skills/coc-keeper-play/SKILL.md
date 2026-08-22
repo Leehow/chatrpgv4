@@ -235,9 +235,12 @@ opening procedure is normative in
   (idempotent via `decision_id`, with `scene_id`/`reason` evidence) before the
   prose that presents the card as delivered — a card in the player's hands
   is not real until that write lands, same discipline as items and cash.
-  Recording a clue that carries `handout_asset_id` delivers its linked card
-  in the same transaction; never re-deliver it by hand. Around the card you
-  own only framing — who finds it, in what situation — rendered in
+  Recording a clue with either a valid direct `handout_asset_id` or a unique
+  exact reverse `clue_refs` relation auto-delivers its linked card in the same
+  transaction. The returned delivery result or warning is authoritative;
+  never re-deliver it by hand. No keyword or prose matching participates in
+  this identity resolution. Around the card you own only framing — who finds
+  it, in what situation — rendered in
   `play_language`; use the active-language body returned by the delivery.
   Source-verbatim cards preserve their cited excerpt; `authored_derivative`
   cards preserve their explicitly registered in-world prop body and must not

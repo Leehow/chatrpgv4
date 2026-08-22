@@ -131,6 +131,10 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
             not isinstance(value, str) or not value.strip()
         ):
             errors.append(f"{prefix}.{field} must be a non-empty string when present")
+        elif isinstance(value, str) and value != value.strip():
+            errors.append(
+                f"{prefix}.{field} must not contain surrounding whitespace"
+            )
     kind = entry.get("kind")
     if not isinstance(kind, str) or kind not in HANDOUT_CARD_KINDS:
         errors.append(

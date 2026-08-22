@@ -27,6 +27,9 @@ def _load(name: str, rel: str):
 
 coc_toolbox = _load("coc_toolbox_handout_deliver", SCRIPTS / "coc_toolbox.py")
 coc_starter = _load("coc_starter_handout_deliver", SCRIPTS / "coc_starter.py")
+coc_scenario_compile = _load(
+    "coc_scenario_compile_handout_deliver", SCRIPTS / "coc_scenario_compile.py"
+)
 
 
 @pytest.fixture
@@ -197,6 +200,37 @@ def test_deliver_unknown_handout_fails_closed(campaign_ws):
     assert result["ok"] is False
     assert result["error"]["code"] == "unknown_handout"
     assert "delivered_handout_ids" not in _world(campaign_ws)
+
+
+def test_padded_index_asset_id_is_rejected_by_compiler_and_runtime(campaign_ws):
+    _install_cards(campaign_ws)
+    index_path = campaign_ws["campaign_dir"] / "index" / "handout-assets.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index["assets"][0]["asset_id"] = " handout-newspaper "
+    _write_json(index_path, index)
+    _append_handout_clue(
+        campaign_ws,
+        clue_id="clue-padded-index-card",
+        handout_asset_id="handout-newspaper",
+    )
+
+    compiled = coc_scenario_compile.validate_scenario(
+        campaign_ws["campaign_dir"] / "scenario"
+    )
+    assert any(
+        "asset_id" in error and "surrounding whitespace" in error
+        for error in compiled["errors"]
+    )
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-padded-index-card",
+        "method": "inspect malformed index identity",
+        "decision_id": "reject-padded-index-card",
+    })
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert result["data"]["handout_delivery_warning"]["code"] == "unknown_handout"
+    assert "clue-padded-index-card" in _world(campaign_ws)["discovered_clue_ids"]
 
 
 def test_malformed_scenario_cards_cannot_be_queried_or_delivered(campaign_ws):
