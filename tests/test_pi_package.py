@@ -4081,6 +4081,25 @@ def _locator_bundle(
     )
 
 
+def test_pi_pdf_producer_contracts_allow_page_bound_image_assets(tmp_path: Path):
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"fixture")
+    task = _locator_task(tmp_path, tmp_path / "bundle", pdf)
+    task["source_bundle_manifest_contract"] = {
+        "template": {"assets": []},
+        "assets_may_be_empty": True,
+        "nonempty_assets_permitted": True,
+        "asset_row_required_fields": ["path", "sha256", "pdf_index"],
+    }
+    adapter = _load_pdf_adapter("coc_pdf_adapter_media_contract_test")
+
+    locator_prompt = adapter._locator_prompt(task)
+    assert "manifest.assets is a required array and may be empty" in locator_prompt
+    assert "zero-based pdf_index of its selected pages[] row" in locator_prompt
+    assert "manifest.assets is a required array and may be empty" in (
+        adapter._FULL_PARSE_PROMPT
+    )
+
 def test_pdf_skill_adapter_locator_run_uses_shared_pi_timeout_budget(
     tmp_path: Path, monkeypatch,
 ):

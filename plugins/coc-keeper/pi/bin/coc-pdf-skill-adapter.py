@@ -1337,8 +1337,8 @@ def _locator_prompt(task: dict[str, Any]) -> str:
         "or rewrite them. Render and visually inspect every page the scope "
         "needs, and write a source bundle at task.source_bundle_path "
         "containing exactly the selected pages. Its manifest.json must follow "
-        "task.source_bundle_manifest_contract.template exactly: every key in "
-        "that template is required and `producer` is a literal string that "
+        "task.source_bundle_manifest_contract.template structure: every top-level "
+        "key in that template is required and `producer` is a literal string that "
         "must be copied verbatim, not replaced with your own identity. "
         "manifest.source must copy task.source unchanged and page_count is "
         "the real page count of the whole PDF. Each pages[] row needs "
@@ -1346,6 +1346,11 @@ def _locator_prompt(task: dict[str, Any]) -> str:
         "bundle, text_sha256 of that file's exact bytes, review_state, "
         "parse_confidence between 0 and 1, and grep_anchors: a non-empty list "
         "of short substrings copied verbatim from that page's own Markdown. "
+        "manifest.assets is a required array and may be empty. Preserve every "
+        "relevant extracted PNG, JPEG, or WebP under assets/; each non-empty "
+        "asset row contains exact path, sha256, and the zero-based pdf_index of "
+        "its selected pages[] row. Do not classify semantic role from filename, "
+        "dimensions, or prose keywords. "
         "The repository re-checks each anchor against the file, so never "
         "paraphrase or invent one. Do not use OCR, read campaign "
         "saves/transcripts, call "
@@ -1726,6 +1731,13 @@ def _module_init_l0_schema() -> dict[str, Any]:
             "title": "null or non-empty string",
             "when_to_give": "null or non-empty string",
         },
+        "opening_handout_body_contract": {
+            "forbidden_direct_fields": [
+                "text", "localized_text", "image_ref",
+            ],
+            "compiler": "deepen_handout",
+            "result_contract": "coc.handout-card-pack.v1",
+        },
         "chargen_deltas_rule": (
             "array of objects up to 128 items; [] is valid when the source makes "
             "no creation adjustments; never a single dict and never any other "
@@ -1823,7 +1835,10 @@ def _opening_text_prompt(
         "empty-string entries), backstory_blocks is null, a string, an "
         "array, or an object, and stats_ref is null, a string, or an object. "
         "Handout rules: id is a non-empty string, and title and when_to_give "
-        "are non-empty strings or null. module_meta MUST include every field "
+        "are non-empty strings or null. opening_handouts are discovery "
+        "metadata only: omit text, localized_text, and image_ref; the "
+        "deepen_handout coc.handout-card-pack.v1 compiler owns source-bound "
+        "card bodies and registered image refs. module_meta MUST include every field "
         "named by its required fields list. module_meta field rules: "
         "title_zh, title_en, era, locale, duration_hint, and structure_type "
         "are non-empty strings or null. When task.play_language is zh-Hans, "
@@ -3068,7 +3083,11 @@ _FULL_PARSE_PROMPT = (
     "task.source_bundle_manifest_contract at task.source_bundle_path. "
     "manifest.source.source_id, path, file_sha256, and page_count must exactly "
     "match task.source and task.page_count; manifest.source.title must exactly "
-    "match task.source.title. Do not render, transcribe, or rewrite any page "
+    "match task.source.title. manifest.assets is a required array and may be "
+    "empty; preserve every relevant extracted PNG, JPEG, or WebP under assets/ "
+    "with exact path, sha256, and the zero-based pdf_index of its pages[] row. "
+    "Do not classify an asset's semantic role from filename, dimensions, or "
+    "prose keywords. Do not render, transcribe, or rewrite any page "
     "in task.cached_pdf_indices. Do not use OCR, read .coc, campaign saves, "
     "transcripts, AGENTS.md, or repository source; do not call gameplay tools "
     "or write outside task.source_bundle_path. Return only one strict JSON "

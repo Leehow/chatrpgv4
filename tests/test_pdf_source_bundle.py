@@ -284,6 +284,78 @@ def test_rejects_untrusted_image_asset_paths_before_registration(
         "sha256": (
             "0" * 64 if case == "hash_drift" else _sha(outside.read_bytes())
         ),
+        "pdf_index": 0,
+    }]
+    _write_manifest(root, manifest)
+
+    with pytest.raises(bundle_module.PdfSourceBundleError, match=message):
+        bundle_module.load_host_bundle(root)
+
+
+def test_valid_image_asset_keeps_exact_page_association_and_digest_binding(
+    tmp_path: Path,
+):
+    root = _bundle(tmp_path)
+    page_one = b"# Page 2\n\nA second accepted page.\n"
+    (root / "pages/0001.md").write_bytes(page_one)
+    image = b"\x89PNG\r\n\x1a\nsource-image"
+    (root / "assets").mkdir()
+    (root / "assets/page-0.png").write_bytes(image)
+    manifest = _manifest(root)
+    manifest["source"]["page_count"] = 2
+    manifest["pages"].append({
+        "pdf_index": 1,
+        "printed_page": 2,
+        "markdown_path": "pages/0001.md",
+        "text_sha256": _sha(page_one),
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.91,
+        "grep_anchors": ["A second accepted page."],
+    })
+    manifest["assets"] = [{
+        "path": "assets/page-0.png",
+        "sha256": _sha(image),
+        "pdf_index": 0,
+    }]
+    _write_manifest(root, manifest)
+
+    page_zero = bundle_module.load_host_bundle(root)
+
+    assert page_zero["assets"] == [{
+        "path": "assets/page-0.png",
+        "sha256": _sha(image),
+        "pdf_index": 0,
+        "media_type": "image/png",
+        "size_bytes": len(image),
+    }]
+    manifest["assets"][0]["pdf_index"] = 1
+    _write_manifest(root, manifest)
+    page_one_bound = bundle_module.load_host_bundle(root)
+    assert page_one_bound["assets"][0]["pdf_index"] == 1
+    assert page_one_bound["bundle_sha256"] != page_zero["bundle_sha256"]
+
+
+@pytest.mark.parametrize(
+    ("pdf_index", "message"),
+    [
+        (None, "pdf_index"),
+        (True, "pdf_index"),
+        (-1, "pdf_index"),
+        (1, "selected bundle page"),
+    ],
+)
+def test_rejects_image_asset_without_exact_selected_page_association(
+    tmp_path: Path, pdf_index, message: str,
+):
+    root = _bundle(tmp_path)
+    image = b"\x89PNG\r\n\x1a\nsource-image"
+    (root / "assets").mkdir()
+    (root / "assets/page.png").write_bytes(image)
+    manifest = _manifest(root)
+    manifest["assets"] = [{
+        "path": "assets/page.png",
+        "sha256": _sha(image),
+        **({} if pdf_index is None else {"pdf_index": pdf_index}),
     }]
     _write_manifest(root, manifest)
 

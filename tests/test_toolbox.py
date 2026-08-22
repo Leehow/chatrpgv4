@@ -11914,6 +11914,7 @@ def _opening_component_workspace(
     source_id: str = "pdf:opening-component",
     source_title: str = "Opening Component",
     canonical_title: str | None = None,
+    source_assets: dict[str, tuple[bytes, int]] | None = None,
 ) -> dict:
     workspace = tmp_path / "opening-workspace"
     campaign_id = "opening-component"
@@ -11949,6 +11950,16 @@ def _opening_component_workspace(
                 else (page_body or "Accepted extra source page.").split("，")[0]
             ],
         })
+    manifest_assets = []
+    for relative, (payload, pdf_index) in (source_assets or {}).items():
+        asset_path = bundle / relative
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_bytes(payload)
+        manifest_assets.append({
+            "path": relative,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "pdf_index": pdf_index,
+        })
     (bundle / "manifest.json").write_text(json.dumps({
         "schema_version": 1,
         "producer": "codex-pdf-skill",
@@ -11960,6 +11971,7 @@ def _opening_component_workspace(
             "page_count": source_page_count or max(page_indices) + 1,
         },
         "pages": pages,
+        "assets": manifest_assets,
     }), encoding="utf-8")
     assets = coc_toolbox.coc_module_project.coc_module_assets
     registration = assets.register_source_bundle(
@@ -13473,6 +13485,162 @@ def test_opening_bootstrap_l0_direct_write_skips_coordinator(
     assert repeated["data"]["status"] == "current"
     assert repeated["data"]["idempotent"] is True
     assert repeated["data"]["source_work"]["status"] == "current"
+
+
+def test_raw_bundle_opening_naturally_queues_and_compiles_media_cards(
+    tmp_path: Path, monkeypatch,
+):
+    """Binding + L0 discovery creates card stubs/jobs; the test never seeds one."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    scene_image = b"\x89PNG\r\n\x1a\nscene"
+    map_image = b"\x89PNG\r\n\x1a\nmap"
+    ws = _opening_component_workspace(
+        tmp_path,
+        extra_pdf_indices=(1, 2),
+        source_page_count=3,
+        source_assets={
+            "assets/opening-scene.png": (scene_image, 0),
+            "assets/warehouse-map.png": (map_image, 1),
+        },
+    )
+    assets_mod = coc_toolbox.coc_module_project.coc_module_assets
+    card_ids = ["opening-scene", "warehouse-map", "archive-note"]
+    assert all(
+        assets_mod.get_entity(
+            ws["workspace"], ws["asset_root_id"], "handout", card_id,
+        ) is None
+        for card_id in card_ids
+    )
+    l0 = _l0_direct_opening_l0()
+    l0["opening_handouts"] = [
+        {
+            "id": "opening-scene",
+            "title": "码头景象",
+            "when_to_give": "开场抵达时",
+            "kind": "document",
+            "source_refs": ["pdf_index-0"],
+        },
+        {
+            "id": "warehouse-map",
+            "title": "仓库地图",
+            "when_to_give": "地图被找到时",
+            "kind": "map",
+            "source_refs": ["pdf_index-1"],
+        },
+        {
+            "id": "archive-note",
+            "title": "档案原文",
+            "when_to_give": "档案被读到时",
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-2"],
+        },
+    ]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    source_work = boot["data"]["source_work"]
+    assert source_work["opening_handout_card_ids"] == [
+        "opening-scene", "warehouse-map", "archive-note",
+    ]
+    stubs = [
+        assets_mod.get_entity(
+            ws["workspace"], ws["asset_root_id"], "handout", card_id,
+        )
+        for card_id in card_ids
+    ]
+    assert all(isinstance(row, dict) for row in stubs)
+    assert {row["handout_id"] for row in stubs} == {
+        "opening-scene", "warehouse-map", "archive-note",
+    }
+    assert {row["parse_state"] for row in stubs} == {"named_only"}
+    assert all("image_ref" not in row and "text" not in row for row in stubs)
+
+    queue_worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_natural_media_test",
+        "coc_module_queue_worker.py",
+    )
+    while True:
+        produced = queue_worker.run_worker_once(ws["workspace"], parallel=1)
+        if produced["claimed"] == 0:
+            break
+    requests = {
+        row["target_id"]: row
+        for row in assets_mod.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row.get("kind") == "deepen_handout"
+    }
+    assert set(requests) == {"opening-scene", "warehouse-map", "archive-note"}
+    assert "opening-keeper" not in requests
+    packs = {
+        "opening-scene": {
+            "kind": "document",
+            "source_refs": ["pdf_index-0"],
+            "image_ref": "assets/opening-scene.png",
+        },
+        "warehouse-map": {
+            "kind": "map",
+            "source_refs": ["pdf_index-1"],
+            "image_ref": "assets/warehouse-map.png",
+        },
+        "archive-note": {
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-2"],
+            "text": "Accepted extra source page.",
+            "localized_text": "已验收的额外来源页。",
+        },
+    }
+    for card_id, request in requests.items():
+        semantic = packs[card_id]
+        fulfilled = _run(ws, "progressive.fulfill_host_work", {
+            "worker_result": {
+                "job_id": request["job_id"],
+                "pack": {
+                    "handout_id": card_id,
+                    "asset_id": card_id,
+                    "title": next(
+                        row["title"] for row in stubs
+                        if row["handout_id"] == card_id
+                    ),
+                    "scene_refs": ["opening"],
+                    "clue_refs": [],
+                    "player_visible": True,
+                    "parse_state": "deep",
+                    "evidence_gap": False,
+                    "origin": "source",
+                    "provenance": {
+                        "authority": "source_authored", "basis": "host_pack",
+                    },
+                    **semantic,
+                },
+                "related_packs": [],
+            },
+        })
+        assert fulfilled["ok"] is True, fulfilled
+    coc_toolbox.coc_module_project.project_skeleton_to_campaign(
+        ws["workspace"], ws["campaign_id"], ws["asset_root_id"],
+    )
+    handouts = json.loads(
+        (ws["campaign_dir"] / "scenario/handouts.json").read_text(encoding="utf-8")
+    )["handouts"]
+    assert {row["asset_id"] for row in handouts} == set(packs)
+    by_id = {row["asset_id"]: row for row in handouts}
+    assert by_id["opening-scene"]["image_ref"] == "assets/opening-scene.png"
+    assert by_id["warehouse-map"]["kind"] == "map"
+    assert by_id["warehouse-map"]["image_ref"] == "assets/warehouse-map.png"
+    assert by_id["archive-note"]["kind"] == "read_aloud"
+    assert by_id["archive-note"]["text"] == "Accepted extra source page."
 
 
 def test_l0_direct_opening_pack_is_equivalent_partial_structure():

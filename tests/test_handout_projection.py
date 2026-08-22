@@ -308,29 +308,34 @@ def test_l0_opening_handout_cards_lift_defaults_and_own_refs():
         "opening_handouts": [
             # Legacy entry: no kind, no refs -> read_aloud + opening window.
             {"id": "briefing", "title": "开场简报", "when_to_give": "开场"},
-            # Card entry: own kind + own verbatim text + own page ref.
+            # Discovery metadata only: bodies are compiled by deepen_handout.
             {
                 "id": "letter",
                 "title": "未署名的信",
                 "when_to_give": "递上信件时",
                 "kind": "document",
-                "text": "Verbatim letter body.",
                 "source_refs": ["pdf_index-3"],
             },
         ],
     }
-    cards = runtime_ops.l0_opening_handout_cards(l0, fallback_pdf_indices=[0, 1])
+    cards = runtime_ops.l0_opening_handout_cards(
+        l0, fallback_pdf_indices=[0, 1], scene_id="opening",
+    )
     assert [card["asset_id"] for card in cards] == ["briefing", "letter"]
     assert cards[0]["kind"] == "read_aloud"
     assert cards[0]["source_refs"] == ["pdf_index-0", "pdf_index-1"]
     assert cards[0]["when_to_deliver"] == "开场"
     assert cards[0]["player_visible"] is True
-    assert cards[0]["parse_state"] == "deep"
+    assert cards[0]["parse_state"] == "named_only"
+    assert cards[0]["body_source_page_indices"] == [0, 1]
+    assert cards[0]["scene_refs"] == ["opening"]
     assert cards[0]["opening_card"] is True
     assert cards[1]["kind"] == "document"
     assert cards[1]["source_refs"] == ["pdf_index-3"]
-    assert cards[1]["text"] == "Verbatim letter body."
-    assert cards[1]["provenance"]["basis"] == "module_init_l0"
+    assert cards[1]["body_source_page_indices"] == [3]
+    assert "text" not in cards[1]
+    assert "image_ref" not in cards[1]
+    assert "provenance" not in cards[1]
 
 
 def test_l0_opening_handout_card_survives_put_entity(tmp_path):
@@ -348,3 +353,4 @@ def test_l0_opening_handout_card_survives_put_entity(tmp_path):
     )
     assert reloaded["source_refs"] == ["pdf_index-1"]
     assert reloaded["kind"] == "read_aloud"
+    assert reloaded["parse_state"] == "named_only"

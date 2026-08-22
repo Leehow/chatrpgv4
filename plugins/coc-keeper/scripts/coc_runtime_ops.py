@@ -1055,20 +1055,23 @@ def _validate_module_init_l0(value: Any) -> dict[str, Any]:
             raise RuntimeOperationError(f"{label}.id must be a non-empty string")
         _module_init_text_or_none(handout["title"], f"{label}.title")
         _module_init_text_or_none(handout["when_to_give"], f"{label}.when_to_give")
+        direct_body_fields = sorted(
+            {"text", "localized_text", "image_ref"}.intersection(handout)
+        )
+        if direct_body_fields:
+            raise RuntimeOperationError(
+                f"{label} must leave {', '.join(direct_body_fields)} to the "
+                "deepen_handout closed contract"
+            )
         kind = handout.get("kind")
         if kind is not None and kind not in coc_scenario.HANDOUT_CARD_KINDS:
             raise RuntimeOperationError(
                 f"{label}.kind must be one of: "
                 + ", ".join(coc_scenario.HANDOUT_CARD_KINDS)
             )
-        _module_init_verbatim_text_or_none(handout.get("text"), f"{label}.text")
-        _module_init_text_or_none(
-            handout.get("localized_text"), f"{label}.localized_text", maximum=20_000,
-        )
         _module_init_text_or_none(
             handout.get("when_to_deliver"), f"{label}.when_to_deliver",
         )
-        _module_init_text_or_none(handout.get("image_ref"), f"{label}.image_ref")
         source_refs = handout.get("source_refs")
         if source_refs is not None and (
             not isinstance(source_refs, list)
@@ -1080,13 +1083,6 @@ def _validate_module_init_l0(value: Any) -> dict[str, Any]:
         ):
             raise RuntimeOperationError(
                 f"{label}.source_refs must be a non-empty array of strings"
-            )
-        if isinstance(handout.get("text"), str) and handout["text"].strip() and not (
-            isinstance(source_refs, list) and source_refs
-        ):
-            raise RuntimeOperationError(
-                f"{label}.text requires non-empty source_refs tracing the "
-                "verbatim excerpt to bundle pages"
             )
     return data
 
@@ -1106,8 +1102,9 @@ def l0_opening_handout_cards(
     l0: dict[str, Any],
     *,
     fallback_pdf_indices: list[int] | None = None,
+    scene_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Lift module-init L0 opening handouts into staged handout entity packs."""
+    """Lift L0 discoveries into source stubs for the closed card compiler."""
     cards: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for handout in l0.get("opening_handouts") or []:
@@ -1127,6 +1124,13 @@ def l0_opening_handout_cards(
                 f"pdf_index-{index}"
                 for index in (fallback_pdf_indices or [])
             ]
+        source_page_indices = []
+        for ref in source_refs:
+            match = re.fullmatch(r"pdf_index-(\d+)", ref)
+            if match is None:
+                continue
+            source_page_indices.append(int(match.group(1)))
+        source_page_indices = sorted(set(source_page_indices))
         card: dict[str, Any] = {
             "handout_id": handout_id,
             "asset_id": handout_id,
@@ -1139,21 +1143,14 @@ def l0_opening_handout_cards(
             ),
             "opening_card": True,
             "source_refs": source_refs,
+            "source_page_indices": source_page_indices,
+            "body_source_page_indices": source_page_indices,
             "player_visible": True,
-            "parse_state": "deep",
-            "evidence_gap": False,
+            "parse_state": "named_only",
             "origin": "source",
-            "provenance": {
-                "authority": "source_authored",
-                "basis": "module_init_l0",
-            },
-            "scene_refs": [],
+            "scene_refs": [scene_id] if scene_id else [],
             "clue_refs": [],
         }
-        for field in ("text", "localized_text", "image_ref"):
-            value = handout.get(field)
-            if isinstance(value, str) and value.strip():
-                card[field] = value
         cards.append(card)
     return cards
 

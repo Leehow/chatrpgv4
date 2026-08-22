@@ -21,7 +21,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 _HEX = frozenset("0123456789abcdef")
 _MEDIA_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
 _REGISTERED_REF_FIELDS = frozenset({
-    "image_ref", "media_type", "sha256", "size_bytes", "bundle_sha256",
+    "image_ref", "pdf_index", "media_type", "sha256", "size_bytes",
+    "bundle_sha256",
 })
 
 
@@ -161,10 +162,18 @@ def validate_registered_asset_ref_rows(value: Any) -> list[dict[str, Any]]:
             or not 0 < size_bytes <= coc_pdf_bundle.MAX_IMAGE_ASSET_BYTES
         ):
             raise SourceMediaError(f"{field}.size_bytes is invalid")
+        pdf_index = row.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise SourceMediaError(f"{field}.pdf_index is invalid")
         normalized.append({
             "image_ref": _portable_asset_ref(
                 row.get("image_ref"), f"{field}.image_ref",
             ),
+            "pdf_index": pdf_index,
             "media_type": media_type,
             "sha256": _require_sha256(row.get("sha256"), f"{field}.sha256"),
             "size_bytes": size_bytes,
@@ -284,6 +293,17 @@ def prepare_bundle_assets(
             raise SourceMediaError(
                 f"asset path collision for {relative_text}: manifest hash differs"
             )
+        pdf_index = raw.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise SourceMediaError(f"{field}.pdf_index is invalid")
+        if previous is not None and previous.get("pdf_index") != pdf_index:
+            raise SourceMediaError(
+                f"asset path collision for {relative_text}: page association differs"
+            )
         bundle_hashes = sorted({
             *(
                 str(value)
@@ -295,6 +315,7 @@ def prepare_bundle_assets(
         prepared.append({
             "source_bundle_path": relative_text,
             "image_ref": relative_text,
+            "pdf_index": pdf_index,
             "media_type": media_type,
             "sha256": actual_hash,
             "size_bytes": len(payload),
@@ -415,7 +436,16 @@ def registered_asset_refs(
         matching_bundles = sorted(
             eligible_bundles.intersection(row.get("bundle_sha256s") or [])
         )
-        if not matching_bundles:
+        pdf_index = row.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise SourceMediaError(
+                "registered source asset page association is invalid"
+            )
+        if not matching_bundles or pdf_index not in requested:
             continue
         image_ref = _portable_asset_ref(row.get("image_ref"), "image_ref")
         expected_sha256 = _require_sha256(
@@ -437,6 +467,7 @@ def registered_asset_refs(
         for bundle_sha256 in matching_bundles:
             refs.append({
                 "image_ref": image_ref,
+                "pdf_index": pdf_index,
                 "media_type": expected_media_type,
                 "sha256": expected_sha256,
                 "size_bytes": len(payload),

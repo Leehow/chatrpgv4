@@ -332,12 +332,19 @@ Minimal manifest:
     }
   ],
   "assets": [
-    {"path": "assets/map.png", "sha256": "<lowercase sha256>"}
+    {
+      "path": "assets/map.png",
+      "sha256": "<lowercase sha256>",
+      "pdf_index": 0
+    }
   ]
 }
 ```
 
-`pdf_index` is always explicit and zero-based. `printed_page` and
+Every page and asset `pdf_index` is explicit and zero-based. An asset's
+`pdf_index` must name the selected bundle page containing it; the association
+is preserved into registered worker refs and participates in `bundle_sha256`.
+`printed_page` and
 `printed_label` are optional declarations from the host extraction. Never infer
 a printed/PDF offset. Every page and asset path is relative to the bundle and
 must stay inside it. The formatter checks producer, schema, source PDF suffix

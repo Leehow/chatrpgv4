@@ -6997,7 +6997,15 @@ export async function autoDispatchPiRawPdfBindBundle(
           // repository re-checks them, so an invented anchor rejects the bundle.
           grep_anchors: ["<exact substring copied from that page>"],
         }],
+        // Required array; empty is valid when this selected window has no
+        // extractable image. Each row binds exact bytes to one selected page.
+        assets: [{
+          path: "<bundle-relative PNG, JPEG, or WebP path>",
+          sha256: "<sha256 of exact image bytes>",
+          pdf_index: "<selected zero-based PDF index containing this image>",
+        }],
       },
+      assets_may_be_empty: true,
     },
     result_delivery: "natural_completion_notification_only",
   };
