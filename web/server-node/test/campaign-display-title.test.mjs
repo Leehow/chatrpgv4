@@ -69,3 +69,76 @@ test("falls back to a neutral parsing label and preserves manual override", () =
     investigatorName: "伊芙琳·哈特",
   }), "星期五夜团");
 });
+
+test("zh-Hans prefers module-init localized_text over copied English campaign title", () => {
+  const { workspace, campaignId, root } = fixture();
+  writeJson(path.join(root, "campaign.json"), {
+    campaign_id: campaignId,
+    title: "The Haunting",
+    status: "setup",
+    play_language: "zh-Hans",
+  });
+  writeJson(path.join(root, "save", "module-init.json"), {
+    secrecy: "keeper_only",
+    l0: {
+      module_meta: {
+        title: "The Haunting",
+        title_en: "The Haunting",
+        localized_text: { "zh-Hans": { title: "《鬼屋》" } },
+      },
+    },
+  });
+  assert.equal(campaignDisplayTitle(workspace, campaignId), "《鬼屋》-建卡");
+});
+
+test("zh-Hans prefers scenario module-meta localized_text when module-init lacks title_zh", () => {
+  const { workspace, campaignId, root } = fixture();
+  fs.unlinkSync(path.join(root, "save", "module-init.json"));
+  writeJson(path.join(root, "campaign.json"), {
+    campaign_id: campaignId,
+    title: "The Haunting",
+    status: "setup",
+    play_language: "zh-Hans",
+  });
+  writeJson(path.join(root, "scenario", "module-meta.json"), {
+    scenario_id: "the-haunting",
+    title: "The Haunting",
+    localized_text: { "zh-Hans": { title: "《鬼屋》" } },
+  });
+  assert.equal(campaignDisplayTitle(workspace, campaignId), "《鬼屋》-建卡");
+});
+
+test("falls back to English module title when no Chinese title exists", () => {
+  const { workspace, campaignId, root } = fixture();
+  writeJson(path.join(root, "campaign.json"), {
+    campaign_id: campaignId,
+    title: "The Haunting",
+    status: "setup",
+    play_language: "zh-Hans",
+  });
+  writeJson(path.join(root, "save", "module-init.json"), {
+    secrecy: "keeper_only",
+    l0: {
+      module_meta: {
+        title: "The Haunting",
+        title_en: "The Haunting",
+      },
+    },
+  });
+  assert.equal(campaignDisplayTitle(workspace, campaignId), "The Haunting-建卡");
+});
+
+test("manual override still wins over localized module title", () => {
+  const { workspace, campaignId, root } = fixture();
+  writeJson(path.join(root, "campaign.json"), {
+    campaign_id: campaignId,
+    title: "星期五夜团",
+    status: "active",
+    play_language: "zh-Hans",
+  });
+  writeJson(path.join(root, "scenario", "module-meta.json"), {
+    title: "The Haunting",
+    localized_text: { "zh-Hans": { title: "《鬼屋》" } },
+  });
+  assert.equal(campaignDisplayTitle(workspace, campaignId), "星期五夜团");
+});
