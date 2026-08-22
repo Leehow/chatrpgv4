@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import runtime.sdk.web_views as web_views
 from runtime.sdk.web_views import display_character
 from runtime.sdk.weapon_display import (
     enrich_weapon_row,
@@ -169,14 +170,117 @@ def test_module_ids_are_source_bound_to_the_active_campaign(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize(
-    ("play_language", "expected_skill"),
     (
-        ("zh-Hans", "射击（手枪）"),
-        ("en-US", "Firearms (Handgun)"),
-        ("ja-JP", "Firearms (Handgun)"),
+        "play_language",
+        "expected_skill",
+        "expected_status",
+        "expected_range",
+        "expected_ammo",
+    ),
+    (
+        ("zh-Hans", "射击（手枪）", "武器参数未配置", "射程", "弹药"),
+        (
+            "en-US",
+            "Firearms (Handgun)",
+            "Weapon mechanics unavailable",
+            "Range",
+            "Ammo",
+        ),
+        ("ja-JP", "射撃（拳銃）", "武器データ未設定", "射程", "弾薬"),
     ),
 )
 def test_exact_catalog_skill_uses_canonical_player_language_projection(
+    tmp_path: Path,
+    play_language: str,
+    expected_skill: str,
+    expected_status: str,
+    expected_range: str,
+    expected_ammo: str,
+) -> None:
+    investigator = "ada"
+    character_path = (
+        tmp_path / ".coc" / "investigators" / investigator / "character.json"
+    )
+    character_path.parent.mkdir(parents=True)
+    character_path.write_text(
+        json.dumps(
+            {
+                "name": "Ada",
+                "characteristics": {},
+                "derived": {},
+                "skills": {},
+                "weapons": [{"weapon_id": "revolver_45", "label": ".45"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projected = display_character(tmp_path, investigator, play_language)
+    assert projected is not None
+    resolved = projected["weapons"][0]
+    assert resolved["skill_label"] == expected_skill
+    assert resolved["range_label"] == expected_range
+    assert resolved["ammo_label"] == expected_ammo
+
+    character_path.write_text(
+        json.dumps(
+            {
+                "name": "Ada",
+                "characteristics": {},
+                "derived": {},
+                "skills": {},
+                "weapons": [{"weapon_id": "", "label": "crowbar"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    unresolved = display_character(tmp_path, investigator, play_language)
+    assert unresolved is not None
+    assert unresolved["weapons"][0]["mechanics_status_label"] == expected_status
+
+
+def test_weapon_chrome_fails_closed_when_canonical_source_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    investigator = "ada"
+    character_path = (
+        tmp_path / ".coc" / "investigators" / investigator / "character.json"
+    )
+    character_path.parent.mkdir(parents=True)
+    character_path.write_text(
+        json.dumps(
+            {
+                "name": "Ada",
+                "characteristics": {},
+                "derived": {},
+                "skills": {},
+                "weapons": [
+                    {"weapon_id": "revolver_45", "label": ".45"},
+                    {"weapon_id": "", "label": "crowbar"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(web_views, "_table_chrome", lambda *_args: {})
+
+    projected = display_character(tmp_path, investigator, "ja-JP")
+    assert projected is not None
+    resolved, unresolved = projected["weapons"]
+    assert "range_label" not in resolved
+    assert "ammo_label" not in resolved
+    assert "mechanics_status_label" not in unresolved
+
+
+@pytest.mark.parametrize(
+    ("play_language", "expected_skill"),
+    (
+        ("zh-Hans", "射击（步枪）"),
+        ("en-US", "Firearms (Rifle)"),
+        ("ja-JP", "射撃（ライフル）"),
+    ),
+)
+def test_exact_rifle_skill_uses_canonical_player_language_projection(
     tmp_path: Path,
     play_language: str,
     expected_skill: str,
@@ -193,7 +297,12 @@ def test_exact_catalog_skill_uses_canonical_player_language_projection(
                 "characteristics": {},
                 "derived": {},
                 "skills": {},
-                "weapons": [{"weapon_id": "revolver_45", "label": ".45"}],
+                "weapons": [
+                    {
+                        "weapon_id": "garand_m1_m2_rifle",
+                        "label": "Garand M1",
+                    }
+                ],
             }
         ),
         encoding="utf-8",

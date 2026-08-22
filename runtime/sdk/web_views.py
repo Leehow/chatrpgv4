@@ -527,6 +527,7 @@ def _display_character(
             if wid and isinstance(label, str) and label.strip():
                 entry_weapon_labels[wid] = label.strip()
     weapons: list[dict[str, Any]] = []
+    weapon_chrome = _table_chrome(workspace, play_language)
     _weapon_presets = load_weapon_presets(
         module_id=module_id,
         module_profiles=module_weapon_profiles,
@@ -567,6 +568,25 @@ def _display_character(
             projected_weapon["skill_label"] = coc_language.player_facing_skill_label(
                 projected_weapon["skill_label"], play_language, terms=terms
             )
+        if projected_weapon.get("mechanics_available") is False:
+            status_label = weapon_chrome.get("weapon_mechanics_unavailable")
+            if isinstance(status_label, str) and status_label.strip():
+                projected_weapon["mechanics_status_label"] = status_label
+        else:
+            range_label = weapon_chrome.get("weapon_range")
+            if (
+                projected_weapon.get("range") not in (None, "")
+                and isinstance(range_label, str)
+                and range_label.strip()
+            ):
+                projected_weapon["range_label"] = range_label
+            ammo_label = weapon_chrome.get("weapon_ammo")
+            if (
+                projected_weapon.get("ammo") not in (None, "")
+                and isinstance(ammo_label, str)
+                and ammo_label.strip()
+            ):
+                projected_weapon["ammo_label"] = ammo_label
         weapons.append(projected_weapon)
 
     raw_derived = character.get("derived")

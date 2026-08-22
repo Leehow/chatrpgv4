@@ -118,7 +118,9 @@ export interface Weapon {
   skill_label?: string;
   damage?: string;
   range?: number | string;
+  range_label?: string;
   ammo?: number | string;
+  ammo_label?: string;
   params_source?: "explicit" | "ruleset_catalog" | "module_preset" | "unresolved";
   mechanics_available?: boolean;
   mechanics_status_label?: string;
