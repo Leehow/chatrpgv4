@@ -115,10 +115,17 @@ export interface DisplayValue {
 
 export interface Weapon {
   label?: string;
+  /** Canonical play-language title used only when the weapon has no label. */
+  title_fallback_label?: string;
   skill_label?: string;
   damage?: string;
-  range?: string;
+  range?: number | string;
+  range_label?: string;
   ammo?: number | string;
+  ammo_label?: string;
+  params_source?: "explicit" | "ruleset_catalog" | "module_preset" | "unresolved";
+  mechanics_available?: boolean;
+  mechanics_status_label?: string;
 }
 
 /** One live inventory entry merged from the character sheet plus the
@@ -202,6 +209,8 @@ export interface CharacterSheet {
     starred?: boolean;
   }[];
   skills?: DisplayValue[];
+  /** Canonical play-language heading for the weapon section. */
+  weapon_section_label?: string;
   weapons?: Weapon[];
   equipment?: string[];
   /** Live campaign-merged inventory; absent/null outside a campaign context

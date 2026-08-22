@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import inspect
 import importlib.util
+import inspect
+import json
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,31 @@ def _load(name: str, rel: str):
 
 
 coc_language = _load("coc_language_core_test", "plugins/coc-keeper/scripts/coc_language.py")
+
+WEAPONS_PATH = Path("plugins/coc-keeper/rulesets/coc7/rules-json/weapons.json")
+WEAPON_CHROME = {
+    "zh-Hans": {
+        "weapon_section_title": "武器",
+        "weapon_item_title_fallback": "武器",
+        "weapon_mechanics_unavailable": "武器参数未配置",
+        "weapon_range": "射程",
+        "weapon_ammo": "弹药",
+    },
+    "en-US": {
+        "weapon_section_title": "Weapons",
+        "weapon_item_title_fallback": "Weapon",
+        "weapon_mechanics_unavailable": "Weapon mechanics unavailable",
+        "weapon_range": "Range",
+        "weapon_ammo": "Ammo",
+    },
+    "ja-JP": {
+        "weapon_section_title": "武器",
+        "weapon_item_title_fallback": "武器",
+        "weapon_mechanics_unavailable": "武器データ未設定",
+        "weapon_range": "射程",
+        "weapon_ammo": "弾薬",
+    },
+}
 
 
 BOUNDARY_CASES = (
@@ -33,6 +59,35 @@ BOUNDARY_CASES = (
     (75, "native_passing", "fluent"),
     (99, "native_passing", "fluent"),
 )
+
+
+@pytest.mark.parametrize("play_language", ("zh-Hans", "en-US", "ja-JP"))
+def test_weapon_chrome_is_canonical_for_each_supported_play_language(
+    play_language: str,
+) -> None:
+    chrome = coc_language.table_mechanics_labels(play_language)
+    assert {key: chrome.get(key) for key in WEAPON_CHROME[play_language]} == (
+        WEAPON_CHROME[play_language]
+    )
+
+
+@pytest.mark.parametrize("play_language", ("zh-Hans", "ja-JP"))
+def test_every_exact_weapon_catalog_skill_has_a_localized_table_label(
+    play_language: str,
+) -> None:
+    payload = json.loads(WEAPONS_PATH.read_text(encoding="utf-8"))
+    skills = {
+        str(spec["skill"])
+        for spec in payload["weapons"].values()
+        if isinstance(spec, dict) and spec.get("skill")
+    }
+    terms = coc_language.default_localized_terms(play_language)
+
+    assert skills <= terms.keys()
+    for skill in skills:
+        assert coc_language.player_facing_skill_label(
+            skill, play_language, terms=terms
+        ) != skill
 
 
 def test_five_band_thresholds_match_rulebook():
