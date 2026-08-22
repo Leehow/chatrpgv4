@@ -342,6 +342,7 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
     if language == "zh-Hans":
         return {
             "language": "zh-Hans",
+            "deterministic_guard": "non_authoritative_surface_smoke",
             "register": "natural_tabletop_narration",
             "avoid": [
                 "translationese",
@@ -362,6 +363,7 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
         }
     return {
         "language": language,
+        "deterministic_guard": "unavailable",
         "register": "natural_tabletop_narration",
         "avoid": [
             "ai_summary_voice",

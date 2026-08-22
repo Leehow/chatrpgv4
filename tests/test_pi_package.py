@@ -87,13 +87,23 @@ def _load_pdf_adapter(name: str):
 
 def test_operation_policy_execution_class_consumes_canonical_export():
     script = """
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 const policy = await import(pathToFileURL(process.argv[1]).href);
+const typed = await import(pathToFileURL(process.argv[2]).href);
+const archive = JSON.parse(readFileSync(process.argv[3], 'utf8'));
 const parallel = Object.entries(policy.OPERATION_POLICY)
   .filter(([, value]) => policy.executionClassForPolicy(value) === 'parallel_read')
   .map(([name]) => name).sort();
+const names = Object.keys(policy.OPERATION_POLICY).sort();
+const surfaced = [...new Set(Object.values(policy.OPERATIONS_BY_SURFACE).flat())].sort();
 console.log(JSON.stringify({
   parallel,
+  names,
+  archiveNames: Object.keys(archive.operations).sort(),
+  surfaced,
+  typedOperations: typed.listTypedOperationTools().map((row) => row.operation).sort(),
   missing: policy.executionClassForPolicy(undefined),
   unknown: policy.executionClassForPolicy({ execution_class: 'unknown' }),
   dangerous: policy.executionClassForPolicy(policy.OPERATION_POLICY['turn.finalize']),
@@ -102,7 +112,10 @@ console.log(JSON.stringify({
     completed = subprocess.run(
         [
             "node", "--experimental-strip-types", "--input-type=module", "-e",
-            script, str(PLUGIN / "pi/lib/operation-policy.ts"),
+            script,
+            str(PLUGIN / "pi/lib/operation-policy.ts"),
+            str(PLUGIN / "pi/lib/typed-tools.ts"),
+            str(PLUGIN / "references/mcp-operation-contracts.json"),
         ],
         cwd=ROOT, check=True, capture_output=True, text=True,
     )
@@ -112,8 +125,17 @@ console.log(JSON.stringify({
         name for name, spec in toolbox.TOOLS.items()
         if spec["execution_class"] == "parallel_read"
     )
+    canonical_names = sorted(toolbox.TOOLS)
+    expected_surfaced = sorted(
+        name for name in canonical_names
+        if toolbox.operation_policy(name)["kp_surface"] != "none"
+    )
     assert exported == {
         "parallel": canonical_parallel,
+        "names": canonical_names,
+        "archiveNames": canonical_names,
+        "surfaced": expected_surfaced,
+        "typedOperations": expected_surfaced,
         "missing": "serial_campaign",
         "unknown": "serial_campaign",
         "dangerous": "serial_campaign",

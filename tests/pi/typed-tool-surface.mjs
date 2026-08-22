@@ -29,6 +29,10 @@ const SPOTLIGHT = [
   "rules.psychology_observe",
   "rules.social_adjudicate",
   "npc.reaction",
+  "state.cash_grant",
+  "state.cash_query",
+  "state.cash_spend",
+  "state.deliver_handout",
   "state.journal",
   "turn.output_context",
   "turn.finalize",
@@ -73,6 +77,20 @@ test("live play exposes the agency review then finalize contract", () => {
   assert.match(finalize.description, /first call the narration\.review operation/);
   assert.match(finalize.description, /never rerun rules\/state\/journal/);
   assert.match(finalize.description, /Non-agency review findings stay advisory/);
+});
+
+test("live play exposes cash and handout state operations as exact typed tools", () => {
+  const play = domain.activeToolsForPhase("live_turn", "play");
+  for (const operation of [
+    "state.cash_grant",
+    "state.cash_query",
+    "state.cash_spend",
+    "state.deliver_handout",
+  ]) {
+    const tool = catalog.byOperation.get(operation);
+    assert.ok(tool, operation);
+    assert.ok(play.includes(typed.typedToolNameForOperation(operation)), operation);
+  }
 });
 
 test("derived names are deterministic and fail closed on collision", () => {

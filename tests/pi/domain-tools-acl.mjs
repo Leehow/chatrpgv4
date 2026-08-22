@@ -143,6 +143,10 @@ assert.ok(!liveActive.includes("coc_setup"));
 const stateOps = mod.domainToolSchema("coc_state").properties.operation.enum;
 for (const operation of [
   "state.item_grant",
+  "state.cash_grant",
+  "state.cash_query",
+  "state.cash_spend",
+  "state.deliver_handout",
 ]) {
   assert.ok(stateOps.includes(operation), `${operation} on coc_state enum`);
   assert.equal(mod.domainToolForOperation(operation), "coc_state", operation);

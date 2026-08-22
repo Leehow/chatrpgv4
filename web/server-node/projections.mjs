@@ -682,6 +682,412 @@ export function discoveredCluesDisplay(workspace, campaignId, clueIds, playLangu
 }
 
 // ---------------------------------------------------------------------------
+// Delivered handout cards (原文信息卡 · read-only, player-safe)
+//
+// Authoritative campaign-side shapes, mirroring the Keeper-side resolution
+// (plugins/coc-keeper/scripts/coc_toolbox.py `_handout_cards_indexed`,
+// coc_module_project.py `campaign_asset_root_id` / `handout_card_from_pack`,
+// and coc_scenario.py `validate_handout_card`; read-only reference):
+//   - delivery state lives in save/world-state.json `delivered_handout_ids`
+//     (NOT campaign.json);
+//   - card records merge three stores keyed by asset_id, collisions resolved
+//     entity-pack > scenario/handouts.json > index/handout-assets.json:
+//       index/handout-assets.json  {assets: [{asset_id, ...}]} — entries
+//         failing the card contract (bad kind, text without source_refs,
+//         non-boolean player_visible, ...) are skipped, fail-closed
+//       scenario/handouts.json     {"schema_version": 1, "handouts": [...]}
+//       .coc/module-assets/<root>/entities/handout-<id>.json deep packs
+//         (parse_state deep|body_parsed, no evidence_gap), projected through
+//         the same card fields incl. opening_card/parse_state/origin
+//   - the campaign's entity root comes from the plugin resolver exactly:
+//     scenario/scenario.json progressive_asset_root_id, else
+//     scenario/module-meta.json (progressive) module_identity.
+//     canonical_module_id | scenario_id. source_cache_asset_root_id is NOT
+//     a card root (only progressive-projection campaigns carry cards).
+//   - player-reachable image files are limited to the exact files an
+//     already-delivered, player-visible card references via image_ref —
+//     either inside the bound module-assets root, or inside the campaign's
+//     declared handout asset subtree (index asset_root, default
+//     assets/handouts). Nothing else in .coc/ is ever a candidate.
+// Everything here is read-only; undelivered or player-invisible card bodies
+// never cross this module.
+
+export const HANDOUT_KINDS = Object.freeze(new Set(["document", "read_aloud", "map"]));
+const HANDOUT_IMAGE_EXT_RE = /\.(?:png|jpe?g|webp)$/i;
+const HANDOUT_ENTITY_PARSE_STATES = new Set(["deep", "body_parsed"]);
+const HANDOUT_CARD_PACK_FIELDS = Object.freeze([
+  "kind", "title", "summary", "player_visible", "when_to_deliver",
+  "opening_card", "text", "localized_text", "image_ref", "source_refs",
+  "scene_refs", "clue_refs",
+]);
+
+function handoutString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function handoutStringList(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const item of value) {
+    const text = handoutString(item);
+    if (text) out.push(text);
+  }
+  return out;
+}
+
+/** The campaign's entity card root, mirroring the plugin resolver exactly
+ *  (coc_module_project.campaign_asset_root_id): scenario.json
+ *  progressive_asset_root_id, else module-meta.json progressive
+ *  module_identity.canonical_module_id | scenario_id. source_cache_asset_root_id
+ *  is deliberately NOT a card root — only a progressive-projection campaign
+ *  carries handout entities, so Web and KP resolve the same card bodies. */
+export function campaignBoundAssetRootIds(workspace, campaignId) {
+  const dir = campaignDir(workspace, campaignId);
+  const ids = [];
+  const scenario = readJsonFile(path.join(dir, "scenario", "scenario.json"));
+  if (scenario && typeof scenario === "object") {
+    const id = handoutString(scenario.progressive_asset_root_id);
+    if (id) ids.push(id);
+  }
+  if (!ids.length) {
+    const meta = readJsonFile(path.join(dir, "scenario", "module-meta.json"));
+    if (meta && typeof meta === "object" && meta.progressive) {
+      const identity = meta.module_identity && typeof meta.module_identity === "object"
+        ? meta.module_identity
+        : {};
+      const id = handoutString(identity.canonical_module_id) || handoutString(meta.scenario_id);
+      if (id) ids.push(id);
+    }
+  }
+  // One safe path segment per root id (defense in depth).
+  return ids
+    .map((id) => id.split("/")[0])
+    .filter((segment) => segment && segment !== "." && segment !== "..");
+}
+
+function campaignBoundModuleDirs(workspace, campaignId) {
+  const moduleRoot = path.join(cocRoot(workspace), "module-assets");
+  return campaignBoundAssetRootIds(workspace, campaignId).map((id) =>
+    path.resolve(moduleRoot, id),
+  );
+}
+
+/** Authoritative delivered ids from save/world-state.json (deduped, order
+ *  kept). campaign.json is never a delivery source. */
+export function deliveredHandoutIds(workspace, campaignId) {
+  const world = readJsonFile(
+    path.join(campaignDir(workspace, campaignId), "save", "world-state.json"),
+  );
+  const out = [];
+  const seen = new Set();
+  for (const id of handoutStringList(world?.delivered_handout_ids)) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/** handout_card_from_pack field projection: one deep entity pack -> a card
+ *  record. Machinery-only fields (ingest timing, provenance bookkeeping)
+ *  stay out; player_visible defaults true and parse_state/origin keep the
+ *  IR record semantics, exactly like the plugin projection. */
+function handoutCardFromPack(pack) {
+  if (!pack || typeof pack !== "object") return null;
+  if (!HANDOUT_ENTITY_PARSE_STATES.has(handoutString(pack.parse_state))) return null;
+  if (pack.evidence_gap) return null;
+  const assetId = handoutString(pack.asset_id) || handoutString(pack.handout_id);
+  if (!assetId) return null;
+  const card = { asset_id: assetId };
+  for (const field of HANDOUT_CARD_PACK_FIELDS) {
+    if (pack[field] != null) card[field] = pack[field];
+  }
+  if (typeof card.player_visible !== "boolean") card.player_visible = true;
+  card.parse_state = handoutString(pack.parse_state) || "deep";
+  card.origin = handoutString(pack.origin) || "source";
+  return card;
+}
+
+/** coc_scenario.validate_handout_card: fail-closed card contract for index
+ *  and scenario-store entries. A card failing any rule is not a card (the
+ *  Keeper side skips it), so Web must skip it too — never display a body
+ *  the plugin itself would reject (e.g. player_visible: "false"). */
+export function handoutCardContractErrors(entry, { prefix = "handout" } = {}) {
+  const out = [];
+  const kind = entry?.kind;
+  if (typeof kind !== "string" || !HANDOUT_KINDS.has(kind)) {
+    out.push(`${prefix}.kind must be one of document, read_aloud, map`);
+  }
+  for (const field of ["title", "text", "localized_text", "when_to_deliver", "image_ref", "opening_card"]) {
+    const value = entry?.[field];
+    if (value != null && typeof value !== "string" && field !== "opening_card") {
+      out.push(`${prefix}.${field} must be a string when present`);
+    }
+    if (field === "text" && typeof value === "string" && !value.trim()) {
+      out.push(`${prefix}.text must be a non-empty verbatim excerpt`);
+    }
+    if (field === "opening_card" && value != null && typeof value !== "boolean") {
+      out.push(`${prefix}.opening_card must be a boolean when present`);
+    }
+  }
+  const text = entry?.text;
+  const sourceRefs = entry?.source_refs;
+  if (sourceRefs != null) {
+    if (
+      !Array.isArray(sourceRefs)
+      || !sourceRefs.length
+      || sourceRefs.some((ref) => typeof ref !== "string" || !ref.trim())
+    ) {
+      out.push(`${prefix}.source_refs must be a non-empty array of strings`);
+    }
+  }
+  if (typeof text === "string" && text.trim()) {
+    if (!Array.isArray(sourceRefs) || !sourceRefs.length) {
+      out.push(`${prefix}.text requires non-empty source_refs`);
+    }
+  }
+  if (entry?.player_visible != null && typeof entry.player_visible !== "boolean") {
+    out.push(`${prefix}.player_visible must be a boolean when present`);
+  }
+  for (const field of ["scene_refs", "clue_refs"]) {
+    const value = entry?.[field];
+    if (
+      value != null
+      && (!Array.isArray(value) || value.some((ref) => typeof ref !== "string"))
+    ) {
+      out.push(`${prefix}.${field} must be a string array when present`);
+    }
+  }
+  return out;
+}
+
+/** All handout card records by asset_id. Collision priority mirrors the
+ *  Keeper toolbox: entity packs (freshest deep truth) override the campaign
+ *  card store, which overrides the asset index. Index and scenario entries
+ *  must pass the card contract (fail-closed like coc_scenario). */
+export function loadHandoutCards(workspace, campaignId) {
+  const dir = campaignDir(workspace, campaignId);
+  const cards = new Map();
+
+  const index = readJsonFile(path.join(dir, "index", "handout-assets.json"));
+  for (const entry of Array.isArray(index?.assets) ? index.assets : []) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = handoutString(entry.asset_id);
+    if (id && !cards.has(id) && !handoutCardContractErrors(entry).length) {
+      cards.set(id, entry);
+    }
+  }
+
+  const store = readJsonFile(path.join(dir, "scenario", "handouts.json"));
+  const rows = store && typeof store === "object" && Array.isArray(store.handouts)
+    ? store.handouts
+    : [];
+  for (const entry of rows) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = handoutString(entry.asset_id);
+    if (id) cards.set(id, entry);
+  }
+
+  for (const moduleDir of campaignBoundModuleDirs(workspace, campaignId)) {
+    const entitiesDir = path.join(moduleDir, "entities");
+    let names;
+    try {
+      names = fs.readdirSync(entitiesDir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.startsWith("handout-") || !name.endsWith(".json")) continue;
+      const pack = readJsonFile(path.join(entitiesDir, name));
+      const card = handoutCardFromPack(pack);
+      if (card) cards.set(card.asset_id, card);
+    }
+  }
+  return cards;
+}
+
+/** The campaign's declared handout asset subtree (index `asset_root`,
+ *  default assets/handouts). Campaign-relative image refs must live under it. */
+function campaignHandoutAssetRoot(workspace, campaignId) {
+  const index = readJsonFile(
+    path.join(campaignDir(workspace, campaignId), "index", "handout-assets.json"),
+  );
+  return normalizeHandoutAssetRef(index?.asset_root) || "assets/handouts";
+}
+
+/** Normalize an image_ref / URL file part to a workspace-relative reference.
+ *  Rejects traversal, absolute paths, drive letters, and null bytes. */
+export function normalizeHandoutAssetRef(ref) {
+  const text = handoutString(ref).replaceAll("\\", "/");
+  if (!text || text.startsWith("/")) return null;
+  const stripped = text.replace(/^\.\//, "").replace(/^\/+/, "");
+  if (!stripped) return null;
+  const segments = stripped.split("/");
+  for (const segment of segments) {
+    if (!segment || segment === "." || segment === "..") return null;
+    if (segment.includes("\0") || segment.includes(":")) return null;
+  }
+  return segments.join("/");
+}
+
+/** Absolute-path candidates one reference may point at, confined to this
+ *  campaign's authorized card-image locations: its bound module-assets
+ *  root(s), or the campaign's declared handout asset subtree
+ *  (index asset_root, default assets/handouts). Any other location —
+ *  another campaign, an unbound module root, the rest of `.coc/`, or any
+ *  other directory inside the campaign — yields no candidate and the
+ *  request 404s. */
+export function handoutAssetCandidates(workspace, campaignId, ref) {
+  const rel = normalizeHandoutAssetRef(ref);
+  if (!rel) return [];
+  const campaignPath = campaignDir(workspace, campaignId);
+  const moduleDirs = campaignBoundModuleDirs(workspace, campaignId);
+  if (rel === ".coc" || rel.startsWith(".coc/")) {
+    const abs = path.resolve(workspace, rel);
+    const insideModule = moduleDirs.some((dir) => isInsideDir(dir, abs));
+    return insideModule ? [abs] : [];
+  }
+  if (rel.startsWith("module-assets/")) {
+    const abs = path.resolve(cocRoot(workspace), rel);
+    return moduleDirs.some((dir) => isInsideDir(dir, abs)) ? [abs] : [];
+  }
+  const out = [];
+  for (const dir of moduleDirs) out.push(path.resolve(dir, rel));
+  // Campaign side: only the declared handout asset subtree — never the whole
+  // campaign directory.
+  const assetRoot = campaignHandoutAssetRoot(workspace, campaignId);
+  if (rel === assetRoot || rel.startsWith(assetRoot + "/")) {
+    out.push(path.resolve(campaignPath, rel));
+  }
+  return out;
+}
+
+export function handoutAssetImageUrl(workspace, campaignId, imageRef) {
+  const rel = normalizeHandoutAssetRef(imageRef);
+  if (!rel || !HANDOUT_IMAGE_EXT_RE.test(rel)) return null;
+  // Never publish a URL the delivery-gated route cannot serve: the exact
+  // file must resolve inside the campaign's authorized card-image roots and
+  // exist, else the player-facing card simply carries no image.
+  if (!resolveHandoutAssetFile(workspace, campaignId, rel)) return null;
+  return `/api/campaigns/${encodeURIComponent(campaignId)}/handout-assets/${
+    rel.split("/").map((segment) => encodeURIComponent(segment)).join("/")
+  }`;
+}
+
+function handoutDisplayText(entry) {
+  // Player projection prefers the localized full translation, then the
+  // verbatim source text. Undelivered bodies never reach here at all.
+  return handoutString(entry?.localized_text) || handoutString(entry?.text);
+}
+
+/** Player-safe card projection for SSE / state.materials. */
+export function playerHandoutCard(workspace, campaignId, entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const assetId = handoutString(entry.asset_id);
+  if (!assetId) return null;
+  const kind = handoutString(entry.kind);
+  const imageRef = handoutString(entry.image_ref);
+  const card = {
+    asset_id: assetId,
+    kind: HANDOUT_KINDS.has(kind) ? kind : "document",
+    title: handoutString(entry.title) || assetId,
+    text: handoutDisplayText(entry) || null,
+    source_pages: handoutStringList(entry.source_refs),
+  };
+  const summary = handoutString(entry.summary);
+  if (summary) card.summary = summary;
+  const imageUrl = handoutAssetImageUrl(workspace, campaignId, imageRef);
+  if (imageUrl) card.image_url = imageUrl;
+  return card;
+}
+
+/** Delivered cards only: a card must be listed in world-state
+ *  `delivered_handout_ids` and not be flagged player-invisible. */
+export function deliveredHandoutsDisplay(workspace, campaignId) {
+  const cards = loadHandoutCards(workspace, campaignId);
+  const out = [];
+  const seen = new Set();
+  for (const id of deliveredHandoutIds(workspace, campaignId)) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const entry = cards.get(id);
+    if (!entry || entry.player_visible === false) continue;
+    const card = playerHandoutCard(workspace, campaignId, entry);
+    if (card) out.push(card);
+  }
+  return out;
+}
+
+export function mimeForHandoutAssetFile(filePath) {
+  const ext = path.extname(String(filePath || "")).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".png") return "image/png";
+  return null;
+}
+
+/** Delivery-gated static resolution for
+ *  `/api/campaigns/<cid>/handout-assets/<file>`: the file must be an image
+ *  referenced (exactly, after normalization) by at least one delivered,
+ *  player-visible card, and after realpath must stay inside this campaign
+ *  directory or one of its bound module-assets roots. Anything else returns
+ *  null and the handler answers 404 — including undelivered cards' images
+ *  and files inside `.coc/` outside the authorized roots. */
+export function resolveHandoutAssetFile(workspace, campaignId, file) {
+  const rel = normalizeHandoutAssetRef(file);
+  if (!rel || !HANDOUT_IMAGE_EXT_RE.test(rel)) return null;
+  const requested = handoutAssetCandidates(workspace, campaignId, rel);
+  if (!requested.length) return null;
+
+  const cards = loadHandoutCards(workspace, campaignId);
+  const matches = [];
+  for (const id of deliveredHandoutIds(workspace, campaignId)) {
+    const entry = cards.get(id);
+    if (!entry || entry.player_visible === false) continue;
+    const imageRef = handoutString(entry.image_ref);
+    if (!imageRef) continue;
+    for (const candidate of handoutAssetCandidates(workspace, campaignId, imageRef)) {
+      if (requested.some((req) => req === candidate) && !matches.includes(candidate)) {
+        matches.push(candidate);
+      }
+    }
+  }
+  const target = matches.find((candidate) => {
+    try {
+      return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
+  if (target == null) return null;
+
+  let realFile;
+  try {
+    realFile = fs.realpathSync(target);
+  } catch {
+    return null;
+  }
+  // realpath confinement matches the candidate roots exactly: the bound
+  // module-assets dirs and the campaign's declared handout asset subtree
+  // (never the whole campaign directory).
+  const campaignAssetRoot = path.resolve(
+    campaignDir(workspace, campaignId),
+    campaignHandoutAssetRoot(workspace, campaignId),
+  );
+  const allowedRoots = [campaignAssetRoot, ...campaignBoundModuleDirs(workspace, campaignId)]
+    .map((root) => {
+      try {
+        return fs.realpathSync(root);
+      } catch {
+        return path.resolve(root);
+      }
+    });
+  if (!allowedRoots.some((root) => isInsideDir(root, realFile))) return null;
+  const mime = mimeForHandoutAssetFile(realFile);
+  return mime ? { file: realFile, mime } : null;
+}
+
+// ---------------------------------------------------------------------------
 // Transcript (table-transcript preferred; events+telemetry enrichment)
 
 function parseIsoMs(value) {
