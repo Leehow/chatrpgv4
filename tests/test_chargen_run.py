@@ -590,6 +590,43 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
     assert own_language_row["label"] == "语言（英语）"
 
 
+def test_chargen_run_1890s_era_adaptive_accepts_language_english(
+    tmp_path: Path,
+) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-1890s-en", era="1890s")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "ada-1890s-en",
+            "name": "Ada Lark",
+            "occupation_name": "Journalist",
+            "occupation_label": "记者",
+            "own_language": "国语",
+            "assignment_priority": [
+                "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
+            ],
+            "occupation_skill_names": ["Spot Hidden", "Listen", "Language (English)"],
+            "interest_skill_names": ["Occult", "First Aid", "Language (English)"],
+            "luck": {"mode": "auto_roll"},
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    stored, creation = _stored_investigator(tmp_path, "ada-1890s-en")
+    assert creation["input_mode"] == coc_character.ERA_ADAPTIVE_INPUT_MODE
+    assert stored["era_adaptive"] is True
+    assert "Language (English)" in stored["skills"]
+    assert coc_character.validate_character_create_sheet(stored, creation) == []
+    labels = {
+        row["key"]: row["label"]
+        for row in stored["player_facing_sheet_zh"]["skills"]
+        if isinstance(row, dict)
+    }
+    assert labels["Language (English)"] == "语言（英语）"
+
+
 def test_chargen_run_ww1_unrecognized_skill_is_structured_error(tmp_path: Path) -> None:
     campaign_id = _create_campaign(tmp_path, "chargen-ww1-bad", era="ww1")
     mystery = "战壕占星术"
