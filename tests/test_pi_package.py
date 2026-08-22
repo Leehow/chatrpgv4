@@ -2280,6 +2280,7 @@ def test_pi_injects_finalization_steer_before_first_live_turn_inference():
             "epoch": 1,
             "action": "tools_then_journal_context_finalize_exact",
             "instructionHasClosure": True,
+            "instructionHasStateAuthority": True,
         },
         "pendingStableBeforeDelivery": True,
         "failedDelivery": "failed",

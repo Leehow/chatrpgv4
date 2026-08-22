@@ -2026,6 +2026,20 @@ def test_canonical_skills_have_matching_frontmatter_names():
         assert match.group(1).strip() == directory.name
 
 
+def test_pi_play_host_prompt_keeps_prejournal_player_state_authority():
+    prompt = " ".join(
+        _text(PLUGIN_ROOT / "pi" / "prompts" / "host-system-play.md").split()
+    )
+    for phrase in (
+        "state.cash_grant",
+        "state.item_grant",
+        "before `state.journal`",
+        "state_authority_review",
+        "source_effect_id",
+    ):
+        assert phrase in prompt, phrase
+
+
 def test_required_canonical_skills_are_present():
     names = {
         path.name

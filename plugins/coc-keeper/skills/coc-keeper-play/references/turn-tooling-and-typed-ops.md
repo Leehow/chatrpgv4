@@ -285,10 +285,12 @@ contract above still applies. This is the natural rhythm:
    row per obligation, then call `turn.finalize`. Send only its exact
    `rendered_text`. In Pi play, first follow its exact
    `agency_review_operation`: review the same draft/turn/source/revision, bind
-   the clean `review_id` and all authorized PC propositions as
-   `agency_claims`, then finalize. An unauthorized PC voluntary/internal claim
-   requires narration-only revision 2; rules, state, journal, coverage, and
-   mechanics remain frozen. `turn.finalize.advisory_uptake` is only for a candidate
+   every declared player-state change to the exact current frozen effect in
+   `state_authority_review`, then bind the clean `review_id` and all authorized
+   PC propositions as `agency_claims` before finalizing. An unauthorized PC
+   voluntary/internal claim or ungrounded player-state claim requires the same
+   narration-only revision 2; rules, state, journal, coverage, and mechanics
+   remain frozen. `turn.finalize.advisory_uptake` is only for a candidate
    actually adopted or modified in this draft; when advice is ignored, omit
    `advisory_uptake` entirely (an optional `evidence.record_adoption` call may
    record the ignored disposition). Never put all of a turn's rolls at the end

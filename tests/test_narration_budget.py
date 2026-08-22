@@ -366,6 +366,8 @@ def test_review_records_deterministic_over_length(campaign_ws):
     assert reviewed["data"]["recommendation"] == "consider_revision"
     assert reviewed["data"]["draft_sha256"].startswith("sha256:")
     assert reviewed["data"]["review_id"].startswith("narration-review-v1:")
+    assert reviewed["data"]["state_authority_review"] is None
+    assert reviewed["data"]["state_authority_gate"] == "advisory"
 
     reviews = _read_jsonl(
         campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
@@ -457,36 +459,311 @@ def _open_agency_turn(ws, *, player_text: str, decision_id: str) -> dict:
 def _agency_review(
     ws, context: dict, *, draft: str, revision: int, decision_id: str,
     findings: list[dict] | None = None,
+    state_authority_review: dict | None = None,
 ) -> dict:
-    return _run(
-        ws,
-        "narration.review",
-        {
-            "draft_text": draft,
-            "turn_id": context["turn_id"],
-            "source_digest": context["source_digest"],
-            "revision": revision,
-            "findings": findings or [],
-            "decision_id": decision_id,
-        },
+    args = {
+        "draft_text": draft,
+        "turn_id": context["turn_id"],
+        "source_digest": context["source_digest"],
+        "revision": revision,
+        "findings": findings or [],
+        "decision_id": decision_id,
+    }
+    args["state_authority_review"] = (
+        state_authority_review
+        if state_authority_review is not None
+        else {
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有声称当前调查员的权威状态发生变化。",
+            "claims": [],
+        }
     )
+    return _run(ws, "narration.review", args)
 
 
 def _finalize_agency_turn(
     ws, *, draft: str, revision: int, decision_id: str,
     review_id: str | None = None, agency_claims: list[dict] | None = None,
+    mechanics_placements=(),
 ) -> dict:
     args = {
         "draft": draft,
         "coverage": [],
-        "mechanics_placements": [],
         "revision": revision,
         "agency_claims": agency_claims or [],
         "decision_id": decision_id,
     }
+    if mechanics_placements is not None:
+        args["mechanics_placements"] = list(mechanics_placements)
     if review_id is not None:
         args["narration_review_id"] = review_id
     return _run(ws, "turn.finalize", args)
+
+
+def test_pi_state_authority_blocks_captured_cash_and_key_without_receipts(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接受委托。请把约定的预付定金和钥匙现在交给我。",
+        decision_id="journal-state-authority-unbound",
+    )
+    assert context["mechanics_bundle"]["state_delta"] == []
+    draft = (
+        "诺特把那串黄铜钥匙推过桌面。"
+        "预付的钞票跟便签一起压到你手边。"
+    )
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-state-authority-unbound",
+        state_authority_review={
+            "disposition": "claims_listed",
+            "reason": "草稿明确声称当前调查员取得现金与钥匙。",
+            "claims": [
+                {
+                    "claim_id": "claim-prepayment",
+                    "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                    "claim_kind": "cash",
+                    "exact_excerpt": "预付的钞票跟便签一起压到你手边",
+                    "source_effect_id": None,
+                    "reason": "NPC 将预付款交给调查员。",
+                },
+                {
+                    "claim_id": "claim-brass-key",
+                    "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                    "claim_kind": "item",
+                    "exact_excerpt": "诺特把那串黄铜钥匙推过桌面",
+                    "source_effect_id": None,
+                    "reason": "NPC 将钥匙交给调查员。",
+                },
+            ],
+        },
+    )
+    assert review["ok"] is True, review
+    assert review["data"]["state_authority_hard_gate"] is True
+    assert review["data"]["state_authority_gate"] == "rewrite_required"
+
+    blocked = _finalize_agency_turn(
+        campaign_ws,
+        draft=draft,
+        revision=1,
+        review_id=review["data"]["review_id"],
+        decision_id="finalize-state-authority-unbound",
+    )
+    assert blocked["ok"] is False
+    assert blocked["error"]["code"] == "state_authority_review_blocked"
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "turn-finalizations.jsonl"
+    ) == []
+
+
+def test_pi_state_authority_accepts_grounded_cash_and_item_claims(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    cash = _run(campaign_ws, "state.cash_grant", {
+        "investigator": investigator,
+        "amount": 8,
+        "currency": "USD",
+        "source": "npc-thomas-notte",
+        "reason": "commission advance",
+        "localized_reason": "委托预付定金",
+        "decision_id": "grant-grounded-prepayment",
+    })
+    assert cash["ok"] is True, cash
+    item = _run(campaign_ws, "state.item_grant", {
+        "investigator": investigator,
+        "kind": "gear",
+        "label": "黄铜钥匙",
+        "item_id": "corbitt-house-key",
+        "note": "托马斯·诺特交付的科比特宅钥匙",
+        "decision_id": "grant-grounded-key",
+    })
+    assert item["ok"] is True, item
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过预付定金和钥匙。",
+        decision_id="journal-state-authority-grounded",
+    )
+    effects = {
+        row["effect_kind"]: row
+        for row in context["mechanics_bundle"]["state_delta"]
+        if row["effect_kind"] in {"cash", "item"}
+    }
+    assert set(effects) == {"cash", "item"}
+    draft = "诺特把黄铜钥匙和预付钞票一并交到你手里。"
+    state_review = {
+        "disposition": "claims_listed",
+        "reason": "草稿明确声称当前调查员取得现金与钥匙。",
+        "claims": [
+            {
+                "claim_id": "claim-grounded-prepayment",
+                "subject_ref": f"pc:{investigator}",
+                "claim_kind": "cash",
+                "exact_excerpt": "预付钞票一并交到你手里",
+                "source_effect_id": effects["cash"]["effect_id"],
+                "reason": "NPC 将预付款交给调查员。",
+            },
+            {
+                "claim_id": "claim-grounded-key",
+                "subject_ref": f"pc:{investigator}",
+                "claim_kind": "item",
+                "exact_excerpt": "把黄铜钥匙和预付钞票一并交到你手里",
+                "source_effect_id": effects["item"]["effect_id"],
+                "reason": "NPC 将钥匙交给调查员。",
+            },
+        ],
+    }
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-state-authority-grounded",
+        state_authority_review=state_review,
+    )
+    assert review["ok"] is True, review
+    assert review["data"]["state_authority_gate"] == "clear"
+    replay = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-state-authority-grounded",
+        state_authority_review=state_review,
+    )
+    assert replay["ok"] is True, replay
+    assert replay["data"] == review["data"]
+
+    finalized = _finalize_agency_turn(
+        campaign_ws,
+        draft=draft,
+        revision=1,
+        review_id=review["data"]["review_id"],
+        decision_id="finalize-state-authority-grounded",
+        mechanics_placements=None,
+    )
+    assert finalized["ok"] is True, finalized
+    assert finalized["data"]["rendered_text"].count("委托预付定金") == 1
+    assert finalized["data"]["rendered_text"].count("黄铜钥匙") == 2
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_code"),
+    [
+        ("unknown", "state_authority_source_unknown"),
+        ("wrong_kind", "state_authority_kind_mismatch"),
+        ("wrong_pc", "state_authority_subject_mismatch"),
+        ("excerpt", "state_authority_excerpt_mismatch"),
+        ("disposition", "state_authority_disposition_mismatch"),
+        ("duplicate", "state_authority_claim_duplicate"),
+        ("closed_schema", "invalid_param"),
+    ],
+)
+def test_pi_state_authority_rejects_invalid_claim_bindings(
+    campaign_ws, monkeypatch, case, expected_code
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.cash_grant", {
+        "investigator": investigator,
+        "amount": 3,
+        "currency": "USD",
+        "source": "npc-thomas-notte",
+        "reason": "claim validation fixture",
+        "localized_reason": "测试预付",
+        "decision_id": f"grant-claim-validation-{case}",
+    })
+    assert granted["ok"] is True, granted
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过三美元。",
+        decision_id=f"journal-claim-validation-{case}",
+    )
+    cash_effect = next(
+        row for row in context["mechanics_bundle"]["state_delta"]
+        if row["effect_kind"] == "cash"
+    )
+    draft = "诺特把三美元交到你手里。"
+    claim = {
+        "claim_id": "claim-payment",
+        "subject_ref": f"pc:{investigator}",
+        "claim_kind": "cash",
+        "exact_excerpt": "三美元交到你手里",
+        "source_effect_id": cash_effect["effect_id"],
+        "reason": "草稿声称调查员收到现金。",
+    }
+    disposition = "claims_listed"
+    claims = [claim]
+    if case == "unknown":
+        claim["source_effect_id"] = "turn-effect-v1:unknown"
+    elif case == "wrong_kind":
+        claim["claim_kind"] = "item"
+    elif case == "wrong_pc":
+        claim["subject_ref"] = "pc:not-in-party"
+    elif case == "excerpt":
+        claim["exact_excerpt"] = "这段文字不在草稿里"
+    elif case == "disposition":
+        disposition = "no_player_state_change_claimed"
+    elif case == "duplicate":
+        claims.append({**claim})
+    state_review = {
+        "disposition": disposition,
+        "reason": "逐项审查当前调查员状态声明。",
+        "claims": claims,
+    }
+    if case == "closed_schema":
+        state_review = {}
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id=f"review-claim-validation-{case}",
+        state_authority_review=state_review,
+    )
+    assert review["ok"] is False
+    assert review["error"]["code"] == expected_code
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    ) == []
+
+
+def test_pi_state_authority_review_is_idempotency_bound(campaign_ws, monkeypatch):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我留在原地。",
+        decision_id="journal-state-review-idempotency",
+    )
+    draft = "诺特仍坐在桌后。"
+    first = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-state-idempotency",
+    )
+    assert first["ok"] is True, first
+    conflict = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-state-idempotency",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "同一 decision id 下改动了语义审查理由。",
+            "claims": [],
+        },
+    )
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
 
 
 def test_pi_agency_violation_requires_prose_only_revision_two(
@@ -501,6 +778,12 @@ def test_pi_agency_violation_requires_prose_only_revision_two(
     assert context["agency_review_operation"]["operation"] == "narration.review"
     assert context["agency_review_operation"]["invoke_via"] == "coc_narration_review"
     assert context["agency_review_operation"]["prefilled_arguments"]["revision"] == 1
+    assert "state_authority_review" in context["agency_review_operation"][
+        "missing_arguments"
+    ]
+    assert context["agency_review_operation"]["hard_gate_scope"] == (
+        "agency_and_player_state_authority_only"
+    )
     assert {"narration_review_id", "agency_claims"} <= set(
         context["finalize_operation"]["missing_arguments"]
     )
@@ -517,6 +800,9 @@ def test_pi_agency_violation_requires_prose_only_revision_two(
         "source_digest": context["source_digest"],
         "revision": 1,
     }
+    assert "state_authority_review" in projected["agency_review_operation"][
+        "missing_arguments"
+    ]
     assert {"narration_review_id", "agency_claims"} <= set(
         projected["finalize_operation"]["missing_arguments"]
     )
@@ -604,6 +890,81 @@ def test_pi_agency_violation_requires_prose_only_revision_two(
     assert len(_read_jsonl(
         campaign_ws["campaign_dir"] / "logs" / "turn-finalizations.jsonl"
     )) == 1
+
+
+def test_pi_agency_and_state_rejection_share_one_frozen_revision_two(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我继续观察，但不接受任何东西。",
+        decision_id="journal-combined-authority-block",
+    )
+    draft = "海斯决定相信诺特。诺特把钥匙交到他手里。"
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-combined-authority-block",
+        findings=[{
+            "rule_id": "agency_violation",
+            "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+            "source_ref": None,
+            "reason": "草稿替玩家决定调查员信任诺特。",
+        }],
+        state_authority_review={
+            "disposition": "claims_listed",
+            "reason": "草稿还声称调查员取得钥匙。",
+            "claims": [{
+                "claim_id": "claim-combined-key",
+                "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                "claim_kind": "item",
+                "exact_excerpt": "诺特把钥匙交到他手里",
+                "source_effect_id": None,
+                "reason": "未落账的钥匙交付。",
+            }],
+        },
+    )
+    assert review["ok"] is True, review
+    assert review["data"]["agency_gate"] == "rewrite_required"
+    assert review["data"]["state_authority_gate"] == "rewrite_required"
+    blocked = _finalize_agency_turn(
+        campaign_ws,
+        draft=draft,
+        revision=1,
+        review_id=review["data"]["review_id"],
+        decision_id="finalize-combined-authority-block",
+    )
+    assert blocked["ok"] is False
+    assert blocked["error"]["code"] == "state_authority_review_blocked"
+    rewrite = _run(campaign_ws, "turn.output_context")
+    assert rewrite["ok"] is True, rewrite
+    assert rewrite["data"]["agency_review_operation"]["prefilled_arguments"][
+        "revision"
+    ] == 2
+    assert rewrite["data"]["settlement_snapshot_id"] == context[
+        "settlement_snapshot_id"
+    ]
+    clean_draft = "诺特仍坐在桌后，钥匙和钱都没有离开他的口袋。"
+    clean = _agency_review(
+        campaign_ws,
+        rewrite["data"],
+        draft=clean_draft,
+        revision=2,
+        decision_id="review-combined-authority-clean-r2",
+    )
+    assert clean["ok"] is True, clean
+    accepted = _finalize_agency_turn(
+        campaign_ws,
+        draft=clean_draft,
+        revision=2,
+        review_id=clean["data"]["review_id"],
+        decision_id="finalize-combined-authority-clean-r2",
+    )
+    assert accepted["ok"] is True, accepted
+    assert accepted["data"]["accepted_revision"] == 2
 
 
 def test_pi_agency_review_allows_player_declared_action(campaign_ws, monkeypatch):

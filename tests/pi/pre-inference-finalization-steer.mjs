@@ -80,6 +80,12 @@ process.stdout.write(JSON.stringify({
       && first.instruction.includes("turn.output_context")
       && first.instruction.includes("turn.finalize")
       && first.instruction.includes("player-visible"),
+    instructionHasStateAuthority: typeof first?.instruction === "string"
+      && first.instruction.includes("state.cash_grant")
+      && first.instruction.includes("state.item_grant")
+      && first.instruction.includes("Before state.journal")
+      && first.instruction.includes("state_authority_review")
+      && first.instruction.includes("effect id"),
   },
   pendingStableBeforeDelivery:
     pendingBeforeDelivery?.player_turn_epoch === first?.player_turn_epoch,
