@@ -790,6 +790,174 @@ def test_pi_state_authority_excludes_prior_state_replay_from_next_turn(
         campaign_ws["campaign_dir"] / "logs" / "turn-finalizations.jsonl"
     )) == 2
 
+    replayed_again = _run(campaign_ws, tool, mutation)
+    assert replayed_again["ok"] is True, replayed_again
+    assert replayed_again["idempotent_replay"] is True
+    fresh_mutation = dict(mutation)
+    fresh_mutation["decision_id"] = f"grant-fresh-{effect_kind}"
+    if effect_kind == "cash":
+        fresh_mutation.update({
+            "amount": 2,
+            "reason": "fresh write after prior replay",
+            "localized_reason": "新一轮预付",
+        })
+    else:
+        fresh_mutation.update({
+            "item_id": "fresh-replay-key",
+            "label": "银色钥匙",
+            "note": "fresh write after prior replay",
+        })
+    fresh = _run(campaign_ws, tool, fresh_mutation)
+    assert fresh["ok"] is True, fresh
+    assert fresh.get("idempotent_replay") is not True
+    mixed_context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过这一次的新交付。",
+        decision_id=f"journal-replay-mixed-{effect_kind}",
+    )
+    assert [
+        row["source_decision_id"]
+        for row in mixed_context["mechanics_bundle"]["state_delta"]
+    ] == [fresh_mutation["decision_id"]]
+
+
+def test_exact_journal_replay_keeps_pending_turn_identity_and_audit(
+    campaign_ws,
+):
+    journal_args = {
+        "summary": "调查员继续等待。",
+        "player_action": "等待",
+        "player_text": "我继续等待。",
+        "run_id": "journal-replay-identity-run",
+        "decision_id": "journal-replay-identity",
+    }
+    first = _run(campaign_ws, "state.journal", journal_args)
+    assert first["ok"] is True, first
+    before = _run(campaign_ws, "turn.output_context")["data"]
+
+    replayed = _run(campaign_ws, "state.journal", journal_args)
+    assert replayed["ok"] is True, replayed
+    assert replayed["idempotent_replay"] is True
+    after = _run(campaign_ws, "turn.output_context")
+    assert after["ok"] is True, after
+    after_data = after["data"]
+
+    for key in (
+        "turn_id",
+        "journal_call_index",
+        "source_end_index",
+        "source_digest",
+        "mechanics_bundle_sha256",
+        "settlement_snapshot_id",
+    ):
+        assert after_data[key] == before[key], key
+    rows = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    )
+    journal_rows = [
+        row for row in rows
+        if row.get("tool") == "state.journal"
+        and (row.get("args") or {}).get("decision_id")
+        == journal_args["decision_id"]
+    ]
+    assert len(journal_rows) == 2
+    assert journal_rows[-1]["idempotent_replay"] is True
+
+
+def test_first_durable_journal_recovery_receipt_owns_pending_turn(
+    campaign_ws,
+):
+    journal_args = {
+        "summary": "调查员继续等待。",
+        "player_action": "等待",
+        "player_text": "我继续等待。",
+        "run_id": "journal-recovery-run",
+        "decision_id": "journal-recovery-first-durable",
+    }
+    first = _run(campaign_ws, "state.journal", journal_args)
+    assert first["ok"] is True, first
+    log_path = campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    assert len(_read_jsonl(log_path)) == 1
+    # Simulate interruption after the journal/ledger/manifest commit but before
+    # its generic toolbox-call audit receipt became durable.
+    log_path.write_text("", encoding="utf-8")
+
+    recovered = _run(campaign_ws, "state.journal", journal_args)
+    assert recovered["ok"] is True, recovered
+    assert recovered.get("idempotent_replay") is not True
+    context = _run(campaign_ws, "turn.output_context")
+    assert context["ok"] is True, context
+    assert context["data"]["journal_decision_id"] == journal_args["decision_id"]
+    rows = _read_jsonl(log_path)
+    journal_rows = [row for row in rows if row.get("tool") == "state.journal"]
+    assert len(journal_rows) == 1
+    assert journal_rows[0].get("idempotent_replay") is not True
+
+
+def test_exact_exceptional_effect_replay_after_journal_stays_audit_only(
+    campaign_ws,
+):
+    investigator = campaign_ws["investigator_id"]
+    critical = _run(campaign_ws, "rules.roll", {
+        "investigator": investigator,
+        "skill": "Fast Talk",
+        "target": 50,
+        "difficulty": "regular",
+        "goal": "发现对方程序上的弱点",
+        "stakes": {"on_success": "发现弱点", "on_failure": "没有发现"},
+        "difficulty_basis": "keeper_judgment",
+        "seed": 139,
+        "decision_id": "journal-replay-critical-source",
+    })
+    assert critical["ok"] is True, critical
+    assert critical["data"]["outcome"] == "critical"
+    effect_args = {
+        "action": "apply",
+        "source_roll_id": critical["data"]["roll_id"],
+        "direction": "benefit",
+        "effect_kind": "bonus_die",
+        "player_visible_impact": "下一次话术检定获得 1 枚奖励骰",
+        "causal_link": "调查员抓住了对方最在意的程序措辞",
+        "boundary": {"kind": "until_consumed", "uses": 1},
+        "mechanics": {
+            "dice": 1,
+            "investigator_id": investigator,
+            "skill": "Fast Talk",
+            "scene_id": None,
+            "target_id": None,
+        },
+        "visibility": "player_visible",
+        "decision_id": "journal-replay-exceptional-effect",
+    }
+    applied = _run(campaign_ws, "state.exceptional_effect", effect_args)
+    assert applied["ok"] is True, applied
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我记住这个程序弱点。",
+        decision_id="journal-before-exceptional-replay",
+    )
+
+    replayed = _run(campaign_ws, "state.exceptional_effect", effect_args)
+    assert replayed["ok"] is True, replayed
+    assert replayed["idempotent_replay"] is True
+    after = _run(campaign_ws, "turn.output_context")
+    assert after["ok"] is True, after
+    assert after["data"]["source_digest"] == context["source_digest"]
+    assert after["data"]["settlement_snapshot_id"] == context[
+        "settlement_snapshot_id"
+    ]
+    rows = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    )
+    replay_rows = [
+        row for row in rows
+        if row.get("tool") == "state.exceptional_effect"
+        and (row.get("args") or {}).get("decision_id")
+        == effect_args["decision_id"]
+    ]
+    assert len(replay_rows) == 2
+    assert replay_rows[-1]["idempotent_replay"] is True
+
 
 @pytest.mark.parametrize(
     ("case", "expected_code"),

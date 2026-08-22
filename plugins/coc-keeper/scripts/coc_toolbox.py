@@ -2110,6 +2110,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             pending_turn_manifest = None
             pending_exact_replay = None
             prior_idempotency_entry = None
+            prior_state_call_logged = False
             context_rehydration_advisory = None
             if spec["needs_campaign"] and ctx.campaign_dir is not None:
                 host_marker = coc_host_context.current_marker(ctx.root)
@@ -2141,6 +2142,19 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     prior_idempotency_entry = ctx.ledger_lookup(
                         name, str(args["decision_id"])
                     )
+                    if (
+                        name.startswith("state.")
+                        and prior_idempotency_entry is not None
+                    ):
+                        prior_state_call_logged = any(
+                            row.get("ok") is True
+                            and row.get("tool") == name
+                            and (row.get("args") or {}).get("decision_id")
+                            == args["decision_id"]
+                            for row in _jsonl_rows(
+                                ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+                            )
+                        )
             if (
                 pending_turn_manifest is not None
                 and spec.get("access", "mutation") != "query"
@@ -2319,6 +2333,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             exact_prior_state_replay = (
                 name.startswith("state.")
                 and prior_idempotency_entry is not None
+                and prior_state_call_logged
                 and isinstance(data, dict)
                 and data == prior_idempotency_entry.get("data")
             )
