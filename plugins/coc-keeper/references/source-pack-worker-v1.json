@@ -34,6 +34,7 @@
       "requested_source_scope",
       "source_scope_signature",
       "deadline_class",
+      "play_languages",
       "requested_pdf_indices",
       "cached_scope_complete",
       "result_delivery",
@@ -63,6 +64,7 @@
       ],
       "required_request_fields": [
         "request_purpose",
+        "play_languages",
         "requested_source_scope",
         "source_scope_signature",
         "result_contract"
@@ -417,7 +419,7 @@
         "for foreground v1 keep scene_edges and affordances empty; never infer a structured clock or route from prose",
         "before status=usable self-check the closed minimum; if a required field cannot be supplied, return status=abstain with results=[] and never ask the parent to repair it",
         "missing NPC agenda is soft_deferred and must never cause a replacement opening pack before play",
-        "return parse_state=partial, exact source_page_indices/source_refs, and host_work_job_id equal to the request job_id",
+        "return parse_state=partial, exact source_page_indices/source_refs, and host_work_job_id equal to the request job_id; every read_aloud preserves source title/text and supplies complete localized_title/localized_text locale maps for every play_languages value",
         "submit the complete outer result through the named direct transport, or return it unchanged to an adapter that lacks that transport; partial_opening is never deep coverage"
       ]
     },
@@ -427,6 +429,7 @@
       "required_request_fields": [
         "job_id",
         "target_id",
+        "play_languages",
         "requested_pdf_indices",
         "cached_page_refs",
         "result_contract"

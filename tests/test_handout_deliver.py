@@ -239,6 +239,45 @@ def test_replay_handout_requires_prior_delivery_and_explicit_request(campaign_ws
     assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
 
 
+def test_source_read_aloud_requires_exact_active_language_title_and_body(campaign_ws):
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = "ja-JP"
+    _write_json(campaign_path, campaign)
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    card = {
+        "asset_id": "read-aloud:opening:door",
+        "kind": "read_aloud",
+        "title": "At the door",
+        "text": "The hinges groan in the dark.",
+        "localized_title": {"ja-JP": "扉の前"},
+        "localized_text": {"ja-JP": "暗闇で蝶番が低くきしむ。"},
+        "source_refs": ["pdf_index-9"],
+        "player_visible": True,
+    }
+    _write_json(store, {"schema_version": 1, "handouts": [card]})
+
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": card["asset_id"],
+        "decision_id": "deliver-ja-read-aloud",
+    })
+    assert delivered["ok"] is True, delivered
+    assert delivered["data"]["card"]["title"] == "扉の前"
+    assert delivered["data"]["card"]["text"] == "暗闇で蝶番が低くきしむ。"
+    assert "hinges" not in json.dumps(delivered["data"]["card"], ensure_ascii=False)
+
+    card["asset_id"] = "read-aloud:opening:missing-ja"
+    card["localized_title"] = {"zh-Hans": "门前"}
+    card["localized_text"] = {"zh-Hans": "黑暗中门轴低鸣。"}
+    _write_json(store, {"schema_version": 1, "handouts": [card]})
+    missing = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": card["asset_id"],
+        "decision_id": "deliver-missing-ja-read-aloud",
+    })
+    assert missing["ok"] is False
+    assert missing["error"]["code"] == "handout_locale_missing"
+
+
 def test_replay_handout_creates_new_presentation_without_second_delivery(campaign_ws):
     _install_cards(campaign_ws)
     delivered = _run(campaign_ws, "state.deliver_handout", {
@@ -258,9 +297,18 @@ def test_replay_handout_creates_new_presentation_without_second_delivery(campaig
     }
     replayed = _run(campaign_ws, "state.replay_handout", args)
     repeated = _run(campaign_ws, "state.replay_handout", args)
+    repeated_new_decision = _run(campaign_ws, "state.replay_handout", {
+        **args,
+        "request_assertion": _explicit_replay_request(
+            semantic_reason="第二个 decision 不能重写已消费的权威断言",
+        ),
+        "decision_id": "presentation-replay-same-player-epoch",
+    })
 
     assert replayed["ok"] is True, replayed
     assert repeated["data"] == replayed["data"]
+    assert repeated_new_decision["data"]["presentation"] == replayed["data"]["presentation"]
+    assert repeated_new_decision["data"]["request_assertion"] == replayed["data"]["request_assertion"]
     assert replayed["data"]["presentation"] == {
         "presentation_id": "handout-newspaper:presentation:2",
         "asset_id": "handout-newspaper",
@@ -285,6 +333,20 @@ def test_replay_handout_creates_new_presentation_without_second_delivery(campaig
     assert replay_event["request_assertion"]["player_text"] == "请再给我看一次那张剪报。"
     assert replay_event["request_assertion"]["player_text_sha256"].startswith("sha256:")
 
+    later = _run(campaign_ws, "state.replay_handout", {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(
+            player_text="请把剪报再展示一遍。",
+            semantic_reason="玩家在后续回合再次明确请求剪报",
+            player_turn_epoch=5,
+        ),
+        "decision_id": "presentation-replay-later-player-epoch",
+    })
+    assert later["data"]["presentation"]["revision"] == 3
+    assert _world(campaign_ws)["handout_presentation_revisions"] == {
+        "handout-newspaper": 3,
+    }
+
 
 def test_malformed_scenario_cards_cannot_be_queried_or_delivered(campaign_ws):
     store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
@@ -299,7 +361,7 @@ def test_malformed_scenario_cards_cannot_be_queried_or_delivered(campaign_ws):
         {
             "asset_id": "bad-localized",
             "kind": "document",
-            "localized_text": {"zh-Hans": "must stay secret"},
+            "localized_text": {"": "must stay secret"},
         },
         {
             "asset_id": "bad-body",
@@ -357,7 +419,7 @@ def test_malformed_progressive_entities_cannot_be_queried_or_delivered(campaign_
     )
     malformed = {
         "entity-bad-visible": {"player_visible": "false"},
-        "entity-bad-localized": {"localized_text": {"zh-Hans": "must stay secret"}},
+        "entity-bad-localized": {"localized_text": {"": "must stay secret"}},
         "entity-bad-body": {"text": {"body": "must stay secret"}},
         "entity-bad-asset": {"image_ref": ["assets/handouts/secret.png"]},
         "entity-bad-id": {"asset_id": 17},

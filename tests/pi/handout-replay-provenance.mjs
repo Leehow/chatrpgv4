@@ -38,6 +38,22 @@ assert.throws(
     operation: "state.replay_handout",
     arguments: {
       handout_id: "cellar-map",
+      decision_id: "replay-map-same-epoch-new-decision",
+      request_assertion: {
+        explicit_player_request: true,
+        player_text: "请再给我看一次地下室地图。",
+        semantic_reason: "不能重复消费同一回合的同一资产授权",
+      },
+    },
+  }),
+  /already consumed for this asset and player epoch/,
+);
+
+assert.throws(
+  () => gate.bindHandoutReplayRequest({
+    operation: "state.replay_handout",
+    arguments: {
+      handout_id: "cellar-map",
       decision_id: "replay-map-stale",
       request_assertion: {
         explicit_player_request: true,
@@ -49,7 +65,10 @@ assert.throws(
   /exact current external player message/,
 );
 
-gate.observeMessageStart({ role: "user", content: "刚才那张……" });
+gate.observeMessageStart({
+  role: "user",
+  content: [{ type: "text", text: "刚才那张……" }],
+});
 assert.throws(
   () => gate.bindHandoutReplayRequest({
     operation: "state.replay_handout",
@@ -65,5 +84,19 @@ assert.throws(
   }),
   /exact current external player message/,
 );
+
+const later = gate.bindHandoutReplayRequest({
+  operation: "state.replay_handout",
+  arguments: {
+    handout_id: "cellar-map",
+    decision_id: "replay-map-later-epoch",
+    request_assertion: {
+      explicit_player_request: true,
+      player_text: "刚才那张……",
+      semantic_reason: "玩家在后续回合明确补全了同一地图请求",
+    },
+  },
+});
+assert.equal(later.arguments.request_assertion.player_turn_epoch, 2);
 
 console.log("handout replay provenance: ok");

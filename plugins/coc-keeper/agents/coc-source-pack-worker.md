@@ -289,6 +289,10 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   quoted to players verbatim, per-passage page evidence is mandatory — the
   pack's own refs do not stand in for it. Omit the field when the reviewed
   pages contain no such box; never promote ordinary description into one.
+  Preserve authored source title/body separately in `title`/`text`. For every
+  language in the request's structured `play_languages`, provide the complete
+  player-facing title and body in `localized_title`/`localized_text` locale
+  maps. Never copy source prose into a missing locale or guess the language.
 - **`keeper_only`**: the Keeper-facing notes printed beside a location's public
   description (one surveyed module prints 110 of them). Each row is `id`,
   `note`, `source_refs` and nothing else — no audience, delivery, or

@@ -13354,6 +13354,8 @@ def _l0_direct_opening_l0() -> dict:
             "id": "opening-player",
             "audience": "player",
             "text": "A bounded authored opening.",
+            "localized_title": {"zh-Hans": "开场"},
+            "localized_text": {"zh-Hans": "一段有明确边界的原作开场。"},
             "variant_of": None,
         },
         {
@@ -13501,6 +13503,10 @@ def test_l0_direct_opening_pack_is_equivalent_partial_structure():
     assert pack["player_safe_summary"] == "A bounded authored opening."
     assert pack["read_aloud"][0]["trigger"] == "on_enter"
     assert pack["read_aloud"][0]["source_refs"] == refs
+    assert pack["read_aloud"][0]["localized_title"] == {"zh-Hans": "开场"}
+    assert pack["read_aloud"][0]["localized_text"] == {
+        "zh-Hans": "一段有明确边界的原作开场。",
+    }
     assert pack["keeper_only"][0]["note"] == "Keeper-only opening note."
     assert pack["source_page_indices"] == [0]
 

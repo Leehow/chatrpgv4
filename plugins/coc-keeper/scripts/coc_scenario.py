@@ -74,12 +74,39 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
         errors.append(
             f"{prefix}.kind must be one of {list(HANDOUT_CARD_KINDS)}"
         )
-    for field in ("title", "text", "localized_text", "when_to_deliver", "image_ref"):
+    for field in ("title", "text", "when_to_deliver", "image_ref"):
         value = entry.get(field)
         if value is not None and not isinstance(value, str):
             errors.append(f"{prefix}.{field} must be a string when present")
         if field == "text" and isinstance(value, str) and not value.strip():
             errors.append(f"{prefix}.text must be a non-empty verbatim excerpt")
+    for field in ("localized_title", "localized_text"):
+        value = entry.get(field)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if not value.strip():
+                errors.append(f"{prefix}.{field} must not be blank")
+            continue
+        if (
+            not isinstance(value, dict)
+            or not value
+            or any(
+                not isinstance(language, str)
+                or not language.strip()
+                or not isinstance(localized, str)
+                or not localized.strip()
+                for language, localized in value.items()
+            )
+        ):
+            errors.append(
+                f"{prefix}.{field} must map language tags to non-empty strings"
+            )
+    localized_language = entry.get("localized_language")
+    if localized_language is not None and (
+        not isinstance(localized_language, str) or not localized_language.strip()
+    ):
+        errors.append(f"{prefix}.localized_language must be a non-empty string")
     text = entry.get("text")
     source_refs = entry.get("source_refs")
     if source_refs is not None:

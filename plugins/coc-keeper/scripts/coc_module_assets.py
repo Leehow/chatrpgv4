@@ -481,6 +481,18 @@ def validate_host_work_request_shape(request: Any) -> None:
     if kind not in JOB_KINDS:
         raise ModuleAssetsError("host-work kind is invalid")
     _require_id(request.get("target_id"), "host-work.target_id")
+    play_languages = request.get("play_languages")
+    if (
+        not isinstance(play_languages, list)
+        or any(
+            not isinstance(language, str) or not language.strip()
+            for language in play_languages
+        )
+        or play_languages != sorted(set(play_languages))
+    ):
+        raise ModuleAssetsError(
+            "host-work play_languages must be a sorted unique string array"
+        )
     level, dependency_ref = validate_host_work_contract(
         request.get("work_level"), request.get("dependency_ref"),
     )
@@ -1063,8 +1075,8 @@ def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
         if not isinstance(row, dict):
             raise ModuleAssetsError(f"{prefix} must be an object")
         extra = set(row) - {
-            "id", "trigger", "title", "text", "localized_text",
-            "source_refs", "condition",
+            "id", "trigger", "title", "text", "localized_title",
+            "localized_text", "localized_language", "source_refs", "condition",
         }
         if extra:
             raise ModuleAssetsError(
@@ -1090,7 +1102,7 @@ def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
             raise ModuleAssetsError(
                 f"{prefix} with trigger=on_clue requires a condition"
             )
-        for field in ("title", "localized_text"):
+        for field in ("title",):
             value = row.get(field)
             if value is not None and (
                 not isinstance(value, str) or not value.strip()
@@ -1098,12 +1110,128 @@ def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
                 raise ModuleAssetsError(
                     f"{prefix}.{field} must be a non-empty string when supplied"
                 )
+        for field in ("localized_title", "localized_text"):
+            value = row.get(field)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                if not value.strip():
+                    raise ModuleAssetsError(
+                        f"{prefix}.{field} must not be blank"
+                    )
+                continue
+            if not isinstance(value, dict) or not value:
+                raise ModuleAssetsError(
+                    f"{prefix}.{field} must be a non-empty locale map"
+                )
+            for language, localized_value in value.items():
+                if (
+                    not isinstance(language, str)
+                    or not language.strip()
+                    or not isinstance(localized_value, str)
+                    or not localized_value.strip()
+                ):
+                    raise ModuleAssetsError(
+                        f"{prefix}.{field} must map language tags to non-empty strings"
+                    )
         refs = row.get("source_refs")
         if not isinstance(refs, list) or not refs:
             raise ModuleAssetsError(
                 f"{prefix}.source_refs is required: read-aloud text is quoted "
                 "to players verbatim and must carry its own page evidence"
             )
+
+
+def _canonicalize_location_read_aloud_refs(
+    workspace: Path,
+    asset_root_id: str,
+    doc: dict[str, Any],
+    *,
+    allowed_request_indices: set[int] | None = None,
+) -> None:
+    parent_indices = set(doc.get("source_page_indices") or [])
+    for position, row in enumerate(doc.get("read_aloud") or []):
+        if not isinstance(row, dict):
+            continue
+        field = f"location.read_aloud[{position}]"
+        supplied_refs = row.get("source_refs")
+        if not isinstance(supplied_refs, list) or not supplied_refs:
+            raise ModuleAssetsError(f"{field}.source_refs must be a non-empty list")
+        for supplied in supplied_refs:
+            if (
+                not isinstance(supplied, dict)
+                or not isinstance(supplied.get("source_id"), str)
+                or not supplied["source_id"].strip()
+                or isinstance(supplied.get("pdf_index"), bool)
+                or not isinstance(supplied.get("pdf_index"), int)
+            ):
+                raise ModuleAssetsError(
+                    f"{field}.source_refs entries require source_id and integer pdf_index"
+                )
+        canonical_refs = _cached_source_refs(
+            workspace,
+            asset_root_id,
+            row,
+            field=field,
+        )
+        supplied_by_index = {
+            int(supplied["pdf_index"]): supplied for supplied in supplied_refs
+        }
+        if len(supplied_by_index) != len(supplied_refs):
+            raise ModuleAssetsError(f"{field}.source_refs contain duplicate pages")
+        for canonical in canonical_refs:
+            supplied = supplied_by_index[int(canonical["pdf_index"])]
+            for evidence_field in (
+                "bundle_sha256s", "review_state", "parse_confidence",
+                "grep_anchors", "structured_data", "printed_page",
+                "printed_label",
+            ):
+                if (
+                    evidence_field in supplied
+                    and supplied[evidence_field] != canonical.get(evidence_field)
+                ):
+                    raise ModuleAssetsError(
+                        f"{field}.source_refs contain stale {evidence_field} evidence"
+                    )
+        child_indices = {int(ref["pdf_index"]) for ref in canonical_refs}
+        if not child_indices.issubset(parent_indices):
+            raise ModuleAssetsError(
+                f"{field}.source_refs are outside its parent location source scope"
+            )
+        if (
+            allowed_request_indices is not None
+            and not child_indices.issubset(allowed_request_indices)
+        ):
+            raise ModuleAssetsError(
+                f"{field}.source_refs are outside the host-work request source scope"
+            )
+        row["source_refs"] = canonical_refs
+
+
+def _validate_location_read_aloud_locales(
+    doc: dict[str, Any], required_languages: set[str]
+) -> None:
+    for position, row in enumerate(doc.get("read_aloud") or []):
+        if not isinstance(row, dict):
+            continue
+        field = f"location.read_aloud[{position}]"
+        for localized_field in ("localized_title", "localized_text"):
+            value = row.get(localized_field)
+            if isinstance(value, dict):
+                missing = sorted(required_languages - set(value))
+            elif isinstance(value, str):
+                tagged = str(row.get("localized_language") or "").strip()
+                missing = sorted(
+                    language for language in required_languages
+                    if language != tagged
+                )
+            else:
+                missing = sorted(required_languages)
+            if missing:
+                raise ModuleAssetsError(
+                    f"{field}.{localized_field} lacks full active play_language "
+                    f"values: {missing}"
+                )
 
 
 def _validate_location_keeper_only(doc: dict[str, Any]) -> None:
@@ -5418,6 +5546,9 @@ def _canonicalize_entity_source_evidence(
     asset_root_id: str,
     kind: str,
     doc: dict[str, Any],
+    *,
+    allowed_read_aloud_indices: set[int] | None = None,
+    required_read_aloud_languages: set[str] | None = None,
 ) -> None:
     identity_path = _module_dir(workspace, asset_root_id) / "identity.json"
     identity = json.loads(identity_path.read_text(encoding="utf-8"))
@@ -5576,6 +5707,15 @@ def _canonicalize_entity_source_evidence(
     # and secret rows.  Give every nested source-derived object an explicit
     # evidence binding instead of relying on an implicit parent relationship.
     if kind == "location":
+        _canonicalize_location_read_aloud_refs(
+            workspace,
+            asset_root_id,
+            doc,
+            allowed_request_indices=allowed_read_aloud_indices,
+        )
+        _validate_location_read_aloud_locales(
+            doc, required_read_aloud_languages or set()
+        )
         # Scene edges in a shared source pack inherit the exact validated
         # parent page scope unless they declare a narrower exact subset.
         # Campaign-local rows are never allowed to borrow that source
@@ -6826,6 +6966,7 @@ def claim_host_work_requests(
                         "request_purpose", "requested_source_scope",
                         "source_scope_signature", "result_contract",
                         "work_level", "consumer_refs", "consumer_state",
+                        "play_languages",
                     )
                 }
                 # Structure work carries its own evidence: the whole input is a
@@ -6893,6 +7034,7 @@ def claim_host_work_requests(
                 "consumer_refs": json.loads(json.dumps(
                     exemplar.get("consumer_refs") or []
                 )),
+                "play_languages": list(exemplar.get("play_languages") or []),
             })
     result = {
         "packets": packets,
@@ -7399,6 +7541,68 @@ def host_work_lifecycle_summary(
     }
 
 
+def _campaign_play_languages_for_asset(
+    workspace: Path, asset_root_id: str
+) -> set[str]:
+    languages: set[str] = set()
+    campaigns_dir = _coc_root(workspace) / "campaigns"
+    for campaign_id in _campaigns_referencing_asset_root(workspace, asset_root_id):
+        path = campaigns_dir / campaign_id / "campaign.json"
+        try:
+            campaign = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        language = (
+            str(campaign.get("play_language") or "").strip()
+            if isinstance(campaign, dict)
+            else ""
+        )
+        languages.add(language or "zh-Hans")
+    return languages
+
+
+def _put_entity_host_work_constraints(
+    workspace: Path,
+    asset_root_id: str,
+    kind: str,
+    entity_id: str,
+    host_work_job_id: Any,
+) -> tuple[set[int] | None, set[str]]:
+    requested_job_id = str(host_work_job_id or "").strip()
+    if not requested_job_id:
+        return None, _campaign_play_languages_for_asset(workspace, asset_root_id)
+    job_id = _require_id(requested_job_id, "host_work_job_id")
+    path = _module_dir(workspace, asset_root_id) / "host-work" / f"{job_id}.json"
+    if not path.is_file():
+        raise ModuleAssetsError(f"host_work_job_id {job_id!r} does not exist")
+    try:
+        request = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ModuleAssetsError(
+            f"host_work_job_id {job_id!r} is unreadable"
+        ) from exc
+    validate_host_work_request_shape(request)
+    if (
+        str(request.get("target_id") or "") != entity_id
+        or _job_entity_kind(str(request.get("kind") or "")) != kind
+    ):
+        raise ModuleAssetsError(
+            f"host_work_job_id {job_id!r} does not authorize this entity"
+        )
+    if str(request.get("status") or "open") in {"cancelled", "superseded"}:
+        raise ModuleAssetsError(f"host_work_job_id {job_id!r} is closed")
+    indices = request.get("requested_pdf_indices")
+    if not isinstance(indices, list) or any(
+        isinstance(index, bool) or not isinstance(index, int) or index < 0
+        for index in indices
+    ):
+        raise ModuleAssetsError(
+            f"host_work_job_id {job_id!r} has malformed requested_pdf_indices"
+        )
+    languages = {str(value) for value in request.get("play_languages") or []}
+    return set(indices), languages
+
+
 def put_entity(
     workspace: Path,
     asset_root_id: str,
@@ -7428,11 +7632,22 @@ def put_entity(
     received_at = _now_iso()
     doc["updated_at"] = received_at
     doc[_ENTITY_ID_KEY[kind]] = eid
+    allowed_read_aloud_indices, required_read_aloud_languages = (
+        _put_entity_host_work_constraints(
+            workspace,
+            asset_root_id,
+            kind,
+            eid,
+            transient_host_work_job_id,
+        )
+    )
     _canonicalize_entity_source_evidence(
         workspace,
         asset_root_id,
         kind,
         doc,
+        allowed_read_aloud_indices=allowed_read_aloud_indices,
+        required_read_aloud_languages=required_read_aloud_languages,
     )
     matched_host_work_job_id: str | None = None
     needs_host_work_boundary = (

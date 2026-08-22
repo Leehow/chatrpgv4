@@ -54,6 +54,7 @@ function seedCampaign(ws, {
   presentationRevisions = {},
   assets = [],
   scenarioHandouts = null,
+  playLanguage = "zh-Hans",
 } = {}) {
   const campaignDir = path.join(ws, ".coc", "campaigns", "camp-1");
   writeJson(path.join(campaignDir, "campaign.json"), {
@@ -61,7 +62,7 @@ function seedCampaign(ws, {
     campaign_id: "camp-1",
     ruleset_id: "coc7",
     status: "active",
-    play_language: "zh-Hans",
+    play_language: playLanguage,
     active_scenario_id: "scen-1",
     // Deliberately NOT a delivery source: the authoritative set lives in
     // save/world-state.json (regression guard for the review's A2-1).
@@ -228,8 +229,9 @@ test("loadHandoutCards merges the three stores with entity > scenario > index pr
     asset_id: "entity-only",
     kind: "read_aloud",
     title: "朗读框",
-    text: null,
-    localized_text: null,
+    text: "Source read-aloud body.",
+    localized_title: { "zh-Hans": "朗读框" },
+    localized_text: { "zh-Hans": "朗读框正文。" },
     source_refs: ["pdf_index-5"],
   }));
 
@@ -275,7 +277,7 @@ test("all card stores reject the same malformed visibility, body, and asset shap
     {
       asset_id: "bad-localized",
       kind: "document",
-      localized_text: { "zh-Hans": "must stay secret" },
+      localized_text: { "": "must stay secret" },
     },
     {
       asset_id: "bad-body",
@@ -418,7 +420,9 @@ test("presentation projection keeps stable material identity and advances event 
       asset_id: "doc-1",
       kind: "read_aloud",
       title: "门后的声音",
-      localized_text: "门轴发出低沉的呻吟。",
+      text: "The hinges groan.",
+      localized_title: { "zh-Hans": "门后的声音" },
+      localized_text: { "zh-Hans": "门轴发出低沉的呻吟。" },
       source_refs: ["pdf_index-9"],
       player_visible: true,
     }],
@@ -432,6 +436,47 @@ test("presentation projection keeps stable material identity and advances event 
     ...materials[0],
     presentation_id: "doc-1:presentation:2",
     presentation_revision: 2,
+  }]);
+});
+
+test("read-aloud projection uses only the exact campaign play language", () => {
+  const ws = makeWorkspace();
+  const campaignDir = seedCampaign(ws, {
+    delivered: ["read-ja", "read-missing-ja"],
+    playLanguage: "ja-JP",
+  });
+  writeJson(path.join(campaignDir, "scenario", "handouts.json"), {
+    schema_version: 1,
+    handouts: [
+      {
+        asset_id: "read-ja",
+        kind: "read_aloud",
+        title: "At the door",
+        text: "The hinges groan in the dark.",
+        localized_title: { "ja-JP": "扉の前" },
+        localized_text: { "ja-JP": "暗闇で蝶番が低くきしむ。" },
+        source_refs: ["pdf_index-9"],
+        player_visible: true,
+      },
+      {
+        asset_id: "read-missing-ja",
+        kind: "read_aloud",
+        title: "Source title must not leak",
+        text: "Source body must not leak",
+        localized_title: { "zh-Hans": "门前" },
+        localized_text: { "zh-Hans": "黑暗中门轴低鸣。" },
+        source_refs: ["pdf_index-10"],
+        player_visible: true,
+      },
+    ],
+  });
+
+  assert.deepEqual(deliveredHandoutsDisplay(ws, "camp-1"), [{
+    asset_id: "read-ja",
+    kind: "read_aloud",
+    title: "扉の前",
+    text: "暗闇で蝶番が低くきしむ。",
+    source_pages: ["pdf_index-9"],
   }]);
 });
 

@@ -656,8 +656,9 @@ def _project_location_read_aloud_cards(
             "parse_state": "deep",
             "origin": "source",
         }
-        if row.get("localized_text") is not None:
-            card["localized_text"] = str(row["localized_text"])
+        for field in ("localized_title", "localized_text", "localized_language"):
+            if row.get(field) is not None:
+                card[field] = json.loads(json.dumps(row[field]))
         existing = next(
             (
                 candidate for candidate in cards
@@ -1116,8 +1117,9 @@ def merge_deep_threat_into_ir(
 
 
 HANDOUT_CARD_PROJECTION_FIELDS = (
-    "asset_id", "kind", "title", "summary", "player_visible",
-    "when_to_deliver", "opening_card", "text", "localized_text", "image_ref",
+    "asset_id", "kind", "title", "localized_title", "summary", "player_visible",
+    "when_to_deliver", "opening_card", "text", "localized_text",
+    "localized_language", "image_ref",
     "source_refs", "scene_refs", "clue_refs",
 )
 
@@ -3289,12 +3291,16 @@ def build_l0_direct_opening_pack(
         if not hook_id or hook_id in seen_read_ids:
             continue
         seen_read_ids.add(hook_id)
-        read_aloud.append({
+        read_row = {
             "id": hook_id,
             "trigger": "on_enter",
             "text": str(hook["text"]).strip(),
             "source_refs": json.loads(json.dumps(refs)),
-        })
+        }
+        for field in ("title", "localized_title", "localized_text", "localized_language"):
+            if hook.get(field) is not None:
+                read_row[field] = json.loads(json.dumps(hook[field]))
+        read_aloud.append(read_row)
     keeper_only: list[dict[str, Any]] = []
     seen_keeper_ids: set[str] = set()
     for hook in keeper_hooks:

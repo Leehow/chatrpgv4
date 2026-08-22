@@ -716,8 +716,8 @@ export const HANDOUT_KINDS = Object.freeze(new Set(["document", "read_aloud", "m
 const HANDOUT_IMAGE_EXT_RE = /\.(?:png|jpe?g|webp)$/i;
 const HANDOUT_ENTITY_PARSE_STATES = new Set(["deep", "body_parsed"]);
 const HANDOUT_CARD_PACK_FIELDS = Object.freeze([
-  "kind", "title", "summary", "player_visible", "when_to_deliver",
-  "opening_card", "text", "localized_text", "image_ref", "source_refs",
+  "kind", "title", "localized_title", "summary", "player_visible", "when_to_deliver",
+  "opening_card", "text", "localized_text", "localized_language", "image_ref", "source_refs",
   "scene_refs", "clue_refs",
 ]);
 
@@ -825,7 +825,7 @@ export function handoutCardContractErrors(entry, { prefix = "handout" } = {}) {
   if (typeof kind !== "string" || !HANDOUT_KINDS.has(kind)) {
     out.push(`${prefix}.kind must be one of document, read_aloud, map`);
   }
-  for (const field of ["title", "text", "localized_text", "when_to_deliver", "image_ref", "opening_card"]) {
+  for (const field of ["title", "text", "when_to_deliver", "image_ref", "opening_card"]) {
     const value = entry?.[field];
     if (value != null && typeof value !== "string" && field !== "opening_card") {
       out.push(`${prefix}.${field} must be a string when present`);
@@ -836,6 +836,30 @@ export function handoutCardContractErrors(entry, { prefix = "handout" } = {}) {
     if (field === "opening_card" && value != null && typeof value !== "boolean") {
       out.push(`${prefix}.opening_card must be a boolean when present`);
     }
+  }
+  for (const field of ["localized_title", "localized_text"]) {
+    const value = entry?.[field];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      if (!value.trim()) out.push(`${prefix}.${field} must not be blank`);
+      continue;
+    }
+    if (
+      typeof value !== "object"
+      || Array.isArray(value)
+      || !Object.keys(value).length
+      || Object.entries(value).some(([language, localized]) => (
+        !language.trim() || typeof localized !== "string" || !localized.trim()
+      ))
+    ) {
+      out.push(`${prefix}.${field} must map language tags to non-empty strings`);
+    }
+  }
+  if (
+    entry?.localized_language != null
+    && (typeof entry.localized_language !== "string" || !entry.localized_language.trim())
+  ) {
+    out.push(`${prefix}.localized_language must be a non-empty string`);
   }
   const text = entry?.text;
   const sourceRefs = entry?.source_refs;
@@ -981,10 +1005,31 @@ export function handoutAssetImageUrl(workspace, campaignId, imageRef) {
   }`;
 }
 
-function handoutDisplayText(entry) {
+function handoutLocaleValue(entry, field, playLanguage) {
+  const value = entry?.[field];
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return handoutString(value[playLanguage]);
+  }
+  if (typeof value === "string") {
+    const tagged = handoutString(entry?.localized_language);
+    if (tagged) return tagged === playLanguage ? handoutString(value) : null;
+    if (entry?.kind !== "read_aloud") return handoutString(value);
+  }
+  return null;
+}
+
+function campaignPlayLanguage(workspace, campaignId) {
+  const campaign = readJsonFile(
+    path.join(campaignDir(workspace, campaignId), "campaign.json"),
+  );
+  return handoutString(campaign?.play_language) || "zh-Hans";
+}
+
+function handoutDisplayText(entry, playLanguage) {
   // Player projection prefers the localized full translation, then the
   // verbatim source text. Undelivered bodies never reach here at all.
-  return handoutString(entry?.localized_text) || handoutString(entry?.text);
+  return handoutLocaleValue(entry, "localized_text", playLanguage)
+    || (entry?.kind === "read_aloud" ? null : handoutString(entry?.text));
 }
 
 /** Player-safe card projection for SSE / state.materials. */
@@ -993,12 +1038,21 @@ export function playerHandoutCard(workspace, campaignId, entry) {
   const assetId = handoutString(entry.asset_id);
   if (!assetId) return null;
   const kind = handoutString(entry.kind);
+  const normalizedKind = HANDOUT_KINDS.has(kind) ? kind : "document";
+  const playLanguage = campaignPlayLanguage(workspace, campaignId);
+  const localizedTitle = handoutLocaleValue(
+    entry, "localized_title", playLanguage,
+  );
+  const displayText = handoutDisplayText(entry, playLanguage);
+  if (normalizedKind === "read_aloud" && (!localizedTitle || !displayText)) {
+    return null;
+  }
   const imageRef = handoutString(entry.image_ref);
   const card = {
     asset_id: assetId,
-    kind: HANDOUT_KINDS.has(kind) ? kind : "document",
-    title: handoutString(entry.title) || assetId,
-    text: handoutDisplayText(entry) || null,
+    kind: normalizedKind,
+    title: localizedTitle || handoutString(entry.title) || assetId,
+    text: displayText || null,
     source_pages: handoutStringList(entry.source_refs),
   };
   const summary = handoutString(entry.summary);

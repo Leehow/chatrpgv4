@@ -372,6 +372,66 @@ def _deep_opening_pack():
     }
 
 
+def _source_read_aloud(**overrides):
+    row = {
+        "id": "opening-box",
+        "trigger": "on_enter",
+        "title": "At the door",
+        "text": "The hinges groan in the dark.",
+        "localized_title": {"zh-Hans": "门前"},
+        "localized_text": {"zh-Hans": "黑暗中，门轴发出低沉的呻吟。"},
+        "source_refs": [{"source_id": "pdf:prog-demo", "pdf_index": 0}],
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.parametrize(
+    "source_refs, error",
+    [
+        ([{"source_id": "pdf:foreign", "pdf_index": 0}], "different source_id"),
+        ([{"source_id": "pdf:prog-demo", "pdf_index": 99}], "uncached pdf_index 99"),
+        ([{"source_id": "pdf:prog-demo", "pdf_index": 1}], "outside its parent"),
+        ([{"source_id": "pdf:prog-demo", "pdf_index": 0, "text_sha256": "0" * 64}], "do not match cached text"),
+        ([{"source_id": "pdf:prog-demo", "pdf_index": 0, "bundle_sha256s": ["0" * 64]}], "stale bundle_sha256s"),
+        (["pdf_index-0"], "source_refs"),
+    ],
+)
+def test_read_aloud_source_refs_fail_closed_at_put_entity(
+    tmp_path: Path,
+    source_refs: list,
+    error: str,
+):
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["read_aloud"] = [_source_read_aloud(source_refs=source_refs)]
+
+    with pytest.raises(assets.ModuleAssetsError, match=error):
+        assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+
+
+def test_read_aloud_source_refs_are_canonical_before_card_projection(tmp_path: Path):
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["read_aloud"] = [_source_read_aloud()]
+
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    stored = assets.get_entity(tmp_path, "prog-demo", "location", "opening")
+    assert stored is not None
+    ref = stored["read_aloud"][0]["source_refs"][0]
+    assert ref["source_id"] == "pdf:prog-demo"
+    assert ref["pdf_index"] == 0
+    assert len(ref["text_sha256"]) == 64
+    assert ref["bundle_sha256s"]
+
+    merged = project.merge_deep_location_into_ir(
+        project.project_skeleton_to_ir(_skeleton()), stored,
+    )
+    assert merged["handouts.json"]["handouts"][0]["source_refs"] == [
+        "pdf_index-0"
+    ]
+
+
 def _deep_opening_pack_with_obvious_delivery_kind():
     pack = _deep_opening_pack()
     for clue in pack.get("clues") or []:

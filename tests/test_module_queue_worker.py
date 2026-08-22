@@ -570,6 +570,7 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert host_work, "missing host-work request for cellar"
     request = json.loads(host_work[0].read_text(encoding="utf-8"))
     assert request["requested_pdf_indices"] == [1]
+    assert request["play_languages"] == ["zh-Hans"]
     assert request["cached_scope_complete"] is True
     assert request["cached_page_refs"][0]["pdf_index"] == 1
     assert "do not reopen the PDF" in request["instruction"]
@@ -663,10 +664,45 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert packet["contract_id"] == "coc.source-pack-worker.v1"
     assert packet["cached_scope_complete"] is True
     assert packet["requested_pdf_indices"] == [1]
+    assert packet["play_languages"] == ["zh-Hans"]
+    assert packet["requests"][0]["play_languages"] == ["zh-Hans"]
     assert packet["requests"][0]["job_id"] == request["job_id"]
     assert packet["requests"][0]["result_contract"] == result_contract
     assert any("continue play" in hint for hint in claim_hints)
     leased_request = assets.list_host_work_requests(tmp_path, "qw-demo")[0]
+
+    missing_locale = _deep("cellar")
+    missing_locale["host_work_job_id"] = request["job_id"]
+    missing_locale["source_page_indices"] = [1]
+    missing_locale["clues"][0]["source_refs"] = [{"pdf_index": 1}]
+    missing_locale["clues"][0]["provenance"]["source_refs"] = [
+        {"pdf_index": 1},
+    ]
+    missing_locale["read_aloud"] = [{
+        "id": "missing-active-locale",
+        "trigger": "on_enter",
+        "title": "Cached source scope",
+        "text": "Cached source scope.",
+        "source_refs": [{"source_id": "pdf:qw-demo", "pdf_index": 1}],
+    }]
+    with pytest.raises(assets.ModuleAssetsError, match="localized_title.*zh-Hans"):
+        assets.put_entity(tmp_path, "qw-demo", "location", "cellar", missing_locale)
+
+    out_of_request = _deep("cellar")
+    out_of_request["host_work_job_id"] = request["job_id"]
+    out_of_request["read_aloud"] = [{
+        "id": "wrong-page-box",
+        "trigger": "on_enter",
+        "title": "Wrong page",
+        "text": "Accepted authored clue scope.",
+        "localized_title": {"zh-Hans": "错误页面"},
+        "localized_text": {"zh-Hans": "已接受的创作线索范围。"},
+        "source_refs": [{"source_id": "pdf:qw-demo", "pdf_index": 0}],
+    }]
+    with pytest.raises(assets.ModuleAssetsError, match="outside the host-work request"):
+        assets.put_entity(
+            tmp_path, "qw-demo", "location", "cellar", out_of_request,
+        )
 
     fulfilled_pack = _deep("cellar")
     fulfilled, _warnings, _hints = toolbox.TOOLS[
