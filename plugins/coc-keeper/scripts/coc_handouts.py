@@ -19,6 +19,7 @@ keyword matching occurs here; card identity and visibility are structured.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,19 +85,7 @@ class HandoutCatalog:
 
     def __init__(self, cards: dict[str, dict[str, Any]]):
         self._cards = cards
-        clue_refs: dict[str, set[str]] = {}
-        for asset_id, card in cards.items():
-            for raw_ref in card.get("clue_refs") or []:
-                clue_id = str(raw_ref).strip()
-                if clue_id:
-                    clue_refs.setdefault(clue_id, set()).add(asset_id)
-        # Build this only after the authority-ordered stores have finished
-        # overriding one another.  Reverse linkage therefore depends on the
-        # final catalog, never on projection/merge order.
-        self._assets_by_clue = {
-            clue_id: tuple(sorted(asset_ids))
-            for clue_id, asset_ids in clue_refs.items()
-        }
+        self._play_language = "zh-Hans"
 
     @classmethod
     def load(cls, ctx: Any) -> HandoutCatalog:
@@ -149,7 +138,18 @@ class HandoutCatalog:
                     except coc_module_project.ModuleProjectError:
                         continue
                     cards[card["asset_id"]] = card
-        return cls(cards)
+        catalog = cls(cards)
+        try:
+            campaign = json.loads(
+                (ctx.campaign_dir / "campaign.json").read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, ValueError):
+            campaign = {}
+        if isinstance(campaign, dict):
+            language = str(campaign.get("play_language") or "").strip()
+            if language:
+                catalog._play_language = language
+        return catalog
 
     def project(self, world: dict[str, Any], audience: str) -> dict[str, Any]:
         """Return the complete Keeper view or fail-closed player view."""
@@ -169,7 +169,9 @@ class HandoutCatalog:
                 "projection": audience,
                 "delivered_handout_ids": sorted(player_ids),
                 "cards": [
-                    _player_view(self._cards[asset_id], delivered)
+                    _player_view(
+                        self._cards[asset_id], delivered, self._play_language
+                    )
                     for asset_id in sorted(player_ids)
                 ],
             }
@@ -181,10 +183,18 @@ class HandoutCatalog:
                 {
                     "asset_id": asset_id,
                     "kind": card.get("kind"),
-                    "title": card.get("title"),
-                    "summary": card.get("summary"),
+                    "content_origin": card.get(
+                        "content_origin", "source_verbatim"
+                    ),
+                    "title": _display_value(
+                        card, "title", self._play_language
+                    ),
+                    "summary": _display_value(
+                        card, "summary", self._play_language
+                    ),
                     "when_to_deliver": card.get("when_to_deliver"),
-                    "text": card.get("text"),
+                    "text": card.get("text") or card.get("authored_text"),
+                    "authored_text": card.get("authored_text"),
                     "localized_text": card.get("localized_text"),
                     "image_ref": card.get("image_ref"),
                     "source_refs": list(card.get("source_refs") or []),
@@ -221,7 +231,7 @@ class HandoutCatalog:
             newly=tuple(newly),
             already=tuple(already),
             delivered_total=len(_delivered_ids(world)),
-            card=_player_view(card, {handout_id}),
+            card=_player_view(card, {handout_id}, self._play_language),
         )
 
     def link_delivery(self, world: dict[str, Any], handout_id: str) -> LinkedDelivery:
@@ -252,42 +262,12 @@ class HandoutCatalog:
         among conflicting or incomplete assertions would fabricate delivery
         truth and make behavior depend on merge order.
         """
-        clue_id = str(clue_id).strip()
-        explicit_id = str(explicit_handout_id or "").strip()
-        reverse_ids = self._assets_by_clue.get(clue_id, ())
-
-        if explicit_id and explicit_id not in self._cards:
-            raise HandoutError(
-                "unknown_handout",
-                f"clue '{clue_id}' references unknown handout '{explicit_id}'",
+        try:
+            asset_id = coc_scenario.resolve_handout_clue_link(
+                self._cards, clue_id, explicit_handout_id
             )
-        if len(reverse_ids) > 1:
-            raise HandoutError(
-                "handout_link_ambiguous",
-                f"clue '{clue_id}' is referenced by multiple handout cards: "
-                f"{', '.join(reverse_ids)}",
-            )
-        if explicit_id and reverse_ids and reverse_ids[0] != explicit_id:
-            raise HandoutError(
-                "handout_link_conflict",
-                f"clue '{clue_id}' explicitly references '{explicit_id}' but "
-                f"card '{reverse_ids[0]}' claims the clue through clue_refs",
-            )
-
-        asset_id = explicit_id or (reverse_ids[0] if reverse_ids else "")
-        if not asset_id:
-            raise HandoutError(
-                "handout_link_missing",
-                f"clue '{clue_id}' has delivery_kind=handout but no unique "
-                "handout_asset_id or card clue_refs linkage",
-            )
-        card = self._cards[asset_id]
-        if card.get("player_visible", True) is not True:
-            raise HandoutError(
-                "handout_not_player_visible",
-                f"handout '{asset_id}' linked to clue '{clue_id}' is marked "
-                "player_visible:false and cannot satisfy player delivery",
-            )
+        except coc_scenario.HandoutLinkError as exc:
+            raise HandoutError(exc.code, exc.message) from exc
         newly, _already = _apply_delivery(world, [asset_id])
         return LinkedDelivery(
             asset_id=asset_id,
@@ -310,7 +290,9 @@ class HandoutCatalog:
                 {
                     "asset_id": asset_id,
                     "kind": card.get("kind"),
-                    "title": card.get("title"),
+                    "title": _display_value(
+                        card, "title", self._play_language
+                    ),
                     "when_to_deliver": card.get("when_to_deliver"),
                 }
             )
@@ -325,7 +307,32 @@ def _delivered_ids(world: dict[str, Any]) -> set[str]:
     }
 
 
-def _player_view(card: dict[str, Any], delivered: set[str]) -> dict[str, Any]:
+def _display_value(
+    card: dict[str, Any], field: str, play_language: str
+) -> Any:
+    localized = card.get(f"localized_{field}")
+    if isinstance(localized, dict):
+        language_candidates = [play_language]
+        base_language = play_language.split("-", 1)[0]
+        if base_language not in language_candidates:
+            language_candidates.append(base_language)
+        if base_language == "zh":
+            language_candidates.extend(["zh-Hans", "zh"])
+        for language in language_candidates:
+            value = localized.get(language)
+            if isinstance(value, str) and value.strip():
+                return value
+    localized_language = str(card.get("localized_language") or "").strip()
+    if isinstance(localized, str) and localized.strip() and (
+        not localized_language or localized_language == play_language
+    ):
+        return localized
+    return card.get(field)
+
+
+def _player_view(
+    card: dict[str, Any], delivered: set[str], play_language: str
+) -> dict[str, Any]:
     """Project one card across the hard player-knowledge boundary."""
     asset_id = str(card.get("asset_id"))
     player_visible = card.get("player_visible", True)
@@ -340,20 +347,36 @@ def _player_view(card: dict[str, Any], delivered: set[str]) -> dict[str, Any]:
             "secret": True,
             "content_available_after": "state.deliver_handout",
         }
+    display_text = (
+        _display_value(card, "text", play_language)
+        or card.get("authored_text")
+    )
+    localized_text = (
+        display_text
+        if display_text not in {card.get("text"), card.get("authored_text")}
+        else None
+    )
     view: dict[str, Any] = {
         "asset_id": asset_id,
         "kind": card.get("kind"),
-        "title": card.get("title"),
-        "text": card.get("localized_text") or card.get("text"),
-        "localized_text": card.get("localized_text"),
+        "content_origin": card.get("content_origin", "source_verbatim"),
+        "title": _display_value(card, "title", play_language),
+        "text": display_text,
+        "localized_text": localized_text,
         "image_ref": card.get("image_ref"),
-        "source_refs": list(card.get("source_refs") or []),
+        "source_refs": (
+            list(card.get("source_refs") or [])
+            if card.get("content_origin", "source_verbatim")
+            == "source_verbatim"
+            else []
+        ),
         "player_visible": True,
         "delivered": True,
         "secret": False,
     }
-    if isinstance(card.get("summary"), str):
-        view["summary"] = card["summary"]
+    summary = _display_value(card, "summary", play_language)
+    if isinstance(summary, str):
+        view["summary"] = summary
     return view
 
 

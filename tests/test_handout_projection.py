@@ -245,7 +245,7 @@ def test_deep_clue_and_handout_merge_order_preserves_reverse_link(merge_order):
     [
         ({"asset_id": ["handout-letter"]}, "asset_id"),
         ({"player_visible": "false"}, "player_visible"),
-        ({"localized_text": {"zh-Hans": "伪造正文"}}, "localized_text"),
+        ({"localized_text": {"zh-Hans": ["伪造正文"]}}, "localized_text"),
         ({"text": {"body": "not verbatim text"}}, "text"),
         ({"image_ref": ["images/letter.png"]}, "image_ref"),
     ],

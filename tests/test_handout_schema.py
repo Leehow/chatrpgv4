@@ -97,6 +97,33 @@ def test_card_optional_field_shapes():
     assert errors == []
 
 
+def test_authored_derivative_body_is_distinct_from_source_verbatim_text():
+    card = _card(
+        content_origin="authored_derivative",
+        authored_text="Contributor-authored in-world prop.",
+        text=None,
+        source_refs=None,
+        localized_language="zh-Hans",
+        localized_title="战役内道具",
+        localized_summary="由项目贡献者创作的剧情资料。",
+        localized_text="贡献者创作的战役内道具正文。",
+    )
+
+    assert coc_scenario.validate_handout_card(card) == []
+    assert any(
+        "authored_derivative" in error and ".text" in error
+        for error in coc_scenario.validate_handout_card(
+            {**card, "text": "This must not claim to be source verbatim."}
+        )
+    )
+    assert any(
+        "source_refs" in error
+        for error in coc_scenario.validate_handout_card(
+            {**card, "source_refs": ["not-a-source-page"]}
+        )
+    )
+
+
 @pytest.mark.parametrize(
     ("overrides", "field"),
     [

@@ -48,14 +48,16 @@ function readHandouts(file) {
 }
 
 /** Campaign skeleton in the exact plugin shapes. */
-function seedCampaign(ws, { delivered = [], assets = [], scenarioHandouts = null } = {}) {
+function seedCampaign(ws, {
+  delivered = [], assets = [], scenarioHandouts = null, playLanguage = "zh-Hans",
+} = {}) {
   const campaignDir = path.join(ws, ".coc", "campaigns", "camp-1");
   writeJson(path.join(campaignDir, "campaign.json"), {
     schema_version: 3,
     campaign_id: "camp-1",
     ruleset_id: "coc7",
     status: "active",
-    play_language: "zh-Hans",
+    play_language: playLanguage,
     active_scenario_id: "scen-1",
     // Deliberately NOT a delivery source: the authoritative set lives in
     // save/world-state.json (regression guard for the review's A2-1).
@@ -266,7 +268,7 @@ test("all card stores reject the same malformed visibility, body, and asset shap
     {
       asset_id: "bad-localized",
       kind: "document",
-      localized_text: { "zh-Hans": "must stay secret" },
+      localized_text: { "zh-Hans": ["must stay secret"] },
     },
     {
       asset_id: "bad-body",
@@ -395,6 +397,79 @@ test("deliveredHandoutsDisplay projects delivered cards only, localized text fir
   assert.ok(!projection.includes("Secret letter"));
   assert.ok(!projection.includes("delivered but forbidden body"));
   assert.ok(!projection.includes("Invisible"));
+});
+
+test("authored derivative uses localized player language and truthful labels without source pages", () => {
+  const ws = makeWorkspace();
+  seedCampaign(ws, {
+    delivered: ["prop-1"],
+    scenarioHandouts: {
+      schema_version: 1,
+      handouts: [{
+        asset_id: "prop-1",
+        kind: "document",
+        content_origin: "authored_derivative",
+        title: "Held city-desk copy",
+        summary: "Contributor-authored in-world prop.",
+        authored_text: "An original in-world clipping.",
+        localized_language: "zh-Hans",
+        localized_title: "城市新闻部暂缓稿",
+        localized_summary: "由项目贡献者创作的剧情资料。",
+        localized_text: "这是一份原创的战役内剪报。",
+        player_visible: true,
+      }],
+    },
+  });
+
+  const [card] = deliveredHandoutsDisplay(ws, "camp-1");
+  assert.equal(card.title, "城市新闻部暂缓稿");
+  assert.equal(card.summary, "由项目贡献者创作的剧情资料。");
+  assert.equal(card.text, "这是一份原创的战役内剪报。");
+  assert.equal(card.content_origin, "authored_derivative");
+  assert.equal(card.card_label, "剧情资料");
+  assert.equal(card.kind_label, "文献");
+  assert.deepEqual(card.source_pages, []);
+  assert.equal(card.source_label, null);
+});
+
+test("authored derivative selects the active Japanese language map", () => {
+  const ws = makeWorkspace();
+  seedCampaign(ws, {
+    delivered: ["prop-ja"],
+    playLanguage: "ja-JP",
+    scenarioHandouts: {
+      schema_version: 1,
+      handouts: [{
+        asset_id: "prop-ja",
+        kind: "document",
+        content_origin: "authored_derivative",
+        title: "Held city-desk copy",
+        summary: "Contributor-authored in-world prop.",
+        authored_text: "An original in-world clipping.",
+        localized_title: {
+          "zh-Hans": "城市新闻部暂缓稿",
+          "ja-JP": "市政部掲載保留稿",
+        },
+        localized_summary: {
+          "zh-Hans": "由项目贡献者创作的剧情资料。",
+          "ja-JP": "プロジェクト貢献者が創作した劇中資料。",
+        },
+        localized_text: {
+          "zh-Hans": "这是一份原创的战役内剪报。",
+          "ja-JP": "これはシナリオ用に創作された新聞記事である。",
+        },
+        player_visible: true,
+      }],
+    },
+  });
+
+  const [card] = deliveredHandoutsDisplay(ws, "camp-1");
+  assert.equal(card.title, "市政部掲載保留稿");
+  assert.equal(card.summary, "プロジェクト貢献者が創作した劇中資料。");
+  assert.equal(card.text, "これはシナリオ用に創作された新聞記事である。");
+  assert.equal(card.card_label, "劇中資料");
+  assert.equal(card.kind_label, "文書");
+  assert.equal(card.source_label, null);
 });
 
 // --------------------------------------------------------- ref normalization

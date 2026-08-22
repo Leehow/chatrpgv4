@@ -20472,7 +20472,7 @@ def _tool_progressive_retry_full_parse(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "clues.query",
-    "Clue graph with discovery state, plus the campaign's verbatim handout "
+    "Clue graph with discovery state, plus the campaign's registered handout "
     "cards with delivery state. Filter clues by scene_id or clue_id. "
     "Undiscovered clues are keeper secrets; undelivered card bodies are "
     "keeper-only until state.deliver_handout.",
@@ -20550,7 +20550,7 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
         "player-safe text of clues already recorded as discovered",
         "undelivered handout card bodies are keeper-only; deliver via "
         "state.deliver_handout when the fiction earns it, then present the "
-        "card body verbatim",
+        "registered card body exactly",
     ]
 
 
@@ -24000,10 +24000,12 @@ def _tool_state_cash_semantic(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "state.deliver_handout",
-    "Deliver a verbatim info card (handout) to the players. Idempotent via "
+    "Deliver an exact registered info card (handout) to the players. "
+    "Source cards preserve verbatim excerpts; authored-derivative cards "
+    "preserve their registered in-world prop text. Idempotent via "
     "decision_id. This only writes delivery state — judging WHEN a card is "
     "delivered stays with the Keeper; narration frames the find, the card "
-    "body is presented verbatim, never paraphrased.",
+    "registered body is presented exactly, never paraphrased.",
     {
         "handout_id": {
             "type": "string",
@@ -24053,9 +24055,9 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
     hints: list[str] = []
     if newly:
         hints.append(
-            "present the card body verbatim (localized_text preferred over "
-            "text); your narration frames who finds it and in what situation "
-            "— do not rewrite or summarize the card's own text"
+            "present the registered card body exactly (active-language text "
+            "preferred); your narration frames who finds it and in what "
+            "situation — do not rewrite or summarize the card's own text"
         )
     ctx.ledger_record(args.get("decision_id"), "state.deliver_handout", data)
     return data, warnings, hints
@@ -24105,18 +24107,21 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             )
 
     # Resolve the current-schema player handout contract before constructing
-    # either discovery document.  Missing, ambiguous, conflicting, unknown, or
-    # hidden linkage therefore leaves both world and flags byte-for-byte
-    # untouched.  This uses structured ids only; prose is never classified.
+    # either discovery document.  Handout delivery is optional metadata: a bad
+    # structured link becomes an advisory while canonical clue/flag/world
+    # writes continue.  Prose is never classified.
     linked_handout_id: str | None = None
     linked_handout_newly: list[str] = []
     linkage_skipped_hidden_card = False
+    handout_delivery_warning: dict[str, str] | None = None
+    handout_link_resolution_attempted = False
     handout_catalog: coc_handouts.HandoutCatalog | None = None
     if (
         clue is not None
         and str(clue.get("delivery_kind") or "") == "handout"
         and str(clue.get("visibility") or "") == "player-safe"
     ):
+        handout_link_resolution_attempted = True
         handout_catalog = coc_handouts.HandoutCatalog.load(ctx)
         try:
             linkage = handout_catalog.resolve_clue_delivery(
@@ -24125,9 +24130,17 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                 str(clue.get("handout_asset_id") or "").strip() or None,
             )
         except coc_handouts.HandoutError as exc:
-            raise ToolError(exc.code, exc.message) from exc
-        linked_handout_id = linkage.asset_id
-        linked_handout_newly = list(linkage.newly)
+            handout_delivery_warning = {
+                "code": exc.code,
+                "message": exc.message,
+            }
+            warnings.append(
+                f"optional handout delivery skipped [{exc.code}]: "
+                f"{exc.message}; clue discovery remains authoritative"
+            )
+        else:
+            linked_handout_id = linkage.asset_id
+            linked_handout_newly = list(linkage.newly)
 
     scene_contract = (
         (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
@@ -24171,15 +24184,50 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     )
     # Same-transaction linkage: preserve the existing best-effort behavior for
     # non-handout clues that carry an explicitly registered companion card.
-    if clue is not None and linked_handout_id is None:
+    if (
+        clue is not None
+        and linked_handout_id is None
+        and not handout_link_resolution_attempted
+    ):
         asset_id = str(clue.get("handout_asset_id") or "").strip()
         if asset_id:
-            linkage = (handout_catalog or coc_handouts.HandoutCatalog.load(ctx)).link_delivery(
-                world, asset_id
-            )
-            linked_handout_id = linkage.asset_id
-            linked_handout_newly = list(linkage.newly)
-            linkage_skipped_hidden_card = linkage.hidden_card
+            try:
+                linkage = (
+                    handout_catalog or coc_handouts.HandoutCatalog.load(ctx)
+                ).link_delivery(world, asset_id)
+            except coc_handouts.HandoutError as exc:
+                handout_delivery_warning = {
+                    "code": exc.code,
+                    "message": exc.message,
+                }
+                warnings.append(
+                    f"optional handout delivery skipped [{exc.code}]: "
+                    f"{exc.message}; clue discovery remains authoritative"
+                )
+            else:
+                linkage_skipped_hidden_card = linkage.hidden_card
+                if linkage.asset_id is None:
+                    code = (
+                        "handout_not_player_visible"
+                        if linkage.hidden_card
+                        else "unknown_handout"
+                    )
+                    message = (
+                        f"handout '{asset_id}' is not player-visible"
+                        if linkage.hidden_card
+                        else f"handout '{asset_id}' is not a registered valid card"
+                    )
+                    handout_delivery_warning = {
+                        "code": code,
+                        "message": message,
+                    }
+                    warnings.append(
+                        f"optional handout delivery skipped [{code}]: "
+                        f"{message}; clue discovery remains authoritative"
+                    )
+                else:
+                    linked_handout_id = linkage.asset_id
+                    linked_handout_newly = list(linkage.newly)
     # Persist provenance before the world discovery.  A crash between these
     # two current-state files therefore fails closed for authored unlocks: a
     # local-only clue can never briefly exist as an unlabelled prerequisite.
@@ -24342,6 +24390,8 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "delivered_handout_id": linked_handout_id,
         "route_completion": deepcopy(route_completion),
     }
+    if handout_delivery_warning is not None:
+        data["handout_delivery_warning"] = deepcopy(handout_delivery_warning)
     if clue is None:
         data["provenance"] = deepcopy(clue_record)
     progressive_hints: list[str] = []
@@ -24371,8 +24421,8 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     if linked_handout_newly:
         hints.append(
             f"clue '{clue_id}' delivered handout card "
-            f"'{linked_handout_newly[0]}' — present its body verbatim "
-            "(localized_text preferred); frame the find without rewriting the "
+            f"'{linked_handout_newly[0]}' — present its registered body exactly "
+            "(active-language text preferred); frame the find without rewriting the "
             "card text"
         )
     if linkage_skipped_hidden_card:

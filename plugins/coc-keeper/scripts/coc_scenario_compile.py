@@ -1825,24 +1825,43 @@ def _check_handout_link_contract(
     findings: list[dict[str, str]] = []
     declared_cards: dict[str, dict[str, Any]] = {}
     valid_cards: dict[str, dict[str, Any]] = {}
-    assets_by_clue: dict[str, set[str]] = {}
+    duplicate_ids: set[str] = set()
     for index, card in enumerate(
         (compiled.get("handouts") or {}).get("handouts") or []
     ):
+        path = f"handouts.handouts[{index}]"
         if not isinstance(card, dict):
+            for error in coc_scenario.validate_handout_card(card, prefix=path):
+                findings.append(_finding(
+                    "invalid_handout_card", "error", error, path=path,
+                ))
             continue
         asset_id = str(card.get("asset_id") or "").strip()
         if not asset_id:
-            continue
-        declared_cards[asset_id] = card
-        if not coc_scenario.validate_handout_card(
-            card, prefix=f"handouts.handouts[{index}]"
-        ):
+            findings.append(_finding(
+                "invalid_handout_card",
+                "error",
+                f"{path}.asset_id is required in a compiled card store",
+                path=path,
+            ))
+        if asset_id and asset_id in declared_cards:
+            duplicate_ids.add(asset_id)
+            valid_cards.pop(asset_id, None)
+            findings.append(_finding(
+                "duplicate_handout_asset_id",
+                "error",
+                f"duplicate handout asset_id '{asset_id}'",
+                path=path,
+            ))
+        elif asset_id:
+            declared_cards[asset_id] = card
+        errors = coc_scenario.validate_handout_card(card, prefix=path)
+        for error in errors:
+            findings.append(_finding(
+                "invalid_handout_card", "error", error, path=path,
+            ))
+        if asset_id and not errors and asset_id not in duplicate_ids:
             valid_cards[asset_id] = card
-            for raw_ref in card.get("clue_refs") or []:
-                clue_ref = str(raw_ref).strip()
-                if clue_ref:
-                    assets_by_clue.setdefault(clue_ref, set()).add(asset_id)
     for path, clue in _iter_clues(compiled):
         if (
             str(clue.get("delivery_kind") or "") != "handout"
@@ -1851,24 +1870,7 @@ def _check_handout_link_contract(
             continue
         clue_id = str(clue.get("clue_id") or "").strip()
         asset_id = str(clue.get("handout_asset_id") or "").strip()
-        if not asset_id:
-            findings.append(_finding(
-                "handout_link_missing",
-                "error",
-                f"clue '{clue_id}' is player-safe delivery_kind=handout but "
-                "has no non-empty handout_asset_id",
-                path=path,
-            ))
-            continue
-        if asset_id not in declared_cards:
-            findings.append(_finding(
-                "unknown_handout",
-                "error",
-                f"clue '{clue_id}' references handout '{asset_id}', but it is "
-                "not a registered valid card",
-                path=path,
-            ))
-        elif asset_id not in valid_cards:
+        if asset_id and asset_id in declared_cards and asset_id not in valid_cards:
             findings.append(_finding(
                 "invalid_handout_card",
                 "error",
@@ -1876,30 +1878,14 @@ def _check_handout_link_contract(
                 "registered card is invalid",
                 path=path,
             ))
-        elif valid_cards[asset_id].get("player_visible", True) is not True:
+            continue
+        try:
+            coc_scenario.resolve_handout_clue_link(
+                valid_cards, clue_id, asset_id or None
+            )
+        except coc_scenario.HandoutLinkError as exc:
             findings.append(_finding(
-                "handout_not_player_visible",
-                "error",
-                f"clue '{clue_id}' requires handout '{asset_id}' to be "
-                "player_visible:true",
-                path=path,
-            ))
-        reverse_ids = sorted(assets_by_clue.get(clue_id, set()))
-        if len(reverse_ids) > 1:
-            findings.append(_finding(
-                "handout_link_ambiguous",
-                "error",
-                f"clue '{clue_id}' is referenced by multiple valid cards: "
-                f"{', '.join(reverse_ids)}",
-                path=path,
-            ))
-        elif reverse_ids and reverse_ids[0] != asset_id:
-            findings.append(_finding(
-                "handout_link_conflict",
-                "error",
-                f"clue '{clue_id}' explicitly references '{asset_id}' but "
-                f"valid card '{reverse_ids[0]}' claims it through clue_refs",
-                path=path,
+                exc.code, "error", exc.message, path=path,
             ))
     return findings
 
@@ -1999,27 +1985,21 @@ def doctor(*, rules_dir: Path | None = None) -> list[dict[str, Any]]:
 
 
 def _load_compiled_handouts(scenario_dir: Path) -> dict[str, Any]:
-    """Merge static card stores with the same index→scenario authority order."""
-    cards: dict[str, Any] = {}
+    """Load every static card row so validation sees duplicates and errors."""
+    cards: list[Any] = []
     index_path = scenario_dir.parent / "index" / "handout-assets.json"
     if index_path.exists():
         index_doc = _read(index_path)
         if isinstance(index_doc, dict):
             for card in index_doc.get("assets") or []:
-                if isinstance(card, dict):
-                    asset_id = str(card.get("asset_id") or "").strip()
-                    if asset_id:
-                        cards[asset_id] = card
+                cards.append(card)
     scenario_path = scenario_dir / "handouts.json"
     if scenario_path.exists():
         scenario_doc = _read(scenario_path)
         if isinstance(scenario_doc, dict):
             for card in scenario_doc.get("handouts") or []:
-                if isinstance(card, dict):
-                    asset_id = str(card.get("asset_id") or "").strip()
-                    if asset_id:
-                        cards[asset_id] = card
-    return {"schema_version": 1, "handouts": list(cards.values())}
+                cards.append(card)
+    return {"schema_version": 1, "handouts": cards}
 
 
 def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:

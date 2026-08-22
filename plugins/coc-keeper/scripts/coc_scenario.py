@@ -24,12 +24,74 @@ EMPTY_SCENARIO_LISTS = (
     "keeper-secrets.json",
 )
 
-# Verbatim info cards (原文信息卡). One card is one player-deliverable
-# artifact whose body text is a verbatim source excerpt, never a Keeper
-# paraphrase. These shapes are shared verbatim by index/handout-assets.json
-# asset entries and progressive handout entity packs (isomorphic contract).
+# Player info cards. Source-verbatim excerpts and contributor-authored
+# derivative props are separate provenance classes. These shapes are shared
+# by index/handout-assets.json entries and progressive entity packs.
 HANDOUT_CARD_KINDS = ("document", "read_aloud", "map")
+HANDOUT_CONTENT_ORIGINS = ("source_verbatim", "authored_derivative")
 HANDOUT_CARD_ID_PATTERN = re.compile(r"pdf_index-(\d+)")
+
+
+class HandoutLinkError(ValueError):
+    """Stable exact-identity error shared by compile and runtime."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def resolve_handout_clue_link(
+    cards: dict[str, dict[str, Any]],
+    clue_id: str,
+    explicit_handout_id: str | None = None,
+) -> str:
+    """Resolve one clue/card relationship from exact structured ids only."""
+    normalized_clue_id = str(clue_id).strip()
+    explicit_id = str(explicit_handout_id or "").strip()
+    reverse_ids = sorted(
+        asset_id
+        for asset_id, card in cards.items()
+        if normalized_clue_id
+        in {
+            str(value).strip()
+            for value in (card.get("clue_refs") or [])
+            if str(value).strip()
+        }
+    )
+    if explicit_id and explicit_id not in cards:
+        raise HandoutLinkError(
+            "unknown_handout",
+            f"clue '{normalized_clue_id}' references unknown handout "
+            f"'{explicit_id}', which is not a registered valid card",
+        )
+    if len(reverse_ids) > 1:
+        raise HandoutLinkError(
+            "handout_link_ambiguous",
+            f"clue '{normalized_clue_id}' is referenced by multiple handout cards: "
+            f"{', '.join(reverse_ids)}",
+        )
+    if explicit_id and reverse_ids and reverse_ids[0] != explicit_id:
+        raise HandoutLinkError(
+            "handout_link_conflict",
+            f"clue '{normalized_clue_id}' explicitly references '{explicit_id}' "
+            f"but card '{reverse_ids[0]}' claims the clue through clue_refs",
+        )
+    asset_id = explicit_id or (reverse_ids[0] if reverse_ids else "")
+    if not asset_id:
+        raise HandoutLinkError(
+            "handout_link_missing",
+            f"clue '{normalized_clue_id}' has delivery_kind=handout but no "
+            "unique handout_asset_id or card clue_refs linkage",
+        )
+    if cards[asset_id].get("player_visible", True) is not True:
+        raise HandoutLinkError(
+            "handout_not_player_visible",
+            f"handout '{asset_id}' linked to clue '{normalized_clue_id}' is "
+            "marked player_visible:false; player delivery requires "
+            "player_visible:true",
+        )
+    return asset_id
 
 
 def handout_card_source_indices(source_refs: Any) -> list[int]:
@@ -53,12 +115,12 @@ def handout_card_source_indices(source_refs: Any) -> list[int]:
 
 
 def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
-    """Validate one verbatim handout card entry; return error strings.
+    """Validate one player-deliverable handout card; return error strings.
 
     Checks only the contract card fields and ignores unknown keys so the same
     validator serves asset-index entries and module-assets entity packs.
-    Hard rules: ``kind`` is required and enum-bound; ``text`` (the verbatim
-    body) is meaningless without ``source_refs`` tracing it to source pages.
+    Source-verbatim and contributor-authored derivative bodies have distinct
+    fields so player projections can label their provenance truthfully.
     """
     if not isinstance(entry, dict):
         return [f"{prefix} must be an object"]
@@ -74,12 +136,46 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
         errors.append(
             f"{prefix}.kind must be one of {list(HANDOUT_CARD_KINDS)}"
         )
-    for field in ("title", "text", "localized_text", "when_to_deliver", "image_ref"):
+    content_origin = entry.get("content_origin", "source_verbatim")
+    if content_origin not in HANDOUT_CONTENT_ORIGINS:
+        errors.append(
+            f"{prefix}.content_origin must be one of "
+            f"{list(HANDOUT_CONTENT_ORIGINS)}"
+        )
+    for field in (
+        "title", "summary", "text", "authored_text", "localized_language",
+        "when_to_deliver", "image_ref",
+    ):
         value = entry.get(field)
         if value is not None and not isinstance(value, str):
             errors.append(f"{prefix}.{field} must be a string when present")
-        if field == "text" and isinstance(value, str) and not value.strip():
-            errors.append(f"{prefix}.text must be a non-empty verbatim excerpt")
+        if field in {"text", "authored_text"} and isinstance(value, str) and not value.strip():
+            errors.append(f"{prefix}.{field} must be non-empty when present")
+    for field in ("localized_title", "localized_summary", "localized_text"):
+        value = entry.get(field)
+        if value is None:
+            continue
+        valid_map = (
+            isinstance(value, dict)
+            and bool(value)
+            and all(
+                isinstance(language, str)
+                and language.strip()
+                and isinstance(localized, str)
+                and localized.strip()
+                for language, localized in value.items()
+            )
+        )
+        if not (isinstance(value, str) or valid_map):
+            errors.append(
+                f"{prefix}.{field} must be a string or a non-empty "
+                "play_language-to-string map when present"
+            )
+        if isinstance(value, dict) and entry.get("localized_language") is not None:
+            errors.append(
+                f"{prefix}.localized_language must be absent when {field} "
+                "uses a language map"
+            )
     text = entry.get("text")
     source_refs = entry.get("source_refs")
     if source_refs is not None:
@@ -100,6 +196,21 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
                 f"{prefix}.text requires non-empty source_refs tracing the "
                 "verbatim excerpt to bundle pages"
             )
+    if content_origin == "authored_derivative":
+        if isinstance(text, str) and text.strip():
+            errors.append(
+                f"{prefix}.text is reserved for source-verbatim excerpts; "
+                "authored_derivative cards use authored_text"
+            )
+        if source_refs is not None:
+            errors.append(
+                f"{prefix}.source_refs are reserved for source-verbatim "
+                "cards and must be absent for authored_derivative"
+            )
+    elif entry.get("authored_text") is not None:
+        errors.append(
+            f"{prefix}.authored_text requires content_origin=authored_derivative"
+        )
     if entry.get("player_visible") is not None and not isinstance(
         entry.get("player_visible"), bool
     ):
