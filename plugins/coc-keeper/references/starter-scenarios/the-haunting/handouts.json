@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "handouts": [
+    {
+      "asset_id": "handout-globe-unpublished-1918",
+      "kind": "document",
+      "title": "Boston Globe City Desk Copy — Held from Print (1918)",
+      "summary": "An original in-world newspaper prop written for this Apache-2.0 starter; it is not source-verbatim Chaosium text.",
+      "text": "BOSTON GLOBE — CITY DESK COPY — HELD FROM PRINT\n\nHOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n\nA dwelling known in the neighborhood as the Corbitt House has acquired a history that no agent's fresh paint can conceal. Successive tenants have departed after accidents, lingering illness, and self-inflicted death. No single public record explains the pattern, but the addresses and dates repeat with uncomfortable regularity.\n\nThe Macario family took the house early in 1918 and abandoned it within weeks, leaving no orderly notice. Neighbors disagree about what drove them out. Relatives will say only that members of the family are now receiving care in Roxbury.\n\nThe Globe has not established a criminal cause and will not print rumor as fact. The city desk is holding this feature until the property records, hospital accounts, and surviving tenants can be examined together.",
+      "localized_text": "《波士顿环球报》城市新闻部稿件——暂缓刊发\n\n希夫街宅邸留下连串不幸记录\n\n附近居民口中的科比特宅有一段再新的油漆也遮不住的历史。历任住户接连在事故、久病与自杀后离去。没有哪一份公开记录能单独解释这种规律，但同一地址与相近日期反复出现，令人难以安心。\n\n马卡里奥一家于 1918 年初租下此屋，却在数周内仓促离开，连正式退租手续也没有留下。邻居对他们逃离的原因各执一词；亲属只肯承认，一家中有人如今正在罗克斯伯里接受照护。\n\n本报尚未查明任何刑事原因，也不会把流言当作事实刊发。在房产档案、医疗记录与仍可联系的旧住户能够相互印证之前，城市新闻部决定暂缓刊出这篇专题。",
+      "when_to_deliver": "The investigators obtain the held 1918 Globe feature or an authorized copy while researching the Corbitt House or the Macario family.",
+      "source_refs": [
+        "starter-original-derivative:the-haunting:globe-unpublished-1918"
+      ],
+      "player_visible": true,
+      "clue_refs": [
+        "clue-globe-unpublished-story",
+        "clue-macario-tragedy"
+      ],
+      "origin": "starter-original-derivative",
+      "source_type": "starter_original_derivative",
+      "provenance": {
+        "authority": "starter_original_derivative",
+        "author": "chatrpgv4 contributors",
+        "license": "Apache-2.0",
+        "basis": "Original in-world prop composed only from this starter's existing structured facts.",
+        "product_identity": "Does not reproduce Chaosium Product Identity or source-verbatim prose."
+      }
+    }
+  ]
+}

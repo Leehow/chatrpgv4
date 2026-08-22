@@ -84,6 +84,19 @@ class HandoutCatalog:
 
     def __init__(self, cards: dict[str, dict[str, Any]]):
         self._cards = cards
+        clue_refs: dict[str, set[str]] = {}
+        for asset_id, card in cards.items():
+            for raw_ref in card.get("clue_refs") or []:
+                clue_id = str(raw_ref).strip()
+                if clue_id:
+                    clue_refs.setdefault(clue_id, set()).add(asset_id)
+        # Build this only after the authority-ordered stores have finished
+        # overriding one another.  Reverse linkage therefore depends on the
+        # final catalog, never on projection/merge order.
+        self._assets_by_clue = {
+            clue_id: tuple(sorted(asset_ids))
+            for clue_id, asset_ids in clue_refs.items()
+        }
 
     @classmethod
     def load(cls, ctx: Any) -> HandoutCatalog:
@@ -221,6 +234,63 @@ class HandoutCatalog:
         newly, _already = _apply_delivery(world, [handout_id])
         return LinkedDelivery(
             asset_id=handout_id,
+            newly=tuple(newly),
+            hidden_card=False,
+        )
+
+    def resolve_clue_delivery(
+        self,
+        world: dict[str, Any],
+        clue_id: str,
+        explicit_handout_id: str | None = None,
+    ) -> LinkedDelivery:
+        """Resolve one structured clue/card link, then apply it atomically.
+
+        An explicit ``handout_asset_id`` and the final catalog's reverse
+        ``clue_refs`` index are two assertions about one relationship.  A
+        unique consistent player-visible card is required; silently choosing
+        among conflicting or incomplete assertions would fabricate delivery
+        truth and make behavior depend on merge order.
+        """
+        clue_id = str(clue_id).strip()
+        explicit_id = str(explicit_handout_id or "").strip()
+        reverse_ids = self._assets_by_clue.get(clue_id, ())
+
+        if explicit_id and explicit_id not in self._cards:
+            raise HandoutError(
+                "unknown_handout",
+                f"clue '{clue_id}' references unknown handout '{explicit_id}'",
+            )
+        if len(reverse_ids) > 1:
+            raise HandoutError(
+                "handout_link_ambiguous",
+                f"clue '{clue_id}' is referenced by multiple handout cards: "
+                f"{', '.join(reverse_ids)}",
+            )
+        if explicit_id and reverse_ids and reverse_ids[0] != explicit_id:
+            raise HandoutError(
+                "handout_link_conflict",
+                f"clue '{clue_id}' explicitly references '{explicit_id}' but "
+                f"card '{reverse_ids[0]}' claims the clue through clue_refs",
+            )
+
+        asset_id = explicit_id or (reverse_ids[0] if reverse_ids else "")
+        if not asset_id:
+            raise HandoutError(
+                "handout_link_missing",
+                f"clue '{clue_id}' has delivery_kind=handout but no unique "
+                "handout_asset_id or card clue_refs linkage",
+            )
+        card = self._cards[asset_id]
+        if card.get("player_visible", True) is not True:
+            raise HandoutError(
+                "handout_not_player_visible",
+                f"handout '{asset_id}' linked to clue '{clue_id}' is marked "
+                "player_visible:false and cannot satisfy player delivery",
+            )
+        newly, _already = _apply_delivery(world, [asset_id])
+        return LinkedDelivery(
+            asset_id=asset_id,
             newly=tuple(newly),
             hidden_card=False,
         )

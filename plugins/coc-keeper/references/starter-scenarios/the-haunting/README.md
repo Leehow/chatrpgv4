@@ -6,6 +6,11 @@ Boston (Corbitt House). Narrative prose, scene names, and NPC dialogue in this
 pack are original work by the chatrpgv4 contributors and do **not** reproduce
 Chaosium Product Identity boxed text.
 
+`handouts.json` follows the same boundary. Its 1918 *Boston Globe* city-desk
+copy is an Apache-2.0 original in-world prop derived only from this starter's
+structured facts, explicitly marked `starter-original-derivative`; it is not a
+transcription or paraphrased substitute for Chaosium source prose.
+
 Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with
 `../../../rulesets/coc7/rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
 referenced from `../../../rulesets/coc7/rules-json/monsters.json`.

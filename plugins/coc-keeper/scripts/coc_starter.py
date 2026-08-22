@@ -39,6 +39,7 @@ import coc_character
 import coc_character_creation_briefing
 import coc_compiled_archive
 import coc_investigator_guard
+import coc_scenario_compile
 
 # The seven story-graph JSON files the Story Director reads (see
 # coc_story_director.py:95-183).
@@ -51,6 +52,7 @@ STARTER_SCENARIO_FILES = (
     "pacing-map.json",
     "improvisation-boundaries.json",
 )
+STARTER_OPTIONAL_SCENARIO_FILES = ("handouts.json",)
 
 # Structured registry of shipped starter pregens (id → home scenario).
 # Used for provenance backfill and dossier scenario-bound filtering — lookup by
@@ -438,6 +440,12 @@ def _install_starter_at(
     src_dir = STARTER_DIR / scenario_id
     if not src_dir.is_dir():
         raise FileNotFoundError(f"unknown starter scenario: {scenario_id}")
+    validation = coc_scenario_compile.validate_scenario(src_dir)
+    if validation["errors"]:
+        raise ValueError(
+            f"starter scenario '{scenario_id}' is invalid: "
+            + "; ".join(validation["errors"])
+        )
     campaign_dir = Path(campaign_dir)
     published_campaign_dir = Path(published_campaign_dir)
     campaign_id = str(
@@ -447,14 +455,19 @@ def _install_starter_at(
 
     scenario_dir = campaign_dir / "scenario"
     # Idempotency: refuse to clobber an existing scenario.
-    for fname in STARTER_SCENARIO_FILES:
+    source_files = STARTER_SCENARIO_FILES + tuple(
+        fname
+        for fname in STARTER_OPTIONAL_SCENARIO_FILES
+        if (src_dir / fname).is_file()
+    )
+    for fname in source_files:
         if (scenario_dir / fname).exists():
             raise FileExistsError(
                 f"campaign {campaign_id} already has scenario file {fname}; "
                 " refusing to overwrite. Remove it first to re-install."
             )
 
-    for fname in STARTER_SCENARIO_FILES:
+    for fname in source_files:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
 
     _update_campaign_json(campaign_dir, scenario_id)
@@ -841,6 +854,14 @@ def _validate_quick_start_generation(
         path = campaign_dir / "scenario" / filename
         if path.is_symlink() or not path.is_file():
             raise RuntimeError(f"quick-start scenario file is incomplete: {filename}")
+    for filename in STARTER_OPTIONAL_SCENARIO_FILES:
+        if not (STARTER_DIR / scenario_id / filename).is_file():
+            continue
+        path = campaign_dir / "scenario" / filename
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(
+                f"quick-start optional scenario file is incomplete: {filename}"
+            )
     campaign = _read_json_object(campaign_dir / "campaign.json")
     world = _read_json_object(campaign_dir / "save" / "world-state.json")
     structural_ok = (
