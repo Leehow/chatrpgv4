@@ -10,6 +10,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import coc_starter
+import coc_mcp_wire
 import coc_toolbox
 import coc_turn_finalization
 
@@ -133,6 +134,16 @@ def test_latest_unconfirmed_output_can_receive_narration_only_repair(
     campaign_id = "repair-unconfirmed-output"
     workspace, _investigator_id = _workspace(tmp_path, campaign_id)
     _context, placements = _open_time_turn(workspace, campaign_id)
+    wire_context = coc_mcp_wire.project_envelope(
+        "turn.output_context",
+        {"ok": True, "tool": "turn.output_context", "data": _context},
+        contract_digest="sha256:test-contract",
+    )
+    finalize_card = wire_context["data"]["finalize_operation"]
+    assert finalize_card["prefilled_arguments"]["revision"] == 1
+    assert {
+        "revision", "narration_review_id", "agency_claims",
+    } <= set(finalize_card["argument_contract"]["allowed_arguments"])
 
     finalized = coc_toolbox.run_tool(
         "turn.finalize",
@@ -154,6 +165,14 @@ def test_latest_unconfirmed_output_can_receive_narration_only_repair(
     assert original["contract_projection_sha256"] == _context["contract_projection_sha256"]
     assert original["accepted_draft_sha256"].startswith("sha256:")
     assert original["rendered_text_sha256"].startswith("sha256:")
+    projected = coc_mcp_wire.project_envelope(
+        "turn.finalize", finalized, contract_digest="sha256:test-contract"
+    )
+    for field in (
+        "rendered_text_sha256", "accepted_revision", "run_segment_id",
+        "session_id", "settlement_snapshot_id", "contract_projection_sha256",
+    ):
+        assert projected["data"][field] == original[field]
     campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
     mechanics_before_repair = [
         row for row in _read_jsonl(campaign_dir / "logs" / "toolbox-calls.jsonl")
@@ -315,6 +334,19 @@ def test_finalization_agency_claims_require_exact_player_or_active_override(
     )
     assert invalid["ok"] is False
     assert invalid["error"]["code"] == "agency_source_invalid"
+    npc_subject = coc_toolbox.run_tool(
+        "turn.finalize", workspace, campaign_id,
+        {
+            "draft": draft,
+            "coverage": [],
+            "mechanics_placements": placements,
+            "revision": 1,
+            "agency_claims": [{**claim, "subject_ref": "npc:kowalenko"}],
+            "decision_id": "agency-npc-subject-invalid",
+        },
+    )
+    assert npc_subject["ok"] is False
+    assert npc_subject["error"]["code"] == "agency_source_invalid"
     valid = coc_toolbox.run_tool(
         "turn.finalize", workspace, campaign_id,
         {
@@ -328,6 +360,80 @@ def test_finalization_agency_claims_require_exact_player_or_active_override(
     )
     assert valid["ok"] is True, valid
     assert valid["data"]["agency_claims"] == [claim]
+
+
+def test_direct_toolbox_run_segment_fallback_freezes_and_rejects_alias_change(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "run-segment-freeze"
+    workspace, _investigator_id = _workspace(tmp_path, campaign_id)
+    args = {
+        "summary": "调查员留在门边。",
+        "player_text": "我守在门边。",
+        "run_id": "external-run-a",
+        "decision_id": "journal-run-freeze",
+    }
+    first = coc_toolbox.run_tool("state.journal", workspace, campaign_id, args)
+    assert first["ok"] is True, first
+    context = coc_toolbox.run_tool(
+        "turn.output_context", workspace, campaign_id, {}
+    )
+    assert context["ok"] is True, context
+    identity = context["data"]["contract_projection"]["run_segment_identity"]
+    assert identity == {"source": "caller_fallback", "trust": "fallback"}
+    changed = coc_toolbox.run_tool(
+        "state.journal", workspace, campaign_id,
+        {**args, "run_id": "external-run-b"},
+    )
+    assert changed["ok"] is False
+    assert changed["error"]["code"] == "run_segment_conflict"
+
+
+def test_involuntary_physiology_requires_current_pc_and_typed_source(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "agency-physiology-bindings"
+    workspace, investigator_id = _workspace(tmp_path, campaign_id)
+    _context, placements = _open_time_turn(workspace, campaign_id)
+    draft = "托马斯的手心渗出冷汗。\n\n门外的脚步声渐渐靠近。"
+    claim = {
+        "claim_id": "claim-cold-sweat",
+        "subject_ref": f"pc:{investigator_id}",
+        "claim_type": "involuntary_physiology",
+        "exact_excerpt": "托马斯的手心渗出冷汗。",
+        "source_ref": "narration_contract:involuntary_physiology",
+        "override_id": None,
+    }
+    for decision_id, changed in (
+        ("physiology-null-source", {**claim, "source_ref": None}),
+        ("physiology-npc-subject", {**claim, "subject_ref": "npc:kowalenko"}),
+        ("physiology-untyped-source", {**claim, "source_ref": "keeper:guess"}),
+    ):
+        rejected = coc_toolbox.run_tool(
+            "turn.finalize", workspace, campaign_id,
+            {
+                "draft": draft,
+                "coverage": [],
+                "mechanics_placements": placements,
+                "revision": 1,
+                "agency_claims": [changed],
+                "decision_id": decision_id,
+            },
+        )
+        assert rejected["ok"] is False
+        assert rejected["error"]["code"] == "agency_source_invalid"
+    accepted = coc_toolbox.run_tool(
+        "turn.finalize", workspace, campaign_id,
+        {
+            "draft": draft,
+            "coverage": [],
+            "mechanics_placements": placements,
+            "revision": 1,
+            "agency_claims": [claim],
+            "decision_id": "physiology-valid",
+        },
+    )
+    assert accepted["ok"] is True, accepted
 
 
 def test_forced_agency_claim_requires_matching_frozen_override(tmp_path: Path) -> None:

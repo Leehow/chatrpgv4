@@ -18,6 +18,7 @@ if str(SCRIPTS) not in sys.path:
 
 import coc_continuation
 import coc_host_context
+import coc_mcp_wire
 import coc_starter
 import coc_toolbox
 
@@ -213,6 +214,22 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
     assert resumed["delivery"]["exact_text"] == finalized["data"]["rendered_text"]
     assert resumed["delivery"]["accepted_revision"] == 1
     assert resumed["delivery"]["rendered_text_sha256"] == finalized["data"]["rendered_text_sha256"]
+    wire_resume = coc_mcp_wire.project_envelope(
+        "session.resume",
+        {"ok": True, "tool": "session.resume", "data": resumed},
+        contract_digest="sha256:test-contract",
+    )["data"]
+    for field in (
+        "run_segment_id", "session_id", "turn_id", "accepted_revision",
+        "rendered_text_sha256",
+    ):
+        assert wire_resume["delivery"][field] == resumed["delivery"][field]
+    for field in (
+        "run_segment_id", "session_id", "turn_id", "accepted_revision",
+        "settlement_snapshot_id", "rendered_text_sha256",
+        "contract_projection_sha256",
+    ):
+        assert wire_resume["checkpoint"]["source"][field] == checkpoint["source"][field]
     assert "semantic_capsule" not in resumed["checkpoint"]
     assert "transcript_tail" not in resumed["checkpoint"]
     assert resumed["semantic_capsule"]["threads"][0]["thread_id"] == "scratch-route"

@@ -89,7 +89,9 @@ run/session/turn, settlement snapshot, current player source, scene contract,
 narration budget, active control overrides, and settlement source. Re-reading
 unchanged settlement must return the same projection; a changed source crosses
 the existing source-change boundary rather than silently producing a new
-drafting contract.
+drafting contract. Run/session identity also carries source and trust: the
+canonical opening freezes the run segment, while a direct-toolbox fallback is
+usable for deterministic tests but is not verified run evidence.
 
 For every obligation:
 
@@ -159,7 +161,9 @@ The initial accepted draft uses `revision: 1`. Optional
 turn/source/revision/draft. `agency_claims` bind exact draft excerpts to their
 authority: voluntary investigator claims use the exact current
 `player_input:<journal decision_id>`; forced behavior uses a matching active
-override frozen in `contract_projection`. These bindings are deterministic
+override frozen in `contract_projection`; involuntary physiology uses the
+typed ownership source listed by `agency_authority`. Voluntary and physiology
+subjects must resolve to a current party PC. These bindings are deterministic
 evidence only. An empty list does not semantically prove that the prose contains
 no agency violation, and review remains advisory rather than a fifth hard gate.
 

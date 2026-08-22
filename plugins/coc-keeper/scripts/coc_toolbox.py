@@ -1314,6 +1314,7 @@ _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION = frozenset({
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
 })
+_ADVISORY_WRITES_DURING_PENDING_FINALIZATION = frozenset({"narration.review"})
 
 _PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
     "progressive.prepare_opening",
@@ -2127,12 +2128,14 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                         "turn.finalize", "state.exceptional_effect", "state.journal",
                     }
                     and name not in _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION
+                    and name not in _ADVISORY_WRITES_DURING_PENDING_FINALIZATION
                 ):
-                    # The journal boundary forbids every new mutation.  The
-                    # sole exception is a read-only proof that this exact NPC
-                    # operation was fully recovered before state.journal and
-                    # therefore has nothing left to write.  A missing source,
-                    # ledger, event, or exact payload match remains blocked.
+                    # The journal boundary forbids settlement mutations. The
+                    # explicit advisory-write set is campaign-serial and
+                    # excluded from the source digest; the other exception is
+                    # a read-only proof that an exact NPC operation was fully
+                    # recovered before state.journal. Missing source, ledger,
+                    # event, or exact payload evidence remains blocked.
                     if name == "state.record_npc_engagement":
                         pending_exact_replay = (
                             _pending_npc_engagement_exact_replay(ctx, args)
@@ -22683,10 +22686,19 @@ def _turn_contract_projection(
     if not run_segment_id or not session_id:
         raise ToolError("state_corrupt", "pending turn identity is incomplete")
     active_id = str(ctx.world().get("active_scene_id") or "") or None
+    party_subject_refs = [f"pc:{value}" for value in ctx.party_ids()]
     projection = {
         "schema_version": 1,
         "run_segment_id": run_segment_id,
         "session_id": session_id,
+        "run_segment_identity": {
+            "source": str(player.get("run_segment_source") or "transcript_frozen"),
+            "trust": str(player.get("run_segment_trust") or "fallback"),
+        },
+        "session_identity": {
+            "source": str(player.get("session_source") or "direct_toolbox_fallback"),
+            "trust": str(player.get("session_trust") or "fallback"),
+        },
         "turn_id": output_context["turn_id"],
         "source_digest": output_context["source_digest"],
         "settlement_snapshot_id": output_context["settlement_snapshot_id"],
@@ -22702,6 +22714,13 @@ def _turn_contract_projection(
         "control_overrides": (
             _control_overrides(ctx, investigator_id) if investigator_id else []
         ),
+        "agency_authority": {
+            "pc_subject_refs": party_subject_refs,
+            "involuntary_physiology_sources": [{
+                "source_ref": "narration_contract:involuntary_physiology",
+                "source_type": "ownership_contract",
+            }],
+        },
         "settlement_source": {
             "journal_decision_id": journal_id,
             "mechanics_bundle_sha256": output_context["mechanics_bundle_sha256"],
@@ -22782,7 +22801,9 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
         "findings": {"type": "array", "desc": "semantic findings with rule_id and reason; empty when the draft is sound"},
         "investigator": {"type": "string", "desc": "investigator id for budget derivation (defaults to the party's first member)"},
     },
-    access="query",
+    access="mutation",
+    write_domains=("narration_advisory",),
+    execution_class="serial_campaign",
 )
 def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     decision_id = str(args.get("decision_id") or "").strip()
@@ -29292,7 +29313,7 @@ def _table_transcript_entry_id(role: str, source_id: str) -> str:
     return f"table-transcript-v1:{hashlib.sha256(payload).hexdigest()[:40]}"
 
 
-def _active_session_id(ctx: Ctx, run_segment_id: str) -> str:
+def _active_session_binding(ctx: Ctx, run_segment_id: str) -> dict[str, str]:
     marker = coc_host_context.current_marker(ctx.root)
     if (
         isinstance(marker, dict)
@@ -29300,11 +29321,67 @@ def _active_session_id(ctx: Ctx, run_segment_id: str) -> str:
         and isinstance(marker.get("session_id"), str)
         and str(marker["session_id"]).strip()
     ):
-        return str(marker["session_id"]).strip()
+        return {
+            "session_id": str(marker["session_id"]).strip(),
+            "source": "host_context",
+            "trust": "observed",
+        }
     digest = hashlib.sha256(
         f"direct-toolbox-session-v1:{ctx.campaign_id}:{run_segment_id}".encode("utf-8")
     ).hexdigest()[:32]
-    return f"direct-toolbox:{digest}"
+    return {
+        "session_id": f"direct-toolbox:{digest}",
+        "source": "direct_toolbox_fallback",
+        "trust": "fallback",
+    }
+
+
+def _run_segment_binding(
+    ctx: Ctx, *, supplied_alias: Any = None, opening: bool = False
+) -> dict[str, str | None]:
+    """Freeze one run segment on the existing opening/transcript lifecycle."""
+    alias = str(supplied_alias or "").strip()
+    rows = _table_transcript_rows(ctx)
+    bound_rows = [
+        row for row in rows
+        if isinstance(row.get("run_segment_id"), str)
+        and str(row["run_segment_id"]).strip()
+    ]
+    identities = {str(row["run_segment_id"]).strip() for row in bound_rows}
+    if len(identities) > 1:
+        raise ToolError("state_corrupt", "table transcript spans multiple run segments")
+    if identities:
+        run_segment_id = next(iter(identities))
+        if alias and alias != run_segment_id:
+            raise ToolError(
+                "run_segment_conflict",
+                "caller run_id does not match the frozen table run segment",
+            )
+        first = bound_rows[0]
+        return {
+            "run_segment_id": run_segment_id,
+            "alias": alias or None,
+            "source": str(first.get("run_segment_source") or "transcript_frozen"),
+            "trust": str(first.get("run_segment_trust") or "fallback"),
+        }
+    if opening:
+        if not alias:
+            raise ToolError("invalid_param", "table opening requires a stable run_id")
+        return {
+            "run_segment_id": alias,
+            "alias": alias,
+            "source": "table_opening",
+            "trust": "authoritative",
+        }
+    resolved = coc_npc_event_chain.resolve_run_id(
+        ctx.campaign_dir, structured_source={"run_id": alias or None}
+    )
+    return {
+        "run_segment_id": resolved,
+        "alias": alias or None,
+        "source": "caller_fallback" if alias else "campaign_fallback",
+        "trust": "fallback",
+    }
 
 
 def _record_table_transcript_entry(
@@ -29323,17 +29400,24 @@ def _record_table_transcript_entry(
     session_id: str | None = None,
     accepted_revision: int | None = None,
     rendered_text_sha256: str | None = None,
+    run_segment_source: str | None = None,
+    run_segment_trust: str | None = None,
 ) -> dict[str, Any]:
     clean_text = str(text)
     if not clean_text.strip():
         raise ToolError("invalid_param", "table transcript text must be non-empty")
     entry_id = _table_transcript_entry_id(role, source_id)
+    session_binding = _active_session_binding(ctx, run_id)
     stable = {
         "schema_version": 1,
         "entry_id": entry_id,
         "run_id": run_id,
         "run_segment_id": run_id,
-        "session_id": session_id or _active_session_id(ctx, run_id),
+        "run_segment_source": run_segment_source or "transcript_frozen",
+        "run_segment_trust": run_segment_trust or "fallback",
+        "session_id": session_id or session_binding["session_id"],
+        "session_source": session_binding["source"],
+        "session_trust": session_binding["trust"],
         "turn": int(turn_number),
         "turn_id": turn_id,
         "journal_decision_id": journal_decision_id,
@@ -29395,6 +29479,8 @@ def _record_journal_player_transcript_entry(
     turn_id: str,
     journal_decision_id: str,
     speaker: str,
+    run_segment_source: str,
+    run_segment_trust: str,
 ) -> dict[str, Any]:
     """Write or recover the one exact player row owned by a journal receipt."""
     player_rows = [
@@ -29425,6 +29511,8 @@ def _record_journal_player_transcript_entry(
         journal_decision_id=journal_decision_id,
         source_id=journal_decision_id,
         speaker=speaker,
+        run_segment_source=run_segment_source,
+        run_segment_trust=run_segment_trust,
     )
 
 
@@ -29610,6 +29698,8 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
     run_id = raw_run_id.strip()
     if not run_id or run_id != raw_run_id:
         raise ToolError("invalid_param", "evidence.table_opening requires a stable run_id")
+    run_binding = _run_segment_binding(ctx, supplied_alias=run_id, opening=True)
+    run_id = str(run_binding["run_segment_id"])
     prior = ctx.ledger_lookup("evidence.table_opening", decision_id)
     presented_roll_ids, rendered_lines = _opening_first_impression_lines(
         ctx,
@@ -29648,6 +29738,8 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
             source_id=decision_id,
             speaker=str(args.get("speaker") or "KP"),
             presented_roll_ids=presented_roll_ids,
+            run_segment_source=str(run_binding["source"]),
+            run_segment_trust=str(run_binding["trust"]),
         )
         entry["authoritative_time_anchor"] = time_anchor
         return entry, ["duplicate decision_id: returning the immutable opening transcript row"], []
@@ -29668,6 +29760,8 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
         source_id=decision_id,
         speaker=str(args.get("speaker") or "KP"),
         presented_roll_ids=presented_roll_ids,
+        run_segment_source=str(run_binding["source"]),
+        run_segment_trust=str(run_binding["trust"]),
     )
     entry["authoritative_time_anchor"] = time_anchor
     # Advisory candidate set only: opening cards materialized by setup stay
@@ -29962,10 +30056,10 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
                 "idempotency_conflict",
                 "state.journal decision_id already owns a different continuation delta",
             )
-        run_id = coc_npc_event_chain.resolve_run_id(
-            ctx.campaign_dir,
-            structured_source={"run_id": args.get("run_id")},
+        run_binding = _run_segment_binding(
+            ctx, supplied_alias=args.get("run_id")
         )
+        run_id = str(run_binding["run_segment_id"])
         _record_journal_player_transcript_entry(
             ctx,
             player_text=player_text,
@@ -29974,6 +30068,8 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
             turn_id=str(prior_data.get("turn_id") or ""),
             journal_decision_id=decision_id,
             speaker=str(args.get("player_speaker") or "Player"),
+            run_segment_source=str(run_binding["source"]),
+            run_segment_trust=str(run_binding["trust"]),
         )
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     try:
@@ -30049,10 +30145,10 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         "turn_id": manifest["turn_id"],
         "continuation_delta": continuation_delta,
     }
-    run_id = coc_npc_event_chain.resolve_run_id(
-        ctx.campaign_dir,
-        structured_source={"run_id": args.get("run_id")},
+    run_binding = _run_segment_binding(
+        ctx, supplied_alias=args.get("run_id")
     )
+    run_id = str(run_binding["run_segment_id"])
     _record_journal_player_transcript_entry(
         ctx,
         player_text=player_text,
@@ -30061,6 +30157,8 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         turn_id=manifest["turn_id"],
         journal_decision_id=decision_id,
         speaker=str(args.get("player_speaker") or "Player"),
+        run_segment_source=str(run_binding["source"]),
+        run_segment_trust=str(run_binding["trust"]),
     )
     ctx.ledger_record(decision_id, "state.journal", data)
     return data, warnings, []

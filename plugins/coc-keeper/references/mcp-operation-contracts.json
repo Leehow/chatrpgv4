@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:76333e8d015c5f50a2af4bc120f78d526a20ec591524664c0597b7aa0bd3e5b5",
+  "content_sha256": "sha256:fa39be2546b2b1f066b321eadae431a2bc0289c9e375cded729df33c67d0d702",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1110,7 +1110,7 @@
       "summary": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract."
     },
     "narration.review": {
-      "access": "query",
+      "access": "mutation",
       "canonical_operation": "narration.review",
       "description": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
       "inputSchema": {

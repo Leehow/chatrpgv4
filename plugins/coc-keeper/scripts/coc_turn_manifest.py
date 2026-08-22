@@ -68,8 +68,8 @@ POST_JOURNAL_READ_TOOLS = frozenset({
     "scene.context",
     "turn.output_context",
     "narration.brief",
-    "narration.review",
 })
+POST_JOURNAL_ADVISORY_WRITE_TOOLS = frozenset({"narration.review"})
 # Private lease ownership can outlive the player turn. Renew/release touches
 # only that source-work lease and is excluded from turn settlement evidence;
 # fulfillment remains blocked until finalization.
@@ -104,6 +104,7 @@ def _toolbox_query_tools() -> frozenset[str]:
 def is_post_journal_read_tool(tool: str) -> bool:
     return (
         tool in POST_JOURNAL_READ_TOOLS
+        or tool in POST_JOURNAL_ADVISORY_WRITE_TOOLS
         or tool in POST_JOURNAL_SOURCE_LEASE_TOOLS
         or tool in _toolbox_query_tools()
     )

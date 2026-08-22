@@ -181,6 +181,8 @@ def test_control_overrides_reflect_active_bout_and_unconscious(campaign_ws):
 
 
 def test_review_records_deterministic_over_length(campaign_ws):
+    assert coc_toolbox.TOOLS["narration.review"]["access"] == "mutation"
+    assert coc_toolbox.TOOLS["narration.review"]["execution_class"] == "serial_campaign"
     journal = _run(
         campaign_ws,
         "state.journal",

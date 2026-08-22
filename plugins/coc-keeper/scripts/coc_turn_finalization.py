@@ -3138,6 +3138,8 @@ def _validate_contract_projection(
         raise TurnContractError("invalid_param", "contract_projection narration_budget is required")
     if not isinstance(projection.get("control_overrides"), list):
         raise TurnContractError("invalid_param", "contract_projection control_overrides is required")
+    if not isinstance(projection.get("agency_authority"), dict):
+        raise TurnContractError("invalid_param", "contract_projection agency_authority is required")
     return deepcopy(projection)
 
 
@@ -3160,6 +3162,20 @@ def _normalize_agency_claims(
         str(row.get("override_id") or ""): row
         for row in projection.get("control_overrides") or []
         if isinstance(row, dict) and str(row.get("override_id") or "")
+    }
+    authority = projection.get("agency_authority")
+    authority = authority if isinstance(authority, dict) else {}
+    pc_subject_refs = {
+        str(value) for value in authority.get("pc_subject_refs") or []
+        if isinstance(value, str) and value
+    }
+    physiology_sources = {
+        str(row.get("source_ref") or "")
+        for row in authority.get("involuntary_physiology_sources") or []
+        if isinstance(row, dict)
+        and row.get("source_type") == "ownership_contract"
+        and isinstance(row.get("source_ref"), str)
+        and row["source_ref"]
     }
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -3184,10 +3200,15 @@ def _normalize_agency_claims(
                 "agency_claim_invalid", f"agency_claims[{index}] has invalid identity, type, or draft excerpt"
             )
         if claim_type in VOLUNTARY_CLAIM_TYPES:
-            if not player_source_ref or source_ref != player_source_ref or override_id is not None:
+            if (
+                subject_ref not in pc_subject_refs
+                or not player_source_ref
+                or source_ref != player_source_ref
+                or override_id is not None
+            ):
                 raise TurnContractError(
                     "agency_source_invalid",
-                    f"voluntary agency claim '{claim_id}' must bind the exact current player input",
+                    f"voluntary agency claim '{claim_id}' must bind the current PC and exact player input",
                 )
         elif claim_type == "forced_behavior":
             override_key = str(override_id or "").strip()
@@ -3202,10 +3223,16 @@ def _normalize_agency_claims(
                     "agency_override_invalid",
                     f"forced agency claim '{claim_id}' lacks a matching active frozen override",
                 )
-        elif override_id is not None:
-            raise TurnContractError(
-                "agency_claim_invalid", "only forced_behavior claims may name override_id"
-            )
+        else:
+            if (
+                subject_ref not in pc_subject_refs
+                or source_ref not in physiology_sources
+                or override_id is not None
+            ):
+                raise TurnContractError(
+                    "agency_source_invalid",
+                    f"involuntary physiology claim '{claim_id}' must bind a current PC and typed ownership source",
+                )
         seen.add(claim_id)
         normalized.append({
             "claim_id": claim_id,
