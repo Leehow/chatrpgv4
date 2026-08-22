@@ -10405,7 +10405,7 @@ _PSYCHOLOGY_REVISION_EVENTS = frozenset({
     {
         "action": {"type": "string", "enum": ["settle", "realize"], "desc": "settle a concealed insight (default) or bind its player-safe realization"},
         "investigator": {"type": "string", "desc": "investigator id (observer)"},
-        "observer_scope": {"type": "string", "desc": "single investigator id or stable team observation id"},
+        "observer_scope": {"type": "string", "desc": "observer identity: omit/use the investigator id for an individual, or literal team:party for the canonical current party; arbitrary aliases are rejected"},
         "npc_id": {"type": "string", "required": True, "desc": "observed NPC id"},
         "conversation_window_id": {"type": "string", "required": True, "desc": "stable direct-conversation window id"},
         "observation_revision": {"type": "integer", "required": True, "desc": "explicit nonnegative semantic observation revision"},
@@ -10425,7 +10425,30 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
     npc_id = str(args["npc_id"]).strip()
     question = str(args["question"] or "").strip()
-    observer_scope = str(args.get("observer_scope") or investigator_id).strip()
+    requested_observer_scope = str(
+        args.get("observer_scope") or investigator_id
+    ).strip()
+    party_ids = sorted(set(ctx.party_ids()))
+    if requested_observer_scope == investigator_id:
+        observer_scope = investigator_id
+    elif requested_observer_scope == "team:party":
+        if investigator_id not in party_ids:
+            raise ToolError(
+                "invalid_param",
+                "team:party observer must be a member of the canonical campaign party",
+            )
+        observer_scope = (
+            investigator_id
+            if len(party_ids) == 1
+            else "team:party:" + hashlib.sha256(
+                "\x00".join(party_ids).encode("utf-8")
+            ).hexdigest()[:16]
+        )
+    else:
+        raise ToolError(
+            "invalid_param",
+            "observer_scope must be the resolved investigator id or literal team:party",
+        )
     conversation_window_id = str(args["conversation_window_id"]).strip()
     revision = args["observation_revision"]
     if (

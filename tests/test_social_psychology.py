@@ -448,7 +448,7 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
         visible_observation="不应绑定。",
     )
     assert wrong_identity["ok"] is False
-    assert wrong_identity["error"]["code"] == "revision_conflict"
+    assert wrong_identity["error"]["code"] == "invalid_param"
 
     updated = _run(
         campaign_ws,
@@ -523,3 +523,25 @@ def test_psychology_observe_decision_conflict_and_invalid_revision(campaign_ws):
     invalid = _observe(campaign_ws, "psych-invalid-revision", observation_revision=1)
     assert invalid["ok"] is False
     assert invalid["error"]["code"] == "observation_revision_invalid"
+
+
+def test_psychology_observer_scope_aliases_cannot_reopen_team_window(campaign_ws):
+    party_path = campaign_ws["campaign_dir"] / "party.json"
+    party = json.loads(party_path.read_text(encoding="utf-8"))
+    party["investigator_ids"] = [
+        campaign_ws["investigator_id"], "investigator-b", "investigator-c", "investigator-d"
+    ]
+    _write_json(party_path, party)
+
+    canonical = _observe(campaign_ws, "psych-team-canonical", observer_scope="team:party")
+    assert canonical["ok"] is True
+    assert canonical["data"]["resolution"] == "settled"
+    for alias in ("team:a", "team:b"):
+        rejected = _observe(
+            campaign_ws,
+            f"psych-{alias}",
+            observer_scope=alias,
+        )
+        assert rejected["ok"] is False
+        assert rejected["error"]["code"] == "invalid_param"
+    assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 1

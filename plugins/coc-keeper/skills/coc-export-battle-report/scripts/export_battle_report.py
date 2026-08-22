@@ -1237,6 +1237,43 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         row for row in transcript
         if isinstance(row, dict) and _dialogue_side(row) == "keeper"
     ]
+    authoritative_finalization_ids = [
+        str(row.get("finalization_id"))
+        for row in turn_finalizations or []
+        if isinstance(row, dict) and isinstance(row.get("finalization_id"), str)
+        and row.get("finalization_id")
+    ]
+    accepted_finalization_ids = [
+        str(row.get("finalization_id"))
+        for row in accepted_keeper_rows
+        if isinstance(row.get("finalization_id"), str) and row.get("finalization_id")
+    ]
+    authoritative_counts = Counter(authoritative_finalization_ids)
+    accepted_counts = Counter(accepted_finalization_ids)
+    duplicate_authoritative = sorted(
+        value for value, count in authoritative_counts.items() if count != 1
+    )
+    duplicate_accepted = sorted(
+        value for value, count in accepted_counts.items() if count != 1
+    )
+    if duplicate_authoritative:
+        accepted_findings.append(
+            "authoritative finalization ids are duplicated: " + ", ".join(duplicate_authoritative)
+        )
+    if duplicate_accepted:
+        accepted_findings.append(
+            "accepted Keeper rows duplicate finalization bindings: " + ", ".join(duplicate_accepted)
+        )
+    missing_accepted = sorted(authoritative_counts.keys() - accepted_counts.keys())
+    extra_accepted = sorted(accepted_counts.keys() - authoritative_counts.keys())
+    if missing_accepted:
+        accepted_findings.append(
+            "authoritative finalizations missing accepted Keeper rows: " + ", ".join(missing_accepted)
+        )
+    if extra_accepted:
+        accepted_findings.append(
+            "accepted Keeper rows have no authoritative finalization: " + ", ".join(extra_accepted)
+        )
     required_accepted_fields = (
         "run_segment_id", "session_id", "turn_id", "finalization_id",
         "accepted_revision", "rendered_text_sha256",
@@ -1269,9 +1306,10 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             not isinstance(receipt, dict)
             or receipt.get("rendered_sha256") != row.get("rendered_text_sha256")
             or receipt.get("rendered_text") != row.get("text")
+            or receipt.get("accepted_revision") != row.get("accepted_revision")
         ):
             accepted_findings.append(
-                f"accepted Keeper row {index} is NOT_PROVEN: finalization text/hash binding is absent or conflicting"
+                f"accepted Keeper row {index} is NOT_PROVEN: finalization revision/text/hash binding is absent or conflicting"
             )
     transcript_complete = transcript_candidate_present and not accepted_findings
     dimension(

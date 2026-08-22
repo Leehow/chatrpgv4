@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:6086168dcfb2d30e9314d33ed6248291bf49d71ac086b7ef753df7d97af69ce6",
+  "content_sha256": "sha256:585d7615928377e43f39be8c7821e0fcb27b51040219164a8859b9def68d5f0b",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -2915,7 +2915,7 @@
             "type": "integer"
           },
           "observer_scope": {
-            "description": "single investigator id or stable team observation id",
+            "description": "observer identity: omit/use the investigator id for an individual, or literal team:party for the canonical current party; arbitrary aliases are rejected",
             "type": "string"
           },
           "question": {

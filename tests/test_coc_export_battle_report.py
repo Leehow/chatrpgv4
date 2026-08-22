@@ -34,6 +34,7 @@ def _finalization_receipt(finalization_id, roll_ids, *, rendered_text=""):
         "source_roll_ids": list(roll_ids),
         "rendered_text": rendered_text,
         "rendered_sha256": _canonical_digest(rendered_text),
+        "accepted_revision": 1,
     }
 
 
@@ -535,6 +536,32 @@ def test_accepted_transcript_requires_revision_hash_and_session_binding(tmp_path
     assert report["completeness"]["classification"] == "INCOMPLETE"
     assert dimension["status"] == "FAIL"
     assert any("NOT_PROVEN" in finding and "accepted_revision" in finding for finding in dimension["findings"])
+
+
+def test_accepted_transcript_requires_exact_finalization_bijection(tmp_path):
+    module = _load()
+    run = tmp_path / "duplicate-one-missing-one"
+    data = _fixture(run)
+    keeper = dict(data["transcript"][0])
+    duplicate = dict(keeper)
+    duplicate["turn"] = 3
+    duplicate["turn_id"] = "turn-3"
+    _write_jsonl(run / "transcript.jsonl", [keeper, data["transcript"][2], duplicate])
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(
+        campaign / "logs" / "turn-finalizations.jsonl",
+        [
+            _finalization_receipt("fin-1", ["public-1"], rendered_text=keeper["text"]),
+            _finalization_receipt("fin-2", [], rendered_text="另一条未呈现的正式文本"),
+        ],
+    )
+
+    report = module.export_battle_report(run)
+    dimension = report["completeness"]["dimensions"]["accepted_transcript"]
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert dimension["status"] == "FAIL"
+    assert any("duplicate finalization bindings" in finding for finding in dimension["findings"])
+    assert any("fin-2" in finding and "missing accepted" in finding for finding in dimension["findings"])
 
 
 def test_unrelated_artifact_is_preserved_and_output_symlink_is_rejected(tmp_path):
