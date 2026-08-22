@@ -548,8 +548,7 @@ def _display_character(
                 "label": pf_weapon.get("label")
                 or entry_weapon_labels.get(weapon_id)
                 or weapon.get("label")
-                or weapon.get("name")
-                or weapon.get("weapon_id"),
+                or weapon.get("name"),
                 "skill_label": skill,
                 "damage": weapon.get("damage"),
                 "range": weapon.get("range") or weapon.get("range_yards"),
@@ -587,6 +586,13 @@ def _display_character(
                 and ammo_label.strip()
             ):
                 projected_weapon["ammo_label"] = ammo_label
+        title_fallback = weapon_chrome.get("weapon_item_title_fallback")
+        if (
+            not str(projected_weapon.get("label") or "").strip()
+            and isinstance(title_fallback, str)
+            and title_fallback.strip()
+        ):
+            projected_weapon["title_fallback_label"] = title_fallback
         weapons.append(projected_weapon)
 
     raw_derived = character.get("derived")
@@ -689,7 +695,7 @@ def _display_character(
     if isinstance(luck, bool) or not isinstance(luck, int):
         luck = None
 
-    return {
+    result = {
         "name": (sheet or {}).get("display_name") or character.get("name"),
         "occupation": (sheet or {}).get("occupation") or character.get("occupation"),
         "era": (sheet or {}).get("era") or character.get("era"),
@@ -709,6 +715,10 @@ def _display_character(
         "assets": assets,
         "localized": sheet is not None,
     }
+    weapon_section_label = weapon_chrome.get("weapon_section_title")
+    if isinstance(weapon_section_label, str) and weapon_section_label.strip():
+        result["weapon_section_label"] = weapon_section_label
+    return result
 
 
 def display_character(

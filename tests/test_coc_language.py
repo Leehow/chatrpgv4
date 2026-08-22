@@ -22,16 +22,22 @@ coc_language = _load("coc_language_core_test", "plugins/coc-keeper/scripts/coc_l
 WEAPONS_PATH = Path("plugins/coc-keeper/rulesets/coc7/rules-json/weapons.json")
 WEAPON_CHROME = {
     "zh-Hans": {
+        "weapon_section_title": "武器",
+        "weapon_item_title_fallback": "武器",
         "weapon_mechanics_unavailable": "武器参数未配置",
         "weapon_range": "射程",
         "weapon_ammo": "弹药",
     },
     "en-US": {
+        "weapon_section_title": "Weapons",
+        "weapon_item_title_fallback": "Weapon",
         "weapon_mechanics_unavailable": "Weapon mechanics unavailable",
         "weapon_range": "Range",
         "weapon_ammo": "Ammo",
     },
     "ja-JP": {
+        "weapon_section_title": "武器",
+        "weapon_item_title_fallback": "武器",
         "weapon_mechanics_unavailable": "武器データ未設定",
         "weapon_range": "射程",
         "weapon_ammo": "弾薬",

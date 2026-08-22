@@ -173,26 +173,48 @@ def test_module_ids_are_source_bound_to_the_active_campaign(tmp_path: Path) -> N
     (
         "play_language",
         "expected_skill",
+        "expected_section_title",
+        "expected_item_title",
         "expected_status",
         "expected_range",
         "expected_ammo",
     ),
     (
-        ("zh-Hans", "射击（手枪）", "武器参数未配置", "射程", "弹药"),
+        (
+            "zh-Hans",
+            "射击（手枪）",
+            "武器",
+            "武器",
+            "武器参数未配置",
+            "射程",
+            "弹药",
+        ),
         (
             "en-US",
             "Firearms (Handgun)",
+            "Weapons",
+            "Weapon",
             "Weapon mechanics unavailable",
             "Range",
             "Ammo",
         ),
-        ("ja-JP", "射撃（拳銃）", "武器データ未設定", "射程", "弾薬"),
+        (
+            "ja-JP",
+            "射撃（拳銃）",
+            "武器",
+            "武器",
+            "武器データ未設定",
+            "射程",
+            "弾薬",
+        ),
     ),
 )
 def test_exact_catalog_skill_uses_canonical_player_language_projection(
     tmp_path: Path,
     play_language: str,
     expected_skill: str,
+    expected_section_title: str,
+    expected_item_title: str,
     expected_status: str,
     expected_range: str,
     expected_ammo: str,
@@ -217,6 +239,7 @@ def test_exact_catalog_skill_uses_canonical_player_language_projection(
 
     projected = display_character(tmp_path, investigator, play_language)
     assert projected is not None
+    assert projected["weapon_section_label"] == expected_section_title
     resolved = projected["weapons"][0]
     assert resolved["skill_label"] == expected_skill
     assert resolved["range_label"] == expected_range
@@ -229,13 +252,14 @@ def test_exact_catalog_skill_uses_canonical_player_language_projection(
                 "characteristics": {},
                 "derived": {},
                 "skills": {},
-                "weapons": [{"weapon_id": "", "label": "crowbar"}],
+                "weapons": [{"weapon_id": "", "label": ""}],
             }
         ),
         encoding="utf-8",
     )
     unresolved = display_character(tmp_path, investigator, play_language)
     assert unresolved is not None
+    assert unresolved["weapons"][0]["title_fallback_label"] == expected_item_title
     assert unresolved["weapons"][0]["mechanics_status_label"] == expected_status
 
 
@@ -266,10 +290,12 @@ def test_weapon_chrome_fails_closed_when_canonical_source_is_unavailable(
 
     projected = display_character(tmp_path, investigator, "ja-JP")
     assert projected is not None
+    assert "weapon_section_label" not in projected
     resolved, unresolved = projected["weapons"]
     assert "range_label" not in resolved
     assert "ammo_label" not in resolved
     assert "mechanics_status_label" not in unresolved
+    assert "title_fallback_label" not in unresolved
 
 
 @pytest.mark.parametrize(

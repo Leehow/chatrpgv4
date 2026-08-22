@@ -4,7 +4,17 @@ import assert from "node:assert/strict";
 import {
   weaponMechanicsLine,
   weaponMechanicsText,
+  weaponTitleText,
 } from "./panel-weapons.ts";
+
+test("weapon titles consume only backend-projected labels", () => {
+  assert.equal(weaponTitleText({ label: ".45 revolver" }), ".45 revolver");
+  assert.equal(
+    weaponTitleText({ label: "", title_fallback_label: "Weapon" }),
+    "Weapon",
+  );
+  assert.equal(weaponTitleText({ label: "" }), "");
+});
 
 test("unresolved weapons consume only a backend-projected localized status", () => {
   const weapon = {
