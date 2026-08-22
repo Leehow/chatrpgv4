@@ -2474,6 +2474,17 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             try:
                 with coc_fileio.campaign_lock(ctx.campaign_dir, **lock_kwargs):
                     try:
+                        if name == "session.resume":
+                            # Resume can repair/disposition abandoned state.  Its
+                            # opening boundary and creation evidence therefore
+                            # have to be readable before any generic recovery
+                            # mutation is allowed to run.
+                            coc_turn_manifest.effective_source_boundary(
+                                ctx.campaign_dir
+                            )
+                            coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(
+                                ctx.campaign_dir
+                            )
                         if not spec.get("strict_read_only"):
                             coc_turn_manifest.recover_table_opening_boundary(
                                 ctx.campaign_dir
@@ -2482,6 +2493,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                                 ctx.campaign_dir
                             )
                     except coc_turn_manifest.TurnManifestError as exc:
+                        envelope = failure(exc.code, str(exc))
+                    except coc_turn_finalization.TurnContractError as exc:
                         envelope = failure(exc.code, str(exc))
                     except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
                         envelope = failure("recovery_conflict", str(exc))

@@ -595,9 +595,30 @@ def _validated_virtual_source_boundary(
 
 
 def effective_source_boundary(campaign_dir: Path) -> dict[str, Any]:
-    """Public structured boundary shared by resume and quarantine projection."""
+    """Read the structured boundary shared by resume and quarantine projection.
+
+    A missing cursor is a valid virgin campaign state.  Boundary inspection is
+    a preflight, so it must not materialize that state on disk; only the
+    cursor-owning opening/finalization mutations may do so.
+    """
     campaign_dir = Path(campaign_dir)
-    cursor = load_or_create_cursor(campaign_dir)
+    cursor_path = _cursor_path(campaign_dir)
+    if cursor_path.is_file():
+        cursor = load_or_create_cursor(campaign_dir)
+    else:
+        if _contains_historical_turns(campaign_dir):
+            raise TurnManifestError(
+                "fresh_campaign_required",
+                "campaign has historical journals without bounded turn manifests; start a fresh current-schema campaign",
+            )
+        cursor = {
+            "schema_version": SCHEMA_VERSION,
+            "campaign_id": campaign_dir.name,
+            "next_source_offset": 0,
+            "next_source_index": 0,
+            "last_finalized_turn_id": None,
+            "last_finalization_id": None,
+        }
     return _validated_virtual_source_boundary(campaign_dir, cursor)
 
 

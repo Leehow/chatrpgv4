@@ -68,7 +68,36 @@ def _link_investigator(
             "schema_version": 1,
             "investigator_id": investigator_id,
             "method": method,
+            "input_mode": "import_complete_sheet",
         },
+    )
+    _write_json(
+        root / ".coc" / "investigators" / investigator_id / "character.json",
+        {
+            "id": investigator_id,
+            "name": investigator_id,
+            "characteristics": {
+                "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50,
+                "APP": 50, "INT": 50, "POW": 50, "EDU": 50,
+            },
+            "derived": {
+                "HP": 10, "MP": 10, "SAN": 50, "Luck": 50,
+                "DB": "none", "Build": 0, "MOV": 8,
+            },
+            "skills": {"Credit Rating": 20},
+        },
+    )
+
+
+def _normalize_legacy_starter_fixture(
+    root: Path, campaign_id: str, investigator_id: str,
+) -> None:
+    """Give old starter-only resume fixtures an exact current imported sheet."""
+    _link_investigator(
+        root,
+        campaign_id,
+        investigator_id,
+        method="imported_character_sheet",
     )
 
 
@@ -344,6 +373,9 @@ def test_session_resume_unopened_active_starter_points_at_table_opening(tmp_path
         "thomas-hayes",
         campaign_id="active-starter-opening",
     )
+    _normalize_legacy_starter_fixture(
+        workspace, quick["campaign_id"], quick["investigator_id"],
+    )
     resumed = _resume(workspace, quick["campaign_id"])
     assert resumed["data"]["mode"] == "table_opening"
     assert resumed["data"]["next_operations"] == ["evidence.table_opening"]
@@ -409,6 +441,9 @@ def test_session_resume_ready_for_table_keeps_unconfirmed_delivery_live(
         "thomas-hayes",
         campaign_id=campaign_id,
         title="Ready For Table Delivery",
+    )
+    _normalize_legacy_starter_fixture(
+        workspace, campaign_id, quick["investigator_id"],
     )
     campaign_dir = Path(quick["campaign_dir"])
     campaign_path = campaign_dir / "campaign.json"

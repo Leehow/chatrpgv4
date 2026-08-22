@@ -89,6 +89,49 @@ def _game_file_bytes(root: Path) -> dict[Path, bytes]:
     }
 
 
+def _write_current_imported_investigator(
+    coc_root: Path, investigator_id: str,
+) -> None:
+    """Materialize exact current imported state for legacy focused fixtures."""
+    investigator_dir = coc_root / "investigators" / investigator_id
+    character_path = investigator_dir / "character.json"
+    if character_path.is_file():
+        character = json.loads(character_path.read_text(encoding="utf-8"))
+    else:
+        character = {
+            "id": investigator_id,
+            "name": investigator_id,
+            "characteristics": {
+                "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50,
+                "APP": 50, "INT": 50, "POW": 50, "EDU": 50,
+            },
+            "derived": {
+                "HP": 10, "MP": 10, "SAN": 50,
+                "DB": "none", "MOV": 8,
+            },
+            "skills": {"Credit Rating": 20},
+        }
+    derived = coc_toolbox.coc_runtime_ops.coc_character.derive_values(
+        character["characteristics"],
+        luck=character["characteristics"]["POW"],
+    )
+    character["derived"]["Luck"] = derived["Luck"]
+    character["derived"]["Build"] = derived["Build"]
+    _write_json(character_path, character)
+    creation_path = investigator_dir / "creation.json"
+    creation = (
+        json.loads(creation_path.read_text(encoding="utf-8"))
+        if creation_path.is_file()
+        else {
+            "schema_version": 1,
+            "investigator_id": investigator_id,
+            "method": "imported_character_sheet",
+        }
+    )
+    creation["input_mode"] = "import_complete_sheet"
+    _write_json(creation_path, creation)
+
+
 @pytest.fixture
 def campaign_ws(tmp_path: Path):
     """Fresh workspace with a the-haunting / thomas-hayes quick-start campaign."""
@@ -112,6 +155,10 @@ def campaign_ws(tmp_path: Path):
         campaign_id=campaign_id,
         title="Toolbox Test",
     )
+    # The historical starter pregen is intentionally sparse; this current-
+    # schema toolbox fixture must not rely on the old missing Luck/Build and
+    # absent creation discriminator that resume now rejects as corrupt state.
+    _write_current_imported_investigator(coc_root, quick["investigator_id"])
     campaign_dir = Path(quick["campaign_dir"])
     return {
         "workspace": workspace,
@@ -15131,6 +15178,9 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
         "investigator_ids": ["linked-investigator"],
         "active_investigator_ids": ["linked-investigator"],
     })
+    _write_current_imported_investigator(
+        ws["workspace"] / ".coc", "linked-investigator",
+    )
     after_character = _run(ws, "progressive.project_opening", {
         "asset_root_id": ws["asset_root_id"],
         "source_file_sha256": ws["file_sha256"],
