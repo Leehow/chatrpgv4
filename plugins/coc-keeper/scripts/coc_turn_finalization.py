@@ -3397,8 +3397,23 @@ def build_finalization_receipt(
         raise TurnContractError("invalid_param", "decision_id must be non-empty")
     if not isinstance(draft, str) or not draft.strip():
         raise TurnContractError("invalid_param", "draft must be non-empty")
-    if isinstance(revision, bool) or not isinstance(revision, int) or revision != 1:
-        raise TurnContractError("revision_conflict", "initial finalization requires revision 1")
+    initial_revisions = {1}
+    if (
+        isinstance(contract_projection, dict)
+        and contract_projection.get("agency_review_required") is True
+    ):
+        # Pi play may accept revision 2 directly after semantic agency review
+        # rejected revision 1. Settlement and journal remain pending/frozen.
+        initial_revisions.add(2)
+    if (
+        isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision not in initial_revisions
+    ):
+        raise TurnContractError(
+            "revision_conflict",
+            "initial finalization requires revision 1, or Pi agency-reviewed narration revision 2",
+        )
     violations = collect_finalize_violations(
         campaign_dir,
         draft=draft,

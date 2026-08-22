@@ -1234,6 +1234,13 @@ def _error_recovery_hints(code: str) -> list[str]:
             "first call npc.query for the exact target, then copy a returned facts[].fact_id as npc_fact:<npc_id>/<fact_id>; bare fact/clue ids are invalid",
             "use clue:<clue_id> or event:<event_id> only for an already player-known observation; then settle before realize, and never put keeper truth into visible_observation",
         ],
+        "narration_review_required": [
+            "for Pi play, call narration.review on the exact draft with the turn_id, source_digest, and required revision returned by turn.output_context; then pass its review_id to turn.finalize",
+            "include structured agency_claims for every authorized PC action, belief, emotion, speech, physiology, or forced behavior in the draft",
+        ],
+        "agency_review_blocked": [
+            "do not rerun rules, state writes, or state.journal; rewrite only the narration, then call narration.review with the next revision shown in the error and finalize that same frozen settlement",
+        ],
         "invalid_param": [
             "call describe for the tool schema, then retry with corrected structured arguments"
         ],
@@ -22835,6 +22842,7 @@ def _turn_contract_projection(
                 "source_type": "ownership_contract",
             }],
         },
+        "agency_review_required": _pi_play_agency_review_required(),
         "settlement_source": {
             "journal_decision_id": journal_id,
             "mechanics_bundle_sha256": output_context["mechanics_bundle_sha256"],
@@ -22903,16 +22911,56 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
     }, [], hints
 
 
+def _pi_play_agency_review_required() -> bool:
+    return (
+        str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
+        == "play"
+    )
+
+
+def _review_has_agency_violation(review: dict[str, Any]) -> bool:
+    return any(
+        isinstance(finding, dict)
+        and finding.get("rule_id") == "agency_violation"
+        for finding in review.get("findings") or []
+    )
+
+
+def _valid_narration_review_digest(review: dict[str, Any]) -> bool:
+    digest = review.get("review_digest")
+    if not isinstance(digest, str) or not digest:
+        return False
+    payload = deepcopy(review)
+    payload.pop("review_digest", None)
+    payload.pop("ts", None)
+    return digest == _canonical_digest(payload)
+
+
+def _pending_agency_review_revision(
+    ctx: Ctx, settled: dict[str, Any]
+) -> int:
+    """Return the only review revision legal for the frozen pending turn."""
+    prior_rows = [
+        row
+        for row in _jsonl_rows(ctx.campaign_dir / "logs" / "narration-reviews.jsonl")
+        if row.get("turn_id") == settled.get("turn_id")
+        and row.get("source_digest") == settled.get("source_digest")
+        and row.get("revision") == 1
+        and _valid_narration_review_digest(row)
+    ]
+    return 2 if any(_review_has_agency_violation(row) for row in prior_rows) else 1
+
+
 @tool(
     "narration.review",
-    "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate.",
+    "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate.",
     {
         "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
         "turn_id": {"type": "string", "required": True},
         "source_digest": {"type": "string", "required": True},
         "revision": {"type": "integer", "minimum": 1, "required": True},
         "draft_text": {"type": "string", "required": True, "desc": "exact draft reviewed by the KP"},
-        "findings": {"type": "array", "desc": "semantic findings with rule_id and reason; empty when the draft is sound"},
+        "findings": {"type": "array", "desc": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory"},
         "investigator": {"type": "string", "desc": "investigator id for budget derivation (defaults to the party's first member)"},
     },
     access="mutation",
@@ -22981,10 +23029,17 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         finalizations = coc_turn_finalization.load_finalizations(ctx.campaign_dir)
         settled = finalizations[-1] if finalizations else {}
         expected_revision = int(settled.get("accepted_revision") or 0) + 1
+    pending_review_revision = None
+    if pending is not None and _pi_play_agency_review_required():
+        pending_review_revision = _pending_agency_review_revision(ctx, settled)
     if (
         args.get("turn_id") != settled.get("turn_id")
         or args.get("source_digest") != settled.get("source_digest")
-        or revision != expected_revision
+        or revision != (
+            pending_review_revision
+            if pending_review_revision is not None
+            else expected_revision
+        )
         or revision > coc_turn_finalization.MAX_ACCEPTED_REVISION
     ):
         raise ToolError(
@@ -23019,6 +23074,18 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                     "delivery not blocked"
                 ),
             })
+    pc_subject_refs = {f"pc:{value}" for value in ctx.party_ids()}
+    for index, finding in enumerate(findings):
+        if finding["rule_id"] != "agency_violation":
+            continue
+        if (
+            finding.get("subject_ref") not in pc_subject_refs
+            or finding.get("source_ref") is not None
+        ):
+            raise ToolError(
+                "invalid_param",
+                f"findings[{index}] agency_violation must name a current PC and source_ref=null; authorized claims belong in turn.finalize.agency_claims",
+            )
     review_id = "narration-review-v1:" + hashlib.sha256(
         f"{ctx.campaign_id}:{decision_id}".encode("utf-8")
     ).hexdigest()[:40]
@@ -23027,6 +23094,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "visibility": "keeper_internal",
         "authority": "advisory",
         "hard_gate": False,
+        "agency_hard_gate": _pi_play_agency_review_required(),
         "decision_id": decision_id,
         "review_id": review_id,
         "turn_id": str(args["turn_id"]),
@@ -23036,6 +23104,14 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "request_digest": request_digest,
         "findings": findings,
         "recommendation": "consider_revision" if findings else "no_revision_suggested",
+        "agency_gate": (
+            (
+                "rewrite_required"
+                if _review_has_agency_violation({"findings": findings})
+                else "clear"
+            )
+            if _pi_play_agency_review_required() else "advisory"
+        ),
     }
     data["review_digest"] = _canonical_digest(data)
     ctx.ledger_record(args["decision_id"], "narration.review", data)
@@ -23043,7 +23119,18 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         ctx.campaign_dir / "logs" / "narration-reviews.jsonl",
         {**data, "ts": _now_iso()},
     )
-    return data, [], ["the KP decides whether and how to revise; this review never blocks delivery"]
+    hints = [
+        "non-agency findings remain advisory; the KP decides whether and how to revise them"
+    ]
+    if data["agency_gate"] == "rewrite_required":
+        hints.append(
+            "agency ownership is the sole hard review boundary: do not finalize this draft or rerun settlement; rewrite prose only and review revision 2"
+        )
+    else:
+        hints.append(
+            "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize"
+        )
+    return data, [], hints
 
 
 @tool(
@@ -30406,7 +30493,24 @@ def _resolve_bound_narration_review(
     revision: int,
     draft: str,
 ) -> dict[str, Any] | None:
+    pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
+    if pending is not None:
+        current = coc_turn_finalization.build_output_context(ctx.campaign_dir)
+        current_projection = _turn_contract_projection(ctx, current)
+    else:
+        finalizations = coc_turn_finalization.load_finalizations(ctx.campaign_dir)
+        current = finalizations[-1] if finalizations else {}
+        current_projection = (
+            current.get("contract_projection")
+            if isinstance(current.get("contract_projection"), dict) else {}
+        )
+    agency_review_required = current_projection.get("agency_review_required") is True
     if review_id is None:
+        if agency_review_required:
+            raise ToolError(
+                "narration_review_required",
+                "Pi play turn.finalize requires an exact bound narration.review for this draft revision",
+            )
         return None
     clean_id = str(review_id).strip()
     if not clean_id:
@@ -30420,19 +30524,19 @@ def _resolve_bound_narration_review(
     if len(matches) != 1:
         raise ToolError("narration_review_mismatch", "narration review id is missing or duplicated")
     row = matches[0]
+    if not _valid_narration_review_digest(row):
+        raise ToolError(
+            "narration_review_mismatch", "narration review digest is invalid"
+        )
     expected_turn = turn_id
     expected_source = source_digest
     if expected_turn is None or expected_source is None:
-        pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
         if pending is not None:
-            current = coc_turn_finalization.build_output_context(ctx.campaign_dir)
             expected_turn = str(current["turn_id"])
             expected_source = str(current["source_digest"])
         else:
-            finalizations = coc_turn_finalization.load_finalizations(ctx.campaign_dir)
-            latest = finalizations[-1] if finalizations else {}
-            expected_turn = str(latest.get("turn_id") or "")
-            expected_source = str(latest.get("source_digest") or "")
+            expected_turn = str(current.get("turn_id") or "")
+            expected_source = str(current.get("source_digest") or "")
     if (
         row.get("turn_id") != expected_turn
         or row.get("source_digest") != expected_source
@@ -30443,6 +30547,19 @@ def _resolve_bound_narration_review(
             "narration_review_mismatch",
             "narration review does not bind this exact turn/source/revision/draft",
         )
+    if agency_review_required:
+        if _review_has_agency_violation(row):
+            raise ToolError(
+                "agency_review_blocked",
+                "the bound review identifies an unauthorized PC agency claim; keep the settlement frozen, rewrite narration only, and review revision 2",
+            )
+        if pending is not None:
+            expected_revision = _pending_agency_review_revision(ctx, current)
+            if revision != expected_revision:
+                raise ToolError(
+                    "narration_review_mismatch",
+                    f"the frozen pending turn requires narration review revision {expected_revision}",
+                )
     return {
         "review_id": clean_id,
         "review_digest": str(row.get("review_digest") or ""),
@@ -30470,6 +30587,25 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     contract_projection = _turn_contract_projection(ctx, data)
     data["contract_projection"] = contract_projection
     data["contract_projection_sha256"] = _canonical_digest(contract_projection)
+    agency_review_required = contract_projection["agency_review_required"] is True
+    agency_review_revision = (
+        _pending_agency_review_revision(ctx, data)
+        if agency_review_required else 1
+    )
+    if agency_review_required:
+        data["agency_review_operation"] = {
+            "operation": "narration.review",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "turn_id": data["turn_id"],
+                "source_digest": data["source_digest"],
+                "revision": agency_review_revision,
+            },
+            "missing_arguments": ["decision_id", "draft_text", "findings"],
+            "discovery_required": False,
+            "authority": "semantic_agency_review",
+            "hard_gate_scope": "agency_ownership_only",
+        }
     required_obligation_ids = [
         str(obligation_id)
         for obligation_id in data.get("required_obligation_ids") or []
@@ -30482,11 +30618,13 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
             f"{journal_decision_id}:finalize"
         )
     missing_arguments = ["draft"]
-    prefilled_arguments["revision"] = 1
+    prefilled_arguments["revision"] = agency_review_revision
     if required_obligation_ids:
         missing_arguments.append("coverage")
     else:
         prefilled_arguments["coverage"] = []
+    if agency_review_required:
+        missing_arguments.extend(["narration_review_id", "agency_claims"])
     data["finalize_operation"] = {
         "operation": "turn.finalize",
         "invoke_via": "coc_invoke",
@@ -30503,12 +30641,19 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         "split the draft into causal paragraphs and normally omit mechanics_placements: the finalizer inserts each public roll before its coverage result paragraph and groups later changes exactly once; provide explicit placements only when deliberate interleaving improves the scene",
         "mechanics_bundle text and arithmetic are deterministic; do not copy, recompute, or paraphrase their numbers in fictional paragraphs",
         "if narrative_opportunity actually shaped the draft, pass advisory_uptake with an exact draft excerpt to turn.finalize; only then is the Storylet ledger updated",
+        *(
+            [
+                "Pi play agency boundary: review this exact draft through agency_review_operation before turn.finalize; unauthorized PC inner/voluntary claims require prose-only revision 2, while all non-agency findings remain advisory",
+                "do not rerun rules, state writes, state.journal, coverage, or mechanics when rewriting a rejected narration revision",
+            ]
+            if agency_review_required else []
+        ),
     ]
 
 
 @tool(
     "turn.finalize",
-    "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
+    "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
     {
         "draft": {
             "type": "string",
@@ -30585,11 +30730,11 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         },
         "narration_review_id": {
             "type": "string",
-            "desc": "optional exact narration.review id bound to this turn/source/revision/draft",
+            "desc": "exact narration.review id bound to this turn/source/revision/draft; required for Pi play accepted output",
         },
         "agency_claims": {
             "type": "array",
-            "desc": "structured agency claims; empty does not prove semantic absence",
+            "desc": "all authorized PC propositions found during semantic review: voluntary claims bind the exact current player_input; physiology binds the ownership contract; forced behavior binds an active frozen override. Empty is valid only when the bound clean review found no PC proposition",
             "items": {
                 "type": "object",
                 "properties": {

@@ -1461,27 +1461,45 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         if isinstance(obligation_id, str) and obligation_id
     ]
     journal_decision_id = value.get("journal_decision_id")
+    agency_review_operation = value.get("agency_review_operation")
+    agency_review_required = isinstance(agency_review_operation, dict)
+    agency_review_revision = (
+        int((agency_review_operation.get("prefilled_arguments") or {}).get("revision") or 1)
+        if agency_review_required else 1
+    )
+    if agency_review_required:
+        projected["agency_review_operation"] = deepcopy(agency_review_operation)
     prefilled: dict[str, Any] = {}
     if isinstance(journal_decision_id, str) and journal_decision_id:
         prefilled["decision_id"] = f"{journal_decision_id}:finalize"
-    prefilled["revision"] = 1
+    prefilled["revision"] = agency_review_revision
     missing = ["draft"]
     if required_obligation_ids:
         missing.append("coverage")
     else:
         prefilled["coverage"] = []
+    if agency_review_required:
+        missing.extend(["narration_review_id", "agency_claims"])
     finalize_operation = _operation_card(
         "turn.finalize",
         prefilled=prefilled,
         missing=missing,
     )
     finalize_operation["argument_contract"] = {
-        "required_arguments": ["draft", "coverage", "decision_id", "revision"],
+        "required_arguments": [
+            "draft", "coverage", "decision_id", "revision",
+            *(
+                ["narration_review_id", "agency_claims"]
+                if agency_review_required else []
+            ),
+        ],
         "allowed_arguments": list(FINALIZE_ARGUMENTS),
         "forbidden_aliases": ["draft_text", "journal_decision_id"],
         "instruction": (
             "Merge prefilled_arguments unchanged, add only missing_arguments, "
-            "and invoke directly without coc_discover."
+            "and invoke directly without coc_discover. When agency review is "
+            "required, call agency_review_operation on the exact draft first; "
+            "only agency ownership violations block acceptance."
         ),
     }
     if required_obligation_ids:

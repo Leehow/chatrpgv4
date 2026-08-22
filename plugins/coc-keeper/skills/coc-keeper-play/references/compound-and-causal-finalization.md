@@ -156,8 +156,9 @@ you may preflight the exact same payload with `turn.finalize`
 `validate_only: true` — it runs the full validation and writes nothing, so an
 empty violation list means the commit call succeeds unchanged.
 
-The initial accepted draft uses `revision: 1`. Optional
-`narration_review_id` must name a review bound to that exact
+The initial accepted draft normally uses `revision: 1`. In Pi play, every
+pending draft first uses the exact `agency_review_operation` returned by
+`turn.output_context`; `narration_review_id` must name that review bound to the exact
 turn/source/revision/draft. `agency_claims` bind exact draft excerpts to their
 authority: voluntary investigator claims use the exact current
 `player_input:<journal decision_id>`; forced behavior uses a matching active
@@ -165,7 +166,11 @@ override frozen in `contract_projection`; involuntary physiology uses the
 typed ownership source listed by `agency_authority`. Voluntary and physiology
 subjects must resolve to a current party PC. These bindings are deterministic
 evidence only. An empty list does not semantically prove that the prose contains
-no agency violation, and review remains advisory rather than a fifth hard gate.
+no agency violation. A clean bound semantic review supplies that proof. If it
+records `agency_violation`, no output is accepted: keep the exact settlement
+pending, rewrite prose only, review `revision: 2`, and finalize that revision
+without rerunning rules, state, journal, coverage, or mechanics. This is the
+sole hard review rule; all non-agency findings remain advisory.
 
 Never copy a rendered `【明骰】` / `【变化】` / `【特殊影响】` block into
 `draft`; `mechanics_placements` is its only player-visible source and the

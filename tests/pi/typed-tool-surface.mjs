@@ -61,6 +61,20 @@ test("live play exposes the concealed Psychology window contract as an exact too
   assert.match(psychology.description, /Bare ids are invalid/);
 });
 
+test("live play exposes the agency review then finalize contract", () => {
+  const play = domain.activeToolsForPhase("pending_finalization", "play");
+  const review = catalog.byOperation.get("narration.review");
+  const finalize = catalog.byOperation.get("turn.finalize");
+  assert.ok(play.includes("coc_narration_review"));
+  assert.ok(play.includes("coc_turn_finalize"));
+  assert.match(review.description, /agency_violation/);
+  assert.match(review.description, /revision 2/);
+  assert.match(review.description, /same frozen settlement/);
+  assert.match(finalize.description, /first call the narration\.review operation/);
+  assert.match(finalize.description, /never rerun rules\/state\/journal/);
+  assert.match(finalize.description, /Non-agency review findings stay advisory/);
+});
+
 test("derived names are deterministic and fail closed on collision", () => {
   assert.equal(typed.typedToolNameForOperation("rules.roll"), "coc_rules_roll");
   assert.equal(typed.typedToolNameForOperation("turn.output_context"), "coc_turn_output_context");

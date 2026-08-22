@@ -192,9 +192,15 @@ output evidence boundary, not a replacement prose engine:
    current `player_input:<journal decision_id>`; forced behavior must bind an
    active frozen override by stable `override_id`, subject, rule source, and
    expiry. An empty claim list does **not** prove absence of agency violations.
-   `narration.review` remains optional and advisory; when used, bind it to the
-   exact turn, source digest, revision, and draft, with structured
-   `subject_ref` / `source_ref` findings.
+   In Pi play, `turn.output_context.agency_review_operation` is required for
+   every pending narration revision. Call `narration.review` on the exact
+   turn/source/revision/draft, then bind its review ID and all authorized PC
+   propositions in `turn.finalize.agency_claims`. An `agency_violation` is the
+   sole hard review finding: do not finalize that draft; rewrite narration as
+   revision 2 against the same frozen settlement and never rerun rules, state,
+   journal, coverage, or mechanics. Length, repetition, scope, style, and all
+   other review findings remain advisory. Outside this Pi agency boundary,
+   narration review remains optional advice.
 
 **Mechanical output gate.** Formal mechanical markers — `【明骰】`, dice lines
 (`掷骰：N`), and SAN/HP numeric transfers (`SAN 50→46`, `HP 6→4`, `损失 N 点`) —
@@ -301,7 +307,9 @@ opening procedure is normative in
 - **No mandatory Director/Storylet calls.** `director.advise`,
   `storylets.suggest`, `narration.brief`, `narration.review`, and related
   advisory tools are optional; skip them when fiction already has momentum.
-  Absence never fails a turn.
+  Absence never fails a turn. The one explicit exception is Pi play's
+  user-authorized agency-ownership review before accepted output; it does not
+  make any other prose-quality finding mandatory or blocking.
 
 Log-style summary, AI-summary voice, translationese, or restating tool/clue/roll
 payloads as if they were finished table prose is **not acceptable player-**
@@ -377,8 +385,11 @@ settled finalization.
    disposition; optionally record that choice with `evidence.record_adoption`.
    On stalls or complex beats, standalone
    `director.advise` / `storylets.suggest` remain available;
-   `narration.brief` / `narration.review` are only for beats that are genuinely
-   hard to self-review. Never call review every turn for an empty receipt. A
+   `narration.brief` and prose-quality review are only for beats that are genuinely
+   hard to self-review. Pi play nevertheless uses the same
+   `narration.review` once per pending draft revision for the narrow agency
+   ownership contract; a clean review is required evidence, while every
+   non-agency finding remains advisory. A
    `coc_advisory_sidecar_v1=true` host may use the optional background adviser
    contract in `references/turn-tooling-and-typed-ops.md` on a genuinely complex
    beat; it never waits, becomes a second KP, or replaces semantic/rules/state/
@@ -397,7 +408,7 @@ settled finalization.
    unit. The tool stamps `game_time` — do not pass
    wall-clock time. Players see only the localized reason and game time from
    `turn.finalize`.
-   Then `state.journal` → `turn.output_context` →
+   Then `state.journal` → `turn.output_context` → draft → Pi agency review →
    coverage → `turn.finalize` → deliver exact `rendered_text`. Normally omit
    `mechanics_placements`: the finalizer inserts public rolls before their
    covered result and groups later changes once. Put setup and consequence in

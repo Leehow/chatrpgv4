@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:fdff51ffbedc4ce2182123617d11ce59363e48eb2419c77b12bb9c6802e1a4de",
+  "content_sha256": "sha256:0ea6d222e76cf9e71b69ea6ea51f1eef1db4f1cb3d48a23d77f042b53d724a1d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1112,7 +1112,7 @@
     "narration.review": {
       "access": "mutation",
       "canonical_operation": "narration.review",
-      "description": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
+      "description": "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate. Canonical operation `narration.review`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1129,7 +1129,7 @@
             "type": "string"
           },
           "findings": {
-            "description": "semantic findings with rule_id and reason; empty when the draft is sound",
+            "description": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory",
             "type": "array"
           },
           "investigator": {
@@ -1172,7 +1172,7 @@
           "pending_finalization"
         ]
       },
-      "summary": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate."
+      "summary": "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate."
     },
     "npc.advise": {
       "access": "mutation",
@@ -8101,7 +8101,7 @@
     "turn.finalize": {
       "access": "mutation",
       "canonical_operation": "turn.finalize",
-      "description": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
+      "description": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8155,7 +8155,7 @@
             "type": "object"
           },
           "agency_claims": {
-            "description": "structured agency claims; empty does not prove semantic absence",
+            "description": "all authorized PC propositions found during semantic review: voluntary claims bind the exact current player_input; physiology binds the ownership contract; forced behavior binds an active frozen override. Empty is valid only when the bound clean review found no PC proposition",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -8335,7 +8335,7 @@
             "type": "array"
           },
           "narration_review_id": {
-            "description": "optional exact narration.review id bound to this turn/source/revision/draft",
+            "description": "exact narration.review id bound to this turn/source/revision/draft; required for Pi play accepted output",
             "type": "string"
           },
           "repair_finalization_id": {
@@ -8378,7 +8378,7 @@
           "ending"
         ]
       },
-      "summary": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
+      "summary": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
     },
     "turn.output_context": {
       "access": "query",
