@@ -406,6 +406,217 @@ def test_clues_query_keeper_projection_lists_all_cards(campaign_ws):
     assert after["data"]["handouts"]["delivered_handout_ids"] == ["handout-cellar-map"]
 
 
+def test_handout_catalog_prefers_scenario_over_asset_index(campaign_ws):
+    """The campaign IR card is fresher than its imported asset-index row."""
+    _install_cards(campaign_ws)
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    _write_json(store, {
+        "schema_version": 1,
+        "handouts": [
+            {
+                "asset_id": "handout-newspaper",
+                "kind": "document",
+                "title": "Scenario-projected clipping",
+                "text": "Scenario IR replaces the older imported card body.",
+                "localized_text": "战役 IR 覆盖较旧的导入卡片正文。",
+                "source_refs": ["pdf_index-18"],
+                "player_visible": True,
+            },
+        ],
+    })
+
+    result = _run(campaign_ws, "clues.query", {})
+
+    cards = {
+        card["asset_id"]: card for card in result["data"]["handouts"]["cards"]
+    }
+    assert cards["handout-newspaper"]["title"] == "Scenario-projected clipping"
+    assert cards["handout-newspaper"]["text"] == (
+        "Scenario IR replaces the older imported card body."
+    )
+
+
+def test_deep_handout_wins_over_scenario_and_index_for_keeper_and_player(
+    campaign_ws,
+):
+    """The freshest valid deep entity wins the complete public-tool path."""
+    _install_cards(campaign_ws)
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    _write_json(store, {
+        "schema_version": 1,
+        "handouts": [
+            {
+                "asset_id": "handout-newspaper",
+                "kind": "document",
+                "title": "Scenario clipping",
+                "text": "Scenario IR card body.",
+                "localized_text": "战役 IR 卡片正文。",
+                "source_refs": ["pdf_index-18"],
+                "player_visible": True,
+            },
+        ],
+    })
+    scenario_path = campaign_ws["campaign_dir"] / "scenario" / "scenario.json"
+    _write_json(scenario_path, {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "progressive_asset_root_id": "deep-priority-handouts",
+    })
+    deep_card = (
+        campaign_ws["coc_root"]
+        / "module-assets"
+        / "deep-priority-handouts"
+        / "entities"
+        / "handout-handout-newspaper.json"
+    )
+    _write_json(deep_card, {
+        "handout_id": "handout-newspaper",
+        "asset_id": "handout-newspaper",
+        "kind": "document",
+        "title": "Deep clipping",
+        "text": "Deep entity card body.",
+        "localized_text": "深层实体卡片正文。",
+        "source_refs": ["pdf_index-19"],
+        "player_visible": True,
+        "parse_state": "deep",
+        "evidence_gap": False,
+    })
+
+    keeper = _run(campaign_ws, "clues.query", {})
+    keeper_cards = {
+        card["asset_id"]: card for card in keeper["data"]["handouts"]["cards"]
+    }
+    assert keeper_cards["handout-newspaper"]["title"] == "Deep clipping"
+    assert keeper_cards["handout-newspaper"]["text"] == "Deep entity card body."
+
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "handout-newspaper",
+        "decision_id": "deliver-deep-priority-card",
+    })
+    assert delivered["ok"] is True, delivered
+    assert delivered["data"]["card"]["text"] == "深层实体卡片正文。"
+    player = _run(campaign_ws, "clues.query", {"handouts_projection": "player"})
+    assert player["data"]["handouts"]["cards"] == [
+        {
+            "asset_id": "handout-newspaper",
+            "kind": "document",
+            "title": "Deep clipping",
+            "text": "深层实体卡片正文。",
+            "localized_text": "深层实体卡片正文。",
+            "image_ref": None,
+            "source_refs": ["pdf_index-19"],
+            "player_visible": True,
+            "delivered": True,
+            "secret": False,
+        },
+    ]
+
+
+def test_table_opening_lists_only_valid_visible_undelivered_cards(campaign_ws):
+    """Opening evidence exposes stable metadata, never bodies or hidden cards."""
+    index = campaign_ws["campaign_dir"] / "index" / "handout-assets.json"
+    _write_json(index, {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "asset_root": "assets/handouts",
+        "assets": [
+            {
+                "asset_id": "opening-zulu",
+                "kind": "document",
+                "title": "Zulu opening card",
+                "text": "Zulu body must stay outside pending metadata.",
+                "source_refs": ["pdf_index-30"],
+                "player_visible": True,
+                "opening_card": True,
+                "when_to_deliver": "when the envelope is opened",
+            },
+            {
+                "asset_id": "opening-alpha",
+                "kind": "read_aloud",
+                "title": "Alpha opening card",
+                "text": "Alpha body must stay outside pending metadata.",
+                "source_refs": ["pdf_index-31"],
+                "player_visible": True,
+                "opening_card": True,
+                "when_to_deliver": "as the table opens",
+            },
+            {
+                "asset_id": "opening-delivered",
+                "kind": "document",
+                "title": "Already delivered",
+                "text": "Already delivered body.",
+                "source_refs": ["pdf_index-32"],
+                "player_visible": True,
+                "opening_card": True,
+            },
+            {
+                "asset_id": "opening-hidden",
+                "kind": "document",
+                "title": "Keeper opening note",
+                "text": "Hidden opening body.",
+                "source_refs": ["pdf_index-33"],
+                "player_visible": False,
+                "opening_card": True,
+            },
+            {
+                "asset_id": "opening-malformed",
+                "kind": "document",
+                "title": "Malformed opening card",
+                "text": "Malformed opening body.",
+                "source_refs": ["pdf_index-34"],
+                "player_visible": True,
+                "opening_card": "true",
+            },
+            {
+                "asset_id": "not-an-opening-card",
+                "kind": "document",
+                "title": "Later card",
+                "text": "Later card body.",
+                "source_refs": ["pdf_index-35"],
+                "player_visible": True,
+                "opening_card": False,
+            },
+        ],
+        "display": {},
+    })
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "opening-delivered",
+        "decision_id": "deliver-before-opening",
+    })
+    assert delivered["ok"] is True, delivered
+
+    opening = _run(campaign_ws, "evidence.table_opening", {
+        "text": "[in_game]\n测试开场。\n[/in_game]",
+        "run_id": "handout-opening-run",
+        "presented_roll_ids": [],
+        "decision_id": "handout-opening-evidence",
+    })
+
+    assert opening["ok"] is True, opening
+    assert opening["data"]["pending_opening_handouts"] == [
+        {
+            "asset_id": "opening-alpha",
+            "kind": "read_aloud",
+            "title": "Alpha opening card",
+            "when_to_deliver": "as the table opens",
+        },
+        {
+            "asset_id": "opening-zulu",
+            "kind": "document",
+            "title": "Zulu opening card",
+            "when_to_deliver": "when the envelope is opened",
+        },
+    ]
+    pending_payload = json.dumps(
+        opening["data"]["pending_opening_handouts"], ensure_ascii=False
+    )
+    assert "body" not in pending_payload
+    assert "opening-hidden" not in pending_payload
+    assert "opening-delivered" not in pending_payload
+    assert "opening-malformed" not in pending_payload
+    assert "not-an-opening-card" not in pending_payload
+
+
 def test_player_projection_hides_undelivered_and_keeper_facing_cards(campaign_ws):
     _install_cards(campaign_ws)
     # Deliver the player-visible map card only. The keeper-facing card is
