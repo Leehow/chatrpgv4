@@ -144,8 +144,8 @@ output evidence boundary, not a replacement prose engine:
    rendered. If the roll was never executed, execute it first — do not
    narrate a result.
 2. **State writes go through tools.** Clue discoveries, scene moves, HP/SAN
-   changes, time, items, cash, and turn receipts are recorded with `state.*` /
-   `rules.*` tools (atomic, idempotent via `decision_id`) — never by
+   changes, time, items, cash, handout deliveries, and turn receipts are recorded
+   with `state.*` / `rules.*` tools (atomic, idempotent via `decision_id`) — never by
    hand-editing save files mid-play or by narrating a possession or purse
    change that was not first written.
 3. **Module truth is read-only.** Tools mark keeper-only material
@@ -190,6 +190,21 @@ opening procedure is normative in
   Prefer `localized_text[play_language]` / `localized_terms[play_language]`
   when present. Diegetic foreign speech is the only comprehension-skill
   exception — load `references/style-scene-craft.md` for tiers.
+- **Verbatim handout delivery.** When play semantically meets a handout
+  card's delivery condition (`when_to_deliver`), call `state.deliver_handout`
+  (idempotent via `decision_id`, with `scene_id`/`reason` evidence) before the
+  prose that presents the card as delivered — a card in the player's hands
+  is not real until that write lands, same discipline as items and cash.
+  Recording a clue that carries `handout_asset_id` delivers its linked card
+  in the same transaction; never re-deliver it by hand. Around the card you
+  own only framing — who finds it, in what situation — rendered in
+  `play_language`; the card body is the card's `localized_text` when present,
+  otherwise its verbatim `text`: never rewrite, summarize, or paraphrase it
+  into your own prose. Undelivered card text is keeper-only: query cards
+  through the keeper-side handout query and never dump them. Opening
+  handouts deliver right after the table opening through the same path.
+  Delivery timing is your semantic judgment — no quota, no fixed pipeline;
+  the deliver tool records state and never gates narration.
 - **Operational invisibility.** Parse/cache/queue/IR status, host work,
   `deep pack`, “已深解析”, tool latency, and reuse diagnostics are KP-internal
   evidence. Never narrate them to the player. Render only their diegetic
