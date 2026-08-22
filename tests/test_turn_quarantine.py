@@ -319,7 +319,7 @@ def test_ending_required_roll_stays_bound_and_delivery_survives_resume(campaign_
     assert set(finalized["data"]["source_roll_ids"]) == required_roll_ids
     acknowledged = _run(campaign_ws, "session.delivery_ack", {
         "finalization_id": finalized["data"]["finalization_id"],
-        "rendered_sha256": finalized["data"]["rendered_sha256"],
+        "rendered_sha256": finalized["data"]["rendered_text_sha256"],
         "ack_kind": "displayed",
         "source_id": "turn-quarantine-regression-browser",
         "decision_id": "ending-delivery-ack",

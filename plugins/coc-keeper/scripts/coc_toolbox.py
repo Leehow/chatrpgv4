@@ -2389,6 +2389,19 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             if args.get(pname) in (None, "")
         ]
         if (
+            name == "narration.review"
+            and not _pi_play_agency_review_required()
+            and not any(
+                args.get(key) is not None
+                for key in ("turn_id", "source_digest", "revision")
+            )
+        ):
+            missing_params = [
+                key
+                for key in missing_params
+                if key not in {"turn_id", "source_digest", "revision"}
+            ]
+        if (
             missing_params
             and name == "progressive.project_opening"
             and _opening_projection_pacing_available(root, campaign_id)
@@ -22936,6 +22949,83 @@ def _valid_narration_review_digest(review: dict[str, Any]) -> bool:
     return digest == _canonical_digest(payload)
 
 
+def _tool_narration_advisory_review(
+    ctx: Ctx, args: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Preserve the non-Pi advisory review without granting finalization authority."""
+    decision_id = str(args.get("decision_id") or "").strip()
+    if not decision_id:
+        raise ToolError("invalid_param", "narration.review requires decision_id")
+    prior = ctx.ledger_lookup("narration.review", decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previous review"
+        ], []
+    draft = str(args.get("draft_text") or "")
+    if not draft.strip():
+        raise ToolError("invalid_param", "draft_text is required")
+    raw_findings = args.get("findings") or []
+    if not isinstance(raw_findings, list):
+        raise ToolError("invalid_param", "findings must be an array")
+    findings: list[dict[str, str]] = []
+    for index, finding in enumerate(raw_findings):
+        if not isinstance(finding, dict):
+            raise ToolError("invalid_param", f"findings[{index}] must be an object")
+        rule_id = str(finding.get("rule_id") or "").strip()
+        reason = str(finding.get("reason") or "").strip()
+        if not rule_id or not reason:
+            raise ToolError(
+                "invalid_param",
+                f"findings[{index}] requires rule_id and semantic reason",
+            )
+        findings.append({"rule_id": rule_id, "reason": reason})
+    investigator_id = (
+        _resolve_investigator(ctx, args)
+        if args.get("investigator") is not None
+        else ((ctx.party_ids() or [None])[0])
+    )
+    if investigator_id is not None:
+        recent_events: list[dict[str, Any]] = []
+        events_path = ctx.campaign_dir / "logs" / "events.jsonl"
+        if events_path.is_file():
+            for raw in events_path.read_text(encoding="utf-8").splitlines()[-12:]:
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict):
+                    recent_events.append(row)
+        budget = _narration_budget(ctx, investigator_id, recent_events)
+        if len(draft) > 2 * int(budget["max_chars"]):
+            findings.append({
+                "rule_id": "over_length",
+                "reason": (
+                    f"draft is {len(draft)} chars, over 2x the '{budget['mode']}' "
+                    f"length budget ({budget['max_chars']}); recorded for audit, "
+                    "delivery not blocked"
+                ),
+            })
+    data = {
+        "schema_version": 1,
+        "visibility": "keeper_internal",
+        "authority": "advisory",
+        "hard_gate": False,
+        "agency_hard_gate": False,
+        "decision_id": decision_id,
+        "draft_sha256": _canonical_digest(draft),
+        "findings": findings,
+        "recommendation": "consider_revision" if findings else "no_revision_suggested",
+    }
+    ctx.ledger_record(decision_id, "narration.review", data)
+    coc_state.append_jsonl(
+        ctx.campaign_dir / "logs" / "narration-reviews.jsonl",
+        {**data, "ts": _now_iso()},
+    )
+    return data, [], [
+        "the KP decides whether and how to revise; this advisory review never blocks delivery"
+    ]
+
+
 def _pending_agency_review_revision(
     ctx: Ctx, settled: dict[str, Any]
 ) -> int:
@@ -22968,6 +23058,11 @@ def _pending_agency_review_revision(
     execution_class="serial_campaign",
 )
 def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
+    bound_fields = ("turn_id", "source_digest", "revision")
+    if not _pi_play_agency_review_required() and not any(
+        args.get(key) is not None for key in bound_fields
+    ):
+        return _tool_narration_advisory_review(ctx, args)
     decision_id = str(args.get("decision_id") or "").strip()
     revision = args.get("revision")
     if (

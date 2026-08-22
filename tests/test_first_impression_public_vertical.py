@@ -319,9 +319,10 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
         encoding="utf-8",
     )
     report = _load_exporter().export_battle_report(run_dir)
-    assert [row["npc_id"] for row in report["first_impressions"]] == [
-        "npc-arty-wilmot", "npc-ruth-blake",
+    assert [row["npc_display_name"] for row in report["first_impressions"]] == [
+        "阿蒂·威尔莫特", "露丝·布莱克",
     ]
+    assert all("npc_id" not in row for row in report["first_impressions"])
     assert {row["npc_display_name"] for row in report["first_impressions"]} == {
         "阿蒂·威尔莫特", "露丝·布莱克",
     }
@@ -367,7 +368,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
 
     helped = call("rules.roll", {
         "investigator": investigator_id,
-        "skill": "Persuade",
+        "skill": "Accounting",
         "target": 50,
         "npc_id": "npc-ruth-blake",
         "difficulty": "regular",
@@ -402,7 +403,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
         "mechanics": {
             "dice": 1,
             "investigator_id": investigator_id,
-            "skill": "Persuade",
+            "skill": "Accounting",
             "scene_id": None,
             "target_id": "npc-ruth-blake",
             "target_display_name": "露丝·布莱克",
@@ -415,7 +416,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
 
     unrelated = call("rules.roll", {
         "investigator": investigator_id,
-        "skill": "Persuade",
+        "skill": "Accounting",
         "target": 50,
         "npc_id": "npc-arty-wilmot",
         "difficulty": "regular",
@@ -475,7 +476,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
 
     omitted = raw("rules.roll", {
         "investigator": investigator_id,
-        "skill": "Persuade",
+        "skill": "Accounting",
         "target": 50,
         "npc_id": "npc-ruth-blake",
         "difficulty": "regular",
@@ -490,7 +491,7 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
 
     matching = call("rules.roll", {
         "investigator": investigator_id,
-        "skill": "Persuade",
+        "skill": "Accounting",
         "target": 50,
         "npc_id": "npc-ruth-blake",
         "difficulty": "regular",
@@ -568,10 +569,19 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
     assert len(report["relationship_rewards"]) == 1
     exported = report["relationship_rewards"][0]
     assert exported["status"] == "consumed"
-    assert exported["source_roll_id"] == helped["data"]["roll_id"]
-    assert exported["mechanics"]["source_decision_ids"] == [
-        "help-ruth-live-relationship"
-    ]
+    assert "source_roll_id" not in exported
+    assert "source_decision_ids" not in exported["mechanics"]
+    validation = json.loads(
+        (run_dir / "artifacts" / "audit" / "report-validation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    identities = {
+        row["path"]: row["value"]
+        for row in validation["projection_source_identities"]
+    }
+    assert helped["data"]["roll_id"] in identities.values()
+    assert ["help-ruth-live-relationship"] in identities.values()
 
 
 def test_state_delta_preserves_canonical_tool_call_order(tmp_path: Path) -> None:

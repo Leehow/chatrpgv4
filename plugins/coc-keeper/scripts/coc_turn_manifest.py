@@ -298,14 +298,44 @@ def _contains_historical_turns(campaign_dir: Path) -> bool:
     return False
 
 
-def load_or_create_cursor(campaign_dir: Path) -> dict[str, Any]:
+def load_or_create_cursor(
+    campaign_dir: Path, *, validate_finalization_binding: bool = True
+) -> dict[str, Any]:
     campaign_dir = Path(campaign_dir)
     campaign_id = campaign_dir.name
     path = _cursor_path(campaign_dir)
     if path.is_file():
-        return _validate_cursor(
+        cursor = _validate_cursor(
             _read_object(path, code="state_corrupt"), campaign_id
         )
+        last_finalization_id = cursor.get("last_finalization_id")
+        if (
+            validate_finalization_binding
+            and isinstance(last_finalization_id, str)
+            and last_finalization_id
+        ):
+            matching = next(
+                (
+                    row
+                    for row in _read_jsonl_rows(_finalization_path(campaign_dir))
+                    if row.get("finalization_id") == last_finalization_id
+                ),
+                None,
+            )
+            if (
+                not isinstance(matching, dict)
+                or matching.get("schema_version") != 2
+                or not isinstance(matching.get("accepted_revision"), int)
+                or not isinstance(matching.get("rendered_text_sha256"), str)
+                or not matching["rendered_text_sha256"]
+                or not isinstance(matching.get("contract_projection_sha256"), str)
+                or not matching["contract_projection_sha256"]
+            ):
+                raise TurnManifestError(
+                    "state_corrupt",
+                    "turn source cursor points to a non-current finalization receipt",
+                )
+        return cursor
     if _contains_historical_turns(campaign_dir):
         raise TurnManifestError(
             "fresh_campaign_required",
@@ -1029,7 +1059,12 @@ def complete_undelivered_output_repair(
 ) -> dict[str, Any]:
     """Advance the bounded cursor after replacing an undelivered output tail."""
     campaign_dir = Path(campaign_dir)
-    cursor = load_or_create_cursor(campaign_dir)
+    # The immutable receipt swap happens before this cursor update. During
+    # that narrow transaction the old cursor id is intentionally absent from
+    # the already-replaced log; validate the new binding below instead.
+    cursor = load_or_create_cursor(
+        campaign_dir, validate_finalization_binding=False
+    )
     turn_id = cursor.get("last_finalized_turn_id")
     if not isinstance(turn_id, str) or not turn_id:
         raise TurnManifestError(
