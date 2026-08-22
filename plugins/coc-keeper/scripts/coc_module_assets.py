@@ -4298,7 +4298,39 @@ def register_source_bundle(
         return result
 
 
-def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
+_HANDOUT_CARD_REF = re.compile(r"pdf_index-(\d+)")
+
+
+def _handout_card_ref_index(ref: str) -> int | None:
+    """One handout card string ref -> its bundle page index, else None."""
+    if not isinstance(ref, str):
+        return None
+    match = _HANDOUT_CARD_REF.fullmatch(ref.strip())
+    return int(match.group(1)) if match is not None else None
+
+
+def _validate_handout_entity_pack(doc: dict[str, Any]) -> None:
+    """Card-contract validation for handout entity packs.
+
+    A handout pack IS a verbatim info card: ``kind`` is required, and a
+    ``text`` body must carry string ``source_refs`` tracing the verbatim
+    excerpt to bundle pages. The canonical field checks live with the card
+    contract in ``coc_scenario.validate_handout_card``.
+    """
+    scenario_mod = _load_sibling(
+        "coc_scenario_module_assets", "coc_scenario.py",
+    )
+    handout_id = str(doc.get("handout_id") or "").strip()
+    errors = scenario_mod.validate_handout_card(
+        doc, prefix=f"handout {handout_id or '<missing id>'}",
+    )
+    if errors:
+        raise ModuleAssetsError("; ".join(errors))
+
+
+def _source_indices(
+    value: dict[str, Any], *, field: str, allow_string_refs: bool = False,
+) -> list[int]:
     declared_scopes: list[tuple[str, set[int]]] = []
     refs = value.get("source_refs")
     if refs is not None:
@@ -4306,6 +4338,22 @@ def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
             raise ModuleAssetsError(f"{field}.source_refs must be a list")
         ref_indices: list[int] = []
         for position, ref in enumerate(refs):
+            if isinstance(ref, str):
+                # Verbatim handout cards carry compact string refs; only the
+                # handout evidence path opts in. Non-``pdf_index-<n>`` strings
+                # are tolerated as provenance labels (the same language the
+                # asset index accepts) but contribute no page index — a deep
+                # source-bound pack with zero derivable indices still fails
+                # closed in _canonicalize_entity_source_evidence.
+                if not allow_string_refs:
+                    raise ModuleAssetsError(
+                        f"{field}.source_refs[{position}] must be an object"
+                    )
+                derived = _handout_card_ref_index(ref)
+                if derived is None:
+                    continue
+                ref_indices.append(derived)
+                continue
             if not isinstance(ref, dict):
                 raise ModuleAssetsError(
                     f"{field}.source_refs[{position}] must be an object"
@@ -4378,6 +4426,7 @@ def _cached_source_refs(
     value: dict[str, Any],
     *,
     field: str,
+    allow_string_refs: bool = False,
     inherited_indices: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     mod = _module_dir(workspace, asset_root_id)
@@ -4421,7 +4470,9 @@ def _cached_source_refs(
             if isinstance(raw_index, bool) or not isinstance(raw_index, int):
                 continue
             registered_page_bundles.setdefault(raw_index, set()).add(bundle_sha256)
-    indices = _source_indices(value, field=field)
+    indices = _source_indices(
+        value, field=field, allow_string_refs=allow_string_refs,
+    )
     if not indices and inherited_indices:
         indices = list(inherited_indices)
     input_refs = {
@@ -5399,7 +5450,9 @@ def _canonicalize_entity_source_evidence(
                 field=f"{kind}.mechanics",
             )
 
-    indices = _source_indices(doc, field=kind)
+    indices = _source_indices(
+        doc, field=kind, allow_string_refs=(kind == "handout"),
+    )
     if kind == "clue" and fact_authority == "source_authored":
         _canonicalize_source_authored_fact(
             workspace,
@@ -5407,7 +5460,13 @@ def _canonicalize_entity_source_evidence(
             doc,
             field="clue",
         )
-        indices = _source_indices(doc, field=kind)
+        indices = _source_indices(
+            doc, field=kind, allow_string_refs=(kind == "handout"),
+        )
+    if kind == "handout":
+        # A handout pack is a verbatim info card; the kind enum and the
+        # text⇒source_refs tracing rule are hard pack requirements.
+        _validate_handout_entity_pack(doc)
     if kind == "location":
         for position, clue in enumerate(doc.get("clues") or []):
             if not isinstance(clue, dict):
@@ -5460,11 +5519,21 @@ def _canonicalize_entity_source_evidence(
             doc.pop(field, None)
         doc.setdefault("origin", "source")
         return
+    # Handout cards carry contract string source_refs ("pdf_index-16"). The
+    # canonical object-form scope below stays the evidence machinery's own
+    # representation, so the card contract survives the round trip: capture
+    # before, restore after.
+    handout_card_refs: list[str] | None = None
+    if kind == "handout" and isinstance(doc.get("source_refs"), list):
+        handout_card_refs = [
+            str(ref) for ref in doc["source_refs"] if isinstance(ref, str)
+        ]
     refs = _cached_source_refs(
         workspace,
         asset_root_id,
         doc,
         field=kind,
+        allow_string_refs=(kind == "handout"),
     )
     digests = [str(ref["text_sha256"]) for ref in refs]
     supplied_digests = doc.get("page_text_sha256")
@@ -5473,6 +5542,8 @@ def _canonicalize_entity_source_evidence(
             f"{kind}.page_text_sha256 does not match the cached source pages"
         )
     _apply_canonical_source_scope(doc, refs)
+    if handout_card_refs is not None:
+        doc["source_refs"] = handout_card_refs
     bundle_hashes = sorted({
         bundle_hash
         for ref in refs

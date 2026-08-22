@@ -224,7 +224,7 @@ Apply 层在线索揭示 / flag 变化后评估 `scene_edges.when`，满足则�
     - `source_npc_ids` (string[])：`delivery_kind=npc_dialogue|social` 时必填；只允许引用 `npc-agendas.json` 中存在的 NPC。运行时以它校验 disclosure 的精确来源，不能用 delivery 文本猜来源。
     - `difficulty` (string，可选)：技能检定难度 `regular` | `hard` | `extreme`，默认 `regular`。仅 `skill_check` 有效。
     - `player_safe_summary` (string，可选)：可向玩家揭示的、面向玩家的安全摘要文本（导演会把它放入 `narrative_directives.must_include`）。**遗留字段 `player_visible_anchor` 仍被读取作回退**，两者都存在时优先用 `player_safe_summary`。
-    - `handout_asset_id` (string，可选)：当这条线索带有一张可向玩家展示的手稿/地图/剪报/肖像图片时，填入 `index/handout-assets.json` 中已登记的 `asset_id`。导演应用层（`coc_director_apply.apply_plan`）在产出 `clue_reveal` 事件时会读 `scenario/clue-graph.json` 找到这条 clue，再通过 `coc_scenario.load_handout_assets` 解析该 asset，把 `handout_asset_id` + `handout_title` + `handout_summary` + `player_visible` 渲染提示附到事件上。没有此字段时事件保持原样（向后兼容）。详见下方「handout-assets.json」一节。
+    - `handout_asset_id` (string，可选)：当这条线索带有一张可向玩家展示的手稿/地图/剪报/肖像图片时，填入 `index/handout-assets.json` 中已登记的 `asset_id`。导演应用层（`coc_director_apply.apply_plan`）在产出 `clue_reveal` 事件时会读 `scenario/clue-graph.json` 找到这条 clue，再通过 `coc_scenario.load_handout_assets` 解析该 asset，把 `handout_asset_id` + `handout_title` + `handout_summary` + `player_visible` 渲染提示附到事件上。运行期 `state.record_clue` 记录带 `handout_asset_id` 的 clue 时，若对应卡已登记，会在同一事务里联动交付该 handout（写入 `delivered_handout_ids`，见「4b. 交付机制」）。没有此字段时事件保持原样（向后兼容）。详见下方「handout-assets.json」一节。
     - `source_refs` (object[]，可选)：溯源引用数组，指向来源 PDF 中的具体位置。每条 `source_ref` 含规范字段：
       - `source_id` (string)：稳定 id（如 `pdf:the-haunting`），用于跨文件交叉引用。
       - `path` (string)：PDF 文件路径（相对或绝对，如 `pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).pdf`）。
@@ -298,9 +298,11 @@ Apply 层在线索揭示 / flag 变化后评估 `scene_edges.when`，满足则�
 
 ---
 
-## 4. handout-assets.json
+## 4. handout-assets.json（原文信息卡资产索引）
 
 手稿资产索引。位于 `index/handout-assets.json`，由 `create_scenario_skeleton` 写成空骨架（`assets: []`），运行期由 `coc_scenario.load_handout_assets(campaign_dir)` 读取，返回 `{asset_id: asset}` 字典。当一条 clue 的 `handout_asset_id` 指向这里登记的资产时，`clue_reveal` 事件会附上解析后的展示信息。
+
+每条资产条目现在是一张**原文信息卡（verbatim info card）**：`kind` 必填；若携带 `text`（原文全文），则必须同时携带非空 `source_refs`（字符串数组，如 `"pdf_index-16"`）溯源到 bundle 页——原文逐字摘录，禁止 KP 转述。条目与 progressive `handouts[]` 实体（module-assets `entities/handout-<id>.json`，id 字段为 `handout_id`）同构。
 
 **顶层字段：**
 
@@ -309,15 +311,21 @@ Apply 层在线索揭示 / flag 变化后评估 `scene_edges.when`，满足则�
 - `asset_root` (string)：资产文件根目录（相对 campaign，默认 `assets/handouts`）。
 - `assets` (object[])：资产条目数组。每条 asset：
   - `asset_id` (string)：稳定唯一 id，clue 的 `handout_asset_id` 用它引用。
+  - `kind` (string，必填)：`document`（手稿全文）| `read_aloud`（朗读框文）| `map`（地图，配 `image_ref`）。
   - `title` (string)：展示标题。
   - `summary` (string)：面向玩家的安全摘要（无法内联显示图片时用）。
+  - `text` (string，可选)：原文全文（源语言逐字摘录）。存在时 `source_refs` 必填且非空。
+  - `localized_text` (string，可选)：游戏语言（默认 zh-Hans）完整译文；玩家投影优先用它，其次 `text`。
+  - `when_to_deliver` (string，可选)：交付时机的语义描述（供 KP 判断，非机器可执行条件）。
+  - `image_ref` (string，可选)：图片引用（map-supply 产物或 bundle 资产相对路径）。
+  - `source_refs` (string[]，可选)：溯源到 bundle 页（如 `"pdf_index-16"`）。注意：卡片的 `source_refs` 是**字符串数组**，与 clue 的对象形式 `source_refs` 不同。
   - `source` (object)：来源定位，含 `path` (string) 与 `page` (int)。
   - `player_visible` (bool)：是否可向玩家展示。`true` 时 Codex 渲染绝对 Markdown 图片路径；纯文本界面改展示 `title` + `summary` + 来源页。
   - `scene_refs` (string[]，可选)：关联 scene_id 列表。
   - `clue_refs` (string[]，可选)：关联 clue_id 列表。
 - `display` (object)：渲染提示（codex / text_only 两条策略说明）。
 
-**读取契约（运行期）：** `coc_scenario.load_handout_assets` 在文件缺失/不可解析/`assets` 为空时一律返回 `{}`；缺 `asset_id` 的条目被跳过。`coc_director_apply` 的 `clue_reveal` 仅在 clue 记录带 `handout_asset_id` 时调用它，把 `handout_asset_id` / `handout_title` / `handout_summary` / `player_visible` 附到事件——未登记或未设字段时不影响现有行为。
+**读取契约（运行期）：** `coc_scenario.load_handout_assets` 在文件缺失/不可解析/`assets` 为空时一律返回 `{}`；缺 `asset_id` 或未通过卡片校验（`kind` 不在枚举、`text` 无 `source_refs` 等，见 `coc_scenario.validate_handout_card`）的条目被跳过——非法卡不进任何展示路径。`coc_director_apply` 的 `clue_reveal` 仅在 clue 记录带 `handout_asset_id` 时调用它，把 `handout_asset_id` / `handout_title` / `handout_summary` / `player_visible` 附到事件——未登记或未设字段时不影响现有行为。
 
 **示例：**
 
@@ -329,8 +337,13 @@ Apply 层在线索揭示 / flag 变化后评估 `scene_edges.when`，满足则�
   "assets": [
     {
       "asset_id": "handout-newspaper",
+      "kind": "document",
       "title": "1920 Newspaper Clipping",
       "summary": "A clipping mentioning the chapel lawsuit.",
+      "text": "Chapel records were moved to the county archive in 1919...",
+      "localized_text": "1919 年，教堂记录被移交县档案馆……",
+      "when_to_deliver": "调查员在档案馆找到剪报时",
+      "source_refs": ["pdf_index-16"],
       "source": {"path": "pdf/module.pdf", "page": 12},
       "player_visible": true,
       "scene_refs": ["scene-archive"],
@@ -344,7 +357,21 @@ Apply 层在线索揭示 / flag 变化后评估 `scene_edges.when`，满足则�
 }
 ```
 
-> **向后兼容**：所有现存 scenario 的 `handout-assets.json` 都是空骨架（`assets: []`），`load_handout_assets` 返回 `{}`，`clue_reveal` 不携带任何 handout 字段——行为与接入前完全一致。只有当某条 clue 显式设置 `handout_asset_id` 且对应 asset 已登记时，机制才生效。
+### 4a. progressive handout 实体与 campaign 卡片仓
+
+- **progressive handout 实体**：module-assets `entities/handout-<id>.json`，id 字段为 `handout_id`，其余字段与上卡同构（`kind` 必填、`text`⇒`source_refs` 硬校验由 `put_entity` 强制）。深卡（`parse_state=deep/body_parsed`，非 `evidence_gap`）会被重投影进 campaign 卡片仓。
+- **entity 卡根解析（权威）**：第三源（entity store）的根**只**用 campaign 的 progressive 资产根，即 `campaign_asset_root_id` 语义：`scenario/scenario.json` 的 `progressive_asset_root_id` 指针，缺省时回退 `module-meta.json` 的 `progressive` 标记。**`source_cache_asset_root_id` 永不是卡根**——消费方（toolbox `_handout_cards_indexed`、web 投影）都不得读它，也不得用它覆盖 progressive 根的卡（两指针在 opening 窗口被 `resolve_opening_preparation_root` 证明一致或硬错，正常流中它们指向同一根）。
+- **campaign 卡片仓**：`scenario/handouts.json`，形状 `{"schema_version": 1, "handouts": [card, ...]}`，按 `asset_id` 可索引；`project_skeleton_to_ir` 写空骨架，`merge_deep_handout_into_ir` / `_reapply_stored_handout_packs` 填充。卡记录字段即玩家安全字段集 `{asset_id, kind, title, text, localized_text, image_ref, source_refs, player_visible}` 加 `summary/scene_refs/clue_refs/when_to_deliver/opening_card/parse_state/origin`。未交付卡与 `player_visible:false` 卡的全文属于 Keeper 面；玩家投影只含已交付且 `player_visible:true` 的卡（重复 asset_id 时 campaign 卡片仓条目优先于 index 条目）。
+- **`source_refs` 字符串语言（两仓一致）**：卡片 `source_refs` 接受任意非空字符串标签；页索引只从 `pdf_index-<n>` 形派生。index 与 entity store 接受同一输入语言；区别仅在证据机制：source-bound 深卡至少需要一个可派生页索引（否则 `put_entity` fail-closed 拒绝）。
+- **`image_ref` 路径约束**：必须是相对路径，解析后落在当前 campaign 的 `assets/handouts/` 或该 campaign 权威绑定的 module-assets root 内。静态图片路由必须按此范围授权（未交付或 `player_visible:false` 的卡返回 404），不接受任意 `.coc/` 内路径。
+
+### 4b. 交付机制（deliver path）
+
+- **权威状态**：campaign world state（`save/world-state.json`）字段 `delivered_handout_ids: string[]`（首次交付制创建；campaign 新建时不预初始化）。
+- **`state.deliver_handout`**（toolbox 工具）：参数 `handout_id`（必填）、`decision_id`（幂等）、可选 `scene_id`/`reason`（证据）。幂等追加 `delivered_handout_ids`、写 `handout_delivered` 事件。**拒绝**交付 `player_visible:false` 的卡（错误 `handout_not_player_visible`）——它是 KP 侧参考资料，本工具是玩家交付机制。工具只写状态，不判断交付时机——时机永远由 KP 语义判断。
+- **`state.record_clue` 联动**：被记录 clue 带 `handout_asset_id` 且对应卡已登记且 `player_visible:true` 时，同事务联动交付该 handout（单一事实源，响应含 `delivered_handout_id`）；`player_visible:false` 的卡不联动，仅提示保留在 KP 侧。
+- **KP 查询**：`clues.query` 默认附带 `handouts` 节（`include_handouts`，`handouts_projection=keeper|player`）：keeper 面返回全部卡（含未交付）及 `delivered` 标记；**player 面只列出已交付且 `player_visible:true` 的卡**——未交付或非玩家可见的卡完全不出现在玩家面（内部红acted记录 `{asset_id, delivered:false, secret:true}` 仅作 fail-closed 防护形状，永不作为玩家面输出）。
+- **开场卡**：module-init L0 的 `opening_handouts` 条目可选携带卡字段（`kind`/`text`/`localized_text`/`when_to_deliver`/`image_ref`/`source_refs`，同样强制 `text`⇒`source_refs`；无 `kind` 的旧条目按 `read_aloud` 处理）；`progressive.opening_bootstrap` 的 L0 直写路径把它们落为带结构化标记 `opening_card:true` 的 handout 实体并投影进 campaign 卡片仓——**setup 到候选集为止，不做任何交付写**。`evidence.table_opening` 收据携带 `pending_opening_handouts` 候选列表（仅 `asset_id/kind/title/when_to_deliver`，无正文）作 advisory；开场卡在桌开场后由 KP 经 `state.deliver_handout` 交付（与所有其它卡同一路径）。
 
 ---
 

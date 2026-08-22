@@ -378,6 +378,7 @@ def test_apply_reveal_clue_reveal_carries_handout_asset_when_clue_has_ref(tmp_pa
         "schema_version": 1, "scenario_id": "test", "asset_root": "assets/handouts",
         "assets": [{
             "asset_id": "handout-letter",
+            "kind": "document",
             "title": "The Professor's Letter",
             "summary": "A handwritten letter hinting at the chapel.",
             "source": {"path": "pdf/module.pdf", "page": 7},
