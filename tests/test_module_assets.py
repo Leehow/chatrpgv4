@@ -1366,6 +1366,7 @@ def _classification_host_request(
         "cached_scope_complete": None,
         "work_level": "near_term",
         "work_group_id": "classification-refresh-group",
+        "play_languages": [],
         "result_contract": request["result_contract"],
         "classification_request": request,
         "consumer_refs": [{
@@ -1501,6 +1502,7 @@ def test_host_work_lease_renew_and_release_require_exact_owner(tmp_path: Path):
         "cached_scope_complete": True,
         "dispatch_state": "ready",
         "work_group_id": "group-lease",
+        "play_languages": [],
         "consumer_refs": [consumer],
         "consumer_state": "owned",
     }), encoding="utf-8")
@@ -1607,6 +1609,7 @@ def test_host_work_renew_supersedes_all_stale_consumers_before_extension(
         "cached_scope_complete": True,
         "dispatch_state": "ready",
         "work_group_id": "group-stale-renew",
+        "play_languages": [],
         "consumer_refs": [consumer],
         "consumer_state": "owned",
     }), encoding="utf-8")
@@ -1673,6 +1676,7 @@ def test_host_work_stale_consumers_supersede_and_legacy_stays_unclaimable(
         "cached_scope_complete": True,
         "dispatch_state": "ready",
         "work_group_id": "consumer-group",
+        "play_languages": [],
     }
     (work_dir / "owned.json").write_text(json.dumps({
         **common,
@@ -1827,6 +1831,7 @@ def _write_opening_host_request(
         "source_scope_signature": assets.opening_source_scope_signature(scope),
         "cached_page_refs": json.loads(json.dumps(scope["page_refs"])),
         "cached_scope_complete": True,
+        "play_languages": [],
         "work_level": "current_dependency",
         "dependency_ref": {
             "operation": "progressive.project_opening",

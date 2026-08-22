@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:baf5f8d45c57f61b4df588de41f909676c0a4b375995b1a03459c01701824699",
+  "content_sha256": "sha256:202bd9622d36431531c365b5b3937dfa642ee6896270352c12b1b8a3e426efb0",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -259,7 +259,7 @@
     "clues.query": {
       "access": "query",
       "canonical_operation": "clues.query",
-      "description": "Clue graph with discovery state, plus the campaign's verbatim handout cards with delivery state. Filter clues by scene_id or clue_id. Undiscovered clues are keeper secrets; undelivered card bodies are keeper-only until state.deliver_handout. Canonical operation `clues.query`; the result envelope is authoritative.",
+      "description": "Clue graph with discovery state, plus the campaign's registered handout cards with delivery state. Filter clues by scene_id or clue_id. Undiscovered clues are keeper secrets; undelivered card bodies are keeper-only until state.deliver_handout. Canonical operation `clues.query`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -313,7 +313,7 @@
           "pending_finalization"
         ]
       },
-      "summary": "Clue graph with discovery state, plus the campaign's verbatim handout cards with delivery state. Filter clues by scene_id or clue_id. Undiscovered clues are keeper secrets; undelivered card bodies are keeper-only until state.deliver_handout."
+      "summary": "Clue graph with discovery state, plus the campaign's registered handout cards with delivery state. Filter clues by scene_id or clue_id. Undiscovered clues are keeper secrets; undelivered card bodies are keeper-only until state.deliver_handout."
     },
     "combat.context": {
       "access": "mutation",
@@ -5707,7 +5707,7 @@
     "state.deliver_handout": {
       "access": "mutation",
       "canonical_operation": "state.deliver_handout",
-      "description": "Deliver a verbatim info card (handout) to the players. Idempotent via decision_id. This only writes delivery state — judging WHEN a card is delivered stays with the Keeper; narration frames the find, the card body is presented verbatim, never paraphrased. Canonical operation `state.deliver_handout`; the result envelope is authoritative.",
+      "description": "Deliver an exact registered info card (handout) to the players. Source cards preserve verbatim excerpts; authored-derivative cards preserve their registered in-world prop text. Idempotent via decision_id. This only writes delivery state — judging WHEN a card is delivered stays with the Keeper; narration frames the find, the card registered body is presented exactly, never paraphrased. Canonical operation `state.deliver_handout`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5753,7 +5753,7 @@
           "live_turn"
         ]
       },
-      "summary": "Deliver a verbatim info card (handout) to the players. Idempotent via decision_id. This only writes delivery state — judging WHEN a card is delivered stays with the Keeper; narration frames the find, the card body is presented verbatim, never paraphrased."
+      "summary": "Deliver an exact registered info card (handout) to the players. Source cards preserve verbatim excerpts; authored-derivative cards preserve their registered in-world prop text. Idempotent via decision_id. This only writes delivery state — judging WHEN a card is delivered stays with the Keeper; narration frames the find, the card registered body is presented exactly, never paraphrased."
     },
     "state.end_session": {
       "access": "mutation",
