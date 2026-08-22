@@ -70,6 +70,7 @@ import {
   resolvePortraitStaticFile,
 } from "./portrait-generate.mjs";
 import { deleteSourceBundle } from "./source-bundles.mjs";
+import { decodeRequestPath, serveStatic } from "./static-files.mjs";
 import {
   OPENING_READY_WINDOW_COUNT,
   pdfWindowBundleId,
@@ -1971,53 +1972,11 @@ async function handleIngestPdf(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const CONTENT_TYPES = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ico": "image/x-icon",
-};
-
-function serveStatic(req, res, urlPath) {
-  if (!fs.existsSync(DIST_DIR)) {
-    const body = Buffer.from(
-      "<!doctype html><meta charset='utf-8'><title>coc web</title>" +
-        "<body style='font-family:monospace;background:#10161a;color:#cfe;'>" +
-        "<h2>Frontend not built</h2>" +
-        "<pre>cd web/frontend && npm install && npm run build</pre>",
-    );
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(body);
-    return;
-  }
-  const rel = urlPath.replace(/^\/+/, "") || "index.html";
-  let candidate = path.resolve(DIST_DIR, rel);
-  if (!candidate.startsWith(path.resolve(DIST_DIR))) {
-    sendJson(res, 403, { error: "forbidden" });
-    return;
-  }
-  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
-    candidate = path.join(DIST_DIR, "index.html"); // SPA fallback
-  }
-  const body = fs.readFileSync(candidate);
-  res.writeHead(200, {
-    "Content-Type": CONTENT_TYPES[path.extname(candidate).toLowerCase()] || "application/octet-stream",
-    "Content-Length": body.length,
-  });
-  res.end(body);
-}
-
 // ---------------------------------------------------------------------------
 // Router
 
 async function route(req, res) {
-  const urlPath = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+  const urlPath = decodeRequestPath(req.url);
   const method = req.method || "GET";
   const parts = urlPath.split("/").filter(Boolean);
 
@@ -2056,7 +2015,7 @@ async function route(req, res) {
       return handleInvestigatorPortrait(req, res, parts[2], parts[4]);
     }
     if (urlPath.startsWith("/api/")) throw httpError(404, "not found");
-    return serveStatic(req, res, urlPath);
+    return serveStatic(req, res, urlPath, { distDir: DIST_DIR });
   }
 
   if (method === "POST") {

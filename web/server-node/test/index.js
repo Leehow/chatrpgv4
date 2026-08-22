@@ -14,5 +14,6 @@ import "./projections.test.mjs";
 import "./roll-layout-firearms.test.mjs";
 import "./roll-layout.test.mjs";
 import "./session-handoff.test.mjs";
+import "./static-files.test.mjs";
 import "./turn-flow.test.mjs";
 import "./turn-settle.test.mjs";
