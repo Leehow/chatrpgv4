@@ -33,13 +33,13 @@ import {
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
 import { finishPromptTurn } from "./turn-flow.mjs";
+import { HandoutSessionDelivery } from "./handout-delivery.mjs";
 import {
   campaignDir,
   campaignDisplayTitle,
   characterSetupPendingFromOpeningPhase,
   combatInitiativeDisplay,
   cocRoot,
-  deliveredHandoutsDisplay,
   discoveredCluesDisplay,
   enrichTranscriptFromEvents,
   findBundleByPdfSha256,
@@ -117,6 +117,7 @@ let sidecar = null;
 
 /** sid -> {session_id, campaign_id, investigator_id} */
 const SESSIONS = new Map();
+const HANDOUT_DELIVERY = new HandoutSessionDelivery();
 /** campaign_id -> PiCocRpcHost (owned by the setup/play orchestrator) */
 const orchestrator = new CampaignHostOrchestrator({
   createHost: (opts) => new PiCocRpcHost(opts),
@@ -335,7 +336,7 @@ async function statePayload(info) {
     lang,
   );
   // 原文信息卡：会话加载/状态拉取时全量已交付卡供「资料」页签。
-  state.materials = deliveredHandoutsDisplay(WORKSPACE, info.campaign_id);
+  state.materials = HANDOUT_DELIVERY.materials(WORKSPACE, info.campaign_id);
   state.combat = combatInitiativeDisplay(WORKSPACE, info.campaign_id, {
     investigatorId: liveInvestigator,
     investigatorName: state.character?.name ?? null,
@@ -934,7 +935,7 @@ async function handleTrashCampaign(req, res) {
   for (const [sid, info] of [...SESSIONS]) {
     if (info.campaign_id !== campaignId) continue;
     SESSIONS.delete(sid);
-    pushedHandouts.delete(sid);
+    HANDOUT_DELIVERY.clear(sid);
   }
   const host = HOSTS.get(campaignId);
   if (host) {
@@ -1013,14 +1014,13 @@ async function handleCreateSession(req, res) {
   // cards delivered after this response.
   let handouts;
   try {
-    handouts = deliveredHandoutsDisplay(WORKSPACE, campaignId);
+    handouts = HANDOUT_DELIVERY.hydrate(
+      WORKSPACE, sessionId, campaignId,
+    );
   } catch {
     handouts = [];
+    HANDOUT_DELIVERY.seed(sessionId, handouts);
   }
-  pushedHandouts.set(
-    sessionId,
-    new Set(handouts.map((card) => card.asset_id).filter(Boolean)),
-  );
   const opening = sessionOpeningFlags({
     spawned,
     phase: openingPhase?.phase ?? null,
@@ -1076,31 +1076,6 @@ async function handleTranscript(req, res, sid) {
 
 function sseWrite(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-}
-
-/** Handout cards already sent to each browser session (server process scope).
- *  Diffed against the campaign projection so newly delivered cards stream as
- *  `handout` events at most once for that session. */
-const pushedHandouts = new Map();
-
-function handoutSseDiff(sessionId, campaignId, write) {
-  let delivered;
-  try {
-    delivered = deliveredHandoutsDisplay(WORKSPACE, campaignId);
-  } catch {
-    return;
-  }
-  let seen = pushedHandouts.get(sessionId);
-  if (!seen) {
-    seen = new Set();
-    pushedHandouts.set(sessionId, seen);
-  }
-  for (const card of delivered) {
-    if (seen.has(card.asset_id)) continue;
-    // Mark as pushed only after the frame was actually written — a dropped
-    // client (safeWrite false) must get the card again on its next stream.
-    if (write("handout", card)) seen.add(card.asset_id);
-  }
 }
 
 async function handleTurn(req, res, sid) {
@@ -1166,7 +1141,9 @@ async function handleTurn(req, res, sid) {
       state = { error: `${err?.constructor?.name || "Error"}: ${err?.message || err}` };
     }
     // 原文卡交付事件：turn 结束时对已推送集合求差分注入。
-    handoutSseDiff(sid, info.campaign_id, safeWrite);
+    HANDOUT_DELIVERY.pushNew(
+      WORKSPACE, sid, info.campaign_id, safeWrite,
+    );
     const usage = activeHost.lastUsage;
     safeWrite("turn", {
       events: [],

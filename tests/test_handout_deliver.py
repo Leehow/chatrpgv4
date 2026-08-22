@@ -189,14 +189,117 @@ def test_deliver_handout_is_idempotent_by_decision_id(campaign_ws):
     assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
 
 
-def test_deliver_unknown_handout_records_with_warning(campaign_ws):
+def test_deliver_unknown_handout_fails_closed(campaign_ws):
     result = _run(campaign_ws, "state.deliver_handout", {
         "handout_id": "handout-improvised",
         "decision_id": "deliver-unknown",
     })
-    assert result["ok"] is True
-    assert any("not a registered card" in w for w in result["warnings"])
-    assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-improvised"]
+    assert result["ok"] is False
+    assert result["error"]["code"] == "unknown_handout"
+    assert "delivered_handout_ids" not in _world(campaign_ws)
+
+
+def test_malformed_scenario_cards_cannot_be_queried_or_delivered(campaign_ws):
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    malformed = [
+        {
+            "asset_id": "bad-visible",
+            "kind": "document",
+            "text": "must stay secret",
+            "source_refs": ["pdf_index-1"],
+            "player_visible": "false",
+        },
+        {
+            "asset_id": "bad-localized",
+            "kind": "document",
+            "localized_text": {"zh-Hans": "must stay secret"},
+        },
+        {
+            "asset_id": "bad-body",
+            "kind": "document",
+            "text": {"body": "must stay secret"},
+            "source_refs": ["pdf_index-2"],
+        },
+        {
+            "asset_id": "bad-asset",
+            "kind": "map",
+            "image_ref": ["assets/handouts/secret.png"],
+        },
+        {
+            "asset_id": 17,
+            "kind": "document",
+            "text": "numeric id must stay secret",
+            "source_refs": ["pdf_index-3"],
+        },
+    ]
+    _write_json(store, {"schema_version": 1, "handouts": malformed})
+
+    keeper = _run(campaign_ws, "clues.query", {})
+    player = _run(campaign_ws, "clues.query", {"handouts_projection": "player"})
+    assert keeper["data"]["handouts"]["cards"] == []
+    assert player["data"]["handouts"]["cards"] == []
+    payload = json.dumps([keeper, player], ensure_ascii=False)
+    assert "must stay secret" not in payload
+
+    for index, handout_id in enumerate(
+        ["bad-visible", "bad-localized", "bad-body", "bad-asset", "17"]
+    ):
+        result = _run(campaign_ws, "state.deliver_handout", {
+            "handout_id": handout_id,
+            "decision_id": f"reject-malformed-{index}",
+        })
+        assert result["ok"] is False
+        assert result["error"]["code"] == "unknown_handout"
+    assert "delivered_handout_ids" not in _world(campaign_ws)
+    assert not [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+    ]
+
+
+def test_malformed_progressive_entities_cannot_be_queried_or_delivered(campaign_ws):
+    scenario_path = campaign_ws["campaign_dir"] / "scenario" / "scenario.json"
+    _write_json(scenario_path, {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "progressive_asset_root_id": "malformed-handouts",
+    })
+    entities = (
+        campaign_ws["coc_root"]
+        / "module-assets" / "malformed-handouts" / "entities"
+    )
+    malformed = {
+        "entity-bad-visible": {"player_visible": "false"},
+        "entity-bad-localized": {"localized_text": {"zh-Hans": "must stay secret"}},
+        "entity-bad-body": {"text": {"body": "must stay secret"}},
+        "entity-bad-asset": {"image_ref": ["assets/handouts/secret.png"]},
+        "entity-bad-id": {"asset_id": 17},
+    }
+    for handout_id, override in malformed.items():
+        pack = {
+            "handout_id": handout_id,
+            "asset_id": handout_id,
+            "kind": "document",
+            "text": "must stay secret",
+            "source_refs": ["pdf_index-1"],
+            "player_visible": True,
+            "parse_state": "deep",
+            "evidence_gap": False,
+            **override,
+        }
+        _write_json(entities / f"handout-{handout_id}.json", pack)
+
+    keeper = _run(campaign_ws, "clues.query", {})
+    assert keeper["data"]["handouts"]["cards"] == []
+    assert "must stay secret" not in json.dumps(keeper, ensure_ascii=False)
+    for index, handout_id in enumerate(malformed):
+        result = _run(campaign_ws, "state.deliver_handout", {
+            "handout_id": handout_id,
+            "decision_id": f"reject-malformed-entity-{index}",
+        })
+        assert result["ok"] is False
+        assert result["error"]["code"] == "unknown_handout"
+    assert "delivered_handout_ids" not in _world(campaign_ws)
 
 
 # --------------------------------------------------------- clue linkage

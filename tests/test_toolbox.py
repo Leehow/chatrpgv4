@@ -7833,6 +7833,9 @@ def test_rich_advice_storylets_and_narration_are_canonically_reachable(campaign_
 
 @pytest.mark.parametrize("play_language", ["en-US", "ja-JP"])
 def test_narration_brief_uses_campaign_play_language(campaign_ws, play_language):
+    description = coc_toolbox.TOOLS["narration.brief"]["summary"]
+    assert "Chinese" not in description
+    assert "play_language" in description
     campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
     campaign["play_language"] = play_language

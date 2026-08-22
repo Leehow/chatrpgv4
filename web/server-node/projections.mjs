@@ -796,6 +796,7 @@ function handoutCardFromPack(pack) {
   if (!pack || typeof pack !== "object") return null;
   if (!HANDOUT_ENTITY_PARSE_STATES.has(handoutString(pack.parse_state))) return null;
   if (pack.evidence_gap) return null;
+  if (handoutCardContractErrors(pack, { prefix: "deep handout pack" }).length) return null;
   const assetId = handoutString(pack.asset_id) || handoutString(pack.handout_id);
   if (!assetId) return null;
   const card = { asset_id: assetId };
@@ -814,6 +815,12 @@ function handoutCardFromPack(pack) {
  *  the plugin itself would reject (e.g. player_visible: "false"). */
 export function handoutCardContractErrors(entry, { prefix = "handout" } = {}) {
   const out = [];
+  for (const field of ["asset_id", "handout_id"]) {
+    const value = entry?.[field];
+    if (value != null && (typeof value !== "string" || !value.trim())) {
+      out.push(`${prefix}.${field} must be a non-empty string when present`);
+    }
+  }
   const kind = entry?.kind;
   if (typeof kind !== "string" || !HANDOUT_KINDS.has(kind)) {
     out.push(`${prefix}.kind must be one of document, read_aloud, map`);
@@ -885,7 +892,7 @@ export function loadHandoutCards(workspace, campaignId) {
   for (const entry of rows) {
     if (!entry || typeof entry !== "object") continue;
     const id = handoutString(entry.asset_id);
-    if (id) cards.set(id, entry);
+    if (id && !handoutCardContractErrors(entry).length) cards.set(id, entry);
   }
 
   for (const moduleDir of campaignBoundModuleDirs(workspace, campaignId)) {

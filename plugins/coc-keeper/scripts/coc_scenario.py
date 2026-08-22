@@ -63,6 +63,12 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
     if not isinstance(entry, dict):
         return [f"{prefix} must be an object"]
     errors: list[str] = []
+    for field in ("asset_id", "handout_id"):
+        value = entry.get(field)
+        if value is not None and (
+            not isinstance(value, str) or not value.strip()
+        ):
+            errors.append(f"{prefix}.{field} must be a non-empty string when present")
     kind = entry.get("kind")
     if not isinstance(kind, str) or kind not in HANDOUT_CARD_KINDS:
         errors.append(
@@ -98,6 +104,10 @@ def validate_handout_card(entry: Any, *, prefix: str = "handout") -> list[str]:
         entry.get("player_visible"), bool
     ):
         errors.append(f"{prefix}.player_visible must be a boolean when present")
+    if entry.get("opening_card") is not None and not isinstance(
+        entry.get("opening_card"), bool
+    ):
+        errors.append(f"{prefix}.opening_card must be a boolean when present")
     for field in ("scene_refs", "clue_refs"):
         value = entry.get(field)
         if value is not None and (

@@ -3251,9 +3251,13 @@ def _handout_cards_indexed(ctx: Ctx) -> dict[str, dict[str, Any]]:
         for card in doc.get("handouts") or []:
             if not isinstance(card, dict):
                 continue
-            asset_id = str(card.get("asset_id") or "").strip()
-            if asset_id:
-                cards[asset_id] = card
+            if coc_scenario.validate_handout_card(
+                card, prefix="scenario handout",
+            ):
+                continue
+            asset_id = card.get("asset_id")
+            if isinstance(asset_id, str) and asset_id.strip():
+                cards[asset_id.strip()] = card
     asset_root_id = (
         coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
         if ctx.campaign_dir is not None else None
@@ -3308,7 +3312,12 @@ def _handout_public_view(
     fields.
     """
     asset_id = str(card.get("asset_id"))
-    if asset_id not in delivered or not bool(card.get("player_visible", True)):
+    player_visible = card.get("player_visible", True)
+    if (
+        asset_id not in delivered
+        or not isinstance(player_visible, bool)
+        or not player_visible
+    ):
         return {
             "asset_id": asset_id,
             "delivered": False,
@@ -20641,7 +20650,7 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
             player_ids = {
                 asset_id for asset_id, card in cards.items()
                 if asset_id in delivered
-                and bool(card.get("player_visible", True))
+                and card.get("player_visible", True) is True
             }
             data["handouts"] = {
                 "projection": projection,
@@ -20665,7 +20674,7 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
                     "localized_text": card.get("localized_text"),
                     "image_ref": card.get("image_ref"),
                     "source_refs": list(card.get("source_refs") or []),
-                    "player_visible": bool(card.get("player_visible", True)),
+                    "player_visible": card.get("player_visible", True) is True,
                     "scene_refs": list(card.get("scene_refs") or []),
                     "clue_refs": list(card.get("clue_refs") or []),
                     "delivered": asset_id in delivered,
@@ -22867,7 +22876,8 @@ def _turn_contract_projection(
 
 @tool(
     "narration.brief",
-    "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract.",
+    "Build a minimum-privilege player-safe narration envelope plus the "
+    "active campaign play_language style contract.",
     {
         "candidate_plan": {"type": "object", "required": True, "desc": "KP-adopted or modified Director plan"},
         "investigator": {"type": "string", "desc": "investigator id"},
@@ -24154,7 +24164,12 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
         ], []
     cards = _handout_cards_indexed(ctx)
     card = cards.get(handout_id)
-    if card is not None and not bool(card.get("player_visible", True)):
+    if card is None:
+        raise ToolError(
+            "unknown_handout",
+            f"handout '{handout_id}' is not a registered valid card",
+        )
+    if card.get("player_visible", True) is not True:
         # Fail-closed: this tool is the player delivery mechanism. A card
         # explicitly marked player_visible:false is keeper-facing reference
         # material and can never be handed to the players through it.
@@ -24165,13 +24180,6 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
             "the card registration if player delivery was intended",
         )
     warnings: list[str] = []
-    if card is None:
-        warnings.append(
-            f"handout '{handout_id}' is not a registered card — delivery is "
-            "recorded, but there is no card body to project; register the "
-            "card (module handout entity or index asset) for player-facing "
-            "rendering"
-        )
     world = ctx.world()
     scene_id = str(args.get("scene_id") or "").strip() or None
     reason = str(args.get("reason") or "").strip() or None
@@ -24192,10 +24200,10 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
         "newly_delivered": newly,
         "already_delivered": already,
         "delivered_total": len(_delivered_handout_ids(world)),
-        "card": (_handout_public_view(card, {handout_id}) if card else None),
+        "card": _handout_public_view(card, {handout_id}),
     }
     hints: list[str] = []
-    if card is not None and newly:
+    if newly:
         hints.append(
             "present the card body verbatim (localized_text preferred over "
             "text); your narration frames who finds it and in what situation "
@@ -24297,8 +24305,9 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         asset_id = str(clue.get("handout_asset_id") or "").strip()
         if asset_id:
             linked_card = _handout_cards_indexed(ctx).get(asset_id)
-            if linked_card is not None and bool(
-                linked_card.get("player_visible", True)
+            if (
+                linked_card is not None
+                and linked_card.get("player_visible", True) is True
             ):
                 linked_handout_newly, _linked_already = _apply_handout_delivery(
                     world, [asset_id]
@@ -30108,7 +30117,7 @@ def _opening_handout_candidates(ctx: Ctx) -> list[dict[str, Any]]:
     for asset_id, card in sorted(_handout_cards_indexed(ctx).items()):
         if card.get("opening_card") is not True:
             continue
-        if not bool(card.get("player_visible", True)):
+        if card.get("player_visible", True) is not True:
             continue
         if asset_id in delivered:
             continue

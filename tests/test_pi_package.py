@@ -98,10 +98,26 @@ const parallel = Object.entries(policy.OPERATION_POLICY)
   .map(([name]) => name).sort();
 const names = Object.keys(policy.OPERATION_POLICY).sort();
 const surfaced = [...new Set(Object.values(policy.OPERATIONS_BY_SURFACE).flat())].sort();
+const policies = Object.fromEntries(Object.entries(policy.OPERATION_POLICY).map(
+  ([name, value]) => [name, {
+    ...value,
+    phases: [...value.phases],
+    execution_class: policy.executionClassForPolicy(value),
+  }],
+));
+const surfaceBuckets = Object.fromEntries(Object.entries(policy.OPERATIONS_BY_SURFACE).map(
+  ([surface, operations]) => [surface, [...operations].sort()],
+));
+const archivePolicies = Object.fromEntries(Object.entries(archive.operations).map(
+  ([name, operation]) => [name, operation.policy],
+));
 console.log(JSON.stringify({
   parallel,
   names,
+  policies,
+  surfaceBuckets,
   archiveNames: Object.keys(archive.operations).sort(),
+  archivePolicies,
   surfaced,
   typedOperations: typed.listTypedOperationTools().map((row) => row.operation).sort(),
   missing: policy.executionClassForPolicy(undefined),
@@ -126,6 +142,28 @@ console.log(JSON.stringify({
         if spec["execution_class"] == "parallel_read"
     )
     canonical_names = sorted(toolbox.TOOLS)
+    canonical_policies = {
+        name: {
+            **toolbox.operation_policy(name),
+            "execution_class": toolbox.TOOLS[name].get(
+                "execution_class", "serial_campaign"
+            ),
+        }
+        for name in canonical_names
+    }
+    archive_policies = {
+        name: toolbox.operation_policy(name)
+        for name in canonical_names
+    }
+    surface_buckets = {
+        surface: sorted(
+            name for name in canonical_names
+            if toolbox.operation_policy(name)["kp_surface"] == surface
+        )
+        for surface in sorted(
+            toolbox.coc_operation_policy.KP_SURFACES - {"none"}
+        )
+    }
     expected_surfaced = sorted(
         name for name in canonical_names
         if toolbox.operation_policy(name)["kp_surface"] != "none"
@@ -133,7 +171,10 @@ console.log(JSON.stringify({
     assert exported == {
         "parallel": canonical_parallel,
         "names": canonical_names,
+        "policies": canonical_policies,
+        "surfaceBuckets": surface_buckets,
         "archiveNames": canonical_names,
+        "archivePolicies": archive_policies,
         "surfaced": expected_surfaced,
         "typedOperations": expected_surfaced,
         "missing": "serial_campaign",

@@ -78,6 +78,7 @@ coc_compiled_archive = _load_sibling(
 )
 coc_npc_roles = _load_sibling("coc_npc_roles_module_project", "coc_npc_roles.py")
 coc_rulesets = _load_sibling("coc_rulesets_module_project", "coc_rulesets.py")
+coc_scenario = _load_sibling("coc_scenario_module_project", "coc_scenario.py")
 
 
 class ModuleProjectError(ValueError):
@@ -1051,9 +1052,17 @@ def handout_card_from_pack(pack: dict[str, Any]) -> dict[str, Any]:
     Machinery-only fields (ingest timing, revision bookkeeping) stay in the
     module-assets store.
     """
-    asset_id = str(pack.get("asset_id") or pack.get("handout_id") or "").strip()
-    if not asset_id:
+    errors = coc_scenario.validate_handout_card(pack, prefix="deep handout pack")
+    if errors:
+        raise ModuleProjectError("; ".join(errors))
+    raw_asset_id = (
+        pack.get("asset_id")
+        if pack.get("asset_id") is not None
+        else pack.get("handout_id")
+    )
+    if not isinstance(raw_asset_id, str) or not raw_asset_id.strip():
         raise ModuleProjectError("deep handout pack missing handout_id/asset_id")
+    asset_id = raw_asset_id.strip()
     card: dict[str, Any] = {"asset_id": asset_id}
     for field in HANDOUT_CARD_PROJECTION_FIELDS:
         if field == "asset_id":

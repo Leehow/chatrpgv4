@@ -253,6 +253,77 @@ test("loadHandoutCards skips non-deep and evidence-gap entity packs", () => {
   assert.equal(cards.has("gap-card"), false);
 });
 
+test("all card stores reject the same malformed visibility, body, and asset shapes", () => {
+  const ws = makeWorkspace();
+  const malformed = [
+    {
+      asset_id: "bad-visible",
+      kind: "document",
+      text: "must stay secret",
+      source_refs: ["pdf_index-1"],
+      player_visible: "false",
+    },
+    {
+      asset_id: "bad-localized",
+      kind: "document",
+      localized_text: { "zh-Hans": "must stay secret" },
+    },
+    {
+      asset_id: "bad-body",
+      kind: "document",
+      text: { body: "must stay secret" },
+      source_refs: ["pdf_index-2"],
+    },
+    {
+      asset_id: "bad-asset",
+      kind: "map",
+      image_ref: ["assets/handouts/secret.png"],
+    },
+    {
+      asset_id: 17,
+      kind: "document",
+      text: "numeric id must stay secret",
+      source_refs: ["pdf_index-3"],
+    },
+  ];
+  const delivered = [
+    "bad-visible", "bad-localized", "bad-body", "bad-asset", "17",
+    ...malformed.slice(0, 4).map((card) => `entity-${card.asset_id}`),
+    "entity-bad-id",
+  ];
+  const campaignDir = seedCampaign(ws, {
+    delivered,
+    assets: malformed,
+    scenarioHandouts: { schema_version: 1, handouts: malformed },
+  });
+  for (const card of malformed.slice(0, 4)) {
+    const id = `entity-${card.asset_id}`;
+    putEntity(ws, "root-1", handoutPack({
+      ...card,
+      handout_id: id,
+      asset_id: id,
+    }));
+  }
+  putEntity(ws, "root-1", handoutPack({
+    handout_id: "entity-bad-id",
+    asset_id: 17,
+  }));
+  writeBytes(
+    path.join(campaignDir, "assets", "handouts", "secret.png"),
+    "must stay secret",
+  );
+
+  const cards = loadHandoutCards(ws, "camp-1");
+  for (const id of delivered) assert.equal(cards.has(id), false, id);
+  const materialsAndSseSource = JSON.stringify(deliveredHandoutsDisplay(ws, "camp-1"));
+  assert.equal(materialsAndSseSource, "[]");
+  assert.ok(!materialsAndSseSource.includes("must stay secret"));
+  assert.equal(
+    resolveHandoutAssetFile(ws, "camp-1", "assets/handouts/secret.png"),
+    null,
+  );
+});
+
 // ----------------------------------------------------------- player projection
 
 test("deliveredHandoutsDisplay projects delivered cards only, localized text first", () => {
