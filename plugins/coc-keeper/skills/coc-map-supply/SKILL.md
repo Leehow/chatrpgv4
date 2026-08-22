@@ -1,6 +1,6 @@
 ---
 name: coc-map-supply
-description: Pi-Coc keeper-only PDF 地图、插图与纯图像 handout 的强制检查、外部渲染资产校验及视觉供给。
+description: Pi-Coc PDF 地图、插图与纯图像 handout 的强制检查、外部渲染资产校验、守秘图 KP 视觉供给与玩家可见地图原文卡。
 ---
 
 # 地图/图像供给（Pi-Coc）
@@ -64,9 +64,17 @@ Pi 只接受输出目录内的 png/jpeg/webp、大小不超过 20 MiB 的图像�
 coc_map_supply({operation:"present", image_ref:".coc/module-assets/<root>/images/map-supply/page-0016.png", caption:"地图 1；守秘人专用"})
 ```
 
-Pi 用 `display:false` custom message 注入 text + base64 image content。该消息在 KP 模型上下文中可见、TUI 不显示；Pi 的 custom-message 通道和 image content array 是此路径的宿主证据。不要把图像转成玩家消息、handout，或直接复述守秘地图内容。玩家可见内容仍只有 `turn.finalize.rendered_text`。
+Pi 用 `display:false` custom message 注入 text + base64 image content。该消息在 KP 模型上下文中可见、TUI 不显示；Pi 的 custom-message 通道和 image content array 是此路径的宿主证据。不要把守秘图像转成玩家消息、handout，或直接复述守秘地图内容。玩家可见内容仍只有 `turn.finalize.rendered_text` 与已交付的原文卡（见下节）。
 
 `display:false` 不是密码学 ACL；同一操作者可访问本地会话/工作区的限制仍须如实说明。
+
+## 玩家可见地图卡（原文卡路径）
+
+`maps_ref` 的既有语义是 keeper_only：`present` 仅供 KP 视觉消费，这条边界不变。玩家可见地图不再由 KP 转述，而是走原文信息卡路径：一张 `kind:"map"` 且 `image_ref` 指向已校验 map-supply 资产（或 bundle 资产相对路径）的 handout 条目，带 `source_refs` 与语义化的 `when_to_deliver`，与手稿/朗读卡共用同一交付机制（`state.deliver_handout`）。判定"这页图是玩家应得的地图"是页义/场景语义判断；detect 的标题与低密度信号只强制视觉检查，不构成卡识别。
+
+交付后，玩家经交付投影看到地图图面；KP 叙述只做 framing（在哪里、由谁得到），不复述图像内容。守秘地图（守秘人专用标注、未揭示布局）仍只走 `present`，永不进入 handout。
+
+`COC_MAP_RENDER_COMMAND` 未配置或渲染失败时不阻塞、不伪造：降级为无图文字卡——标题 + caption + 页面 Markdown 中逐字可溯源的文字描述（`text` 逐字摘录、`source_refs` 必填）；外部渲染可用后可再补 `image_ref`。缺图不构成玩家获得该地图信息的额外门槛。
 
 ## SceneBundle / steward 记录
 
@@ -76,4 +84,4 @@ Map 的薄 schema：
 {"id":"map-page-0016","caption":"地图 1","page_ref":"pdf_index-16","linked_locations":["farmhouse"],"image_ref":".coc/module-assets/<root>/images/map-supply/page-0016.png","source_refs":["module-assets/<root>/pages/0016.md#pdf_index-16"],"secrecy":"keeper_only"}
 ```
 
-`maps_ref` 可留在 SceneBundle current/neighbor 的可扩展内容中；现有 `steward.domain_put` 和 `steward.scene_bundle_put` 已允许这些字段，不新增 canonical operation 或 archive 条目。图像供给失败应在 scene 域记录失败原因/页引用；KP 等待可用原页，而不是编造地图信息。
+`maps_ref` 可留在 SceneBundle current/neighbor 的可扩展内容中；现有 `steward.domain_put` 和 `steward.scene_bundle_put` 已允许这些字段，不新增 canonical operation 或 archive 条目。当一张地图的语义是玩家可见（而非 keeper_only）时，它同时是一张 `kind:"map"` 的原文卡（见「玩家可见地图卡」），经交付通道到达玩家；SceneBundle 的 Map 记录仍负责 KP 侧来源与关联。图像供给失败应在 scene 域记录失败原因/页引用；KP 等待可用原页，而不是编造地图信息。

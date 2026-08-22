@@ -197,6 +197,39 @@ When play itself brings an authored or campaign-local NPC into or out of a
 scene, the KP records that live overlay with `state.npc_presence` rather than
 rewriting module truth or inferring presence from a prior conversation.
 
+### Verbatim info cards (opening and deepen packs)
+
+Every semantic pass that exact-reads cached pages — the opening
+`partial_opening` pack and each later `deepen_location` pack — also owns
+**verbatim info card** identification. From the page Markdown, recognize the
+module content that should reach the player verbatim once its condition is
+met, and emit it as handout entries (the `index/handout-assets.json` asset
+and the progressive `handouts[]` entity share one shape):
+
+- full manuscript / letter / document bodies → `kind: "document"`
+- box text the module means to be read aloud to the players →
+  `kind: "read_aloud"`
+- maps the players are meant to see → `kind: "map"`
+
+Rules:
+
+- `text` is a verbatim excerpt of the cited cached pages in the source
+  language; wherever `text` exists, `source_refs` (for example
+  `pdf_index-16`) is required and non-empty. `localized_text` carries the
+  full play-language translation; `when_to_deliver` is a semantic
+description of the delivery moment for KP judgment, never a machine
+condition. `image_ref` is optional.
+- Card identification and delivery-moment judgment are semantic readings of
+  page meaning. Keyword hits, box-format regexes, or fixed phrase lists never
+  decide them.
+- This extends — never relaxes — "do **not** fabricate handout or secret
+  bodies": prose that cannot be traced to cached pages never enters the IR as
+  card text, and no card body is invented while a region is still
+  `evidence_gap` / `dig_pending`.
+- Image-less bundles must still flow: a text-only card is a complete card.
+  Map cards reference a coc-map-supply rendered image in `image_ref` when one
+  exists and degrade to a text card otherwise.
+
 **Player dig (not only scene enter):** when the investigator materially pursues
 a place/NPC/clue that is only named or stubbed (ask about it, insist, head there
 in fiction) **without** a scene move yet, take module text from **steward
@@ -403,6 +436,11 @@ title, summary, and optional scene/clue/NPC references. In Codex, render a
 player-visible image with an absolute Markdown image path only when the asset is
 marked `player_visible`. On text-only surfaces, show the title,
 summary, and source page instead.
+
+Verbatim info cards (document / read_aloud / map) register through these same
+entries; their `text` is a verbatim excerpt with mandatory `source_refs`
+(see "Verbatim info cards" above), and a bundle without any image asset still
+yields complete pure-text cards.
 
 ## 剧情图编译（Story-Graph Compilation）
 
