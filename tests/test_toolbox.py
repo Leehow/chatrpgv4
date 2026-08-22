@@ -155,10 +155,6 @@ def campaign_ws(tmp_path: Path):
         campaign_id=campaign_id,
         title="Toolbox Test",
     )
-    # The historical starter pregen is intentionally sparse; this current-
-    # schema toolbox fixture must not rely on the old missing Luck/Build and
-    # absent creation discriminator that resume now rejects as corrupt state.
-    _write_current_imported_investigator(coc_root, quick["investigator_id"])
     campaign_dir = Path(quick["campaign_dir"])
     return {
         "workspace": workspace,

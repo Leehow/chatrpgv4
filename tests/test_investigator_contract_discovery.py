@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -910,6 +911,85 @@ def test_linked_kp_guided_characteristic_receipt_mutation_is_not_trusted(
         json.dumps(creation, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+    with pytest.raises(coc_turn_finalization.TurnContractError) as error:
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    assert error.value.code == "state_corrupt"
+
+
+def test_post_handoff_same_recipe_characteristic_roll_is_not_creation_provenance(
+    tmp_path: Path,
+) -> None:
+    _create_campaign(tmp_path, era="medieval")
+    investigator_id = "medieval-temporal-provenance"
+    payload, characteristics, _luck = _kp_guided_rolled_medieval_payload(
+        tmp_path, investigator_id,
+    )
+    created = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        },
+    )
+    assert created["status"] == "PASS"
+    linked = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "campaign.link_investigator",
+            "payload": {
+                "campaign_id": "contract-campaign",
+                "investigator_ids": [investigator_id],
+            },
+        },
+    )
+    assert linked["status"] == "PASS"
+    completed = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        "contract-campaign",
+        {
+            "campaign_id": "contract-campaign",
+            "decision_id": "complete-medieval-temporal",
+        },
+    )
+    assert completed["ok"] is True, completed
+    target = characteristics["SIZ"] // 5
+    seed = next(
+        candidate for candidate in range(100_000)
+        if coc_runtime_ops.coc_roll.roll_expression(
+            "2D6+6", random.Random(candidate),
+        )["total"] == target
+    )
+    orphan = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "contract-campaign",
+        {
+            "expression": "2D6+6",
+            "reason": "same SIZ recipe after setup handoff",
+            "decision_id": "post-handoff-same-siz",
+            "seed": seed,
+        },
+    )
+    assert orphan["ok"] is True, orphan
+    assert orphan["data"]["total"] == target
+    creation_path = (
+        tmp_path / ".coc" / "investigators" / investigator_id / "creation.json"
+    )
+    creation = json.loads(creation_path.read_text(encoding="utf-8"))
+    creation["characteristic_roll_receipts"]["SIZ"] = {
+        "campaign_id": "contract-campaign",
+        "decision_id": "post-handoff-same-siz",
+        "roll_id": orphan["data"]["roll_id"],
+    }
+    creation_path.write_text(
+        json.dumps(creation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "contract-campaign"
 
     with pytest.raises(coc_turn_finalization.TurnContractError) as error:
         coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)

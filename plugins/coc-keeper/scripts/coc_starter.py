@@ -35,6 +35,7 @@ PLUGIN_ROOT = SCRIPT_DIR.parent
 STARTER_DIR = PLUGIN_ROOT / "references" / "starter-scenarios"
 import coc_fileio
 import coc_state
+import coc_character
 import coc_character_creation_briefing
 import coc_compiled_archive
 import coc_investigator_guard
@@ -102,6 +103,37 @@ _PREGEN_EQUIPMENT_ZH: dict[str, list[str]] = {
 def _pregen_equipment_zh(pregen_id: str) -> list[str] | None:
     labels = _PREGEN_EQUIPMENT_ZH.get(pregen_id)
     return list(labels) if labels is not None else None
+
+
+def _materialize_current_imported_pregen(
+    sheet: dict[str, Any], investigator_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Seal one shipped pregen as an exact current imported investigator."""
+    normalized = json.loads(json.dumps(sheet, ensure_ascii=False))
+    characteristics = normalized.get("characteristics")
+    derived = normalized.get("derived")
+    if not isinstance(characteristics, dict) or not isinstance(derived, dict):
+        raise ValueError("starter pregen requires characteristics and derived values")
+    luck = characteristics.get("LUCK", characteristics.get("POW"))
+    canonical = coc_character.derive_values(characteristics, luck=luck)
+    for key in ("HP", "MP", "SAN", "Luck", "DB", "Build", "MOV"):
+        if key not in derived:
+            derived[key] = canonical[key]
+    creation = {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "name": normalized.get("name", investigator_id),
+        "method": "imported_character_sheet",
+        "input_mode": "import_complete_sheet",
+        "status": "complete",
+    }
+    errors = coc_character.validate_character_create_sheet(normalized, creation)
+    if errors:
+        raise ValueError(
+            "starter pregen is not an exact current imported sheet: "
+            + "; ".join(errors)
+        )
+    return normalized, creation
 
 
 def _player_facing_equipment_labels(equipment: Any) -> list[str]:
@@ -920,6 +952,7 @@ def quick_start(
     if pregen_id is None:
         investigator_id: str | None = None
         sheet: dict[str, Any] | None = None
+        creation: dict[str, Any] | None = None
     else:
         pregen_path = _pregen_character_path(scenario_id, pregen_id)
         sheet = json.loads(pregen_path.read_text(encoding="utf-8"))
@@ -929,6 +962,9 @@ def quick_start(
         sheet = ensure_pregen_player_facing_sheet(sheet)
         sheet = coc_state._with_initial_skills_snapshot(sheet)
         investigator_id = str(sheet.get("id") or pregen_id)
+        sheet, creation = _materialize_current_imported_pregen(
+            sheet, investigator_id,
+        )
 
     meta_path = src_dir / "module-meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
@@ -1043,6 +1079,7 @@ def quick_start(
                         investigator_stage,
                         investigator_id,
                         accepted_snapshot,
+                        creation=creation,
                     )
                     _validate_staged_investigator(
                         investigator_stage,
