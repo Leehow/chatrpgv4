@@ -550,6 +550,16 @@ function cashDirection(effect, amount) {
   if (hint === "gain" || hint === "grant" || hint === "income" || hint === "credit") {
     return "gain";
   }
+  // state.purchase effects carry payment_mode instead of direction/action/op:
+  // "cash"/"aggregate_cash" move cash out (spent); "spending_level" leaves
+  // cash untouched (the gained item is the visible outcome).
+  const paymentMode = firstNonemptyString(effect.payment_mode);
+  if (paymentMode === "cash" || paymentMode === "aggregate_cash") {
+    return "spend";
+  }
+  if (paymentMode === "spending_level") {
+    return "gain";
+  }
   if (typeof amount === "number" && amount < 0) return "spend";
   return amount == null ? null : "gain";
 }
@@ -583,13 +593,21 @@ function projectCashPlayerTime(raw) {
 export function isStructuredCashEffect(effect) {
   if (!effect || typeof effect !== "object") return false;
   const kind = String(effect.effect_kind || effect.kind || "");
-  if (kind === "cash" || kind === "funds" || kind === "money") return true;
+  if (
+    kind === "cash"
+    || kind === "funds"
+    || kind === "money"
+    || kind === "purchase"
+  ) {
+    return true;
+  }
   if (String(effect.resource_key || "") === "cash") return true;
   const resource = String(effect.resource || "");
   if (resource === "Cash" || resource === "现金") return true;
   const currency = firstNonemptyString(effect.currency, effect.currency_label, effect.currency_code);
   const hasAmount = firstCashAmount(
     effect.amount,
+    effect.charged_amount,
     effect.delta,
     effect.cash_delta,
     effect.before,
