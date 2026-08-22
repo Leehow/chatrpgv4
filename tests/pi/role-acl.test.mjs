@@ -100,7 +100,7 @@ test("a settled ending cannot start another end_session", async () => {
       toolName: "coc_turn",
       operation: "turn.finalize",
       phase: "ending",
-    }).ok, true);
+    }).ok, false);
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_turn",
       operation: "state.journal",
@@ -110,7 +110,7 @@ test("a settled ending cannot start another end_session", async () => {
       toolName: "coc_turn",
       operation: "turn.output_context",
       phase: "ending",
-    }).ok, true);
+    }).ok, false);
   });
 });
 
@@ -237,7 +237,7 @@ test("setup role startup union does not grant play-only execute rights", async (
       toolName: "coc_turn",
       operation: "turn.finalize",
       phase: "live_turn",
-    }).code, "role_forbidden");
+    }).code, "phase_forbidden");
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
       operation: "rules.roll",
@@ -263,6 +263,7 @@ test("play role startup union keeps live tools and pending non-resume is forbidd
     assert.ok(tools.includes("coc_session_resume"));
     assert.ok(tools.includes("coc_rules_roll"));
     assert.ok(tools.includes("coc_turn_finalize"));
+    assert.ok(tools.includes("coc_state_journal"));
     assert.ok(!tools.includes("coc_rules"));
     assert.ok(!tools.includes("coc_chargen_delegate"));
     assert.equal(mod.evaluateExecuteAcl({
@@ -279,7 +280,7 @@ test("play role startup union keeps live tools and pending non-resume is forbidd
       toolName: "coc_turn",
       operation: "turn.finalize",
       phase: "live_turn",
-    }).ok, true);
+    }).ok, false);
   });
 });
 

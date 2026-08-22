@@ -10521,7 +10521,7 @@ process.stdout.write(JSON.stringify({
       coordinatorEnabled: async () => false,
     });
     await hardGateContext.startAll();
-    for (const invocationId of ["hard-gate-error-a", "hard-gate-error-b"]) {
+    for (const [index, invocationId] of ["hard-gate-error-a", "hard-gate-error-b"].entries()) {
       const executed = await hardGateContext.registered.get("coc_invoke").execute(
         invocationId,
         {
@@ -10537,7 +10537,11 @@ process.stdout.write(JSON.stringify({
         `${invocationId} preserves the canonical hard gate`,
         envelope.ok === false
           && envelope.tool === "setup.adopt_source_facts"
-          && envelope.error?.code === "opening_setup_incomplete",
+          && envelope.error?.code === (
+            index === 0
+              ? "opening_setup_incomplete"
+              : "nonretryable_repeat_blocked"
+          ),
       );
     }
     for (let index = 0; index < 20; index += 1) {

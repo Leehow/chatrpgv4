@@ -634,6 +634,26 @@ export async function streamTurn(
         });
       } else if (event === "notice") {
         handlers.onNotice?.(String(data.message ?? ""));
+      } else if (event === "delivery_ack_required") {
+        const finalizationId = String(data.finalization_id ?? "");
+        const renderedSha256 = String(data.rendered_sha256 ?? "");
+        if (finalizationId && renderedSha256) {
+          try {
+            const ackResponse = await fetch(`/api/sessions/${sessionId}/delivery-ack`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                finalization_id: finalizationId,
+                rendered_sha256: renderedSha256,
+              }),
+            });
+            if (!ackResponse.ok) {
+              handlers.onNotice?.("本回合文本已显示，但交付确认未写入；下次恢复时可能原样重放。");
+            }
+          } catch {
+            handlers.onNotice?.("本回合文本已显示，但交付确认未写入；下次恢复时可能原样重放。");
+          }
+        }
       } else if (event === "coc_setup_handoff" || data.type === "coc_setup_handoff") {
         handlers.onHandoff?.({
           type: "coc_setup_handoff",

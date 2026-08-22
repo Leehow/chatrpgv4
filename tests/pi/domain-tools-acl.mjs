@@ -88,23 +88,24 @@ assert.equal(mod.evaluateExecuteAcl({
 }).ok, false);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_turn",
+  operation: "state.journal",
+  phase: "pending_finalization",
+}).ok, false);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_turn",
   operation: "turn.finalize",
   phase: "ending",
-}).ok, true);
+}).ok, false);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_state",
   operation: "state.move_scene",
   phase: "pending_finalization",
 }).ok, false);
 assert.ok(mod.activeToolsForPhase("ending").includes(
-  mod.domainToolForOperation("turn.finalize"),
-));
-assert.ok(mod.activeToolsForPhase("ending").includes(
   mod.domainToolForOperation("state.journal"),
 ));
-assert.ok(mod.activeToolsForPhase("ending").includes(
-  mod.domainToolForOperation("turn.output_context"),
-));
+assert.ok(!mod.activeToolsForPhase("ending", "play").includes("coc_turn_finalize"));
+assert.ok(!mod.activeToolsForPhase("ending", "play").includes("coc_turn_output_context"));
 assert.ok(!mod.activeToolsForPhase("ending").includes("coc_state_end_session"));
 
 for (const [operation, policy] of Object.entries(mod.OPERATION_POLICY)) {
@@ -314,6 +315,32 @@ assert.equal(
   ),
   "ending",
 );
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "state.journal",
+    { ok: true, data: { turn_id: "turn-1" } },
+    "live_turn",
+  ),
+  "pending_finalization",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "state.journal",
+    { ok: true, data: { turn_id: "ending-turn" } },
+    "ending",
+  ),
+  "pending_finalization",
+);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_turn",
+  operation: "turn.output_context",
+  phase: "live_turn",
+}).ok, false);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_turn",
+  operation: "turn.finalize",
+  phase: "live_turn",
+}).ok, false);
 assert.equal(
   mod.inferPhaseFromEnvelope(
     "turn.finalize",
@@ -643,6 +670,6 @@ assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_turn",
   operation: "turn.finalize",
   phase: "live_turn",
-}).ok, true);
+}).ok, false);
 
 process.stdout.write(JSON.stringify({ ok: true }));

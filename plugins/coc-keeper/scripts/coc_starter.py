@@ -487,6 +487,13 @@ def _activate_scenario(campaign_dir: Path, scenario_dir: Path, scenario_id: str)
     world["active_subsystem"] = "play"
     if first_scene:
         world["active_scene_id"] = first_scene
+        visited = [
+            str(value) for value in (world.get("visited_scene_ids") or [])
+            if str(value)
+        ]
+        if first_scene not in visited:
+            visited.append(first_scene)
+        world["visited_scene_ids"] = visited
     world["updated_at"] = _now_iso()
     coc_fileio.write_json_atomic(
         world_path, world, indent=2, ensure_ascii=False, trailing_newline=True

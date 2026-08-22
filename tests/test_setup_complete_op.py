@@ -335,6 +335,19 @@ def test_session_resume_ready_for_table_points_at_table_opening(tmp_path: Path):
     assert "opening" not in coc_toolbox.operation_policy("turn.finalize")["phases"]
 
 
+def test_session_resume_unopened_active_starter_points_at_table_opening(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    quick = coc_starter.quick_start(
+        workspace / ".coc",
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id="active-starter-opening",
+    )
+    resumed = _resume(workspace, quick["campaign_id"])
+    assert resumed["data"]["mode"] == "table_opening"
+    assert resumed["data"]["next_operations"] == ["evidence.table_opening"]
+
+
 def test_session_resume_ready_for_table_with_opening_evidence_is_live(
     tmp_path: Path,
 ):

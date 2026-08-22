@@ -1232,6 +1232,13 @@ async function handleTurn(req, res, sid) {
     } else {
       promptResult = (await host.prompt(playerInput, { onSse })) || {};
     }
+    const delivery = host.takeStreamedDelivery();
+    if (delivery !== null) {
+      safeWrite("delivery_ack_required", {
+        finalization_id: delivery.finalizationId,
+        rendered_sha256: delivery.renderedSha256,
+      });
+    }
     host = await finishPromptTurn({
       host,
       promptResult,
@@ -1281,6 +1288,24 @@ async function handleAbortTurn(_req, res, sid) {
     }
   }
   sendJson(res, 200, { ok: true, aborted: true });
+}
+
+async function handleDeliveryAck(req, res, sid) {
+  const info = SESSIONS.get(sid);
+  if (!info) throw httpError(404, "unknown session");
+  const host = HOSTS.get(info.campaign_id);
+  if (!host || host.closed) throw httpError(409, "pi-coc host is unavailable");
+  const body = await readJsonBody(req);
+  const finalizationId = String(body.finalization_id || "");
+  const renderedSha256 = String(body.rendered_sha256 || "");
+  if (!finalizationId || !renderedSha256) {
+    throw httpError(400, "finalization_id and rendered_sha256 are required");
+  }
+  const result = await host.acknowledgeDisplayedDelivery({
+    finalizationId,
+    renderedSha256,
+  }, `web-ui:${sid}`);
+  sendJson(res, 200, { ok: true, delivery: result?.data ?? null });
 }
 
 // ---------------------------------------------------------------------------
@@ -2143,6 +2168,14 @@ async function route(req, res) {
       parts[3] === "abort"
     ) {
       return handleAbortTurn(req, res, parts[2]);
+    }
+    if (
+      parts.length === 4 &&
+      parts[0] === "api" &&
+      parts[1] === "sessions" &&
+      parts[3] === "delivery-ack"
+    ) {
+      return handleDeliveryAck(req, res, parts[2]);
     }
     if (
       parts.length === 5 &&

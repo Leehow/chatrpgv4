@@ -1084,9 +1084,9 @@ def acknowledge_delivery(
 ) -> dict[str, Any]:
     """Append one idempotent delivery acknowledgement outside narrative state."""
     campaign_dir = Path(campaign_dir)
-    if ack_kind not in {"displayed", "player_response", "replayed"}:
+    if ack_kind not in {"displayed", "replayed"}:
         raise ContinuationError(
-            "invalid_param", "ack_kind must be displayed, player_response, or replayed"
+            "invalid_param", "ack_kind must be displayed or replayed"
         )
     checkpoint = load_latest_checkpoint(campaign_dir)
     if checkpoint is None:
@@ -1133,19 +1133,5 @@ def acknowledge_delivery(
 def acknowledge_latest_from_player_response(
     campaign_dir: Path, *, player_text: str, source_journal_decision_id: str
 ) -> dict[str, Any] | None:
-    """A later exact player reply proves the preceding output was delivered."""
-    if not isinstance(player_text, str) or not player_text.strip():
-        return None
-    checkpoint, _warnings = ensure_latest_checkpoint(Path(campaign_dir))
-    if checkpoint is None:
-        return None
-    delivery = delivery_projection(Path(campaign_dir), checkpoint)
-    if delivery["status"] == "confirmed":
-        return None
-    return acknowledge_delivery(
-        Path(campaign_dir),
-        finalization_id=str(delivery["finalization_id"]),
-        rendered_sha256=str(delivery["rendered_sha256"]),
-        ack_kind="player_response",
-        source_id=source_journal_decision_id,
-    )
+    """Deprecated: player input is never proof of prior output delivery."""
+    return None

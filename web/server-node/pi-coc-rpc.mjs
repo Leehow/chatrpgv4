@@ -428,6 +428,50 @@ function toolLabel(event) {
   return name || "tool";
 }
 
+function canonicalEnvelope(value, depth = 0) {
+  if (depth > 6 || value == null) return null;
+  if (typeof value === "string") {
+    try {
+      return canonicalEnvelope(JSON.parse(value), depth + 1);
+    } catch {
+      return null;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = canonicalEnvelope(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  if (typeof value.ok === "boolean" && typeof value.tool === "string") return value;
+  for (const key of ["details", "result", "content", "data", "text"]) {
+    const found = canonicalEnvelope(value[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function deliveryReceiptFromToolEvent(event) {
+  if (!event || event.type !== "tool_execution_end") return null;
+  const envelope = canonicalEnvelope(event.result ?? event.details);
+  if (envelope?.tool !== "turn.finalize") return null;
+  const data = envelope?.ok === true && envelope.data && typeof envelope.data === "object"
+    ? envelope.data
+    : null;
+  if (
+    typeof data?.finalization_id !== "string"
+    || typeof data?.rendered_text !== "string"
+    || typeof data?.rendered_sha256 !== "string"
+  ) return null;
+  return {
+    finalizationId: data.finalization_id,
+    renderedText: data.rendered_text,
+    renderedSha256: data.rendered_sha256,
+  };
+}
+
 export function parseSetupHandoffEvent(event) {
   if (!event || typeof event !== "object") return null;
   const blobs = [];
@@ -645,6 +689,8 @@ export class PiCocRpcHost {
     this.expectedShutdown = false;
     this.openingSourceReviewPending = false;
     this.#setupOpeningPrompted = false;
+    this.#pendingFinalizedDelivery = null;
+    this.#streamedFinalizedDelivery = null;
   }
 
   isHandoffShutdown() {
@@ -656,6 +702,15 @@ export class PiCocRpcHost {
   #stderr;
   #eventLog;
   #setupOpeningPrompted;
+  #pendingFinalizedDelivery;
+  #streamedFinalizedDelivery;
+
+  #noteStreamedText(text, accepted) {
+    const pending = this.#pendingFinalizedDelivery;
+    if (accepted === false || !pending || String(text) !== pending.renderedText) return;
+    this.#streamedFinalizedDelivery = pending;
+    this.#pendingFinalizedDelivery = null;
+  }
 
   get openingIntent() {
     return this.uiIntent;
@@ -670,7 +725,10 @@ export class PiCocRpcHost {
     let opened = false;
     for (const event of this.#eventLog) {
       for (const frame of mapRpcEventToSse(event)) {
-        onSse?.(frame);
+        const accepted = onSse?.(frame);
+        if (frame?.event === "delta") {
+          this.#noteStreamedText(frame.data?.text, accepted);
+        }
         opened = true;
       }
       if (event?.type === "agent_settled") opened = true;
@@ -685,7 +743,8 @@ export class PiCocRpcHost {
       sessionId: this.sessionId,
     })).trim();
     if (!text) return false;
-    onSse?.({ event: "delta", data: { text } });
+    const accepted = onSse?.({ event: "delta", data: { text } });
+    this.#noteStreamedText(text, accepted);
     return true;
   }
 
@@ -745,6 +804,8 @@ export class PiCocRpcHost {
     if (event?.type === "message_update" && event.usage) {
       this.lastUsage = event.usage;
     }
+    const delivery = deliveryReceiptFromToolEvent(event);
+    if (delivery !== null) this.#pendingFinalizedDelivery = delivery;
     if (
       event?.type === "tool_execution_end"
       && containsOpeningSourceReviewGate(event.result)
@@ -989,7 +1050,10 @@ export class PiCocRpcHost {
             if (sawHandoff) continue;
             sawHandoff = true;
           }
-          onSse?.(frame);
+          const accepted = onSse?.(frame);
+          if (frame.event === "delta") {
+            this.#noteStreamedText(frame.data?.text, accepted);
+          }
         }
         // Do not resolve directly from the `agent_settled` listener. A hidden
         // follow-up may be queued by the extension in the same lifecycle turn.
@@ -1184,6 +1248,62 @@ export class PiCocRpcHost {
       });
     }
     return { ...result, opened: true };
+  }
+
+  takeStreamedDelivery() {
+    const delivery = this.#streamedFinalizedDelivery;
+    this.#streamedFinalizedDelivery = null;
+    return delivery;
+  }
+
+  async acknowledgeDisplayedDelivery(delivery, sourceId) {
+    if (delivery === null) return null;
+    const args = {
+      finalization_id: delivery.finalizationId,
+      rendered_sha256: delivery.renderedSha256,
+      ack_kind: "displayed",
+      source_id: String(sourceId || `web-ui:${this.sessionId}`),
+      decision_id: `web-ui:${delivery.finalizationId}`,
+    };
+    const script = path.join(
+      this.repoRoot,
+      "plugins",
+      "coc-keeper",
+      "scripts",
+      "coc_toolbox.py",
+    );
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn("uv", [
+        "run", "--frozen", "python", script, "session.delivery_ack",
+        "--root", this.workspace,
+        "--campaign", this.campaignId,
+        "--json", JSON.stringify(args),
+      ], { cwd: this.repoRoot, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+      child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code !== 0) {
+          reject(new PiCocRpcError(
+            `delivery acknowledgement failed: ${stderr.trim().slice(-400)}`,
+          ));
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout));
+        } catch {
+          reject(new PiCocRpcError("delivery acknowledgement returned invalid JSON"));
+        }
+      });
+    });
+    if (result?.ok !== true) {
+      throw new PiCocRpcError(
+        `delivery acknowledgement rejected: ${result?.error?.code || "unknown"}`,
+      );
+    }
+    return result;
   }
 
   async abort() {

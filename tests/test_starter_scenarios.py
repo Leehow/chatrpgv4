@@ -637,6 +637,7 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     world = json.loads((campaign_dir / "save" / "world-state.json").read_text("utf-8"))
     assert world["status"] == "active"
     assert world["active_scene_id"]
+    assert world["visited_scene_ids"] == [world["active_scene_id"]]
     archive = coc_starter.coc_compiled_archive.load_published(campaign_dir)
     assert archive["ok"] is True
     assert archive["archive_revision"]
@@ -673,6 +674,7 @@ def test_quick_start_without_pregen_ships_investigator_less_campaign(tmp_path):
     world = json.loads((campaign_dir / "save" / "world-state.json").read_text("utf-8"))
     assert world["status"] == "active"
     assert world["active_scene_id"]
+    assert world["visited_scene_ids"] == [world["active_scene_id"]]
     assert not (campaign_dir / "party.json").exists()
     assert not any((root / "investigators").glob("*/character.json"))
     assert not any((campaign_dir / "save" / "investigator-state").glob("*.json"))

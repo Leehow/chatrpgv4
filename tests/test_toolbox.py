@@ -7840,9 +7840,17 @@ def test_personal_horror_and_adoption_receipts_prove_actual_use(campaign_ws):
         "decision_id": "hook-woven-1",
     })
     assert woven["ok"] is True
+    advised = _run(campaign_ws, "director.advise", {
+        "player_text": "I keep the editor's pressure in mind while questioning the clerk.",
+        "intent_evidence": {
+            "primary_intent": "question_clerk",
+            "reason": "The player is questioning the clerk while carrying prior pressure.",
+        },
+    })
+    assert advised["ok"] is True
     adoption = _run(campaign_ws, "evidence.record_adoption", {
         "decision_id": "turn-adoption-1",
-        "advice_id": "director:1:example",
+        "advice_id": advised["data"]["advice_id"],
         "disposition": "modified",
         "reason": "The pressure fit, but the NPC move contradicted the live conversation.",
         "adopted_fields": ["candidate_plan.beat", "candidate_plan.tone"],
@@ -7853,10 +7861,33 @@ def test_personal_horror_and_adoption_receipts_prove_actual_use(campaign_ws):
     assert rows[-1]["disposition"] == "modified"
 
 
+def test_adoption_rejects_unknown_advice_id(campaign_ws):
+    adoption = _run(campaign_ws, "evidence.record_adoption", {
+        "decision_id": "turn-adoption-placeholder",
+        "advice_id": "placeholder",
+        "disposition": "ignored",
+        "reason": "No advisory receipt exists for this placeholder.",
+    })
+    assert adoption["ok"] is False
+    assert adoption["error"]["code"] == "unknown_advice_id"
+    path = campaign_ws["campaign_dir"] / "logs" / "advisory-adoptions.jsonl"
+    rows = _read_jsonl(path) if path.exists() else []
+    assert not any(row.get("decision_id") == "turn-adoption-placeholder" for row in rows)
+
+
 def test_adoption_receipt_records_emotional_tone_follow_through(campaign_ws):
+    advised = _run(campaign_ws, "director.advise", {
+        "player_text": "I watch both clerks' reactions before answering.",
+        "intent_evidence": {
+            "primary_intent": "observe_clerks",
+            "reason": "The player explicitly observes the NPCs' reactions.",
+        },
+    })
+    assert advised["ok"] is True
+    advice_id = advised["data"]["advice_id"]
     adoption = _run(campaign_ws, "evidence.record_adoption", {
         "decision_id": "turn-adoption-tone-1",
-        "advice_id": "director:2:toneexample",
+        "advice_id": advice_id,
         "disposition": "modified",
         "reason": "Played Knott cold per the reaction roll; softened Arty's refusal.",
         "emotional_tone_adoption": [
@@ -7876,7 +7907,7 @@ def test_adoption_receipt_records_emotional_tone_follow_through(campaign_ws):
     # Absent param keeps the receipt shape unchanged (backward compatible).
     plain = _run(campaign_ws, "evidence.record_adoption", {
         "decision_id": "turn-adoption-tone-2",
-        "advice_id": "director:2:plain",
+        "advice_id": advice_id,
         "disposition": "ignored",
         "reason": "No plan elements fit the live conversation.",
     })
@@ -7885,7 +7916,7 @@ def test_adoption_receipt_records_emotional_tone_follow_through(campaign_ws):
 
     bad_status = _run(campaign_ws, "evidence.record_adoption", {
         "decision_id": "turn-adoption-tone-3",
-        "advice_id": "director:2:bad",
+        "advice_id": advice_id,
         "disposition": "adopted",
         "reason": "test",
         "emotional_tone_adoption": [
@@ -7897,7 +7928,7 @@ def test_adoption_receipt_records_emotional_tone_follow_through(campaign_ws):
 
     missing_fields = _run(campaign_ws, "evidence.record_adoption", {
         "decision_id": "turn-adoption-tone-4",
-        "advice_id": "director:2:missing",
+        "advice_id": advice_id,
         "disposition": "adopted",
         "reason": "test",
         "emotional_tone_adoption": [{"npc_id": "npc-x"}],

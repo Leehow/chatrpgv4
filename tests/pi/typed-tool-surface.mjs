@@ -81,7 +81,8 @@ test("setup/play hide generic wrappers; unset role keeps them (legacy)", () => {
   }
   assert.ok(play.includes("coc_rules_roll"));
   assert.ok(play.includes("coc_npc_reaction"));
-  assert.ok(play.includes("coc_turn_finalize"));
+  assert.ok(!play.includes("coc_turn_finalize"));
+  assert.ok(play.includes("coc_state_journal"));
   assert.ok(!play.includes("coc_setup_complete"));
   assert.ok(setup.includes("coc_setup_inspect"));
   assert.ok(setup.includes("coc_rules_roll_dice"));

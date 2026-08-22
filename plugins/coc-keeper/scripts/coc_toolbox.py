@@ -14908,9 +14908,11 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
             campaign_row = coc_state.load_campaign_state(ctx.campaign_dir)
         except (OSError, ValueError):
             campaign_row = {}
+        has_playable_investigator = bool(ctx.party_ids())
         if (
             isinstance(campaign_row, dict)
-            and campaign_row.get("status") == "ready_for_table"
+            and campaign_row.get("status") in {"ready_for_table", "active"}
+            and has_playable_investigator
             and not _table_transcript_rows(ctx)
             and not str(
                 _read_optional_json(
@@ -14918,15 +14920,13 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
                 ).get("last_finalized_turn_id")
                 or ""
             ).strip()
-            and data.get("mode") not in {
-                "pending_finalization", "already_acknowledged",
-            }
+            and data.get("mode") == "awaiting_player"
         ):
             data["mode"] = "table_opening"
             data["next_operations"] = ["evidence.table_opening"]
             hints.insert(
                 0,
-                "campaign status is ready_for_table; open the table with "
+                "the playable campaign has no table transcript yet; open the table with "
                 "evidence.table_opening rather than character setup",
             )
         character_creation = _character_creation_resume_projection(
@@ -22095,6 +22095,27 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
         return prior.get("data"), [
             "duplicate decision_id: returning the previously recorded advisory disposition"
         ], []
+    advice_id = str(args.get("advice_id") or "").strip()
+    known_advice_ids: set[str] = set()
+    for row in _read_jsonl_records(
+        ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+    ):
+        if row.get("ok") is not True:
+            continue
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        direct_id = data.get("advice_id")
+        if isinstance(direct_id, str) and direct_id:
+            known_advice_ids.add(direct_id)
+        opportunity = data.get("narrative_opportunity")
+        if isinstance(opportunity, dict):
+            nested_id = opportunity.get("advice_id")
+            if isinstance(nested_id, str) and nested_id:
+                known_advice_ids.add(nested_id)
+    if not advice_id or advice_id not in known_advice_ids:
+        raise ToolError(
+            "unknown_advice_id",
+            "advice_id must name an actual successful advisory receipt in this campaign",
+        )
     disposition = str(args.get("disposition") or "")
     if disposition not in {"adopted", "modified", "ignored"}:
         raise ToolError("invalid_param", "disposition must be adopted, modified, or ignored")
@@ -22133,7 +22154,7 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
         "schema_version": 1,
         "visibility": "keeper_internal",
         "decision_id": str(args["decision_id"]),
-        "advice_id": str(args["advice_id"]),
+        "advice_id": advice_id,
         "disposition": disposition,
         "reason": reason,
         "adopted_fields": fields,
@@ -28933,18 +28954,9 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         raise ToolError(exc.code, str(exc)) from exc
     pacing["turn_number"] = next_turn_number
     warnings: list[str] = []
-    try:
-        delivery_ack = coc_continuation.acknowledge_latest_from_player_response(
-            ctx.campaign_dir,
-            player_text=player_text,
-            source_journal_decision_id=decision_id,
-        )
-    except coc_continuation.ContinuationError as exc:
-        raise ToolError(exc.code, str(exc)) from exc
-    if delivery_ack is not None:
-        warnings.append(
-            "the player's exact reply confirmed delivery of the previous finalized Keeper output"
-        )
+    # A later player message is not transport evidence for the preceding
+    # Keeper output. Only the host may acknowledge the exact hash-bound text
+    # through session.delivery_ack after it was actually streamed.
     if args.get("tension"):
         tension = str(args["tension"])
         if tension in ("low", "medium", "high", "climax"):

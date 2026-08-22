@@ -254,7 +254,7 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
     )
     pending_resume = _call(ws, "session.resume")["data"]
     assert pending_resume["mode"] == "pending_finalization"
-    assert pending_resume["delivery"]["status"] == "confirmed"
+    assert pending_resume["delivery"]["status"] == "unconfirmed"
     assert pending_resume["next_operations"] == ["turn.finalize"]
     _finalize(ws, decision_id="finalize-two")
     merged = coc_continuation.load_latest_checkpoint(Path(ws["campaign_dir"]))

@@ -101,6 +101,7 @@ import {
   type ChargenClerkBrief,
 } from "../lib/chargen-clerk.ts";
 import { extraToolsForSessionRole } from "../lib/session-role-tools.ts";
+import { NonRetryableFailureCircuit } from "../lib/nonretry-circuit.ts";
 import {
   applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
@@ -7707,6 +7708,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let injectedPlayerPdfPaths = new Set<string>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
+  const nonRetryableFailureCircuit = new NonRetryableFailureCircuit();
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
@@ -8011,6 +8013,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionEpoch += 1;
     sessionClosing = false;
     openingContinuationGate.reset();
+    nonRetryableFailureCircuit.reset();
     startSemanticSupply(ctx, sessionEpoch);
     sourceProducerStates = new Map<string, JsonObject>();
     sourceProducerControllers = new Map<string, AbortController>();
@@ -8937,6 +8940,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         throw new Error(dependencyError);
       }
     }
+    if (isCanonicalInvokeSurface(name)) {
+      const blocked = nonRetryableFailureCircuit.preflight({
+        campaignId: typeof params.campaign === "string" ? params.campaign : "",
+        operation: String(params.operation || ""),
+        phase: resolveAclPhase(
+          typeof params.campaign === "string" ? params.campaign : "",
+        ),
+        operationArgs: objectOrNull(params.arguments) ?? {},
+      });
+      if (blocked !== null) {
+        try {
+          pi.appendEntry("coc-nonretryable-failure-circuit", blocked);
+        } catch { /* circuit audit is best effort */ }
+        return result(blocked);
+      }
+    }
     let preparedSceneSupply: JsonObject | null = null;
     if (isCanonicalInvokeSurface(name) && params.operation === "state.move_scene") {
       const preflight = await sceneSupplyPreflight(params, signal, ctx);
@@ -9155,6 +9174,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (isCanonicalInvokeSurface(name)) {
+      nonRetryableFailureCircuit.observe({
+        campaignId: typeof params.campaign === "string" ? params.campaign : "",
+        operation: String(params.operation || ""),
+        phase: resolveAclPhase(
+          typeof params.campaign === "string" ? params.campaign : "",
+        ),
+        operationArgs: objectOrNull(params.arguments) ?? {},
+        envelope: value,
+      });
       const briefingOperation = String(params.operation);
       const briefingEnvelope = objectOrNull(value);
       const briefingReason = briefingOperation === "session.resume"

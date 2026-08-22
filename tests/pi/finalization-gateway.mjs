@@ -126,6 +126,23 @@ for (const handler of handlers.get("message_start") || []) {
     },
   }, ctx);
 }
+clientEnvelope = {
+  ok: true,
+  tool: "state.journal",
+  data: { turn_id: "turn-finalization-gateway-1" },
+};
+await tools.get("coc_invoke").execute(
+  "journal-live-fixture",
+  {
+    operation: "state.journal",
+    campaign: "hoyk-pi-grok-fix7-20260727",
+    arguments: {},
+  },
+  undefined,
+  undefined,
+  ctx,
+);
+clientEnvelope = finalizeEnvelope;
 const gatewayResult = await tools.get("coc_invoke").execute(
   "finalize-live-fixture",
   {
@@ -238,6 +255,22 @@ await emit("message_start", {
   content: [{ type: "text", text: "执行原始 UTF-8 摘要拒绝探针。" }],
   timestamp: 305,
 });
+clientEnvelope = {
+  ok: true,
+  tool: "state.journal",
+  data: { turn_id: "turn-finalization-gateway-2" },
+};
+await tools.get("coc_invoke").execute(
+  "journal-raw-digest-fixture",
+  {
+    operation: "state.journal",
+    campaign: "hoyk-pi-grok-fix7-20260727",
+    arguments: {},
+  },
+  undefined,
+  undefined,
+  ctx,
+);
 clientEnvelope = {
   ...finalizeEnvelope,
   data: {

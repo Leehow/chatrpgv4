@@ -636,6 +636,9 @@ export function inferPhaseFromEnvelope(
     return previous === "ending" ? "ending" : "live_turn";
   }
   if (operation === "state.end_session" && envelope?.ok === true) return "ending";
+  if (operation === "state.journal" && envelope?.ok === true) {
+    return "pending_finalization";
+  }
   if (operation === "evidence.table_opening" && envelope?.ok === true) {
     return "live_turn";
   }

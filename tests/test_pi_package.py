@@ -155,6 +155,11 @@ def test_pi_domain_tools_acl_and_closed_enums():
     assert result == {"ok": True}
 
 
+def test_pi_nonretryable_failure_circuit():
+    result = _node(ROOT / "tests/pi/nonretry-circuit.mjs", str(ROOT))
+    assert result == {"ok": True}
+
+
 def test_pi_role_acl():
     _node_test(ROOT / "tests/pi/role-acl.test.mjs")
 
@@ -2207,7 +2212,23 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
             {
                 "name": "coc_invoke",
                 "params": {
+                    "operation": "state.journal",
+                    "campaign": "hoyk-pi-grok-fix7-20260727",
+                    "arguments": {},
+                },
+            },
+            {
+                "name": "coc_invoke",
+                "params": {
                     "operation": "turn.finalize",
+                    "campaign": "hoyk-pi-grok-fix7-20260727",
+                    "arguments": {},
+                },
+            },
+            {
+                "name": "coc_invoke",
+                "params": {
+                    "operation": "state.journal",
                     "campaign": "hoyk-pi-grok-fix7-20260727",
                     "arguments": {},
                 },

@@ -18,6 +18,7 @@ import {
   buildChildEnv,
   buildPiCocArgs,
   createJsonlParser,
+  deliveryReceiptFromToolEvent,
   hostPiExtensionPaths,
   injectWebSearchKeysIntoEnv,
   mapRpcEventToSse,
@@ -743,6 +744,87 @@ test("empty keeper-only message_end does not erase preceding visible narration",
     }),
     [{ event: "delta", data: { text: "可见叙事" } }],
   );
+});
+
+test("finalization delivery metadata is extracted only from exact canonical receipts", () => {
+  const receipt = deliveryReceiptFromToolEvent({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalization_id: "finalization-1",
+            rendered_text: "精确结算文本",
+            rendered_sha256: "sha256:abc",
+          },
+        }),
+      }],
+    },
+  });
+  assert.deepEqual(receipt, {
+    finalizationId: "finalization-1",
+    renderedText: "精确结算文本",
+    renderedSha256: "sha256:abc",
+  });
+  assert.equal(deliveryReceiptFromToolEvent({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: { ok: false, error: { code: "no_unfinalized_journal" } },
+  }), null);
+});
+
+test("host offers delivery acknowledgement only after exact finalization text reaches SSE", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "delivery-campaign",
+    sessionId: "web-delivery-campaign",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const prompt = host.prompt("继续", { onSse: () => true });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const request = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({
+    id: request.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "finalization-delivery",
+        rendered_text: "精确交付",
+        rendered_sha256: "sha256:delivery",
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "精确交付" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await prompt;
+  assert.deepEqual(host.takeStreamedDelivery(), {
+    finalizationId: "finalization-delivery",
+    renderedText: "精确交付",
+    renderedSha256: "sha256:delivery",
+  });
+  assert.equal(host.takeStreamedDelivery(), null);
 });
 
 function fakeChild() {
