@@ -94,8 +94,11 @@ def test_load_handout_assets_returns_id_indexed_dict(tmp_path):
     index_dir.mkdir()
     asset = {
         "asset_id": "handout-newspaper",
+        "kind": "document",
         "title": "1920 Newspaper Clipping",
         "summary": "A clipping mentioning the chapel lawsuit.",
+        "text": "Chapel records were moved to the county archive in 1919.",
+        "source_refs": ["pdf_index-16"],
         "source": {"path": "pdf/module.pdf", "page": 12},
         "player_visible": True,
         "scene_refs": ["scene-archive"],

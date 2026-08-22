@@ -29,6 +29,12 @@ REQUIRED_FILES = (
     "pacing-map.json",
     "improvisation-boundaries.json",
 )
+# Scenario files written/projected when present but not required by every
+# legacy loader. ``handouts.json`` is the campaign-side verbatim info card
+# store consumed by state delivery and player projections.
+OPTIONAL_IR_FILES = (
+    "handouts.json",
+)
 DEFAULT_NEIGHBOR_PREFETCH_BUDGET = 4
 NO_PREFETCH_LOCATION_TAGS = frozenset({"sandbox-hub"})
 ROLE_TAG_RELATIONSHIP_ALIASES = {
@@ -407,6 +413,9 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             "keeper_secrets": [],
             "parse_state": "unresolved",
         },
+        # Verbatim info cards start empty: cards come from deep handout
+        # packs (module-assets entities), never from Tier-1 topology.
+        "handouts.json": {"schema_version": 1, "handouts": []},
     }
 
 
@@ -867,6 +876,65 @@ def merge_deep_threat_into_ir(
     return out
 
 
+HANDOUT_CARD_PROJECTION_FIELDS = (
+    "asset_id", "kind", "title", "summary", "player_visible",
+    "when_to_deliver", "opening_card", "text", "localized_text", "image_ref",
+    "source_refs", "scene_refs", "clue_refs",
+)
+
+
+def handout_card_from_pack(pack: dict[str, Any]) -> dict[str, Any]:
+    """Project one deep handout pack into a campaign card record.
+
+    The card record keeps the verbatim card body and its string
+    ``source_refs``; delivery state is NOT card state — the authoritative
+    delivered set lives in campaign world state (``delivered_handout_ids``).
+    Machinery-only fields (ingest timing, revision bookkeeping) stay in the
+    module-assets store.
+    """
+    asset_id = str(pack.get("asset_id") or pack.get("handout_id") or "").strip()
+    if not asset_id:
+        raise ModuleProjectError("deep handout pack missing handout_id/asset_id")
+    card: dict[str, Any] = {"asset_id": asset_id}
+    for field in HANDOUT_CARD_PROJECTION_FIELDS:
+        if field == "asset_id":
+            continue
+        if pack.get(field) is not None:
+            card[field] = json.loads(json.dumps(pack[field]))
+    card.setdefault("player_visible", True)
+    card["parse_state"] = pack.get("parse_state") or "deep"
+    card["origin"] = pack.get("origin") or "source"
+    return card
+
+
+def merge_deep_handout_into_ir(
+    ir: dict[str, Any],
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Upsert a deep handout card into the campaign card store.
+
+    ``scenario/handouts.json`` is the campaign IR consumer for verbatim info
+    cards, keyed by ``asset_id``. Undelivered card bodies live here as module
+    truth; player-facing projections filter on ``delivered_handout_ids``.
+    """
+    out = {k: json.loads(json.dumps(v)) for k, v in ir.items()}
+    card = handout_card_from_pack(pack)
+    doc = out.setdefault("handouts.json", {"schema_version": 1, "handouts": []})
+    if not isinstance(doc, dict):
+        raise ModuleProjectError("handouts.json IR entry must be an object")
+    handouts = doc.setdefault("handouts", [])
+    base = next(
+        (row for row in handouts if row.get("asset_id") == card["asset_id"]),
+        None,
+    )
+    if base is None:
+        handouts.append(card)
+    else:
+        base.clear()
+        base.update(card)
+    return out
+
+
 def merge_deep_entity_into_ir(
     ir: dict[str, Any],
     entity_kind: str,
@@ -879,6 +947,7 @@ def merge_deep_entity_into_ir(
         "item": merge_deep_item_into_ir,
         "clue": merge_deep_clue_into_ir,
         "threat": merge_deep_threat_into_ir,
+        "handout": merge_deep_handout_into_ir,
     }
     try:
         merger = mergers[entity_kind]
@@ -1185,6 +1254,12 @@ def write_ir_to_campaign(
     for name in REQUIRED_FILES:
         if name not in ir:
             raise ModuleProjectError(f"IR missing {name}")
+        path = scenario_dir / name
+        _write_json(path, ir[name])
+        written.append(str(path))
+    for name in OPTIONAL_IR_FILES:
+        if name not in ir:
+            continue
         path = scenario_dir / name
         _write_json(path, ir[name])
         written.append(str(path))
@@ -1608,6 +1683,10 @@ def load_campaign_ir(campaign_dir: Path) -> dict[str, Any]:
         if not path.is_file():
             raise ModuleProjectError(f"campaign missing {name}")
         ir[name] = _load_json(path, {})
+    for name in OPTIONAL_IR_FILES:
+        path = scenario_dir / name
+        if path.is_file():
+            ir[name] = _load_json(path, {})
     return ir
 
 
@@ -2934,8 +3013,10 @@ def build_l0_direct_opening_pack(
     written and keeper hooks are Keeper-only notes.  This pack is the direct-
     write equivalent of a foreground ``partial_opening`` slice without any
     host-work claim/fulfill spine: same entity contract, same source-evidence
-    discipline, zero coordinator dependency.  Handout refs intentionally stay
-    on the L0 document itself (the established private delivery path); this
+    discipline, zero coordinator dependency.  Opening handout cards no longer
+    stay on the L0 document: the opening bootstrap lifts them into canonical
+    handout entities (``coc_runtime_ops.l0_opening_handout_cards``) that flow
+    through the same card store + delivery path as every other handout; this
     pack lifts only the scene text and provenance the projection needs.
     """
     hooks = [
@@ -3940,6 +4021,9 @@ def _project_selected_opening_unlocked(
             ir = merge_deep_entity_into_ir(ir, "clue", clue)
         for npc in payload["npcs"]:
             ir = merge_deep_entity_into_ir(ir, "npc", npc)
+        ir, handout_reapplied = _reapply_stored_handout_packs(
+            workspace, asset_root_id, ir,
+        )
         ir = merge_canonical_opening_slice_into_ir(ir, expected_slice)
     except OpeningStructuredCollisionError as exc:
         raise OpeningPreparationError(
@@ -3997,8 +4081,43 @@ def _project_selected_opening_unlocked(
         "asset_root_id": asset_root_id,
         "start_location_id": selected,
         "opening_projection_receipt": receipt,
+        "reapplied_handouts": handout_reapplied,
         "paths": paths,
     }
+
+
+def _reapply_stored_handout_packs(
+    workspace: Path,
+    asset_root_id: str,
+    ir: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Re-merge deep handout card packs from the module-assets store.
+
+    Handout cards are scene-independent deliverables: unlike location packs a
+    reusable deep card never conflicts with a selected opening window, so any
+    projection path (skeleton refresh or selected-opening write) reprojects
+    all deep, non-evidence-gap cards.
+    """
+    entities_dir = (
+        coc_module_assets.assets_root(workspace) / asset_root_id / "entities"
+    )
+    reapplied: list[str] = []
+    if not entities_dir.is_dir():
+        return ir, reapplied
+    for path in sorted(entities_dir.glob("handout-*.json")):
+        entity_id = path.stem[len("handout-"):]
+        if not entity_id:
+            continue
+        pack = coc_module_assets.get_entity(
+            workspace, asset_root_id, "handout", entity_id,
+        )
+        if not isinstance(pack, dict) or not _is_deep_state(pack.get("parse_state")):
+            continue
+        if pack.get("evidence_gap"):
+            continue
+        ir = merge_deep_handout_into_ir(ir, pack)
+        reapplied.append(f"handout:{entity_id}")
+    return ir, reapplied
 
 
 def _reapply_stored_deep_packs(
@@ -4012,10 +4131,10 @@ def _reapply_stored_deep_packs(
     """Re-merge deep entity packs from the store after a skeleton re-projection.
 
     Skeleton refresh rebuilds campaign IR from topology only. Without this
-    pass the already-merged deep truth (clues, NPC agendas, threats, items)
-    would be silently dropped even though the reusable packs still exist in
-    the module-assets store. Handouts have no campaign IR consumer and are
-    skipped; stub/partial or evidence-gap packs are left to the normal queue.
+    pass the already-merged deep truth (clues, NPC agendas, threats, items,
+    handout cards) would be silently dropped even though the reusable packs
+    still exist in the module-assets store. Stub/partial or evidence-gap
+    packs are left to the normal queue.
     """
     entities_dir = (
         coc_module_assets.assets_root(workspace) / asset_root_id / "entities"
@@ -4025,7 +4144,7 @@ def _reapply_stored_deep_packs(
         return ir, reapplied
     for path in sorted(entities_dir.glob("*.json")):
         kind, sep, entity_id = path.stem.partition("-")
-        if not sep or kind not in {"location", "npc", "item", "clue", "threat"}:
+        if not sep or kind not in {"location", "npc", "item", "clue", "threat", "handout"}:
             continue
         pack = coc_module_assets.get_entity(
             workspace, asset_root_id, kind, entity_id,
