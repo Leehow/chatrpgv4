@@ -13378,7 +13378,10 @@ def _l0_direct_opening_l0() -> dict:
         },
     ]
     l0["opening_handouts"] = [
-        {"id": "handout-1", "title": "小卡片#1", "when_to_give": "开场简报"},
+        {
+            "id": "handout-1", "title": "小卡片#1",
+            "when_to_give": "开场简报", "source_refs": ["pdf_index-0"],
+        },
     ]
     return l0
 
@@ -13536,6 +13539,38 @@ def test_raw_bundle_opening_naturally_queues_and_compiles_media_cards(
             "source_refs": ["pdf_index-2"],
         },
     ]
+    adapter = _load(
+        "coc_pdf_adapter_natural_media_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    producer_schema = adapter._module_init_l0_schema()
+    required_handout_fields = set(
+        producer_schema["opening_handout_required_fields"]
+    )
+    allowed_handout_fields = required_handout_fields | {"kind"}
+    assert all(
+        required_handout_fields <= set(row) <= allowed_handout_fields
+        for row in l0["opening_handouts"]
+    )
+    producer_result = adapter._validate_opening_extractor_result({
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "source_bundle_path": str(ws["workspace"] / "opening-source"),
+        "failure_class": None,
+        "facts": _minimal_opening_source_facts("pdf:opening-component"),
+        "module_init_l0": l0,
+        "selected_opening_pdf_indices": [0],
+        "fact_evidence_pdf_indices": [0, 1, 2],
+    }, {
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "source_bundle_path": str(ws["workspace"] / "opening-source"),
+        "source": {"source_id": "pdf:opening-component"},
+    }, [0], [0, 1, 2])
+    l0 = producer_result["module_init_l0"]
     _scenario_path, staged_facts = _stage_reviewed_facts_transport(
         ws, module_init_l0=l0,
     )
@@ -13641,6 +13676,43 @@ def test_raw_bundle_opening_naturally_queues_and_compiles_media_cards(
     assert by_id["warehouse-map"]["image_ref"] == "assets/warehouse-map.png"
     assert by_id["archive-note"]["kind"] == "read_aloud"
     assert by_id["archive-note"]["text"] == "Accepted extra source page."
+
+
+def test_opening_bootstrap_rejects_uncached_handout_ref_without_durable_work(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    l0 = _l0_direct_opening_l0()
+    l0["opening_handouts"][0]["source_refs"] = ["pdf_index-999"]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"], "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is False, boot
+    assert boot["error"]["code"] == "opening_l0_direct_write_invalid"
+    assets_mod = coc_toolbox.coc_module_project.coc_module_assets
+    assert assets_mod.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    ) is None
+    assert assets_mod.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    ) is None
+    assert not [
+        row for row in assets_mod.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row.get("kind") == "deepen_handout"
+    ]
 
 
 def test_l0_direct_opening_pack_is_equivalent_partial_structure():

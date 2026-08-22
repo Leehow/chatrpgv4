@@ -881,7 +881,7 @@ _MODULE_INIT_HOOK_REQUIRED_FIELDS = frozenset({
     "id", "audience", "text", "variant_of",
 })
 _MODULE_INIT_HANDOUT_REQUIRED_FIELDS = frozenset({
-    "id", "title", "when_to_give",
+    "id", "title", "when_to_give", "source_refs",
 })
 
 
@@ -1072,17 +1072,18 @@ def _validate_module_init_l0(value: Any) -> dict[str, Any]:
         _module_init_text_or_none(
             handout.get("when_to_deliver"), f"{label}.when_to_deliver",
         )
-        source_refs = handout.get("source_refs")
-        if source_refs is not None and (
+        source_refs = handout["source_refs"]
+        if (
             not isinstance(source_refs, list)
             or not source_refs
             or any(
-                not isinstance(ref, str) or not ref.strip()
+                coc_module_assets.handout_card_ref_index(ref) is None
                 for ref in source_refs
             )
+            or len(source_refs) != len(set(source_refs))
         ):
             raise RuntimeOperationError(
-                f"{label}.source_refs must be a non-empty array of strings"
+                f"{label}.source_refs must be unique canonical pdf_index-N refs"
             )
     return data
 
@@ -1101,7 +1102,6 @@ def _module_init_verbatim_text_or_none(value: Any, label: str) -> None:
 def l0_opening_handout_cards(
     l0: dict[str, Any],
     *,
-    fallback_pdf_indices: list[int] | None = None,
     scene_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Lift L0 discoveries into source stubs for the closed card compiler."""
@@ -1114,23 +1114,11 @@ def l0_opening_handout_cards(
         if not handout_id or handout_id in seen_ids:
             continue
         seen_ids.add(handout_id)
-        source_refs = [
-            str(ref).strip()
-            for ref in (handout.get("source_refs") or [])
-            if isinstance(ref, str) and ref.strip()
-        ]
-        if not source_refs:
-            source_refs = [
-                f"pdf_index-{index}"
-                for index in (fallback_pdf_indices or [])
-            ]
-        source_page_indices = []
-        for ref in source_refs:
-            match = re.fullmatch(r"pdf_index-(\d+)", ref)
-            if match is None:
-                continue
-            source_page_indices.append(int(match.group(1)))
-        source_page_indices = sorted(set(source_page_indices))
+        source_page_indices = sorted({
+            int(coc_module_assets.handout_card_ref_index(ref))
+            for ref in handout["source_refs"]
+        })
+        source_refs = [f"pdf_index-{index}" for index in source_page_indices]
         card: dict[str, Any] = {
             "handout_id": handout_id,
             "asset_id": handout_id,
