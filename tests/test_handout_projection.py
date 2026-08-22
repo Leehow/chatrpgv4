@@ -306,8 +306,11 @@ def test_write_and_load_campaign_ir_round_trip_keeps_card_store(tmp_path):
 def test_l0_opening_handout_cards_lift_defaults_and_own_refs():
     l0 = {
         "opening_handouts": [
-            # Legacy entry: no kind, no refs -> read_aloud + opening window.
-            {"id": "briefing", "title": "开场简报", "when_to_give": "开场"},
+            # Kind remains optional, but exact source provenance does not.
+            {
+                "id": "briefing", "title": "开场简报", "when_to_give": "开场",
+                "source_refs": ["pdf_index-1", "pdf_index-0"],
+            },
             # Discovery metadata only: bodies are compiled by deepen_handout.
             {
                 "id": "letter",
@@ -318,9 +321,7 @@ def test_l0_opening_handout_cards_lift_defaults_and_own_refs():
             },
         ],
     }
-    cards = runtime_ops.l0_opening_handout_cards(
-        l0, fallback_pdf_indices=[0, 1], scene_id="opening",
-    )
+    cards = runtime_ops.l0_opening_handout_cards(l0, scene_id="opening")
     assert [card["asset_id"] for card in cards] == ["briefing", "letter"]
     assert cards[0]["kind"] == "read_aloud"
     assert cards[0]["source_refs"] == ["pdf_index-0", "pdf_index-1"]
@@ -341,9 +342,12 @@ def test_l0_opening_handout_cards_lift_defaults_and_own_refs():
 def test_l0_opening_handout_card_survives_put_entity(tmp_path):
     _put_source_bound_skeleton(tmp_path)
     l0 = {"opening_handouts": [
-        {"id": "briefing", "title": "开场简报", "when_to_give": "开场"},
+        {
+            "id": "briefing", "title": "开场简报", "when_to_give": "开场",
+            "source_refs": ["pdf_index-1"],
+        },
     ]}
-    card = runtime_ops.l0_opening_handout_cards(l0, fallback_pdf_indices=[1])[0]
+    card = runtime_ops.l0_opening_handout_cards(l0)[0]
     stored = assets.put_entity(
         tmp_path, "handout-proj", "handout", card["handout_id"], card,
     )

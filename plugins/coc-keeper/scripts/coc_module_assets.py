@@ -4141,9 +4141,14 @@ def _canonicalize_source_bundle(bundle: Any) -> dict[str, Any]:
         canonical["grep_anchors"] = sorted(set(anchors))
         canonical_pages.append(canonical)
     result["pages"] = sorted(canonical_pages, key=lambda row: row["pdf_index"])
-    assets = result.get("assets") or []
-    if not isinstance(assets, list):
-        raise ModuleAssetsError("source bundle assets must be a list")
+    assets = result.get("assets", [])
+    try:
+        assets = coc_pdf_bundle.canonicalize_loaded_assets(
+            assets, selected_pdf_indices=seen,
+        )
+    except coc_pdf_bundle.PdfSourceBundleError as exc:
+        raise ModuleAssetsError(str(exc)) from exc
+    result["assets"] = assets
     expected_bundle_sha256 = coc_pdf_bundle._canonical_digest(
         source, result["pages"], assets,
     )
@@ -4673,14 +4678,14 @@ def register_source_bundle(
         return result
 
 
-_HANDOUT_CARD_REF = re.compile(r"pdf_index-(\d+)")
+_HANDOUT_CARD_REF = re.compile(r"pdf_index-(0|[1-9]\d*)")
 
 
 def handout_card_ref_index(ref: str) -> int | None:
     """One handout card string ref -> its bundle page index, else None."""
     if not isinstance(ref, str):
         return None
-    match = _HANDOUT_CARD_REF.fullmatch(ref.strip())
+    match = _HANDOUT_CARD_REF.fullmatch(ref)
     return int(match.group(1)) if match is not None else None
 
 
@@ -4986,6 +4991,26 @@ def _cached_source_refs(
             ref["grep_anchor"] = anchor
         refs.append(ref)
     return refs
+
+
+def cached_source_refs(
+    workspace: Path,
+    asset_root_id: str,
+    value: dict[str, Any],
+    *,
+    field: str,
+    allow_string_refs: bool = False,
+    inherited_indices: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Public source-bound ref validator for callers crossing module seams."""
+    return _cached_source_refs(
+        workspace,
+        asset_root_id,
+        value,
+        field=field,
+        allow_string_refs=allow_string_refs,
+        inherited_indices=inherited_indices,
+    )
 
 
 def canonical_campaign_source_refs(

@@ -17151,7 +17151,7 @@ def _l0_direct_opening_projection(
             "start_location_id": location_id,
         }
     try:
-        refs = assets_mod._cached_source_refs(
+        refs = assets_mod.cached_source_refs(
             ctx.root,
             root_info["asset_root_id"],
             {"source_refs": list(scope["page_refs"])},
@@ -17164,20 +17164,29 @@ def _l0_direct_opening_projection(
             source_refs=refs,
             scope_pdf_indices=pages,
         )
+        # Opening handouts join the unified verbatim-card pipeline: each L0
+        # opening card becomes a canonical handout entity that the selected-
+        # opening projection reprojects into the campaign card store.
+        opening_cards = coc_runtime_ops.l0_opening_handout_cards(
+            l0,
+            scene_id=location_id,
+        )
+        for card in opening_cards:
+            assets_mod.cached_source_refs(
+                ctx.root,
+                root_info["asset_root_id"],
+                {"source_refs": list(card["source_refs"])},
+                field=f"opening_handout {card['handout_id']}",
+                allow_string_refs=True,
+            )
+        # All location and handout source refs are now proven against the bound
+        # root. Only after that closed validation may durable entities/jobs land.
         stored = assets_mod.put_entity(
             ctx.root,
             root_info["asset_root_id"],
             "location",
             location_id,
             pack,
-        )
-        # Opening handouts join the unified verbatim-card pipeline: each L0
-        # opening card becomes a canonical handout entity that the selected-
-        # opening projection reprojects into the campaign card store.
-        opening_cards = coc_runtime_ops.l0_opening_handout_cards(
-            l0,
-            fallback_pdf_indices=list(pages),
-            scene_id=location_id,
         )
         opening_card_ids: list[str] = []
         opening_card_jobs: list[dict[str, Any]] = []

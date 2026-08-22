@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 import hashlib
 import importlib.util
 import json
@@ -713,6 +714,45 @@ def test_registered_asset_refs_are_narrowed_to_the_requested_source_pages(
         "size_bytes": len(page_one),
         "bundle_sha256": registration["bundle_sha256"],
     }]
+
+
+@pytest.mark.parametrize("pdf_index", [None, True, -1, 999])
+def test_direct_bundle_asset_page_drift_is_no_mutation_and_retryable(
+    tmp_path: Path, pdf_index,
+):
+    image = b"\x89PNG\r\n\x1a\ndirect-dict"
+    bundle_path = _write_host_bundle_with_assets(
+        tmp_path, {"assets/direct.png": image},
+    )
+    valid = assets.coc_pdf_bundle.load_host_bundle(bundle_path)
+    corrupted = deepcopy(valid)
+    if pdf_index is None:
+        corrupted["assets"][0].pop("pdf_index")
+        corrupted["bundle_sha256"] = "0" * 64
+        corrupted["source"]["bundle_sha256"] = "0" * 64
+    else:
+        corrupted["assets"][0]["pdf_index"] = pdf_index
+        digest = assets.coc_pdf_bundle._canonical_digest(
+            corrupted["source"], corrupted["pages"], corrupted["assets"],
+        )
+        corrupted["bundle_sha256"] = digest
+        corrupted["source"]["bundle_sha256"] = digest
+
+    with pytest.raises(assets.ModuleAssetsError, match="asset.*pdf_index"):
+        assets.register_source_bundle(
+            tmp_path, corrupted, asset_root_id="direct-page-bound",
+        )
+
+    module_root = assets._module_dir(tmp_path, "direct-page-bound")
+    assert not module_root.exists()
+    assert assets.lookup_by_sha256(
+        tmp_path, valid["source"]["file_sha256"],
+    ) is None
+
+    retried = assets.register_source_bundle(
+        tmp_path, valid, asset_root_id="direct-page-bound",
+    )
+    assert retried["registered_assets"][0]["pdf_index"] == 0
 
 
 @pytest.mark.parametrize(

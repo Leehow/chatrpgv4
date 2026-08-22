@@ -67,6 +67,7 @@ def _l0(*, extension: bool = False) -> dict:
             "id": "letter-handout",
             "title": "未署名的信",
             "when_to_give": "开场",
+            "source_refs": ["pdf_index-17"],
         }],
     }
     if extension:
@@ -260,6 +261,92 @@ def test_pi_module_init_l0_rejects_direct_handout_body_escape(field):
         ops._validate_module_init_l0(value)
 
 
+@pytest.mark.parametrize(
+    "source_refs",
+    [None, [], ["page-17"], ["pdf_index-017"], ["pdf_index-17"] * 2],
+)
+def test_pi_module_init_l0_requires_unique_canonical_handout_page_refs(
+    source_refs,
+):
+    value = _l0()
+    if source_refs is None:
+        value["opening_handouts"][0].pop("source_refs")
+    else:
+        value["opening_handouts"][0]["source_refs"] = source_refs
+
+    with pytest.raises(ops.RuntimeOperationError, match="source_refs"):
+        ops._validate_module_init_l0(value)
+
+
+@pytest.mark.parametrize("source_ref", ["pdf_index-0", "pdf_index-999"])
+def test_opening_producer_rejects_handout_refs_outside_reviewed_pages(
+    tmp_path: Path, source_ref: str,
+):
+    source_id = "pdf:producer-page-bound"
+    l0 = _l0()
+    l0["opening_handouts"][0]["source_refs"] = [source_ref]
+    task = {
+        "campaign_id": "producer-page-bound",
+        "scenario_id": "producer-page-bound",
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "source": {"source_id": source_id},
+    }
+    extractor = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": task["campaign_id"],
+        "scenario_id": task["scenario_id"],
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
+        "facts": _facts(source_id, 23),
+        "module_init_l0": l0,
+        "selected_opening_pdf_indices": [17],
+        "fact_evidence_pdf_indices": [23],
+    }
+
+    with pytest.raises(RuntimeError, match="handout.*source_refs"):
+        adapter._validate_opening_extractor_result(
+            extractor, task, [17], [17, 23],
+        )
+
+
+def test_opening_producer_canonicalizes_handout_refs_within_reviewed_pages(
+    tmp_path: Path,
+):
+    source_id = "pdf:producer-page-bound"
+    l0 = _l0()
+    l0["opening_handouts"][0]["source_refs"] = [
+        "pdf_index-23", "pdf_index-17",
+    ]
+    task = {
+        "campaign_id": "producer-page-bound",
+        "scenario_id": "producer-page-bound",
+        "source_bundle_path": str(tmp_path / "bundle"),
+        "source": {"source_id": source_id},
+    }
+    extractor = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": task["campaign_id"],
+        "scenario_id": task["scenario_id"],
+        "source_bundle_path": task["source_bundle_path"],
+        "failure_class": None,
+        "facts": _facts(source_id, 23),
+        "module_init_l0": l0,
+        "selected_opening_pdf_indices": [17],
+        "fact_evidence_pdf_indices": [23],
+    }
+
+    result = adapter._validate_opening_extractor_result(
+        extractor, task, [17], [17, 23],
+    )
+    assert result["module_init_l0"]["opening_handouts"][0]["source_refs"] == [
+        "pdf_index-17", "pdf_index-23",
+    ]
+
+
 def _l0_guidance_gaps(schema: dict) -> list[str]:
     """Every validator-required L0 field that lacks producer shape guidance.
 
@@ -418,11 +505,17 @@ def test_opening_prompt_carries_chargen_deltas_and_module_meta_shape_rules(
     assert "Every source_refs or inspected_source_refs array MUST contain 1 to 3" in prompt
     assert "content_flags is not an exception" in prompt
     assert "opening_handouts are discovery metadata only" in prompt
+    assert "source_refs is a required non-empty unique array" in prompt
+    assert "selected_opening_pdf_indices or fact_evidence_pdf_indices" in prompt
     assert "omit text, localized_text, and image_ref" in prompt
     assert "deepen_handout coc.handout-card-pack.v1 compiler" in prompt
     assert "era.value MUST be exactly one canonical era key" in prompt
     assert "roman" in prompt
     schema = adapter._module_init_l0_schema()
+    assert "source_refs" in schema["opening_handout_required_fields"]
+    assert "canonical pdf_index-N" in schema["opening_handout_field_rules"][
+        "source_refs"
+    ]
     assert schema["opening_handout_body_contract"] == {
         "forbidden_direct_fields": ["text", "localized_text", "image_ref"],
         "compiler": "deepen_handout",
@@ -792,6 +885,8 @@ def test_opening_agent_can_replace_a_chargen_seed_with_a_later_playable_scene(
         "source": {"source_id": source_id},
         "reusable_bound_source": {"manifest": {"pages": []}},
     }
+    l0 = _l0()
+    l0["opening_handouts"][0]["source_refs"] = ["pdf_index-63"]
     extractor = {
         "schema_version": 1,
         "contract_id": "coc.pi-opening-text-extractor-result.v1",
@@ -801,7 +896,7 @@ def test_opening_agent_can_replace_a_chargen_seed_with_a_later_playable_scene(
         "source_bundle_path": str(tmp_path / "reviewed"),
         "failure_class": None,
         "facts": _facts(source_id, 28),
-        "module_init_l0": _l0(),
+        "module_init_l0": l0,
         "selected_opening_pdf_indices": [63, 64],
         "fact_evidence_pdf_indices": [28],
     }
