@@ -178,6 +178,18 @@ visible `coc_session_resume` tool, then call visible
   combatant id, obtain one via scene/NPC/mechanics tools, or tell the player the
   target cannot be confirmed and wait. Do **not** judge the rifle ineffective or
   invent bloodless hits in prose.
+- A concrete attempt to read an NPC's observable intent, emotion, concealment,
+  or reaction uses `coc_rules_psychology_observe`, even when the player calls
+  it a Psychology check. Never use public or keeper-only `coc_rules_roll` for
+  Psychology. First call `action=settle` with the current observer, NPC,
+  direct-conversation window, semantic observation revision, and concrete
+  question; then call `action=realize` for that `insight_id` with only the
+  player-safe external observation you will narrate. The concealed die,
+  outcome, and NPC truth never enter player prose. Repeating the same
+  window/revision reuses the frozen insight instead of rolling again. A new
+  revision requires the contract's explicit canonical revision event; ordinary
+  NPC state changes do not reopen it. If there is no concrete observable
+  question or behavior, do not roll and do not assert a definitive hidden read.
 - When the investigator first materially meets a stable NPC, use `npc.reaction`
   (public D100 against the higher of APP or Credit Rating), not a generic
   `rules.roll` or Persuade check. Record the receipt; never reroll-shop. Its

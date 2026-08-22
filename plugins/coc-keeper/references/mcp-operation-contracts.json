@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:fa39be2546b2b1f066b321eadae431a2bc0289c9e375cded729df33c67d0d702",
+  "content_sha256": "sha256:2c09adc67b2783d5a0013a10a77dd7450f436782ff62219cf4001d51580def3a",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3091,7 +3091,7 @@
     "rules.roll": {
       "access": "mutation",
       "canonical_operation": "rules.roll",
-      "description": "Contextual percentile skill/characteristic check for NON-COMBAT tasks. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
+      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3225,7 +3225,7 @@
           "live_turn"
         ]
       },
-      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT tasks. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
+      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
     },
     "rules.roll_dice": {
       "access": "mutation",

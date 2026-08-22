@@ -89,7 +89,7 @@ export function buildTypedToolCatalog(
       name,
       operation,
       label: `COC ${operation}`,
-      description: `${operation} Canonical operation; the result envelope is authoritative.`,
+      description: contract.description,
       parameters: presentedTypedToolParameters(operation, contract.inputSchema),
     };
     byName.set(name, tool);

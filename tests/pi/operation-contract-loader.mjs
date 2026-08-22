@@ -114,6 +114,23 @@ test("missing and malformed contracts fail closed", () => {
     return true;
   });
 
+  const noDescription = path.join(dir, "no-description.json");
+  writeFileSync(noDescription, JSON.stringify({
+    kind: "mcp_operation_contracts",
+    schema_version: 1,
+    operation_count: 1,
+    operations: {
+      "rules.roll": {
+        canonical_operation: "rules.roll",
+        inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+      },
+    },
+  }));
+  assert.throws(() => mod.loadOperationContracts(noDescription), (err) => {
+    assert.equal(err.code, "malformed_contract");
+    return true;
+  });
+
   const mismatch = path.join(dir, "mismatch.json");
   writeFileSync(mismatch, JSON.stringify({
     kind: "mcp_operation_contracts",

@@ -106,7 +106,7 @@ def _concealed_roll(ws, decision_id: str) -> dict:
         "rules.roll",
         {
             "investigator": ws["investigator_id"],
-            "skill": "Psychology",
+            "skill": "Listen",
             "visibility": "keeper_only",
             "seed": 7,
             "decision_id": decision_id,

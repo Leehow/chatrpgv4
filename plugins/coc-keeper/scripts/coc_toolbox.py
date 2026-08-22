@@ -1226,6 +1226,10 @@ def _error_recovery_hints(code: str) -> list[str]:
             "inspect the investigator sheet or pass an explicit target; canonical rulebook base chances are used automatically when available",
             "skill names must match the sheet exactly (English, e.g. 'Library Use', 'Psychology', 'Persuade', 'Spot Hidden'); do not translate or abbreviate them"
         ],
+        "psychology_observe_required": [
+            "call rules.psychology_observe action=settle with the exact observer, NPC, conversation window, revision, and concrete observation question; then bind only a player-safe visible_observation with action=realize",
+            "repeat observation in the unchanged window/revision through rules.psychology_observe so it returns reuse instead of rolling again",
+        ],
         "invalid_param": [
             "call describe for the tool schema, then retry with corrected structured arguments"
         ],
@@ -3167,6 +3171,19 @@ def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
             if isinstance(base, int) and not isinstance(base, bool):
                 _SKILL_BASES_CACHE[canonical.casefold()] = (canonical, int(base))
     return _SKILL_BASES_CACHE.get(str(skill).casefold())
+
+
+def _matches_canonical_skill_identity(skill: Any, canonical_name: str) -> bool:
+    """Match one structured skill selector against its ruleset catalog identity."""
+    folded = _compact_skill_fold(skill)
+    if folded == _compact_skill_fold(canonical_name):
+        return True
+    spec = _skill_catalog().get(canonical_name)
+    labels = spec.get("localized_labels") if isinstance(spec, dict) else None
+    return isinstance(labels, dict) and any(
+        isinstance(label, str) and folded == _compact_skill_fold(label)
+        for label in labels.values()
+    )
 
 
 def _clue_public_view(clue: dict[str, Any], discovered: set[str]) -> dict[str, Any]:
@@ -7795,6 +7812,7 @@ def _roll_common(
     *,
     pushed: bool,
     tool_name: str,
+    dedicated_psychology_observe: bool = False,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     decision_id = str(args["decision_id"])
     document = _load_roll_receipt_document(ctx)
@@ -7810,6 +7828,16 @@ def _roll_common(
             pushed=pushed,
             frozen_operation=receipt_hint["operation"],
         )
+        if (
+            not dedicated_psychology_observe
+            and _matches_canonical_skill_identity(operation.get("skill"), "Psychology")
+        ):
+            raise ToolError(
+                "psychology_observe_required",
+                "Psychology observation must use rules.psychology_observe so the "
+                "die/outcome stay Keeper-concealed and the conversation window can reuse "
+                "its first settlement; rules.roll and rules.push are not valid substitutes",
+            )
         if receipt_hint["fingerprint"] != _operation_fingerprint(
             tool_name, operation
         ):
@@ -7822,6 +7850,16 @@ def _roll_common(
     operation, resolution = _compile_new_percentile_invocation(
         ctx, args, pushed=pushed, document=document
     )
+    if (
+        not dedicated_psychology_observe
+        and _matches_canonical_skill_identity(operation.get("skill"), "Psychology")
+    ):
+        raise ToolError(
+            "psychology_observe_required",
+            "Psychology observation must use rules.psychology_observe so the "
+            "die/outcome stay Keeper-concealed and the conversation window can reuse "
+            "its first settlement; rules.roll and rules.push are not valid substitutes",
+        )
     document, receipt = _existing_roll_receipt(
         ctx,
         tool_name=tool_name,
@@ -9631,7 +9669,7 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "rules.roll",
-    "Contextual percentile skill/characteristic check for NON-COMBAT tasks. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
+    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
@@ -10679,7 +10717,11 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
     if args.get("seed") is not None:
         roll_args["seed"] = args["seed"]
     roll_data, _roll_warnings, _roll_hints = _roll_common(
-        ctx, roll_args, pushed=False, tool_name="rules.roll"
+        ctx,
+        roll_args,
+        pushed=False,
+        tool_name="rules.roll",
+        dedicated_psychology_observe=True,
     )
     resolver = _rules_resolver(ctx, "psychology_policy")
     try:

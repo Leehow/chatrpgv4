@@ -30,6 +30,7 @@ export type JsonSchema = Record<string, unknown>;
 export type OperationContract = {
   operation: string;
   canonical_operation: string;
+  description: string;
   inputSchema: JsonSchema;
 };
 
@@ -125,9 +126,14 @@ export function loadOperationContracts(archivePath: string = defaultArchivePath(
       fail("malformed_contract", `operation ${name} canonical_operation is ${canonical}`);
     }
     const inputSchema = toToolSchema(row.inputSchema, name);
+    const description = row.description;
+    if (typeof description !== "string" || !description.trim()) {
+      fail("malformed_contract", `operation ${name} must have a non-empty description`);
+    }
     operations.set(name, {
       operation: name,
       canonical_operation: typeof canonical === "string" ? canonical : name,
+      description,
       inputSchema,
     });
   }

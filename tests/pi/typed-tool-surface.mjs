@@ -26,6 +26,7 @@ const runtime = await import(
 
 const SPOTLIGHT = [
   "rules.roll",
+  "rules.psychology_observe",
   "rules.social_adjudicate",
   "npc.reaction",
   "state.journal",
@@ -43,7 +44,18 @@ test("spotlight tool schemas deep-equal archive inputSchema", () => {
     assert.ok(!JSON.stringify(tool.parameters).includes('"oneOf"'));
     const required = tool.parameters.required || [];
     assert.ok(Array.isArray(required));
+    assert.equal(tool.description, archive.operations[operation].description);
   }
+});
+
+test("live play exposes the concealed Psychology window contract as an exact tool", () => {
+  const play = domain.activeToolsForPhase("live_turn", "play");
+  const psychology = catalog.byOperation.get("rules.psychology_observe");
+  assert.ok(psychology);
+  assert.ok(play.includes("coc_rules_psychology_observe"));
+  assert.match(psychology.description, /Keeper-concealed Psychology observation/);
+  assert.match(psychology.description, /settle once per explicit observer\/NPC\/conversation\/revision window/);
+  assert.match(psychology.description, /player-safe realization/);
 });
 
 test("derived names are deterministic and fail closed on collision", () => {
