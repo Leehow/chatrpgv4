@@ -7831,6 +7831,27 @@ def test_rich_advice_storylets_and_narration_are_canonically_reachable(campaign_
     assert review["data"]["findings"][0]["reason"].startswith("The draft")
 
 
+@pytest.mark.parametrize("play_language", ["en-US", "ja-JP"])
+def test_narration_brief_uses_campaign_play_language(campaign_ws, play_language):
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = play_language
+    campaign_path.write_text(
+        json.dumps(campaign, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    narration = _run(campaign_ws, "narration.brief", {
+        "candidate_plan": {},
+        "applied_events": [],
+    })
+
+    assert narration["ok"] is True, narration
+    style = narration["data"]["style_contract"]
+    assert style["language"] == play_language
+    assert style["deterministic_guard"] == "unavailable"
+
+
 def test_personal_horror_and_adoption_receipts_prove_actual_use(campaign_ws):
     added = _run(campaign_ws, "state.personal_horror_add", {
         "hook_id": "hook-editor",

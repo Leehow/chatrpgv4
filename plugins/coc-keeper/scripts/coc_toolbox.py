@@ -141,6 +141,7 @@ coc_operation_policy = _load_sibling(
 )
 coc_opening_phase = _load_sibling("coc_opening_phase", "coc_opening_phase.py")
 coc_memory = _load_sibling("coc_memory", "coc_memory.py")
+coc_scenario = _load_sibling("coc_scenario_toolbox", "coc_scenario.py")
 
 SCENARIO_FILES = (
     "story-graph.json",
@@ -752,6 +753,10 @@ def _working_set_domain_paths(
         "world": (save / "world-state.json",),
         "pacing": (save / "pacing-state.json", save / "active-scene.json"),
         "clues": (scenario / "clue-graph.json",),
+        "handouts": (
+            scenario / "handouts.json",
+            campaign / "index" / "handout-assets.json",
+        ),
         "npc": (
             scenario / "npc-agendas.json",
             scenario / "module-meta.json",
@@ -3226,6 +3231,133 @@ def _clue_public_view(clue: dict[str, Any], discovered: set[str]) -> dict[str, A
             "content_available_after": "state.record_clue",
         }
     return view
+
+
+def _handout_cards_indexed(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    """Resolve every verbatim info card reachable for this campaign.
+
+    One merged, asset_id-keyed view over the two canonical card stores plus
+    deep progressive entities (still mid-queue before a re-projection):
+    campaign ``scenario/handouts.json`` cards, ``index/handout-assets.json``
+    assets, and deep ``handout`` entity packs from the campaign's module
+    root. Entity-projected cards win id collisions (freshest deep truth).
+    """
+    cards: dict[str, dict[str, Any]] = {}
+    if ctx.campaign_dir is None:
+        return cards
+    cards.update(coc_scenario.load_handout_assets(ctx.campaign_dir))
+    doc = ctx.scenario("handouts.json")
+    if isinstance(doc, dict):
+        for card in doc.get("handouts") or []:
+            if not isinstance(card, dict):
+                continue
+            asset_id = str(card.get("asset_id") or "").strip()
+            if asset_id:
+                cards[asset_id] = card
+    asset_root_id = (
+        coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+        if ctx.campaign_dir is not None else None
+    )
+    if asset_root_id:
+        entities_dir = (
+            coc_module_project.coc_module_assets.assets_root(ctx.root)
+            / asset_root_id / "entities"
+        )
+        if entities_dir.is_dir():
+            for path in sorted(entities_dir.glob("handout-*.json")):
+                entity_id = path.stem[len("handout-"):]
+                if not entity_id:
+                    continue
+                try:
+                    pack = coc_module_project.coc_module_assets.get_entity(
+                        ctx.root, asset_root_id, "handout", entity_id,
+                    )
+                except Exception:  # unreadable store entry is not a card
+                    continue
+                if not isinstance(pack, dict):
+                    continue
+                if str(pack.get("parse_state") or "") not in {"deep", "body_parsed"}:
+                    continue
+                if pack.get("evidence_gap"):
+                    continue
+                try:
+                    card = coc_module_project.handout_card_from_pack(pack)
+                except coc_module_project.ModuleProjectError:
+                    continue
+                cards[card["asset_id"]] = card
+    return cards
+
+
+def _delivered_handout_ids(world: dict[str, Any]) -> set[str]:
+    return {
+        str(value)
+        for value in (world.get("delivered_handout_ids") or [])
+        if str(value).strip()
+    }
+
+
+def _handout_public_view(
+    card: dict[str, Any], delivered: set[str],
+) -> dict[str, Any]:
+    """Player-safe projection of one verbatim card.
+
+    Hard secrecy boundary, fail-closed on two axes: an undelivered card and
+    a card explicitly marked ``player_visible: false`` never expose a body —
+    not the verbatim text, not the localized text, not the summary, not the
+    image. Only delivered, player-visible cards carry the player-safe card
+    fields.
+    """
+    asset_id = str(card.get("asset_id"))
+    if asset_id not in delivered or not bool(card.get("player_visible", True)):
+        return {
+            "asset_id": asset_id,
+            "delivered": False,
+            "secret": True,
+            "content_available_after": "state.deliver_handout",
+        }
+    view: dict[str, Any] = {
+        "asset_id": asset_id,
+        "kind": card.get("kind"),
+        "title": card.get("title"),
+        "text": card.get("localized_text") or card.get("text"),
+        "localized_text": card.get("localized_text"),
+        "image_ref": card.get("image_ref"),
+        "source_refs": list(card.get("source_refs") or []),
+        "player_visible": True,
+        "delivered": True,
+        "secret": False,
+    }
+    if isinstance(card.get("summary"), str):
+        view["summary"] = card["summary"]
+    return view
+
+
+def _apply_handout_delivery(
+    world: dict[str, Any],
+    handout_ids: list[str],
+) -> tuple[list[str], list[str]]:
+    """Idempotently append deliveries to the authoritative world set.
+
+    Pure world mutation — no I/O. The caller still owns ``ctx.save_world``
+    and the evidence event log so a delivery can share one transaction with
+    the state write that caused it (e.g. record_clue linkage). Returns
+    (newly_delivered, already_delivered).
+    """
+    delivered = _delivered_handout_ids(world)
+    newly: list[str] = []
+    already: list[str] = []
+    for raw in handout_ids:
+        handout_id = str(raw).strip()
+        if not handout_id:
+            continue
+        if handout_id in delivered:
+            already.append(handout_id)
+            continue
+        delivered.add(handout_id)
+        newly.append(handout_id)
+    if newly:
+        world["delivered_handout_ids"] = sorted(delivered)
+    return newly, already
 
 
 def _flags_set(ctx: Ctx) -> set[str]:
@@ -17012,6 +17144,22 @@ def _l0_direct_opening_projection(
             location_id,
             pack,
         )
+        # Opening handouts join the unified verbatim-card pipeline: each L0
+        # opening card becomes a canonical handout entity that the selected-
+        # opening projection reprojects into the campaign card store.
+        opening_cards = coc_runtime_ops.l0_opening_handout_cards(
+            l0, fallback_pdf_indices=list(pages),
+        )
+        opening_card_ids: list[str] = []
+        for card in opening_cards:
+            assets_mod.put_entity(
+                ctx.root,
+                root_info["asset_root_id"],
+                "handout",
+                str(card["handout_id"]),
+                card,
+            )
+            opening_card_ids.append(str(card["asset_id"]))
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError(
             "opening_l0_direct_write_invalid", str(exc),
@@ -17037,6 +17185,11 @@ def _l0_direct_opening_projection(
         raise ToolError(exc.code, exc.message) from exc
     except coc_module_project.ModuleProjectError as exc:
         raise ToolError("opening_projection_failed", str(exc)) from exc
+    # Opening cards stop at the candidate set: setup only materializes card
+    # entities and their campaign projection. Delivery timing is always the
+    # KP's semantic judgment — the KP hands the opening cards to the players
+    # right after the table opening via state.deliver_handout (same path as
+    # every other card). No delivery write happens here.
     return {
         "status": "complete",
         "idempotent": False,
@@ -17045,6 +17198,7 @@ def _l0_direct_opening_projection(
         "asset_root_id": root_info["asset_root_id"],
         "start_location_id": location_id,
         "stored_entity": stored,
+        "opening_handout_card_ids": opening_card_ids,
         "opening_projection": projection,
         "watch_drain": drain,
     }
@@ -20406,18 +20560,29 @@ def _tool_progressive_retry_full_parse(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "clues.query",
-    "Clue graph with discovery state. Filter by scene_id or clue_id. Undiscovered clues are keeper secrets.",
+    "Clue graph with discovery state, plus the campaign's verbatim handout "
+    "cards with delivery state. Filter clues by scene_id or clue_id. "
+    "Undiscovered clues are keeper secrets; undelivered card bodies are "
+    "keeper-only until state.deliver_handout.",
     {
         "scene_id": {"type": "string", "desc": "only clues available in this scene"},
         "clue_id": {"type": "string", "desc": "a single clue"},
         "undiscovered_only": {"type": "boolean", "desc": "only clues not yet found"},
+        "include_handouts": {
+            "type": "boolean",
+            "desc": "include the verbatim handout card section (default true)",
+        },
+        "handouts_projection": {
+            "type": "string",
+            "desc": "keeper (default, full cards incl. undelivered) or player (delivered cards only, player-safe fields)",
+        },
         "since_revision": {
             "type": "string",
             "desc": "revision returned by the previous identical query; matching state returns not_modified instead of the full projection",
         },
     },
     access="query",
-    read_domains=("clues", "world", "scene"),
+    read_domains=("clues", "world", "scene", "handouts"),
     recovery_domains=(),
     response_mode="full_or_not_modified",
     audit_mode="reference",
@@ -20460,9 +20625,63 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
         "clues": [_clue_public_view(c, discovered) for c in clues],
         "conclusions": conclusions,
     }
+    if args.get("include_handouts", True):
+        cards = _handout_cards_indexed(ctx)
+        delivered = _delivered_handout_ids(world)
+        projection = str(args.get("handouts_projection") or "keeper")
+        if projection not in {"keeper", "player"}:
+            raise ToolError(
+                "invalid_param",
+                "handouts_projection must be 'keeper' or 'player'",
+            )
+        if projection == "player":
+            # Player face lists only delivered, player-visible cards. Their
+            # id set is likewise bounded to those cards — a keeper-facing
+            # card's existence (even delivered) is not player knowledge.
+            player_ids = {
+                asset_id for asset_id, card in cards.items()
+                if asset_id in delivered
+                and bool(card.get("player_visible", True))
+            }
+            data["handouts"] = {
+                "projection": projection,
+                "delivered_handout_ids": sorted(player_ids),
+                "cards": [
+                    _handout_public_view(cards[asset_id], delivered)
+                    for asset_id in sorted(player_ids)
+                ],
+            }
+        else:
+            card_rows: list[dict[str, Any]] = []
+            for asset_id in sorted(cards):
+                card = cards[asset_id]
+                row = {
+                    "asset_id": asset_id,
+                    "kind": card.get("kind"),
+                    "title": card.get("title"),
+                    "summary": card.get("summary"),
+                    "when_to_deliver": card.get("when_to_deliver"),
+                    "text": card.get("text"),
+                    "localized_text": card.get("localized_text"),
+                    "image_ref": card.get("image_ref"),
+                    "source_refs": list(card.get("source_refs") or []),
+                    "player_visible": bool(card.get("player_visible", True)),
+                    "scene_refs": list(card.get("scene_refs") or []),
+                    "clue_refs": list(card.get("clue_refs") or []),
+                    "delivered": asset_id in delivered,
+                }
+                card_rows.append(row)
+            data["handouts"] = {
+                "projection": projection,
+                "delivered_handout_ids": sorted(delivered),
+                "cards": card_rows,
+            }
     return data, [], [
         "conclusion solution prose is intentionally omitted here; reveal only the "
-        "player-safe text of clues already recorded as discovered"
+        "player-safe text of clues already recorded as discovered",
+        "undelivered handout card bodies are keeper-only; deliver via "
+        "state.deliver_handout when the fiction earns it, then present the "
+        "card body verbatim",
     ]
 
 
@@ -22701,7 +22920,9 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
         "narration_envelope": envelope,
         "budget": budget,
         "control_overrides": control_overrides,
-        "style_contract": coc_narration_style.player_facing_style_contract("zh-Hans"),
+        "style_contract": coc_narration_style.player_facing_style_contract(
+            _campaign_play_language(ctx)
+        ),
     }, [], hints
 
 
@@ -23908,6 +24129,83 @@ def _tool_state_cash_semantic(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "state.deliver_handout",
+    "Deliver a verbatim info card (handout) to the players. Idempotent via "
+    "decision_id. This only writes delivery state — judging WHEN a card is "
+    "delivered stays with the Keeper; narration frames the find, the card "
+    "body is presented verbatim, never paraphrased.",
+    {
+        "handout_id": {
+            "type": "string",
+            "required": True,
+            "desc": "asset_id of the handout card (clues.query handouts section lists them all)",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+        "scene_id": {"type": "string", "desc": "scene where the card is handed over (evidence)"},
+        "reason": {"type": "string", "desc": "why now (evidence)"},
+    },
+)
+def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
+    handout_id = str(args["handout_id"]).strip()
+    prior = ctx.ledger_lookup("state.deliver_handout", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result",
+        ], []
+    cards = _handout_cards_indexed(ctx)
+    card = cards.get(handout_id)
+    if card is not None and not bool(card.get("player_visible", True)):
+        # Fail-closed: this tool is the player delivery mechanism. A card
+        # explicitly marked player_visible:false is keeper-facing reference
+        # material and can never be handed to the players through it.
+        raise ToolError(
+            "handout_not_player_visible",
+            f"handout '{handout_id}' is marked player_visible:false — it is "
+            "keeper-facing material and cannot be delivered to players; fix "
+            "the card registration if player delivery was intended",
+        )
+    warnings: list[str] = []
+    if card is None:
+        warnings.append(
+            f"handout '{handout_id}' is not a registered card — delivery is "
+            "recorded, but there is no card body to project; register the "
+            "card (module handout entity or index asset) for player-facing "
+            "rendering"
+        )
+    world = ctx.world()
+    scene_id = str(args.get("scene_id") or "").strip() or None
+    reason = str(args.get("reason") or "").strip() or None
+    newly, already = _apply_handout_delivery(world, [handout_id])
+    if newly:
+        ctx.save_world(world)
+        ctx.log_event({
+            "event_type": "handout_delivered",
+            "asset_id": handout_id,
+            "source": "state.deliver_handout",
+            **({"scene_id": scene_id} if scene_id else {}),
+            **({"reason": reason} if reason else {}),
+            "ts": _now_iso(),
+        })
+    data = {
+        "asset_id": handout_id,
+        "delivered": True,
+        "newly_delivered": newly,
+        "already_delivered": already,
+        "delivered_total": len(_delivered_handout_ids(world)),
+        "card": (_handout_public_view(card, {handout_id}) if card else None),
+    }
+    hints: list[str] = []
+    if card is not None and newly:
+        hints.append(
+            "present the card body verbatim (localized_text preferred over "
+            "text); your narration frames who finds it and in what situation "
+            "— do not rewrite or summarize the card's own text"
+        )
+    ctx.ledger_record(args.get("decision_id"), "state.deliver_handout", data)
+    return data, warnings, hints
+
+
+@tool(
     "state.record_clue",
     "Record a clue as discovered. Idempotent; unlocks any scenes gated on it. Off-design discoveries warn, not block.",
     {
@@ -23990,11 +24288,39 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     newly_unlocked = _evaluate_and_apply_unlocks(
         ctx, world, clue_records=clues_found
     )
+    # Same-transaction linkage: a clue carrying an explicitly registered
+    # handout delivers that player-visible card with the clue discovery.
+    linked_handout_id: str | None = None
+    linked_handout_newly: list[str] = []
+    linkage_skipped_hidden_card = False
+    if clue is not None:
+        asset_id = str(clue.get("handout_asset_id") or "").strip()
+        if asset_id:
+            linked_card = _handout_cards_indexed(ctx).get(asset_id)
+            if linked_card is not None and bool(
+                linked_card.get("player_visible", True)
+            ):
+                linked_handout_newly, _linked_already = _apply_handout_delivery(
+                    world, [asset_id]
+                )
+                linked_handout_id = asset_id
+            elif linked_card is not None:
+                linkage_skipped_hidden_card = True
     # Persist provenance before the world discovery.  A crash between these
     # two current-state files therefore fails closed for authored unlocks: a
     # local-only clue can never briefly exist as an unlabelled prerequisite.
     ctx.save_flags(flags)
     ctx.save_world(world)
+
+    if linked_handout_newly:
+        ctx.log_event({
+            "event_type": "handout_delivered",
+            "asset_id": linked_handout_newly[0],
+            "source": "clue_linkage",
+            "clue_id": clue_id,
+            "scene_id": active,
+            "ts": _now_iso(),
+        })
 
     if not already:
         clue_event = {
@@ -24139,6 +24465,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "localized_text": (clue or {}).get("localized_text"),
         "discovered_total": len(discovered),
         "newly_unlocked_scenes": newly_unlocked,
+        "delivered_handout_id": linked_handout_id,
         "route_completion": deepcopy(route_completion),
     }
     if clue is None:
@@ -24167,6 +24494,19 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         except Exception as exc:  # progressive must never block clue write
             warnings.append(f"progressive clue-follow skipped: {exc}")
     hints: list[str] = []
+    if linked_handout_newly:
+        hints.append(
+            f"clue '{clue_id}' delivered handout card "
+            f"'{linked_handout_newly[0]}' — present its body verbatim "
+            "(localized_text preferred); frame the find without rewriting the "
+            "card text"
+        )
+    if linkage_skipped_hidden_card:
+        hints.append(
+            f"clue '{clue_id}' references a player_visible:false handout card — "
+            "it stayed keeper-facing reference material and was NOT delivered "
+            "to the players"
+        )
     if newly_unlocked:
         hints.append(f"new scene(s) unlocked: {', '.join(newly_unlocked)} — consider signposting them")
     hints.extend(progressive_hints)
@@ -29741,12 +30081,44 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
         run_segment_trust=str(run_binding["trust"]),
     )
     entry["authoritative_time_anchor"] = time_anchor
+    # Advisory candidate set only. Opening cards stay undelivered until the
+    # KP records the actual handoff through state.deliver_handout.
+    opening_candidates = _opening_handout_candidates(ctx)
+    if opening_candidates:
+        entry["pending_opening_handouts"] = opening_candidates
     ctx.ledger_record(decision_id, "evidence.table_opening", entry)
-    return entry, [], [
+    hints = [
         "deliver data.text exactly; its authoritative opening-time anchor and "
         "deterministic public first-impression block are canonical and must not "
-        "be contradicted, recomputed, rewritten, or duplicated"
+        "be contradicted, recomputed, rewritten, or duplicated",
     ]
+    if opening_candidates:
+        hints.append(
+            "opening handout cards are staged but not yet delivered — hand them "
+            "to the players with state.deliver_handout as the opening fiction "
+            "presents them, then render the card body verbatim"
+        )
+    return entry, [], hints
+
+
+def _opening_handout_candidates(ctx: Ctx) -> list[dict[str, Any]]:
+    """Return leak-free metadata for undelivered authored opening cards."""
+    candidates: list[dict[str, Any]] = []
+    delivered = _delivered_handout_ids(ctx.world())
+    for asset_id, card in sorted(_handout_cards_indexed(ctx).items()):
+        if card.get("opening_card") is not True:
+            continue
+        if not bool(card.get("player_visible", True)):
+            continue
+        if asset_id in delivered:
+            continue
+        candidates.append({
+            "asset_id": asset_id,
+            "kind": card.get("kind"),
+            "title": card.get("title"),
+            "when_to_deliver": card.get("when_to_deliver"),
+        })
+    return candidates
 
 
 def _record_finalized_keeper_text(ctx: Ctx, receipt: dict[str, Any]) -> dict[str, Any]:
@@ -31200,6 +31572,7 @@ _MUTATING_TOOLS = frozenset({
     "state.belief_apply",
     "state.cash_semantic",
     "state.record_clue",
+    "state.deliver_handout",
     "state.move_scene",
     "state.set_flag",
     "state.clear_transient_condition",
