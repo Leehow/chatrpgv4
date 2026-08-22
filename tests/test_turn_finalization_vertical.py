@@ -815,6 +815,7 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
             "summary": "托马斯开枪后又试图用借口拖住赶来的档案员。",
             "player_action": "开枪，再用临场借口稳住对方",
             "player_text": "我开枪后立刻向档案员解释来意。",
+            "run_id": run_id,
             "intent_class": "combat-social",
             "decision_id": "journal-turn-one",
         },
@@ -885,7 +886,7 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
         "turn.finalize",
         workspace,
         campaign_id,
-        {"draft": draft, "coverage": coverage[:-1], "mechanics_placements": mechanics_placements, "decision_id": "missing"},
+        {"draft": draft, "coverage": coverage[:-1], "mechanics_placements": mechanics_placements, "revision": 1, "decision_id": "missing"},
     )
     assert missing["ok"] is False
     assert missing["error"]["code"] == "missing_obligation"
@@ -904,6 +905,7 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
             "draft": draft,
             "coverage": no_exception,
             "mechanics_placements": mechanics_placements,
+            "revision": 1,
             "decision_id": "missing-exception",
         },
     )
@@ -923,6 +925,7 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": late_rolls,
+            "revision": 1,
             "decision_id": "rolls-after-consequence",
         },
     )
@@ -931,11 +934,11 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
 
     finalized = call(
         "turn.finalize",
-        {"draft": draft, "coverage": coverage, "decision_id": "final-turn-one"},
+        {"draft": draft, "coverage": coverage, "revision": 1, "decision_id": "final-turn-one"},
     )
     replay = call(
         "turn.finalize",
-        {"draft": draft, "coverage": coverage, "decision_id": "final-turn-one"},
+        {"draft": draft, "coverage": coverage, "revision": 1, "decision_id": "final-turn-one"},
     )
     assert replay["data"] == finalized["data"]
     rendered = finalized["data"]["rendered_text"]
@@ -957,7 +960,11 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
     assert "不含未建账的备用弹药" in rendered
     assert "持续至本场景结束" in rendered
     assert "corbitt-confrontation" not in rendered
-    assert finalized["data"]["rendered_sha256"].startswith("sha256:")
+    assert finalized["data"]["rendered_text_sha256"].startswith("sha256:")
+    assert finalized["data"]["run_segment_id"] == run_id
+    assert finalized["data"]["session_id"].startswith("direct-toolbox:")
+    assert finalized["data"]["turn_id"] == output_context["turn_id"]
+    assert finalized["data"]["accepted_revision"] == 1
 
 
 def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
@@ -1048,7 +1055,7 @@ def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
         "turn.finalize",
         workspace,
         "exceptional-missing",
-        {"draft": "失败带来了麻烦。", "coverage": [], "mechanics_placements": [], "decision_id": "must-fail"},
+        {"draft": "失败带来了麻烦。", "coverage": [], "mechanics_placements": [], "revision": 1, "decision_id": "must-fail"},
     )
     assert result["ok"] is False
     assert result["error"]["code"] == "substantive_exceptional_effect_required"
@@ -1116,6 +1123,7 @@ def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": _placements(repaired["mechanics_bundle"]),
+            "revision": 1,
             "decision_id": "repair-finalize",
         },
     )["data"]
@@ -1611,6 +1619,7 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
             "draft": draft,
             "coverage": good_coverage,
             "mechanics_placements": valid_placements,
+            "revision": 1,
             "decision_id": "collect-final",
             "validate_only": True,
         },
@@ -1626,6 +1635,7 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
     first_paragraph_args = {
         "draft": result_par,
         "coverage": coverage_rows("档案员盯着他看了几秒"),
+        "revision": 1,
         "decision_id": "collect-first-paragraph",
     }
     first_paragraph_preflight = coc_toolbox.run_tool(
@@ -1665,6 +1675,7 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
         "draft": draft,
         "coverage": bad_coverage,
         "mechanics_placements": bad_placements,
+        "revision": 1,
         "decision_id": "collect-bad",
     }
     rejected = coc_toolbox.run_tool(
@@ -1702,6 +1713,7 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
             "draft": draft,
             "coverage": good_coverage,
             "mechanics_placements": valid_placements,
+            "revision": 1,
             "decision_id": "collect-final",
         },
     )
@@ -1712,6 +1724,9 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
         draft=draft,
         coverage=good_coverage,
         mechanics_placements=valid_placements,
+        revision=1,
+        narration_review=None,
+        agency_claims=[],
     )
 
 

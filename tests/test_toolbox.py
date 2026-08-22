@@ -201,6 +201,7 @@ def _finalize_pending_turn_for_test(
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": mechanics_placements,
+            "revision": 1,
             "decision_id": decision_id,
         },
     )
@@ -1362,7 +1363,7 @@ def test_missing_required_args_are_reported_together(campaign_ws):
     assert envelope["ok"] is False
     assert envelope["error"]["code"] == "missing_param"
     assert envelope["error"]["details"]["missing_parameters"] == [
-        "draft", "coverage", "decision_id",
+        "draft", "coverage", "decision_id", "revision",
     ]
     assert envelope["error"]["details"]["provided_parameters"] == ["text"]
 
@@ -4034,6 +4035,7 @@ def test_terminal_state_precedes_journal_and_finalization(campaign_ws):
 
     finalized = _run(campaign_ws, "turn.finalize", {
         "coverage": [],
+        "revision": 1,
         "decision_id": "terminal-state-before-finalize:receipt",
         "draft": "调查员没有接过钥匙，转身离开。这个故事至此结束。",
     })
@@ -5855,6 +5857,7 @@ def test_state_end_session_appends_session_ending_event(campaign_ws):
 
     finalized = _run(campaign_ws, "turn.finalize", {
         "coverage": [],
+        "revision": 1,
         "decision_id": "toolbox-end-1-finalize",
         "draft": "The session closes here.",
     })
@@ -7668,6 +7671,7 @@ def test_actions_advise_combines_stable_storylet_and_adoption_updates_ledger(
         "draft": "纸页在指间沙沙作响。\n\n" + excerpt,
         "coverage": [],
         "mechanics_placements": [],
+        "revision": 1,
         "decision_id": "finalize-longrun-pressure",
         "advisory_uptake": {
             "advice_id": opportunity["advice_id"],

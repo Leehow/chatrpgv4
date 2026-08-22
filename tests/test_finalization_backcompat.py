@@ -62,6 +62,7 @@ def _workspace_with_finalized_turn(tmp_path: Path) -> tuple[Path, Path]:
             "draft": "第一回合结束。",
             "coverage": [],
             "mechanics_placements": [],
+            "revision": 1,
             "decision_id": "finalize-one",
         },
     )
@@ -102,9 +103,18 @@ def _rewrite_as_legacy_context_receipt(campaign: Path) -> dict:
         segment["text"] for segment in row["segments"]
     )
     row["bundle_sha256"] = coc_turn_finalization.canonical_digest(row["bundle"])
+    row["schema_version"] = 1
+    row["draft_sha256"] = row.pop("accepted_draft_sha256")
     row["rendered_sha256"] = coc_turn_finalization.canonical_digest(
         row["rendered_text"]
     )
+    row.pop("rendered_text_sha256")
+    for key in (
+        "run_segment_id", "session_id", "turn_id", "settlement_snapshot_id",
+        "accepted_revision", "contract_projection_sha256", "contract_projection",
+        "narration_review", "agency_claims",
+    ):
+        row.pop(key)
     row["integrity_digest"] = coc_turn_finalization.canonical_digest({
         key: value for key, value in row.items() if key != "integrity_digest"
     })
@@ -115,7 +125,7 @@ def _rewrite_as_legacy_context_receipt(campaign: Path) -> dict:
     return row
 
 
-def test_historical_context_receipt_allows_new_pending_turn_output_context(tmp_path):
+def test_historical_context_receipt_is_read_only_for_current_runtime(tmp_path):
     workspace, campaign = _workspace_with_finalized_turn(tmp_path)
     legacy = _rewrite_as_legacy_context_receipt(campaign)
     assert coc_turn_finalization._valid_finalization(legacy) is False
@@ -128,13 +138,8 @@ def test_historical_context_receipt_allows_new_pending_turn_output_context(tmp_p
         "legacy-finalization",
         {"summary": "A new pending turn.", "player_text": "我开始新的回合行动。", "decision_id": "journal-two"},
     )
-    assert journal["ok"] is True, journal
-    output = coc_toolbox.run_tool(
-        "turn.output_context", workspace, "legacy-finalization", {}
-    )
-    assert output["ok"] is True, output
-    assert output["data"]["journal_decision_id"] == "journal-two"
-    assert output["data"]["source_start_index"] > legacy["journal_call_index"]
+    assert journal["ok"] is False
+    assert journal["error"]["code"] == "state_corrupt"
 
 
 def test_tampered_historical_context_receipt_still_fails_closed(tmp_path):

@@ -159,6 +159,7 @@ def _finalize_current_turn(ws, decision_id: str) -> dict:
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": mechanics_placements,
+            "revision": 1,
             "decision_id": decision_id,
         },
     )

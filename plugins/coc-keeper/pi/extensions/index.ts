@@ -9548,11 +9548,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && envelope?.ok === true
         && typeof data?.rendered_text === "string"
         && data.rendered_text.length > 0
-        && typeof data?.rendered_sha256 === "string"
+        && typeof data?.rendered_text_sha256 === "string"
       ) {
         openingContinuationGate.markFinalizedOutputReady(
           data.rendered_text,
-          data.rendered_sha256,
+          data.rendered_text_sha256,
         );
         applyKpActiveTools();
       }

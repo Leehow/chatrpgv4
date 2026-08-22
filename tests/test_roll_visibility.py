@@ -239,6 +239,7 @@ def test_finalize_closes_concealed_roll_without_visible_beat(campaign_ws):
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": mechanics_placements,
+            "revision": 1,
             "decision_id": "concealed-finalize",
         },
     )

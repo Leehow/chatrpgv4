@@ -34,6 +34,18 @@ const sha256 = (value) => (
 );
 const canonicalDigest = sha256(JSON.stringify(renderedText));
 const rawDigest = sha256(renderedText);
+const finalizationArguments = {
+  revision: 1,
+  narration_review_id: "narration-review-v1:probe",
+  agency_claims: [{
+    claim_id: "claim-probe",
+    subject_ref: "pc:probe",
+    claim_type: "voluntary_action",
+    exact_excerpt: "你接过那份蜡封卷轴",
+    source_ref: "player_input:probe",
+    override_id: null,
+  }],
+};
 
 const finalizeEnvelope = {
   ok: true,
@@ -59,7 +71,7 @@ const finalizeEnvelope = {
     journal_decision_id: "journal-turn1-depart-drixdale-v1",
     source_digest:
       "sha256:cca4fce29269854117e0882de53cbd570323a8f71ef32e6d16745c2bbd7d4805",
-    rendered_sha256: renderedSha256,
+    rendered_text_sha256: renderedSha256,
     rendered_text: renderedText,
     integrity_digest:
       "sha256:6e1ec1f3d21ecdcc1f977abe09e9847f135d020e2925d40973d18b8d5b2c5c14",
@@ -131,7 +143,7 @@ const gatewayResult = await tools.get("coc_invoke").execute(
   {
     operation: "turn.finalize",
     campaign: "hoyk-pi-grok-fix7-20260727",
-    arguments: {},
+    arguments: finalizationArguments,
   },
   undefined,
   undefined,
@@ -242,7 +254,7 @@ clientEnvelope = {
   ...finalizeEnvelope,
   data: {
     ...finalizeEnvelope.data,
-    rendered_sha256: rawDigest,
+    rendered_text_sha256: rawDigest,
   },
 };
 await tools.get("coc_invoke").execute(
@@ -250,7 +262,7 @@ await tools.get("coc_invoke").execute(
   {
     operation: "turn.finalize",
     campaign: "hoyk-pi-grok-fix7-20260727",
-    arguments: {},
+    arguments: finalizationArguments,
   },
   undefined,
   undefined,
@@ -291,7 +303,7 @@ process.stdout.write(JSON.stringify({
     canonicalOperation: returnedEnvelope.wire?.canonical_operation,
     renderedTextExact: returnedEnvelope.data?.rendered_text === renderedText,
     renderedDigestExact:
-      returnedEnvelope.data?.rendered_sha256 === renderedSha256,
+      returnedEnvelope.data?.rendered_text_sha256 === renderedSha256,
   },
   digest: {
     receipt: renderedSha256,

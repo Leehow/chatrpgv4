@@ -527,6 +527,7 @@ def test_finalize_requires_sanity_bout_realization(campaign_ws):
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": placements,
+            "revision": 1,
             "decision_id": "bout-turn-finalize-missing",
         },
     )
@@ -542,6 +543,7 @@ def test_finalize_requires_sanity_bout_realization(campaign_ws):
             "draft": draft,
             "coverage": coverage,
             "mechanics_placements": placements,
+            "revision": 1,
             "decision_id": "bout-turn-finalize",
         },
     )

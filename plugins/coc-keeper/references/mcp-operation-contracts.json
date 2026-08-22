@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:f189c3c42524314f050560fd24a3b2dd72d41fdaaa3508412742d863e79d25cb",
+  "content_sha256": "sha256:76333e8d015c5f50a2af4bc120f78d526a20ec591524664c0597b7aa0bd3e5b5",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1110,7 +1110,7 @@
       "summary": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract."
     },
     "narration.review": {
-      "access": "mutation",
+      "access": "query",
       "canonical_operation": "narration.review",
       "description": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
       "inputSchema": {
@@ -1136,14 +1136,27 @@
             "description": "investigator id for budget derivation (defaults to the party's first member)",
             "type": "string"
           },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_digest": {
+            "type": "string"
+          },
+          "turn_id": {
             "type": "string"
           }
         },
         "required": [
           "campaign",
           "decision_id",
+          "turn_id",
+          "source_digest",
+          "revision",
           "draft_text"
         ],
         "type": "object"
@@ -8141,6 +8154,61 @@
             ],
             "type": "object"
           },
+          "agency_claims": {
+            "description": "structured agency claims; empty does not prove semantic absence",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "claim_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "claim_type": {
+                  "enum": [
+                    "forced_behavior",
+                    "involuntary_physiology",
+                    "voluntary_action",
+                    "voluntary_active_emotion",
+                    "voluntary_belief",
+                    "voluntary_plan",
+                    "voluntary_speech",
+                    "voluntary_trust"
+                  ],
+                  "type": "string"
+                },
+                "exact_excerpt": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "override_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source_ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "subject_ref": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "claim_id",
+                "claim_type",
+                "exact_excerpt",
+                "override_id",
+                "source_ref",
+                "subject_ref"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "campaign": {
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
@@ -8266,9 +8334,18 @@
             },
             "type": "array"
           },
+          "narration_review_id": {
+            "description": "optional exact narration.review id bound to this turn/source/revision/draft",
+            "type": "string"
+          },
           "repair_finalization_id": {
             "description": "optional latest finalization id; permits a prose/placement-only replacement only while that exact output remains delivery-unconfirmed",
             "type": "string"
+          },
+          "revision": {
+            "description": "narration-only revision; initial=1, one undelivered repair=2",
+            "minimum": 1,
+            "type": "integer"
           },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
@@ -8283,7 +8360,8 @@
           "campaign",
           "draft",
           "coverage",
-          "decision_id"
+          "decision_id",
+          "revision"
         ],
         "type": "object"
       },

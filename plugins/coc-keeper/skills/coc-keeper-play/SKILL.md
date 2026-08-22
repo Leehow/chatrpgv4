@@ -156,11 +156,30 @@ output evidence boundary, not a replacement prose engine:
    and state writes, call `state.journal` with the current external player
    message copied byte-for-byte into `player_text` (keep `player_action` as a
    separate summary), then call `turn.output_context`. Draft causal fiction for
-   every returned obligation and call `turn.finalize`. Echo its
+   every returned obligation and call `turn.finalize` with `revision: 1`. Echo its
    `rendered_text` exactly. The finalizer owns public dice and visible
    HP/SAN/MP/Luck, current loaded-magazine, item, cash, condition, time, and
    first-contact context lines. Never recompute, omit, duplicate, prepend to,
    append to, or rewrite those deterministic segments.
+
+   `turn.output_context.contract_projection` is the frozen drafting contract:
+   it binds the exact run/session/turn and settlement snapshot to the current
+   scene contract, narration budget, player source, and active control
+   overrides. Re-reading unchanged settlement is stable. If an undelivered
+   accepted draft alone needs correction, the only allowed replacement is
+   `revision: 2` with `repair_finalization_id`; there is no revision 3, and
+   delivery acknowledgement closes repair. Never rerun rules, state writes,
+   journal, coverage, or mechanics for that prose-only replacement.
+
+   `agency_claims` are structured source bindings, not a prose classifier:
+   cite an exact excerpt for each submitted claim. Voluntary investigator
+   action, speech, plan, belief, trust, or active emotion must bind the exact
+   current `player_input:<journal decision_id>`; forced behavior must bind an
+   active frozen override by stable `override_id`, subject, rule source, and
+   expiry. An empty claim list does **not** prove absence of agency violations.
+   `narration.review` remains optional and advisory; when used, bind it to the
+   exact turn, source digest, revision, and draft, with structured
+   `subject_ref` / `source_ref` findings.
 
 **Mechanical output gate.** Formal mechanical markers — `【明骰】`, dice lines
 (`掷骰：N`), and SAN/HP numeric transfers (`SAN 50→46`, `HP 6→4`, `损失 N 点`) —

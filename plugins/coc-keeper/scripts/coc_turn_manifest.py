@@ -53,6 +53,10 @@ MANIFEST_FIELDS = frozenset({
     "repair_call_count",
     "source_digest",
     "finalization_id",
+    "accepted_revision",
+    "settlement_snapshot_id",
+    "rendered_text_sha256",
+    "contract_projection_sha256",
     "completed_end_offset",
     "completed_next_index",
     "created_at",
@@ -248,10 +252,20 @@ def _validate_manifest(payload: Any, campaign_id: str) -> dict[str, Any]:
         value = payload.get(key)
         if value is not None and not _valid_nonnegative_int(value):
             raise TurnManifestError("state_corrupt", f"turn manifest {key} is invalid")
-    for key in ("source_digest", "finalization_id"):
+    for key in (
+        "source_digest", "finalization_id", "settlement_snapshot_id",
+        "rendered_text_sha256", "contract_projection_sha256",
+    ):
         value = payload.get(key)
         if value is not None and (not isinstance(value, str) or not value):
             raise TurnManifestError("state_corrupt", f"turn manifest {key} is invalid")
+    accepted_revision = payload.get("accepted_revision")
+    if accepted_revision is not None and (
+        isinstance(accepted_revision, bool)
+        or not isinstance(accepted_revision, int)
+        or accepted_revision not in {1, 2}
+    ):
+        raise TurnManifestError("state_corrupt", "turn manifest accepted_revision is invalid")
     if not isinstance(payload.get("created_at"), str) or not isinstance(
         payload.get("updated_at"), str
     ):
@@ -551,6 +565,10 @@ def _finalize_manifest_and_cursor(
     manifest: dict[str, Any],
     *,
     finalization_id: str,
+    accepted_revision: int,
+    settlement_snapshot_id: str,
+    rendered_text_sha256: str,
+    contract_projection_sha256: str,
     completed_end_offset: int,
 ) -> dict[str, Any]:
     campaign_dir = Path(campaign_dir)
@@ -573,6 +591,10 @@ def _finalize_manifest_and_cursor(
         "status": "finalized",
         "revision": int(manifest["revision"]) + 1,
         "finalization_id": finalization_id,
+        "accepted_revision": accepted_revision,
+        "settlement_snapshot_id": settlement_snapshot_id,
+        "rendered_text_sha256": rendered_text_sha256,
+        "contract_projection_sha256": contract_projection_sha256,
         "completed_end_offset": completed_end_offset,
         "completed_next_index": completed_next_index,
         "updated_at": _now_iso(),
@@ -632,6 +654,10 @@ def recover_finalized_pending(campaign_dir: Path) -> bool:
         campaign_dir,
         manifest,
         finalization_id=finalization_id,
+        accepted_revision=int(receipt.get("accepted_revision") or 0),
+        settlement_snapshot_id=str(receipt.get("settlement_snapshot_id") or ""),
+        rendered_text_sha256=str(receipt.get("rendered_text_sha256") or ""),
+        contract_projection_sha256=str(receipt.get("contract_projection_sha256") or ""),
         completed_end_offset=end_offset,
     )
     return True
@@ -835,6 +861,10 @@ def start_pending_turn(
         "repair_call_count": 0,
         "source_digest": None,
         "finalization_id": None,
+        "accepted_revision": None,
+        "settlement_snapshot_id": None,
+        "rendered_text_sha256": None,
+        "contract_projection_sha256": None,
         "completed_end_offset": None,
         "completed_next_index": None,
         "created_at": now,
@@ -958,6 +988,10 @@ def complete_pending_turn(
     *,
     journal_decision_id: str,
     finalization_id: str,
+    accepted_revision: int,
+    settlement_snapshot_id: str,
+    rendered_text_sha256: str,
+    contract_projection_sha256: str,
     completed_end_offset: int,
 ) -> dict[str, Any]:
     campaign_dir = Path(campaign_dir)
@@ -972,6 +1006,10 @@ def complete_pending_turn(
         campaign_dir,
         manifest,
         finalization_id=finalization_id,
+        accepted_revision=accepted_revision,
+        settlement_snapshot_id=settlement_snapshot_id,
+        rendered_text_sha256=rendered_text_sha256,
+        contract_projection_sha256=contract_projection_sha256,
         completed_end_offset=completed_end_offset,
     )
 
@@ -982,6 +1020,10 @@ def complete_undelivered_output_repair(
     journal_decision_id: str,
     previous_finalization_id: str,
     finalization_id: str,
+    accepted_revision: int,
+    settlement_snapshot_id: str,
+    rendered_text_sha256: str,
+    contract_projection_sha256: str,
     completed_end_offset: int,
 ) -> dict[str, Any]:
     """Advance the bounded cursor after replacing an undelivered output tail."""
@@ -1036,6 +1078,10 @@ def complete_undelivered_output_repair(
     updated.update({
         "revision": int(manifest["revision"]) + 1,
         "finalization_id": finalization_id,
+        "accepted_revision": accepted_revision,
+        "settlement_snapshot_id": settlement_snapshot_id,
+        "rendered_text_sha256": rendered_text_sha256,
+        "contract_projection_sha256": contract_projection_sha256,
         "completed_end_offset": completed_end_offset,
         "completed_next_index": completed_next_index,
         "updated_at": _now_iso(),

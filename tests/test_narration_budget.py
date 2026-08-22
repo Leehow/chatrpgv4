@@ -145,6 +145,11 @@ def test_control_overrides_reflect_active_bout_and_unconscious(campaign_ws):
     assert len(overrides) == 1
     assert overrides[0]["override_type"] == "bout_of_madness"
     assert overrides[0]["bout_rounds_remaining"] == 10
+    assert overrides[0]["override_id"]
+    assert overrides[0]["subject_ref"] == f"pc:{campaign_ws['investigator_id']}"
+    assert overrides[0]["source_ref"].startswith("sanity_bout:")
+    assert overrides[0]["active"] is True
+    assert overrides[0]["expiry"] == {"kind": "rounds_remaining", "value": 10}
     assert bout["data"]["budget"]["mode"] == "climax_or_madness"
     assert any("ONLY within the listed control_overrides" in hint for hint in bout["hints"])
 
@@ -172,15 +177,32 @@ def test_control_overrides_reflect_active_bout_and_unconscious(campaign_ws):
     unconscious = _brief(campaign_ws)
     types = {row["override_type"] for row in unconscious["data"]["control_overrides"]}
     assert types == {"unconscious"}
+    assert unconscious["data"]["control_overrides"][0]["expiry"]["kind"] == "condition_cleared"
 
 
 def test_review_records_deterministic_over_length(campaign_ws):
+    journal = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "调查员等待门外的动静。",
+            "player_action": "等待",
+            "player_text": "我在门边等待。",
+            "run_id": "review-run",
+            "decision_id": "journal-review",
+        },
+    )
+    assert journal["ok"] is True, journal
+    context = _run(campaign_ws, "turn.output_context")["data"]
     long_draft = "雨敲着窗。" * 200  # 1000 chars, far beyond 2x routine budget
     reviewed = _run(
         campaign_ws,
         "narration.review",
         {
             "draft_text": long_draft,
+            "turn_id": context["turn_id"],
+            "source_digest": context["source_digest"],
+            "revision": 1,
             "decision_id": "review-long",
         },
     )
@@ -188,6 +210,8 @@ def test_review_records_deterministic_over_length(campaign_ws):
     findings = reviewed["data"]["findings"]
     assert any(row["rule_id"] == "over_length" for row in findings)
     assert reviewed["data"]["recommendation"] == "consider_revision"
+    assert reviewed["data"]["draft_sha256"].startswith("sha256:")
+    assert reviewed["data"]["review_id"].startswith("narration-review-v1:")
 
     reviews = _read_jsonl(
         campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
@@ -200,9 +224,58 @@ def test_review_records_deterministic_over_length(campaign_ws):
         "narration.review",
         {
             "draft_text": "门缝里渗进一线灯光。",
+            "turn_id": context["turn_id"],
+            "source_digest": context["source_digest"],
+            "revision": 1,
             "decision_id": "review-short",
         },
     )
     assert short["ok"] is True
     assert short["data"]["findings"] == []
     assert short["data"]["recommendation"] == "no_revision_suggested"
+
+    conflict = _run(
+        campaign_ws,
+        "narration.review",
+        {
+            "draft_text": "另一份草稿。",
+            "turn_id": context["turn_id"],
+            "source_digest": context["source_digest"],
+            "revision": 1,
+            "decision_id": "review-short",
+        },
+    )
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+
+    wrong_source = _run(
+        campaign_ws,
+        "narration.review",
+        {
+            "draft_text": "错误来源。",
+            "turn_id": context["turn_id"],
+            "source_digest": "sha256:wrong",
+            "revision": 1,
+            "decision_id": "review-wrong-source",
+        },
+    )
+    assert wrong_source["ok"] is False
+    assert wrong_source["error"]["code"] == "turn_source_changed"
+
+    finalized = _run(
+        campaign_ws,
+        "turn.finalize",
+        {
+            "draft": long_draft,
+            "coverage": [],
+            "mechanics_placements": [],
+            "revision": 1,
+            "narration_review_id": reviewed["data"]["review_id"],
+            "decision_id": "finalize-reviewed",
+        },
+    )
+    assert finalized["ok"] is True, finalized
+    assert finalized["data"]["narration_review"] == {
+        "review_id": reviewed["data"]["review_id"],
+        "review_digest": reviewed["data"]["review_digest"],
+    }

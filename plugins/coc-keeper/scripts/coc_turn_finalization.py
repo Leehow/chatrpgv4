@@ -25,9 +25,21 @@ import coc_rulesets
 import coc_turn_manifest
 
 
-FINALIZATION_SCHEMA_VERSION = 1
+FINALIZATION_SCHEMA_VERSION = 2
+MAX_ACCEPTED_REVISION = 2
 FINALIZATION_FILENAME = "turn-finalizations.jsonl"
 FINALIZATION_FIELDS = frozenset({
+    "schema_version", "finalization_id", "decision_id", "run_segment_id",
+    "session_id", "turn_id", "journal_decision_id",
+    "journal_call_index", "source_start_index", "source_end_index",
+    "source_digest", "source_roll_ids", "obligation_ids", "coverage_ids",
+    "settlement_snapshot_id", "accepted_revision", "accepted_draft_sha256",
+    "rendered_text_sha256", "contract_projection_sha256",
+    "coverage_sha256", "bundle_sha256", "narration_review",
+    "agency_claims", "contract_projection",
+    "bundle", "coverage", "segments", "rendered_text", "integrity_digest",
+})
+LEGACY_FINALIZATION_FIELDS = frozenset({
     "schema_version", "finalization_id", "decision_id", "journal_decision_id",
     "journal_call_index", "source_start_index", "source_end_index",
     "source_digest", "source_roll_ids", "obligation_ids", "coverage_ids",
@@ -63,6 +75,17 @@ _CASH_PLAYER_TIME_PUBLIC = (
 )
 MECHANICS_PLACEMENT_FIELDS = frozenset({
     "after_paragraph", "segment_type", "source_ids",
+})
+AGENCY_CLAIM_FIELDS = frozenset({
+    "claim_id", "subject_ref", "claim_type", "exact_excerpt", "source_ref",
+    "override_id",
+})
+VOLUNTARY_CLAIM_TYPES = frozenset({
+    "voluntary_action", "voluntary_speech", "voluntary_plan",
+    "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
+})
+AGENCY_CLAIM_TYPES = frozenset({
+    *VOLUNTARY_CLAIM_TYPES, "forced_behavior", "involuntary_physiology",
 })
 
 
@@ -360,18 +383,42 @@ def _legacy_context_effect_sources(
 
 
 def _valid_finalization_contract(
-    row: Any, *, allow_legacy_context_effect: bool = False
+    row: Any, *, allow_legacy: bool = False, allow_legacy_context_effect: bool = False
 ) -> bool:
-    if not isinstance(row, dict) or set(row) != FINALIZATION_FIELDS:
+    expected_fields = LEGACY_FINALIZATION_FIELDS if allow_legacy else FINALIZATION_FIELDS
+    expected_schema = 1 if allow_legacy else FINALIZATION_SCHEMA_VERSION
+    if not isinstance(row, dict) or set(row) != expected_fields:
         return False
-    if row.get("schema_version") != FINALIZATION_SCHEMA_VERSION:
+    if row.get("schema_version") != expected_schema:
         return False
-    for key in (
+    hash_fields = (
+        ("draft_sha256", "rendered_sha256")
+        if allow_legacy
+        else ("accepted_draft_sha256", "rendered_text_sha256")
+    )
+    required_strings = [
         "finalization_id", "decision_id", "journal_decision_id",
-        "source_digest", "draft_sha256", "coverage_sha256", "bundle_sha256",
-        "rendered_sha256", "rendered_text", "integrity_digest",
-    ):
+        "source_digest", hash_fields[0], "coverage_sha256", "bundle_sha256",
+        hash_fields[1], "rendered_text", "integrity_digest",
+    ]
+    if not allow_legacy:
+        required_strings.extend((
+            "run_segment_id", "session_id", "turn_id", "settlement_snapshot_id",
+            "contract_projection_sha256",
+        ))
+    for key in required_strings:
         if not isinstance(row.get(key), str) or not row[key]:
+            return False
+    if not allow_legacy:
+        revision = row.get("accepted_revision")
+        if (
+            isinstance(revision, bool) or not isinstance(revision, int)
+            or revision < 1 or revision > MAX_ACCEPTED_REVISION
+            or not isinstance(row.get("contract_projection"), dict)
+            or not isinstance(row.get("agency_claims"), list)
+            or row.get("narration_review") is not None
+            and not isinstance(row.get("narration_review"), dict)
+        ):
             return False
     for key in (
         "journal_call_index", "source_start_index", "source_end_index",
@@ -416,7 +463,7 @@ def _valid_finalization_contract(
         seen_sources.update(identities)
     if segments[0].get("segment_type") != "fiction":
         return False
-    if canonical_digest("\n\n".join(fiction_parts)) != row["draft_sha256"]:
+    if canonical_digest("\n\n".join(fiction_parts)) != row[hash_fields[0]]:
         return False
     if "\n\n".join(segment["text"] for segment in segments) != row["rendered_text"]:
         return False
@@ -449,9 +496,19 @@ def _valid_finalization_contract(
     if (
         row.get("coverage_sha256") != canonical_digest(row["coverage"])
         or row.get("bundle_sha256") != canonical_digest(row["bundle"])
-        or row.get("rendered_sha256") != canonical_digest(row["rendered_text"])
+        or row.get(hash_fields[1]) != canonical_digest(row["rendered_text"])
     ):
         return False
+    if not allow_legacy:
+        if (
+            row.get("contract_projection_sha256")
+            != canonical_digest(row["contract_projection"])
+            or row["contract_projection"].get("settlement_snapshot_id")
+            != row["settlement_snapshot_id"]
+            or row["contract_projection"].get("turn_id") != row["turn_id"]
+            or row["contract_projection"].get("source_digest") != row["source_digest"]
+        ):
+            return False
     body = {key: deepcopy(value) for key, value in row.items() if key != "integrity_digest"}
     return row.get("integrity_digest") == canonical_digest(body)
 
@@ -482,12 +539,20 @@ def _valid_legacy_context_finalization(row: Any) -> bool:
     ):
         return False
     return _valid_finalization_contract(
-        row, allow_legacy_context_effect=True
+        row, allow_legacy=True, allow_legacy_context_effect=True
     )
 
 
+def _valid_legacy_finalization(row: Any) -> bool:
+    return _valid_finalization_contract(row, allow_legacy=True)
+
+
 def _valid_stored_finalization(row: Any) -> bool:
-    return _valid_finalization(row) or _valid_legacy_context_finalization(row)
+    return (
+        _valid_finalization(row)
+        or _valid_legacy_finalization(row)
+        or _valid_legacy_context_finalization(row)
+    )
 
 
 def load_finalizations(campaign_dir: Path) -> list[dict[str, Any]]:
@@ -2173,6 +2238,15 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         "concealed_consequence": concealed,
     }
     source_digest = str(manifest["source_digest"])
+    settlement_snapshot_id = _stable_effect_id(
+        manifest["turn_id"],
+        "settlement_snapshot",
+        canonical_digest([
+            source_digest,
+            canonical_digest(bundle),
+            [row["obligation_id"] for row in obligations],
+        ]),
+    )
     return {
         "schema_version": 1,
         "turn_id": manifest["turn_id"],
@@ -2184,6 +2258,7 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         "source_start_index": start,
         "source_end_index": end,
         "source_digest": source_digest,
+        "settlement_snapshot_id": settlement_snapshot_id,
         "source_roll_ids": sorted(str(raw["roll_id"]) for raw in rolls),
         "obligations": obligations,
         "required_obligation_ids": [row["obligation_id"] for row in obligations],
@@ -3039,6 +3114,110 @@ def compose_segments(
     return segments, rendered, placements
 
 
+def _validate_contract_projection(
+    context: dict[str, Any], projection: Any
+) -> dict[str, Any]:
+    if not isinstance(projection, dict):
+        raise TurnContractError(
+            "invalid_param", "contract_projection must be the exact turn.output_context projection"
+        )
+    for key, expected in (
+        ("turn_id", context.get("turn_id")),
+        ("source_digest", context.get("source_digest")),
+        ("settlement_snapshot_id", context.get("settlement_snapshot_id")),
+    ):
+        if projection.get(key) != expected:
+            raise TurnContractError(
+                "turn_source_changed", f"contract_projection {key} does not match the frozen settlement"
+            )
+    for key in ("run_segment_id", "session_id"):
+        value = projection.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise TurnContractError("invalid_param", f"contract_projection {key} is required")
+    if not isinstance(projection.get("narration_budget"), dict):
+        raise TurnContractError("invalid_param", "contract_projection narration_budget is required")
+    if not isinstance(projection.get("control_overrides"), list):
+        raise TurnContractError("invalid_param", "contract_projection control_overrides is required")
+    return deepcopy(projection)
+
+
+def _normalize_agency_claims(
+    raw_claims: Any,
+    *,
+    draft: str,
+    projection: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if raw_claims is None:
+        return []
+    if not isinstance(raw_claims, list):
+        raise TurnContractError("invalid_param", "agency_claims must be an array")
+    player_source = projection.get("player_input")
+    player_source_ref = (
+        str(player_source.get("source_ref") or "")
+        if isinstance(player_source, dict) else ""
+    )
+    overrides = {
+        str(row.get("override_id") or ""): row
+        for row in projection.get("control_overrides") or []
+        if isinstance(row, dict) and str(row.get("override_id") or "")
+    }
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(raw_claims):
+        if not isinstance(raw, dict) or set(raw) != AGENCY_CLAIM_FIELDS:
+            raise TurnContractError(
+                "invalid_param", f"agency_claims[{index}] must use the exact closed schema"
+            )
+        row = {key: deepcopy(raw.get(key)) for key in AGENCY_CLAIM_FIELDS}
+        claim_id = str(row.get("claim_id") or "").strip()
+        subject_ref = str(row.get("subject_ref") or "").strip()
+        claim_type = str(row.get("claim_type") or "").strip()
+        excerpt = str(row.get("exact_excerpt") or "")
+        source_ref = str(row.get("source_ref") or "").strip()
+        override_id = row.get("override_id")
+        if (
+            not claim_id or claim_id in seen or not subject_ref
+            or claim_type not in AGENCY_CLAIM_TYPES
+            or not excerpt.strip() or excerpt not in draft
+        ):
+            raise TurnContractError(
+                "agency_claim_invalid", f"agency_claims[{index}] has invalid identity, type, or draft excerpt"
+            )
+        if claim_type in VOLUNTARY_CLAIM_TYPES:
+            if not player_source_ref or source_ref != player_source_ref or override_id is not None:
+                raise TurnContractError(
+                    "agency_source_invalid",
+                    f"voluntary agency claim '{claim_id}' must bind the exact current player input",
+                )
+        elif claim_type == "forced_behavior":
+            override_key = str(override_id or "").strip()
+            override = overrides.get(override_key)
+            if (
+                override is None
+                or override.get("subject_ref") != subject_ref
+                or override.get("source_ref") != source_ref
+                or override.get("active") is not True
+            ):
+                raise TurnContractError(
+                    "agency_override_invalid",
+                    f"forced agency claim '{claim_id}' lacks a matching active frozen override",
+                )
+        elif override_id is not None:
+            raise TurnContractError(
+                "agency_claim_invalid", "only forced_behavior claims may name override_id"
+            )
+        seen.add(claim_id)
+        normalized.append({
+            "claim_id": claim_id,
+            "subject_ref": subject_ref,
+            "claim_type": claim_type,
+            "exact_excerpt": excerpt,
+            "source_ref": source_ref or None,
+            "override_id": str(override_id).strip() if override_id is not None else None,
+        })
+    return normalized
+
+
 def build_undelivered_repair_receipt(
     campaign_dir: Path,
     *,
@@ -3047,6 +3226,9 @@ def build_undelivered_repair_receipt(
     draft: str,
     coverage: Any,
     mechanics_placements: Any,
+    revision: int,
+    narration_review: dict[str, Any] | None,
+    agency_claims: Any,
 ) -> dict[str, Any]:
     """Recompose only the latest, still-undelivered finalized narration.
 
@@ -3062,6 +3244,20 @@ def build_undelivered_repair_receipt(
     if not _valid_finalization(source_receipt):
         raise TurnContractError(
             "state_corrupt", "repair source is not a valid current finalization receipt"
+        )
+    expected_revision = int(source_receipt["accepted_revision"]) + 1
+    if (
+        isinstance(revision, bool) or not isinstance(revision, int)
+        or revision != expected_revision
+    ):
+        raise TurnContractError(
+            "revision_conflict",
+            f"undelivered narration repair requires revision {expected_revision}",
+        )
+    if revision > MAX_ACCEPTED_REVISION:
+        raise TurnContractError(
+            "revision_limit_exceeded",
+            f"accepted narration revision may not exceed {MAX_ACCEPTED_REVISION}",
         )
     finalizations = load_finalizations(campaign_dir)
     if not finalizations or finalizations[-1] != source_receipt:
@@ -3105,6 +3301,10 @@ def build_undelivered_repair_receipt(
         placements=normalized_placements,
         coverage=normalized_coverage,
     )
+    projection = deepcopy(source_receipt["contract_projection"])
+    normalized_claims = _normalize_agency_claims(
+        agency_claims, draft=draft, projection=projection
+    )
     finalization_id = _stable_effect_id(
         decision_id,
         "turn_finalization_repair",
@@ -3114,15 +3314,20 @@ def build_undelivered_repair_receipt(
         "schema_version": FINALIZATION_SCHEMA_VERSION,
         "finalization_id": finalization_id,
         "decision_id": decision_id,
+        "run_segment_id": source_receipt["run_segment_id"],
+        "session_id": source_receipt["session_id"],
+        "turn_id": source_receipt["turn_id"],
         "journal_decision_id": source_receipt["journal_decision_id"],
         "journal_call_index": source_receipt["journal_call_index"],
         "source_start_index": source_receipt["source_start_index"],
         "source_end_index": source_receipt["source_end_index"],
         "source_digest": source_receipt["source_digest"],
+        "settlement_snapshot_id": source_receipt["settlement_snapshot_id"],
+        "accepted_revision": revision,
         "source_roll_ids": deepcopy(source_receipt["source_roll_ids"]),
         "obligation_ids": deepcopy(source_receipt["obligation_ids"]),
         "coverage_ids": deepcopy(source_receipt["coverage_ids"]),
-        "draft_sha256": canonical_digest(
+        "accepted_draft_sha256": canonical_digest(
             "\n\n".join(
                 segment["text"]
                 for segment in segments
@@ -3131,7 +3336,11 @@ def build_undelivered_repair_receipt(
         ),
         "coverage_sha256": canonical_digest(normalized_coverage),
         "bundle_sha256": canonical_digest(bundle),
-        "rendered_sha256": canonical_digest(rendered),
+        "rendered_text_sha256": canonical_digest(rendered),
+        "contract_projection_sha256": source_receipt["contract_projection_sha256"],
+        "narration_review": deepcopy(narration_review),
+        "agency_claims": normalized_claims,
+        "contract_projection": projection,
         "bundle": bundle,
         "coverage": normalized_coverage,
         "segments": segments,
@@ -3152,11 +3361,17 @@ def build_finalization_receipt(
     draft: str,
     coverage: Any,
     mechanics_placements: Any,
+    revision: int,
+    contract_projection: Any,
+    narration_review: dict[str, Any] | None,
+    agency_claims: Any,
 ) -> dict[str, Any]:
     if not isinstance(decision_id, str) or not decision_id.strip():
         raise TurnContractError("invalid_param", "decision_id must be non-empty")
     if not isinstance(draft, str) or not draft.strip():
         raise TurnContractError("invalid_param", "draft must be non-empty")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision != 1:
+        raise TurnContractError("revision_conflict", "initial finalization requires revision 1")
     violations = collect_finalize_violations(
         campaign_dir,
         draft=draft,
@@ -3167,6 +3382,7 @@ def build_finalization_receipt(
         first = violations[0]
         raise TurnContractError(first["code"], first["message"], violations=violations)
     context = build_output_context(campaign_dir)
+    projection = _validate_contract_projection(context, contract_projection)
     if context["missing_substantive_effects"]:
         missing = ", ".join(
             row["obligation_id"] for row in context["missing_substantive_effects"]
@@ -3202,6 +3418,9 @@ def build_finalization_receipt(
         placements=normalized_placements,
         coverage=normalized_coverage,
     )
+    normalized_claims = _normalize_agency_claims(
+        agency_claims, draft=draft, projection=projection
+    )
     finalization_id = _stable_effect_id(
         decision_id, "turn_finalization", context["journal_decision_id"]
     )
@@ -3209,15 +3428,20 @@ def build_finalization_receipt(
         "schema_version": FINALIZATION_SCHEMA_VERSION,
         "finalization_id": finalization_id,
         "decision_id": decision_id,
+        "run_segment_id": projection["run_segment_id"],
+        "session_id": projection["session_id"],
+        "turn_id": context["turn_id"],
         "journal_decision_id": context["journal_decision_id"],
         "journal_call_index": context["journal_call_index"],
         "source_start_index": context["source_start_index"],
         "source_end_index": context["source_end_index"],
         "source_digest": context["source_digest"],
+        "settlement_snapshot_id": context["settlement_snapshot_id"],
+        "accepted_revision": revision,
         "source_roll_ids": context["source_roll_ids"],
         "obligation_ids": context["required_obligation_ids"],
         "coverage_ids": [row["obligation_id"] for row in normalized_coverage],
-        "draft_sha256": canonical_digest(
+        "accepted_draft_sha256": canonical_digest(
             "\n\n".join(
                 segment["text"]
                 for segment in segments
@@ -3226,7 +3450,11 @@ def build_finalization_receipt(
         ),
         "coverage_sha256": canonical_digest(normalized_coverage),
         "bundle_sha256": canonical_digest(bundle),
-        "rendered_sha256": canonical_digest(rendered),
+        "rendered_text_sha256": canonical_digest(rendered),
+        "contract_projection_sha256": canonical_digest(projection),
+        "narration_review": deepcopy(narration_review),
+        "agency_claims": normalized_claims,
+        "contract_projection": projection,
         "bundle": deepcopy(bundle),
         "coverage": normalized_coverage,
         "segments": segments,
@@ -3239,7 +3467,8 @@ def build_finalization_receipt(
 
 
 def replay_matches(
-    receipt: dict[str, Any], *, draft: Any, coverage: Any, mechanics_placements: Any
+    receipt: dict[str, Any], *, draft: Any, coverage: Any, mechanics_placements: Any,
+    revision: Any, narration_review: Any, agency_claims: Any,
 ) -> bool:
     if not isinstance(draft, str) or not isinstance(coverage, list):
         return False
@@ -3268,7 +3497,8 @@ def replay_matches(
     except TurnContractError:
         return False
     return (
-        receipt.get("draft_sha256")
+        receipt.get("accepted_revision") == revision
+        and receipt.get("accepted_draft_sha256")
         == canonical_digest(
             "\n\n".join(
                 segment["text"]
@@ -3277,7 +3507,9 @@ def replay_matches(
             )
         )
         and receipt.get("coverage_sha256") == canonical_digest(normalized)
-        and receipt.get("rendered_sha256") == canonical_digest(rendered)
+        and receipt.get("rendered_text_sha256") == canonical_digest(rendered)
+        and receipt.get("narration_review") == narration_review
+        and receipt.get("agency_claims") == agency_claims
     )
 
 

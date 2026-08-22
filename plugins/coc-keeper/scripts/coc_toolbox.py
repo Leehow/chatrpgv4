@@ -2542,6 +2542,10 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                                 finalization_id=str(
                                     data.get("finalization_id") or ""
                                 ),
+                                accepted_revision=int(data.get("accepted_revision") or 0),
+                                settlement_snapshot_id=str(data.get("settlement_snapshot_id") or ""),
+                                rendered_text_sha256=str(data.get("rendered_text_sha256") or ""),
+                                contract_projection_sha256=str(data.get("contract_projection_sha256") or ""),
                                 completed_end_offset=log_end_offset,
                             )
                         else:
@@ -2553,6 +2557,10 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                                 finalization_id=str(
                                     data.get("finalization_id") or ""
                                 ),
+                                accepted_revision=int(data.get("accepted_revision") or 0),
+                                settlement_snapshot_id=str(data.get("settlement_snapshot_id") or ""),
+                                rendered_text_sha256=str(data.get("rendered_text_sha256") or ""),
+                                contract_projection_sha256=str(data.get("contract_projection_sha256") or ""),
                                 completed_end_offset=log_end_offset,
                             )
                     except coc_turn_manifest.TurnManifestError as exc:
@@ -9957,7 +9965,7 @@ def _resolve_contract_ref(
                 row for row in _jsonl_rows(ctx.campaign_dir / "logs" / "turn-finalizations.jsonl")
                 if str(row.get("journal_decision_id") or "") == journal_id
                 and isinstance(row.get("finalization_id"), str)
-                and isinstance(row.get("rendered_sha256"), str)
+                and isinstance(row.get("rendered_text_sha256"), str)
             ]
             deliveries = _jsonl_rows(
                 ctx.campaign_dir / "save" / "continuation" / "delivery-receipts.jsonl"
@@ -9970,7 +9978,8 @@ def _resolve_contract_ref(
             player_known = declared_player_visible and len(finalizations) == 1 and any(
                 delivery.get("status") == "confirmed"
                 and delivery.get("finalization_id") == finalizations[0]["finalization_id"]
-                and delivery.get("rendered_sha256") == finalizations[0]["rendered_sha256"]
+                and delivery.get("rendered_text_sha256")
+                == finalizations[0]["rendered_text_sha256"]
                 for delivery in deliveries
             )
     if not isinstance(record, dict):
@@ -15804,7 +15813,7 @@ def _tool_session_delivery_text(ctx: Ctx, args: dict[str, Any]):
     )
     if (
         not isinstance(receipt, dict)
-        or receipt.get("rendered_sha256") != str(args["rendered_sha256"])
+        or receipt.get("rendered_text_sha256") != str(args["rendered_sha256"])
     ):
         raise ToolError(
             "delivery_conflict",
@@ -15812,7 +15821,9 @@ def _tool_session_delivery_text(ctx: Ctx, args: dict[str, Any]):
         )
     return {
         "finalization_id": receipt["finalization_id"],
-        "rendered_sha256": receipt["rendered_sha256"],
+        "accepted_revision": receipt["accepted_revision"],
+        "rendered_text_sha256": receipt["rendered_text_sha256"],
+        "rendered_sha256": receipt["rendered_text_sha256"],
         "exact_text": receipt["rendered_text"],
     }, [], [
         "replay exact_text byte-for-byte only when the player did not receive it; never regenerate equivalent prose"
@@ -22566,21 +22577,46 @@ def _control_overrides(ctx: Ctx, investigator_id: str) -> list[dict[str, Any]]:
     )
     if isinstance(snapshot, dict):
         if snapshot.get("bout_active"):
+            bout_id = str(snapshot.get("active_bout_id") or "").strip()
             overrides.append({
+                "override_id": bout_id or (
+                    "control-override-v1:"
+                    + hashlib.sha256(
+                        f"{investigator_id}:bout_of_madness".encode("utf-8")
+                    ).hexdigest()[:32]
+                ),
+                "subject_ref": f"pc:{investigator_id}",
                 "override_type": "bout_of_madness",
                 "source_rule_id": "core.sanity.bout_realtime",
-                "active_bout_id": snapshot.get("active_bout_id"),
+                "source_ref": f"sanity_bout:{bout_id or investigator_id}",
+                "active": True,
+                "active_bout_id": bout_id or None,
                 "bout_rounds_remaining": snapshot.get("bout_rounds_remaining"),
+                "expiry": {
+                    "kind": "rounds_remaining",
+                    "value": snapshot.get("bout_rounds_remaining"),
+                },
                 "allowed_scope": [
                     "forced behavior per the rolled bout table entry",
                     "no normal investigation actions while the bout lasts",
                 ],
             })
         for kind in ("phobia", "mania"):
-            if snapshot.get(kind):
+            trigger = snapshot.get(f"active_{kind}_trigger")
+            if snapshot.get(kind) and isinstance(trigger, dict):
+                source_ref = str(trigger.get("source_ref") or "").strip()
+                if not source_ref:
+                    continue
                 overrides.append({
+                    "override_id": "control-override-v1:" + hashlib.sha256(
+                        f"{investigator_id}:{kind}:{source_ref}".encode("utf-8")
+                    ).hexdigest()[:32],
+                    "subject_ref": f"pc:{investigator_id}",
                     "override_type": kind,
                     "source_rule_id": f"core.sanity.{kind}",
+                    "source_ref": source_ref,
+                    "active": True,
+                    "expiry": deepcopy(trigger.get("expiry")),
                     "name": snapshot[kind],
                     "allowed_scope": [
                         "rulebook-triggered avoidance/compulsion beats only",
@@ -22592,12 +22628,87 @@ def _control_overrides(ctx: Ctx, investigator_id: str) -> list[dict[str, Any]]:
         state = {}
     conditions = {str(value) for value in (state.get("conditions") or [])}
     if "unconscious" in conditions or "dying" in conditions:
+        condition = "dying" if "dying" in conditions else "unconscious"
+        source_ref = f"investigator_state:{investigator_id}:condition:{condition}"
         overrides.append({
+            "override_id": "control-override-v1:" + hashlib.sha256(
+                f"{investigator_id}:{condition}".encode("utf-8")
+            ).hexdigest()[:32],
+            "subject_ref": f"pc:{investigator_id}",
             "override_type": "unconscious",
             "source_rule_id": "core.combat.unconscious",
+            "source_ref": source_ref,
+            "active": True,
+            "expiry": {"kind": "condition_cleared", "condition": condition},
             "allowed_scope": ["no voluntary actions; physiological description only"],
         })
     return overrides
+
+
+def _settled_narration_budget(
+    ctx: Ctx, investigator_id: str, output_context: dict[str, Any]
+) -> dict[str, Any]:
+    bundle = output_context.get("mechanics_bundle") or {}
+    events: list[dict[str, Any]] = []
+    for effect in bundle.get("state_delta") or []:
+        if not isinstance(effect, dict):
+            continue
+        kind = str(effect.get("effect_kind") or "")
+        if kind == "scalar" and str(effect.get("resource") or "") in {"HP", "SAN"}:
+            events.append({"event_type": "hp_change" if effect.get("resource") == "HP" else "sanity_loss"})
+        elif kind == "scene_transition":
+            events.append({"event_type": "scene_transition"})
+    if bundle.get("exceptional_effect"):
+        events.append({"event_type": "exceptional_effect_apply"})
+    return _narration_budget(ctx, investigator_id, events)
+
+
+def _turn_contract_projection(
+    ctx: Ctx, output_context: dict[str, Any]
+) -> dict[str, Any]:
+    journal_id = str(output_context.get("journal_decision_id") or "")
+    player_rows = [
+        row for row in _table_transcript_rows(ctx)
+        if row.get("role") == "player"
+        and row.get("journal_decision_id") == journal_id
+    ]
+    if len(player_rows) != 1:
+        raise ToolError(
+            "state_corrupt", "pending turn must have exactly one player transcript source"
+        )
+    player = player_rows[0]
+    run_segment_id = str(player.get("run_segment_id") or "").strip()
+    session_id = str(player.get("session_id") or "").strip()
+    investigator_id = (ctx.party_ids() or [""])[0]
+    if not run_segment_id or not session_id:
+        raise ToolError("state_corrupt", "pending turn identity is incomplete")
+    active_id = str(ctx.world().get("active_scene_id") or "") or None
+    projection = {
+        "schema_version": 1,
+        "run_segment_id": run_segment_id,
+        "session_id": session_id,
+        "turn_id": output_context["turn_id"],
+        "source_digest": output_context["source_digest"],
+        "settlement_snapshot_id": output_context["settlement_snapshot_id"],
+        "player_input": {
+            "source_ref": f"player_input:{journal_id}",
+            "text_sha256": player["text_sha256"],
+            "text": player["text"],
+        },
+        "scene_contract": _scene_contract_projection(ctx, active_id, ctx.world()),
+        "narration_budget": _settled_narration_budget(
+            ctx, investigator_id, output_context
+        ),
+        "control_overrides": (
+            _control_overrides(ctx, investigator_id) if investigator_id else []
+        ),
+        "settlement_source": {
+            "journal_decision_id": journal_id,
+            "mechanics_bundle_sha256": output_context["mechanics_bundle_sha256"],
+            "obligation_ids": deepcopy(output_context["required_obligation_ids"]),
+        },
+    }
+    return projection
 
 
 @tool(
@@ -22664,14 +22775,34 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
     "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate.",
     {
         "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
+        "turn_id": {"type": "string", "required": True},
+        "source_digest": {"type": "string", "required": True},
+        "revision": {"type": "integer", "minimum": 1, "required": True},
         "draft_text": {"type": "string", "required": True, "desc": "exact draft reviewed by the KP"},
         "findings": {"type": "array", "desc": "semantic findings with rule_id and reason; empty when the draft is sound"},
         "investigator": {"type": "string", "desc": "investigator id for budget derivation (defaults to the party's first member)"},
     },
+    access="query",
 )
 def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
+    decision_id = str(args.get("decision_id") or "").strip()
+    revision = args.get("revision")
+    if (
+        not decision_id or isinstance(revision, bool) or not isinstance(revision, int)
+        or revision < 1 or revision > coc_turn_finalization.MAX_ACCEPTED_REVISION
+    ):
+        raise ToolError("invalid_param", "narration.review requires decision_id and revision 1 or 2")
+    request_digest = _canonical_digest({
+        key: deepcopy(args.get(key))
+        for key in ("turn_id", "source_digest", "revision", "draft_text", "findings", "investigator")
+    })
     prior = ctx.ledger_lookup("narration.review", args.get("decision_id"))
     if prior is not None:
+        if (prior.get("data") or {}).get("request_digest") != request_digest:
+            raise ToolError(
+                "idempotency_conflict",
+                "narration.review decision_id already owns another turn/revision/draft/findings request",
+            )
         return prior.get("data"), ["duplicate decision_id: returning the previous review"], []
     draft = str(args.get("draft_text") or "")
     if not draft.strip():
@@ -22679,18 +22810,52 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     raw_findings = args.get("findings") or []
     if not isinstance(raw_findings, list):
         raise ToolError("invalid_param", "findings must be an array")
-    findings: list[dict[str, str]] = []
+    allowed_rule_ids = {
+        "agency_violation", "semantic_repetition", "scope_overreach", "over_length",
+    }
+    findings: list[dict[str, Any]] = []
     for index, finding in enumerate(raw_findings):
         if not isinstance(finding, dict):
             raise ToolError("invalid_param", f"findings[{index}] must be an object")
+        if set(finding) != {"rule_id", "subject_ref", "source_ref", "reason"}:
+            raise ToolError("invalid_param", f"findings[{index}] must use the exact closed schema")
         rule_id = str(finding.get("rule_id") or "").strip()
         reason = str(finding.get("reason") or "").strip()
-        if not rule_id or not reason:
+        if rule_id not in allowed_rule_ids or not reason:
             raise ToolError(
                 "invalid_param",
                 f"findings[{index}] requires rule_id and semantic reason",
             )
-        findings.append({"rule_id": rule_id, "reason": reason})
+        subject_ref = finding.get("subject_ref")
+        source_ref = finding.get("source_ref")
+        if subject_ref is not None and (not isinstance(subject_ref, str) or not subject_ref.strip()):
+            raise ToolError("invalid_param", f"findings[{index}].subject_ref is invalid")
+        if source_ref is not None and (not isinstance(source_ref, str) or not source_ref.strip()):
+            raise ToolError("invalid_param", f"findings[{index}].source_ref is invalid")
+        findings.append({
+            "rule_id": rule_id,
+            "subject_ref": subject_ref,
+            "source_ref": source_ref,
+            "reason": reason,
+        })
+    pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
+    if pending is not None:
+        settled = coc_turn_finalization.build_output_context(ctx.campaign_dir)
+        expected_revision = 1
+    else:
+        finalizations = coc_turn_finalization.load_finalizations(ctx.campaign_dir)
+        settled = finalizations[-1] if finalizations else {}
+        expected_revision = int(settled.get("accepted_revision") or 0) + 1
+    if (
+        args.get("turn_id") != settled.get("turn_id")
+        or args.get("source_digest") != settled.get("source_digest")
+        or revision != expected_revision
+        or revision > coc_turn_finalization.MAX_ACCEPTED_REVISION
+    ):
+        raise ToolError(
+            "turn_source_changed",
+            "narration.review does not match the current frozen turn/source/next revision",
+        )
     investigator_id = (
         _resolve_investigator(ctx, args)
         if args.get("investigator") is not None
@@ -22711,22 +22876,33 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         if len(draft) > 2 * int(budget["max_chars"]):
             findings.append({
                 "rule_id": "over_length",
+                "subject_ref": None,
+                "source_ref": None,
                 "reason": (
                     f"draft is {len(draft)} chars, over 2x the '{budget['mode']}' "
                     f"length budget ({budget['max_chars']}); recorded for audit, "
                     "delivery not blocked"
                 ),
             })
+    review_id = "narration-review-v1:" + hashlib.sha256(
+        f"{ctx.campaign_id}:{decision_id}".encode("utf-8")
+    ).hexdigest()[:40]
     data = {
         "schema_version": 1,
         "visibility": "keeper_internal",
         "authority": "advisory",
         "hard_gate": False,
-        "decision_id": str(args["decision_id"]),
-        "draft_sha256": hashlib.sha256(draft.encode("utf-8")).hexdigest(),
+        "decision_id": decision_id,
+        "review_id": review_id,
+        "turn_id": str(args["turn_id"]),
+        "source_digest": str(args["source_digest"]),
+        "revision": revision,
+        "draft_sha256": _canonical_digest(draft),
+        "request_digest": request_digest,
         "findings": findings,
         "recommendation": "consider_revision" if findings else "no_revision_suggested",
     }
+    data["review_digest"] = _canonical_digest(data)
     ctx.ledger_record(args["decision_id"], "narration.review", data)
     coc_state.append_jsonl(
         ctx.campaign_dir / "logs" / "narration-reviews.jsonl",
@@ -29116,6 +29292,21 @@ def _table_transcript_entry_id(role: str, source_id: str) -> str:
     return f"table-transcript-v1:{hashlib.sha256(payload).hexdigest()[:40]}"
 
 
+def _active_session_id(ctx: Ctx, run_segment_id: str) -> str:
+    marker = coc_host_context.current_marker(ctx.root)
+    if (
+        isinstance(marker, dict)
+        and marker.get("ended_at") is None
+        and isinstance(marker.get("session_id"), str)
+        and str(marker["session_id"]).strip()
+    ):
+        return str(marker["session_id"]).strip()
+    digest = hashlib.sha256(
+        f"direct-toolbox-session-v1:{ctx.campaign_id}:{run_segment_id}".encode("utf-8")
+    ).hexdigest()[:32]
+    return f"direct-toolbox:{digest}"
+
+
 def _record_table_transcript_entry(
     ctx: Ctx,
     *,
@@ -29129,6 +29320,9 @@ def _record_table_transcript_entry(
     speaker: str,
     finalization_id: str | None = None,
     presented_roll_ids: list[str] | None = None,
+    session_id: str | None = None,
+    accepted_revision: int | None = None,
+    rendered_text_sha256: str | None = None,
 ) -> dict[str, Any]:
     clean_text = str(text)
     if not clean_text.strip():
@@ -29138,6 +29332,8 @@ def _record_table_transcript_entry(
         "schema_version": 1,
         "entry_id": entry_id,
         "run_id": run_id,
+        "run_segment_id": run_id,
+        "session_id": session_id or _active_session_id(ctx, run_id),
         "turn": int(turn_number),
         "turn_id": turn_id,
         "journal_decision_id": journal_decision_id,
@@ -29154,6 +29350,8 @@ def _record_table_transcript_entry(
             else f"state.journal#{journal_decision_id}"
         ),
         "finalization_id": finalization_id,
+        "accepted_revision": accepted_revision,
+        "rendered_text_sha256": rendered_text_sha256,
     }
     if presented_roll_ids is not None:
         stable["presented_roll_ids"] = list(presented_roll_ids)
@@ -29550,6 +29748,9 @@ def _record_finalized_keeper_text(ctx: Ctx, receipt: dict[str, Any]) -> dict[str
         source_id=finalization_id,
         speaker="KP",
         finalization_id=finalization_id,
+        session_id=str(receipt["session_id"]),
+        accepted_revision=int(receipt["accepted_revision"]),
+        rendered_text_sha256=str(receipt["rendered_text_sha256"]),
     )
 
 
@@ -29601,10 +29802,14 @@ def _replace_undelivered_finalization_artifacts(
         **original_transcript_row,
         "entry_id": _table_transcript_entry_id("keeper", replacement_id),
         "text": replacement_text,
-        "text_sha256": str(replacement_receipt["rendered_sha256"]),
+        "text_sha256": str(replacement_receipt["rendered_text_sha256"]),
+        "rendered_text_sha256": str(replacement_receipt["rendered_text_sha256"]),
         "source_id": replacement_id,
         "source_ref": f"logs/turn-finalizations.jsonl#{replacement_id}",
         "finalization_id": replacement_id,
+        "accepted_revision": int(replacement_receipt["accepted_revision"]),
+        "run_segment_id": str(replacement_receipt["run_segment_id"]),
+        "session_id": str(replacement_receipt["session_id"]),
         "ts": _now_iso(),
     }
     finalizations[-1] = deepcopy(replacement_receipt)
@@ -29639,7 +29844,10 @@ def _replace_undelivered_finalization_artifacts(
         "source_finalization": deepcopy(source_receipt),
         "source_transcript_row": original_transcript_row,
         "replacement_finalization_id": replacement_id,
-        "replacement_rendered_sha256": replacement_receipt["rendered_sha256"],
+        "source_accepted_revision": source_receipt["accepted_revision"],
+        "source_rendered_text_sha256": source_receipt["rendered_text_sha256"],
+        "replacement_accepted_revision": replacement_receipt["accepted_revision"],
+        "replacement_rendered_text_sha256": replacement_receipt["rendered_text_sha256"],
         "decision_id": replacement_receipt["decision_id"],
         "created_at": _now_iso(),
     }
@@ -29974,6 +30182,58 @@ def _record_finalized_advisory_uptake(
     return warnings, hints
 
 
+def _resolve_bound_narration_review(
+    ctx: Ctx,
+    *,
+    review_id: Any,
+    turn_id: str | None,
+    source_digest: str | None,
+    revision: int,
+    draft: str,
+) -> dict[str, Any] | None:
+    if review_id is None:
+        return None
+    clean_id = str(review_id).strip()
+    if not clean_id:
+        raise ToolError("invalid_param", "narration_review_id must be non-empty")
+    matches = [
+        row for row in _jsonl_rows(
+            ctx.campaign_dir / "logs" / "narration-reviews.jsonl"
+        )
+        if row.get("review_id") == clean_id
+    ]
+    if len(matches) != 1:
+        raise ToolError("narration_review_mismatch", "narration review id is missing or duplicated")
+    row = matches[0]
+    expected_turn = turn_id
+    expected_source = source_digest
+    if expected_turn is None or expected_source is None:
+        pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
+        if pending is not None:
+            current = coc_turn_finalization.build_output_context(ctx.campaign_dir)
+            expected_turn = str(current["turn_id"])
+            expected_source = str(current["source_digest"])
+        else:
+            finalizations = coc_turn_finalization.load_finalizations(ctx.campaign_dir)
+            latest = finalizations[-1] if finalizations else {}
+            expected_turn = str(latest.get("turn_id") or "")
+            expected_source = str(latest.get("source_digest") or "")
+    if (
+        row.get("turn_id") != expected_turn
+        or row.get("source_digest") != expected_source
+        or row.get("revision") != revision
+        or row.get("draft_sha256") != _canonical_digest(draft)
+    ):
+        raise ToolError(
+            "narration_review_mismatch",
+            "narration review does not bind this exact turn/source/revision/draft",
+        )
+    return {
+        "review_id": clean_id,
+        "review_digest": str(row.get("review_digest") or ""),
+    }
+
+
 @tool(
     "turn.output_context",
     "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal.",
@@ -29992,6 +30252,9 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     data["narrative_opportunity"] = _latest_narrative_opportunity(
         current_window
     )
+    contract_projection = _turn_contract_projection(ctx, data)
+    data["contract_projection"] = contract_projection
+    data["contract_projection_sha256"] = _canonical_digest(contract_projection)
     required_obligation_ids = [
         str(obligation_id)
         for obligation_id in data.get("required_obligation_ids") or []
@@ -30004,6 +30267,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
             f"{journal_decision_id}:finalize"
         )
     missing_arguments = ["draft"]
+    prefilled_arguments["revision"] = 1
     if required_obligation_ids:
         missing_arguments.append("coverage")
     else:
@@ -30099,6 +30363,35 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         "decision_id": {
             "type": "string", "required": True, "desc": "idempotency key",
         },
+        "revision": {
+            "type": "integer", "minimum": 1,
+            "required": True,
+            "desc": "narration-only revision; initial=1, one undelivered repair=2",
+        },
+        "narration_review_id": {
+            "type": "string",
+            "desc": "optional exact narration.review id bound to this turn/source/revision/draft",
+        },
+        "agency_claims": {
+            "type": "array",
+            "desc": "structured agency claims; empty does not prove semantic absence",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "claim_id": {"type": "string", "minLength": 1},
+                    "subject_ref": {"type": "string", "minLength": 1},
+                    "claim_type": {
+                        "type": "string",
+                        "enum": sorted(coc_turn_finalization.AGENCY_CLAIM_TYPES),
+                    },
+                    "exact_excerpt": {"type": "string", "minLength": 1},
+                    "source_ref": {"type": ["string", "null"]},
+                    "override_id": {"type": ["string", "null"]},
+                },
+                "required": sorted(coc_turn_finalization.AGENCY_CLAIM_FIELDS),
+                "additionalProperties": False,
+            },
+        },
         "repair_finalization_id": {
             "type": "string",
             "desc": "optional latest finalization id; permits a prose/placement-only replacement only while that exact output remains delivery-unconfirmed",
@@ -30135,6 +30428,18 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
 )
 def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
     decision_id = str(args["decision_id"])
+    revision = args.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        raise ToolError("invalid_param", "turn.finalize revision is required")
+    agency_claims = args.get("agency_claims") or []
+    narration_review = _resolve_bound_narration_review(
+        ctx,
+        review_id=args.get("narration_review_id"),
+        turn_id=None,
+        source_digest=None,
+        revision=revision,
+        draft=str(args.get("draft") or ""),
+    )
     uptake = _normalize_finalized_advisory_uptake(
         ctx,
         args.get("advisory_uptake"), draft=args.get("draft")
@@ -30162,10 +30467,13 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
             draft=args.get("draft"),
             coverage=args.get("coverage"),
             mechanics_placements=args.get("mechanics_placements"),
+            revision=revision,
+            narration_review=narration_review,
+            agency_claims=agency_claims,
         ):
             raise ToolError(
-                "idempotency_conflict",
-                f"decision_id '{decision_id}' already finalized different draft or coverage",
+                "revision_conflict",
+                f"decision_id '{decision_id}' already owns a different narration revision or draft",
             )
         _record_finalized_keeper_text(ctx, existing)
         uptake_warnings, uptake_hints = record_uptake(existing)
@@ -30184,6 +30492,12 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
                 draft=args.get("draft"),
                 coverage=args.get("coverage"),
                 mechanics_placements=args.get("mechanics_placements"),
+                revision=revision,
+                contract_projection=_turn_contract_projection(
+                    ctx, coc_turn_finalization.build_output_context(ctx.campaign_dir)
+                ),
+                narration_review=narration_review,
+                agency_claims=agency_claims,
             )
         except coc_turn_finalization.TurnContractError as exc:
             raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
@@ -30237,6 +30551,9 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
                 draft=args.get("draft"),
                 coverage=args.get("coverage"),
                 mechanics_placements=args.get("mechanics_placements"),
+                revision=revision,
+                narration_review=narration_review,
+                agency_claims=agency_claims,
             )
         except coc_turn_finalization.TurnContractError as exc:
             raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
@@ -30259,6 +30576,12 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
             draft=args.get("draft"),
             coverage=args.get("coverage"),
             mechanics_placements=args.get("mechanics_placements"),
+            revision=revision,
+            contract_projection=_turn_contract_projection(
+                ctx, coc_turn_finalization.build_output_context(ctx.campaign_dir)
+            ),
+            narration_review=narration_review,
+            agency_claims=agency_claims,
         )
         coc_turn_finalization.append_finalization(ctx.campaign_dir, receipt)
         _record_finalized_keeper_text(ctx, receipt)

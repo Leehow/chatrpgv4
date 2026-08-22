@@ -84,7 +84,12 @@ The transcript and readable battle report must preserve the exact
 `turn.output_context` is Keeper-only drafting material. It returns exact
 `obligations`, a deterministic `mechanics_bundle`, and candidate structured
 factors that were actually consulted. It never asks you to recite unused
-character-sheet values.
+character-sheet values. Its `contract_projection` and hash freeze the exact
+run/session/turn, settlement snapshot, current player source, scene contract,
+narration budget, active control overrides, and settlement source. Re-reading
+unchanged settlement must return the same projection; a changed source crosses
+the existing source-change boundary rather than silently producing a new
+drafting contract.
 
 For every obligation:
 
@@ -149,11 +154,24 @@ you may preflight the exact same payload with `turn.finalize`
 `validate_only: true` — it runs the full validation and writes nothing, so an
 empty violation list means the commit call succeeds unchanged.
 
+The initial accepted draft uses `revision: 1`. Optional
+`narration_review_id` must name a review bound to that exact
+turn/source/revision/draft. `agency_claims` bind exact draft excerpts to their
+authority: voluntary investigator claims use the exact current
+`player_input:<journal decision_id>`; forced behavior uses a matching active
+override frozen in `contract_projection`. These bindings are deterministic
+evidence only. An empty list does not semantically prove that the prose contains
+no agency violation, and review remains advisory rather than a fifth hard gate.
+
 Never copy a rendered `【明骰】` / `【变化】` / `【特殊影响】` block into
 `draft`; `mechanics_placements` is its only player-visible source and the
 finalizer rejects deterministic block labels in fiction. If a finalized output
 has not been delivered or acknowledged yet and its prose/placement needs
 correction, call `turn.finalize` once more with the exact settled `coverage`, a
-new `decision_id`, and `repair_finalization_id` naming that latest receipt.
+new `decision_id`, `revision: 2`, and `repair_finalization_id` naming that
+latest receipt. Revision 2 is the one and only replacement; revision 3 is
+invalid. The replacement freezes the same settlement snapshot, contract
+projection, source, coverage, and mechanics, while receiving new accepted
+draft/rendered hashes.
 This narrow repair cannot rerun or change rules, state, journal, coverage, or
 the mechanics bundle, and it is refused after delivery confirmation.

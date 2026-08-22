@@ -135,6 +135,7 @@ def test_finalize_mcp_schema_recursively_preserves_closed_nested_contract(monkey
         "campaign",
         "draft",
         "coverage",
+        "revision",
         "decision_id",
     }
     assert input_schema["additionalProperties"] is False
