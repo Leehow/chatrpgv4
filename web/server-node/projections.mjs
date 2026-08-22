@@ -88,6 +88,82 @@ function displayTitlePart(value) {
     : "";
 }
 
+function playLanguageOf(campaign) {
+  const lang = typeof campaign?.play_language === "string"
+    ? campaign.play_language.trim()
+    : "";
+  return lang || "zh-Hans";
+}
+
+function isChinesePlayLanguage(lang) {
+  const value = typeof lang === "string" ? lang.trim() : "";
+  return value === "zh-Hans" || value === "zh" || value.toLowerCase().startsWith("zh-");
+}
+
+function localizedTextTitle(meta, playLanguage) {
+  const localized = meta?.localized_text;
+  if (!localized || typeof localized !== "object") return "";
+  const keys = [];
+  if (playLanguage) keys.push(playLanguage);
+  if (isChinesePlayLanguage(playLanguage)) {
+    for (const extra of ["zh-Hans", "zh"]) {
+      if (!keys.includes(extra)) keys.push(extra);
+    }
+  }
+  for (const key of keys) {
+    const block = localized[key];
+    if (block && typeof block === "object") {
+      const title = displayTitlePart(block.title);
+      if (title) return title;
+    }
+  }
+  return "";
+}
+
+function sourceEnglishTitle(meta) {
+  return displayTitlePart(meta?.title_en) || displayTitlePart(meta?.title);
+}
+
+function moduleLocalizedTitle(meta, playLanguage) {
+  if (!meta || typeof meta !== "object") return "";
+  if (isChinesePlayLanguage(playLanguage)) {
+    return localizedTextTitle(meta, playLanguage) || displayTitlePart(meta.title_zh);
+  }
+  return localizedTextTitle(meta, playLanguage);
+}
+
+function resolveModuleDisplayTitle(moduleMeta, scenarioMeta, playLanguage) {
+  const metas = [moduleMeta, scenarioMeta].filter(
+    (meta) => meta && typeof meta === "object",
+  );
+  for (const meta of metas) {
+    const localized = moduleLocalizedTitle(meta, playLanguage);
+    if (localized) return localized;
+  }
+  for (const meta of metas) {
+    const english = sourceEnglishTitle(meta);
+    if (english) return english;
+  }
+  return "";
+}
+
+function sameDisplayTitle(left, right) {
+  const a = displayTitlePart(left);
+  const b = displayTitlePart(right);
+  return Boolean(a) && a === b;
+}
+
+function isHumanCampaignTitleOverride(current, moduleMeta, scenarioMeta) {
+  if (!current || machineGeneratedCampaignTitle(current)) return false;
+  const metas = [moduleMeta, scenarioMeta].filter(
+    (meta) => meta && typeof meta === "object",
+  );
+  for (const meta of metas) {
+    if (sameDisplayTitle(current, sourceEnglishTitle(meta))) return false;
+  }
+  return true;
+}
+
 function protagonistTitlePart(value) {
   const text = displayTitlePart(value);
   if (!text) return "";
@@ -111,9 +187,10 @@ function openingStageTitle(openingPhase, campaignStatus) {
 }
 
 /**
- * Automatic title from the existing isolated opening extractor agent. Only
- * its two player-safe module-name fields cross the sealed L0 boundary. A
- * human-renamed campaign remains an exact override.
+ * Automatic title from player-safe module-name fields. Chinese play language
+ * prefers authored localized_text / title_zh, then English/default fallback.
+ * A human-renamed campaign remains an exact override; a copied source English
+ * title is not treated as a rename.
  */
 export function campaignDisplayTitle(
   workspace,
@@ -123,13 +200,17 @@ export function campaignDisplayTitle(
   const dir = campaignDir(workspace, campaignId);
   const campaign = readJsonFile(path.join(dir, "campaign.json"));
   const current = typeof campaign?.title === "string" ? campaign.title.trim() : "";
-  if (current && !machineGeneratedCampaignTitle(current)) return current;
+  const playLanguage = playLanguageOf(campaign);
 
   const moduleInit = readJsonFile(path.join(dir, "save", "module-init.json"));
   const moduleMeta = moduleInit?.l0?.module_meta;
+  const scenarioMeta = readJsonFile(path.join(dir, "scenario", "module-meta.json"));
+  if (isHumanCampaignTitleOverride(current, moduleMeta, scenarioMeta)) {
+    return current;
+  }
+
   const moduleTitle = (
-    displayTitlePart(moduleMeta?.title_zh)
-    || displayTitlePart(moduleMeta?.title_en)
+    resolveModuleDisplayTitle(moduleMeta, scenarioMeta, playLanguage)
     || "模组解析中"
   );
   const sceneOrStage = (
