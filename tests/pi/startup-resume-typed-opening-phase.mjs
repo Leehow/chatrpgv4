@@ -14,6 +14,97 @@ const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-typed-opening-")
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
 
+// Pi persists provider thinking in the linear transcript even when the model's
+// selected thinking level is off. The extension projection must remove only
+// recovery-superseded thinking from the model context, never mutate the
+// persisted message objects, and preserve reasoning produced after recovery.
+const thinkingProjection = main.createStartupRecoveryThinkingProjection();
+const persistedMessages = [
+  {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "old provider reasoning" },
+      { type: "text", text: "old visible text" },
+    ],
+  },
+  { role: "user", content: [{ type: "text", text: "continue" }] },
+  {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "resume call reasoning" },
+      { type: "toolCall", id: "resume-call", name: "coc_setup", arguments: {} },
+    ],
+  },
+  {
+    role: "toolResult",
+    toolCallId: "resume-call",
+    toolName: "coc_setup",
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: "thinking-projection-campaign",
+          mode: "pending_finalization",
+          next_operations: ["turn.finalize"],
+        },
+      }),
+    }],
+  },
+  {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "current post-recovery reasoning" },
+      { type: "text", text: "current work" },
+    ],
+  },
+];
+const persistedSnapshot = structuredClone(persistedMessages);
+const recoveryProjected = thinkingProjection.apply(persistedMessages, false);
+assertNoThinking(recoveryProjected[0], "old pre-recovery thinking survived");
+assertNoThinking(recoveryProjected[2], "resume-call thinking survived recovery receipt");
+if (!recoveryProjected[4].content.some((part) => part.type === "thinking")) {
+  throw new Error("post-recovery thinking was stripped as historical");
+}
+if (JSON.stringify(persistedMessages) !== JSON.stringify(persistedSnapshot)) {
+  throw new Error("thinking projection mutated persisted transcript evidence");
+}
+const invalidReceiptProjection = main.createStartupRecoveryThinkingProjection();
+const invalidReceiptMessages = [
+  {
+    role: "assistant",
+    content: [{ type: "thinking", thinking: "must remain without exact receipt" }],
+  },
+  {
+    role: "toolResult",
+    content: [{
+      type: "text",
+      text: JSON.stringify({ ok: true, tool: "session.resume", data: { mode: "pending_finalization" } }),
+    }],
+  },
+];
+if (!invalidReceiptProjection.apply(invalidReceiptMessages, false)[0].content.some(
+  (part) => part.type === "thinking",
+)) {
+  throw new Error("malformed resume-like payload advanced thinking boundary");
+}
+const startupOnly = [{
+  role: "assistant",
+  content: [{ type: "thinking", thinking: "prior session tail" }],
+}];
+assertNoThinking(
+  thinkingProjection.apply(startupOnly, true)[0],
+  "startup gate sent prior-session thinking to the first recovery call",
+);
+
+function assertNoThinking(message, label) {
+  if (message.content.some((part) => part.type === "thinking")) {
+    throw new Error(label);
+  }
+}
+
 function harness(responseForCall, startupCampaignId) {
   const registered = new Map();
   const handlers = new Map();
@@ -375,5 +466,176 @@ if (!selection.activeToolSnapshots.at(-1)?.includes("coc_progressive_prepare_ope
   throw new Error("opening_selection resume did not restore the setup opening tool surface");
 }
 await selection.shutdown();
+
+// A missing campaign selected explicitly into a setup-role host is the one
+// startup-resume failure that establishes a fresh setup boundary. The host
+// must allow only an exact quick_start for that selected id; it must not make
+// the KP relaunch or permit a guessed/default campaign id.
+function throwUnknownCampaign() {
+  const envelope = {
+    ok: false,
+    tool: "session.resume",
+    error: {
+      code: "unknown_campaign",
+      message: "campaign does not exist",
+    },
+  };
+  throw new runtime.CanonicalToolError(
+    "coc_invoke",
+    "unknown_campaign",
+    "campaign does not exist",
+    null,
+    envelope,
+  );
+}
+
+const freshCampaign = "typed-opening-fresh-campaign";
+let freshCreated = false;
+const fresh = harness((name, params) => {
+  if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+  if (params.operation === "session.resume") throwUnknownCampaign();
+  if (params.operation === "setup.quick_start") {
+    // Real MCP/toolbox shape: lifting the not-yet-created campaign_id into
+    // the outer campaign selector makes Ctx try to rehydrate a campaign that
+    // cannot exist yet. Fresh creation must retain campaign_id only in the
+    // canonical operation arguments.
+    if (params.campaign !== undefined) {
+      const envelope = {
+        ok: false,
+        tool: "setup.quick_start",
+        error: {
+          code: "unknown_campaign",
+          message: `no campaign at ${params.root}/.coc/campaigns/${params.campaign}`,
+        },
+        warnings: [
+          "This MCP process has not loaded the requested campaign recovery bundle in its current context; session.resume is recommended.",
+        ],
+        context_rehydration: {
+          code: "context_rehydration_recommended",
+          reason: "mcp_process_start",
+          campaign_id: params.campaign,
+          next_operation: "session.resume",
+          authority: "advisory",
+          hard_gate: false,
+        },
+      };
+      throw new runtime.CanonicalToolError(
+        "coc_invoke",
+        "unknown_campaign",
+        envelope.error.message,
+        null,
+        envelope,
+      );
+    }
+    if (
+      params.root !== root
+      || params.arguments?.campaign_id !== freshCampaign
+    ) {
+      throw new Error(`quick_start identity drift: ${JSON.stringify(params)}`);
+    }
+    freshCreated = true;
+    return {
+      ok: true,
+      tool: "setup.quick_start",
+      data: {
+        schema_version: 1,
+        kind: "campaign.quick_start",
+        result: { campaign_id: freshCampaign },
+      },
+    };
+  }
+  if (params.operation === "setup.inspect") {
+    return { ok: true, tool: "setup.inspect", data: { schema_version: 1 } };
+  }
+  throw new Error(`unexpected ${params.operation}`);
+}, freshCampaign);
+await fresh.start();
+const freshResume = await invokeTyped(fresh, "coc_session_resume", "fresh-resume", {
+  root,
+  campaign: freshCampaign,
+});
+if (freshResume.error?.code !== "unknown_campaign") {
+  throw new Error(`fresh resume did not preserve unknown_campaign: ${JSON.stringify(freshResume)}`);
+}
+if (fresh.sent.some((entry) => (
+  entry.message?.customType === "coc-startup-resume-blocker"
+))) {
+  throw new Error("fresh setup resume published a terminal startup blocker");
+}
+if (!fresh.activeToolSnapshots.at(-1)?.includes("coc_setup_quick_start")) {
+  throw new Error("fresh setup boundary did not expose canonical quick_start");
+}
+let wrongFreshAccepted = false;
+try {
+  await invokeTyped(fresh, "coc_setup_quick_start", "fresh-wrong-id", {
+    root,
+    scenario_id: "the-haunting",
+    pregen_id: "starter",
+    campaign_id: `${freshCampaign}-wrong`,
+  });
+  wrongFreshAccepted = true;
+} catch (error) {
+  if (!String(error).includes("selected campaign")) throw error;
+}
+if (wrongFreshAccepted) throw new Error("fresh setup accepted a guessed campaign id");
+const quickStarted = await invokeTyped(fresh, "coc_setup_quick_start", "fresh-exact-id", {
+  root,
+  scenario_id: "the-haunting",
+  pregen_id: "starter",
+  campaign_id: freshCampaign,
+});
+if (quickStarted.ok !== true || !freshCreated) {
+  throw new Error(`exact fresh quick_start was blocked: ${JSON.stringify(quickStarted)}`);
+}
+const afterFresh = await invokeTyped(fresh, "coc_setup_inspect", "fresh-inspect", {
+  root,
+  campaign: freshCampaign,
+});
+if (afterFresh.ok !== true) {
+  throw new Error(`startup gate remained armed after quick_start: ${JSON.stringify(afterFresh)}`);
+}
+await fresh.shutdown();
+
+// The same unknown_campaign result in a play-role host remains a terminal
+// selection/load failure. It must never turn into campaign creation.
+process.env.COC_PI_SESSION_ROLE = "play";
+const missingPlayCampaign = "typed-opening-missing-play-campaign";
+const missingPlay = harness((name, params) => {
+  if (name === "coc_invoke" && params.operation === "session.resume") {
+    throwUnknownCampaign();
+  }
+  throw new Error(`unexpected ${name}:${params.operation}`);
+}, missingPlayCampaign);
+await missingPlay.start();
+const missingPlayResume = await invokeTyped(
+  missingPlay,
+  "coc_session_resume",
+  "missing-play-resume",
+  { root, campaign: missingPlayCampaign },
+);
+if (missingPlayResume.error?.code !== "unknown_campaign") {
+  throw new Error(`play-role missing campaign changed error: ${JSON.stringify(missingPlayResume)}`);
+}
+if (!missingPlay.sent.some((entry) => (
+  entry.message?.customType === "coc-startup-resume-blocker"
+  && entry.message?.details?.failure_class === "unknown_campaign"
+))) {
+  throw new Error("play-role missing campaign did not terminal-block");
+}
+let playQuickStartAccepted = false;
+try {
+  await invokeTyped(missingPlay, "coc_setup_quick_start", "missing-play-quick-start", {
+    root,
+    scenario_id: "the-haunting",
+    pregen_id: "starter",
+    campaign_id: missingPlayCampaign,
+  });
+  playQuickStartAccepted = true;
+} catch (error) {
+  if (!String(error).includes("terminally blocked")) throw error;
+}
+if (playQuickStartAccepted) throw new Error("play-role missing campaign allowed quick_start");
+await missingPlay.shutdown();
+process.env.COC_PI_SESSION_ROLE = "setup";
 
 console.log("startup-resume-typed-opening-phase ok");

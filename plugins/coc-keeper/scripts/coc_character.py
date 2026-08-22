@@ -2681,6 +2681,16 @@ def _is_interpersonal_choice(token: str) -> bool:
     )
 
 
+_PROFESSIONAL_SKILL_PREFIX = "Professional: "
+
+
+def _decode_professional_skill_name(name: str) -> tuple[str, bool]:
+    raw = str(name).strip()
+    if raw.startswith(_PROFESSIONAL_SKILL_PREFIX):
+        return raw[len(_PROFESSIONAL_SKILL_PREFIX):].strip(), True
+    return raw, False
+
+
 def resolve_occupation_skill_list(
     occupation_spec: dict[str, Any] | None,
     occupation_skill_names: list[str] | None,
@@ -2697,7 +2707,11 @@ def resolve_occupation_skill_list(
         seen.add(name)
         resolved.append(name)
 
-    extras = [str(item).strip() for item in (occupation_skill_names or []) if str(item).strip()]
+    extras = [
+        _decode_professional_skill_name(str(item))[0]
+        for item in (occupation_skill_names or [])
+        if str(item).strip()
+    ]
     extra_iter = iter(extras)
     tokens: list[str] = []
     if isinstance(occupation_spec, dict):
@@ -2817,6 +2831,20 @@ def build_quick_fire_chargen_payload(
             and all(isinstance(item, int) and not isinstance(item, bool) for item in raw_cr)
         ):
             cr_range = (int(raw_cr[0]), int(raw_cr[1]))
+    professional_occ_skills: list[str] = []
+    for raw_name in occupation_skill_names or []:
+        clean_name, marked_professional = _decode_professional_skill_name(raw_name)
+        if not marked_professional:
+            continue
+        skill_id = resolve_catalog_skill_name(clean_name, catalog)
+        if skill_id is None or language_other_skill_id(skill_id) is None:
+            raise ChargenRunError(
+                "occupation",
+                "Professional marker is only valid for a concrete non-native language skill",
+                expected={"received": raw_name},
+            )
+        if skill_id not in professional_occ_skills:
+            professional_occ_skills.append(skill_id)
     occ_skills = resolve_occupation_skill_list(occ_spec, occupation_skill_names)
     if not occ_skills:
         raise ChargenRunError(
@@ -2852,17 +2880,38 @@ def build_quick_fire_chargen_payload(
                 expected={"expected": occ_budget, "got": got},
             )
     else:
+        occupation_floors = {"Credit Rating": cr_range[0]}
+        for skill_id in professional_occ_skills:
+            occupation_floors[skill_id] = max(
+                0,
+                CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN - bases.get(skill_id, 0),
+            )
         occ_alloc = allocate_points_in_order(
             occ_skills,
             occ_budget,
             bases,
-            floor={"Credit Rating": cr_range[0]},
+            floor=occupation_floors,
         )
         if sum(occ_alloc.values()) != occ_budget:
             raise ChargenRunError(
                 "occupation_allocations",
                 "could not place occupation points under the starting cap",
                 expected={"expected": occ_budget, "got": sum(occ_alloc.values())},
+            )
+        below_professional = {
+            skill_id: bases.get(skill_id, 0) + occ_alloc.get(skill_id, 0)
+            for skill_id in professional_occ_skills
+            if bases.get(skill_id, 0) + occ_alloc.get(skill_id, 0)
+            < CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN
+        }
+        if below_professional:
+            raise ChargenRunError(
+                "occupation_allocations",
+                "occupation budget cannot fund every declared professional language",
+                expected={
+                    "minimum": CHARGEN_WORKING_LANGUAGE_PROFESSIONAL_MIN,
+                    "values": below_professional,
+                },
             )
     if interest_allocations is not None:
         int_alloc = {

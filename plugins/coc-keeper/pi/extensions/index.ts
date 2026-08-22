@@ -7682,7 +7682,7 @@ export function endingOutputFromReceipt(
 type StartupResumeGate = {
   campaignId: string;
   workspaceRoot: string;
-  phase: "pending" | "terminal_failure";
+  phase: "pending" | "fresh_setup" | "terminal_failure";
   failureClass: string | null;
   blockerDelivery: "pending" | "sending" | "delivered" | "exhausted";
   blockerDeliveryAttempts: number;
@@ -8098,6 +8098,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       campaign: gate.campaignId,
     };
   };
+  const exactStartupFreshSetupInvocation = (
+    name: string,
+    params: JsonObject,
+  ): boolean => {
+    const gate = startupResumeGate;
+    const args = objectOrNull(params.arguments);
+    return (
+      gate !== null
+      && gate.phase === "fresh_setup"
+      && isCanonicalInvokeSurface(name)
+      && params.operation === "setup.quick_start"
+      && (params.root === undefined || params.root === gate.workspaceRoot)
+      && params.campaign === gate.campaignId
+      && args !== null
+      && args.campaign_id === gate.campaignId
+    );
+  };
   const startupResumeToolError = (
     name: string,
     params: JsonObject,
@@ -8107,6 +8124,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       gate === null
       || name === "coc_capabilities"
       || exactStartupResumeInvocation(name, params)
+      || exactStartupFreshSetupInvocation(name, params)
     ) {
       return null;
     }
@@ -8115,6 +8133,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         "Pi startup continuation is terminally blocked "
         + `(failure_class=${gate.failureClass ?? "startup_resume_failed"}). `
         + "Relaunch pi-coc with the corrected --campaign <campaign_id>."
+      );
+    }
+    if (gate.phase === "fresh_setup") {
+      return (
+        "Pi fresh setup is bound to the explicitly selected campaign. "
+        + "Only the exact canonical campaign creation operation is permitted."
       );
     }
     return (
@@ -8165,6 +8189,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     gate.phase = "terminal_failure";
     gate.failureClass = failureClass;
     publishStartupResumeBlocker(gate, failureClass);
+  };
+  const allowExactFreshSetup = (): void => {
+    const gate = startupResumeGate;
+    if (gate === null || gate.phase !== "pending") return;
+    gate.phase = "fresh_setup";
+    gate.failureClass = "unknown_campaign";
+    applyKpActiveTools();
   };
   const canonicalFailureClass = (value: unknown): string => (
     typeof value === "string"
@@ -8865,6 +8896,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error(startupResumeError);
     }
     const startupResumeAttempt = exactStartupResumeInvocation(name, params);
+    const startupFreshSetupAttempt = exactStartupFreshSetupInvocation(
+      name,
+      params,
+    );
+    if (startupFreshSetupAttempt) {
+      // setup.quick_start creates the selected campaign and is canonically
+      // needs_campaign=false. The typed wrapper normally mirrors campaign_id
+      // into the outer campaign selector, but doing so here makes the MCP
+      // toolbox construct/recover a campaign context before that campaign can
+      // exist. Identity was already proven against the startup gate above;
+      // retain it in arguments.campaign_id and omit only the transport-level
+      // recovery selector for this exact fresh-creation invocation.
+      const { campaign: _freshCampaignSelector, ...freshCreationParams } = params;
+      params = freshCreationParams;
+    }
     if (isCanonicalInvokeSurface(name) && PRIVATE_LEASE_OPERATIONS.has(String(params.operation))) {
       try {
         pi.appendEntry("coc-source-coordinator-private-boundary", {
@@ -9070,6 +9116,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         } catch { /* hidden prefetch guidance/audit is best effort */ }
       }
     } catch (error) {
+      if (startupFreshSetupAttempt) {
+        terminalizeStartupResume(
+          error instanceof CanonicalToolError
+            ? canonicalFailureClass(error.code)
+            : "fresh_setup_transport_failed",
+        );
+      }
       const blockedPhase = error instanceof CanonicalToolError
         ? inferPhaseFromError(error)
         : null;
@@ -9294,8 +9347,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (disposition.accepted) {
           startupResumeGate = null;
           applyKpActiveTools();
+        } else if (
+          disposition.failureClass === "unknown_campaign"
+          && sessionRoleFromEnv() === "setup"
+        ) {
+          allowExactFreshSetup();
         } else {
           terminalizeStartupResume(disposition.failureClass);
+        }
+      }
+      if (startupFreshSetupAttempt) {
+        const selectedCampaignId = startupResumeGate?.campaignId ?? "";
+        const freshEnvelope = objectOrNull(value);
+        const freshData = objectOrNull(freshEnvelope?.data);
+        const freshResult = objectOrNull(freshData?.result);
+        if (
+          freshEnvelope?.ok === true
+          && freshEnvelope.tool === "setup.quick_start"
+          && freshData?.kind === "campaign.quick_start"
+          && freshResult?.campaign_id === selectedCampaignId
+        ) {
+          startupResumeGate = null;
+          applyKpActiveTools();
+        } else {
+          const freshError = objectOrNull(freshEnvelope?.error);
+          terminalizeStartupResume(canonicalFailureClass(freshError?.code));
         }
       }
       value = openingObservation.modelProjection ?? value;

@@ -246,6 +246,7 @@ const QUICK_FIRE_ARRAY = [80, 70, 60, 60, 50, 50, 50, 40] as const;
 const STARTING_SKILL_CAP = 75;
 const CONSERVATIVE_SKILL_BASE = 40;
 const CREDIT_RATING = "Credit Rating";
+const PROFESSIONAL_SKILL_PREFIX = "Professional: ";
 const MAX_QUICK_FIRE_INT = 80;
 const MAX_INTEREST_BUDGET = MAX_QUICK_FIRE_INT * 2;
 const DEFAULT_OCCUPATION_FILLERS = [
@@ -507,7 +508,15 @@ export async function runChargenInProcess(options: {
   );
   const planned = planChargenSkillLists(options.brief);
   if (planned.occupation_skill_names.length) {
-    args.occupation_skill_names = planned.occupation_skill_names;
+    const professionalLanguages = new Set(
+      uniqueSkillNames(options.brief.professional_language_names)
+        .map((name) => name.toLowerCase()),
+    );
+    args.occupation_skill_names = planned.occupation_skill_names.map((name) => (
+      professionalLanguages.has(name.toLowerCase())
+        ? `${PROFESSIONAL_SKILL_PREFIX}${name}`
+        : name
+    ));
   }
   if (planned.interest_skill_names.length) {
     args.interest_skill_names = planned.interest_skill_names;

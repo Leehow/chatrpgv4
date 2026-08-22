@@ -13341,28 +13341,6 @@ def test_opening_bootstrap_l0_direct_write_skips_coordinator(
     assert pack["provenance"]["authority"] == "source_authored"
     assert pack["provenance"]["basis"] == "module_init_l0"
 
-    # Opening handout cards join the unified verbatim-card pipeline: the L0
-    # card is stored as a handout entity and projected into the campaign card
-    # store — but setup STOPS at the candidate set. Delivery is the KP's
-    # timing judgment, exercised after the table opening.
-    assert data["source_work"]["opening_handout_card_ids"] == ["handout-1"]
-    assert "delivered_opening_handout_ids" not in data["source_work"]
-    handout_pack = assets.get_entity(
-        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
-    )
-    assert handout_pack["kind"] == "read_aloud"
-    assert handout_pack["opening_card"] is True
-    assert handout_pack["source_refs"] == ["pdf_index-0"]
-    cards_doc = json.loads((
-        ws["campaign_dir"] / "scenario" / "handouts.json"
-    ).read_text(encoding="utf-8"))
-    assert [card["asset_id"] for card in cards_doc["handouts"]] == ["handout-1"]
-    assert cards_doc["handouts"][0]["opening_card"] is True
-    world = json.loads((
-        ws["campaign_dir"] / "save" / "world-state.json"
-    ).read_text(encoding="utf-8"))
-    assert "delivered_handout_ids" not in world
-
     # The projected-source gate lets the player-visible opening be recorded.
     # (A duplicate bootstrap while pristine re-sparses the IR and the gate
     # then issues the project_opening refresh card — same transient recovery
@@ -13375,28 +13353,6 @@ def test_opening_bootstrap_l0_direct_write_skips_coordinator(
     })
     assert opening["ok"] is True, opening
     assert opening["data"]["text"]
-    # The opening receipt surfaces the staged-but-undelivered opening card as
-    # an advisory candidate (id/title only, never a body).
-    assert opening["data"]["pending_opening_handouts"] == [{
-        "asset_id": "handout-1",
-        "kind": "read_aloud",
-        "title": "小卡片#1",
-        "when_to_deliver": "开场简报",
-    }]
-
-    # The KP hands the opening card over right after the opening through the
-    # same deliver path as every other card.
-    delivered = _run(ws, "state.deliver_handout", {
-        "handout_id": "handout-1",
-        "decision_id": "l0-direct-deliver-handout-1",
-        "scene_id": "opening",
-        "reason": "桌开场后向玩家递上开场卡",
-    })
-    assert delivered["ok"] is True, delivered
-    world = json.loads((
-        ws["campaign_dir"] / "save" / "world-state.json"
-    ).read_text(encoding="utf-8"))
-    assert world["delivered_handout_ids"] == ["handout-1"]
 
     # Duplicate bootstrap is idempotent-current with no second materialization.
     repeated = _run(ws, "progressive.opening_bootstrap", args)

@@ -81,120 +81,42 @@ gate.observeOpeningSetupInvocation(
         status: "blocked",
         hard_gate: true,
         activation_allowed: false,
-        phase: "opening_selection",
+        phase: "opening_source_review_required",
         campaign_id: fixture.params.campaign,
-        next_operation: {
-          operation: "progressive.prepare_opening",
-          invoke_via: "coc_invoke",
-          prefilled_arguments: {},
-          missing_arguments: [],
-          hard_gate: true,
-          authority: "canonical_setup",
-        },
+        next_operation: null,
         instruction: "fixture exact route",
       },
     },
   },
   "real-visible-bind",
 );
-const prepareParams = {
-  operation: "progressive.prepare_opening",
-  campaign: fixture.params.campaign,
-  arguments: {},
-};
-if (gate.openingSetupToolError(
-  "coc_invoke",
-  prepareParams,
-  "real-visible-prepare",
-) !== null) {
-  throw new Error("fixture prepare route was not admitted");
-}
-const bootstrapCard = {
-  operation: "progressive.opening_bootstrap",
-  invoke_via: "coc_invoke",
-  prefilled_arguments: {},
-  missing_arguments: ["start_location", "opening_pdf_indices"],
-  hard_gate: true,
-  authority: "canonical_setup",
-};
-gate.observeOpeningSetupInvocation(
-  "progressive.prepare_opening",
-  prepareParams,
-  {
-    ok: true,
-    tool: "progressive.prepare_opening",
-    data: {
-      status: "blocked",
-      next_operation: bootstrapCard,
-    },
-  },
-  "real-visible-prepare",
-);
-const bootstrapParams = {
-  operation: "progressive.opening_bootstrap",
-  campaign: fixture.params.campaign,
-  arguments: {
-    start_location: { location_id: "opening", title: "Opening" },
-    opening_pdf_indices: [0],
-  },
-};
-if (gate.openingSetupToolError(
-  "coc_invoke",
-  bootstrapParams,
-  "real-visible-bootstrap",
-) !== null) {
-  throw new Error("fixture bootstrap route was not admitted");
-}
-const dispatchKey = "canonical-visible-background";
-const task = {
+const sourceRef = { source_id: "fixture-source", pdf_index: 0 };
+const sourceFact = (value) => ({
+  status: "source",
+  value,
+  source_refs: [sourceRef],
+});
+const reviewedRoute = gate.observeOpeningSourceReviewTransport({
   schema_version: 1,
-  contract_id: "coc.pi-source-coordinator-task.v1",
-  packet: { packet_id: dispatchKey },
-};
-gate.observeOpeningSetupInvocation(
-  "progressive.opening_bootstrap",
-  bootstrapParams,
-  {
-    ok: true,
-    tool: "progressive.opening_bootstrap",
-    data: {
-      status: "queued",
-      source_work: {
-        background_takeover: {
-          next_host_action: {
-            action: "invoke_coc_dispatch_source_work",
-            task,
-          },
-        },
-      },
-    },
+  contract_id: "coc.pi-opening-source-review-transport-result.v1",
+  status: "reviewed",
+  campaign_id: fixture.params.campaign,
+  scenario_id: "fixture",
+  opening_review_generation: 1,
+  failure_class: null,
+  facts: {
+    schema_version: 1,
+    contract_id: "coc.opening-fast-facts.v1",
+    era: sourceFact("1920s"),
+    place: sourceFact("Fixture place"),
+    investigator_hook: sourceFact("Fixture hook"),
+    investigator_constraints: sourceFact("Fixture constraints"),
+    player_safe_summary: sourceFact("Fixture player-safe summary"),
+    content_flags: sourceFact(["mystery"]),
   },
-  "real-visible-bootstrap",
-);
-const projectionParams = {
-  operation: "progressive.project_opening",
-  campaign: fixture.params.campaign,
-  arguments: {
-    asset_root_id: "fixture",
-    source_file_sha256: "a".repeat(64),
-    start_location_id: "opening",
-    opening_pdf_indices: [0],
-  },
-};
-if (
-  !gate.beginOpeningBackground(
-    "real-visible-bootstrap",
-    bootstrapParams,
-    dispatchKey,
-    projectionParams,
-  )
-  || gate.markOpeningBackgroundSubmitted(
-    "real-visible-bootstrap",
-    bootstrapParams,
-    dispatchKey,
-  ).status !== "submitted"
-) {
-  throw new Error("fixture background materialization did not start");
+});
+if (reviewedRoute?.phase !== "opening_character_setup_required") {
+  throw new Error("fixture source review did not reach the canonical character route");
 }
 if (gate.openingSetupToolError(
   "coc_invoke",
