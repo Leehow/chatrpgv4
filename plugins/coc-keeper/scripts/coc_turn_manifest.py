@@ -435,6 +435,138 @@ def _count_rows(path: Path, start_offset: int, end_offset: int) -> int:
     return len(rows)
 
 
+def _persisted_setup_handoff(campaign_dir: Path) -> dict[str, Any] | None:
+    """Load only an exact current setup handoff; malformed state seals nothing."""
+    campaign_path = Path(campaign_dir) / "campaign.json"
+    if campaign_path.is_symlink() or not campaign_path.is_file():
+        return None
+    try:
+        campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    handoff = campaign.get("setup_handoff") if isinstance(campaign, dict) else None
+    decision_id = handoff.get("decision_id") if isinstance(handoff, dict) else None
+    if (
+        not isinstance(handoff, dict)
+        or handoff.get("schema_version") != 1
+        or handoff.get("campaign_id") != Path(campaign_dir).name
+        or not isinstance(decision_id, str)
+        or not decision_id.strip()
+    ):
+        return None
+    return deepcopy(handoff)
+
+
+def _matches_persisted_setup_handoff(
+    campaign_dir: Path, row: dict[str, Any], handoff: dict[str, Any],
+) -> bool:
+    args = row.get("args") if isinstance(row.get("args"), dict) else {}
+    data = row.get("data") if isinstance(row.get("data"), dict) else {}
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    campaign_id = Path(campaign_dir).name
+    return bool(
+        row.get("schema_version") == 2
+        and row.get("ok") is True
+        and row.get("tool") == "setup.complete"
+        and args.get("campaign_id") == campaign_id
+        and args.get("decision_id") == handoff.get("decision_id")
+        and data.get("schema_version") == 1
+        and data.get("status") == "PASS"
+        and data.get("kind") == "campaign.complete"
+        and result.get("campaign_id") == campaign_id
+        and result.get("ready_for_table") is True
+        and result.get("next") == "table_opening"
+        and result.get("handoff") == handoff
+    )
+
+
+def _setup_source_boundary(campaign_dir: Path) -> dict[str, Any] | None:
+    """Return the earliest exact setup.complete boundary matching durable state."""
+    handoff = _persisted_setup_handoff(campaign_dir)
+    if handoff is None:
+        return None
+    rows, _ = _slice_rows(_toolbox_path(campaign_dir), 0)
+    for position, (row, row_end) in enumerate(rows):
+        if _matches_persisted_setup_handoff(campaign_dir, row, handoff):
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "kind": "setup_handoff_virtual",
+                "durable_start_offset": 0,
+                "durable_start_index": 0,
+                "effective_start_offset": row_end,
+                "effective_start_index": position + 1,
+                "setup_handoff": {
+                    **handoff,
+                    "sealed_end_offset": row_end,
+                    "sealed_next_index": position + 1,
+                },
+                "cursor_close_owner": "evidence.table_opening",
+            }
+    # A crash may persist campaign.json before the generic toolbox receipt is
+    # appended. Keep the physical boundary and opening owner in that state:
+    # setup rows remain visible, journal stays blocked, and an idempotent
+    # setup.complete replay can later establish the exact virtual seal.
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "setup_handoff_unverified",
+        "durable_start_offset": 0,
+        "durable_start_index": 0,
+        "effective_start_offset": 0,
+        "effective_start_index": 0,
+        "setup_handoff": {**handoff},
+        "cursor_close_owner": "evidence.table_opening",
+    }
+
+
+def _validated_virtual_source_boundary(
+    campaign_dir: Path, cursor: dict[str, Any],
+) -> dict[str, Any]:
+    """Derive the one non-durable setup boundary from durable evidence."""
+    offset_started = cursor["next_source_offset"] != 0
+    index_started = cursor["next_source_index"] != 0
+    if offset_started != index_started:
+        raise TurnManifestError(
+            "state_corrupt", "turn source cursor has inconsistent opening position",
+        )
+    if offset_started:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "durable_cursor",
+            "durable_start_offset": cursor["next_source_offset"],
+            "durable_start_index": cursor["next_source_index"],
+            "effective_start_offset": cursor["next_source_offset"],
+            "effective_start_index": cursor["next_source_index"],
+            "setup_handoff": None,
+            "cursor_close_owner": "turn.finalize",
+        }
+    if cursor["last_finalized_turn_id"] is not None or cursor[
+        "last_finalization_id"
+    ] is not None:
+        raise TurnManifestError(
+            "state_corrupt", "an unopened source cursor cannot name a finalized turn",
+        )
+    boundary = _setup_source_boundary(campaign_dir)
+    if boundary is None:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "durable_cursor",
+            "durable_start_offset": 0,
+            "durable_start_index": 0,
+            "effective_start_offset": 0,
+            "effective_start_index": 0,
+            "setup_handoff": None,
+            "cursor_close_owner": "turn.finalize",
+        }
+    return boundary
+
+
+def effective_source_boundary(campaign_dir: Path) -> dict[str, Any]:
+    """Public structured boundary shared by resume and quarantine projection."""
+    campaign_dir = Path(campaign_dir)
+    cursor = load_or_create_cursor(campaign_dir)
+    return _validated_virtual_source_boundary(campaign_dir, cursor)
+
+
 def _earliest_table_opening_boundary(
     campaign_dir: Path,
     *,
@@ -772,9 +904,9 @@ def resume_window(
     values remain in the cited toolbox receipts and canonical state files.
     """
     campaign_dir = Path(campaign_dir)
-    cursor = load_or_create_cursor(campaign_dir)
+    boundary = effective_source_boundary(campaign_dir)
     rows, observed_end = _slice_rows(
-        _toolbox_path(campaign_dir), cursor["next_source_offset"]
+        _toolbox_path(campaign_dir), boundary["effective_start_offset"]
     )
     meaningful_tool_ids = frozenset(str(value) for value in meaningful_tools)
     meaningful = [
@@ -799,7 +931,7 @@ def resume_window(
             or id(row) not in selected_ids
         ):
             continue
-        call_index = int(cursor["next_source_index"]) + position
+        call_index = int(boundary["effective_start_index"]) + position
         projection = _resume_row_projection(row, call_index)
         size = len(
             json.dumps(
@@ -824,8 +956,8 @@ def resume_window(
         used_bytes += size
     return {
         "schema_version": SCHEMA_VERSION,
-        "source_start_offset": cursor["next_source_offset"],
-        "source_start_index": cursor["next_source_index"],
+        "source_start_offset": boundary["effective_start_offset"],
+        "source_start_index": boundary["effective_start_index"],
         "observed_end_offset": observed_end,
         "source_row_count": len(rows),
         "meaningful_row_count": len(meaningful),
@@ -837,6 +969,18 @@ def resume_window(
         "source_digest": _digest([row for row, _end in rows]),
         "rows": projections,
     }
+    if boundary["kind"] == "setup_handoff_virtual":
+        result["setup_source_prefix_seal"] = {
+            "schema_version": 1,
+            "decision_id": boundary["setup_handoff"]["decision_id"],
+            "sealed_source_row_count": boundary["setup_handoff"][
+                "sealed_next_index"
+            ],
+            "effective_source_start_index": boundary["effective_start_index"],
+            "cursor_closed": False,
+            "cursor_close_owner": "evidence.table_opening",
+        }
+    return result
 
 
 def uncommitted_source_rows(campaign_dir: Path) -> list[dict[str, Any]]:
@@ -847,9 +991,9 @@ def uncommitted_source_rows(campaign_dir: Path) -> list[dict[str, Any]]:
     invalidation disposition.
     """
     campaign_dir = Path(campaign_dir)
-    cursor = load_or_create_cursor(campaign_dir)
+    boundary = effective_source_boundary(campaign_dir)
     rows, _observed_end = _slice_rows(
-        _toolbox_path(campaign_dir), cursor["next_source_offset"]
+        _toolbox_path(campaign_dir), boundary["effective_start_offset"]
     )
     return [deepcopy(row) for row, _row_end in rows]
 
@@ -872,6 +1016,12 @@ def start_pending_turn(
         raise TurnManifestError(
             "turn_finalization_pending",
             "the previous journaled turn must be finalized or repaired before another turn can close",
+        )
+    boundary = effective_source_boundary(campaign_dir)
+    if boundary["cursor_close_owner"] == "evidence.table_opening":
+        raise TurnManifestError(
+            "table_opening_required",
+            "evidence.table_opening must close the setup prefix before state.journal",
         )
     cursor = load_or_create_cursor(campaign_dir)
     turn_id = _turn_id(campaign_dir.name, journal_decision_id)

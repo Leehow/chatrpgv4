@@ -4,6 +4,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "plugins" / "coc-keeper" / "scripts"
@@ -92,6 +94,67 @@ def _open(root: Path, campaign_id: str) -> dict:
     return opening
 
 
+def _finalize_from_output(root: Path, campaign_id: str, output: dict) -> dict:
+    result_paragraph = "调查员的行动在场景中产生了清楚而连续的结果。"
+    draft = "调查员落实了刚才的决定。\n\n" + result_paragraph
+    coverage = [
+        {
+            "obligation_id": row["obligation_id"],
+            "realization": "fictional_beat",
+            "action_realization": "调查员完成了本轮已经声明的具体行动",
+            "response": "现场状态依照已经结算的行动发生了对应变化",
+            "causal_explanation": "该变化直接来自本轮的权威状态记录",
+            "persona_fit": "行动保持调查员既有身份与方法",
+            "player_input_handling": "specific_preserved",
+            "exact_excerpt": result_paragraph,
+            "exceptional_beat": (
+                "特殊结果已经造成与来源行动直接相连的实质改变"
+                if row["exceptional_required"]
+                else ""
+            ),
+        }
+        for row in output["obligations"]
+    ]
+    placements = []
+    for segment_type, source_key, after in (
+        ("public_check", "roll_id", 0),
+        ("state_delta", "effect_id", 1),
+        ("exceptional_effect", "event_id", 1),
+    ):
+        rows = output["mechanics_bundle"].get(segment_type) or []
+        if rows:
+            placements.append({
+                "after_paragraph": after,
+                "segment_type": segment_type,
+                "source_ids": [str(row[source_key]) for row in rows],
+            })
+    reviewed = coc_toolbox.run_tool(
+        "narration.review",
+        root,
+        campaign_id,
+        {
+            "decision_id": f"review-{campaign_id}",
+            "draft_text": draft,
+            "findings": [],
+        },
+    )
+    assert reviewed["ok"] is True, reviewed
+    finalized = coc_toolbox.run_tool(
+        "turn.finalize",
+        root,
+        campaign_id,
+        {
+            "draft": draft,
+            "coverage": coverage,
+            "mechanics_placements": placements,
+            "revision": 1,
+            "decision_id": f"finalize-{campaign_id}",
+        },
+    )
+    assert finalized["ok"] is True, finalized
+    return finalized
+
+
 def test_completed_chargen_prefix_resumes_at_table_opening(tmp_path: Path) -> None:
     campaign_id = "chargen-prefix-opening"
     campaign_dir, chargen = _create_chargen_and_complete(tmp_path, campaign_id)
@@ -111,6 +174,11 @@ def test_completed_chargen_prefix_resumes_at_table_opening(tmp_path: Path) -> No
 
     resumed = _resume(tmp_path, campaign_id)
 
+    boundary = coc_toolbox.coc_turn_manifest.effective_source_boundary(campaign_dir)
+    assert boundary["kind"] == "setup_handoff_virtual"
+    assert boundary["durable_start_index"] == 0
+    assert boundary["effective_start_index"] > 0
+    assert boundary["cursor_close_owner"] == "evidence.table_opening"
     assert resumed["data"]["mode"] == "table_opening"
     assert resumed["data"]["next_operations"] == ["evidence.table_opening"]
     assert resumed["data"]["current_turn"]["meaningful_row_count"] == 0
@@ -139,6 +207,12 @@ def test_completed_chargen_prefix_resumes_at_table_opening(tmp_path: Path) -> No
     )
     assert cursor["next_source_index"] == opening_index + 1
     assert cursor["next_source_offset"] > 0
+    closed_boundary = coc_toolbox.coc_turn_manifest.effective_source_boundary(
+        campaign_dir
+    )
+    assert closed_boundary["kind"] == "durable_cursor"
+    assert closed_boundary["effective_start_index"] == cursor["next_source_index"]
+    assert closed_boundary["cursor_close_owner"] == "turn.finalize"
     after_opening = _resume(tmp_path, campaign_id)
     assert after_opening["data"]["mode"] == "awaiting_player"
     assert after_opening["data"]["current_turn"]["meaningful_row_count"] == 0
@@ -161,6 +235,20 @@ def test_post_handoff_mutation_remains_open_turn_recovery(tmp_path: Path) -> Non
         },
     )
     assert changed["ok"] is True, changed
+    rejected = coc_toolbox.run_tool(
+        "state.journal",
+        tmp_path,
+        campaign_id,
+        {
+            "summary": "开桌前的真实变更不能被结算成玩家回合。",
+            "player_action": "过早结算",
+            "player_text": "我试图在开场前结算。",
+            "run_id": f"run-{campaign_id}",
+            "decision_id": f"journal-{campaign_id}",
+        },
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "table_opening_required"
 
     resumed = _resume(tmp_path, campaign_id)
 
@@ -413,3 +501,197 @@ def test_opening_replay_does_not_contaminate_later_recovery(tmp_path: Path) -> N
     assert [
         row["tool"] for row in resumed["data"]["current_turn"]["rows"]
     ] == ["rules.roll_dice"]
+
+
+def test_preopening_journal_fails_before_canonical_writes(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "preopening-journal-rejected"
+    campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    tracked = [
+        campaign_dir / "save" / "pacing-state.json",
+        campaign_dir / "logs" / "events.jsonl",
+        campaign_dir / "memory" / "session-summaries.jsonl",
+        campaign_dir / "save" / "toolbox-ledger.json",
+        campaign_dir / "logs" / "table-transcript.jsonl",
+        campaign_dir / "save" / "pending-turn.json",
+    ]
+    before = {path: path.read_bytes() if path.is_file() else None for path in tracked}
+    manifests = campaign_dir / "save" / "turn-manifests"
+    manifests_before = sorted(path.name for path in manifests.glob("*.json"))
+
+    journaled = coc_toolbox.run_tool(
+        "state.journal",
+        tmp_path,
+        campaign_id,
+        {
+            "summary": "不应在开桌前写入。",
+            "player_action": "过早行动",
+            "player_text": "我现在就行动。",
+            "player_speaker": "玩家",
+            "run_id": f"run-{campaign_id}",
+            "intent_class": "investigate",
+            "decision_id": f"journal-{campaign_id}",
+        },
+    )
+
+    assert journaled["ok"] is False
+    assert journaled["error"]["code"] == "table_opening_required"
+    assert {path: path.read_bytes() if path.is_file() else None for path in tracked} == before
+    assert sorted(path.name for path in manifests.glob("*.json")) == manifests_before
+    assert coc_toolbox.coc_turn_manifest.pending_manifest(campaign_dir) is None
+    with pytest.raises(
+        coc_toolbox.coc_turn_manifest.TurnManifestError,
+        match="evidence.table_opening",
+    ) as direct_error:
+        coc_toolbox.coc_turn_manifest.start_pending_turn(
+            campaign_dir,
+            journal_decision_id="direct-preopening-defense",
+            turn_number=1,
+        )
+    assert direct_error.value.code == "table_opening_required"
+    assert sorted(path.name for path in manifests.glob("*.json")) == manifests_before
+    assert _resume(tmp_path, campaign_id)["data"]["mode"] == "table_opening"
+    _open(tmp_path, campaign_id)
+
+
+def test_post_opening_pending_turn_excludes_setup_through_finalization(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "post-opening-manifest-boundary"
+    campaign_dir, chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    creation_roll_ids = set(chargen["data"]["result"]["roll_ids"])
+    assert _resume(tmp_path, campaign_id)["data"]["mode"] == "table_opening"
+    _open(tmp_path, campaign_id)
+    cursor_path = campaign_dir / "save" / "turn-source-cursor.json"
+    opening_cursor = json.loads(cursor_path.read_text(encoding="utf-8"))
+    changed = coc_toolbox.run_tool(
+        "state.set_flag",
+        tmp_path,
+        campaign_id,
+        {
+            "flag_id": "post-handoff-pending-tail",
+            "value": True,
+            "decision_id": "post-handoff-pending-tail",
+        },
+    )
+    assert changed["ok"] is True, changed
+    rolled = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        campaign_id,
+        {
+            "expression": "1D100",
+            "reason": "post-opening live turn roll",
+            "decision_id": "post-opening-live-roll",
+        },
+    )
+    assert rolled["ok"] is True, rolled
+    journaled = coc_toolbox.run_tool(
+        "state.journal",
+        tmp_path,
+        campaign_id,
+        {
+            "summary": "调查员确认了开桌交接后的现场状态。",
+            "player_action": "确认现场状态",
+            "player_text": "我先确认现场有没有变化。",
+            "player_speaker": "玩家",
+            "run_id": f"run-{campaign_id}",
+            "intent_class": "investigate",
+            "decision_id": f"journal-{campaign_id}",
+        },
+    )
+    assert journaled["ok"] is True, journaled
+
+    direct_output = coc_toolbox.run_tool(
+        "turn.output_context", tmp_path, campaign_id, {},
+    )
+    assert direct_output["ok"] is True, direct_output
+    output = direct_output["data"]
+    assert output["source_start_index"] == opening_cursor["next_source_index"]
+    assert creation_roll_ids.isdisjoint(output["source_roll_ids"])
+    assert rolled["data"]["roll_id"] in output["source_roll_ids"]
+    assert not any(
+        roll_id in json.dumps(output["mechanics_bundle"], ensure_ascii=False)
+        for roll_id in creation_roll_ids
+    )
+    assert not any(
+        roll_id in json.dumps(output["obligations"], ensure_ascii=False)
+        for roll_id in creation_roll_ids
+    )
+    manifest, source_rows, _journal = coc_toolbox.coc_turn_manifest.refresh_pending_window(
+        campaign_dir
+    )
+    assert [row["tool"] for row in source_rows] == [
+        "state.set_flag", "rules.roll_dice", "state.journal",
+    ]
+    assert creation_roll_ids.isdisjoint(
+        coc_turn_finalization._referenced_roll_ids(source_rows)
+    )
+    assert manifest["source_start_index"] == output["source_start_index"]
+    assert manifest["source_start_offset"] == opening_cursor["next_source_offset"]
+
+    finalized = _finalize_from_output(tmp_path, campaign_id, output)
+
+    assert creation_roll_ids.isdisjoint(finalized["data"]["source_roll_ids"])
+    assert all(
+        roll_id not in finalized["data"]["rendered_text"]
+        for roll_id in creation_roll_ids
+    )
+    assert rolled["data"]["roll_id"] in finalized["data"]["source_roll_ids"]
+    assert not (campaign_dir / "save" / "pending-turn.json").exists()
+    completed_cursor = json.loads(cursor_path.read_text(encoding="utf-8"))
+    assert completed_cursor["next_source_index"] > opening_cursor["next_source_index"]
+    assert completed_cursor["next_source_offset"] > opening_cursor["next_source_offset"]
+    assert completed_cursor["last_finalization_id"] == (
+        finalized["data"]["finalization_id"]
+    )
+
+
+def test_unlinked_same_campaign_creation_cannot_bind_orphan_roll(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "unlinked-creation-cannot-launder"
+    campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    orphan = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        campaign_id,
+        {
+            "expression": "1D100",
+            "reason": "post-handoff orphan for scope regression",
+            "decision_id": "unlinked-launder-attempt",
+        },
+    )
+    assert orphan["ok"] is True, orphan
+    unlinked_id = "unlinked-same-campaign"
+    unlinked_dir = tmp_path / ".coc" / "investigators" / unlinked_id
+    unlinked_dir.mkdir(parents=True)
+    (unlinked_dir / "creation.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "investigator_id": unlinked_id,
+                "input_mode": "guided_quick_fire",
+                "edu_improvement_rolls": [
+                    {
+                        "check_receipt": {
+                            "campaign_id": campaign_id,
+                            "decision_id": "unlinked-launder-attempt",
+                            "roll_id": orphan["data"]["roll_id"],
+                        }
+                    }
+                ],
+            },
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+    assert orphan["data"]["roll_id"] not in (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    )
+    resumed = _resume(tmp_path, campaign_id)
+    assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == [
+        orphan["data"]["roll_id"]
+    ]
