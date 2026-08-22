@@ -1226,9 +1226,9 @@ def test_pi_coc_setup_inspect_lists_campaigns(tmp_path: Path):
     # setup.inspect has to enumerate .coc/campaigns/ as campaign_id + title.
     toolbox = _load_toolbox()
     campaigns = tmp_path / ".coc" / "campaigns"
-    for campaign_id, title in (
-        ("amaranthine-desire", "紫藤之欲"),
-        ("the-haunting-live", "The Haunting · Live"),
+    for campaign_id, title, updated_at in (
+        ("amaranthine-desire", "紫藤之欲", "2026-08-20T10:00:00Z"),
+        ("the-haunting-live", "The Haunting · Live", "2026-08-21T10:00:00Z"),
     ):
         (campaigns / campaign_id).mkdir(parents=True)
         (campaigns / campaign_id / "campaign.json").write_text(
@@ -1238,6 +1238,7 @@ def test_pi_coc_setup_inspect_lists_campaigns(tmp_path: Path):
                 "title": title,
                 "status": "active",
                 "play_language": "zh-Hans",
+                "updated_at": updated_at,
             }),
             encoding="utf-8",
         )
@@ -1245,11 +1246,11 @@ def test_pi_coc_setup_inspect_lists_campaigns(tmp_path: Path):
     assert inspected["ok"] is True, inspected
     listed = inspected["data"]["result"]["campaigns"]
     assert [row["campaign_id"] for row in listed] == [
-        "amaranthine-desire", "the-haunting-live",
+        "the-haunting-live", "amaranthine-desire",
     ]
-    assert listed[0]["title"] == "紫藤之欲"
-    assert listed[1]["title"] == "The Haunting · Live"
-    assert listed[1]["play_language"] == "zh-Hans"
+    assert listed[0]["title"] == "The Haunting · Live"
+    assert listed[1]["title"] == "紫藤之欲"
+    assert listed[0]["play_language"] == "zh-Hans"
 
 
 def test_pi_coc_launcher_exports_quiet_offline_env(tmp_path: Path):
@@ -1262,7 +1263,8 @@ def test_pi_coc_launcher_exports_quiet_offline_env(tmp_path: Path):
     envdump = tmp_path / "pi-env.txt"
     fake_pi = fake_bin / "pi"
     fake_pi.write_text(
-        '#!/bin/sh\nenv | sort > "$PI_COC_TEST_ENVDUMP"\n',
+        '#!/bin/sh\nprintf "PI_OFFLINE=%s\\n" "$PI_OFFLINE" '
+        '> "$PI_COC_TEST_ENVDUMP"\n',
         encoding="utf-8",
     )
     fake_pi.chmod(0o755)
@@ -1277,8 +1279,7 @@ def test_pi_coc_launcher_exports_quiet_offline_env(tmp_path: Path):
         cwd=ROOT, env=env, check=False, capture_output=True, text=True,
     )
     assert completed.returncode == 0, completed.stderr
-    dumped = envdump.read_text(encoding="utf-8")
-    assert "PI_OFFLINE=1" in dumped
+    assert envdump.read_text(encoding="utf-8") == "PI_OFFLINE=1\n"
 
 
 def test_pi_coc_launcher_respects_coc_workspace_and_rpc_mode(tmp_path: Path):
@@ -1438,7 +1439,8 @@ def test_pi_coc_user_can_re_enable_update_checks(tmp_path: Path):
     envdump = tmp_path / "pi-env.txt"
     fake_pi = fake_bin / "pi"
     fake_pi.write_text(
-        '#!/bin/sh\nenv | sort > "$PI_COC_TEST_ENVDUMP"\n',
+        '#!/bin/sh\nprintf "PI_OFFLINE=%s\\n" "$PI_OFFLINE" '
+        '> "$PI_COC_TEST_ENVDUMP"\n',
         encoding="utf-8",
     )
     fake_pi.chmod(0o755)
@@ -1454,8 +1456,7 @@ def test_pi_coc_user_can_re_enable_update_checks(tmp_path: Path):
         cwd=ROOT, env=env, check=False, capture_output=True, text=True,
     )
     assert completed.returncode == 0, completed.stderr
-    dumped = envdump.read_text(encoding="utf-8")
-    assert "PI_OFFLINE=0" in dumped
+    assert envdump.read_text(encoding="utf-8") == "PI_OFFLINE=0\n"
 
 
 def test_revision_component_chain_bindings_activation_roles_and_secrets():

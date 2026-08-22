@@ -890,6 +890,25 @@ test("campaignListExtras reads first party investigator and mtime", () => {
   assert.match(extras.last_active_at, /T/);
 });
 
+test("campaignListExtras prefers events.jsonl mtime over campaign.json mtime", () => {
+  const ws = makeWorkspace();
+  const dir = path.join(ws, ".coc/campaigns/c1");
+  const campaignJson = path.join(dir, "campaign.json");
+  writeJson(campaignJson, { title: "The Haunting" });
+  const logsDir = path.join(dir, "logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const events = path.join(logsDir, "events.jsonl");
+  fs.writeFileSync(events, "{}\n");
+  const oldTime = new Date("2026-01-01T00:00:00Z");
+  const newTime = new Date("2026-06-15T12:34:56Z");
+  fs.utimesSync(campaignJson, oldTime, oldTime);
+  fs.utimesSync(events, newTime, newTime);
+  // Backdate the dir itself so the dir fallback cannot win over events.jsonl.
+  fs.utimesSync(dir, oldTime, oldTime);
+  const extras = campaignListExtras(ws, "c1");
+  assert.equal(extras.last_active_at, newTime.toISOString());
+});
+
 
 test("tableTranscriptMessages projects one cash card from structured state_delta", () => {
   const ws = makeWorkspace();

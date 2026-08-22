@@ -1518,6 +1518,49 @@ def test_chargen_run_persists_other_language_from_allocator(tmp_path: Path) -> N
         ]
 
 
+def test_chargen_run_professional_language_marker_guarantees_working_level(
+    tmp_path: Path,
+) -> None:
+    campaign_id = _create_campaign(tmp_path, "chargen-professional-en")
+    envelope = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "zhou-qiming",
+            "name": "周启明",
+            "occupation_name": "Photojournalist / travel writer",
+            "occupation_label": "摄影记者／旅行写稿人",
+            "own_language": "国语",
+            "assignment_priority": [
+                "DEX", "INT", "APP", "EDU", "POW", "CON", "STR", "SIZ",
+            ],
+            "occupation_skill_names": [
+                "Professional: Language (English)",
+                "Art and Craft (Photography)",
+                "Language (Spanish)",
+                "Spot Hidden",
+                "Listen",
+                "Psychology",
+                "Persuade",
+                "Fast Talk",
+                "Library Use",
+            ],
+            "interest_skill_names": [
+                "Dodge", "First Aid", "Stealth", "Navigate", "History",
+            ],
+            "luck": {"mode": "auto_roll"},
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    stored, creation = _stored_investigator(tmp_path, "zhou-qiming")
+    assert stored["skills"]["Language (English)"] >= 50
+    assert "Professional: Language (English)" not in stored["skills"]
+    allocations = creation["skill_budget"]["occupation_points"]["allocations"]
+    assert allocations["Language (English)"] >= 49
+
+
 def _dilettante_args(campaign_id: str, investigator_id: str) -> dict:
     return _chargen_args(
         campaign_id,

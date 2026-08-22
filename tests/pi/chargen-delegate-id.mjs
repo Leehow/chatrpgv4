@@ -247,11 +247,83 @@ const fluentReporter = planChargenSkillLists(parseChargenClerkBrief({
   ],
   professional_language_names: ["Language (English)"],
 }));
+
+function projectRoundRobinFinal(skillIds, budget, bases, floor = {}) {
+  const allocations = Object.fromEntries(skillIds.map((skillId) => [skillId, 0]));
+  let remaining = budget;
+  for (const [skillId, need] of Object.entries(floor)) {
+    if (!(skillId in allocations)) continue;
+    const take = Math.min(Math.max(0, need), 75 - (bases[skillId] ?? 0), remaining);
+    allocations[skillId] += take;
+    remaining -= take;
+  }
+  while (remaining > 0) {
+    let progressed = false;
+    for (const skillId of skillIds) {
+      if (remaining <= 0) break;
+      if ((bases[skillId] ?? 0) + allocations[skillId] >= 75) continue;
+      allocations[skillId] += 1;
+      remaining -= 1;
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+  return Object.fromEntries(
+    skillIds.map((skillId) => [skillId, (bases[skillId] ?? 0) + allocations[skillId]]),
+  );
+}
+
 assert.equal(fluentReporter.occupation_skill_names[0], "Language (English)");
 assert.equal(fluentReporter.interest_skill_names[0], "Dodge");
 assert.equal(fluentReporter.interest_skill_names.includes("Language (English)"), false);
 assert.equal(fluentReporter.interest_budget, 140);
 assert.ok(fluentReporter.interest_skill_names.length >= 4);
+const fluentOccupationSkills = [...fluentReporter.occupation_skill_names, "Credit Rating"];
+const fluentOccupationValues = projectRoundRobinFinal(
+  fluentOccupationSkills,
+  fluentReporter.occupation_budget,
+  {
+    "Language (English)": 1,
+    "Language (Spanish)": 1,
+    "Art and Craft (Photography)": 5,
+    "Spot Hidden": 25,
+    "Listen": 20,
+    "Psychology": 10,
+    "Persuade": 10,
+    "Fast Talk": 5,
+    "Library Use": 20,
+    "Credit Rating": 0,
+  },
+  { "Language (English)": 49 },
+);
+assert.ok(
+  fluentOccupationValues["Language (English)"] >= 50,
+  `professional English must reach 50, got ${fluentOccupationValues["Language (English)"]}`,
+);
+const fluentCalls = [];
+await runChargenInProcess({
+  campaignId: "masks-lima",
+  brief: parseChargenClerkBrief({
+    name: "周启明",
+    occupation_or_concept: "Photojournalist / travel writer",
+    assignment_priority: "DEX INT APP EDU POW CON STR SIZ",
+    occupation_skill_names: [
+      "Art and Craft (Photography)", "Language (English)", "Language (Spanish)",
+      "Spot Hidden", "Listen", "Psychology", "Persuade", "Fast Talk", "Library Use",
+    ],
+    interest_skill_names: ["Dodge", "First Aid", "Stealth", "Navigate", "History"],
+    professional_language_names: ["Language (English)"],
+  }),
+  callTool: async (_op, args) => {
+    fluentCalls.push(args);
+    return { ok: true, data: { result: { ok: true } } };
+  },
+});
+assert.equal(fluentCalls.length, 1);
+assert.equal(
+  fluentCalls[0].occupation_skill_names[0],
+  "Professional: Language (English)",
+);
 
 process.stdout.write(JSON.stringify({
   ok: true,

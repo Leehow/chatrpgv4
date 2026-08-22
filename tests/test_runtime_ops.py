@@ -2173,6 +2173,67 @@ def test_onboarding_inspect_exposes_all_shared_discovery_surfaces(tmp_path):
     assert rules["result"]["helpers"] == receipt["result"]["rule_helper_api"]
 
 
+def test_onboarding_inspect_sorts_campaigns_by_last_activity_descending(tmp_path):
+    campaigns = tmp_path / ".coc" / "campaigns"
+    base = 1_700_000_000.0
+
+    def _make(campaign_id: str, updated_at: str | None) -> Path:
+        directory = campaigns / campaign_id
+        directory.mkdir(parents=True)
+        payload = {"campaign_id": campaign_id, "status": "active"}
+        if updated_at is not None:
+            payload["updated_at"] = updated_at
+        (directory / "campaign.json").write_text(
+            json.dumps(payload),
+            encoding="utf-8",
+        )
+        # Filesystem time deliberately contradicts the product clock: copying
+        # or restoring a campaign must not make it look recently played.
+        os.utime(directory / "campaign.json", (base + 900, base + 900))
+        return directory
+
+    _make("aaa-oldest", "2023-11-14T22:13:20+00:00")
+    _make("bbb-tied", "2023-11-14T22:15:00+00:00")
+    _make("ccc-tied", "2023-11-14T22:15:00Z")
+    newest = _make("mmm-newest", "2023-11-14T22:14:10+00:00")
+    _make("zzz-middle", "2023-11-14T22:14:00+00:00")
+
+    # A canonical event timestamp, rather than its deliberately old mtime,
+    # promotes this campaign to the top.
+    events_logs = newest / "logs"
+    events_logs.mkdir()
+    events = events_logs / "events.jsonl"
+    events.write_text(
+        json.dumps({"event_type": "scene", "ts": "2023-11-14T22:16:40Z"}) + "\n",
+        encoding="utf-8",
+    )
+    os.utime(events, (base - 300, base - 300))
+
+    receipt = ops.execute_setup_operation(
+        tmp_path,
+        operation={"schema_version": 1, "kind": "onboarding.inspect", "payload": {}},
+    )
+    listed = receipt["result"]["campaigns"]
+    # Descending by last activity; the two tied campaigns break ascending by
+    # canonical campaign id.
+    assert [item["campaign_id"] for item in listed] == [
+        "mmm-newest",
+        "bbb-tied",
+        "ccc-tied",
+        "zzz-middle",
+        "aaa-oldest",
+    ]
+    by_id = {item["campaign_id"]: item for item in listed}
+    for item in listed:
+        assert isinstance(item["last_active_at"], str)
+        assert "T" in item["last_active_at"]
+    assert (
+        by_id["mmm-newest"]["last_active_at"]
+        > by_id["bbb-tied"]["last_active_at"]
+        > by_id["aaa-oldest"]["last_active_at"]
+    )
+
+
 def test_pi_interact_uses_host_semantic_evidence_without_scanning_prose(tmp_path):
     character = _workspace(tmp_path)
     operation = _cast_operation()

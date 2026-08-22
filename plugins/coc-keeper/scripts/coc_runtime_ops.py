@@ -1400,123 +1400,7 @@ def _validate_module_init_l0(value: Any) -> dict[str, Any]:
             raise RuntimeOperationError(f"{label}.id must be a non-empty string")
         _module_init_text_or_none(handout["title"], f"{label}.title")
         _module_init_text_or_none(handout["when_to_give"], f"{label}.when_to_give")
-        # Optional verbatim-card fields. An opening handout may carry its full
-        # verbatim body; a text body must trace to bundle pages via string
-        # source_refs (same contract as handout asset cards).
-        kind = handout.get("kind")
-        if kind is not None and kind not in coc_scenario.HANDOUT_CARD_KINDS:
-            raise RuntimeOperationError(
-                f"{label}.kind must be one of: "
-                + ", ".join(coc_scenario.HANDOUT_CARD_KINDS)
-            )
-        _module_init_verbatim_text_or_none(handout.get("text"), f"{label}.text")
-        _module_init_text_or_none(
-            handout.get("localized_text"), f"{label}.localized_text", maximum=20_000,
-        )
-        _module_init_text_or_none(
-            handout.get("when_to_deliver"), f"{label}.when_to_deliver",
-        )
-        _module_init_text_or_none(handout.get("image_ref"), f"{label}.image_ref")
-        source_refs = handout.get("source_refs")
-        if source_refs is not None and (
-            not isinstance(source_refs, list)
-            or not source_refs
-            or any(
-                not isinstance(ref, str) or not ref.strip()
-                for ref in source_refs
-            )
-        ):
-            raise RuntimeOperationError(
-                f"{label}.source_refs must be a non-empty array of strings"
-            )
-        if isinstance(handout.get("text"), str) and handout["text"].strip() and not (
-            isinstance(source_refs, list) and source_refs
-        ):
-            raise RuntimeOperationError(
-                f"{label}.text requires non-empty source_refs tracing the "
-                "verbatim excerpt to bundle pages"
-            )
     return data
-
-
-def _module_init_verbatim_text_or_none(value: Any, label: str) -> None:
-    if value is not None and (
-        not isinstance(value, str)
-        or not value.strip()
-        or len(value) > 20_000
-    ):
-        raise RuntimeOperationError(
-            f"{label} must be a non-empty string up to 20000 characters or null"
-        )
-
-
-def l0_opening_handout_cards(
-    l0: dict[str, Any],
-    *,
-    fallback_pdf_indices: list[int] | None = None,
-) -> list[dict[str, Any]]:
-    """Lift module-init L0 ``opening_handouts`` into handout entity packs.
-
-    Opening cards join the unified verbatim-card pipeline: each becomes a
-    ``handout`` entity pack (card fields + deep parse state + L0 provenance
-    + the structured ``opening_card`` flag) that projects into the campaign
-    card store and is **staged for KP delivery** — setup never delivers.
-    The KP hands each card over right after the table opening via
-    ``state.deliver_handout``, the same path as every other card.
-    ``kind`` defaults to ``read_aloud`` for legacy L0 entries: opening cards
-    are authored table-read material. Page provenance prefers the entry's own
-    ``source_refs``; without one the reviewed opening window anchors the card.
-    """
-    cards: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    for handout in l0.get("opening_handouts") or []:
-        if not isinstance(handout, dict):
-            continue
-        handout_id = str(handout.get("id") or "").strip()
-        if not handout_id or handout_id in seen_ids:
-            continue
-        seen_ids.add(handout_id)
-        source_refs = [
-            str(ref).strip()
-            for ref in (handout.get("source_refs") or [])
-            if isinstance(ref, str) and ref.strip()
-        ]
-        if not source_refs:
-            source_refs = [
-                f"pdf_index-{index}"
-                for index in (fallback_pdf_indices or [])
-            ]
-        card: dict[str, Any] = {
-            "handout_id": handout_id,
-            "asset_id": handout_id,
-            "kind": str(handout.get("kind") or "read_aloud"),
-            "title": str(handout.get("title") or handout_id),
-            "when_to_deliver": str(
-                handout.get("when_to_deliver")
-                or handout.get("when_to_give")
-                or "opening"
-            ),
-            # Structured semantic flag authored at L0 lift time: this card is
-            # opening briefing material. Delivery still waits for the KP.
-            "opening_card": True,
-            "source_refs": source_refs,
-            "player_visible": True,
-            "parse_state": "deep",
-            "evidence_gap": False,
-            "origin": "source",
-            "provenance": {
-                "authority": "source_authored",
-                "basis": "module_init_l0",
-            },
-            "scene_refs": [],
-            "clue_refs": [],
-        }
-        for field in ("text", "localized_text", "image_ref"):
-            value = handout.get(field)
-            if isinstance(value, str) and value.strip():
-                card[field] = value
-        cards.append(card)
-    return cards
 
 
 def _module_init_source_binding(
@@ -4799,11 +4683,45 @@ def settle_development(
     )
 
 
+def _activity_epoch(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _latest_event_epoch(path: Path) -> float | None:
+    """Return the newest canonical event timestamp from a bounded file tail."""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            end = handle.tell()
+            handle.seek(max(0, end - 64 * 1024))
+            tail = handle.read().decode("utf-8", errors="ignore")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            epoch = _activity_epoch(row.get("ts"))
+            if epoch is not None:
+                return epoch
+    return None
+
+
 def _campaign_summaries(workspace: Path) -> list[dict[str, Any]]:
     campaigns = workspace / ".coc" / "campaigns"
     if not campaigns.is_dir():
         return []
-    values: list[dict[str, Any]] = []
+    entries: list[tuple[float, dict[str, Any]]] = []
     for child in sorted(campaigns.iterdir(), key=lambda item: item.name):
         path = child / "campaign.json"
         if child.is_symlink() or not child.is_dir() or not path.is_file():
@@ -4812,15 +4730,44 @@ def _campaign_summaries(workspace: Path) -> list[dict[str, Any]]:
             campaign = _read_object(path)
         except RuntimeOperationError:
             continue
-        values.append({
+        activity_paths = (
+            child / "logs" / "events.jsonl",
+            child / "logs" / "turn-finalizations.jsonl",
+            path,
+        )
+        explicit_epochs = [
+            epoch for epoch in (
+                _activity_epoch(campaign.get("updated_at")),
+                _latest_event_epoch(activity_paths[0]),
+            )
+            if epoch is not None
+        ]
+        fallback_epochs: list[float] = []
+        for candidate in activity_paths:
+            try:
+                fallback_epochs.append(candidate.stat().st_mtime)
+            except OSError:
+                continue
+        last_active_epoch = max(explicit_epochs or fallback_epochs or [0.0])
+        last_active_at = (
+            datetime.fromtimestamp(last_active_epoch, tz=timezone.utc).isoformat()
+            if last_active_epoch > 0.0
+            else None
+        )
+        entries.append((last_active_epoch, {
             "campaign_id": str(campaign.get("campaign_id") or child.name),
             "title": campaign.get("title"),
             "status": campaign.get("status"),
             "era": campaign.get("era"),
             "play_language": campaign.get("play_language"),
             "active_scenario_id": campaign.get("active_scenario_id"),
-        })
-    return values
+            "last_active_at": last_active_at,
+        }))
+    # Descending by authoritative activity, then ascending campaign id. The
+    # explicit campaign/event clock wins over filesystem metadata; mtimes are
+    # retained only for legacy campaign documents without timestamp metadata.
+    entries.sort(key=lambda pair: (-pair[0], pair[1]["campaign_id"]))
+    return [summary for _, summary in entries]
 
 
 def _adopt_source_facts_locked(
