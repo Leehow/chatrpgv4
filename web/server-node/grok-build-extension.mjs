@@ -24,6 +24,7 @@
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -750,6 +751,138 @@ export function installGrokBuildExtension({
 }
 
 /**
+ * Repo-local host extension paths allowed in the terminal settings
+ * (web/server-node host extensions mounted via `--extension` on RPC spawns;
+ * harmless for the terminal to also see them).
+ */
+const HOST_EXTENSION_RELS = Object.freeze([
+  path.join("web", "server-node", "pi-extensions", "web-search.ts"),
+  path.join("web", "server-node", "pi-extensions", "openai-server-tools.ts"),
+  path.join("web", "server-node", "pi-extensions", "xai-server-tools.ts"),
+]);
+
+function isInsideDirRaw(root, candidate) {
+  const base = path.resolve(root);
+  const full = path.resolve(candidate);
+  return full === base || full.startsWith(base + path.sep);
+}
+
+/**
+ * Filter a settings `extensions` list to entries this repo-local Pi home is
+ * allowed to load (project Pi home isolation):
+ * - paths INSIDE the repo-local COC home itself (e.g. the verified installed
+ *   grok-build-oauth entry);
+ * - the current repo's own host extension files (`HOST_EXTENSION_RELS` under
+ *   the repo root, existing on disk).
+ *
+ * Everything else — other projects' paths, the global `~/.pi/agent` home
+ * (e.g. the legacy `~/.pi/agent/extensions/xai-server-tools.ts`), missing or
+ * escaped files — is removed. Relative entries are resolved against the COC
+ * home and kept only under the same rule.
+ */
+export function sanitizeTerminalExtensionEntries(entries, { cocHome, repoRoot } = {}) {
+  const home = path.resolve(resolveCocAgentHome({ cocHome }));
+  const root = path.resolve(repoRoot || DEFAULT_REPO_ROOT);
+  const allowedHostExts = HOST_EXTENSION_RELS.map((rel) => path.join(root, rel));
+  const kept = [];
+  const removed = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(entries) ? entries : []) {
+    if (typeof raw !== "string") {
+      removed.push({ entry: String(raw), reason: "not-a-string" });
+      continue;
+    }
+    const entry = trimStr(raw);
+    if (!entry) continue;
+    const resolved = path.isAbsolute(entry) ? path.resolve(entry) : path.resolve(home, entry);
+    if (seen.has(resolved)) continue;
+    let allowed;
+    let reason;
+    if (isInsideDirRaw(home, resolved)) {
+      // Inside the COC home: only files that actually exist and are regular.
+      let lstat;
+      try {
+        lstat = fs.lstatSync(resolved);
+      } catch {
+        lstat = null;
+      }
+      allowed = Boolean(lstat && !lstat.isSymbolicLink() && lstat.isFile());
+      reason = "missing-or-symlink-under-coc-home";
+    } else if (allowedHostExts.includes(resolved)) {
+      let lstat;
+      try {
+        lstat = fs.lstatSync(resolved);
+      } catch {
+        lstat = null;
+      }
+      allowed = Boolean(lstat && !lstat.isSymbolicLink() && lstat.isFile());
+      reason = "repo-host-extension-missing";
+    } else {
+      allowed = false;
+      reason = isInsideDirRaw(path.join(requireHomeDir(), ".pi", "agent"), resolved)
+        ? "global-pi-home"
+        : "outside-repo-local-home";
+    }
+    if (allowed) {
+      seen.add(resolved);
+      kept.push(entry);
+    } else {
+      removed.push({ entry, reason });
+    }
+  }
+  return { kept, removed };
+}
+
+function requireHomeDir() {
+  // os.homedir lazily to keep this import-light; resolved per call so tests
+  // can control HOME via env in-process.
+  return os.homedir();
+}
+
+function writeSettingsAtomic(settingsPath, settings) {
+  const tmp = `${settingsPath}.tmp.${process.pid}.${Date.now()}`;
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`);
+  fs.renameSync(tmp, settingsPath);
+}
+
+/**
+ * Remove disallowed extension entries from an existing repo-local
+ * `.pi/coc-agent/settings.json` (global `~/.pi/agent` paths such as the
+ * legacy xai-server-tools.ts, other projects' paths, missing files).
+ * All other settings keys are preserved and the write is atomic. No-op
+ * (exit 0) when there is nothing to remove.
+ */
+export function cleanTerminalGrokBuildSettings({ cocHome, repoRoot } = {}) {
+  const home = resolveCocAgentHome({ cocHome });
+  const settingsPath = path.join(home, "settings.json");
+  if (!fs.existsSync(settingsPath)) {
+    return { settingsPath, cleaned: false, removed: [] };
+  }
+  let settings;
+  try {
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  } catch (err) {
+    throw new GrokBuildExtensionError(
+      `cannot read ${settingsPath}: ${err?.message || err} — leaving it untouched`,
+      { code: "SETTINGS_UNREADABLE" },
+    );
+  }
+  if (!asObject(settings) || !Array.isArray(settings.extensions)) {
+    return { settingsPath, cleaned: false, removed: [] };
+  }
+  const { kept, removed } = sanitizeTerminalExtensionEntries(settings.extensions, {
+    cocHome: home,
+    repoRoot,
+  });
+  if (!removed.length) {
+    return { settingsPath, cleaned: false, removed: [] };
+  }
+  writeSettingsAtomic(settingsPath, { ...settings, extensions: kept });
+  return { settingsPath, cleaned: true, removed, kept };
+}
+
+/**
  * Register the installed entry in the repo-local Pi home's official
  * `settings.json` `extensions` key (Pi 0.84.2 loads plain absolute paths from
  * there; it has no `pipiui-extension.json` manifest discovery). A missing
@@ -759,7 +892,7 @@ export function installGrokBuildExtension({
  * amended with every other key preserved. The write is atomic (tmp + rename)
  * and idempotent. Never touches the shared `pi-coc` launcher.
  */
-export function configureTerminalGrokBuildExtension({ cocHome, entryPath, repoRoot } = {}) {
+export function configureTerminalGrokBuildExtension({ cocHome, entryPath, repoRoot, onSettingsCleanup } = {}) {
   const home = resolveCocAgentHome({ cocHome });
   const settingsPath = path.join(home, "settings.json");
   let settings;
@@ -804,25 +937,44 @@ export function configureTerminalGrokBuildExtension({ cocHome, entryPath, repoRo
     created = true;
   }
   const entry = path.resolve(entryPath);
-  const list = Array.isArray(settings.extensions)
-    ? settings.extensions.map((value) => trimStr(value)).filter(Boolean)
-    : [];
-  if (list.includes(entry) && !created) {
-    return { settingsPath, configured: true, added: false, created: false, extensions: list };
+  // Sanitize existing entries FIRST: a repo-local COC home must never load
+  // extensions from the global `~/.pi/agent` home or another project
+  // (project Pi-home isolation).
+  const sanitized = sanitizeTerminalExtensionEntries(settings.extensions, {
+    cocHome: home,
+    repoRoot,
+  });
+  const list = sanitized.kept;
+  if (sanitized.removed.length) {
+    if (typeof onSettingsCleanup === "function") {
+      try {
+        onSettingsCleanup(sanitized.removed);
+      } catch {
+        /* observability only */
+      }
+    }
+  }
+  if (list.includes(entry) && !created && !sanitized.removed.length) {
+    return {
+      settingsPath,
+      configured: true,
+      added: false,
+      created: false,
+      extensions: list,
+      removed: sanitized.removed,
+    };
   }
   const nextSettings = created || !list.includes(entry)
     ? { ...settings, extensions: [...list, entry] }
-    : settings;
-  const tmp = `${settingsPath}.tmp.${process.pid}.${Date.now()}`;
-  fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(tmp, `${JSON.stringify(nextSettings, null, 2)}\n`);
-  fs.renameSync(tmp, settingsPath);
+    : { ...settings, extensions: list };
+  writeSettingsAtomic(settingsPath, nextSettings);
   return {
     settingsPath,
     configured: true,
     added: true,
     created,
     extensions: nextSettings.extensions,
+    removed: sanitized.removed,
   };
 }
 
@@ -939,27 +1091,32 @@ export function installedGrokBuildExtensionEntry({
 
 async function importInstalledModule(relPath, { repoRoot, cocHome, env } = {}) {
   const installed = resolveInstalledGrokBuildPackage({ repoRoot, cocHome, env: {} });
-  if (!installed.ok) return null;
+  if (!installed.ok) return { status: "absent" };
   const file = path.join(installed.dir, relPath);
   let lstat;
   try {
     lstat = fs.lstatSync(file);
   } catch {
-    return null;
+    return { status: "absent" };
   }
-  if (lstat.isSymbolicLink() || !lstat.isFile()) return null;
+  if (lstat.isSymbolicLink() || !lstat.isFile()) return { status: "absent" };
   // Cache-bust by the imported file's OWN hash (not just the entry's): a
   // stage-swap install changes file content under the same path, and the
   // Node ESM cache is URL-keyed.
   const url = `${pathToFileURL(file).href}?v=${sha256File(file)}`;
   try {
     return {
+      status: "loaded",
       dir: installed.dir,
       version: installed.version,
       module: await import(url),
     };
-  } catch {
-    return null;
+  } catch (err) {
+    // The tree verified against its receipt, yet the module failed to load
+    // (broken import graph, VM/permission fault…). That is NOT "absent":
+    // surface it so callers classify it as an error instead of silently
+    // downgrading to a legacy transport.
+    return { status: "error", error: err };
   }
 }
 
@@ -1005,10 +1162,23 @@ export async function loadGrokBuildHostLibrary({
   env = process.env,
 } = {}) {
   const installed = resolveInstalledGrokBuildPackage({ repoRoot, cocHome, env: {} });
-  if (!installed.ok) return null;
+  if (!installed.ok) return { status: "absent" };
   const loaded = await importInstalledModule(installed.hostEntryRel, { repoRoot, cocHome, env });
-  if (!loaded || typeof loaded.module.createGrokBuildHostLibrary !== "function") return null;
+  if (loaded.status === "absent") return { status: "absent" };
+  if (loaded.status === "error") return { status: "error", error: loaded.error };
+  if (typeof loaded.module.createGrokBuildHostLibrary !== "function") {
+    // Verified tree without the stable host export: an artifact contract
+    // break, not an installation gap.
+    return {
+      status: "error",
+      error: new GrokBuildExtensionError(
+        `installed artifact ${installed.dir} does not export createGrokBuildHostLibrary`,
+        { code: "HOST_ENTRY_CONTRACT" },
+      ),
+    };
+  }
   return {
+    status: "loaded",
     dir: installed.dir,
     version: installed.version,
     hostEntryPath: installed.hostEntryPath,
@@ -1028,7 +1198,7 @@ export async function loadGrokBuildProviderFactory({
     cocHome,
     env,
   });
-  if (!loaded) return null;
+  if (loaded.status !== "loaded") return null;
   const { createGrokBuildProvider, GROK_BUILD_PROVIDER_ID: providerId } = loaded.module;
   if (typeof createGrokBuildProvider !== "function") return null;
   return {
@@ -1061,6 +1231,18 @@ export function grokBuildExtensionStatus({
   // What a compatFallback=true setting would actually unlock (mirrors the
   // xai-image allow-list): tier gate / auth unconfigured / host unavailable.
   const compatFallbackAllowlist = ["tier_restricted", "auth_expired", "not_logged_in", "NoAgentHomeError"];
+  let disallowedExtensionEntries = [];
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    if (Array.isArray(settings.extensions)) {
+      disallowedExtensionEntries = sanitizeTerminalExtensionEntries(settings.extensions, {
+        cocHome: home,
+        repoRoot,
+      }).removed.map((r) => r.entry);
+    }
+  } catch {
+    disallowedExtensionEntries = [];
+  }
   return {
     installed: installed.ok,
     verified: installed.ok && installed.verified === true,
@@ -1075,6 +1257,7 @@ export function grokBuildExtensionStatus({
     terminalConfigured,
     compatFallback,
     compatFallbackAllowlist,
+    disallowedExtensionEntries,
     cocHome: home,
     settingsPath,
     sidecarPath: grokBuildSettingsSidecarPath({ repoRoot, cocHome, env: {} }),
@@ -1107,8 +1290,27 @@ export function runGrokBuildInstallerCli({
   const cocHome = flag("--coc-home");
   const write = (stream, obj) => stream.write(`${JSON.stringify(obj, null, 2)}\n`);
   if (command === "status") {
-    write(stdout, grokBuildExtensionStatus({ repoRoot, cocHome, env }));
+    write(stdout, grokBuildExtensionStatus({
+      repoRoot,
+      cocHome: cocHome || path.join(repoRoot, ".pi", "coc-agent"),
+      env,
+    }));
     return 0;
+  }
+  if (command === "clean") {
+    // Remove disallowed extension entries (global ~/.pi/agent paths, other
+    // projects) from the repo-local COC settings, preserving every other key.
+    try {
+      const result = cleanTerminalGrokBuildSettings({
+        cocHome: cocHome || path.join(repoRoot, ".pi", "coc-agent"),
+        repoRoot,
+      });
+      write(stdout, { ok: true, ...result });
+      return 0;
+    } catch (err) {
+      write(stderr, { ok: false, error: String(err?.message || err), code: err?.code });
+      return 1;
+    }
   }
   if (command === "install") {
     const source = flag("--source") || trimStr(env[GROK_BUILD_PACKAGE_ENV]);
@@ -1136,6 +1338,7 @@ export function runGrokBuildInstallerCli({
   }
   stderr.write(
     "usage: grok-build-extension.mjs install [--source DIR] [--coc-home DIR] [--repo-root DIR]\n" +
+      "       grok-build-extension.mjs clean  [--coc-home DIR] [--repo-root DIR]\n" +
       "       grok-build-extension.mjs status [--coc-home DIR] [--repo-root DIR]\n" +
       "source resolution: --source / GROK_BUILD_OAUTH_PACKAGE > PipiUI bundled runtime\n" +
       "  (PIPIUI_REPO_ROOT, or sibling ../pipiui checkout).\n",
