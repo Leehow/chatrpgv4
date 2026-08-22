@@ -86,8 +86,11 @@ honestly.
 Completeness explicitly includes run identity, exact accepted transcript, dice,
 state, settlement uniqueness, scene scope, agency, secrecy, and projection
 hashes, while retaining useful legacy source subfindings. Agency is
-`NOT_PROVEN` without a semantic review bound to every accepted narration
-revision; an empty agency-claim list is not proof. The compatibility
+`NOT_PROVEN` without a semantic review whose frozen raw-draft hash binds every
+accepted narration revision; an empty agency-claim list is not proof. Every
+recorded voluntary claim must bind the exact frozen `player_input`, physiology
+must bind a typed ownership source, and forced behavior must bind its full
+active frozen override. The compatibility
 `COMPLETE`/`INCOMPLETE` classification
 means report-source evidence completeness only. It does **not** certify prose
 quality, Director/Storylet use, or whole-product KP quality.

@@ -1485,6 +1485,8 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         prefilled=prefilled,
         missing=missing,
     )
+    if agency_review_required:
+        finalize_operation["invoke_via"] = "coc_turn_finalize"
     finalize_operation["argument_contract"] = {
         "required_arguments": [
             "draft", "coverage", "decision_id", "revision",

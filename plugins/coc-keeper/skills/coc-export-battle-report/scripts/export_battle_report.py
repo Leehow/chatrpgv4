@@ -1952,6 +1952,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             or review.get("revision") != receipt.get("accepted_revision")
         ):
             agency_not_proven.append(finalization_id)
+        elif not isinstance(review_ref.get("draft_sha256"), str):
+            # Historical schema-v2 receipts did not freeze the raw draft hash.
+            # They remain readable but cannot prove proposition-level review.
+            agency_not_proven.append(finalization_id)
+        elif review_ref.get("draft_sha256") != review.get("draft_sha256"):
+            agency_findings.append(
+                f"accepted revision {finalization_id} review does not bind its raw draft"
+            )
         else:
             accepted_review_ids.add(review_id)
             if any(
@@ -1962,24 +1970,77 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 agency_findings.append(
                     f"accepted revision {finalization_id} has agency_violation"
                 )
+        projection = (
+            receipt.get("contract_projection")
+            if isinstance(receipt.get("contract_projection"), dict) else {}
+        )
         overrides = {
             str(row.get("override_id") or ""): row
-            for row in ((receipt.get("contract_projection") or {}).get("control_overrides") or [])
+            for row in (projection.get("control_overrides") or [])
             if isinstance(row, dict) and row.get("override_id")
         }
+        player_input = projection.get("player_input")
+        player_source_ref = (
+            str(player_input.get("source_ref") or "")
+            if isinstance(player_input, dict) else ""
+        )
+        authority = projection.get("agency_authority")
+        authority = authority if isinstance(authority, dict) else {}
+        pc_subject_refs = {
+            str(value) for value in authority.get("pc_subject_refs") or []
+            if isinstance(value, str) and value
+        }
+        physiology_sources = {
+            str(row.get("source_ref") or "")
+            for row in authority.get("involuntary_physiology_sources") or []
+            if isinstance(row, dict)
+            and row.get("source_type") == "ownership_contract"
+            and isinstance(row.get("source_ref"), str)
+            and row["source_ref"]
+        }
+        voluntary_types = {
+            "voluntary_action", "voluntary_speech", "voluntary_plan",
+            "voluntary_belief", "voluntary_trust",
+            "voluntary_active_emotion",
+        }
         for claim in receipt.get("agency_claims") or []:
-            if not isinstance(claim, dict) or claim.get("claim_type") != "forced_behavior":
+            if not isinstance(claim, dict):
+                agency_findings.append("accepted revision has malformed agency claim")
                 continue
-            override = overrides.get(str(claim.get("override_id") or ""))
-            if (
-                not isinstance(override, dict)
-                or not _valid_control_override(override)
-                or override.get("active") is not True
-                or override.get("subject_ref") != claim.get("subject_ref")
-                or override.get("source_ref") != claim.get("source_ref")
-            ):
+            claim_type = claim.get("claim_type")
+            subject_ref = claim.get("subject_ref")
+            source_ref = claim.get("source_ref")
+            invalid = False
+            reason = "has an invalid frozen agency source"
+            if claim_type in voluntary_types:
+                invalid = (
+                    subject_ref not in pc_subject_refs
+                    or not player_source_ref
+                    or source_ref != player_source_ref
+                    or claim.get("override_id") is not None
+                )
+                reason = "does not bind the exact frozen player input"
+            elif claim_type == "involuntary_physiology":
+                invalid = (
+                    subject_ref not in pc_subject_refs
+                    or source_ref not in physiology_sources
+                    or claim.get("override_id") is not None
+                )
+                reason = "does not bind a typed physiology ownership source"
+            elif claim_type == "forced_behavior":
+                override = overrides.get(str(claim.get("override_id") or ""))
+                invalid = (
+                    not isinstance(override, dict)
+                    or not _valid_control_override(override)
+                    or override.get("subject_ref") != subject_ref
+                    or override.get("source_ref") != source_ref
+                )
+                reason = "lacks its frozen active override"
+            else:
+                invalid = True
+            if invalid:
                 agency_findings.append(
-                    f"forced claim {claim.get('claim_id') or 'unknown'} lacks its frozen active override"
+                    f"agency claim {claim.get('claim_id') or 'unknown'} {reason}"
                 )
     if agency_findings:
         dimension("agency", False, *agency_findings)
@@ -1995,7 +2056,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         dimension(
             "agency",
             True,
-            "every accepted revision has a bound semantic review with no agency violation; forced claims bind frozen active overrides",
+            "every accepted revision has an exact raw-draft-bound semantic review with no agency violation; every claim binds its frozen player, physiology, or override source",
         )
 
     dimension(

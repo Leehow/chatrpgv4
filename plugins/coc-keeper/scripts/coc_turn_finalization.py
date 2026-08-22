@@ -87,6 +87,12 @@ VOLUNTARY_CLAIM_TYPES = frozenset({
 AGENCY_CLAIM_TYPES = frozenset({
     *VOLUNTARY_CLAIM_TYPES, "forced_behavior", "involuntary_physiology",
 })
+NARRATION_REVIEW_REF_FIELDS = frozenset({
+    "review_id", "review_digest", "draft_sha256",
+})
+LEGACY_NARRATION_REVIEW_REF_FIELDS = frozenset({
+    "review_id", "review_digest",
+})
 
 
 def _is_asset_effect(effect: dict[str, Any]) -> bool:
@@ -382,6 +388,81 @@ def _legacy_context_effect_sources(
     return identities
 
 
+def _valid_frozen_agency_claims(row: dict[str, Any]) -> bool:
+    """Revalidate claim identities against the immutable receipt projection."""
+    claims = row.get("agency_claims")
+    projection = row.get("contract_projection")
+    if not isinstance(claims, list) or not isinstance(projection, dict):
+        return False
+    player_input = projection.get("player_input")
+    player_source_ref = (
+        str(player_input.get("source_ref") or "")
+        if isinstance(player_input, dict) else ""
+    )
+    authority = projection.get("agency_authority")
+    authority = authority if isinstance(authority, dict) else {}
+    pc_subject_refs = {
+        value for value in authority.get("pc_subject_refs") or []
+        if isinstance(value, str) and value
+    }
+    physiology_sources = {
+        str(source.get("source_ref") or "")
+        for source in authority.get("involuntary_physiology_sources") or []
+        if isinstance(source, dict)
+        and source.get("source_type") == "ownership_contract"
+        and isinstance(source.get("source_ref"), str)
+        and source["source_ref"]
+    }
+    overrides = {
+        str(override.get("override_id") or ""): override
+        for override in projection.get("control_overrides") or []
+        if isinstance(override, dict) and override.get("override_id")
+    }
+    seen: set[str] = set()
+    for claim in claims:
+        if not isinstance(claim, dict) or set(claim) != AGENCY_CLAIM_FIELDS:
+            return False
+        claim_id = claim.get("claim_id")
+        subject_ref = claim.get("subject_ref")
+        claim_type = claim.get("claim_type")
+        exact_excerpt = claim.get("exact_excerpt")
+        source_ref = claim.get("source_ref")
+        override_id = claim.get("override_id")
+        if (
+            not isinstance(claim_id, str) or not claim_id or claim_id in seen
+            or not isinstance(subject_ref, str) or not subject_ref
+            or claim_type not in AGENCY_CLAIM_TYPES
+            or not isinstance(exact_excerpt, str) or not exact_excerpt.strip()
+            or not isinstance(source_ref, str) or not source_ref
+        ):
+            return False
+        if claim_type in VOLUNTARY_CLAIM_TYPES:
+            if (
+                subject_ref not in pc_subject_refs
+                or not player_source_ref or source_ref != player_source_ref
+                or override_id is not None
+            ):
+                return False
+        elif claim_type == "involuntary_physiology":
+            if (
+                subject_ref not in pc_subject_refs
+                or source_ref not in physiology_sources
+                or override_id is not None
+            ):
+                return False
+        else:
+            override = overrides.get(str(override_id or ""))
+            if (
+                not isinstance(override, dict)
+                or override.get("active") is not True
+                or override.get("subject_ref") != subject_ref
+                or override.get("source_ref") != source_ref
+            ):
+                return False
+        seen.add(claim_id)
+    return True
+
+
 def _valid_finalization_contract(
     row: Any, *, allow_legacy: bool = False, allow_legacy_context_effect: bool = False
 ) -> bool:
@@ -419,6 +500,18 @@ def _valid_finalization_contract(
             or row.get("narration_review") is not None
             and not isinstance(row.get("narration_review"), dict)
         ):
+            return False
+        review_ref = row.get("narration_review")
+        if isinstance(review_ref, dict):
+            if set(review_ref) not in {
+                NARRATION_REVIEW_REF_FIELDS,
+                LEGACY_NARRATION_REVIEW_REF_FIELDS,
+            } or not all(
+                isinstance(review_ref.get(key), str) and review_ref[key]
+                for key in review_ref
+            ):
+                return False
+        if not _valid_frozen_agency_claims(row):
             return False
     for key in (
         "journal_call_index", "source_start_index", "source_end_index",
@@ -3245,6 +3338,37 @@ def _normalize_agency_claims(
     return normalized
 
 
+def _validate_narration_review_binding(
+    narration_review: Any,
+    *,
+    draft: str,
+    projection: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Freeze an exact raw-draft review identity into the final receipt."""
+    required = projection.get("agency_review_required") is True
+    if narration_review is None:
+        if required:
+            raise TurnContractError(
+                "narration_review_required",
+                "Pi agency-reviewed finalization requires a bound narration review",
+            )
+        return None
+    if (
+        not isinstance(narration_review, dict)
+        or set(narration_review) != NARRATION_REVIEW_REF_FIELDS
+        or not all(
+            isinstance(narration_review.get(key), str) and narration_review[key]
+            for key in NARRATION_REVIEW_REF_FIELDS
+        )
+        or narration_review.get("draft_sha256") != canonical_digest(draft)
+    ):
+        raise TurnContractError(
+            "narration_review_mismatch",
+            "narration review must bind the exact accepted raw draft",
+        )
+    return deepcopy(narration_review)
+
+
 def build_undelivered_repair_receipt(
     campaign_dir: Path,
     *,
@@ -3329,6 +3453,9 @@ def build_undelivered_repair_receipt(
         coverage=normalized_coverage,
     )
     projection = deepcopy(source_receipt["contract_projection"])
+    normalized_review = _validate_narration_review_binding(
+        narration_review, draft=draft, projection=projection
+    )
     normalized_claims = _normalize_agency_claims(
         agency_claims, draft=draft, projection=projection
     )
@@ -3365,7 +3492,7 @@ def build_undelivered_repair_receipt(
         "bundle_sha256": canonical_digest(bundle),
         "rendered_text_sha256": canonical_digest(rendered),
         "contract_projection_sha256": source_receipt["contract_projection_sha256"],
-        "narration_review": deepcopy(narration_review),
+        "narration_review": normalized_review,
         "agency_claims": normalized_claims,
         "contract_projection": projection,
         "bundle": bundle,
@@ -3425,6 +3552,9 @@ def build_finalization_receipt(
         raise TurnContractError(first["code"], first["message"], violations=violations)
     context = build_output_context(campaign_dir)
     projection = _validate_contract_projection(context, contract_projection)
+    normalized_review = _validate_narration_review_binding(
+        narration_review, draft=draft, projection=projection
+    )
     if context["missing_substantive_effects"]:
         missing = ", ".join(
             row["obligation_id"] for row in context["missing_substantive_effects"]
@@ -3494,7 +3624,7 @@ def build_finalization_receipt(
         "bundle_sha256": canonical_digest(bundle),
         "rendered_text_sha256": canonical_digest(rendered),
         "contract_projection_sha256": canonical_digest(projection),
-        "narration_review": deepcopy(narration_review),
+        "narration_review": normalized_review,
         "agency_claims": normalized_claims,
         "contract_projection": projection,
         "bundle": deepcopy(bundle),

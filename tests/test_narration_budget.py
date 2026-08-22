@@ -281,6 +281,7 @@ def test_review_records_deterministic_over_length(campaign_ws):
     assert finalized["data"]["narration_review"] == {
         "review_id": reviewed["data"]["review_id"],
         "review_digest": reviewed["data"]["review_digest"],
+        "draft_sha256": reviewed["data"]["draft_sha256"],
     }
 
 
@@ -347,16 +348,19 @@ def test_pi_agency_violation_requires_prose_only_revision_two(
         decision_id="journal-agency-block",
     )
     assert context["agency_review_operation"]["operation"] == "narration.review"
+    assert context["agency_review_operation"]["invoke_via"] == "coc_narration_review"
     assert context["agency_review_operation"]["prefilled_arguments"]["revision"] == 1
     assert {"narration_review_id", "agency_claims"} <= set(
         context["finalize_operation"]["missing_arguments"]
     )
+    assert context["finalize_operation"]["invoke_via"] == "coc_turn_finalize"
     projected = coc_mcp_wire.project_envelope(
         "turn.output_context",
         {"ok": True, "tool": "turn.output_context", "data": context},
         contract_digest="sha256:agency-review-contract",
     )["data"]
     assert projected["agency_review_operation"]["operation"] == "narration.review"
+    assert projected["agency_review_operation"]["invoke_via"] == "coc_narration_review"
     assert projected["agency_review_operation"]["prefilled_arguments"] == {
         "turn_id": context["turn_id"],
         "source_digest": context["source_digest"],
@@ -365,6 +369,7 @@ def test_pi_agency_violation_requires_prose_only_revision_two(
     assert {"narration_review_id", "agency_claims"} <= set(
         projected["finalize_operation"]["missing_arguments"]
     )
+    assert projected["finalize_operation"]["invoke_via"] == "coc_turn_finalize"
     bad_draft = "海斯意识到这次没有新收获。诺特仍坐在桌后。"
     rejected_review = _agency_review(
         campaign_ws,

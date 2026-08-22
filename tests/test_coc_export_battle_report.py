@@ -24,7 +24,10 @@ def _canonical_digest(value):
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def _review(review_id, *, turn_id="turn-1", revision=1, findings=None):
+def _review(
+    review_id, *, turn_id="turn-1", revision=1, findings=None,
+    draft_text="门上写着 **勿入**。\n第二行有 `code`。",
+):
     row = {
         "schema_version": 1,
         "visibility": "keeper_internal",
@@ -35,7 +38,7 @@ def _review(review_id, *, turn_id="turn-1", revision=1, findings=None):
         "turn_id": turn_id,
         "source_digest": "sha256:source-1",
         "revision": revision,
-        "draft_sha256": "sha256:draft-1",
+        "draft_sha256": _canonical_digest(draft_text),
         "request_digest": "sha256:request-1",
         "findings": list(findings or []),
         "recommendation": "consider_revision" if findings else "no_revision_suggested",
@@ -83,7 +86,11 @@ def _finalization_receipt(
         "accepted_draft_sha256": _canonical_digest(rendered_text),
         "accepted_revision": revision,
         "narration_review": (
-            {"review_id": review["review_id"], "review_digest": review["review_digest"]}
+            {
+                "review_id": review["review_id"],
+                "review_digest": review["review_digest"],
+                "draft_sha256": _canonical_digest(rendered_text),
+            }
             if isinstance(review, dict) else None
         ),
         "agency_claims": list(agency_claims or []),
@@ -173,7 +180,7 @@ def _bind_rolls(run: Path, finalization_id, roll_ids):
     player = next(row for row in transcript if row.get("role") == "player")
     player["journal_decision_id"] = f"{finalization_id}-journal"
     _write_jsonl(transcript_path, transcript)
-    review = _review(f"review-{finalization_id}")
+    review = _review(f"review-{finalization_id}", draft_text=keeper["text"])
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
@@ -835,7 +842,10 @@ def test_play_conduct_signals_restate_structured_facts_without_changing_complete
         ])
     _write_jsonl(_canonical_transcript_path(run), canonical_rows)
     reviews = [
-        _review(f"review-fin-{turn}", turn_id=f"turn-{turn}")
+        _review(
+            f"review-fin-{turn}", turn_id=f"turn-{turn}",
+            draft_text=f"keeper {turn} dialogue",
+        )
         for turn in range(1, 7)
     ]
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", reviews)
@@ -1508,7 +1518,9 @@ def test_dispositioned_revision_is_audit_only(tmp_path):
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
     old_text = "旧稿：你已经决定相信他。"
     accepted_text = "新稿：他把手从抽屉上移开。"
-    accepted_review = _review("review-fin-2", revision=2)
+    accepted_review = _review(
+        "review-fin-2", revision=2, draft_text=accepted_text,
+    )
     receipt = _finalization_receipt(
         "fin-2", ["public-1"], rendered_text=accepted_text,
         revision=2, review=accepted_review,
@@ -1597,6 +1609,7 @@ def test_agency_is_not_proven_without_bound_review_and_accepted_violation_fails(
     receipt["narration_review"] = {
         "review_id": violation["review_id"],
         "review_digest": violation["review_digest"],
+        "draft_sha256": violation["draft_sha256"],
     }
     _refresh_receipt(receipt)
     _write_jsonl(receipt_path, [receipt])
@@ -1614,9 +1627,10 @@ def test_dispositioned_agency_finding_does_not_condemn_accepted_revision(tmp_pat
         "rule_id": "agency_violation", "subject_ref": "pc:ada",
         "source_ref": None, "reason": "old draft violation",
     }])
-    accepted = _review("review-accepted")
+    accepted_text = "门上写着 **勿入**。\n第二行有 `code`。"
+    accepted = _review("review-accepted", draft_text=accepted_text)
     receipt = _finalization_receipt(
-        "fin-1", ["public-1"], rendered_text="门上写着 **勿入**。\n第二行有 `code`。",
+        "fin-1", ["public-1"], rendered_text=accepted_text,
         review=accepted,
     )
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [old, accepted])
@@ -1625,6 +1639,86 @@ def test_dispositioned_agency_finding_does_not_condemn_accepted_revision(tmp_pat
     assert report["completeness"]["dimensions"]["agency"]["status"] == "PASS"
     audit = (run / "artifacts" / "audit" / "narration-revisions.jsonl").read_text(encoding="utf-8")
     assert "old draft violation" in audit
+
+
+def test_agency_cannot_pass_when_review_draft_hash_does_not_bind_accepted_draft(
+    tmp_path,
+):
+    module = _load()
+    run = tmp_path / "wrong-review-draft"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    wrong_review = _review(
+        "review-wrong-draft", draft_text="另一份没有被接受的草稿。",
+    )
+    receipt = _finalization_receipt(
+        "fin-1", ["public-1"],
+        rendered_text="门上写着 **勿入**。\n第二行有 `code`。",
+        review=wrong_review,
+    )
+    _write_jsonl(
+        campaign / "logs" / "narration-reviews.jsonl", [wrong_review],
+    )
+    _write_jsonl(campaign / "logs" / "turn-finalizations.jsonl", [receipt])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["agency"]["status"] != "PASS"
+
+
+def test_legacy_review_reference_without_raw_draft_hash_is_not_proven(tmp_path):
+    module = _load()
+    run = tmp_path / "legacy-review-reference"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipt = json.loads(receipt_path.read_text().splitlines()[0])
+    receipt["narration_review"].pop("draft_sha256")
+    _refresh_receipt(receipt)
+    _write_jsonl(receipt_path, [receipt])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "NOT_PROVEN"
+
+
+@pytest.mark.parametrize(
+    ("claim_type", "source_ref"),
+    [
+        ("voluntary_belief", "player_input:wrong"),
+        ("involuntary_physiology", "narration_contract:wrong"),
+    ],
+)
+def test_agency_rejects_non_forced_claim_with_wrong_frozen_source(
+    tmp_path, claim_type, source_ref,
+):
+    module = _load()
+    run = tmp_path / f"wrong-{claim_type}"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipt = json.loads(receipt_path.read_text().splitlines()[0])
+    receipt["agency_claims"] = [{
+        "claim_id": f"claim-{claim_type}", "claim_type": claim_type,
+        "subject_ref": "pc:ada", "source_ref": source_ref,
+        "override_id": None, "exact_excerpt": "门上写着",
+    }]
+    receipt["contract_projection"].update({
+        "player_input": {"source_ref": "player_input:fin-1-journal"},
+        "agency_authority": {
+            "pc_subject_refs": ["pc:ada"],
+            "involuntary_physiology_sources": [{
+                "source_type": "ownership_contract",
+                "source_ref": "narration_contract:involuntary_physiology",
+            }],
+        },
+    })
+    _refresh_receipt(receipt)
+    _write_jsonl(receipt_path, [receipt])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "FAIL"
 
 
 def test_forced_claim_requires_frozen_active_override(tmp_path):
@@ -1725,6 +1819,7 @@ def test_soft_over_length_on_accepted_revision_does_not_fail_completeness(tmp_pa
     receipt = json.loads(receipt_path.read_text(encoding="utf-8").splitlines()[0])
     receipt["narration_review"] = {
         "review_id": review["review_id"], "review_digest": review["review_digest"],
+        "draft_sha256": review["draft_sha256"],
     }
     _refresh_receipt(receipt)
     _write_jsonl(receipt_path, [receipt])

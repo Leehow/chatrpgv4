@@ -30563,6 +30563,7 @@ def _resolve_bound_narration_review(
     return {
         "review_id": clean_id,
         "review_digest": str(row.get("review_digest") or ""),
+        "draft_sha256": str(row.get("draft_sha256") or ""),
     }
 
 
@@ -30595,7 +30596,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     if agency_review_required:
         data["agency_review_operation"] = {
             "operation": "narration.review",
-            "invoke_via": "coc_invoke",
+            "invoke_via": "coc_narration_review",
             "prefilled_arguments": {
                 "turn_id": data["turn_id"],
                 "source_digest": data["source_digest"],
@@ -30627,7 +30628,9 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         missing_arguments.extend(["narration_review_id", "agency_claims"])
     data["finalize_operation"] = {
         "operation": "turn.finalize",
-        "invoke_via": "coc_invoke",
+        "invoke_via": (
+            "coc_turn_finalize" if agency_review_required else "coc_invoke"
+        ),
         "prefilled_arguments": prefilled_arguments,
         "missing_arguments": missing_arguments,
         "discovery_required": False,
