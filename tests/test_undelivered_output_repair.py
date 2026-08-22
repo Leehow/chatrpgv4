@@ -389,6 +389,64 @@ def test_direct_toolbox_run_segment_fallback_freezes_and_rejects_alias_change(
     assert changed["error"]["code"] == "run_segment_conflict"
 
 
+def test_fresh_journal_run_segment_conflict_is_atomic_before_delivery_ack(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "run-segment-conflict-atomic"
+    workspace, _investigator_id = _workspace(tmp_path, campaign_id)
+    _context, placements = _open_time_turn(workspace, campaign_id)
+    finalized = coc_toolbox.run_tool(
+        "turn.finalize", workspace, campaign_id,
+        {
+            "draft": "托马斯走到门边。\n\n他停下来等候。",
+            "coverage": [],
+            "mechanics_placements": placements,
+            "revision": 1,
+            "decision_id": "atomic-finalize-one",
+        },
+    )
+    assert finalized["ok"] is True, finalized
+    campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
+    watched = [
+        campaign_dir / "save" / "continuation" / "delivery-receipts.jsonl",
+        campaign_dir / "save" / "continuation" / "latest.json",
+        campaign_dir / "logs" / "events.jsonl",
+        campaign_dir / "memory" / "session-summaries.jsonl",
+        campaign_dir / "save" / "pending-turn.json",
+        campaign_dir / "logs" / "table-transcript.jsonl",
+        campaign_dir / "save" / "pacing.json",
+    ]
+
+    def snapshot() -> dict[str, bytes | None]:
+        result = {
+            path.relative_to(campaign_dir).as_posix(): (
+                path.read_bytes() if path.is_file() else None
+            )
+            for path in watched
+        }
+        manifest_dir = campaign_dir / "save" / "turn-manifests"
+        for path in sorted(manifest_dir.glob("*")) if manifest_dir.is_dir() else []:
+            result[path.relative_to(campaign_dir).as_posix()] = path.read_bytes()
+        return result
+
+    before = snapshot()
+    assert before["save/pending-turn.json"] is None
+    assert before["save/continuation/delivery-receipts.jsonl"] is None
+    conflict = coc_toolbox.run_tool(
+        "state.journal", workspace, campaign_id,
+        {
+            "summary": "不应提交的新回合。",
+            "player_text": "我回答了 KP，但错误地换了 run id。",
+            "run_id": "different-run",
+            "decision_id": "fresh-conflicting-journal",
+        },
+    )
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "run_segment_conflict"
+    assert snapshot() == before
+    assert not (campaign_dir / "save" / "pending-turn.json").exists()
+
+
 def test_involuntary_physiology_requires_current_pc_and_typed_source(
     tmp_path: Path,
 ) -> None:

@@ -30072,6 +30072,13 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
             run_segment_trust=str(run_binding["trust"]),
         )
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    # Resolve and validate the immutable run segment before delivery
+    # acknowledgement or any pacing/event/summary/manifest/transcript write.
+    # A conflicting fresh decision must leave the entire turn tail untouched.
+    run_binding = _run_segment_binding(
+        ctx, supplied_alias=args.get("run_id")
+    )
+    run_id = str(run_binding["run_segment_id"])
     try:
         pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
         coc_turn_manifest.load_or_create_cursor(ctx.campaign_dir)
@@ -30145,10 +30152,6 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         "turn_id": manifest["turn_id"],
         "continuation_delta": continuation_delta,
     }
-    run_binding = _run_segment_binding(
-        ctx, supplied_alias=args.get("run_id")
-    )
-    run_id = str(run_binding["run_segment_id"])
     _record_journal_player_transcript_entry(
         ctx,
         player_text=player_text,
