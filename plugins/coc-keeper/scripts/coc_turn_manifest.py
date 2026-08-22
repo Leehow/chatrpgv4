@@ -14,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import stat
 from typing import Any, Collection
 
 import coc_fileio
@@ -302,13 +303,31 @@ def _contains_historical_turns(campaign_dir: Path) -> bool:
     return False
 
 
+def _cursor_is_regular_file(path: Path) -> bool:
+    """Classify the durable cursor lexically without following symlinks."""
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise TurnManifestError(
+            "state_corrupt", "turn source cursor path is unreadable",
+        ) from exc
+    if not stat.S_ISREG(mode):
+        raise TurnManifestError(
+            "state_corrupt",
+            "turn source cursor path must be a regular file",
+        )
+    return True
+
+
 def load_or_create_cursor(
     campaign_dir: Path, *, validate_finalization_binding: bool = True
 ) -> dict[str, Any]:
     campaign_dir = Path(campaign_dir)
     campaign_id = campaign_dir.name
     path = _cursor_path(campaign_dir)
-    if path.is_file():
+    if _cursor_is_regular_file(path):
         cursor = _validate_cursor(
             _read_object(path, code="state_corrupt"), campaign_id
         )
@@ -552,6 +571,58 @@ def _setup_source_boundary(campaign_dir: Path) -> dict[str, Any] | None:
     return result
 
 
+def setup_creation_roll_fence(campaign_dir: Path) -> dict[str, Any] | None:
+    """Return exact successful roll identities before the earliest setup seal.
+
+    This is derived from the same persisted-handoff match as resume projection;
+    it never advances the durable opening cursor.  Direct campaigns and a
+    crash before the generic setup.complete receipt have no provable fence.
+    """
+    boundary = _setup_source_boundary(Path(campaign_dir))
+    if boundary is None or boundary.get("kind") != "setup_handoff_virtual":
+        return None
+    setup_index = int(boundary["effective_start_index"]) - 1
+    rows, _ = _slice_rows(
+        _toolbox_path(Path(campaign_dir)),
+        0,
+        end_offset=int(boundary["effective_start_offset"]),
+    )
+    if setup_index < 0 or setup_index >= len(rows):
+        raise TurnManifestError(
+            "state_corrupt", "setup handoff source fence is inconsistent",
+        )
+    roll_decisions: dict[str, str] = {}
+    for row, _row_end in rows[:setup_index]:
+        args = row.get("args") if isinstance(row.get("args"), dict) else {}
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        decision_id = args.get("decision_id")
+        roll_id = data.get("roll_id")
+        if (
+            row.get("schema_version") != 2
+            or row.get("ok") is not True
+            or row.get("tool") != "rules.roll_dice"
+            or not isinstance(decision_id, str)
+            or not decision_id.strip()
+            or not isinstance(roll_id, str)
+            or not roll_id.strip()
+        ):
+            continue
+        previous = roll_decisions.get(roll_id)
+        if previous is not None and previous != decision_id:
+            raise TurnManifestError(
+                "state_corrupt", "setup source prefix reuses a roll id",
+            )
+        roll_decisions[roll_id] = decision_id
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "setup_complete_index": setup_index,
+        "setup_complete_start_offset": (
+            0 if setup_index == 0 else rows[setup_index - 1][1]
+        ),
+        "roll_decisions": roll_decisions,
+    }
+
+
 def _validated_virtual_source_boundary(
     campaign_dir: Path, cursor: dict[str, Any],
 ) -> dict[str, Any]:
@@ -603,7 +674,7 @@ def effective_source_boundary(campaign_dir: Path) -> dict[str, Any]:
     """
     campaign_dir = Path(campaign_dir)
     cursor_path = _cursor_path(campaign_dir)
-    if cursor_path.is_file():
+    if _cursor_is_regular_file(cursor_path):
         cursor = load_or_create_cursor(campaign_dir)
     else:
         if _contains_historical_turns(campaign_dir):
@@ -688,7 +759,7 @@ def _advance_table_opening_boundary(
         _validate_cursor(
             _read_object(cursor_path, code="state_corrupt"), campaign_dir.name
         )
-        if cursor_path.is_file()
+        if _cursor_is_regular_file(cursor_path)
         else None
     )
     if cursor is not None:

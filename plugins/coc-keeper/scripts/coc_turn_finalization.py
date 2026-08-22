@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import coc_character
+import coc_creation_provenance
 import coc_first_impression
 import coc_fileio
 import coc_language
@@ -1778,6 +1779,10 @@ def _campaign_creation_records(
             "state_corrupt", "linked investigator state root is missing or invalid",
         )
     records: list[tuple[dict[str, Any], set[str]]] = []
+    try:
+        setup_fence = coc_turn_manifest.setup_creation_roll_fence(campaign_dir)
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise TurnContractError(exc.code, str(exc)) from exc
     for investigator_id in sorted(party_ids):
         investigator_dir = investigators_dir / investigator_id
         if investigator_dir.is_symlink() or not investigator_dir.is_dir():
@@ -1815,21 +1820,32 @@ def _campaign_creation_records(
             "guided_quick_fire", coc_character.ERA_ADAPTIVE_INPUT_MODE,
         }:
             continue
-        # Import lazily: coc_runtime_ops also loads this module for rendering,
-        # while the authoritative dice verifier itself belongs to runtime ops.
-        import coc_runtime_ops
         try:
-            trusted_roll_ids = coc_runtime_ops.validated_creation_roll_ids(
+            trusted_references = (
+                coc_creation_provenance.validated_creation_roll_references(
                 campaign_dir.parents[2],
                 character,
                 creation,
                 current_campaign_id=campaign_dir.name,
+                )
             )
-        except coc_runtime_ops.RuntimeOperationError as exc:
+        except coc_creation_provenance.CreationProvenanceError as exc:
             raise TurnContractError(
                 "state_corrupt",
                 f"linked investigator {investigator_id} creation provenance is invalid: {exc}",
             ) from exc
+        trusted_roll_ids = set(trusted_references)
+        if setup_fence is not None:
+            allowed = setup_fence["roll_decisions"]
+            if any(
+                allowed.get(roll_id) != decision_id
+                for roll_id, decision_id in trusted_references.items()
+            ):
+                raise TurnContractError(
+                    "state_corrupt",
+                    f"linked investigator {investigator_id} creation receipt "
+                    "is outside the earliest setup handoff fence",
+                )
         records.append((creation, trusted_roll_ids))
     return records
 

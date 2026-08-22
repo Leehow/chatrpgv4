@@ -89,18 +89,6 @@ def _link_investigator(
     )
 
 
-def _normalize_legacy_starter_fixture(
-    root: Path, campaign_id: str, investigator_id: str,
-) -> None:
-    """Give old starter-only resume fixtures an exact current imported sheet."""
-    _link_investigator(
-        root,
-        campaign_id,
-        investigator_id,
-        method="imported_character_sheet",
-    )
-
-
 def _bind_source(
     campaign_dir: Path,
     *,
@@ -365,7 +353,7 @@ def test_session_resume_ready_for_table_points_at_table_opening(tmp_path: Path):
     assert "opening" not in coc_toolbox.operation_policy("turn.finalize")["phases"]
 
 
-def test_session_resume_unopened_active_starter_points_at_table_opening(tmp_path: Path):
+def test_untouched_quick_start_complete_resumes_at_table_opening(tmp_path: Path):
     workspace = tmp_path / "workspace"
     quick = coc_starter.quick_start(
         workspace / ".coc",
@@ -373,9 +361,16 @@ def test_session_resume_unopened_active_starter_points_at_table_opening(tmp_path
         "thomas-hayes",
         campaign_id="active-starter-opening",
     )
-    _normalize_legacy_starter_fixture(
-        workspace, quick["campaign_id"], quick["investigator_id"],
+    completed = coc_toolbox.run_tool(
+        "setup.complete",
+        workspace,
+        quick["campaign_id"],
+        {
+            "campaign_id": quick["campaign_id"],
+            "decision_id": "complete-active-starter-opening",
+        },
     )
+    assert completed["ok"] is True, completed
     resumed = _resume(workspace, quick["campaign_id"])
     assert resumed["data"]["mode"] == "table_opening"
     assert resumed["data"]["next_operations"] == ["evidence.table_opening"]
@@ -441,9 +436,6 @@ def test_session_resume_ready_for_table_keeps_unconfirmed_delivery_live(
         "thomas-hayes",
         campaign_id=campaign_id,
         title="Ready For Table Delivery",
-    )
-    _normalize_legacy_starter_fixture(
-        workspace, campaign_id, quick["investigator_id"],
     )
     campaign_dir = Path(quick["campaign_dir"])
     campaign_path = campaign_dir / "campaign.json"

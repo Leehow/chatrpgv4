@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import random
+import re
 from pathlib import Path
 
 import pytest
@@ -32,6 +34,19 @@ def _read_jsonl(path: Path) -> list[dict]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def _seed_for_dice_total(expression: str, target: int) -> int:
+    """Find deterministic test transport for an independently known total."""
+    match = re.fullmatch(r"(\d+)D(\d+)([+-]\d+)?", expression.upper())
+    assert match is not None
+    count, sides = int(match.group(1)), int(match.group(2))
+    modifier = int(match.group(3) or 0)
+    for seed in range(100_000):
+        rng = random.Random(seed)
+        if sum(rng.randint(1, sides) for _ in range(count)) + modifier == target:
+            return seed
+    raise AssertionError(f"no deterministic seed found for {expression}={target}")
 
 
 def _campaign_tree_without_dispatch_audit(campaign_dir: Path) -> dict[str, object]:
@@ -496,6 +511,66 @@ def test_setup_complete_immediate_replay_still_resumes_at_opening(
 
     assert resumed["data"]["mode"] == "table_opening"
     assert resumed["data"]["current_turn"]["meaningful_row_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "cursor_kind",
+    [
+        "directory", "valid_symlink", "dangling_symlink",
+        "malformed_regular", "unreadable_regular",
+    ],
+)
+def test_preopening_cursor_path_must_be_a_regular_file(
+    tmp_path: Path, cursor_kind: str,
+) -> None:
+    campaign_id = f"cursor-kind-{cursor_kind}"
+    campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    cursor_path = campaign_dir / "save" / "turn-source-cursor.json"
+    assert not cursor_path.exists() and not cursor_path.is_symlink()
+    if cursor_kind == "directory":
+        cursor_path.mkdir()
+    elif cursor_kind in {"valid_symlink", "dangling_symlink"}:
+        target = tmp_path / f"{campaign_id}-cursor-target.json"
+        if cursor_kind == "valid_symlink":
+            target.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "campaign_id": campaign_id,
+                    "next_source_offset": 0,
+                    "next_source_index": 0,
+                    "last_finalized_turn_id": None,
+                    "last_finalization_id": None,
+                }),
+                encoding="utf-8",
+            )
+        cursor_path.symlink_to(target)
+    else:
+        cursor_path.write_text(
+            "{" if cursor_kind == "malformed_regular" else json.dumps({
+                "schema_version": 1,
+                "campaign_id": campaign_id,
+                "next_source_offset": 0,
+                "next_source_index": 0,
+                "last_finalized_turn_id": None,
+                "last_finalization_id": None,
+            }),
+            encoding="utf-8",
+        )
+        if cursor_kind == "unreadable_regular":
+            cursor_path.chmod(0)
+    before = _campaign_tree_without_dispatch_audit(campaign_dir)
+
+    resumed = coc_toolbox.run_tool("session.resume", tmp_path, campaign_id, {})
+
+    assert resumed["ok"] is False
+    assert resumed["error"]["code"] == "state_corrupt"
+    assert _campaign_tree_without_dispatch_audit(campaign_dir) == before
+    if "symlink" in cursor_kind:
+        assert cursor_path.is_symlink()
+    elif cursor_kind == "directory":
+        assert cursor_path.is_dir()
+    else:
+        assert cursor_path.is_file()
 
 
 def test_opening_replay_does_not_contaminate_later_recovery(tmp_path: Path) -> None:
@@ -1034,6 +1109,108 @@ def test_linked_quick_fire_receipt_mutation_fails_closed_before_resume_writes(
     dispositions = coc_turn_finalization.load_roll_dispositions(campaign_dir)
     assert canonical_roll_ids.isdisjoint(dispositions)
     assert orphan["data"]["roll_id"] not in dispositions
+
+
+@pytest.mark.parametrize(
+    ("receipt_family", "age", "expression", "purpose"),
+    [
+        ("winning_luck", 27, "3D6", "investigator_creation_luck"),
+        ("luck_candidate", 18, "3D6", "investigator_creation_luck"),
+        ("edu_check", 45, "1D100", "investigator_creation_characteristic"),
+        ("edu_improve", 69, "1D10", "investigator_creation_characteristic"),
+    ],
+)
+def test_post_handoff_same_recipe_roll_cannot_become_creation_provenance(
+    tmp_path: Path,
+    receipt_family: str,
+    age: int,
+    expression: str,
+    purpose: str,
+) -> None:
+    campaign_id = f"temporal-{receipt_family}"
+    attempts = range(8) if receipt_family == "edu_improve" else range(1)
+    for attempt in attempts:
+        selected_id = campaign_id if attempt == 0 else f"{campaign_id}-{attempt}"
+        campaign_dir, chargen = _create_chargen_and_complete(
+            tmp_path, selected_id, age=age,
+        )
+        creation_path = (
+            tmp_path / ".coc" / "investigators" / f"inv-{selected_id}"
+            / "creation.json"
+        )
+        creation = json.loads(creation_path.read_text(encoding="utf-8"))
+        if receipt_family != "edu_improve" or any(
+            "improve_receipt" in row
+            for row in creation["edu_improvement_rolls"]
+        ):
+            campaign_id = selected_id
+            break
+    else:
+        raise AssertionError("eight age-69 chargen runs produced no EDU improvement")
+    canonical_roll_ids = set(chargen["data"]["result"]["roll_ids"])
+    if receipt_family == "winning_luck":
+        target = creation["luck_roll_total"]
+    elif receipt_family == "luck_candidate":
+        target = creation["luck_roll_candidates"][0]["total"]
+    elif receipt_family == "edu_check":
+        target = creation["edu_improvement_rolls"][0]["roll"]
+    else:
+        record = next(
+            row for row in creation["edu_improvement_rolls"]
+            if "improve_receipt" in row
+        )
+        target = record["improvement_roll"]
+    decision_id = f"post-handoff-same-recipe-{receipt_family}"
+    orphan = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        campaign_id,
+        {
+            "expression": expression,
+            "purpose": purpose,
+            "reason": "same recipe after setup handoff",
+            "seed": _seed_for_dice_total(expression, target),
+            "decision_id": decision_id,
+        },
+    )
+    assert orphan["ok"] is True, orphan
+    assert orphan["data"]["total"] == target
+    reference = {
+        "campaign_id": campaign_id,
+        "decision_id": decision_id,
+        "roll_id": orphan["data"]["roll_id"],
+    }
+    if receipt_family == "winning_luck":
+        creation["luck_roll_receipt"] = reference
+    elif receipt_family == "luck_candidate":
+        creation["luck_roll_candidates"][0]["receipt"] = reference
+    elif receipt_family == "edu_check":
+        creation["edu_improvement_rolls"][0]["check_receipt"] = reference
+    else:
+        record["improve_receipt"] = reference
+    creation_path.write_text(
+        json.dumps(creation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    replay = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        campaign_id,
+        {"campaign_id": campaign_id, "decision_id": f"complete-{campaign_id}"},
+    )
+    assert replay["ok"] is True, replay
+    before = _campaign_tree_without_dispatch_audit(campaign_dir)
+
+    with pytest.raises(coc_turn_finalization.TurnContractError) as direct_error:
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    assert direct_error.value.code == "state_corrupt"
+    resumed = coc_toolbox.run_tool("session.resume", tmp_path, campaign_id, {})
+    assert resumed["ok"] is False
+    assert resumed["error"]["code"] == "state_corrupt"
+    assert _campaign_tree_without_dispatch_audit(campaign_dir) == before
+    assert canonical_roll_ids.isdisjoint(
+        coc_turn_finalization.load_roll_dispositions(campaign_dir)
+    )
 
 
 @pytest.mark.parametrize(
