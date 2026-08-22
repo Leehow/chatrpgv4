@@ -20,6 +20,9 @@ import coc_runtime_ops
 import coc_toolbox
 
 
+coc_turn_finalization = coc_toolbox.coc_turn_finalization
+
+
 def _create_campaign(
     workspace: Path,
     *,
@@ -810,6 +813,18 @@ def test_kp_guided_rolled_characteristics_bind_existing_roll_receipts(
     )
 
     assert receipt["status"] == "PASS"
+    linked = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "campaign.link_investigator",
+            "payload": {
+                "campaign_id": "contract-campaign",
+                "investigator_ids": ["medieval-rolled"],
+            },
+        },
+    )
+    assert linked["status"] == "PASS"
     stored = json.loads(
         (
             tmp_path / ".coc" / "investigators" / "medieval-rolled"
@@ -819,6 +834,86 @@ def test_kp_guided_rolled_characteristics_bind_existing_roll_receipts(
     assert stored["characteristics"] == characteristics
     assert stored["derived"]["Luck"] == luck["data"]["total"] * 5
     assert stored["skill_provenance"]["Drive Auto"]["reskinned_name"] == "骑术"
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "contract-campaign"
+    expected_roll_ids = {
+        reference["roll_id"]
+        for reference in payload["creation"]["characteristic_roll_receipts"].values()
+    }
+    assert expected_roll_ids <= (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    )
+
+
+def test_linked_kp_guided_characteristic_receipt_mutation_is_not_trusted(
+    tmp_path: Path,
+) -> None:
+    _create_campaign(tmp_path, era="medieval")
+    investigator_id = "medieval-provenance"
+    payload, _characteristics, _luck = _kp_guided_rolled_medieval_payload(
+        tmp_path, investigator_id,
+    )
+    created = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": payload,
+        },
+    )
+    assert created["status"] == "PASS"
+    linked = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "campaign.link_investigator",
+            "payload": {
+                "campaign_id": "contract-campaign",
+                "investigator_ids": [investigator_id],
+            },
+        },
+    )
+    assert linked["status"] == "PASS"
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "contract-campaign"
+    canonical_roll_ids = {
+        reference["roll_id"]
+        for reference in payload["creation"]["characteristic_roll_receipts"].values()
+    }
+    assert canonical_roll_ids <= (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    )
+    orphan = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "contract-campaign",
+        {
+            "expression": "3D6",
+            "reason": "wrong KP-guided SIZ provenance",
+            "decision_id": "kp-guided-wrong-siz",
+        },
+    )
+    assert orphan["ok"] is True, orphan
+    investigator_dir = tmp_path / ".coc" / "investigators" / investigator_id
+    character = json.loads(
+        (investigator_dir / "character.json").read_text(encoding="utf-8")
+    )
+    creation_path = investigator_dir / "creation.json"
+    creation = json.loads(creation_path.read_text(encoding="utf-8"))
+    creation["characteristic_roll_receipts"]["SIZ"] = {
+        "campaign_id": "contract-campaign",
+        "decision_id": "kp-guided-wrong-siz",
+        "roll_id": orphan["data"]["roll_id"],
+    }
+    assert coc_runtime_ops.coc_character.validate_character_create_sheet(
+        character, creation,
+    ) == []
+    creation_path.write_text(
+        json.dumps(creation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(coc_turn_finalization.TurnContractError) as error:
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    assert error.value.code == "state_corrupt"
 
 
 @pytest.mark.parametrize(

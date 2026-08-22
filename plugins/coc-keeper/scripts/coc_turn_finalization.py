@@ -1674,16 +1674,43 @@ def creation_receipt_bound_roll_ids(
     return bound
 
 
-def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
-    """Read creation receipts only for the campaign's confirmed party/handoff."""
+def _campaign_creation_records(
+    campaign_dir: Path,
+) -> list[tuple[dict[str, Any], set[str]]]:
+    """Read and authoritatively verify creation receipts in campaign scope."""
     campaign_dir = Path(campaign_dir)
+
+    def read_required_object(path: Path, label: str) -> dict[str, Any]:
+        if path.is_symlink() or not path.is_file():
+            raise TurnContractError(
+                "state_corrupt", f"{label} is missing or not a regular file",
+            )
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise TurnContractError(
+                "state_corrupt", f"{label} is unreadable or malformed",
+            ) from exc
+        if not isinstance(value, dict):
+            raise TurnContractError(
+                "state_corrupt", f"{label} must be a JSON object",
+            )
+        return value
+
+    campaign = read_required_object(campaign_dir / "campaign.json", "campaign state")
+    handoff_present = "setup_handoff" in campaign
+    handoff = campaign.get("setup_handoff")
+    if handoff_present and not isinstance(handoff, dict):
+        raise TurnContractError("state_corrupt", "setup handoff is malformed")
+
     party_path = campaign_dir / "party.json"
-    if party_path.is_symlink() or not party_path.is_file():
+    if (
+        not party_path.exists()
+        and not party_path.is_symlink()
+        and not handoff_present
+    ):
         return []
-    try:
-        party = json.loads(party_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return []
+    party = read_required_object(party_path, "campaign party state")
     raw_party_ids = party.get("investigator_ids") if isinstance(party, dict) else None
     raw_active_ids = (
         party.get("active_investigator_ids") if isinstance(party, dict) else None
@@ -1695,7 +1722,9 @@ def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
         or not isinstance(raw_party_ids, list)
         or not isinstance(raw_active_ids, list)
     ):
-        return []
+        raise TurnContractError(
+            "state_corrupt", "campaign party identity is malformed",
+        )
     def valid_investigator_id(value: Any) -> bool:
         return bool(
             isinstance(value, str)
@@ -1713,17 +1742,11 @@ def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
         or len(set(raw_active_ids)) != len(raw_active_ids)
         or not set(raw_active_ids).issubset(set(raw_party_ids))
     ):
-        return []
+        raise TurnContractError(
+            "state_corrupt", "campaign party investigator ids are malformed",
+        )
     party_ids = set(raw_party_ids)
 
-    campaign_path = campaign_dir / "campaign.json"
-    if campaign_path.is_symlink() or not campaign_path.is_file():
-        return []
-    try:
-        campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return []
-    handoff = campaign.get("setup_handoff") if isinstance(campaign, dict) else None
     if isinstance(handoff, dict):
         raw_handoff_ids = handoff.get("investigator_ids")
         if (
@@ -1731,7 +1754,16 @@ def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
             or handoff.get("campaign_id") != campaign_dir.name
             or not isinstance(raw_handoff_ids, list)
         ):
-            return []
+            raise TurnContractError(
+                "state_corrupt", "setup handoff investigator scope is malformed",
+            )
+        if (
+            any(not valid_investigator_id(value) for value in raw_handoff_ids)
+            or len(set(raw_handoff_ids)) != len(raw_handoff_ids)
+        ):
+            raise TurnContractError(
+                "state_corrupt", "setup handoff investigator ids are malformed",
+            )
         handoff_ids = {
             value for value in raw_handoff_ids
             if isinstance(value, str) and value in party_ids
@@ -1739,54 +1771,77 @@ def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
         party_ids &= handoff_ids
 
     investigators_dir = Path(campaign_dir).parent.parent / "investigators"
-    if not investigators_dir.is_dir() or investigators_dir.is_symlink():
-        return []
-    records: list[Any] = []
+    if party_ids and (
+        not investigators_dir.is_dir() or investigators_dir.is_symlink()
+    ):
+        raise TurnContractError(
+            "state_corrupt", "linked investigator state root is missing or invalid",
+        )
+    records: list[tuple[dict[str, Any], set[str]]] = []
     for investigator_id in sorted(party_ids):
         investigator_dir = investigators_dir / investigator_id
         if investigator_dir.is_symlink() or not investigator_dir.is_dir():
-            continue
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} state is missing or invalid",
+            )
         creation_path = investigator_dir / "creation.json"
-        if creation_path.is_symlink() or not creation_path.is_file():
-            continue
-        try:
-            creation = json.loads(creation_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
+        creation = read_required_object(
+            creation_path, f"linked investigator {investigator_id} creation receipt",
+        )
         if (
             not isinstance(creation, dict)
             or creation.get("schema_version") != 1
             or creation.get("investigator_id") != investigator_id
         ):
-            continue
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} creation receipt is invalid",
+            )
         character_path = investigator_dir / "character.json"
-        if character_path.is_symlink() or not character_path.is_file():
-            continue
-        try:
-            character = json.loads(character_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
+        character = read_required_object(
+            character_path, f"linked investigator {investigator_id} character sheet",
+        )
         if (
             not isinstance(character, dict)
             or character.get("id") != investigator_id
             or coc_character.validate_character_create_sheet(character, creation)
         ):
-            continue
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} creation state is invalid",
+            )
         if creation.get("input_mode") not in {
             "guided_quick_fire", coc_character.ERA_ADAPTIVE_INPUT_MODE,
         }:
             continue
-        records.append(creation)
+        # Import lazily: coc_runtime_ops also loads this module for rendering,
+        # while the authoritative dice verifier itself belongs to runtime ops.
+        import coc_runtime_ops
+        try:
+            trusted_roll_ids = coc_runtime_ops.validated_creation_roll_ids(
+                campaign_dir.parents[2],
+                character,
+                creation,
+                current_campaign_id=campaign_dir.name,
+            )
+        except coc_runtime_ops.RuntimeOperationError as exc:
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} creation provenance is invalid: {exc}",
+            ) from exc
+        records.append((creation, trusted_roll_ids))
     return records
 
 
 def campaign_creation_receipt_bound_roll_ids(campaign_dir: Path) -> set[str]:
     """Return creation-bound roll ids for the confirmed campaign party only."""
     campaign_dir = Path(campaign_dir)
-    return creation_receipt_bound_roll_ids(
-        campaign_dir.name,
-        _campaign_creation_records(campaign_dir),
-    )
+    return {
+        roll_id
+        for _creation, trusted_roll_ids in _campaign_creation_records(campaign_dir)
+        for roll_id in trusted_roll_ids
+    }
 
 
 def unbound_public_roll_ids(campaign_dir: Path) -> list[str]:

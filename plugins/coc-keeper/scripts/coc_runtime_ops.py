@@ -570,7 +570,13 @@ def _validate_chargen_age_dice_receipts(
                 raise RuntimeOperationError(
                     f"edu_improvement_rolls[{index}].roll does not match its rules receipt"
                 )
-            if "improvement_roll" in record:
+            has_improvement_roll = "improvement_roll" in record
+            has_improve_receipt = "improve_receipt" in record
+            if has_improvement_roll != has_improve_receipt:
+                raise RuntimeOperationError(
+                    f"edu_improvement_rolls[{index}] must pair improvement_roll with improve_receipt"
+                )
+            if has_improvement_roll:
                 improve_total = _authoritative_dice_roll_total(
                     root,
                     record.get("improve_receipt"),
@@ -841,6 +847,59 @@ def _validate_kp_guided_characteristic_roll_receipts(
         )
     if derived.get("Luck") != creation.get("luck_roll_total") * multiplier:
         raise RuntimeOperationError(f"KP-guided derived Luck must equal its authoritative total times {multiplier}")
+
+
+def validated_creation_roll_ids(
+    root: Path,
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+    *,
+    current_campaign_id: str,
+) -> set[str]:
+    """Revalidate and return only authoritative generated-creation roll ids.
+
+    Durable creation JSON is not itself provenance: every referenced roll must
+    still match the canonical campaign receipt, operation, expression, purpose,
+    total, and rolls log.  This facade keeps that policy in the same runtime
+    validators used by ``investigator.create`` and gives read-side consumers an
+    exact trusted id set instead of asking them to rescan nested JSON shapes.
+    """
+    input_mode = creation.get("input_mode")
+    if input_mode not in {
+        "guided_quick_fire", coc_character.ERA_ADAPTIVE_INPUT_MODE,
+    }:
+        raise RuntimeOperationError(
+            "creation roll provenance is available only for generated Quick Fire or KP-guided era-adaptive creation"
+        )
+    _require_generated_age_dice_assertions(sheet, creation)
+    _validate_quick_fire_luck_receipt(
+        root, creation, current_campaign_id=current_campaign_id,
+    )
+    _validate_chargen_age_dice_receipts(
+        root, creation, current_campaign_id=current_campaign_id,
+    )
+    if input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE:
+        _validate_kp_guided_characteristic_roll_receipts(
+            root,
+            sheet,
+            creation,
+            current_campaign_id=current_campaign_id,
+        )
+
+    roll_ids, _receipts = _chargen_public_dice(creation)
+    trusted = set(roll_ids)
+    if input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE:
+        method = coc_character.characteristic_generation_methods().get(
+            creation.get("method")
+        )
+        references = creation.get("characteristic_roll_receipts")
+        if isinstance(method, dict) and method.get("requires_rolls") is True:
+            assert isinstance(references, dict)
+            trusted.update(
+                str(reference["roll_id"])
+                for reference in references.values()
+            )
+    return trusted
 
 
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:

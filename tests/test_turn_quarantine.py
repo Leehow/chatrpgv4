@@ -75,6 +75,25 @@ def campaign_ws(tmp_path: Path):
         campaign_id=campaign_id,
         title="Turn Quarantine Test",
     )
+    # This quarantine fixture predates the exact current investigator-create
+    # contract: the starter pregen omits derived Luck/Build and records no
+    # input_mode.  Keep the test focused on turn quarantine by making its
+    # imported sheet a canonical current-schema input instead of weakening the
+    # production creation-state validator.
+    investigator_dir = coc_root / "investigators" / "thomas-hayes"
+    character_path = investigator_dir / "character.json"
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    derived = coc_toolbox.coc_runtime_ops.coc_character.derive_values(
+        character["characteristics"],
+        luck=character["characteristics"]["POW"],
+    )
+    character["derived"]["Luck"] = derived["Luck"]
+    character["derived"]["Build"] = derived["Build"]
+    _write_json(character_path, character)
+    creation_path = investigator_dir / "creation.json"
+    creation = json.loads(creation_path.read_text(encoding="utf-8"))
+    creation["input_mode"] = "import_complete_sheet"
+    _write_json(creation_path, creation)
     return {
         "workspace": workspace,
         "coc_root": coc_root,

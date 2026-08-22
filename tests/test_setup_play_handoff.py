@@ -34,6 +34,23 @@ def _read_jsonl(path: Path) -> list[dict]:
     ]
 
 
+def _campaign_tree_without_dispatch_audit(campaign_dir: Path) -> dict[str, object]:
+    """Snapshot canonical campaign state while allowing one toolbox audit row."""
+    snapshot: dict[str, object] = {}
+    for path in sorted(campaign_dir.rglob("*")):
+        relative = path.relative_to(campaign_dir).as_posix()
+        if relative in {"logs/toolbox-calls.jsonl", "logs/.recorder.lock"}:
+            continue
+        if path.is_symlink():
+            snapshot[relative] = ("symlink", path.readlink().as_posix())
+        elif path.is_file():
+            try:
+                snapshot[relative] = path.read_bytes()
+            except OSError:
+                snapshot[relative] = ("unreadable", path.stat().st_mode)
+    return snapshot
+
+
 def _create_chargen_and_complete(
     root: Path, campaign_id: str, *, age: int = 27,
 ) -> tuple[Path, dict]:
@@ -517,6 +534,7 @@ def test_preopening_journal_fails_before_canonical_writes(
     campaign_id = "preopening-journal-rejected"
     campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
     tracked = [
+        campaign_dir / "save" / "turn-source-cursor.json",
         campaign_dir / "save" / "pacing-state.json",
         campaign_dir / "logs" / "events.jsonl",
         campaign_dir / "memory" / "session-summaries.jsonl",
@@ -651,6 +669,7 @@ def test_malformed_persisted_handoff_never_opens_journal_boundary(
         json.dumps(campaign, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    canonical_before = _campaign_tree_without_dispatch_audit(campaign_dir)
     tracked = [
         campaign_dir / "save" / "pacing-state.json",
         campaign_dir / "logs" / "events.jsonl",
@@ -678,6 +697,15 @@ def test_malformed_persisted_handoff_never_opens_journal_boundary(
     assert journaled["error"]["code"] == expected_code
     assert {path: path.read_bytes() if path.is_file() else None for path in tracked} == before
     assert coc_toolbox.coc_turn_manifest.pending_manifest(campaign_dir) is None
+    assert _campaign_tree_without_dispatch_audit(campaign_dir) == canonical_before
+    if expected_code == "state_corrupt":
+        resumed = coc_toolbox.run_tool("session.resume", tmp_path, campaign_id, {})
+        assert resumed["ok"] is False
+        assert resumed["error"]["code"] == "state_corrupt"
+        assert _campaign_tree_without_dispatch_audit(campaign_dir) == canonical_before
+        calls = _read_jsonl(campaign_dir / "logs" / "toolbox-calls.jsonl")
+        assert calls[-1]["tool"] == "session.resume"
+        assert calls[-1]["ok"] is False
 
 
 def test_campaign_without_setup_handoff_keeps_ordinary_cursor_semantics(
@@ -923,13 +951,96 @@ def test_linked_malformed_creation_cannot_launder_roll(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert orphan["data"]["roll_id"] not in (
+    with pytest.raises(coc_turn_finalization.TurnContractError) as error:
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    assert error.value.code == "state_corrupt"
+
+
+@pytest.mark.parametrize(
+    ("receipt_family", "age", "expression"),
+    [
+        ("winning_luck", 27, "3D6"),
+        ("luck_candidate", 27, "3D6"),
+        ("edu_check", 45, "1D100"),
+        ("edu_improve", 45, "1D10"),
+        ("edu_improve_receipt_only", 45, "1D10"),
+    ],
+)
+def test_linked_quick_fire_receipt_mutation_fails_closed_before_resume_writes(
+    tmp_path: Path, receipt_family: str, age: int, expression: str,
+) -> None:
+    campaign_id = f"linked-{receipt_family}-launder"
+    campaign_dir, chargen = _create_chargen_and_complete(
+        tmp_path, campaign_id, age=age,
+    )
+    canonical_roll_ids = set(chargen["data"]["result"]["roll_ids"])
+    assert canonical_roll_ids <= (
         coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
     )
+    orphan = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        campaign_id,
+        {
+            "expression": expression,
+            "reason": f"post-handoff {receipt_family} laundering attempt",
+            "decision_id": f"orphan-{receipt_family}",
+        },
+    )
+    assert orphan["ok"] is True, orphan
+    reference = {
+        "campaign_id": campaign_id,
+        "decision_id": f"orphan-{receipt_family}",
+        "roll_id": orphan["data"]["roll_id"],
+    }
+    creation_path = (
+        tmp_path / ".coc" / "investigators" / f"inv-{campaign_id}"
+        / "creation.json"
+    )
+    creation = json.loads(creation_path.read_text(encoding="utf-8"))
+    if receipt_family == "winning_luck":
+        creation["luck_roll_receipt"] = reference
+    elif receipt_family == "luck_candidate":
+        creation["luck_roll_candidates"] = [
+            {"total": orphan["data"]["total"], "receipt": reference}
+        ]
+    elif receipt_family == "edu_check":
+        creation["edu_improvement_rolls"][0]["check_receipt"] = reference
+    elif receipt_family == "edu_improve":
+        improved = next(
+            (
+                row for row in creation["edu_improvement_rolls"]
+                if "improve_receipt" in row
+            ),
+            creation["edu_improvement_rolls"][0],
+        )
+        improved["improvement_roll"] = orphan["data"]["total"]
+        improved["improve_receipt"] = reference
+    else:
+        creation["edu_improvement_rolls"][0]["improve_receipt"] = reference
+    creation_path.write_text(
+        json.dumps(creation, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    before = _campaign_tree_without_dispatch_audit(campaign_dir)
+
+    with pytest.raises(coc_turn_finalization.TurnContractError) as direct_error:
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    assert direct_error.value.code == "state_corrupt"
+    resumed = coc_toolbox.run_tool("session.resume", tmp_path, campaign_id, {})
+    assert resumed["ok"] is False
+    assert resumed["error"]["code"] == "state_corrupt"
+    assert _campaign_tree_without_dispatch_audit(campaign_dir) == before
+    dispositions = coc_turn_finalization.load_roll_dispositions(campaign_dir)
+    assert canonical_roll_ids.isdisjoint(dispositions)
+    assert orphan["data"]["roll_id"] not in dispositions
 
 
-@pytest.mark.parametrize("party_corruption", ["schema", "campaign"])
-def test_creation_binding_rejects_malformed_party(
+@pytest.mark.parametrize(
+    "party_corruption",
+    ["schema", "campaign", "id_list", "missing", "symlink", "unreadable"],
+)
+def test_resume_rejects_malformed_party_before_canonical_writes(
     tmp_path: Path, party_corruption: str,
 ) -> None:
     campaign_id = f"malformed-party-{party_corruption}"
@@ -940,15 +1051,64 @@ def test_creation_binding_rejects_malformed_party(
     )
     party_path = campaign_dir / "party.json"
     party = json.loads(party_path.read_text(encoding="utf-8"))
-    party["schema_version" if party_corruption == "schema" else "campaign_id"] = (
-        2 if party_corruption == "schema" else "different-campaign"
-    )
-    party_path.write_text(
-        json.dumps(party, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    if party_corruption == "schema":
+        party["schema_version"] = 2
+    elif party_corruption == "campaign":
+        party["campaign_id"] = "different-campaign"
+    elif party_corruption == "id_list":
+        party["investigator_ids"] = [
+            f"inv-{campaign_id}", f"inv-{campaign_id}",
+        ]
+    if party_corruption in {"schema", "campaign", "id_list"}:
+        party_path.write_text(
+            json.dumps(party, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    elif party_corruption == "missing":
+        party_path.unlink()
+    elif party_corruption == "symlink":
+        target = tmp_path / f"saved-party-{campaign_id}.json"
+        party_path.rename(target)
+        party_path.symlink_to(target)
+    else:
+        party_path.chmod(0)
+    before = _campaign_tree_without_dispatch_audit(campaign_dir)
 
-    assert (
-        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
-        == set()
+    resumed = coc_toolbox.run_tool("session.resume", tmp_path, campaign_id, {})
+
+    assert resumed["ok"] is False
+    assert resumed["error"]["code"] == "state_corrupt"
+    assert _campaign_tree_without_dispatch_audit(campaign_dir) == before
+    calls = _read_jsonl(campaign_dir / "logs" / "toolbox-calls.jsonl")
+    assert calls[-1]["tool"] == "session.resume"
+    assert calls[-1]["ok"] is False
+
+
+@pytest.mark.parametrize("linked_file", ["creation.json", "character.json"])
+@pytest.mark.parametrize("corruption", ["missing", "symlink", "unreadable"])
+def test_resume_rejects_corrupt_linked_investigator_before_canonical_writes(
+    tmp_path: Path, linked_file: str, corruption: str,
+) -> None:
+    campaign_id = f"corrupt-linked-{linked_file.split('.')[0]}-{corruption}"
+    campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    linked_path = (
+        tmp_path / ".coc" / "investigators" / f"inv-{campaign_id}" / linked_file
     )
+    if corruption == "missing":
+        linked_path.unlink()
+    elif corruption == "symlink":
+        target = tmp_path / f"saved-{linked_file}"
+        linked_path.rename(target)
+        linked_path.symlink_to(target)
+    else:
+        linked_path.chmod(0)
+    before = _campaign_tree_without_dispatch_audit(campaign_dir)
+
+    resumed = coc_toolbox.run_tool("session.resume", tmp_path, campaign_id, {})
+
+    assert resumed["ok"] is False
+    assert resumed["error"]["code"] == "state_corrupt"
+    assert _campaign_tree_without_dispatch_audit(campaign_dir) == before
+    calls = _read_jsonl(campaign_dir / "logs" / "toolbox-calls.jsonl")
+    assert calls[-1]["tool"] == "session.resume"
+    assert calls[-1]["ok"] is False
