@@ -2911,13 +2911,24 @@ def _first_contact_readiness(
             "first_impression_ref": receipt.get("receipt_id") if exists else None,
         }
         if not exists:
-            prefilled = {"npc_id": npc_id, "investigator": investigator_id}
-            missing = ["run_id", "context", "decision_id"]
+            prefilled = {
+                "npc_id": npc_id,
+                "investigator": investigator_id,
+                "run_id": coc_npc_event_chain.resolve_run_id(ctx.campaign_dir),
+            }
+            missing = [
+                "context.player_conduct",
+                "context.scene_constraints",
+                "context.authored_or_relationship_boundary",
+                "context.semantic_reason",
+                "decision_id",
+            ]
             if localized_name is not None:
                 prefilled["npc_display_name"] = localized_name
             else:
                 missing.insert(0, "npc_display_name")
             next_operation_cards.append({
+                "campaign_id": ctx.campaign_id,
                 "operation": "npc.reaction",
                 "invoke_via": "coc_invoke",
                 "prefilled_arguments": prefilled,
@@ -2925,6 +2936,46 @@ def _first_contact_readiness(
                 "fresh_decision_id_required": True,
                 "roll_created": False,
             })
+
+    social_adjudication_operation = None
+    if investigator_id is not None:
+        fact_refs = [
+            f"npc_fact:{npc_id}/{fact_id}"
+            for fact_id in (
+                str(row.get("fact_id") or "").strip()
+                for row in ((authored or {}).get("facts") or [])
+                if isinstance(row, dict)
+            )
+            if fact_id
+        ]
+        social_adjudication_operation = {
+            "operation": "rules.social_adjudicate",
+            "invoke_via": "coc_rules_social_adjudicate",
+            "prefilled_arguments": {
+                "investigator": investigator_id,
+                "npc_id": npc_id,
+            },
+            "missing_arguments": [
+                "conversation_window_id",
+                "commitment_id",
+                "approach",
+                "goal_summary",
+                "decision_id",
+            ],
+            "valid_optional_evidence_refs": fact_refs,
+            "safe_omissions": {
+                "motive": "omit to use neutral intensity 0",
+                "leverage": (
+                    "omit when no exact player-known typed source applies"
+                ),
+                "feasibility": "omit to derive the canonical default",
+                "feasibility_refs": "omit together with feasibility",
+            },
+            "argument_boundary": {
+                "submission_shape": "prefilled_plus_missing_and_grounded_optional_only",
+                "do_not_invent_refs": True,
+            },
+        }
 
     if not mechanics_ready:
         mechanics_missing = ["purpose", "decision_id"]
@@ -2963,6 +3014,7 @@ def _first_contact_readiness(
         "pending_source_dependency": pending_source_dependency,
         "requested_pair_first_impression": requested_pair,
         "next_operation_cards": next_operation_cards,
+        "social_adjudication_operation": social_adjudication_operation,
     }
 
 
@@ -10414,6 +10466,27 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
         "replayed": False,
         "request_digest": _request_digest(args),
     }
+    if feasibility == "roll":
+        data["roll_operation"] = {
+            "operation": "rules.roll",
+            "invoke_via": "coc_rules_roll",
+            "prefilled_arguments": {
+                "investigator": investigator_id,
+                "npc_id": npc_id,
+                "skill": approach_skill,
+                "difficulty": final_difficulty,
+                "bonus": bonus,
+                "penalty": penalty,
+                "goal": goal_summary,
+                "difficulty_basis": "opponent_skill",
+                "social_adjudication_ref": goal_key,
+            },
+            "missing_arguments": ["stakes", "decision_id"],
+            "argument_boundary": {
+                "submission_shape": "prefilled_plus_missing_only",
+                "forbidden_arguments": ["target", "reason"],
+            },
+        }
     resolutions[goal_key] = {
         "adjudication": {key: value for key, value in data.items() if key != "replayed"},
         "leverage_ids": current_leverage_ids,
@@ -14644,6 +14717,19 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                 "invoke_via": "coc_invoke",
                 "prefilled_arguments": prefilled_arguments,
                 "missing_arguments": ["reason", "decision_id"],
+                **(
+                    {
+                        "argument_boundary": {
+                            "submission_shape": "prefilled_plus_missing_only",
+                            "forbidden_arguments": ["travel_minutes"],
+                            "reason": (
+                                "travel_minutes is valid only when source-authored "
+                                "and prefilled"
+                            ),
+                        }
+                    }
+                    if "travel_minutes" not in prefilled_arguments else {}
+                ),
                 "authority": "advisory",
                 "hard_gate": False,
             },
@@ -22666,7 +22752,20 @@ def _settled_narration_budget(
             events.append({"event_type": "scene_transition"})
     if bundle.get("exceptional_effect"):
         events.append({"event_type": "exceptional_effect_apply"})
-    return _narration_budget(ctx, investigator_id, events)
+    budget = _narration_budget(ctx, investigator_id, events)
+    public_check_count = len([
+        row for row in bundle.get("public_check") or []
+        if isinstance(row, dict)
+    ])
+    required_paragraphs = max(2, public_check_count)
+    if required_paragraphs > int(budget["max_paragraphs"]):
+        extra_paragraphs = required_paragraphs - int(budget["max_paragraphs"])
+        budget = {
+            **budget,
+            "max_chars": int(budget["max_chars"]) + 175 * extra_paragraphs,
+            "max_paragraphs": required_paragraphs,
+        }
+    return budget
 
 
 def _turn_contract_projection(

@@ -43,8 +43,10 @@ import {
 import {
   buildMechanicalOutputGateEnvelope,
   buildSettledOutputGateEnvelope,
+  buildSettledOutputPreflightEnvelope,
   detectMechanicalMarkers,
   MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
+  SETTLED_OUTPUT_PREFLIGHT_CUSTOM_TYPE,
   SETTLED_OUTPUT_GATE_CUSTOM_TYPE,
   mechanicalMarkerClassesUncovered,
   type MechanicalMarker,
@@ -1016,6 +1018,7 @@ export class OpeningTerminalContinuationGate {
     { dice: number; resource: number }
   >();
   private pendingMechanicalOutputGateEnvelope: JsonObject | null = null;
+  private preInferenceFinalizationSteerEpoch = 0;
   private nonblockingContinuation: {
     epoch: number;
     dispatchKey: string;
@@ -5256,6 +5259,20 @@ export class OpeningTerminalContinuationGate {
     return envelope;
   }
 
+  takePreInferenceFinalizationSteer(
+    requireFinalization: boolean,
+  ): JsonObject | null {
+    if (
+      !requireFinalization
+      || this.playerTurnEpoch <= 0
+      || this.preInferenceFinalizationSteerEpoch === this.playerTurnEpoch
+    ) {
+      return null;
+    }
+    this.preInferenceFinalizationSteerEpoch = this.playerTurnEpoch;
+    return buildSettledOutputPreflightEnvelope(this.playerTurnEpoch);
+  }
+
   coordinatorContinuationContext(
     dispatchKey: string,
     terminalStatus: string,
@@ -5709,6 +5726,7 @@ export class OpeningTerminalContinuationGate {
     this.nonblockingContinuation = null;
     this.epochMechanicalReceipts.clear();
     this.pendingMechanicalOutputGateEnvelope = null;
+    this.preInferenceFinalizationSteerEpoch = 0;
     this.clearOpeningSetupRoute();
     this.openingSetupGenerationSequence = 0;
     this.openingSetupAgentTurn = 0;
@@ -5903,6 +5921,27 @@ export function deliverMechanicalOutputGateInstruction(
       display: false,
       details: envelope,
     }, { triggerTurn: true, deliverAs: "followUp" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function deliverPreInferenceFinalizationSteer(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  envelope: JsonObject | null,
+): boolean {
+  if (envelope === null) return false;
+  try {
+    pi.appendEntry("coc-settled-output-preflight", envelope);
+  } catch { /* preflight audit is best effort */ }
+  try {
+    pi.sendMessage({
+      customType: SETTLED_OUTPUT_PREFLIGHT_CUSTOM_TYPE,
+      content: JSON.stringify(envelope),
+      display: false,
+      details: envelope,
+    }, { deliverAs: "steer" });
     return true;
   } catch {
     return false;
@@ -9946,7 +9985,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return decision;
     },
     (message) => {
+      const externalUser = userMessageText(message) !== null;
       openingContinuationGate.observeMessageStart(message);
+      if (externalUser && startupResumeGate === null) {
+        deliverPreInferenceFinalizationSteer(
+          pi,
+          openingContinuationGate.takePreInferenceFinalizationSteer(
+            turnFinalizationRequiredForPhase(kpPlayPhase),
+          ),
+        );
+      }
       applyKpActiveTools();
     },
     () => openingContinuationGate.hasPendingFinalizedOutput(),

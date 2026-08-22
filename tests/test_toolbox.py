@@ -401,6 +401,13 @@ def test_scene_context_softly_redirects_nonactive_preview_to_typed_move(
     campaign_ws,
 ):
     current = _run(campaign_ws, "scene.context")
+    move_card = current["data"]["exits"][0]["operation_opportunity"]
+    assert "travel_minutes" not in move_card["prefilled_arguments"]
+    assert move_card["argument_boundary"] == {
+        "submission_shape": "prefilled_plus_missing_only",
+        "forbidden_arguments": ["travel_minutes"],
+        "reason": "travel_minutes is valid only when source-authored and prefilled",
+    }
     destination = current["data"]["exits"][0]["to"]
     preview = _run(campaign_ws, "scene.context", {"scene_id": destination})
     assert preview["ok"] is True
@@ -8316,9 +8323,38 @@ def test_single_npc_query_projects_unrolled_first_contact_readiness(campaign_ws)
     )
     assert reaction["roll_created"] is False
     assert reaction["fresh_decision_id_required"] is True
+    assert reaction["campaign_id"] == campaign_ws["campaign_id"]
+    assert reaction["prefilled_arguments"]["run_id"] == (
+        f"campaign:{campaign_ws['campaign_id']}"
+    )
     assert reaction["missing_arguments"] == [
-        "npc_display_name", "run_id", "context", "decision_id",
+        "npc_display_name",
+        "context.player_conduct",
+        "context.scene_constraints",
+        "context.authored_or_relationship_boundary",
+        "context.semantic_reason",
+        "decision_id",
     ]
+    social = readiness["social_adjudication_operation"]
+    assert social["prefilled_arguments"] == {
+        "investigator": campaign_ws["investigator_id"],
+        "npc_id": npc_id,
+    }
+    assert social["missing_arguments"] == [
+        "conversation_window_id", "commitment_id", "approach",
+        "goal_summary", "decision_id",
+    ]
+    assert social["valid_optional_evidence_refs"] == [
+        "npc_fact:npc-steven-knott/fact-knott-commission",
+        "npc_fact:npc-steven-knott/fact-knott-research-leads",
+        "npc_fact:npc-steven-knott/fact-knott-macario-tragedy",
+    ]
+    assert social["safe_omissions"] == {
+        "motive": "omit to use neutral intensity 0",
+        "leverage": "omit when no exact player-known typed source applies",
+        "feasibility": "omit to derive the canonical default",
+        "feasibility_refs": "omit together with feasibility",
+    }
     assert (rolls_path.read_bytes() if rolls_path.is_file() else b"") == rolls_before
     bulk = _run(campaign_ws, "npc.query")
     assert all("first_contact_readiness" not in row for row in bulk["data"]["npcs"])

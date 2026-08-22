@@ -2268,6 +2268,34 @@ def test_pi_mechanical_output_gate_intercepts_unbound_markers():
     }
 
 
+def test_pi_injects_finalization_steer_before_first_live_turn_inference():
+    result = _node(
+        ROOT / "tests/pi/pre-inference-finalization-steer.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "first": {
+            "kind": "settled_output_preflight",
+            "status": "armed",
+            "epoch": 1,
+            "action": "tools_then_journal_context_finalize_exact",
+            "instructionHasClosure": True,
+        },
+        "duplicateSuppressed": True,
+        "hiddenFollowupSuppressed": True,
+        "nonFinalizingPhaseSuppressed": True,
+        "nextEpoch": 3,
+        "delivery": {
+            "delivered": True,
+            "appended": 1,
+            "sent": 1,
+            "customType": "coc-settled-output-preflight",
+            "display": False,
+            "options": {"deliverAs": "steer"},
+        },
+    }
+
+
 def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
     result = _node(ROOT / "tests/pi/finalization-gateway.mjs", str(ROOT))
     assert result == {
