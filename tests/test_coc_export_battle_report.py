@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -47,42 +48,130 @@ def _finalization_receipt(
     finalization_id, roll_ids, *, rendered_text="", turn_id="turn-1",
     revision=1, review=None, agency_claims=None, control_overrides=None,
 ):
-    """Minimal binding receipt: the exporter reads finalization_id and the
-    union of source_roll_ids (receipt completeness is enforced write-side)."""
-    return {
+    bundle = {
+        "public_check": [], "state_delta": [], "asset_delta": [],
+        "exceptional_effect": [],
+    }
+    coverage = []
+    settlement_snapshot_id = f"turn-effect-v1:{finalization_id}"
+    source_digest = "sha256:source-1"
+    contract_projection = {
+        "turn_id": turn_id,
+        "source_digest": source_digest,
+        "settlement_snapshot_id": settlement_snapshot_id,
+        "control_overrides": list(control_overrides or []),
+    }
+    segments = [{"segment_type": "fiction", "text": rendered_text, "source_ids": []}]
+    row = {
         "schema_version": 2,
         "finalization_id": finalization_id,
         "decision_id": f"{finalization_id}-decision",
         "journal_decision_id": f"{finalization_id}-journal",
+        "journal_call_index": 0,
+        "source_start_index": 0,
+        "source_end_index": 0,
         "source_roll_ids": list(roll_ids),
+        "obligation_ids": [],
+        "coverage_ids": [],
         "run_segment_id": "run-1",
         "session_id": "session-1",
         "turn_id": turn_id,
-        "source_digest": "sha256:source-1",
+        "source_digest": source_digest,
+        "settlement_snapshot_id": settlement_snapshot_id,
         "rendered_text": rendered_text,
         "rendered_text_sha256": _canonical_digest(rendered_text),
+        "accepted_draft_sha256": _canonical_digest(rendered_text),
         "accepted_revision": revision,
         "narration_review": (
             {"review_id": review["review_id"], "review_digest": review["review_digest"]}
             if isinstance(review, dict) else None
         ),
         "agency_claims": list(agency_claims or []),
-        "contract_projection": {
-            "control_overrides": list(control_overrides or []),
-        },
-        "bundle": {"state_delta": [], "asset_delta": []},
+        "contract_projection": contract_projection,
+        "contract_projection_sha256": _canonical_digest(contract_projection),
+        "bundle": bundle,
+        "bundle_sha256": _canonical_digest(bundle),
+        "coverage": coverage,
+        "coverage_sha256": _canonical_digest(coverage),
+        "segments": segments,
+    }
+    row["integrity_digest"] = _canonical_digest(row)
+    return row
+
+
+def _refresh_receipt(receipt):
+    receipt["contract_projection_sha256"] = _canonical_digest(receipt["contract_projection"])
+    receipt["bundle_sha256"] = _canonical_digest(receipt["bundle"])
+    receipt["coverage_sha256"] = _canonical_digest(receipt["coverage"])
+    receipt["accepted_draft_sha256"] = _canonical_digest(
+        "\n\n".join(
+            segment["text"] for segment in receipt["segments"]
+            if segment["segment_type"] == "fiction"
+        )
+    )
+    receipt["rendered_text_sha256"] = _canonical_digest(receipt["rendered_text"])
+    receipt.pop("integrity_digest", None)
+    receipt["integrity_digest"] = _canonical_digest(receipt)
+    return receipt
+
+
+def _canonical_transcript_path(run: Path):
+    return run / "sandbox" / ".coc" / "campaigns" / "case-1" / "logs" / "table-transcript.jsonl"
+
+
+def _write_commit_snapshot(campaign: Path, finalization_id: str):
+    source = campaign / "save"
+    destination = source / "commit-snapshots" / finalization_id
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source)
+        if relative.parts[0] in {
+            "commit-snapshots", "development-settlements", "session-state.json",
+            "toolbox-ledger.json", "roll-operation-receipts.json",
+        }:
+            continue
+        target = destination / relative
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif path.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+
+
+def _scene_promotion(drift_id="drift-1", scene_id="transit"):
+    return {
+        "schema_version": 1,
+        "event_id": "tool-operation-v1:promotion-1",
+        "event_type": "scene_promotion",
+        "promotion_id": "scene-promotion-v1:promotion-1",
+        "scene_id": scene_id,
+        "from_role": "transit",
+        "to_role": "side_investigation",
+        "from_contract_id": "scene-contract-v1:transit",
+        "to_contract_id": "scene-contract-v1:side",
+        "reason": "player-created causal branch",
+        "source_event_ids": [drift_id],
+        "resolved_drift_event_ids": [drift_id],
+        "source_decision_id": "promotion-decision-1",
+        "module_divergence": True,
+        "request_digest": "sha256:promotion",
+        "ts": "2026-08-22T00:00:00Z",
     }
 
 
 def _bind_rolls(run: Path, finalization_id, roll_ids):
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
-    transcript_path = run / "transcript.jsonl"
+    transcript_path = _canonical_transcript_path(run)
     transcript = [
         json.loads(raw) for raw in transcript_path.read_text(encoding="utf-8").splitlines()
         if raw.strip()
     ]
-    keeper = next(row for row in transcript if row.get("role") == "keeper_under_test")
+    keeper = next(row for row in transcript if row.get("role") == "keeper")
     keeper["finalization_id"] = finalization_id
+    player = next(row for row in transcript if row.get("role") == "player")
+    player["journal_decision_id"] = f"{finalization_id}-journal"
     _write_jsonl(transcript_path, transcript)
     review = _review(f"review-{finalization_id}")
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
@@ -90,7 +179,11 @@ def _bind_rolls(run: Path, finalization_id, roll_ids):
         campaign / "logs" / "turn-finalizations.jsonl",
         [_finalization_receipt(finalization_id, roll_ids, rendered_text=keeper["text"], review=review)],
     )
-    (campaign / "save" / "commit-snapshots" / finalization_id).mkdir(parents=True, exist_ok=True)
+    calls_path = campaign / "logs" / "toolbox-calls.jsonl"
+    calls = [json.loads(raw) for raw in calls_path.read_text(encoding="utf-8").splitlines() if raw.strip()]
+    next(call for call in calls if call.get("tool") == "state.journal")["args"]["decision_id"] = f"{finalization_id}-journal"
+    _write_jsonl(calls_path, calls)
+    _write_commit_snapshot(campaign, finalization_id)
 
 
 def _write_json(path: Path, value):
@@ -128,6 +221,21 @@ def _fixture(run: Path, *, metadata_name="run.json"):
         {"turn": 2, "role": "system", "text": "RUNNER_PROMPT_SECRET"},
         {"turn": 3, "role": "player_simulator", "speaker": "Ada King", "text": "我说：\"进去\" | yes 🚪"},
     ]
+    canonical_transcript = [
+        {
+            "turn": 1, "role": "player", "speaker": "Ada King",
+            "text": "我说：\"进去\" | yes 🚪", "turn_id": "turn-1",
+            "run_segment_id": "run-1", "session_id": "session-1",
+            "journal_decision_id": "fin-1-journal",
+        },
+        {
+            "turn": 1, "role": "keeper", "speaker_display": "KP[门卫]",
+            "text": keeper_text, "turn_id": "turn-1", "run_segment_id": "run-1",
+            "session_id": "session-1", "finalization_id": "fin-1",
+            "accepted_revision": 1,
+            "rendered_text_sha256": _canonical_digest(keeper_text),
+        },
+    ]
     rolls = [
         {"roll_id": "public-1", "actor": "ada", "visibility": "public", "source_ref": "logs/rolls.jsonl#public-1", "payload": {"roll_id": "public-1", "skill": "Spot Hidden", "roll": 42, "effective_target": 60, "outcome": "success"}},
         {"roll_id": "keeper-1", "visibility": "keeper_only", "payload": {"roll": 99, "secret_text": "KEEPER_ROLL_SECRET"}},
@@ -163,6 +271,7 @@ def _fixture(run: Path, *, metadata_name="run.json"):
     _write_jsonl(campaign / "logs" / "events.jsonl", [{"event_type": "session_ending", "ending_id": ending_id, "scene_id": "archive", "kind": "conclusion", "summary": "Ada published the evidence.", "settlement_capsule_ref": f"save/development-settlements/endings/{ending_id}/capsule.json"}])
     _write_json(campaign / "save" / "development-settlements" / "endings" / ending_id / "ada.json", {"ending_id": ending_id, "investigator_id": "ada", "receipt": {"status": "PASS", "result": {"improvement_checks": [{"skill": "Library Use", "check_roll": 90, "gain": 3, "value_before": 70, "value_after": 73, "applied_delta": 3, "improved": True}], "luck_recovery": {"luck_before": 50, "luck_after": 55, "gained": 5}}}})
     _write_jsonl(run / "transcript.jsonl", transcript)
+    _write_jsonl(campaign / "logs" / "table-transcript.jsonl", canonical_transcript)
     _write_jsonl(campaign / "logs" / "rolls.jsonl", rolls)
     review = _review("review-fin-1")
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
@@ -170,16 +279,22 @@ def _fixture(run: Path, *, metadata_name="run.json"):
         campaign / "logs" / "turn-finalizations.jsonl",
         [_finalization_receipt("fin-1", ["public-1"], rendered_text=keeper_text, review=review)],
     )
-    (campaign / "save" / "commit-snapshots" / "fin-1").mkdir(parents=True, exist_ok=True)
-    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [{
-        "schema_version": 2,
-        "turn_number": 1,
-        "tool": "director.advise",
-        "ok": True,
-        "args": {"decision_id": "d1"},
-        "data": {"advice_id": "director:1:test", "keeper_secret": "INTERNAL_ONLY"},
-        "visibility": "keeper_internal",
-    }])
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        {
+            "schema_version": 2, "turn_number": 1, "tool": "state.journal",
+            "ok": True, "args": {"decision_id": "fin-1-journal"},
+            "data": {"changed": True}, "visibility": "keeper_internal",
+        },
+        {
+            "schema_version": 2,
+            "turn_number": 1,
+            "tool": "director.advise",
+            "ok": True,
+            "args": {"decision_id": "d1"},
+            "data": {"advice_id": "director:1:test", "keeper_secret": "INTERNAL_ONLY"},
+            "visibility": "keeper_internal",
+        },
+    ])
     _write_jsonl(campaign / "logs" / "advisory-adoptions.jsonl", [{
         "schema_version": 1,
         "decision_id": "d1",
@@ -188,7 +303,11 @@ def _fixture(run: Path, *, metadata_name="run.json"):
         "reason": "Kept the pressure but changed the NPC beat.",
         "visibility": "keeper_internal",
     }])
-    return {"metadata": metadata, "rolls": rolls, "transcript": transcript}
+    _write_commit_snapshot(campaign, "fin-1")
+    return {
+        "metadata": metadata, "rolls": rolls,
+        "transcript": canonical_transcript, "legacy_transcript": transcript,
+    }
 
 
 def test_writes_the_single_final_report_pair_deterministically(tmp_path):
@@ -200,17 +319,20 @@ def test_writes_the_single_final_report_pair_deterministically(tmp_path):
     json_before = (artifacts / JSON_OUTPUT).read_bytes()
     markdown_before = (artifacts / MARKDOWN_OUTPUT).read_bytes()
     second = module.export_battle_report(run)
-    assert first["report_id"] == second["report_id"]
-    assert first["report_id"].startswith("coc-battle-report-")
+    first_manifest = json.loads((artifacts / "audit" / "manifest.json").read_text())
+    second_manifest = json.loads((artifacts / "audit" / "manifest.json").read_text())
+    assert first_manifest["report_id"] == second_manifest["report_id"]
+    assert first_manifest["report_id"].startswith("coc-battle-report-")
     assert (artifacts / JSON_OUTPUT).read_bytes() == json_before
     assert (artifacts / MARKDOWN_OUTPUT).read_bytes() == markdown_before
     payload = json.loads(json_before)
     assert payload["report_type"] == "coc_actual_play_battle_report_evidence"
-    assert payload["run_metadata"] == expected["metadata"]
+    assert payload["run_metadata"]["campaign_id"] == expected["metadata"]["campaign_id"]
+    assert "session_id" not in payload["run_metadata"]
     assert payload["completeness"]["classification"] == "COMPLETE"
     assert payload["schema_version"] == 7
     assert "keeper_internal" not in payload
-    assert payload["exceptional_effects"][0]["effect_id"] == "effect-1"
+    assert "effect_id" not in payload["exceptional_effects"][0]
     assert "source_roll" not in payload["exceptional_effects"][0]
     assert "source_manifest" not in payload
     assert "INTERNAL_ONLY" not in markdown_before.decode()
@@ -230,7 +352,7 @@ def test_accepts_simplified_run_or_legacy_playtest_metadata(tmp_path, metadata_n
         (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
     )
     assert validation["source_identity"]["metadata_source"] == metadata_name
-    assert report["run_metadata"]["run_id"] == "run-1"
+    assert "run_id" not in report["run_metadata"]
     assert report["source_identity"]["run_segment_id"] == "run-1"
 
 
@@ -311,9 +433,9 @@ def test_final_report_is_readable_actual_play_not_raw_payload_dump(tmp_path):
     module = _load()
     run = tmp_path / "run"
     _fixture(run)
-    module.export_battle_report(run)
+    report = module.export_battle_report(run)
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
-    for phrase in ("## Investigators", "### 艾达 | Ada", "- Sex: F", "- Nationality: 英国", "- Final HP: 9", "- Conditions: wounded", "#### Characteristics", "#### Initial Skills", "| 图书馆使用 (`Library Use`) | 70 | 35 | 14 |", "#### Weapons", "#### Equipment", "#### Backstory and Traits", "  - Description: A public assignment", "#### Personal Horror", "## Development and Ending", "Ada published the evidence.", "### 艾达 | Ada Development", "Library Use: 70 → 73", "- Luck: 50 → 55", "## Investigation Chronicle", "`office` → `archive`", "`clue-public` — read the public ledger", "`npc-clerk`", "## Actual Play", "### Turn 1 · KP[门卫]", "门上写着 **勿入**。", "### Turn 3 · Ada King", "## Public Rules and Dice", "- Roll: 42", "- Target: 60", "- Outcome: success"):
+    for phrase in ("## Investigators", "### 艾达 | Ada", "- Sex: F", "- Nationality: 英国", "- Final HP: 9", "- Conditions: wounded", "#### Characteristics", "#### Initial Skills", "| 图书馆使用 (`Library Use`) | 70 | 35 | 14 |", "#### Weapons", "#### Equipment", "#### Backstory and Traits", "  - Description: A public assignment", "#### Personal Horror", "## Development and Ending", "Ada published the evidence.", "### 艾达 | Ada Development", "Library Use: 70 → 73", "- Luck: 50 → 55", "## Investigation Chronicle", "Recorded visited scenes: 2.", "Confirmed clue — read the public ledger", "Recorded NPC", "## Actual Play", "### Turn 1 · KP[门卫]", "门上写着 **勿入**。", "### Turn 1 · Ada King", "## Public Rules and Dice", "- Roll: 42", "- Target: 60", "- Outcome: success"):
         assert phrase in markdown
     assert "{'condition':" not in markdown
     assert '"luck_after"' not in markdown
@@ -345,7 +467,7 @@ def test_zh_play_language_localizes_exporter_chrome_only(tmp_path):
     assert "- 难度: 普通" in localized_probe
     assert "- 结果: 普通成功" in localized_probe
     assert "- 描述: A public assignment" in markdown
-    assert " · 场景 `" in markdown
+    assert "Recorded NPC" in markdown
     assert " · scene `" not in markdown
     assert "# COC Actual-Play Battle Report" not in markdown
     # Source-authored prose is evidence, not exporter chrome: preserve it.
@@ -460,15 +582,17 @@ def test_evidence_hashes_sources_and_renders_public_roll_exactly_once(tmp_path):
         (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
     )
     manifest = {entry["path"]: entry for entry in validation["source_manifest"]}
-    transcript = run / "transcript.jsonl"
-    assert manifest["transcript.jsonl"]["sha256"] == hashlib.sha256(transcript.read_bytes()).hexdigest()
+    transcript = _canonical_transcript_path(run)
+    transcript_key = "sandbox/.coc/campaigns/case-1/logs/table-transcript.jsonl"
+    assert manifest[transcript_key]["sha256"] == hashlib.sha256(transcript.read_bytes()).hexdigest()
     rolls_path = "sandbox/.coc/campaigns/case-1/logs/rolls.jsonl"
     assert manifest[rolls_path]["record_count"] == 2
     assert manifest[rolls_path]["included_record_count"] == 1
     assert report["public_rolls"]["status"] == "PASS"
     assert report["public_rolls"]["required_count"] == report["public_rolls"]["rendered_count"] == 1
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
-    assert markdown.count("### `public-1`") == 1
+    assert markdown.count("### Check 1") == 1
+    assert "public-1" not in markdown
 
 
 def test_valid_empty_roll_log_explicitly_reports_zero(tmp_path):
@@ -517,6 +641,7 @@ def test_partial_requires_opt_in_and_stays_incomplete(tmp_path):
     module = _load()
     run = tmp_path / "run"
     _fixture(run)
+    _canonical_transcript_path(run).unlink()
     (run / "transcript.jsonl").rename(run / "partial-transcript.jsonl")
     with pytest.raises(module.ExportError, match="--allow-partial"):
         module.export_battle_report(run)
@@ -557,8 +682,8 @@ def test_completeness_dimensions_are_scoped_and_missing_ending_is_visible(tmp_pa
 @pytest.mark.parametrize(
     ("kept_role", "expected_reason"),
     [
-        ("keeper_under_test", "no non-empty player dialogue rows were found"),
-        ("player_simulator", "no non-empty Keeper/KP dialogue rows were found"),
+        ("keeper", "no non-empty player dialogue rows were found"),
+        ("player", "no non-empty Keeper/KP dialogue rows were found"),
     ],
 )
 def test_exact_transcript_dimension_reports_the_actual_missing_role(
@@ -568,7 +693,7 @@ def test_exact_transcript_dimension_reports_the_actual_missing_role(
     run = tmp_path / kept_role
     data = _fixture(run)
     _write_jsonl(
-        run / "transcript.jsonl",
+            _canonical_transcript_path(run),
         [row for row in data["transcript"] if row.get("role") == kept_role],
     )
     report = module.export_battle_report(run)
@@ -583,10 +708,10 @@ def test_accepted_transcript_requires_revision_hash_and_session_binding(tmp_path
     run = tmp_path / "unbound-accepted"
     data = _fixture(run)
     transcript = list(data["transcript"])
-    keeper = dict(transcript[0])
+    keeper = dict(transcript[1])
     keeper.pop("accepted_revision")
-    transcript[0] = keeper
-    _write_jsonl(run / "transcript.jsonl", transcript)
+    transcript[1] = keeper
+    _write_jsonl(_canonical_transcript_path(run), transcript)
     report = module.export_battle_report(run)
     dimension = _audit_completeness(run)["dimensions"]["accepted_transcript"]
     assert report["completeness"]["classification"] == "INCOMPLETE"
@@ -598,17 +723,17 @@ def test_accepted_transcript_requires_exact_finalization_bijection(tmp_path):
     module = _load()
     run = tmp_path / "duplicate-one-missing-one"
     data = _fixture(run)
-    keeper = dict(data["transcript"][0])
+    keeper = dict(data["transcript"][1])
     duplicate = dict(keeper)
     duplicate["turn"] = 3
     duplicate["turn_id"] = "turn-3"
-    _write_jsonl(run / "transcript.jsonl", [keeper, data["transcript"][2], duplicate])
+    _write_jsonl(_canonical_transcript_path(run), [data["transcript"][0], keeper, duplicate])
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
         [
             _finalization_receipt("fin-1", ["public-1"], rendered_text=keeper["text"]),
-            _finalization_receipt("fin-2", [], rendered_text="另一条未呈现的正式文本"),
+            _finalization_receipt("fin-2", [], rendered_text="另一条未呈现的正式文本", turn_id="turn-2"),
         ],
     )
 
@@ -672,47 +797,43 @@ def test_play_conduct_signals_restate_structured_facts_without_changing_complete
     run = tmp_path / "run"
     _fixture(run)
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
-    _write_jsonl(
-        run / "transcript.jsonl",
-        [
+    canonical_rows = []
+    for turn in range(1, 7):
+        canonical_rows.extend([
             {
-                "turn": turn,
-                "turn_id": f"turn-{turn}",
-                "role": "keeper_under_test" if turn % 2 else "player_simulator",
-                "text": f"turn {turn} dialogue",
-                **(
-                    {
-                        "run_segment_id": "run-1",
-                        "session_id": "session-1",
-                        "finalization_id": f"fin-{turn}",
-                        "accepted_revision": 1,
-                        "rendered_text_sha256": _canonical_digest(f"turn {turn} dialogue"),
-                    }
-                    if turn % 2 else {}
-                ),
-            }
-            for turn in range(1, 13)
-        ],
-    )
+                "turn": turn, "turn_id": f"turn-{turn}", "role": "player",
+                "text": f"player {turn} dialogue", "run_segment_id": "run-1",
+                "session_id": "session-1", "journal_decision_id": f"fin-{turn}-journal",
+            },
+            {
+                "turn": turn, "turn_id": f"turn-{turn}", "role": "keeper",
+                "text": f"keeper {turn} dialogue", "run_segment_id": "run-1",
+                "session_id": "session-1", "finalization_id": f"fin-{turn}",
+                "accepted_revision": 1,
+                "rendered_text_sha256": _canonical_digest(f"keeper {turn} dialogue"),
+            },
+        ])
+    _write_jsonl(_canonical_transcript_path(run), canonical_rows)
     reviews = [
         _review(f"review-fin-{turn}", turn_id=f"turn-{turn}")
-        for turn in range(1, 13, 2)
+        for turn in range(1, 7)
     ]
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", reviews)
     _write_jsonl(
         campaign / "logs" / "turn-finalizations.jsonl",
         [
             _finalization_receipt(
-                f"fin-{turn}", [], rendered_text=f"turn {turn} dialogue",
+                f"fin-{turn}", [], rendered_text=f"keeper {turn} dialogue",
                 turn_id=f"turn-{turn}", review=review,
             )
-            for turn, review in zip(range(1, 13, 2), reviews)
+            for turn, review in zip(range(1, 7), reviews)
         ],
     )
-    for turn in range(1, 13, 2):
-        (campaign / "save" / "commit-snapshots" / f"fin-{turn}").mkdir(
-            parents=True, exist_ok=True
-        )
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        {"turn_number": turn, "tool": "state.journal", "ok": True,
+         "args": {"decision_id": f"fin-{turn}-journal"}, "data": {}}
+        for turn in range(1, 7)
+    ])
     _write_jsonl(campaign / "logs" / "rolls.jsonl", [])
     _write_clue_graph(run, [
         {"clue_id": "clue-ledger", "delivery_kind": "skill_check", "skill": "Library Use", "player_safe_summary": "LEDGER_CONTENT"},
@@ -724,6 +845,7 @@ def test_play_conduct_signals_restate_structured_facts_without_changing_complete
         {"event_id": "e1", "npc_id": "npc-clerk", "scene_id": "archive", "interaction_kind": "dialogue", "identity_contract": {"npc_id": "npc-clerk"}, "identity_binding": {"status": "authored_bound"}},
         {"event_id": "e2", "npc_id": "npc-stranger", "scene_id": "office", "interaction_kind": "dialogue", "identity_contract": None, "identity_binding": {"status": "improvised"}},
     ])
+    _write_commit_snapshot(campaign, "fin-6")
 
     report = module.export_battle_report(run)
 
@@ -733,20 +855,22 @@ def test_play_conduct_signals_restate_structured_facts_without_changing_complete
     assert "play_conduct_quality_judgment" in report["completeness"]["not_claimed"]
     signals = report["play_conduct_signals"]
     assert signals["nature"] == "observational_structured_facts_only"
-    assert signals["turn_count"] == 12
+    assert signals["turn_count"] == 6
     assert signals["public_roll_count"] == 0
     assert signals["tool_call_counts_per_turn"]["available"] is True
-    assert signals["tool_call_counts_per_turn"]["counts"] == {"1": 1}
+    assert signals["tool_call_counts_per_turn"]["counts"] == {
+        str(turn): 1 for turn in range(1, 7)
+    }
     clue_signal = signals["skill_check_clue_delivery"]
     assert clue_signal["available"] is True
     assert clue_signal["discovered_clue_count"] == 3
     assert clue_signal["skill_check_delivery_count"] == 2
     assert clue_signal["without_roll_evidence_count"] == 2
-    assert clue_signal["without_roll_evidence_clue_ids"] == ["clue-ledger", "clue-runes"]
+    assert "without_roll_evidence_clue_ids" not in clue_signal
     assert signals["npc_engagements"] == {"available": True, "total_count": 2, "improvised_count": 1}
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "## Play Conduct Signals" in markdown
-    assert "Dialogue turns: **12**" in markdown
+    assert "Dialogue turns: **6**" in markdown
     assert "Public rolls: **0**" in markdown
     assert "without a matching authored-skill roll in the roll log: **2**" in markdown
     assert "improvised (no authored NPC identity): **1**" in markdown
@@ -764,6 +888,8 @@ def test_play_conduct_signals_count_matching_authored_skill_rolls_as_evidence(tm
         {"clue_id": "clue-library", "delivery_kind": "skill_check", "skill": "Library Use"},
     ])
     _discover_clues(run, ["clue-spot", "clue-library"])
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_commit_snapshot(campaign, "fin-1")
 
     report = module.export_battle_report(run)
 
@@ -772,7 +898,7 @@ def test_play_conduct_signals_count_matching_authored_skill_rolls_as_evidence(tm
     assert clue_signal["available"] is True
     assert clue_signal["skill_check_delivery_count"] == 2
     assert clue_signal["without_roll_evidence_count"] == 1
-    assert clue_signal["without_roll_evidence_clue_ids"] == ["clue-library"]
+    assert "without_roll_evidence_clue_ids" not in clue_signal
 
 
 def test_play_conduct_signals_report_unavailable_sources_honestly(tmp_path):
@@ -783,12 +909,14 @@ def test_play_conduct_signals_report_unavailable_sources_honestly(tmp_path):
     (campaign / "logs" / "toolbox-calls.jsonl").unlink()
     (campaign / "logs" / "advisory-adoptions.jsonl").unlink()
     (campaign / "save" / "npc-engagement-receipts.json").unlink()
+    _write_commit_snapshot(campaign, "fin-1")
 
     report = module.export_battle_report(run)
 
-    assert report["completeness"]["classification"] == "COMPLETE"
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
     signals = report["play_conduct_signals"]
-    assert signals["turn_count"] == 2
+    assert signals["turn_count"] == 1
     assert signals["public_roll_count"] == 1
     assert signals["tool_call_counts_per_turn"] == {"available": False, "counts": {}, "total_tool_calls": 0}
     clue_signal = signals["skill_check_clue_delivery"]
@@ -796,7 +924,7 @@ def test_play_conduct_signals_report_unavailable_sources_honestly(tmp_path):
     assert clue_signal["discovered_clue_count"] == 1
     assert clue_signal["skill_check_delivery_count"] is None
     assert clue_signal["without_roll_evidence_count"] is None
-    assert clue_signal["without_roll_evidence_clue_ids"] is None
+    assert "without_roll_evidence_clue_ids" not in clue_signal
     assert signals["npc_engagements"] == {"available": False, "total_count": 0, "improvised_count": 0}
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "keeper-internal toolbox log unavailable" in markdown
@@ -829,7 +957,8 @@ def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
 
     report = module.export_battle_report(run)
 
-    assert [row["roll_id"] for row in report["social_rolls"]] == ["social-1"]
+    assert len(report["social_rolls"]) == 1
+    assert "roll_id" not in report["social_rolls"][0]
     entry = report["social_rolls"][0]
     assert entry["skill"] == "Persuade"
     assert entry["roll"] == 39
@@ -837,13 +966,14 @@ def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
     assert entry["outcome"] == "regular"
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "### 社交技能检定" in markdown
-    assert "`social-1` · 说服 · 骰点 39 对 45 · 普通成功" in markdown
+    assert "Public social check · 说服 · 骰点 39 对 45 · 普通成功" in markdown
     assert "- 检定: 说服" in markdown
     assert "- 检定: Persuade" not in markdown
     assert "other-1 · Spot Hidden" not in markdown  # non-social rolls stay in the appendix only
     assert "KEEPER_ROLL_SECRET" not in markdown
     evidence = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
-    assert [row["roll_id"] for row in evidence["social_rolls"]] == ["social-1"]
+    assert len(evidence["social_rolls"]) == 1
+    assert "roll_id" not in evidence["social_rolls"][0]
     assert evidence["social_rolls"][0]["skill"] == "Persuade"
 
 
@@ -863,7 +993,8 @@ def test_player_report_renders_only_rolls_bound_to_finalization_receipts(tmp_pat
 
     assert report["completeness"]["classification"] == "COMPLETE"
     assert report["completeness"]["dimensions"]["dice"]["status"] == "PASS"
-    assert [row["roll_id"] for row in report["public_rolls"]["records"]] == ["bound-1"]
+    assert len(report["public_rolls"]["records"]) == 1
+    assert "roll_id" not in report["public_rolls"]["records"][0]
     binding = report["public_rolls"]["finalization_binding"]
     assert binding["bound_roll_id_count"] == 1
     assert binding["undispositioned_orphan_count"] == 0
@@ -871,7 +1002,7 @@ def test_player_report_renders_only_rolls_bound_to_finalization_receipts(tmp_pat
     audit_rolls = (run / "artifacts" / "audit" / "rolls.jsonl").read_text(encoding="utf-8")
     assert "disposed-1" in audit_rolls
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
-    assert markdown.count("### `bound-1`") == 1
+    assert markdown.count("### Check 1") == 1
     assert "disposed-1" not in markdown
     assert "KEEPER_ROLL_SECRET" not in markdown
 
@@ -924,10 +1055,8 @@ def test_creation_luck_receipt_binds_public_roll_without_finalization(tmp_path):
 
     assert report["completeness"]["classification"] == "COMPLETE"
     assert report["completeness"]["dimensions"]["dice"]["status"] == "PASS"
-    assert [row["roll_id"] for row in report["public_rolls"]["records"]] == [
-        "public-1",
-        "creation-luck-1",
-    ]
+    assert len(report["public_rolls"]["records"]) == 2
+    assert all("roll_id" not in row for row in report["public_rolls"]["records"])
     binding = report["public_rolls"]["finalization_binding"]
     assert binding["bound_roll_id_count"] == 2
     assert binding["undispositioned_orphan_count"] == 0
@@ -964,7 +1093,7 @@ def test_undispositioned_orphan_public_roll_fails_dice_loudly(tmp_path):
     assert report["public_rolls"]["finalization_binding"]["undispositioned_orphan_count"] == 1
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "### `orphan-public`" not in markdown
-    assert markdown.count("### `public-1`") == 1
+    assert markdown.count("### Check 1") == 1
 
 
 def test_campaign_without_finalization_receipts_becomes_loudly_incomplete(tmp_path):
@@ -1209,7 +1338,8 @@ def test_audit_channel_written_with_hashes_and_no_leak_into_evidence(tmp_path):
         content = (audit_dir / name).read_bytes()
         assert _hashlib.sha256(content).hexdigest() == digest
     manifest = json.loads((audit_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["report_id"] == report["report_id"]
+    assert manifest["report_id"].startswith("coc-battle-report-")
+    assert "report_id" not in report
     assert set(manifest["files"]) == (
         expected - {"manifest.json", "hashes.sha256"}
     ) | {"../battle-report-evidence.json", "../battle-report.md"}
@@ -1308,13 +1438,13 @@ def test_accepted_transcript_requires_the_exact_v2_tuple(tmp_path, field, value)
     run = tmp_path / field
     data = _fixture(run)
     transcript = list(data["transcript"])
-    keeper = dict(transcript[0])
+    keeper = dict(transcript[1])
     if value is None:
         keeper.pop(field)
     else:
         keeper[field] = value
-    transcript[0] = keeper
-    _write_jsonl(run / "transcript.jsonl", transcript)
+    transcript[1] = keeper
+    _write_jsonl(_canonical_transcript_path(run), transcript)
 
     report = module.export_battle_report(run)
 
@@ -1326,16 +1456,15 @@ def test_canonical_player_row_requires_exact_journal_tuple_and_bijection(tmp_pat
     run = tmp_path / "canonical-player"
     data = _fixture(run)
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
-    keeper = dict(data["transcript"][0])
-    keeper["role"] = "keeper"
+    keeper = dict(data["transcript"][1])
     player = {
-        "role": "player", "text": "我查看门锁。", "turn_id": "turn-player-1",
+        "role": "player", "text": "我查看门锁。", "turn_id": "turn-1",
         "run_segment_id": "run-1", "session_id": "session-1",
-        "journal_decision_id": "journal-1",
+        "journal_decision_id": "fin-1-journal",
     }
     _write_jsonl(campaign / "logs" / "table-transcript.jsonl", [player, keeper])
     calls = [
-        {"tool": "state.journal", "ok": True, "args": {"decision_id": "journal-1"}, "data": {}},
+        {"tool": "state.journal", "ok": True, "args": {"decision_id": "fin-1-journal"}, "data": {}},
         {"tool": "director.advise", "ok": True, "args": {"decision_id": "d1"}, "data": {}},
     ]
     _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", calls)
@@ -1365,14 +1494,15 @@ def test_dispositioned_revision_is_audit_only(tmp_path):
         revision=2, review=accepted_review,
     )
     transcript = list(data["transcript"])
-    transcript[0] = {
-        **transcript[0],
+    transcript[0] = {**transcript[0], "journal_decision_id": "fin-2-journal"}
+    transcript[1] = {
+        **transcript[1],
         "text": accepted_text,
         "finalization_id": "fin-2",
         "accepted_revision": 2,
         "rendered_text_sha256": _canonical_digest(accepted_text),
     }
-    _write_jsonl(run / "transcript.jsonl", transcript)
+    _write_jsonl(_canonical_transcript_path(run), transcript)
     _write_jsonl(campaign / "logs" / "turn-finalizations.jsonl", [receipt])
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [accepted_review])
     _write_jsonl(campaign / "logs" / "undelivered-output-repairs.jsonl", [{
@@ -1382,7 +1512,11 @@ def test_dispositioned_revision_is_audit_only(tmp_path):
         "replacement_finalization_id": "fin-2",
         "replacement_revision": 2,
     }])
-    (campaign / "save" / "commit-snapshots" / "fin-2").mkdir(parents=True)
+    calls = [
+        {"tool": "state.journal", "ok": True, "args": {"decision_id": "fin-2-journal"}, "data": {}},
+    ]
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", calls)
+    _write_commit_snapshot(campaign, "fin-2")
 
     module.export_battle_report(run)
     primary = (
@@ -1414,7 +1548,7 @@ def test_scene_scope_requires_named_promotion_and_rejects_improvised_unlock(tmp_
     assert any("drift-1" in finding for finding in dimension["findings"])
     assert any("improv-1" in finding for finding in dimension["findings"])
 
-    events[1]["source_event_ids"] = ["drift-1"]
+    events[1] = _scene_promotion()
     events[2]["can_unlock_authored_milestone"] = False
     _write_jsonl(campaign / "logs" / "events.jsonl", events)
     report = module.export_battle_report(run)
@@ -1429,6 +1563,7 @@ def test_agency_is_not_proven_without_bound_review_and_accepted_violation_fails(
     receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
     receipt = json.loads(receipt_path.read_text(encoding="utf-8").splitlines()[0])
     receipt["narration_review"] = None
+    _refresh_receipt(receipt)
     _write_jsonl(receipt_path, [receipt])
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [])
     report = module.export_battle_report(run)
@@ -1443,6 +1578,7 @@ def test_agency_is_not_proven_without_bound_review_and_accepted_violation_fails(
         "review_id": violation["review_id"],
         "review_digest": violation["review_digest"],
     }
+    _refresh_receipt(receipt)
     _write_jsonl(receipt_path, [receipt])
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [violation])
     report = module.export_battle_report(run)
@@ -1487,6 +1623,7 @@ def test_forced_claim_requires_frozen_active_override(tmp_path):
         "override_id": "override-1", "subject_ref": "pc:ada",
         "source_ref": "rule:bout-1", "active": False,
     }]
+    _refresh_receipt(receipt)
     _write_jsonl(receipt_path, [receipt])
     report = module.export_battle_report(run)
     assert report["completeness"]["dimensions"]["agency"]["status"] == "FAIL"
@@ -1550,9 +1687,9 @@ def test_state_dimension_never_fabricates_a_fold_or_diff(tmp_path):
     report = module.export_battle_report(run)
     assert report["completeness"]["dimensions"]["state"]["status"] == "PASS"
     assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text(encoding="utf-8") == ""
-    (campaign / "save" / "commit-snapshots" / "fin-1").rmdir()
+    shutil.rmtree(campaign / "save" / "commit-snapshots" / "fin-1")
     report = module.export_battle_report(run)
-    assert report["completeness"]["dimensions"]["state"]["status"] == "FAIL"
+    assert report["completeness"]["dimensions"]["state"]["status"] == "NOT_PROVEN"
 
 
 def test_soft_over_length_on_accepted_revision_does_not_fail_completeness(tmp_path):
@@ -1569,8 +1706,131 @@ def test_soft_over_length_on_accepted_revision_does_not_fail_completeness(tmp_pa
     receipt["narration_review"] = {
         "review_id": review["review_id"], "review_digest": review["review_digest"],
     }
+    _refresh_receipt(receipt)
     _write_jsonl(receipt_path, [receipt])
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
     report = module.export_battle_report(run)
     assert report["completeness"]["classification"] == "COMPLETE"
+
+
+def test_canonically_invalid_schema_v2_finalization_cannot_authorize_projection(tmp_path):
+    module = _load()
+    run = tmp_path / "invalid-finalization"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8").splitlines()[0])
+    receipt["unexpected_shape_only_field"] = True
+    _write_jsonl(receipt_path, [receipt])
+
+    report = module.export_battle_report(run)
+
+    dimensions = report["completeness"]["dimensions"]
+    assert dimensions["accepted_transcript"]["status"] == "FAIL"
+    assert dimensions["dice"]["status"] == "FAIL"
+    assert dimensions["state"]["status"] == "FAIL"
+    assert dimensions["agency"]["status"] == "FAIL"
+    assert report["public_rolls"]["records"] == []
+    assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text() == ""
+
+
+def test_legacy_transcript_is_partial_evidence_not_formal_acceptance(tmp_path):
+    module = _load()
+    run = tmp_path / "legacy-transcript"
+    _fixture(run)
+    _canonical_transcript_path(run).unlink()
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+
+
+def test_state_requires_current_save_to_equal_accepted_snapshot_and_rejects_fake_call(tmp_path):
+    module = _load()
+    run = tmp_path / "state-equality"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    calls_path = campaign / "logs" / "toolbox-calls.jsonl"
+    calls = [json.loads(line) for line in calls_path.read_text().splitlines() if line]
+    calls.append({
+        "tool": "state.fake", "ok": True, "args": {"decision_id": "fake-1"},
+        "data": {"before": 1, "after": 2, "delta": 1},
+    })
+    _write_jsonl(calls_path, calls)
+    world_path = campaign / "save" / "world-state.json"
+    world = json.loads(world_path.read_text())
+    world["post_finalization_mutation"] = True
+    _write_json(world_path, world)
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["state"]["status"] == "NOT_PROVEN"
+    assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text() == ""
+
+
+def test_forced_claim_passes_only_with_full_frozen_override_contract(tmp_path):
+    module = _load()
+    run = tmp_path / "forced-valid"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    receipt_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipt = json.loads(receipt_path.read_text().splitlines()[0])
+    receipt["agency_claims"] = [{
+        "claim_id": "forced-1", "claim_type": "forced_behavior",
+        "subject_ref": "pc:ada", "source_ref": "sanity_bout:bout-1",
+        "override_id": "override-1", "exact_excerpt": "尖叫",
+    }]
+    receipt["contract_projection"]["control_overrides"] = [{
+        "override_id": "override-1", "subject_ref": "pc:ada",
+        "override_type": "bout_of_madness", "source_rule_id": "core.sanity_bout",
+        "source_ref": "sanity_bout:bout-1", "active": True,
+        "expiry": {"kind": "rounds_remaining", "value": 7},
+        "allowed_scope": ["尖叫", "无法正常调查"],
+    }]
+    _refresh_receipt(receipt)
+    _write_jsonl(receipt_path, [receipt])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["agency"]["status"] == "PASS"
+
+
+def test_player_artifacts_use_labels_and_keep_raw_ids_audit_only(tmp_path):
+    module = _load()
+    run = tmp_path / "player-labels"
+    _fixture(run)
+    report = module.export_battle_report(run)
+    primary = (
+        (run / "artifacts" / MARKDOWN_OUTPUT).read_text()
+        + (run / "artifacts" / JSON_OUTPUT).read_text()
+    )
+    audit = "".join(
+        path.read_text(errors="ignore")
+        for path in sorted((run / "artifacts" / "audit").iterdir())
+        if path.suffix in {".json", ".jsonl", ".md"}
+    )
+    for identifier in (
+        "session-1", "public-1", "clue-public", "npc-clerk", "effect-1", "d1",
+    ):
+        assert identifier not in primary
+    for identifier in (
+        "session-1", "public-1", "clue-public", "npc-clerk", "effect-1", "d1",
+    ):
+        assert identifier in audit
+    evidence = json.loads((run / "artifacts" / JSON_OUTPUT).read_text())
+    forbidden_keys = []
+    def visit(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key not in {"campaign_id", "run_segment_id", "ruleset_id", "model_id"} and (
+                    key == "id" or key.endswith("_id") or key.endswith("_ids")
+                ):
+                    forbidden_keys.append(key)
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    visit(evidence)
+    assert forbidden_keys == []
     assert report["completeness"]["dimensions"]["agency"]["status"] == "PASS"

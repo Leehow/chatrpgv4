@@ -85,6 +85,21 @@ def _turn_finalization() -> Any:
     return _TURN_FINALIZATION_MODULE
 
 
+_TOOLBOX_MODULE: Any = None
+
+
+def _registered_tool_names() -> set[str]:
+    global _TOOLBOX_MODULE
+    if _TOOLBOX_MODULE is None:
+        scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import coc_toolbox
+
+        _TOOLBOX_MODULE = coc_toolbox
+    return set(_TOOLBOX_MODULE.TOOLS)
+
+
 def _canonical_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -153,10 +168,21 @@ def _has_explicit_delta(value: Any) -> bool:
 
 
 def _state_diff_rows(
-    toolbox_calls: Any, turn_finalizations: Any
+    toolbox_calls: Any, valid_finalizations: Any
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for receipt in turn_finalizations or []:
+    registered = _registered_tool_names()
+    calls_by_decision = {
+        str((call.get("args") or {}).get("decision_id")): call
+        for call in toolbox_calls or []
+        if isinstance(call, dict)
+        and call.get("ok") is True
+        and str(call.get("tool") or "") in registered
+        and str(call.get("tool") or "").startswith("state.")
+        and isinstance(call.get("args"), dict)
+        and (call.get("args") or {}).get("decision_id")
+    }
+    for receipt in valid_finalizations or []:
         if not isinstance(receipt, dict):
             continue
         bundle = receipt.get("bundle") if isinstance(receipt.get("bundle"), dict) else {}
@@ -164,29 +190,113 @@ def _state_diff_rows(
             for effect in bundle.get(category) or []:
                 if not isinstance(effect, dict) or not _has_explicit_delta(effect):
                     continue
+                source_decision_id = str(effect.get("source_decision_id") or "")
+                source_call = calls_by_decision.get(source_decision_id)
+                if source_call is None:
+                    continue
                 rows.append({
                     "source_kind": "finalization_bundle",
                     "finalization_id": receipt.get("finalization_id"),
                     "category": category,
+                    "source_tool": source_call.get("tool"),
                     "effect": effect,
                 })
-    for call in toolbox_calls or []:
-        if (
-            not isinstance(call, dict)
-            or call.get("ok") is not True
-            or not str(call.get("tool") or "").startswith("state.")
-        ):
-            continue
-        data = call.get("data")
-        if not _has_explicit_delta(data):
-            continue
-        rows.append({
-            "source_kind": "typed_state_operation",
-            "tool": call.get("tool"),
-            "decision_id": (call.get("args") or {}).get("decision_id"),
-            "data": data,
-        })
     return _stable_rows(rows)
+
+
+_SNAPSHOT_EXCLUDES = {
+    "commit-snapshots", "development-settlements", "session-state.json",
+    "toolbox-ledger.json", "roll-operation-receipts.json",
+}
+
+
+def _tree_digest(root: Path) -> str | None:
+    if not root.is_dir() or root.is_symlink():
+        return None
+    rows: list[tuple[str, str]] = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if relative.parts and relative.parts[0] in _SNAPSHOT_EXCLUDES:
+            continue
+        if path.is_symlink():
+            return None
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            return None
+        rows.append((relative.as_posix(), _sha256(path.read_bytes())))
+    return _canonical_digest(rows)
+
+
+def _valid_scene_promotion(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    required = {
+        "schema_version", "event_id", "event_type", "promotion_id", "scene_id",
+        "from_role", "to_role", "from_contract_id", "to_contract_id", "reason",
+        "source_event_ids", "resolved_drift_event_ids", "source_decision_id",
+        "module_divergence", "request_digest", "ts",
+    }
+    if set(row) != required or row.get("schema_version") != 1:
+        return False
+    strings = required - {
+        "schema_version", "source_event_ids", "resolved_drift_event_ids",
+        "module_divergence",
+    }
+    if any(not isinstance(row.get(key), str) or not row[key].strip() for key in strings):
+        return False
+    source_ids = row.get("source_event_ids")
+    resolved_ids = row.get("resolved_drift_event_ids")
+    if (
+        not isinstance(source_ids, list) or not source_ids
+        or any(not isinstance(value, str) or not value for value in source_ids)
+        or len(source_ids) != len(set(source_ids))
+        or not isinstance(resolved_ids, list)
+        or any(not isinstance(value, str) or value not in source_ids for value in resolved_ids)
+        or row.get("event_type") != "scene_promotion"
+        or row.get("module_divergence") is not True
+        or not str(row.get("event_id")).startswith("tool-operation-v1:")
+        or not str(row.get("promotion_id")).startswith("scene-promotion-v1:")
+        or not str(row.get("from_contract_id")).startswith("scene-contract-v1:")
+        or not str(row.get("to_contract_id")).startswith("scene-contract-v1:")
+        or not str(row.get("request_digest")).startswith("sha256:")
+    ):
+        return False
+    return True
+
+
+def _valid_control_override(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    required = {
+        "override_id", "subject_ref", "override_type", "source_rule_id",
+        "source_ref", "active", "expiry", "allowed_scope",
+    }
+    if not required <= set(row) or row.get("active") is not True:
+        return False
+    if row.get("override_type") not in {
+        "bout_of_madness", "phobia", "mania", "unconscious"
+    }:
+        return False
+    for key in ("override_id", "subject_ref", "source_rule_id", "source_ref"):
+        if not isinstance(row.get(key), str) or not row[key].strip():
+            return False
+    if not row["subject_ref"].startswith("pc:") or not row["source_rule_id"].startswith("core."):
+        return False
+    expiry = row.get("expiry")
+    allowed_scope = row.get("allowed_scope")
+    if (
+        not isinstance(expiry, dict) or not isinstance(expiry.get("kind"), str)
+        or not isinstance(allowed_scope, list) or not allowed_scope
+        or any(not isinstance(value, str) or not value.strip() for value in allowed_scope)
+    ):
+        return False
+    source_ref = row["source_ref"]
+    if row["override_type"] == "bout_of_madness":
+        return source_ref.startswith("sanity_bout:") and expiry.get("kind") == "rounds_remaining"
+    if row["override_type"] == "unconscious":
+        return source_ref.startswith("investigator_state:") and expiry.get("kind") == "condition_cleared"
+    return expiry.get("kind") is not None
 
 
 def _review_digest_valid(row: Any) -> bool:
@@ -606,6 +716,7 @@ def _progression_projection(world: Any, flags: Any) -> dict[str, Any]:
     visited = [item for item in world.get("visited_scene_ids", []) if isinstance(item, str)] if isinstance(world.get("visited_scene_ids"), list) else []
     return {
         "visited_scene_ids": visited,
+        "visited_scene_count": len(visited),
         "scene_history": history,
         "discovered_clues": clues,
         "major_decisions": [
@@ -1127,6 +1238,16 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 )
             )
 
+    finalization_contract = _turn_finalization()
+    valid_finalizations = [
+        row for row in (turn_finalizations or [])
+        if finalization_contract._valid_finalization(row)
+    ]
+    invalid_finalization_rows = [
+        index for index, row in enumerate(turn_finalizations or [], start=1)
+        if not finalization_contract._valid_finalization(row)
+    ]
+
     public_rolls: list[dict[str, Any]] = []
     all_rolls = None
     rolls_relative = None
@@ -1138,7 +1259,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     undispositioned_orphans: list[dict[str, Any]] = []
     dispositioned_orphan_ids: list[str] = []
     if campaign_relative:
-        turn_finalization = _turn_finalization()
+        turn_finalization = finalization_contract
         superseded_visibilities = {
             str(value).casefold()
             for value in turn_finalization.SUPERSEDED_ROLL_VISIBILITIES
@@ -1147,7 +1268,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         # rows carry no turn identity by design, and receipt validation already
         # enforces seen_sources == expected_sources. A receipt with an empty
         # source_roll_ids is the zero-roll attestation for its turn.
-        for row in turn_finalizations or []:
+        for row in valid_finalizations:
             if not isinstance(row, dict):
                 continue
             receipt_roll_ids = [
@@ -1327,7 +1448,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     journal_decision_ids = set(journal_decision_id_rows)
     finalization_ids = {
         str(row.get("finalization_id"))
-        for row in turn_finalizations or []
+        for row in valid_finalizations
         if isinstance(row, dict) and row.get("finalization_id")
     }
     if transcript_origin == "canonical":
@@ -1400,6 +1521,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     f"accepted player row {index} is NOT_PROVEN: run/session identity mismatch"
                 )
     else:
+        transcript_findings.append(
+            "legacy/unbound transcript is partial evidence only; formal completeness requires canonical table-transcript identity bindings"
+        )
         if journal_decision_ids and role_counts["player"] < len(journal_decision_ids):
             transcript_findings.append(
                 f"legacy transcript has {role_counts['player']} player row(s) for {len(journal_decision_ids)} journaled turn(s)"
@@ -1415,9 +1539,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             f"run status is {run_status}; transcript cannot be claimed final"
         )
     accepted_findings = list(transcript_findings)
+    if invalid_finalization_rows:
+        accepted_findings.append(
+            "canonical finalization validation failed at source row(s): "
+            + ", ".join(map(str, invalid_finalization_rows))
+        )
     finalization_by_id = {
         str(row.get("finalization_id")): row
-        for row in turn_finalizations or []
+        for row in valid_finalizations
         if isinstance(row, dict) and isinstance(row.get("finalization_id"), str)
     }
     accepted_keeper_rows = [
@@ -1426,7 +1555,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     ]
     authoritative_finalization_ids = [
         str(row.get("finalization_id"))
-        for row in turn_finalizations or []
+        for row in valid_finalizations
         if isinstance(row, dict) and isinstance(row.get("finalization_id"), str)
         and row.get("finalization_id")
     ]
@@ -1505,6 +1634,19 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             accepted_findings.append(
                 f"accepted Keeper row {index} is NOT_PROVEN: finalization revision/text/hash binding is absent or conflicting"
             )
+            continue
+        if transcript_origin == "canonical":
+            player_sources = [
+                player for player in transcript
+                if isinstance(player, dict)
+                and _dialogue_side(player) == "player"
+                and player.get("turn_id") == receipt.get("turn_id")
+                and player.get("journal_decision_id") == receipt.get("journal_decision_id")
+            ]
+            if len(player_sources) != 1:
+                accepted_findings.append(
+                    f"accepted Keeper row {index} is NOT_PROVEN: turn does not bind exactly one canonical player journal row"
+                )
     transcript_complete = transcript_candidate_present and not accepted_findings
     dimension(
         "accepted_transcript",
@@ -1518,6 +1660,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         and not malformed_lines
         and not duplicate_roll_ids
         and not undispositioned_orphans
+        and not invalid_finalization_rows
     )
     dice_findings: list[str] = []
     if dice_ok:
@@ -1526,6 +1669,8 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         )
     else:
         dice_findings.append("structured roll evidence is missing or invalid")
+    if invalid_finalization_rows:
+        dice_findings.append("roll binding references fail canonical finalization validation")
     if undispositioned_orphans:
         dice_findings.append(
             "public roll rows bound to no canonical receipt and carrying no abandonment disposition: "
@@ -1537,9 +1682,20 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     dimension("dice", dice_ok, *dice_findings)
     character_ok = bool(investigators) and all(i["source_status"]["character"] == "PRESENT" and i["source_status"]["state"] == "PRESENT" for i in investigators)
     dimension("character_and_final_state", character_ok, "initial card and final dynamic state are present" if character_ok else "an investigator lacks an initial card or final state")
-    authoritative_state_diffs = _state_diff_rows(toolbox_calls, turn_finalizations)
+    authoritative_state_diffs = _state_diff_rows(toolbox_calls, valid_finalizations)
     malformed_visible_deltas: list[str] = []
-    for receipt in turn_finalizations or []:
+    unbound_visible_deltas: list[str] = []
+    registered_state_decisions = {
+        str((call.get("args") or {}).get("decision_id"))
+        for call in toolbox_calls or []
+        if isinstance(call, dict)
+        and call.get("ok") is True
+        and str(call.get("tool") or "") in _registered_tool_names()
+        and str(call.get("tool") or "").startswith("state.")
+        and isinstance(call.get("args"), dict)
+        and (call.get("args") or {}).get("decision_id")
+    }
+    for receipt in valid_finalizations:
         if not isinstance(receipt, dict):
             continue
         bundle = receipt.get("bundle") if isinstance(receipt.get("bundle"), dict) else {}
@@ -1549,11 +1705,17 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     malformed_visible_deltas.append(
                         f"{receipt.get('finalization_id') or 'unknown'}:{category}"
                     )
+                elif str(effect.get("source_decision_id") or "") not in registered_state_decisions:
+                    unbound_visible_deltas.append(
+                        f"{receipt.get('finalization_id') or 'unknown'}:{category}"
+                    )
     commit_snapshot_id = None
-    if campaign_relative and turn_finalizations:
+    snapshot_digest = None
+    current_save_digest = None
+    if campaign_relative and valid_finalizations:
         last_finalization = next(
             (
-                row for row in reversed(turn_finalizations)
+                row for row in reversed(valid_finalizations)
                 if isinstance(row, dict)
                 and isinstance(row.get("finalization_id"), str)
                 and row.get("finalization_id")
@@ -1571,16 +1733,39 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             )
             if snapshot_path.is_dir() and not snapshot_path.is_symlink():
                 commit_snapshot_id = last_id
+                snapshot_digest = _tree_digest(snapshot_path)
+                current_save_digest = _tree_digest(
+                    Path(run_dir) / campaign_relative / "save"
+                )
     state_findings: list[str] = []
     if not character_ok:
         state_findings.append("canonical final investigator state is missing")
-    if turn_finalizations and commit_snapshot_id is None:
+    if invalid_finalization_rows:
+        state_findings.append("one or more finalization rows fail the canonical receipt validator")
+    if valid_finalizations and commit_snapshot_id is None:
         state_findings.append("latest accepted finalization lacks its canonical commit snapshot")
+    if not valid_finalizations:
+        state_findings.append("no canonically valid accepted finalization proves final state")
+    if commit_snapshot_id is not None and (
+        snapshot_digest is None or current_save_digest is None
+        or snapshot_digest != current_save_digest
+    ):
+        state_findings.append(
+            "current authoritative save does not exactly match the latest accepted commit snapshot"
+        )
     if malformed_visible_deltas:
         state_findings.append(
             "visible state effects lack typed before/after or delta evidence: "
             + ", ".join(sorted(malformed_visible_deltas))
         )
+    if unbound_visible_deltas:
+        state_findings.append(
+            "typed state effects lack a successful registered canonical state operation: "
+            + ", ".join(sorted(unbound_visible_deltas))
+        )
+    state_status = None
+    if state_findings and not invalid_finalization_rows:
+        state_status = "NOT_PROVEN"
     dimension(
         "state",
         not state_findings,
@@ -1588,6 +1773,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "canonical final state and latest commit snapshot are present; "
             f"{len(authoritative_state_diffs)} genuine typed delta row(s) retained without an invented event fold"
         ]),
+        status=state_status,
     )
     progression_ok = isinstance(world, dict) and isinstance(flags, dict) and bool(progression["visited_scene_ids"])
     dimension("progression", progression_ok, "visited scenes and discovered-clue receipts are projected" if progression_ok else "world progression sources or visited path are missing")
@@ -1651,7 +1837,10 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     dimensions["settlement_session_uniqueness"] = dict(dimensions["settlement_uniqueness"])
 
     event_rows = [row for row in (events or []) if isinstance(row, dict)]
-    promotions = [row for row in event_rows if row.get("event_type") == "scene_promotion"]
+    promotion_candidates = [
+        row for row in event_rows if row.get("event_type") == "scene_promotion"
+    ]
+    promotions = [row for row in promotion_candidates if _valid_scene_promotion(row)]
     unresolved_hard_drifts: list[str] = []
     for drift in event_rows:
         if (
@@ -1666,6 +1855,10 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             and drift_id
             and drift_id in {
                 str(value) for value in promotion.get("source_event_ids") or []
+            }
+            and drift_id in {
+                str(value)
+                for value in promotion.get("resolved_drift_event_ids") or []
             }
             for promotion in promotions
         )
@@ -1705,6 +1898,11 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 str((call.get("args") or {}).get("decision_id") or data.get("clue_id") or "unknown")
             )
     scene_findings: list[str] = []
+    malformed_promotions = len(promotion_candidates) - len(promotions)
+    if malformed_promotions:
+        scene_findings.append(
+            f"{malformed_promotions} scene promotion row(s) fail the canonical evidence contract"
+        )
     if unresolved_hard_drifts:
         scene_findings.append(
             "unpromoted hard scene-scope drift: " + ", ".join(sorted(unresolved_hard_drifts))
@@ -1727,8 +1925,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     }
     agency_findings: list[str] = []
     agency_not_proven: list[str] = []
+    if invalid_finalization_rows:
+        agency_findings.append(
+            "one or more accepted-source rows fail canonical finalization validation"
+        )
+    if not valid_finalizations:
+        agency_not_proven.append("no-valid-accepted-finalization")
     accepted_review_ids: set[str] = set()
-    for receipt in turn_finalizations or []:
+    for receipt in valid_finalizations:
         if not isinstance(receipt, dict):
             continue
         finalization_id = str(receipt.get("finalization_id") or "unknown")
@@ -1769,6 +1973,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             override = overrides.get(str(claim.get("override_id") or ""))
             if (
                 not isinstance(override, dict)
+                or not _valid_control_override(override)
                 or override.get("active") is not True
                 or override.get("subject_ref") != claim.get("subject_ref")
                 or override.get("source_ref") != claim.get("source_ref")
@@ -1917,6 +2122,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         if isinstance(row, dict)
         and row.get("ok") is True
         and str(row.get("tool") or "").startswith("rules.")
+        and str(row.get("tool") or "") in _registered_tool_names()
     ])
     social_rows = _flatten_document_rows(
         social_document, "resolutions", "goal_key", row_kind="social_resolution"
@@ -1946,7 +2152,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         and isinstance((call.get("data") or {}).get("scene_contract"), dict)
     ])
     narration_revision_rows = _stable_rows(
-        [{"record_kind": "accepted_finalization", **row} for row in turn_finalizations or [] if isinstance(row, dict)]
+        [{
+            "record_kind": (
+                "accepted_finalization"
+                if finalization_contract._valid_finalization(row)
+                else "invalid_finalization_source"
+            ),
+            **row,
+        } for row in turn_finalizations or [] if isinstance(row, dict)]
         + [{"record_kind": "semantic_review", **row} for row in narration_reviews_doc or [] if isinstance(row, dict)]
         + [{"record_kind": "dispositioned_revision", **row} for row in narration_repairs_doc or [] if isinstance(row, dict)]
     )
@@ -2039,7 +2252,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 "dispositioned_orphan_count": len(dispositioned_orphan_ids),
                 "latest_commit_snapshot_present": commit_snapshot_id is not None,
             },
-            "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines and not undispositioned_orphans else "FAIL",
+            "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines and not undispositioned_orphans and not invalid_finalization_rows else "FAIL",
         },
         "run_metadata": metadata,
         "source_identity": {
@@ -2240,7 +2453,10 @@ def _structured_skill_labels(report: dict[str, Any]) -> dict[str, dict[str, str]
     for investigator in report.get("investigators") or []:
         if not isinstance(investigator, dict):
             continue
-        investigator_id = investigator.get("investigator_id")
+        investigator_id = (
+            investigator.get("investigator_display_name")
+            or investigator.get("investigator_id")
+        )
         character = investigator.get("character")
         rows = (
             character.get("initial_skill_rows")
@@ -2572,7 +2788,10 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
             localized = localized.replace(" · scene `", " · 场景 `", 1)
             for source, target in interaction_labels.items():
                 localized = localized.replace(f" · {source} ·", f" · {target} ·", 1)
-        elif localized.startswith("- `") and " · roll " in localized:
+        elif (
+            localized.startswith("- Public social check · ")
+            or localized.startswith("- `")
+        ) and " · roll " in localized:
             localized = localized.replace(" · roll ", " · 骰点 ", 1).replace(
                 " vs ", " 对 ", 1
             )
@@ -2591,7 +2810,6 @@ def _markdown(report: dict[str, Any]) -> str:
     lines = [
         "# COC Actual-Play Battle Report", "",
         "This is the final player-readable report produced directly from a real playtest run.", "",
-        f"- Report ID: `{report['report_id']}`",
         f"- Run segment: `{metadata.get('run_segment_id', 'MISSING')}`",
         f"- Campaign: `{metadata.get('campaign_id', 'MISSING')}`",
         f"- Completeness: **{completeness['classification']}**", "",
@@ -2606,14 +2824,13 @@ def _markdown(report: dict[str, Any]) -> str:
         creation = investigator.get("creation")
         if not isinstance(creation, dict):
             creation = character.get("creation") if isinstance(character, dict) else None
-        name = _first(character, ("name", "display_name")) or _first(state, ("name", "display_name")) or investigator["investigator_id"]
+        name = _first(character, ("name", "display_name")) or _first(state, ("name", "display_name")) or investigator.get("investigator_display_name") or "Investigator"
         occupation = _first(character, ("occupation", "profession"))
         occupation_name = (
             occupation.get("name") if isinstance(occupation, dict) else occupation
         )
         lines.extend([f"### {name}", ""])
         fields = (
-            ("ID", investigator["investigator_id"]),
             ("Occupation", occupation_name),
             ("Age", _first(character, ("age",))),
             ("Sex", _first(character, ("sex",))),
@@ -2795,11 +3012,7 @@ def _markdown(report: dict[str, Any]) -> str:
     else:
         lines.extend(["No structured ending was recorded.", ""])
     for settlement in report.get("development_settlements", []):
-        investigator_id = settlement.get("investigator_id")
-        display_name = next((
-            _first(item.get("character"), ("name", "display_name")) or _first(item.get("state"), ("name", "display_name"))
-            for item in report.get("investigators", []) if item.get("investigator_id") == investigator_id
-        ), None) or investigator_id or "Investigator"
+        display_name = settlement.get("investigator_display_name") or "Investigator"
         lines.extend([f"### {display_name} Development", ""])
         for row in settlement.get("improvement_checks", []):
             lines.append(f"- {row.get('skill')}: {row.get('value_before')} → {row.get('value_after')} (gain {row.get('applied_delta', row.get('gain'))}; check {row.get('check_roll')})")
@@ -2824,11 +3037,11 @@ def _markdown(report: dict[str, Any]) -> str:
 
     progression = report.get("progression", {})
     lines.extend(["## Investigation Chronicle", "", "### Scene Progression", ""])
-    visited = progression.get("visited_scene_ids", [])
-    lines.extend([" → ".join(f"`{scene}`" for scene in visited) if visited else "No visited-scene path was recorded.", "", "### Discovered Clues", ""])
+    visited_count = progression.get("visited_scene_count", 0)
+    lines.extend([f"Recorded visited scenes: {visited_count}." if visited_count else "No visited-scene path was recorded.", "", "### Discovered Clues", ""])
     for clue in progression.get("discovered_clues", []):
         detail = f" — {clue['method']}" if clue.get("method") else ""
-        lines.append(f"- `{clue['clue_id']}`{detail}")
+        lines.append(f"- Confirmed clue{detail}")
     if not progression.get("discovered_clues"):
         lines.append("No discovered-clue receipts were recorded.")
     lines.extend(["", "### Investigator Impressions (Not Confirmed Facts)", ""])
@@ -2840,7 +3053,7 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.append("No player-visible investigator impressions were recorded.")
     lines.extend(["", "### NPC Interactions", ""])
     for npc in report.get("npc_interactions", []):
-        lines.append(f"- `{npc.get('npc_id', 'unknown')}` · {npc.get('interaction_kind', 'interaction')} · scene `{npc.get('scene_id', 'unknown')}`")
+        lines.append(f"- Recorded NPC · {npc.get('interaction_kind', 'interaction')}")
     if not report.get("npc_interactions"):
         lines.append("No player-safe NPC interaction receipts were recorded.")
     lines.extend(["", "### First Impressions", ""])
@@ -2855,14 +3068,13 @@ def _markdown(report: dict[str, Any]) -> str:
             if impression.get("legacy_contract")
             else (
                 f"D100 {impression.get('roll')} · "
-                f"{impression.get('achieved_level')} · `{impression.get('roll_id')}`"
+                f"{impression.get('achieved_level')}"
             )
         )
         realization = impression.get("realization") or {}
         lines.append(
-            f"- `{impression.get('investigator_id', 'unknown')}` → "
-            f"{impression.get('npc_display_name') or impression.get('npc_id', 'unknown')} "
-            f"(`{impression.get('npc_id', 'unknown')}`) · APP {impression.get('app')} / "
+            f"- {impression.get('investigator_display_name', 'Investigator')} → "
+            f"{impression.get('npc_display_name') or 'NPC'} · APP {impression.get('app')} / "
             f"CR {impression.get('credit_rating')} · used {basis} "
             f"{impression.get('governing_value')} · {result} · "
             f"{realization.get('observable_manner', 'realization not recorded')}"
@@ -2872,7 +3084,7 @@ def _markdown(report: dict[str, Any]) -> str:
     lines.extend(["", "### Social Skill Rolls", ""])
     for entry in report.get("social_rolls", []):
         parts = [
-            f"`{entry.get('roll_id') or 'MISSING'}`",
+            "Public social check",
             str(_display_skill(
                 skill_labels, entry.get("actor"), entry.get("skill")
             )),
@@ -2910,14 +3122,11 @@ def _markdown(report: dict[str, Any]) -> str:
         mechanics = effect.get("mechanics") or {}
         boundary = _exceptional_boundary_display(effect.get("boundary"))
         lines.append(
-            f"- `{mechanics.get('investigator_id', 'unknown')}` → "
-            f"{mechanics.get('target_display_name') or mechanics.get('target_id', 'unknown')} "
-            f"(`{mechanics.get('target_id', 'unknown')}`) · {effect.get('effect_kind')} · "
+            f"- Investigator → "
+            f"{mechanics.get('target_display_name') or 'NPC'} · {effect.get('effect_kind')} · "
             f"{effect.get('player_visible_impact', '')} "
             f"(cause: {effect.get('causal_link', '')}; skill: "
             f"{mechanics.get('skill', 'unknown')}; boundary: {boundary}; "
-            f"source roll: {effect.get('source_roll_id', 'unknown')}; "
-            f"source decisions: {mechanics.get('source_decision_ids', [])}; "
             f"status: {effect.get('status', 'unknown')})"
         )
     if not report.get("relationship_rewards"):
@@ -2940,7 +3149,7 @@ def _markdown(report: dict[str, Any]) -> str:
 
     rolls = report["public_rolls"]
     lines.extend(["## Public Rules and Dice", "", f"Public roll count: **{rolls['required_count']}**.", f"Dice completeness: **{rolls['status']}**.", ""])
-    for roll in rolls["records"]:
+    for roll_index, roll in enumerate(rolls["records"], start=1):
         payload = roll.get("payload") if isinstance(roll.get("payload"), dict) else {}
         dice = payload.get("dice") if isinstance(payload.get("dice"), dict) else {}
         actor = _first_not_none(
@@ -2951,7 +3160,7 @@ def _markdown(report: dict[str, Any]) -> str:
             _first(payload, ("skill", "attribute", "reason", "expression")),
             _first(roll, ("skill", "reason", "expression")),
         )
-        lines.extend([f"### `{_roll_id(roll) or 'MISSING'}`", ""])
+        lines.extend([f"### Check {roll_index}", ""])
         fields = (
             ("Actor", actor),
             (
@@ -2989,7 +3198,6 @@ def _markdown(report: dict[str, Any]) -> str:
                 ),
             ),
             ("Visibility", _roll_visibility(roll)),
-            ("Source", roll.get("source_ref")),
         )
         lines.extend(f"- {label}: {_display(value)}" for label, value in fields if value not in (None, "", []))
         lines.append("")
@@ -3080,7 +3288,7 @@ def _render_rules_audit(report: dict[str, Any], audit: dict[str, Any]) -> str:
         "# 规则审计附件 (Rules Audit)",
         "",
         f"- campaign: {metadata.get('campaign_id')}",
-        f"- report_id: {report.get('report_id')}",
+        f"- report_id: {audit.get('report_id')}",
         f"- classification: {completeness.get('classification')}",
         "",
         "## 完整性维度",
@@ -3251,6 +3459,101 @@ def _player_safe_completeness(value: Any) -> dict[str, Any]:
     }
 
 
+_PLAYER_ALLOWED_ID_KEYS = {
+    "campaign_id", "run_segment_id", "ruleset_id", "model_id",
+}
+
+
+def _strip_player_internal_identity(value: Any) -> Any:
+    """Remove machine identities from distribution artifacts, recursively."""
+    if isinstance(value, list):
+        return [_strip_player_internal_identity(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    projected: dict[str, Any] = {}
+    for raw_key, raw_value in value.items():
+        key = str(raw_key)
+        if key in _PLAYER_ALLOWED_ID_KEYS:
+            projected[key] = _strip_player_internal_identity(raw_value)
+            continue
+        if (
+            key == "id"
+            or key.endswith("_id")
+            or key.endswith("_ids")
+            or key in {"source_ref", "source_path", "source_line"}
+            or key.endswith("_sha256")
+            or key.endswith("_digest")
+        ):
+            continue
+        projected[key] = _strip_player_internal_identity(raw_value)
+    return projected
+
+
+def _attach_player_display_labels(source: dict[str, Any]) -> None:
+    investigator_names: dict[str, str] = {}
+    for investigator in source.get("investigators") or []:
+        if not isinstance(investigator, dict):
+            continue
+        investigator_id = str(investigator.get("investigator_id") or "")
+        character = investigator.get("character") if isinstance(investigator.get("character"), dict) else {}
+        state = investigator.get("state") if isinstance(investigator.get("state"), dict) else {}
+        display = _first(character, ("name", "display_name")) or _first(state, ("name", "display_name"))
+        if investigator_id and isinstance(display, str) and display.strip():
+            investigator_names[investigator_id] = display
+            investigator["investigator_display_name"] = display
+    for key in ("development_settlements", "first_impressions"):
+        for row in source.get(key) or []:
+            if not isinstance(row, dict):
+                continue
+            display = investigator_names.get(str(row.get("investigator_id") or ""))
+            if display:
+                row["investigator_display_name"] = display
+    for key in ("social_rolls",):
+        for row in source.get(key) or []:
+            if isinstance(row, dict):
+                actor = str(row.get("actor") or "")
+                if actor in investigator_names:
+                    row["actor"] = investigator_names[actor]
+                elif actor:
+                    row["actor"] = "Investigator"
+    public = source.get("public_rolls") if isinstance(source.get("public_rolls"), dict) else {}
+    for row in public.get("records") or []:
+        if not isinstance(row, dict):
+            continue
+        actor = str(row.get("actor") or "")
+        if actor in investigator_names:
+            row["actor"] = investigator_names[actor]
+        elif actor:
+            row["actor"] = "Keeper" if actor.casefold() == "keeper" else "NPC"
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else None
+        if payload is not None:
+            payload_actor = str(payload.get("actor") or "")
+            if payload_actor in investigator_names:
+                payload["actor"] = investigator_names[payload_actor]
+            elif payload_actor:
+                payload["actor"] = (
+                    "Keeper" if payload_actor.casefold() == "keeper" else "NPC"
+                )
+
+
+def _collect_projection_identities(value: Any, path: str = "$") -> list[dict[str, Any]]:
+    """Audit-only inventory of identities removed from player distribution."""
+    rows: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        for key in sorted(value):
+            child = value[key]
+            child_path = f"{path}.{key}"
+            if key not in _PLAYER_ALLOWED_ID_KEYS and (
+                key == "id" or key.endswith("_id") or key.endswith("_ids")
+            ):
+                rows.append({"path": child_path, "value": child})
+            rows.extend(_collect_projection_identities(child, child_path))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            rows.extend(_collect_projection_identities(child, f"{path}[{index}]"))
+    return rows
+
+
 def _projection_manifest_entry(
     payload: bytes, *, path: str, distribution: str
 ) -> dict[str, Any]:
@@ -3335,6 +3638,9 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
         if full_source_identity.get(key) is not None
     }
     audit["full_completeness"] = json.loads(json.dumps(source.get("completeness") or {}))
+    audit["development_settlements"] = json.loads(
+        json.dumps(source.get("development_settlements") or [])
+    )
     source["completeness"] = _player_safe_completeness(source.get("completeness"))
     identity_material = {
         "schema_version": SCHEMA_VERSION,
@@ -3343,13 +3649,17 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
         "source_payload": source,
     }
     report_id = "coc-battle-report-" + _sha256(_canonical_bytes(identity_material))[:24]
+    audit["report_id"] = report_id
+    _attach_player_display_labels(source)
+    audit["projection_source_identities"] = _collect_projection_identities(source)
     report = {
         "schema_version": SCHEMA_VERSION,
-        "report_id": report_id,
         "report_type": "coc_actual_play_battle_report_evidence",
         "markdown_audience": "player_safe",
         **source,
     }
+    report = _strip_player_internal_identity(report)
+    assert isinstance(report, dict)
     _apply_secrecy_validation(report, audit)
     json_bytes = (_pretty_json(report) + "\n").encode("utf-8")
     markdown_bytes = (_markdown(report).rstrip() + "\n").encode("utf-8")
@@ -3361,6 +3671,7 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
         "source_manifest": source_manifest,
         "source_identity": audit.get("source_identity"),
         "finalization_binding": audit.get("finalization_binding"),
+        "projection_source_identities": audit.get("projection_source_identities") or [],
         "projection_hash_convention": {
             "manifest_covers": "two player artifacts plus every audit payload except manifest/hashes",
             "hashes_sha256_covers": "manifest entries plus manifest.json; excludes itself",
@@ -3378,7 +3689,7 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
         "state-diffs.jsonl": _jsonl_bytes(audit.get("state_diffs") or []),
         "sanity-events.jsonl": _jsonl_bytes(audit.get("sanity_events") or []),
         "settlements.json": (_pretty_json(
-            {"development_settlements": report.get("development_settlements") or []}
+            {"development_settlements": audit.get("development_settlements") or []}
         ) + "\n").encode("utf-8"),
         "dispositions.json": (_pretty_json(
             {"dispositions": audit.get("dispositions") or {}}

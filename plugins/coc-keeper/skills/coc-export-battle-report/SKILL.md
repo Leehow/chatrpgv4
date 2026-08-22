@@ -51,7 +51,9 @@ including exact transcript, all rolls, rule decisions, social resolutions,
 concealed Psychology, scene-budget/drift evidence, narration revisions,
 genuine typed state diffs, report validation, and deterministic manifest/hash
 files. Neither player artifact contains `keeper_internal`, the source manifest,
-concealed identifiers, or raw audit objects.
+concealed identifiers, raw session/decision/source/NPC/clue/roll identifiers,
+or raw audit objects. Player-facing checks use presentation order and labels;
+exact machine identities remain in Keeper/development audit evidence only.
 
 The Markdown renders the full initial investigator card, final `current_*`
 state, development deltas, personal-horror weave/payoff receipts, visited path,
@@ -84,6 +86,16 @@ revision; an empty agency-claim list is not proof. The compatibility
 `COMPLETE`/`INCOMPLETE` classification
 means report-source evidence completeness only. It does **not** certify prose
 quality, Director/Storylet use, or whole-product KP quality.
+
+Formal accepted-transcript, dice, state, and agency evidence is authoritative
+only when every referenced schema-v2 receipt passes the canonical
+`coc_turn_finalization._valid_finalization` validator. Legacy/unbound transcript
+is partial evidence and cannot pass accepted-transcript completeness. The
+canonical player row must bind the exact run segment, session, turn, and
+`state.journal` decision, while its Keeper row binds the exact accepted
+revision and finalization receipt. State passes only when the current
+authoritative save tree exactly matches the latest accepted commit snapshot;
+unregistered or shape-only state calls never become `state-diffs.jsonl` rows.
 
 Both outputs also carry an observational **Play Conduct Signals** section
 (`play_conduct_signals` in the evidence JSON). It restates structured facts
