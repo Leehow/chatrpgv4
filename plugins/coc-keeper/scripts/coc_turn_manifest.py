@@ -516,6 +516,7 @@ def _setup_source_boundary(campaign_dir: Path) -> dict[str, Any] | None:
         "setup_handoff": {**handoff},
         "cursor_close_owner": "evidence.table_opening",
     }
+    return result
 
 
 def _validated_virtual_source_boundary(
@@ -954,7 +955,7 @@ def resume_window(
             continue
         projections.append(projection)
         used_bytes += size
-    return {
+    result = {
         "schema_version": SCHEMA_VERSION,
         "source_start_offset": boundary["effective_start_offset"],
         "source_start_index": boundary["effective_start_index"],

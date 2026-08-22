@@ -181,6 +181,14 @@ def test_completed_chargen_prefix_resumes_at_table_opening(tmp_path: Path) -> No
     assert boundary["cursor_close_owner"] == "evidence.table_opening"
     assert resumed["data"]["mode"] == "table_opening"
     assert resumed["data"]["next_operations"] == ["evidence.table_opening"]
+    assert resumed["data"]["current_turn"]["setup_source_prefix_seal"] == {
+        "schema_version": 1,
+        "decision_id": f"complete-{campaign_id}",
+        "sealed_source_row_count": boundary["effective_start_index"],
+        "effective_source_start_index": boundary["effective_start_index"],
+        "cursor_closed": False,
+        "cursor_close_owner": "evidence.table_opening",
+    }
     assert resumed["data"]["current_turn"]["meaningful_row_count"] == 0
     assert resumed["data"]["current_turn"]["rows"] == []
     assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == []
@@ -553,6 +561,56 @@ def test_preopening_journal_fails_before_canonical_writes(
     assert sorted(path.name for path in manifests.glob("*.json")) == manifests_before
     assert _resume(tmp_path, campaign_id)["data"]["mode"] == "table_opening"
     _open(tmp_path, campaign_id)
+
+
+def test_persisted_handoff_without_toolbox_receipt_fails_closed(
+    tmp_path: Path,
+) -> None:
+    campaign_id = "handoff-receipt-interrupted"
+    campaign_dir, _chargen = _create_chargen_and_complete(tmp_path, campaign_id)
+    toolbox_path = campaign_dir / "logs" / "toolbox-calls.jsonl"
+    calls = _read_jsonl(toolbox_path)
+    assert calls[-1]["tool"] == "setup.complete"
+    toolbox_path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+            for row in calls[:-1]
+        ),
+        encoding="utf-8",
+    )
+    tracked = [
+        campaign_dir / "save" / "pacing-state.json",
+        campaign_dir / "logs" / "events.jsonl",
+        campaign_dir / "memory" / "session-summaries.jsonl",
+        campaign_dir / "save" / "toolbox-ledger.json",
+        campaign_dir / "logs" / "table-transcript.jsonl",
+        campaign_dir / "save" / "pending-turn.json",
+    ]
+    before = {path: path.read_bytes() if path.is_file() else None for path in tracked}
+
+    journaled = coc_toolbox.run_tool(
+        "state.journal",
+        tmp_path,
+        campaign_id,
+        {
+            "summary": "generic receipt 中断时不能开始玩家回合。",
+            "player_action": "等待开桌恢复",
+            "player_text": "我等待开桌证据恢复。",
+            "run_id": f"run-{campaign_id}",
+            "decision_id": f"journal-{campaign_id}",
+        },
+    )
+
+    assert journaled["ok"] is False
+    assert journaled["error"]["code"] == "table_opening_required"
+    assert {path: path.read_bytes() if path.is_file() else None for path in tracked} == before
+    boundary = coc_toolbox.coc_turn_manifest.effective_source_boundary(campaign_dir)
+    assert boundary["kind"] == "setup_handoff_unverified"
+    assert boundary["effective_start_index"] == 0
+    resumed = _resume(tmp_path, campaign_id)
+    assert resumed["data"]["mode"] == "open_turn_recovery"
+    assert resumed["data"]["current_turn"]["source_start_index"] == 0
+    assert "setup_source_prefix_seal" not in resumed["data"]["current_turn"]
 
 
 def test_post_opening_pending_turn_excludes_setup_through_finalization(
