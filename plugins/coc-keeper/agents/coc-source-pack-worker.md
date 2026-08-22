@@ -287,7 +287,13 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   `origin=source`, and `player_visible=true` fields. Select only exact
   `source_refs` from this request's `cached_page_refs`, and use an optional
   `image_ref` only when it exactly matches one row in
-  `allowed_registered_asset_refs`. Choose `kind` and `when_to_deliver` by
+  `allowed_registered_asset_refs`. The verbatim text must occur in the exact cited
+  cached page bytes. `localized_text` is the complete play-language
+  translation and is not a claim that translated prose occurs verbatim in the
+  source. Use `scene_refs` and `clue_refs` only as unique subsets of the exact
+  `allowed_scene_refs` and `allowed_clue_refs`; when no justified ID is
+  allowed, omit that field or return an empty array. Choose `kind` and
+  `when_to_deliver` by
   semantic review of the bounded source pages. Never use keywords or regex to
   identify a card. Do not include Keeper-only notes, hidden annotations,
   secrets, unsupported aliases, or extra fields. Keep `related_packs=[]`; if

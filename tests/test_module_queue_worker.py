@@ -1279,7 +1279,7 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     registration = assets.register_source_bundle(
         tmp_path, bundle, asset_root_id="qw-demo",
     )
-    assets.put_entity(tmp_path, "qw-demo", "handout", "letter", {
+    handout_stub = {
         "handout_id": "letter",
         "asset_id": "letter",
         "kind": "document",
@@ -1288,7 +1288,12 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
         "parse_state": "named_only",
         "source_page_indices": [1],
         "body_source_page_indices": [1],
-    })
+        "scene_refs": ["cellar"],
+        "clue_refs": [],
+    }
+    assets.put_entity(
+        tmp_path, "qw-demo", "handout", "letter", handout_stub,
+    )
     queued = assets.enqueue_job(
         tmp_path,
         "qw-demo",
@@ -1326,11 +1331,15 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     }
     assert request["allowed_registered_asset_refs"] == [allowed_asset]
     assert contract["allowed_registered_asset_refs"] == [allowed_asset]
+    assert request["allowed_scene_refs"] == ["cellar"]
+    assert request["allowed_clue_refs"] == []
+    assert contract["allowed_scene_refs"] == ["cellar"]
+    assert contract["allowed_clue_refs"] == []
     escaped_request = deepcopy(request)
     escaped_request["allowed_registered_asset_refs"][0]["image_ref"] = (
         "../secret.png"
     )
-    with pytest.raises(assets.ModuleAssetsError, match="not confined"):
+    with pytest.raises(assets.ModuleAssetsError, match="confined"):
         assets.validate_host_work_request_shape(escaped_request)
     widened_contract = deepcopy(request)
     widened_contract["result_contract"]["allowed_pack_fields"].append(
@@ -1338,6 +1347,13 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     )
     with pytest.raises(assets.ModuleAssetsError, match="canonical closed"):
         assets.validate_host_work_request_shape(widened_contract)
+    invalid_relation_request = deepcopy(request)
+    invalid_relation_request["allowed_scene_refs"] = ["../cellar"]
+    invalid_relation_request["result_contract"]["allowed_scene_refs"] = [
+        "../cellar"
+    ]
+    with pytest.raises(assets.ModuleAssetsError, match="canonical id array"):
+        assets.validate_host_work_request_shape(invalid_relation_request)
 
     claimed = assets.claim_host_work_requests(
         tmp_path,
@@ -1347,6 +1363,8 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     )
     claimed_request = claimed["packets"][0]["requests"][0]
     assert claimed_request["allowed_registered_asset_refs"] == [allowed_asset]
+    assert claimed_request["allowed_scene_refs"] == ["cellar"]
+    assert claimed_request["allowed_clue_refs"] == []
     assert claimed_request["result_contract"] == contract
     exact_pack = {
         "handout_id": "letter",
@@ -1360,7 +1378,7 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
         "image_ref": "assets/letter.png",
         "source_refs": ["pdf_index-1"],
         "scene_refs": ["cellar"],
-        "clue_refs": ["clue-letter"],
+        "clue_refs": [],
         "player_visible": True,
         "parse_state": "deep",
         "evidence_gap": False,
@@ -1383,6 +1401,21 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
     hidden = deepcopy(exact_pack)
     hidden["player_visible"] = False
     invalid_packs.append((hidden, "player_visible=true"))
+    fabricated = deepcopy(exact_pack)
+    fabricated["text"] = "THIS SENTENCE DOES NOT EXIST IN ANY CACHED PAGE."
+    invalid_packs.append((fabricated, "verbatim text"))
+    guessed_existing_clue = deepcopy(exact_pack)
+    guessed_existing_clue["clue_refs"] = ["clue-opening"]
+    invalid_packs.append((guessed_existing_clue, "allowed clue_refs"))
+    guessed_missing_clue = deepcopy(exact_pack)
+    guessed_missing_clue["clue_refs"] = ["clue-invented"]
+    invalid_packs.append((guessed_missing_clue, "allowed clue_refs"))
+    guessed_existing_scene = deepcopy(exact_pack)
+    guessed_existing_scene["scene_refs"] = ["opening"]
+    invalid_packs.append((guessed_existing_scene, "allowed scene_refs"))
+    guessed_missing_scene = deepcopy(exact_pack)
+    guessed_missing_scene["scene_refs"] = ["scene-invented"]
+    invalid_packs.append((guessed_missing_scene, "allowed scene_refs"))
 
     ctx = toolbox.Ctx(tmp_path, cid)
     for invalid, message in invalid_packs:
@@ -1400,6 +1433,33 @@ def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
         assert assets.get_entity(tmp_path, "qw-demo", "handout", "letter")[
             "parse_state"
         ] == "named_only"
+        unresolved = toolbox.coc_handouts.HandoutCatalog.load(ctx)
+        for clue_id in ("clue-opening", "clue-invented"):
+            with pytest.raises(
+                toolbox.coc_handouts.HandoutError,
+                match="no unique handout_asset_id or card clue_refs linkage",
+            ):
+                unresolved.resolve_clue_delivery(ctx.world(), clue_id)
+
+    drifted_stub = deepcopy(handout_stub)
+    drifted_stub["scene_refs"] = []
+    assets.put_entity(
+        tmp_path, "qw-demo", "handout", "letter", drifted_stub,
+    )
+    with pytest.raises(toolbox.ToolError, match="drifted after request"):
+        toolbox.TOOLS["progressive.fulfill_host_work"]["handler"](
+            ctx,
+            {
+                "worker_result": {
+                    "job_id": request["job_id"],
+                    "pack": exact_pack,
+                    "related_packs": [],
+                },
+            },
+        )
+    assets.put_entity(
+        tmp_path, "qw-demo", "handout", "letter", handout_stub,
+    )
 
     registered_image = (
         tmp_path / ".coc/module-assets/qw-demo/assets/letter.png"

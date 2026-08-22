@@ -215,12 +215,18 @@ handout entity and `related_packs=[]`:
 Rules:
 
 - `text` is a verbatim excerpt of the cited cached pages in the source
-  language; wherever `text` exists, `source_refs` (for example
-  `pdf_index-16`) is required and non-empty. `localized_text` carries the
-  full play-language translation; `when_to_deliver` is a semantic
-description of the delivery moment for KP judgment, never a machine
-condition. `image_ref` is optional and must equal one exact registered asset
-ref from the request; an arbitrary workspace path or asset alias is rejected.
+  language: after newline normalization, the exact excerpt must occur in the
+  hash-bound cached page bytes. Wherever `text` exists, `source_refs` (for
+  example `pdf_index-16`) is required and non-empty. `localized_text` carries
+  the full play-language translation and is not represented as verbatim source
+  evidence; `when_to_deliver` is a semantic description of the delivery moment
+  for KP judgment, never a machine condition. `image_ref` is optional and must
+  equal one exact registered asset ref from the request; an arbitrary workspace
+  path or asset alias is rejected.
+- `scene_refs` and `clue_refs` may contain only unique exact subsets of the
+  structured `allowed_scene_refs` / `allowed_clue_refs` projected in the
+  request. These IDs come from the canonical skeleton/stub, never from source
+  prose; without an allowed ID the corresponding result field is empty.
 - Card identification and delivery-moment judgment are semantic readings of
   page meaning. Keyword hits, box-format regexes, or fixed phrase lists never
   decide them.

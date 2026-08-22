@@ -474,6 +474,8 @@
         "requested_pdf_indices",
         "cached_page_refs",
         "allowed_registered_asset_refs",
+        "allowed_scene_refs",
+        "allowed_clue_refs",
         "result_contract"
       ],
       "result_contract_id": "coc.handout-card-pack.v1",
@@ -482,6 +484,8 @@
         "player_visible": true,
         "exact_cached_page_refs_only": true,
         "exact_registered_asset_refs_only": true,
+        "verbatim_text_bound_to_cited_page_bytes": true,
+        "structured_relation_refs_only": true,
         "related_packs": "must_be_empty",
         "parent_repair_allowed": false,
         "semantic_card_identification_not_keyword_gate": true
@@ -490,6 +494,8 @@
         "copy the closed request.result_contract fields exactly and return the handout entity itself",
         "use target_id as both handout_id and asset_id and preserve the fixed deep source player-visible fields",
         "select source refs only from exact cached_page_refs and optional image_ref only from allowed_registered_asset_refs",
+        "source-language verbatim text must occur in the exact cited cached page bytes; localized_text remains a play-language translation and is not claimed as verbatim source text",
+        "scene_refs and clue_refs may select only exact ids in allowed_scene_refs and allowed_clue_refs; absent justification means an empty result field",
         "choose kind and when_to_deliver by semantic review of the bounded source pages; never use keywords, regex, headings, or text density as card authority",
         "exclude Keeper-only notes, hidden annotations, module secrets, and unsupported aliases or extra fields",
         "keep related_packs empty; if the closed pack cannot be supplied, return status=abstain with results=[]"

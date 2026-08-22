@@ -18637,6 +18637,85 @@ _LOCATION_PACK_STRUCTURAL_FIELDS = frozenset({
 _LOCATION_PACK_DEFAULT_SEMANTIC_FIELDS = ("title", "player_safe_summary")
 
 
+def _normalized_verbatim_excerpt(value: str) -> str:
+    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return "\n".join(line.rstrip() for line in lines).strip()
+
+
+def _require_handout_text_evidence(
+    text: str,
+    request: dict[str, Any],
+    supplied_refs: list[str],
+    *,
+    root: Path,
+    root_id: str,
+) -> None:
+    """Bind source-verbatim card text to current cited cached page bytes."""
+    expected_by_ref = {
+        str(row.get("card_source_ref") or ""): row
+        for row in (request.get("result_contract") or {}).get(
+            "allowed_exact_source_refs"
+        ) or []
+        if isinstance(row, dict) and str(row.get("card_source_ref") or "")
+    }
+    cited_pages: list[str] = []
+    for source_ref in supplied_refs:
+        expected = expected_by_ref.get(source_ref)
+        if not isinstance(expected, dict):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout text cites an unavailable cached page",
+            )
+        pdf_index = expected.get("pdf_index")
+        if isinstance(pdf_index, bool) or not isinstance(pdf_index, int):
+            raise ToolError(
+                "invalid_state", "handout request cached page identity is invalid",
+            )
+        current_ref = (
+            coc_module_project.coc_module_assets.cached_page_ref(
+                root, root_id, pdf_index,
+            )
+        )
+        if not isinstance(current_ref, dict) or any(
+            current_ref.get(field) != expected.get(field)
+            for field in ("source_id", "pdf_index", "text_sha256")
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout cited cached page bytes drifted after request creation",
+            )
+        page = coc_module_project.coc_module_assets.get_page(
+            root, root_id, pdf_index,
+        )
+        page_text = page.get("text") if isinstance(page, dict) else None
+        if not isinstance(page_text, str):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout cited cached page text is unavailable",
+            )
+        canonical_page = page_text.replace("\r\n", "\n").replace("\r", "\n")
+        if not canonical_page.endswith("\n"):
+            canonical_page += "\n"
+        normalized_page = _normalized_verbatim_excerpt(canonical_page)
+        if hashlib.sha256(canonical_page.encode("utf-8")).hexdigest() != str(
+            expected.get("text_sha256") or ""
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout cited cached page bytes do not match their hash",
+            )
+        cited_pages.append(normalized_page)
+    excerpt = _normalized_verbatim_excerpt(text)
+    if not excerpt or (
+        all(excerpt not in page for page in cited_pages)
+        and excerpt not in "\n".join(cited_pages)
+    ):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout verbatim text is absent from its cited cached pages",
+        )
+
+
 def _require_closed_handout_worker_pack(
     pack: dict[str, Any],
     request: dict[str, Any],
@@ -18717,6 +18796,36 @@ def _require_closed_handout_worker_pack(
             "invalid_source_worker_pack",
             "handout source_refs must be a unique exact cached page subset",
         )
+    try:
+        current_relations = (
+            coc_module_project.coc_module_assets.handout_allowed_relation_refs(
+                root, root_id, target_id,
+            )
+        )
+    except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            f"handout relation binding is unavailable: {exc}",
+        ) from exc
+    for field in ("scene_refs", "clue_refs"):
+        supplied = pack.get(field, [])
+        allowed = request.get(f"allowed_{field}")
+        if allowed != current_relations.get(f"allowed_{field}"):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"handout allowed {field} drifted after request creation",
+            )
+        if (
+            not isinstance(supplied, list)
+            or any(not isinstance(value, str) or not value for value in supplied)
+            or len(supplied) != len(set(supplied))
+            or not isinstance(allowed, list)
+            or not set(supplied) <= set(allowed)
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"handout {field} must be a unique subset of allowed {field}",
+            )
     image_ref = pack.get("image_ref")
     if image_ref is not None:
         allowed_assets = request.get("allowed_registered_asset_refs")
@@ -18758,6 +18867,14 @@ def _require_closed_handout_worker_pack(
         raise ToolError(
             "invalid_source_worker_pack",
             "handout card requires source text or an exact registered image",
+        )
+    if isinstance(text, str):
+        _require_handout_text_evidence(
+            text,
+            request,
+            supplied_refs,
+            root=root,
+            root_id=root_id,
         )
 
 
