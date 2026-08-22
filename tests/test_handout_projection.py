@@ -202,6 +202,22 @@ def test_merge_deep_entity_into_ir_supports_handout_and_upserts(tmp_path):
     assert cards[0]["title"] == "未署名的信（修订）"
 
 
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"asset_id": ["handout-letter"]}, "asset_id"),
+        ({"player_visible": "false"}, "player_visible"),
+        ({"localized_text": {"zh-Hans": "伪造正文"}}, "localized_text"),
+        ({"text": {"body": "not verbatim text"}}, "text"),
+        ({"image_ref": ["images/letter.png"]}, "image_ref"),
+    ],
+)
+def test_deep_handout_projection_rejects_malformed_card_shapes(overrides, field):
+    with pytest.raises(project.ModuleProjectError) as excinfo:
+        project.handout_card_from_pack(_handout_pack(**overrides))
+    assert field in str(excinfo.value)
+
+
 def test_stub_and_evidence_gap_handouts_do_not_project(tmp_path):
     _put_source_bound_skeleton(tmp_path)
     assets.put_entity(

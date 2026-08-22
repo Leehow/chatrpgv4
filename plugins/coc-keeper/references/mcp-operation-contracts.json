@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:0ea6d222e76cf9e71b69ea6ea51f1eef1db4f1cb3d48a23d77f042b53d724a1d",
+  "content_sha256": "sha256:96c0ab07fba4a8932283fe62aad04bed2ec941f9d78e7afda34cc62d4b12340e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1064,7 +1064,7 @@
     "narration.brief": {
       "access": "mutation",
       "canonical_operation": "narration.brief",
-      "description": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract. Canonical operation `narration.brief`; the result envelope is authoritative.",
+      "description": "Build a minimum-privilege player-safe narration envelope plus the active campaign play_language style contract. Canonical operation `narration.brief`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1107,7 +1107,7 @@
           "pending_finalization"
         ]
       },
-      "summary": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract."
+      "summary": "Build a minimum-privilege player-safe narration envelope plus the active campaign play_language style contract."
     },
     "narration.review": {
       "access": "mutation",

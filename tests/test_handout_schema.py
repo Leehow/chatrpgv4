@@ -97,6 +97,21 @@ def test_card_optional_field_shapes():
     assert errors == []
 
 
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"asset_id": 7}, "asset_id"),
+        ({"handout_id": ["handout-letter"]}, "handout_id"),
+        ({"player_visible": "false"}, "player_visible"),
+        ({"opening_card": "true"}, "opening_card"),
+        ({"image_ref": ["images/letter.png"]}, "image_ref"),
+    ],
+)
+def test_card_identity_visibility_and_asset_shapes_are_strict(overrides, field):
+    errors = coc_scenario.validate_handout_card(_card(**overrides))
+    assert any(field in error for error in errors)
+
+
 def test_card_source_index_derivation():
     assert coc_scenario.handout_card_source_indices(
         ["pdf_index-16", "pdf_index-3", "note"]
