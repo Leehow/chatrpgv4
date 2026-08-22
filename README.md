@@ -217,6 +217,17 @@ PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests -q -p no:cachep
 从其他目录调用时使用 `uv run --project <repo-root> --frozen python ...`。
 不要用 PATH 中的 `python` / `python3` 替代项目解释器。
 
+提交前只暂存明确文件，然后运行只读索引检查：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python scripts/check_staged_files.py --repo .
+```
+
+它按与根 `.gitignore` 精确同步的项目规则拒绝误暂存的生成物，并拒绝超过
+25 MiB 的新增或修改 blob；不会读取本机全局 exclude，也不会改动 index。CI 对
+事件 base 到 `HEAD` 的已提交范围运行同一检查，避免在空 index 上得到无意义的
+通过。
+
 ### 确定性测试边界
 
 pytest 只验证适合机器确定判定的合同：规则与骰点算术、事务/幂等状态、当前
