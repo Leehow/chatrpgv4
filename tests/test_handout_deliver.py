@@ -406,6 +406,36 @@ def test_clues_query_keeper_projection_lists_all_cards(campaign_ws):
     assert after["data"]["handouts"]["delivered_handout_ids"] == ["handout-cellar-map"]
 
 
+def test_handout_catalog_prefers_scenario_over_asset_index(campaign_ws):
+    """The campaign IR card is fresher than its imported asset-index row."""
+    _install_cards(campaign_ws)
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    _write_json(store, {
+        "schema_version": 1,
+        "handouts": [
+            {
+                "asset_id": "handout-newspaper",
+                "kind": "document",
+                "title": "Scenario-projected clipping",
+                "text": "Scenario IR replaces the older imported card body.",
+                "localized_text": "战役 IR 覆盖较旧的导入卡片正文。",
+                "source_refs": ["pdf_index-18"],
+                "player_visible": True,
+            },
+        ],
+    })
+
+    result = _run(campaign_ws, "clues.query", {})
+
+    cards = {
+        card["asset_id"]: card for card in result["data"]["handouts"]["cards"]
+    }
+    assert cards["handout-newspaper"]["title"] == "Scenario-projected clipping"
+    assert cards["handout-newspaper"]["text"] == (
+        "Scenario IR replaces the older imported card body."
+    )
+
+
 def test_player_projection_hides_undelivered_and_keeper_facing_cards(campaign_ws):
     _install_cards(campaign_ws)
     # Deliver the player-visible map card only. The keeper-facing card is
