@@ -1857,12 +1857,19 @@ def _write_host_work_request(
             requested_pdf_indices=requested_indices,
         )
         payload["allowed_registered_asset_refs"] = allowed_assets
+        payload.update(coc_module_assets.handout_allowed_relation_refs(
+            workspace, asset_root_id, target_id,
+        ))
         payload["instruction"] = (
             "Host PDF skill: read only cached_page_refs for this exact "
             "deepen_handout request. Return one direct card pack following the "
             "closed coc.handout-card-pack.v1 result_contract. Copy only exact "
             "cached page refs as pdf_index-N strings and use image_ref only "
-            "from allowed_registered_asset_refs. Card identification, kind, "
+            "from allowed_registered_asset_refs. Source-language verbatim "
+            "text must occur in the cited cached page bytes; localized_text "
+            "is the play-language translation. scene_refs and clue_refs must "
+            "be subsets of allowed_scene_refs and allowed_clue_refs. Card "
+            "identification, kind, "
             "and when_to_deliver are semantic readings of these pages; never "
             "scan prose with keywords or regex. Return player_visible=true "
             "source material only, related_packs=[], and no aliases, extra "
@@ -1937,6 +1944,8 @@ def _write_host_work_request(
             allowed_registered_asset_refs=payload[
                 "allowed_registered_asset_refs"
             ],
+            allowed_scene_refs=payload["allowed_scene_refs"],
+            allowed_clue_refs=payload["allowed_clue_refs"],
         )
     coc_module_assets.validate_host_work_request_shape(payload)
     pending_supersedes = sorted({

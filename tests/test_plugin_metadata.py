@@ -442,6 +442,8 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "requested_pdf_indices",
         "cached_page_refs",
         "allowed_registered_asset_refs",
+        "allowed_scene_refs",
+        "allowed_clue_refs",
         "result_contract",
     ]
     assert handout["result_contract_requirements"] == {
@@ -449,6 +451,8 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "player_visible": True,
         "exact_cached_page_refs_only": True,
         "exact_registered_asset_refs_only": True,
+        "verbatim_text_bound_to_cited_page_bytes": True,
+        "structured_relation_refs_only": True,
         "related_packs": "must_be_empty",
         "parent_repair_allowed": False,
         "semantic_card_identification_not_keyword_gate": True,
@@ -641,6 +645,9 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "request.result_contract",
         "coc.handout-card-pack.v1",
         "allowed_registered_asset_refs",
+        "allowed_scene_refs",
+        "allowed_clue_refs",
+        "verbatim text must occur in the exact cited cached page bytes",
         "never use keywords or regex to identify a card",
         "`deepen_location`, `partial_neighbor`, or `partial_opening`",
         "`location_id` rather than `entity_id`",

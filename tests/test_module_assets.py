@@ -738,12 +738,47 @@ def test_register_source_bundle_rejects_target_asset_symlink_escape(
     }]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    with pytest.raises(assets.ModuleAssetsError, match="escapes"):
+    with pytest.raises(assets.ModuleAssetsError, match="symlink"):
         assets.register_source_bundle(
             tmp_path, initial, asset_root_id="asset-symlink-escape",
         )
 
     assert list(outside.iterdir()) == []
+    assert (module_root / "pages/0000.md").read_bytes() == page_before
+
+
+def test_register_source_bundle_rejects_internal_target_symlink_component(
+    tmp_path: Path,
+):
+    initial, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    assets.register_source_bundle(
+        tmp_path, initial, asset_root_id="asset-internal-symlink",
+    )
+    module_root = tmp_path / ".coc/module-assets/asset-internal-symlink"
+    page_before = (module_root / "pages/0000.md").read_bytes()
+    actual_assets = module_root / "actual-assets"
+    actual_assets.mkdir()
+    (module_root / "assets").symlink_to(
+        actual_assets, target_is_directory=True,
+    )
+    payload = b"\x89PNG\r\n\x1a\ninternal-symlink"
+    (initial / "assets").mkdir()
+    (initial / "assets/map.png").write_bytes(payload)
+    manifest_path = initial / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["assets"] = [{
+        "path": "assets/map.png",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(assets.ModuleAssetsError, match="symlink"):
+        assets.register_source_bundle(
+            tmp_path, initial, asset_root_id="asset-internal-symlink",
+        )
+
+    assert list(actual_assets.iterdir()) == []
+    assert not (module_root / "source-assets.json").exists()
     assert (module_root / "pages/0000.md").read_bytes() == page_before
 
 
