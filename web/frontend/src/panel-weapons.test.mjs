@@ -4,23 +4,22 @@ import assert from "node:assert/strict";
 import {
   weaponMechanicsLine,
   weaponMechanicsText,
-  weaponMechanicsUnavailableLabel,
 } from "./panel-weapons.ts";
 
-test("unresolved weapons render a neutral localized status instead of mechanics", () => {
+test("unresolved weapons consume only a backend-projected localized status", () => {
   const weapon = {
     label: "铁锹",
     params_source: "unresolved",
     mechanics_available: false,
+    mechanics_status_label: "武器参数未配置",
   };
 
   assert.equal(weaponMechanicsLine(weapon), "");
-  assert.equal(weaponMechanicsUnavailableLabel("zh-Hans"), "武器参数未配置");
-  assert.equal(weaponMechanicsUnavailableLabel("ja-JP"), "武器データ未設定");
-  assert.equal(weaponMechanicsUnavailableLabel("en-US"), "Weapon mechanics unavailable");
-  assert.equal(weaponMechanicsUnavailableLabel("de-DE"), "Weapon mechanics unavailable");
   assert.equal(weaponMechanicsText(weapon, "zh-Hans"), "武器参数未配置");
-  assert.equal(weaponMechanicsText(weapon, "en-US"), "Weapon mechanics unavailable");
+  assert.equal(
+    weaponMechanicsText({ ...weapon, mechanics_status_label: undefined }, "de-DE"),
+    "",
+  );
 });
 
 test("authoritative weapon mechanics retain their exact display values", () => {

@@ -51,6 +51,43 @@ def _campaign_dir(workspace: Path, campaign_id: str) -> Path:
     return _coc_root(workspace) / "campaigns" / campaign_id
 
 
+def _campaign_module_weapon_profiles(
+    workspace: Path, campaign_id: str
+) -> dict[str, dict[str, Any]]:
+    """Load validated source-authored weapon profiles for the active campaign."""
+    path = _campaign_dir(workspace, campaign_id) / "scenario" / "module-meta.json"
+    try:
+        module_meta = json.loads(path.read_text("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    mechanics_root = (
+        module_meta.get("module_mechanics") if isinstance(module_meta, dict) else None
+    )
+    items = mechanics_root.get("items") if isinstance(mechanics_root, dict) else None
+    if not isinstance(items, dict):
+        return {}
+    try:
+        coc_mechanics = _load_plugin_module(workspace, "coc_mechanics")
+    except Exception:  # noqa: BLE001 - no validator means no trusted profiles
+        return {}
+    profiles: dict[str, dict[str, Any]] = {}
+    for item in items.values():
+        record = item.get("mechanics") if isinstance(item, dict) else None
+        if not isinstance(record, dict) or record.get("status") != "authored":
+            continue
+        try:
+            coc_mechanics.validate_mechanics_record(record, subject_kind="item")
+        except Exception:  # noqa: BLE001 - malformed authored data fails closed
+            continue
+        profile = coc_mechanics.authored_profile(record)
+        if not isinstance(profile, dict) or profile.get("profile_kind") != "weapon":
+            continue
+        weapon_id = str(profile.get("weapon_id") or "").strip()
+        if weapon_id:
+            profiles[weapon_id] = profile
+    return profiles
+
+
 def campaign_compat(workspace: Path | str, campaign_id: str) -> dict[str, Any]:
     """Clean-slate compatibility: exact current campaign schema plus binding."""
     workspace = Path(workspace)
@@ -387,6 +424,7 @@ def _display_character(
     cash: dict[str, Any] | None = None,
     assets: dict[str, Any] | None = None,
     module_id: str | None = None,
+    module_weapon_profiles: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Project one character sheet into player-facing display labels.
 
@@ -489,7 +527,10 @@ def _display_character(
             if wid and isinstance(label, str) and label.strip():
                 entry_weapon_labels[wid] = label.strip()
     weapons: list[dict[str, Any]] = []
-    _weapon_presets = load_weapon_presets(module_id=module_id)
+    _weapon_presets = load_weapon_presets(
+        module_id=module_id,
+        module_profiles=module_weapon_profiles,
+    )
     for weapon in weapon_rows:
         if not isinstance(weapon, dict):
             continue
@@ -500,23 +541,33 @@ def _display_character(
             skill = coc_language.player_facing_skill_label(
                 str(weapon["skill"]), play_language, terms=terms
             )
-        weapons.append(
-            enrich_weapon_row(
-                {
-                    "weapon_id": weapon_id,
-                    "label": pf_weapon.get("label")
-                    or entry_weapon_labels.get(weapon_id)
-                    or weapon.get("label")
-                    or weapon.get("name")
-                    or weapon.get("weapon_id"),
-                    "skill_label": skill,
-                    "damage": weapon.get("damage"),
-                    "range": weapon.get("range") or weapon.get("range_yards"),
-                    "ammo": pf_weapon.get("ammo_capacity", weapon.get("ammo") or weapon.get("ammo_per_clip")),
-                },
-                presets=_weapon_presets,
-            )
+        projected_weapon = enrich_weapon_row(
+            {
+                "weapon_id": weapon_id,
+                "label": pf_weapon.get("label")
+                or entry_weapon_labels.get(weapon_id)
+                or weapon.get("label")
+                or weapon.get("name")
+                or weapon.get("weapon_id"),
+                "skill_label": skill,
+                "damage": weapon.get("damage"),
+                "range": weapon.get("range") or weapon.get("range_yards"),
+                "ammo": pf_weapon.get(
+                    "ammo_capacity",
+                    weapon.get("ammo") or weapon.get("ammo_per_clip"),
+                ),
+            },
+            presets=_weapon_presets,
         )
+        if (
+            projected_weapon.get("params_source")
+            in {"ruleset_catalog", "module_preset"}
+            and isinstance(projected_weapon.get("skill_label"), str)
+        ):
+            projected_weapon["skill_label"] = coc_language.player_facing_skill_label(
+                projected_weapon["skill_label"], play_language, terms=terms
+            )
+        weapons.append(projected_weapon)
 
     raw_derived = character.get("derived")
 
@@ -668,6 +719,7 @@ def display_character(
     cash: dict[str, Any] | None = None
     assets: dict[str, Any] | None = None
     module_id: str | None = None
+    module_weapon_profiles: dict[str, dict[str, Any]] | None = None
     if campaign_id:
         campaign_path = _campaign_dir(workspace, campaign_id) / "campaign.json"
         try:
@@ -678,6 +730,9 @@ def display_character(
             candidate_module_id = campaign.get("active_scenario_id")
             if isinstance(candidate_module_id, str) and candidate_module_id.strip():
                 module_id = candidate_module_id.strip()
+        module_weapon_profiles = _campaign_module_weapon_profiles(
+            workspace, campaign_id
+        )
         state_path = (
             _campaign_dir(workspace, campaign_id)
             / "save"
@@ -725,6 +780,7 @@ def display_character(
         cash=cash,
         assets=assets,
         module_id=module_id,
+        module_weapon_profiles=module_weapon_profiles,
     )
 
 

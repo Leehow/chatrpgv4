@@ -648,15 +648,18 @@ export function PanelContent({
           <SectionTitle icon={<Swords className="size-3.5" />} text="武器" />
           <div className="mt-2.5 space-y-1.5">
             {weapons.map((w, i) => {
+              const mechanicsText = weaponMechanicsText(w, state.play_language);
               return (
                 <div
                   key={i}
                   className="rounded-lg border border-border/40 bg-secondary/70 px-2.5 py-1.5"
                 >
                   <div className="text-sm font-medium text-foreground">{w.label ?? "武器"}</div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                    {weaponMechanicsText(w, state.play_language)}
-                  </div>
+                  {mechanicsText ? (
+                    <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                      {mechanicsText}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

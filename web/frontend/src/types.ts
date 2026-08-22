@@ -121,6 +121,7 @@ export interface Weapon {
   ammo?: number | string;
   params_source?: "explicit" | "ruleset_catalog" | "module_preset" | "unresolved";
   mechanics_available?: boolean;
+  mechanics_status_label?: string;
 }
 
 /** One live inventory entry merged from the character sheet plus the

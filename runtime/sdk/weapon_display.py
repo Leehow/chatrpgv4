@@ -6,6 +6,7 @@ select rules data.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,33 @@ def _row_from_catalog(
     }
 
 
-def load_weapon_presets(*, module_id: str | None = None) -> dict[str, dict[str, Any]]:
+def _inherit_weapon_fields(
+    row: dict[str, Any],
+    *,
+    spec: Mapping[str, Any],
+    presets: Mapping[str, dict[str, Any]],
+) -> None:
+    extends = str(spec.get("extends") or "").strip()
+    inherited = presets.get(extends) if extends else None
+    if not inherited:
+        return
+    for key in (
+        "skill",
+        "damage",
+        "range",
+        "ammo",
+        "malfunction",
+        "uses_per_round",
+    ):
+        if row.get(key) in (None, "") and inherited.get(key) not in (None, ""):
+            row[key] = inherited[key]
+
+
+def load_weapon_presets(
+    *,
+    module_id: str | None = None,
+    module_profiles: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
     presets: dict[str, dict[str, Any]] = {}
     if _WEAPONS_JSON.is_file():
         payload = json.loads(_WEAPONS_JSON.read_text(encoding="utf-8"))
@@ -73,20 +100,19 @@ def load_weapon_presets(*, module_id: str | None = None) -> dict[str, dict[str, 
                 if not weapon_id or weapon_id in presets:
                     continue
                 row = _row_from_catalog(weapon_id, spec, source="module_preset")
-                extends = str(spec.get("extends") or "").strip()
-                inherited = presets.get(extends) if extends else None
-                if inherited:
-                    for key in (
-                        "skill",
-                        "damage",
-                        "range",
-                        "ammo",
-                        "malfunction",
-                        "uses_per_round",
-                    ):
-                        if row.get(key) in (None, "") and inherited.get(key) not in (None, ""):
-                            row[key] = inherited[key]
+                _inherit_weapon_fields(row, spec=spec, presets=presets)
                 presets[weapon_id] = row
+    # Imported/custom content is already validated as source-authored by the
+    # campaign projection seam. It can only enter this catalog under its exact
+    # stable weapon_id; labels never participate in resolution.
+    for weapon_id, profile in (module_profiles or {}).items():
+        stable_id = str(weapon_id).strip()
+        profile_id = str(profile.get("weapon_id") or "").strip()
+        if not stable_id or profile_id != stable_id:
+            continue
+        row = _row_from_catalog(stable_id, dict(profile), source="module_preset")
+        _inherit_weapon_fields(row, spec=profile, presets=presets)
+        presets[stable_id] = row
     return presets
 
 

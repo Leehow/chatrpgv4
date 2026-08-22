@@ -166,3 +166,112 @@ def test_module_ids_are_source_bound_to_the_active_campaign(tmp_path: Path) -> N
     assert active is not None
     assert active["weapons"][0]["damage"] == "1D12+2"
     assert active["weapons"][0]["params_source"] == "module_preset"
+
+
+@pytest.mark.parametrize(
+    ("play_language", "expected_skill"),
+    (
+        ("zh-Hans", "射击（手枪）"),
+        ("en-US", "Firearms (Handgun)"),
+        ("ja-JP", "Firearms (Handgun)"),
+    ),
+)
+def test_exact_catalog_skill_uses_canonical_player_language_projection(
+    tmp_path: Path,
+    play_language: str,
+    expected_skill: str,
+) -> None:
+    investigator = "ada"
+    character_path = (
+        tmp_path / ".coc" / "investigators" / investigator / "character.json"
+    )
+    character_path.parent.mkdir(parents=True)
+    character_path.write_text(
+        json.dumps(
+            {
+                "name": "Ada",
+                "characteristics": {},
+                "derived": {},
+                "skills": {},
+                "weapons": [{"weapon_id": "revolver_45", "label": ".45"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projected = display_character(tmp_path, investigator, play_language)
+    assert projected is not None
+    assert projected["weapons"][0]["skill_label"] == expected_skill
+
+
+def test_imported_active_module_authored_weapon_profile_resolves_by_exact_id(
+    tmp_path: Path,
+) -> None:
+    investigator = "ada"
+    character_path = (
+        tmp_path / ".coc" / "investigators" / investigator / "character.json"
+    )
+    character_path.parent.mkdir(parents=True)
+    character_path.write_text(
+        json.dumps(
+            {
+                "name": "Ada",
+                "characteristics": {},
+                "derived": {},
+                "skills": {},
+                "weapons": [
+                    {"weapon_id": "module:ritual-knife", "label": "仪式刀"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "camp"
+    campaign_dir.mkdir(parents=True)
+    (campaign_dir / "campaign.json").write_text(
+        json.dumps({"active_scenario_id": "imported-demo"}), encoding="utf-8"
+    )
+    scenario_dir = campaign_dir / "scenario"
+    scenario_dir.mkdir()
+    (scenario_dir / "module-meta.json").write_text(
+        json.dumps(
+            {
+                "scenario_id": "imported-demo",
+                "module_mechanics": {
+                    "schema_version": 1,
+                    "items": {
+                        "ritual-knife": {
+                            "item_id": "ritual-knife",
+                            "mechanics": {
+                                "status": "authored",
+                                "source_refs": [
+                                    {"source_id": "pdf:imported-demo", "pdf_index": 2}
+                                ],
+                                "fields_observed": ["weapon_id", "extends", "name"],
+                                "fields_extracted": ["weapon_id", "extends", "name"],
+                                "fields_not_authored": [],
+                                "provenance": {"authority": "source_authored"},
+                                "profile": {
+                                    "profile_kind": "weapon",
+                                    "weapon_id": "module:ritual-knife",
+                                    "extends": "knife_medium",
+                                    "name": "Ritual Knife",
+                                },
+                            },
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projected = display_character(
+        tmp_path, investigator, "zh-Hans", campaign_id="camp"
+    )
+    assert projected is not None
+    weapon = projected["weapons"][0]
+    assert weapon["damage"] == "1D4+2"
+    assert weapon["skill_label"] == "斗殴"
+    assert weapon["params_source"] == "module_preset"
+    assert weapon["mechanics_available"] is True

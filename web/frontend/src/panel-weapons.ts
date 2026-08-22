@@ -1,35 +1,27 @@
 import type { Weapon } from "./types";
 
 interface WeaponChrome {
-  unavailable: string;
   range: string;
   ammo: string;
 }
 
 const WEAPON_CHROME: Record<string, WeaponChrome> = {
-  "zh-Hans": { unavailable: "武器参数未配置", range: "射程", ammo: "弹药" },
-  zh: { unavailable: "武器参数未配置", range: "射程", ammo: "弹药" },
-  "ja-JP": { unavailable: "武器データ未設定", range: "射程", ammo: "弾薬" },
-  "en-US": { unavailable: "Weapon mechanics unavailable", range: "Range", ammo: "Ammo" },
-  en: { unavailable: "Weapon mechanics unavailable", range: "Range", ammo: "Ammo" },
+  "zh-Hans": { range: "射程", ammo: "弹药" },
+  zh: { range: "射程", ammo: "弹药" },
+  "ja-JP": { range: "射程", ammo: "弾薬" },
+  "en-US": { range: "Range", ammo: "Ammo" },
+  en: { range: "Range", ammo: "Ammo" },
 };
 
 function weaponChrome(playLanguage?: string | null): WeaponChrome {
   return WEAPON_CHROME[playLanguage || "zh-Hans"] ?? WEAPON_CHROME["en-US"];
 }
 
-export function weaponMechanicsUnavailableLabel(playLanguage?: string | null): string {
-  return weaponChrome(playLanguage).unavailable;
-}
-
 export function weaponMechanicsLine(
   weapon: Weapon,
   playLanguage?: string | null,
 ): string {
-  if (
-    weapon.mechanics_available === false ||
-    weapon.params_source === "unresolved"
-  ) {
+  if (weaponMechanicsUnresolved(weapon)) {
     return "";
   }
   const chrome = weaponChrome(playLanguage);
@@ -59,6 +51,6 @@ export function weaponMechanicsText(
   playLanguage?: string | null,
 ): string {
   return weaponMechanicsUnresolved(weapon)
-    ? weaponMechanicsUnavailableLabel(playLanguage)
+    ? weapon.mechanics_status_label?.trim() ?? ""
     : weaponMechanicsLine(weapon, playLanguage);
 }
