@@ -1386,11 +1386,50 @@ def _project_context_effects(window: list[dict[str, Any]]) -> list[dict[str, Any
     )
 
 
+def _prior_exceptional_ids(
+    finalizations: list[dict[str, Any]],
+) -> tuple[set[str], set[str]]:
+    event_ids: set[str] = set()
+    effect_ids: set[str] = set()
+    for receipt in finalizations:
+        if not isinstance(receipt, dict):
+            continue
+        bundle = receipt.get("bundle")
+        if not isinstance(bundle, dict):
+            continue
+        for row in bundle.get("exceptional_effect") or []:
+            if not isinstance(row, dict):
+                continue
+            event_id = str(row.get("event_id") or "").strip()
+            effect_id = str(row.get("effect_id") or "").strip()
+            if event_id:
+                event_ids.add(event_id)
+            if effect_id:
+                effect_ids.add(effect_id)
+    return event_ids, effect_ids
+
+
+def _call_decision_id(call: dict[str, Any]) -> str:
+    args = call.get("args") if isinstance(call.get("args"), dict) else {}
+    return str(args.get("decision_id") or "").strip()
+
+
 def _project_exceptional_effects(
     window: list[dict[str, Any]],
+    *,
+    current_roll_ids: set[str],
+    prior_event_ids: set[str],
+    prior_effect_ids: set[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return player blocks plus full source-bound apply records."""
+    """Return current-turn player blocks plus source-bound apply records.
+
+    A leftover apply already closed by a prior finalization fails closed.
+    Consume/resolve of a still-active prior effect is accepted only when that
+    operation carries current-turn decision provenance. Conflicting events
+    cannot render twice.
+    """
     player_events: dict[str, dict[str, Any]] = {}
+    events_by_effect: dict[str, dict[str, dict[str, Any]]] = {}
     applied: dict[str, dict[str, Any]] = {}
     for call in window:
         if call.get("ok") is not True or call.get("tool") != "state.exceptional_effect":
@@ -1402,12 +1441,46 @@ def _project_exceptional_effects(
             raise TurnContractError(
                 "state_corrupt", "exceptional effect call lacks a valid canonical effect"
             )
+        decision_id = _call_decision_id(call)
+        if not decision_id:
+            raise TurnContractError(
+                "state_corrupt",
+                "exceptional effect call lacks current-turn decision provenance",
+            )
+        source_roll_id = str((effect.get("source_roll") or {}).get("roll_id") or "").strip()
+        if not source_roll_id:
+            raise TurnContractError(
+                "state_corrupt",
+                "exceptional effect lacks source roll provenance",
+            )
         if action == "apply":
+            if effect.get("created_decision_id") != decision_id:
+                raise TurnContractError(
+                    "state_corrupt",
+                    "exceptional effect apply decision does not match the call provenance",
+                )
             effect_id = str(effect["effect_id"])
+            if effect_id in prior_effect_ids:
+                raise TurnContractError(
+                    "state_corrupt",
+                    "exceptional effect apply was already finalized in a prior turn",
+                )
             prior = applied.get(effect_id)
             if prior is not None and prior != effect:
                 raise TurnContractError("state_corrupt", "exceptional effect apply conflicts")
             applied[effect_id] = deepcopy(effect)
+        else:
+            if effect.get("consumed_decision_id") != decision_id:
+                raise TurnContractError(
+                    "state_corrupt",
+                    "exceptional effect consume/resolve decision does not match the call provenance",
+                )
+            consuming_roll_id = str(effect.get("consumed_by_roll_id") or "").strip()
+            if consuming_roll_id and consuming_roll_id not in current_roll_ids:
+                raise TurnContractError(
+                    "state_corrupt",
+                    "exceptional effect consume/resolve is not bound to a current-turn operation",
+                )
         player = data.get("player_effect")
         expected = coc_exceptional_effects.project_player_effect(effect)
         if player != expected:
@@ -1420,11 +1493,49 @@ def _project_exceptional_effects(
                 raise TurnContractError(
                     "state_corrupt", "exceptional effect player event lacks event_id"
                 )
-            player_events[event_id] = deepcopy(player)
-    return (
-        [player_events[key] for key in sorted(player_events)],
-        [applied[key] for key in sorted(applied)],
-    )
+            if event_id in prior_event_ids:
+                raise TurnContractError(
+                    "state_corrupt",
+                    "exceptional effect event was already finalized in a prior turn",
+                )
+            prior_player = player_events.get(event_id)
+            if prior_player is not None and prior_player != player:
+                raise TurnContractError(
+                    "state_corrupt", "exceptional effect player event conflicts"
+                )
+            player_copy = deepcopy(player)
+            player_events[event_id] = player_copy
+            effect_id = str(player.get("effect_id") or effect["effect_id"])
+            bucket = events_by_effect.setdefault(effect_id, {})
+            prior_for_id = bucket.get(event_id)
+            if prior_for_id is not None and prior_for_id != player:
+                raise TurnContractError(
+                    "state_corrupt", "exceptional effect player event conflicts"
+                )
+            bucket[event_id] = player_copy
+    projected: list[dict[str, Any]] = []
+    for effect_id in sorted(events_by_effect):
+        bucket = events_by_effect[effect_id]
+        if len(bucket) == 1:
+            projected.append(next(iter(bucket.values())))
+            continue
+        statuses = {str(row.get("status") or "") for row in bucket.values()}
+        apply_statuses = statuses & {"active", "applied"}
+        terminal_statuses = statuses & {"consumed", "resolved"}
+        if len(bucket) == 2 and len(apply_statuses) == 1 and len(terminal_statuses) == 1:
+            projected.append(
+                next(
+                    row for row in bucket.values()
+                    if row.get("status") in {"consumed", "resolved"}
+                )
+            )
+            continue
+        raise TurnContractError(
+            "state_corrupt",
+            "exceptional effect events conflict or would render twice",
+        )
+    projected.sort(key=lambda row: str(row.get("event_id") or ""))
+    return projected, [applied[key] for key in sorted(applied)]
 
 
 def _roll_kind(raw: dict[str, Any]) -> str:
@@ -2556,7 +2667,13 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         ruleset_id=ruleset_id,
     )
     context_effects = _project_context_effects(window)
-    exceptional_events, exceptional_applies = _project_exceptional_effects(window)
+    prior_event_ids, prior_effect_ids = _prior_exceptional_ids(finalizations)
+    exceptional_events, exceptional_applies = _project_exceptional_effects(
+        window,
+        current_roll_ids={str(raw["roll_id"]) for raw in rolls},
+        prior_event_ids=prior_event_ids,
+        prior_effect_ids=prior_effect_ids,
+    )
     obligations, concealed = _build_obligations(
         rolls, context_effects, exceptional_applies
     )
