@@ -5097,6 +5097,43 @@ export class OpeningTerminalContinuationGate {
     };
   }
 
+  prepareSetupCompleteArguments(value: unknown): unknown {
+    const args = objectOrNull(value);
+    if (
+      args === null
+      || args.decision_id !== undefined
+      || typeof args.campaign_id !== "string"
+      || !args.campaign_id.trim()
+      || (
+        args.campaign !== undefined
+        && args.campaign !== args.campaign_id
+      )
+    ) return value;
+    const campaignId = args.campaign_id.trim();
+    const state = this.openingSetupStates.get(campaignId);
+    const card = state?.route.next_operation;
+    const prefilled = objectOrNull(card?.prefilled_arguments);
+    const missing = Array.isArray(card?.missing_arguments)
+      ? card.missing_arguments
+      : null;
+    if (
+      state === undefined
+      || !state.characterSetupComplete
+      || state.phase !== "handoff_decision"
+      || state.route.campaign_id !== campaignId
+      || card?.operation !== "setup.complete"
+      || missing === null
+      || missing.length !== 0
+      || prefilled?.campaign_id !== campaignId
+      || typeof prefilled.decision_id !== "string"
+      || !prefilled.decision_id
+    ) return value;
+    return {
+      ...args,
+      decision_id: prefilled.decision_id,
+    };
+  }
+
   observeOpeningSourceReviewTransport(
     receipt: JsonObject,
   ): OpeningSetupRoute | null {
@@ -10480,6 +10517,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       label: typed.label,
       description: typed.description,
       parameters: typed.parameters,
+      ...(typed.operation === "setup.complete" ? {
+        prepareArguments: (args: unknown) => (
+          openingContinuationGate.prepareSetupCompleteArguments(args)
+        ),
+      } : {}),
       execute: gateway(typed.name),
       ...compactToolRenderers(typed.name),
     });
