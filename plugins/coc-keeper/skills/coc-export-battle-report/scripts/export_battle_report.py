@@ -21,6 +21,8 @@ METADATA_CANDIDATES = ("run.json", "playtest.json")
 KEEPER_ROLES = {"keeper", "keeper_under_test", "kp", "narrator"}
 PLAYER_ROLES = {"player", "player_simulator"}
 DIALOGUE_ROLES = KEEPER_ROLES | PLAYER_ROLES
+TABLE_OPENING_RECORD_KIND = "table_opening"
+TABLE_OPENING_SOURCE_PREFIX = "table.opening#"
 PUBLIC_VISIBILITIES = {"public", "consequence_public"}
 # Corrected settlements remain in the audit log but must not reappear as
 # player-facing battle-report dice or HP chains.
@@ -631,6 +633,31 @@ def _dialogue_side(row: Any) -> str | None:
     if not _is_dialogue_row(row) or not row["text"].strip():
         return None
     return "keeper" if row["role"].casefold() in KEEPER_ROLES else "player"
+
+
+def _has_table_opening_provenance(row: dict[str, Any]) -> bool:
+    """Structured table-opening provenance already written by evidence.table_opening."""
+    source_ref = row.get("source_ref")
+    turn = row.get("turn")
+    if not isinstance(source_ref, str) or isinstance(turn, bool) or turn != 0:
+        return False
+    prefix = TABLE_OPENING_SOURCE_PREFIX
+    if not source_ref.startswith(prefix):
+        return False
+    source_id = source_ref[len(prefix):]
+    return bool(source_id) and source_id == source_id.strip() and "#" not in source_id
+
+
+def _is_canonical_table_opening_row(row: Any) -> bool:
+    """Pre-turn opening: explicit record_kind, or the existing structured opening type."""
+    if not isinstance(row, dict) or _dialogue_side(row) != "keeper":
+        return False
+    kind = row.get("record_kind")
+    if kind == TABLE_OPENING_RECORD_KIND:
+        return True
+    if kind not in (None, ""):
+        return False
+    return _has_table_opening_provenance(row)
 
 
 def _card_status(value: Any) -> str:
@@ -1719,10 +1746,58 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         for row in valid_finalizations
         if isinstance(row, dict) and isinstance(row.get("finalization_id"), str)
     }
-    accepted_keeper_rows = [
+    keeper_dialogue_rows = [
         row for row in transcript
         if isinstance(row, dict) and _dialogue_side(row) == "keeper"
     ]
+    opening_keeper_rows = [
+        row for row in keeper_dialogue_rows if _is_canonical_table_opening_row(row)
+    ]
+    accepted_keeper_rows = [
+        row for row in keeper_dialogue_rows if not _is_canonical_table_opening_row(row)
+    ]
+    if len(opening_keeper_rows) > 1:
+        accepted_findings.append(
+            "canonical table-opening rows are duplicated"
+        )
+    for index, row in enumerate(opening_keeper_rows, start=1):
+        absent = [
+            field for field in ("run_segment_id", "session_id", "turn_id")
+            if row.get(field) in (None, "")
+        ]
+        if absent:
+            accepted_findings.append(
+                f"canonical table-opening row {index} is NOT_PROVEN: missing "
+                + ", ".join(absent)
+            )
+        elif (
+            row.get("run_segment_id") != metadata.get("run_segment_id")
+            or row.get("session_id") != metadata.get("session_id")
+        ):
+            accepted_findings.append(
+                f"canonical table-opening row {index} is NOT_PROVEN: "
+                "run/session identity mismatch"
+            )
+        if not _has_table_opening_provenance(row):
+            accepted_findings.append(
+                f"canonical table-opening row {index} is NOT_PROVEN: "
+                "missing structured table.opening provenance"
+            )
+        if row.get("journal_decision_id") not in (None, ""):
+            accepted_findings.append(
+                f"canonical table-opening row {index} must not bind a journaled turn"
+            )
+        masquerade = [
+            field for field in (
+                "finalization_id", "accepted_revision", "rendered_text_sha256",
+            )
+            if row.get(field) not in (None, "")
+        ]
+        if masquerade:
+            accepted_findings.append(
+                f"canonical table-opening row {index} must not carry finalization fields: "
+                + ", ".join(masquerade)
+            )
     authoritative_finalization_ids = [
         str(row.get("finalization_id"))
         for row in valid_finalizations
@@ -1822,7 +1897,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         "accepted_transcript",
         transcript_complete,
         *(accepted_findings or [
-            "every accepted Keeper row binds run segment, session, turn, finalization, revision, and rendered-text hash"
+            "canonical table-opening rows are counted without a turn finalization; "
+            "every finalized Keeper row binds run segment, session, turn, "
+            "finalization, revision, and rendered-text hash"
         ]),
     )
     dice_ok = (

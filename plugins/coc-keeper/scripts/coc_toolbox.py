@@ -30407,6 +30407,10 @@ def _tool_steward_notebook(ctx: Ctx, args: dict[str, Any]):
 
 
 _TABLE_TRANSCRIPT_RELATIVE = Path("logs") / "table-transcript.jsonl"
+_TABLE_OPENING_RECORD_KIND = "table_opening"
+_PLAYER_TURN_RECORD_KIND = "player_turn"
+_FINALIZED_KEEPER_RECORD_KIND = "finalized_keeper"
+_TABLE_OPENING_SOURCE_PREFIX = "table.opening#"
 _UNDELIVERED_OUTPUT_REPAIR_RELATIVE = (
     Path("logs") / "undelivered-output-repairs.jsonl"
 )
@@ -30574,9 +30578,16 @@ def _record_table_transcript_entry(
         "source_ref": (
             f"logs/turn-finalizations.jsonl#{finalization_id}"
             if finalization_id
-            else f"table.opening#{source_id}"
+            else f"{_TABLE_OPENING_SOURCE_PREFIX}{source_id}"
             if role == "keeper"
             else f"state.journal#{journal_decision_id}"
+        ),
+        "record_kind": (
+            _FINALIZED_KEEPER_RECORD_KIND
+            if finalization_id
+            else _TABLE_OPENING_RECORD_KIND
+            if role == "keeper"
+            else _PLAYER_TURN_RECORD_KIND
         ),
         "finalization_id": finalization_id,
         "accepted_revision": accepted_revision,
@@ -30592,8 +30603,11 @@ def _record_table_transcript_entry(
         raise ToolError("state_corrupt", f"duplicate table transcript entry '{entry_id}'")
     if matches:
         prior = matches[0]
-        comparable = {key: prior.get(key) for key in stable}
-        if comparable != stable:
+        expected = dict(stable)
+        if "record_kind" not in prior:
+            expected.pop("record_kind", None)
+        comparable = {key: prior.get(key) for key in expected}
+        if comparable != expected:
             raise ToolError(
                 "idempotency_conflict",
                 f"table transcript entry '{entry_id}' already owns different text",

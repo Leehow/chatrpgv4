@@ -130,6 +130,9 @@ Campaigns store temporary and scenario-specific state:
 │   ├── toolbox-calls.jsonl         # ordered canonical operation evidence
 │   ├── turn-finalizations.jsonl    # immutable rendered turn receipts + exact hashes
 │   ├── table-transcript.jsonl      # exact player/Keeper text actually bound to play
+│   │                               #   record_kind: table_opening | player_turn |
+│   │                               #   finalized_keeper; opening uses
+│   │                               #   source_ref=table.opening#<decision_id>, turn=0
 │   ├── live-turn-runtime.jsonl     # run_live_turn receipts (decision ids, intent
 │   │                               # resolution, recording mode, auto-advance)
 │   ├── scene-state-patches.jsonl   # detailed state_patch payloads (queued)

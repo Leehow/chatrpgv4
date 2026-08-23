@@ -1583,6 +1583,102 @@ def test_canonical_player_row_requires_exact_journal_tuple_and_bijection(tmp_pat
     )
 
 
+def _table_opening_row(*, record_kind="table_opening"):
+    """Real RPC opening shape: turn 0, table.opening provenance, no finalization."""
+    row = {
+        "schema_version": 1,
+        "role": "keeper",
+        "text": "你站在阿卡姆火车站的雨里。",
+        "turn": 0,
+        "turn_id": "opening:run-1",
+        "run_segment_id": "run-1",
+        "session_id": "session-1",
+        "journal_decision_id": "",
+        "finalization_id": None,
+        "accepted_revision": None,
+        "rendered_text_sha256": None,
+        "source_id": "table-opening-case-1",
+        "source_ref": "table.opening#table-opening-case-1",
+        "run_segment_source": "table_opening",
+        "run_segment_trust": "authoritative",
+        "speaker": "守秘人",
+    }
+    if record_kind is not None:
+        row["record_kind"] = record_kind
+    return row
+
+
+@pytest.mark.parametrize("record_kind", ["table_opening", None])
+def test_accepted_transcript_counts_canonical_opening_with_finalized_pair(
+    tmp_path, record_kind
+):
+    module = _load()
+    run = tmp_path / f"opening-plus-turn-{record_kind or 'provenance'}"
+    data = _fixture(run)
+    opening = _table_opening_row(record_kind=record_kind)
+    player = {**data["transcript"][0], "record_kind": "player_turn"}
+    keeper = {**data["transcript"][1], "record_kind": "finalized_keeper"}
+    _write_jsonl(_canonical_transcript_path(run), [opening, player, keeper])
+
+    report = module.export_battle_report(run)
+    dimension = _audit_completeness(run)["dimensions"]["accepted_transcript"]
+
+    assert dimension["status"] == "PASS"
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "PASS"
+    assert report["transcript"]["source_record_count"] == 3
+    assert report["transcript"]["dialogue_record_count"] == 3
+    assert report["completeness"]["dialogue_role_counts"] == {"keeper": 2, "player": 1}
+    assert not any("missing" in finding and "finalization" in finding for finding in dimension["findings"])
+
+
+def test_accepted_transcript_fails_opening_masquerading_as_finalized_turn(tmp_path):
+    module = _load()
+    run = tmp_path / "opening-masquerade"
+    data = _fixture(run)
+    opening = _table_opening_row()
+    opening["finalization_id"] = "fin-fake"
+    opening["accepted_revision"] = 1
+    opening["rendered_text_sha256"] = _canonical_digest(opening["text"])
+    player = {**data["transcript"][0], "record_kind": "player_turn"}
+    keeper = {**data["transcript"][1], "record_kind": "finalized_keeper"}
+    _write_jsonl(_canonical_transcript_path(run), [opening, player, keeper])
+
+    report = module.export_battle_report(run)
+    dimension = _audit_completeness(run)["dimensions"]["accepted_transcript"]
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert dimension["status"] == "FAIL"
+    assert any("must not carry finalization fields" in finding for finding in dimension["findings"])
+
+
+def test_accepted_transcript_fails_untyped_unfinalized_keeper_row(tmp_path):
+    module = _load()
+    run = tmp_path / "untyped-unfinalized"
+    data = _fixture(run)
+    opening = _table_opening_row()
+    player = {
+        "turn": 1, "role": "player", "speaker": "Ada King",
+        "text": "我说：\"进去\" | yes 🚪", "turn_id": "turn-1",
+        "run_segment_id": "run-1", "session_id": "session-1",
+        "journal_decision_id": "fin-1-journal",
+        "record_kind": "player_turn",
+    }
+    keeper = dict(data["transcript"][1])
+    keeper["record_kind"] = "finalized_keeper"
+    untyped = {
+        "turn": 2, "role": "keeper", "speaker": "KP",
+        "text": "一段未定稿的旁白。", "turn_id": "turn-2",
+        "run_segment_id": "run-1", "session_id": "session-1",
+    }
+    _write_jsonl(_canonical_transcript_path(run), [opening, player, keeper, untyped])
+
+    report = module.export_battle_report(run)
+    dimension = _audit_completeness(run)["dimensions"]["accepted_transcript"]
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert dimension["status"] == "FAIL"
+    assert any("NOT_PROVEN" in finding and "finalization_id" in finding for finding in dimension["findings"])
+    assert report["transcript"]["source_record_count"] == 4
+
+
 def test_dispositioned_revision_is_audit_only(tmp_path):
     module = _load()
     run = tmp_path / "revision"
