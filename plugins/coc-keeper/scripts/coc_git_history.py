@@ -32,6 +32,7 @@ IGNORE_PATHS: tuple[str, ...] = (
     "save/commit-snapshots/",
     "save/development-settlements/",
     "save/roll-operation-receipts.json",
+    "save/run-identity.lock",
     "memory/index.json",
 )
 
