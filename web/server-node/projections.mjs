@@ -1766,6 +1766,7 @@ export function listSourceBundles(workspace) {
     let sourcePdf = null;
     let pageCount = null;
     let fileSha256 = null;
+    let sourceId = null;
     if (manifest && typeof manifest === "object") {
       const source = manifest.source;
       if (source && typeof source === "object") {
@@ -1779,6 +1780,8 @@ export function listSourceBundles(workspace) {
         }
         const sha = source.file_sha256;
         if (typeof sha === "string" && sha.length === 64) fileSha256 = sha.toLowerCase();
+        const sid = source.source_id;
+        if (typeof sid === "string" && sid.trim()) sourceId = sid.trim();
       }
       if (pageCount === null && Array.isArray(manifest.pages)) {
         pageCount = manifest.pages.length;
@@ -1796,19 +1799,97 @@ export function listSourceBundles(workspace) {
       source_pdf: sourcePdf,
       page_count: pageCount,
       file_sha256: fileSha256,
+      source_id: sourceId,
       location_hint: `.coc/source-bundles/${entry.name}/`,
     });
   }
   return out;
 }
 
+// Temporary ingest dirs collide with a stable slug as `{sha16}-{slug}`.
+// Window/partial ingest dirs are `{slug}-wN` / `{slug}-pN`. Neither is the
+// first-window identity used by module-assets source_id `pdf:<slug>`.
+const HASH_PREFIXED_BUNDLE_ID = /^[0-9a-f]{16}[-_]/i;
+const WINDOW_OR_PARTIAL_BUNDLE_ID = /-(?:w|p)\d+$/i;
+
+function isHashPrefixedBundleId(bundleId) {
+  return HASH_PREFIXED_BUNDLE_ID.test(String(bundleId || ""));
+}
+
+function isFirstWindowBundleId(bundleId) {
+  const id = String(bundleId || "");
+  return Boolean(id) && !isHashPrefixedBundleId(id) && !WINDOW_OR_PARTIAL_BUNDLE_ID.test(id);
+}
+
+function safeAssetRootId(rootId) {
+  const id = String(rootId || "").trim();
+  if (!id || id === "." || id === "..") return null;
+  if (id.includes("/") || id.includes("\\") || id.includes("..") || id.includes("\0")) {
+    return null;
+  }
+  return id;
+}
+
+/** Registered module-assets source_id for this PDF, or null if none/unsafe. */
+function registeredSourceIdForPdfSha256(workspace, digest) {
+  const registry = readJsonFile(path.join(cocRoot(workspace), "module-assets", "registry.json"));
+  if (!registry || typeof registry !== "object") return null;
+  const bySha = registry.by_file_sha256;
+  if (!bySha || typeof bySha !== "object") return null;
+  const rootId = safeAssetRootId(bySha[digest]);
+  if (!rootId) return null;
+  const identity = readJsonFile(
+    path.join(cocRoot(workspace), "module-assets", rootId, "identity.json"),
+  );
+  if (!identity || typeof identity !== "object") return null;
+  const identitySha = typeof identity.file_sha256 === "string"
+    ? identity.file_sha256.toLowerCase().trim()
+    : "";
+  if (identitySha && identitySha !== digest) return null;
+  const source = identity.source;
+  const sid = source && typeof source === "object" ? source.source_id : null;
+  return typeof sid === "string" && sid.trim() ? sid.trim() : null;
+}
+
+function pickUniqueBy(candidates, predicate) {
+  const hits = candidates.filter(predicate);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+function sharedSourceId(candidates) {
+  const ids = new Set(
+    candidates.map((bundle) => String(bundle.source_id || "").trim()).filter(Boolean),
+  );
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
 export function findBundleByPdfSha256(workspace, fileSha256) {
   const digest = String(fileSha256).toLowerCase().trim();
-  return (
-    listSourceBundles(workspace).find(
-      (bundle) => String(bundle.file_sha256 || "").toLowerCase() === digest,
-    ) ?? null
+  const matches = listSourceBundles(workspace).filter(
+    (bundle) => String(bundle.file_sha256 || "").toLowerCase() === digest,
   );
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0];
+
+  // Authoritative: the already-registered module-assets identity for this SHA.
+  // Picking any other source_id would fail-closed later in shared hydration.
+  const registered = registeredSourceIdForPdfSha256(workspace, digest);
+  if (registered) {
+    const aligned = matches.filter((bundle) => bundle.source_id === registered);
+    if (aligned.length === 1) return aligned[0];
+    if (aligned.length > 1) {
+      return pickUniqueBy(aligned, (bundle) => isFirstWindowBundleId(bundle.bundle_id))
+        || aligned[0];
+    }
+    return null;
+  }
+
+  const firstWindow = matches.filter((bundle) => isFirstWindowBundleId(bundle.bundle_id));
+  if (firstWindow.length === 1) return firstWindow[0];
+  if (firstWindow.length > 1) {
+    return sharedSourceId(firstWindow) ? firstWindow[0] : null;
+  }
+  return sharedSourceId(matches) ? matches[0] : null;
 }
 
 // ---------------------------------------------------------------------------

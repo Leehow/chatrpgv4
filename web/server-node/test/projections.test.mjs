@@ -22,6 +22,7 @@ import {
   tableTranscriptMessages,
   localizeTerms,
   listSourceBundles,
+  findBundleByPdfSha256,
   resolvedLocalizedTerms,
   tensionDisplayLabel,
   zhDigits,
@@ -49,6 +50,195 @@ test("listSourceBundles reports the PDF page count rather than rendered-page cou
     const [bundle] = listSourceBundles(ws);
     assert.equal(bundle.page_count, 20);
     assert.equal(bundle.title, "模组.pdf");
+    assert.equal(bundle.source_id, null);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+function writeShaBundle(workspace, bundleId, { sha, sourceId, title }) {
+  const dir = path.join(workspace, ".coc", "source-bundles", bundleId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({
+    title,
+    source: {
+      path: `/tmp/${bundleId}.pdf`,
+      page_count: 8,
+      file_sha256: sha,
+      source_id: sourceId,
+    },
+    pages: [{ pdf_index: 0 }],
+  }));
+  return dir;
+}
+
+test("findBundleByPdfSha256 prefers the stable bundle when a hash-prefixed duplicate sorts first", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-dup-sha-bundle-"));
+  const sha = "c".repeat(64);
+  const hashPrefixed = "aaaaaaaaaaaaaaaa-stable-module";
+  try {
+    writeShaBundle(ws, hashPrefixed, {
+      sha,
+      sourceId: `pdf:${hashPrefixed}`,
+      title: "temp",
+    });
+    writeShaBundle(ws, "stable-module", {
+      sha,
+      sourceId: "pdf:stable-module",
+      title: "stable",
+    });
+    const listed = listSourceBundles(ws).map((bundle) => bundle.bundle_id);
+    assert.deepEqual(listed, [hashPrefixed, "stable-module"]);
+    const matched = findBundleByPdfSha256(ws, sha);
+    assert.equal(matched.bundle_id, "stable-module");
+    assert.equal(matched.source_id, "pdf:stable-module");
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("findBundleByPdfSha256 prefers the module-assets registered source_id over directory order", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-dup-sha-registry-"));
+  const sha = "d".repeat(64);
+  const hashPrefixed = "bbbbbbbbbbbbbbbb-other-module";
+  try {
+    writeShaBundle(ws, hashPrefixed, {
+      sha,
+      sourceId: `pdf:${hashPrefixed}`,
+      title: "temp",
+    });
+    writeShaBundle(ws, "other-module", {
+      sha,
+      sourceId: "pdf:other-module",
+      title: "stable",
+    });
+    const assets = path.join(ws, ".coc", "module-assets", "other-module-20260101T000000");
+    fs.mkdirSync(assets, { recursive: true });
+    fs.writeFileSync(path.join(ws, ".coc", "module-assets", "registry.json"), JSON.stringify({
+      by_file_sha256: { [sha]: "other-module-20260101T000000" },
+    }));
+    fs.writeFileSync(path.join(assets, "identity.json"), JSON.stringify({
+      file_sha256: sha,
+      source: { source_id: "pdf:other-module" },
+    }));
+    const matched = findBundleByPdfSha256(ws, sha);
+    assert.equal(matched.bundle_id, "other-module");
+    assert.equal(matched.source_id, "pdf:other-module");
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("findBundleByPdfSha256 stays fail-closed when two first-window identities share a SHA", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-dup-sha-ambiguous-"));
+  const sha = "e".repeat(64);
+  try {
+    writeShaBundle(ws, "alpha-module", {
+      sha,
+      sourceId: "pdf:alpha-module",
+      title: "alpha",
+    });
+    writeShaBundle(ws, "beta-module", {
+      sha,
+      sourceId: "pdf:beta-module",
+      title: "beta",
+    });
+    assert.equal(findBundleByPdfSha256(ws, sha), null);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("findBundleByPdfSha256 prefers registry identity even when it is the hash-prefixed bundle", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-dup-sha-registry-hash-"));
+  const sha = "f".repeat(64);
+  const hashPrefixed = "aaaaaaaaaaaaaaaa-stable-module";
+  try {
+    writeShaBundle(ws, hashPrefixed, {
+      sha,
+      sourceId: `pdf:${hashPrefixed}`,
+      title: "temp",
+    });
+    writeShaBundle(ws, "stable-module", {
+      sha,
+      sourceId: "pdf:stable-module",
+      title: "stable",
+    });
+    const assets = path.join(ws, ".coc", "module-assets", "root-hash-20260101T000000");
+    fs.mkdirSync(assets, { recursive: true });
+    fs.writeFileSync(path.join(ws, ".coc", "module-assets", "registry.json"), JSON.stringify({
+      by_file_sha256: { [sha]: "root-hash-20260101T000000" },
+    }));
+    fs.writeFileSync(path.join(assets, "identity.json"), JSON.stringify({
+      file_sha256: sha,
+      source: { source_id: `pdf:${hashPrefixed}` },
+    }));
+    const matched = findBundleByPdfSha256(ws, sha);
+    assert.equal(matched.bundle_id, hashPrefixed);
+    assert.equal(matched.source_id, `pdf:${hashPrefixed}`);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("findBundleByPdfSha256 ignores registry identity when identity.file_sha256 mismatches", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-dup-sha-registry-mismatch-"));
+  const sha = "1".repeat(64);
+  const otherSha = "2".repeat(64);
+  const hashPrefixed = "aaaaaaaaaaaaaaaa-stable-module";
+  try {
+    writeShaBundle(ws, hashPrefixed, {
+      sha,
+      sourceId: `pdf:${hashPrefixed}`,
+      title: "temp",
+    });
+    writeShaBundle(ws, "stable-module", {
+      sha,
+      sourceId: "pdf:stable-module",
+      title: "stable",
+    });
+    const assets = path.join(ws, ".coc", "module-assets", "stale-root-20260101T000000");
+    fs.mkdirSync(assets, { recursive: true });
+    fs.writeFileSync(path.join(ws, ".coc", "module-assets", "registry.json"), JSON.stringify({
+      by_file_sha256: { [sha]: "stale-root-20260101T000000" },
+    }));
+    fs.writeFileSync(path.join(assets, "identity.json"), JSON.stringify({
+      file_sha256: otherSha,
+      source: { source_id: `pdf:${hashPrefixed}` },
+    }));
+    const matched = findBundleByPdfSha256(ws, sha);
+    assert.equal(matched.bundle_id, "stable-module");
+    assert.equal(matched.source_id, "pdf:stable-module");
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("findBundleByPdfSha256 may pick any first-window candidate that shares one source_id", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-dup-sha-shared-id-"));
+  const sha = "3".repeat(64);
+  const hashPrefixed = "aaaaaaaaaaaaaaaa-other-id";
+  try {
+    writeShaBundle(ws, hashPrefixed, {
+      sha,
+      sourceId: "pdf:other-id",
+      title: "temp",
+    });
+    writeShaBundle(ws, "mmm-copy", {
+      sha,
+      sourceId: "pdf:stable-module",
+      title: "copy",
+    });
+    writeShaBundle(ws, "stable-module", {
+      sha,
+      sourceId: "pdf:stable-module",
+      title: "stable",
+    });
+    const listed = listSourceBundles(ws).map((bundle) => bundle.bundle_id);
+    assert.deepEqual(listed, [hashPrefixed, "mmm-copy", "stable-module"]);
+    const matched = findBundleByPdfSha256(ws, sha);
+    assert.equal(matched.source_id, "pdf:stable-module");
+    assert.ok(["mmm-copy", "stable-module"].includes(matched.bundle_id));
   } finally {
     fs.rmSync(ws, { recursive: true, force: true });
   }
