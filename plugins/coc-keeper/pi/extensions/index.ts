@@ -123,6 +123,7 @@ import {
 } from "../lib/player-pdf-bind.ts";
 import {
   PiStateClaimCompiler,
+  PiStateClaimCompilerFailure,
   STATE_CLAIM_HOST_FIELD,
 } from "../lib/state-claim-compiler.ts";
 export {
@@ -135,6 +136,7 @@ export type { PlayerPdfBindDetection } from "../lib/player-pdf-bind.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
+export const TURN_PROCESSING_FAULT_CUSTOM_TYPE = "coc-turn-processing-fault";
 // The locator producer child runs under the adapter's 900s budget; this
 // outer budget must stay above it with margin (same ratio as the opening
 // review and full-parse lanes: 900s child inside a 20min outer budget). The
@@ -1036,6 +1038,11 @@ export class OpeningTerminalContinuationGate {
     { dice: number; resource: number }
   >();
   private pendingMechanicalOutputGateEnvelope: JsonObject | null = null;
+  private turnProcessingFault: {
+    epoch: number;
+    fault: JsonObject;
+    deliveryTaken: boolean;
+  } | null = null;
   private preInferenceFinalizationSteerEpoch = 0;
   private nonblockingContinuation: {
     epoch: number;
@@ -5623,6 +5630,50 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  armTurnProcessingFault(base: JsonObject): { fault: JsonObject; first: boolean } {
+    if (
+      this.turnProcessingFault !== null
+      && this.turnProcessingFault.epoch === this.playerTurnEpoch
+    ) return { fault: this.turnProcessingFault.fault, first: false };
+    const fault: JsonObject = {
+      ...base,
+      player_turn_epoch: this.playerTurnEpoch,
+    };
+    this.turnProcessingFault = {
+      epoch: this.playerTurnEpoch,
+      fault,
+      deliveryTaken: false,
+    };
+    this.pendingMechanicalOutputGateEnvelope = null;
+    return { fault, first: true };
+  }
+
+  currentTurnProcessingFault(): JsonObject | null {
+    return this.turnProcessingFault?.epoch === this.playerTurnEpoch
+      ? this.turnProcessingFault.fault
+      : null;
+  }
+
+  takeTurnProcessingFaultForDelivery(): JsonObject | null {
+    const retained = this.turnProcessingFault;
+    if (
+      retained === null
+      || retained.epoch !== this.playerTurnEpoch
+      || retained.deliveryTaken
+    ) return null;
+    retained.deliveryTaken = true;
+    return retained.fault;
+  }
+
+  releaseTurnProcessingFaultDelivery(fault: JsonObject): void {
+    if (
+      this.turnProcessingFault?.epoch === this.playerTurnEpoch
+      && this.turnProcessingFault.fault === fault
+    ) {
+      this.turnProcessingFault.deliveryTaken = false;
+    }
+  }
+
   markExternalUserInput(playerText: string | null = null): void {
     this.playerTurnEpoch += 1;
     this.currentExternalPlayerText = playerText;
@@ -5631,6 +5682,7 @@ export class OpeningTerminalContinuationGate {
     this.currentDependencySuppression = null;
     this.currentVisibleCampaignId = null;
     this.pendingMechanicalOutputGateEnvelope = null;
+    this.turnProcessingFault = null;
   }
 
   bindHandoutReplayRequest(params: JsonObject): JsonObject {
@@ -5993,6 +6045,10 @@ export class OpeningTerminalContinuationGate {
       return false;
     }
     const currentSuppression = this.currentDependencySuppression;
+    if (this.currentTurnProcessingFault() !== null) {
+      this.pendingMechanicalOutputGateEnvelope = null;
+      return false;
+    }
     const terminalConsumptionPending = (
       this.currentVisibleCampaignId !== null
       && [...this.currentDependencyWaits.values()].some((wait) => (
@@ -6204,6 +6260,7 @@ export class OpeningTerminalContinuationGate {
     this.nonblockingContinuation = null;
     this.epochMechanicalReceipts.clear();
     this.pendingMechanicalOutputGateEnvelope = null;
+    this.turnProcessingFault = null;
     this.preInferenceFinalizationSteerEpoch = 0;
     this.clearOpeningSetupRoute();
     this.openingSetupGenerationSequence = 0;
@@ -8179,6 +8236,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     overrides.createClient?.(ctx)
     ?? new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui")
   );
+  const deliverTurnProcessingFault = (fault: JsonObject): boolean => {
+    try {
+      pi.sendMessage({
+        customType: TURN_PROCESSING_FAULT_CUSTOM_TYPE,
+        content: JSON.stringify(fault),
+        display: false,
+        details: fault,
+      }, { triggerTurn: false });
+      return true;
+    } catch {
+      openingContinuationGate.releaseTurnProcessingFaultDelivery(fault);
+      return false;
+    }
+  };
   const refreshKeeperBriefing = async (
     ctx: ExtensionContext,
     campaignId: string,
@@ -9393,6 +9464,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && params.operation === "narration.review"
       && sessionRoleFromEnv() === "play"
     ) {
+      const retainedFault = openingContinuationGate.currentTurnProcessingFault();
+      if (retainedFault !== null) {
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code: "turn_processing_fault_latched",
+            retryable: false,
+            message: "this player turn has a terminal processing fault; recover the preserved turn before retrying",
+            details: retainedFault,
+          },
+        });
+      }
       const campaignId = typeof params.campaign === "string" ? params.campaign.trim() : "";
       const reviewArgs = objectOrNull(params.arguments);
       if (!campaignId || reviewArgs === null) {
@@ -9430,16 +9514,55 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch (error) {
         const failure = error instanceof Error ? error.message : "";
         const contextMissing = failure === "state_claim_compiler_context_missing";
-        const invalid = failure.startsWith("state_claim_result_")
-          || failure.startsWith("state_claim_coverage_")
-          || failure.startsWith("state_claim_response_")
-          || failure.startsWith("state_claim_model_protocol_")
-          || failure.startsWith("state_claim_model_arguments_");
+        const typedFailure = error instanceof PiStateClaimCompilerFailure
+          ? error
+          : null;
+        const invalid = typedFailure !== null
+          ? typedFailure.failureClass === "protocol_invalid"
+            || typedFailure.failureClass === "result_invalid"
+          : failure.startsWith("state_claim_result_")
+            || failure.startsWith("state_claim_coverage_")
+            || failure.startsWith("state_claim_response_")
+            || failure.startsWith("state_claim_model_protocol_")
+            || failure.startsWith("state_claim_model_arguments_");
         const code = contextMissing
           ? "state_claim_compiler_context_missing"
           : invalid
             ? "state_claim_compiler_invalid"
             : "state_claim_compiler_unavailable";
+        const armed = typedFailure === null
+          ? null
+          : openingContinuationGate.armTurnProcessingFault({
+            schema_version: 1,
+            contract_id: "coc.pi-turn-processing-fault.v1",
+            kind: "turn_processing_fault",
+            status: "terminal",
+            stage: "state_claim_compilation",
+            campaign_id: campaignId,
+            turn_id: typeof keeperReviewArgs.turn_id === "string"
+              ? keeperReviewArgs.turn_id
+              : null,
+            code,
+            message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+            retryable: false,
+            will_retry: false,
+            pending_turn_preserved: true,
+            failure_class: typedFailure.failureClass,
+            requested_model: typedFailure.requestedModel === null
+              ? null
+              : {
+                provider: typeof typedFailure.requestedModel.provider === "string"
+                  ? typedFailure.requestedModel.provider
+                  : null,
+                id: typeof typedFailure.requestedModel.id === "string"
+                  ? typedFailure.requestedModel.id
+                  : null,
+                api: typeof typedFailure.requestedModel.api === "string"
+                  ? typedFailure.requestedModel.api
+                  : null,
+              },
+            elapsed_ms: typedFailure.elapsedMs,
+          });
         try {
           pi.appendEntry("coc-state-claim-compiler", {
             schema_version: 1,
@@ -9450,8 +9573,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             draft_sha256: typeof keeperReviewArgs.draft_text === "string"
               ? createHash("sha256").update(JSON.stringify(keeperReviewArgs.draft_text), "utf8").digest("hex")
               : null,
+            ...(typedFailure === null ? {} : {
+              failure_class: typedFailure.failureClass,
+              requested_model: typedFailure.requestedModel,
+              elapsed_ms: typedFailure.elapsedMs,
+            }),
           });
         } catch { /* compiler failure audit is best effort */ }
+        if (armed?.first === true) {
+          try {
+            pi.appendEntry(TURN_PROCESSING_FAULT_CUSTOM_TYPE, armed.fault);
+          } catch { /* terminal fault audit is best effort */ }
+          const deliverable = (
+            openingContinuationGate.takeTurnProcessingFaultForDelivery()
+          );
+          if (deliverable !== null) {
+            deliverTurnProcessingFault(deliverable);
+          }
+        }
         return result({
           ok: false,
           tool: "narration.review",
@@ -9461,6 +9600,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             message: contextMissing
               ? "call turn.output_context for this pending turn before narration.review"
               : "player-state claim compilation did not complete; narration review was not recorded",
+            ...(armed === null ? {} : { details: armed.fault }),
           },
         });
       }
@@ -10583,10 +10723,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         } catch { /* hidden structured blocker audit is best effort */ }
       }
       if (decision === false) {
-        deliverMechanicalOutputGateInstruction(
-          pi,
-          openingContinuationGate.takeMechanicalOutputGateEnvelope(),
-        );
+        const fault = openingContinuationGate.takeTurnProcessingFaultForDelivery();
+        if (fault !== null) deliverTurnProcessingFault(fault);
+        else {
+          deliverMechanicalOutputGateInstruction(
+            pi,
+            openingContinuationGate.takeMechanicalOutputGateEnvelope(),
+          );
+        }
       }
       if (shouldTriggerOpeningSetupContinuation(decision)) {
         const route = (
