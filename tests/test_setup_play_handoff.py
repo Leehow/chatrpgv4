@@ -23,6 +23,7 @@ def _load(name: str, path: Path):
 
 coc_toolbox = _load("coc_toolbox_setup_play_handoff", SCRIPTS / "coc_toolbox.py")
 coc_state = _load("coc_state_setup_play_handoff", SCRIPTS / "coc_state.py")
+coc_starter = _load("coc_starter_setup_play_handoff", SCRIPTS / "coc_starter.py")
 coc_turn_finalization = coc_toolbox.coc_turn_finalization
 
 
@@ -69,7 +70,13 @@ def _campaign_tree_without_dispatch_audit(campaign_dir: Path) -> dict[str, objec
 def _create_chargen_and_complete(
     root: Path, campaign_id: str, *, age: int = 27,
 ) -> tuple[Path, dict]:
-    coc_state.create_campaign(root, campaign_id, "Setup handoff", era="1920s")
+    coc_starter.quick_start(
+        root / ".coc",
+        "the-haunting",
+        None,
+        campaign_id=campaign_id,
+        title="Setup handoff",
+    )
     chargen = coc_toolbox.run_tool(
         "setup.chargen_run",
         root,

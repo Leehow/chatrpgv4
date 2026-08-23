@@ -175,19 +175,129 @@ def _readiness_blocking_reason(readiness: dict[str, Any] | None) -> dict[str, An
     }
 
 
+_CANONICAL_IR_FILES = (
+    "module-meta.json",
+    "story-graph.json",
+    "clue-graph.json",
+    "npc-agendas.json",
+    "threat-fronts.json",
+    "pacing-map.json",
+    "improvisation-boundaries.json",
+)
+
+
+def _active_scenario_id(campaign: dict[str, Any] | None) -> str:
+    if not isinstance(campaign, dict):
+        return ""
+    raw = campaign.get("active_scenario_id")
+    return raw.strip() if isinstance(raw, str) else ""
+
+
+def _scenario_metadata_id(
+    campaign_dir: Path,
+    scenario: dict[str, Any] | None,
+) -> str:
+    if isinstance(scenario, dict):
+        raw = scenario.get("scenario_id")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    try:
+        module_meta = json.loads(
+            (Path(campaign_dir) / "scenario" / "module-meta.json").read_text(
+                encoding="utf-8",
+            )
+        )
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(module_meta, dict):
+        return ""
+    raw = module_meta.get("scenario_id")
+    return raw.strip() if isinstance(raw, str) else ""
+
+
+def _builtin_ir_ready(campaign_dir: Path) -> bool:
+    scenario_dir = Path(campaign_dir) / "scenario"
+    return all((scenario_dir / name).is_file() for name in _CANONICAL_IR_FILES)
+
+
+def _bound_scenario_blocker(
+    campaign: dict[str, Any] | None,
+    campaign_dir: Path,
+    scenario: dict[str, Any] | None,
+    *,
+    source_bound: bool,
+) -> dict[str, Any] | None:
+    """Fail closed when setup.complete would hand off without a bound scenario."""
+    active = _active_scenario_id(campaign)
+    meta_id = _scenario_metadata_id(campaign_dir, scenario)
+    if not active:
+        return {
+            "code": "scenario_not_bound",
+            "message": (
+                "this campaign has no bound scenario; use setup.quick_start "
+                "with a fresh campaign_id for a built-in starter, or bind a "
+                "source module, before setup.complete"
+            ),
+            "scope": "scenario",
+            "details": {
+                "active_scenario_id": None,
+                "scenario_id": meta_id or None,
+            },
+        }
+    if not meta_id:
+        return {
+            "code": "scenario_not_bound",
+            "message": (
+                "campaign active_scenario_id has no matching scenario metadata"
+            ),
+            "scope": "scenario",
+            "details": {
+                "active_scenario_id": active,
+                "scenario_id": None,
+            },
+        }
+    if meta_id != active:
+        return {
+            "code": "scenario_identity_mismatch",
+            "message": (
+                "campaign active_scenario_id does not match scenario metadata"
+            ),
+            "scope": "scenario",
+            "details": {
+                "active_scenario_id": active,
+                "scenario_id": meta_id,
+            },
+        }
+    if not source_bound and not _builtin_ir_ready(campaign_dir):
+        return {
+            "code": "scenario_not_ready",
+            "message": (
+                "the bound built-in scenario is not installed or compiled"
+            ),
+            "scope": "scenario",
+            "details": {
+                "active_scenario_id": active,
+                "scenario_id": meta_id,
+            },
+        }
+    return None
+
+
 def _module_preparation(
     root: Path,
     campaign_dir: Path,
     campaign_id: str,
     *,
+    campaign: dict[str, Any] | None = None,
     host_work_mode: str = "mutating",
 ) -> dict[str, Any]:
     """Derive the source-lane sub-phase for one campaign's opening module work.
 
     Mirrors the persisted opening source contract exactly: a broken or
-    unreviewed source binding stays fail-closed, and only a current, fresh
-    opening projection (or the absence of any source binding at all) counts as
-    prepared.
+    unreviewed source binding stays fail-closed. Absence of a source lane is
+    not table readiness: a missing ``active_scenario_id`` is a typed blocker
+    for ``setup.complete``. Built-in/cold-compiled campaigns still skip the
+    PDF opening-source gate once a matching compiled scenario is bound.
     """
     module_project = _coc_module_project()
     runtime_ops = _coc_runtime_ops()
@@ -350,12 +460,17 @@ def _module_preparation(
             return fail_contract(
                 exc.code, exc.message, persisted_root_id or None,
             )
-        # No source binding at all: starter and cold-compiled campaigns have
-        # nothing to prepare, so module preparation is trivially satisfied.
+        # No PDF/progressive source lane. That is not "no scenario needed":
+        # a bound built-in/compiled scenario is still required to complete.
         prep["source_gated"] = False
         prep["satisfied"] = True
         prep["sub_phase"] = None
-        prep["blocking_reason"] = _readiness_blocking_reason(prep["readiness"])
+        prep["blocking_reason"] = (
+            _bound_scenario_blocker(
+                campaign, campaign_dir, scenario, source_bound=False,
+            )
+            or _readiness_blocking_reason(prep["readiness"])
+        )
         return prep
 
     prep["source_gated"] = True
@@ -381,7 +496,12 @@ def _module_preparation(
         ):
             prep["satisfied"] = True
             prep["sub_phase"] = None
-            prep["blocking_reason"] = _readiness_blocking_reason(prep["readiness"])
+            prep["blocking_reason"] = (
+                _bound_scenario_blocker(
+                    campaign, campaign_dir, scenario, source_bound=True,
+                )
+                or _readiness_blocking_reason(prep["readiness"])
+            )
             return prep
 
     watch = (
@@ -597,7 +717,10 @@ def _next_operation(
             }
         return None
     if phase == PHASE_CHARACTER_CREATION:
-        if character_setup.get("confirmed"):
+        if (
+            character_setup.get("confirmed")
+            and module_preparation.get("blocking_reason") is None
+        ):
             return {
                 "operation": "setup.complete",
                 "invoke_via": "coc_invoke",
@@ -674,6 +797,7 @@ def derive_opening_phase(
         root,
         campaign_dir,
         campaign_id,
+        campaign=campaign,
         host_work_mode=host_work_mode,
     )
     character_setup = _character_setup(campaign_dir, campaign_id, campaign)
@@ -706,7 +830,13 @@ def derive_opening_phase(
     if phase == PHASE_MODULE_PREPARATION:
         blocking_reason = module_preparation["blocking_reason"]
     elif phase == PHASE_CHARACTER_CREATION:
-        blocking_reason = character_setup["blocking_reason"]
+        if (
+            character_setup.get("confirmed")
+            and module_preparation.get("blocking_reason") is not None
+        ):
+            blocking_reason = module_preparation["blocking_reason"]
+        else:
+            blocking_reason = character_setup["blocking_reason"]
     else:
         blocking_reason = None
 

@@ -19888,6 +19888,39 @@ def test_story_thread_orders_by_what_the_main_line_needs(campaign_ws):
     assert len(row["one_move_away"][0]["clues"]) == 2
 
 
+def test_explicit_fresh_campaign_id_quick_start_is_first_mutation(tmp_path):
+    campaign_id = "memory-haunting-20260823-02"
+    campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
+    assert not campaign_dir.exists()
+    envelope = coc_toolbox.run_tool(
+        "setup.quick_start", tmp_path, None,
+        {
+            "scenario_id": "the-haunting",
+            "pregen_id": "thomas-hayes",
+            "campaign_id": campaign_id,
+            "title": "闹鬼",
+        },
+    )
+    assert envelope["ok"] is True, envelope
+    assert envelope["data"]["kind"] == "campaign.quick_start"
+    assert envelope["data"]["result"]["campaign_id"] == campaign_id
+    campaign = json.loads(
+        (campaign_dir / "campaign.json").read_text(encoding="utf-8")
+    )
+    assert campaign["active_scenario_id"] == "the-haunting"
+    assert campaign["status"] == "setup"
+    completed = coc_toolbox.run_tool(
+        "setup.complete", tmp_path, None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-fresh-02"},
+    )
+    assert completed["ok"] is True, completed
+    written = json.loads(
+        (campaign_dir / "campaign.json").read_text(encoding="utf-8")
+    )
+    assert written["status"] == "ready_for_table"
+    assert written["active_scenario_id"] == "the-haunting"
+
+
 def test_quick_start_on_existing_campaign_returns_steered_tool_error(tmp_path):
     coc_toolbox.run_tool(
         "setup.invoke", tmp_path, None,

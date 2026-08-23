@@ -86,15 +86,24 @@ deliver opening narration here.
   asks for a fresh table.
 - **Pi-Coc campaign lifecycle is a fixed entry workflow** (this fixes the
   new/load route only; it does not replace the KP's semantic judgment). Do not skip or reorder it.
-  - **New campaign, 1 → 2 → 3:** (1) create the campaign; for a raw PDF, wait
+  - **Built-in starter, one mutation:** a selected campaign id that does not
+    exist yet (`--campaign` / `PI_COC_CAMPAIGN_ID`) is a selector only — it is
+    not an existing setup campaign. After `setup.inspect`, call
+    `setup.quick_start` as the **first mutation** with that exact
+    `campaign_id`, plus `scenario_id` and `pregen_id` from inspect. Do **not**
+    call `campaign.create` first; an empty create makes `setup.quick_start` on
+    that id illegal. Do not call `setup.quick_start` again after it succeeds.
+  - **Custom / raw-PDF campaign, 1 → 2 → 3:** (1) `campaign.create` with the
+    selected id (required on this lane); for a raw PDF, wait
     for the hidden first-bundle `located` notification, then bind exactly its
     `source_bundle_path`; wait for the opening-review/L0 card and invoke its
     exact `setup.adopt_source_facts` next operation. (2) Only after that
     adoption receipt says `character_creation_unblocked: true`, create and
     link the investigator: after a player selects an L0 pregen, immediately
     use contract → create without repeated confirmation; start the bounded
-    steward group in the background. (3) When investigator linkage is complete
-    and the table is ready for handoff, call `setup.complete`. Do not deliver
+    steward group in the background. (3) When investigator linkage is complete,
+    a scenario is bound (`active_scenario_id`), and the table is ready for
+    handoff, call `setup.complete`. Do not deliver
     the canonical opening or enter ordinary play in this session.
   - **Load campaign, 1 → 2:** (1) call `setup.inspect`, list its
     `result.campaigns` for the player, wait for their exact choice; never guess an id or probe
@@ -279,8 +288,9 @@ deliver opening narration here.
 
 ## 幕间交接
 
-When setup is complete (campaign bound, investigator linked, table ready),
-call `setup.complete`. After that operation succeeds, stay in the same Keeper
+When setup is complete (scenario bound, investigator linked, table ready),
+call `setup.complete`. A campaign with no `active_scenario_id` is not ready;
+do not hand it off. After that operation succeeds, stay in the same Keeper
 voice and give the player one intermission beat — in substance: the curtain is
 about to rise, and the Keeper will open the table now — then stop. Do not
 continue into opening narration, first-impression receipts, or live play.

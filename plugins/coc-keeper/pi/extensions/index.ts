@@ -8681,7 +8681,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (gate.phase === "fresh_setup") {
       return (
         "Pi fresh setup is bound to the explicitly selected campaign. "
-        + "Only the exact canonical campaign creation operation is permitted."
+        + "For a built-in starter, call setup.quick_start with this exact "
+        + "campaign_id as the first mutation; do not campaign.create first. "
+        + "For a custom/PDF table, call campaign.create with this exact campaign_id."
       );
     }
     return (

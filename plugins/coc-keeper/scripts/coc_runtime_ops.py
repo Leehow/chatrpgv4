@@ -5006,9 +5006,10 @@ def _execute_campaign_complete(
             code=exc.code,
             details=exc.to_dict(),
         ) from exc
-    # Single lifecycle authority: the derived opening phase owns both blocking
-    # conditions (confirmed chargen, source readiness) so this handler never
-    # re-assembles them from files.
+    # Single lifecycle authority: the derived opening phase owns blocking
+    # conditions (confirmed chargen, bound scenario, source readiness) so this
+    # handler never re-assembles them from files. A missing active_scenario_id
+    # is never "no source lane needed".
     derived = _opening_phase_module().derive_opening_phase(root, campaign_id)
     detail = derived["detail"]
     chargen_blocker = detail["character_setup"]["blocking_reason"]

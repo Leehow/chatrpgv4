@@ -94,11 +94,18 @@ def _bind_source(
     *,
     projected: bool,
     watch_status: str | None = None,
+    scenario_id: str = "src-mod",
 ) -> None:
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["active_scenario_id"] = scenario_id
+    campaign_path.write_text(
+        json.dumps(campaign, indent=2) + "\n", encoding="utf-8",
+    )
     scenario_path = campaign_dir / "scenario" / "scenario.json"
     scenario: dict = {
         "schema_version": 1,
-        "scenario_id": "src-mod",
+        "scenario_id": scenario_id,
         "progressive_asset_root_id": "asset-root-src",
         "source_cache_asset_root_id": "asset-root-src",
     }
@@ -148,10 +155,38 @@ def test_setup_complete_source_bound_unprojected_is_pending(tmp_path: Path):
     assert envelope["error"]["code"] == "opening_source_pending"
 
 
+def test_setup_complete_empty_campaign_fails_without_bound_scenario(
+    tmp_path: Path,
+):
+    campaign_id = "empty-no-scenario"
+    _make_campaign(tmp_path, campaign_id)
+    _link_investigator(tmp_path, campaign_id, "inv-ok")
+    envelope = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-empty"},
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "scenario_not_bound"
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign["status"] == "setup"
+    assert campaign.get("active_scenario_id") is None
+    assert "setup_handoff" not in campaign
+
+
 def test_setup_complete_builtin_confirmed_is_idempotent(tmp_path: Path):
     campaign_id = "builtin-ready"
-    campaign_dir = _make_campaign(tmp_path, campaign_id)
-    _link_investigator(tmp_path, campaign_id, "inv-ok")
+    quick = coc_starter.quick_start(
+        tmp_path / ".coc",
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id=campaign_id,
+    )
+    campaign_dir = Path(quick["campaign_dir"])
     first = coc_toolbox.run_tool(
         "setup.complete",
         tmp_path,
@@ -164,9 +199,10 @@ def test_setup_complete_builtin_confirmed_is_idempotent(tmp_path: Path):
     assert result["next"] == "table_opening"
     campaign = json.loads((campaign_dir / "campaign.json").read_text())
     assert campaign["status"] == "ready_for_table"
+    assert campaign["active_scenario_id"] == "the-haunting"
     receipt = campaign["setup_handoff"]
     assert receipt["decision_id"] == "handoff-3"
-    assert receipt["investigator_ids"] == ["inv-ok"]
+    assert receipt["investigator_ids"] == ["thomas-hayes"]
     assert receipt["lane_interrupted_at_handoff"] is False
     replay = coc_toolbox.run_tool(
         "setup.complete",
@@ -181,8 +217,13 @@ def test_setup_complete_builtin_confirmed_is_idempotent(tmp_path: Path):
 def test_setup_complete_after_active_status_from_link_is_idempotent(tmp_path: Path):
     """Chargen/link or compile_now may stamp status=active before handoff."""
     campaign_id = "active-after-link"
-    campaign_dir = _make_campaign(tmp_path, campaign_id)
-    _link_investigator(tmp_path, campaign_id, "inv-ok")
+    quick = coc_starter.quick_start(
+        tmp_path / ".coc",
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id=campaign_id,
+    )
+    campaign_dir = Path(quick["campaign_dir"])
     campaign_path = campaign_dir / "campaign.json"
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
     campaign["status"] = "active"
@@ -203,7 +244,7 @@ def test_setup_complete_after_active_status_from_link_is_idempotent(tmp_path: Pa
     assert written["status"] == "ready_for_table"
     receipt = written["setup_handoff"]
     assert receipt["decision_id"] == "handoff-active"
-    assert receipt["investigator_ids"] == ["inv-ok"]
+    assert receipt["investigator_ids"] == ["thomas-hayes"]
     replay = coc_toolbox.run_tool(
         "setup.complete",
         tmp_path,
@@ -233,9 +274,36 @@ def test_setup_complete_source_bound_projected_succeeds(tmp_path: Path):
     )
 
 
+def _bind_playable_builtin(campaign_dir: Path, scenario_id: str = "lib-mod") -> None:
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["active_scenario_id"] = scenario_id
+    campaign_path.write_text(
+        json.dumps(campaign, indent=2) + "\n", encoding="utf-8",
+    )
+    scenario_dir = campaign_dir / "scenario"
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    (scenario_dir / "scenario.json").write_text(
+        json.dumps({"schema_version": 1, "scenario_id": scenario_id}, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    for name in (
+        "module-meta.json",
+        "story-graph.json",
+        "clue-graph.json",
+        "npc-agendas.json",
+        "threat-fronts.json",
+        "pacing-map.json",
+        "improvisation-boundaries.json",
+    ):
+        (scenario_dir / name).write_text("{}" + "\n", encoding="utf-8")
+
+
 def _handoff_ready(tmp_path: Path, campaign_id: str) -> Path:
     campaign_dir = _make_campaign(tmp_path, campaign_id)
     _link_investigator(tmp_path, campaign_id, "inv-ok")
+    _bind_playable_builtin(campaign_dir)
     completed = coc_toolbox.run_tool(
         "setup.complete",
         tmp_path,
@@ -395,17 +463,8 @@ def test_session_resume_ready_for_table_with_finalized_turn_is_live(
 ):
     campaign_id = "resume-finalized"
     campaign_dir = _handoff_ready(tmp_path, campaign_id)
-    _write_json(
-        campaign_dir / "save" / "turn-source-cursor.json",
-        {
-            "schema_version": 1,
-            "campaign_id": campaign_id,
-            "next_source_offset": 128,
-            "next_source_index": 3,
-            "last_finalized_turn_id": "turn-v1-ready-for-table-finalized",
-            "last_finalization_id": "turn-effect-v1:ready-for-table-finalized",
-        },
-    )
+    _open_table(tmp_path, campaign_id, "opening-resume-finalized")
+    _journal_and_finalize(tmp_path, campaign_id, "resume-finalized")
     resumed = _resume(tmp_path, campaign_id)
     assert resumed["data"]["mode"] in _LIVE_RESUME_MODES
     assert resumed["data"]["mode"] != "table_opening"

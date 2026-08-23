@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:16ca733d3096ec5a82563211e6302d11c2f452fa2638a8533bf9426671e860fb",
+  "content_sha256": "sha256:f904468756adf123ff56eb146d6c922832fef381335999229b0591d4abb8b507",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4798,7 +4798,7 @@
     "setup.complete": {
       "access": "mutation",
       "canonical_operation": "setup.complete",
-      "description": "Handoff a finished setup campaign to play: confirm investigators and (when source-bound) a terminal opening projection, persist ready_for_table, and emit the setup-session exit receipt. Canonical operation `setup.complete`; the result envelope is authoritative.",
+      "description": "Handoff a finished setup campaign to play: require a bound current-schema scenario (active_scenario_id plus compiled built-in or source-module readiness), a confirmed investigator, and (when source-bound) a terminal opening projection; persist ready_for_table and emit the setup-session exit receipt. Canonical operation `setup.complete`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4838,7 +4838,7 @@
           "live_turn"
         ]
       },
-      "summary": "Handoff a finished setup campaign to play: confirm investigators and (when source-bound) a terminal opening projection, persist ready_for_table, and emit the setup-session exit receipt."
+      "summary": "Handoff a finished setup campaign to play: require a bound current-schema scenario (active_scenario_id plus compiled built-in or source-module readiness), a confirmed investigator, and (when source-bound) a terminal opening projection; persist ready_for_table and emit the setup-session exit receipt."
     },
     "setup.inspect": {
       "access": "query",
@@ -5073,7 +5073,7 @@
     "setup.quick_start": {
       "access": "mutation",
       "canonical_operation": "setup.quick_start",
-      "description": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
+      "description": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5082,7 +5082,7 @@
             "type": "string"
           },
           "campaign_id": {
-            "description": "optional stable campaign id; omit to create {scenario_id}-qs. Forbidden when a setup campaign already exists",
+            "description": "optional stable campaign id; omit to create {scenario_id}-qs. Pass a launcher-selected nonexistent id here as the first mutation. Forbidden when a setup campaign already exists",
             "type": "string"
           },
           "pregen_id": {
@@ -5120,7 +5120,7 @@
           "live_turn"
         ]
       },
-      "summary": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans."
+      "summary": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans."
     },
     "state.advance_time": {
       "access": "mutation",
