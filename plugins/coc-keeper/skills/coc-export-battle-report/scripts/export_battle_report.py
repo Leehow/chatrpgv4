@@ -88,18 +88,31 @@ def _turn_finalization() -> Any:
 
 
 _TOOLBOX_MODULE: Any = None
+_STATE_EFFECT_AUTHORITY_MODULE: Any = None
 
 
 def _registered_tool_names() -> set[str]:
+    return set(_toolbox_registry())
+
+
+def _toolbox_registry() -> dict[str, Any]:
     global _TOOLBOX_MODULE
     if _TOOLBOX_MODULE is None:
-        scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
-        if str(scripts_dir) not in sys.path:
-            sys.path.insert(0, str(scripts_dir))
+        _plugin_scripts_dir()
         import coc_toolbox
 
         _TOOLBOX_MODULE = coc_toolbox
-    return set(_TOOLBOX_MODULE.TOOLS)
+    return _TOOLBOX_MODULE.TOOLS
+
+
+def _state_effect_authority() -> Any:
+    global _STATE_EFFECT_AUTHORITY_MODULE
+    if _STATE_EFFECT_AUTHORITY_MODULE is None:
+        _plugin_scripts_dir()
+        import coc_state_effect_authority
+
+        _STATE_EFFECT_AUTHORITY_MODULE = coc_state_effect_authority
+    return _STATE_EFFECT_AUTHORITY_MODULE
 
 
 _STATE_MODULE: Any = None
@@ -354,40 +367,16 @@ def _flatten_document_rows(
 
 
 def _has_explicit_delta(value: Any) -> bool:
-    """Recognize typed before/after or delta payloads; never infer from prose."""
-    if not isinstance(value, dict):
-        return False
-    keys = {str(key) for key in value}
-    if "before" in keys and "after" in keys:
-        return True
-    if keys & {"delta", "applied_delta", "state_delta", "change"}:
-        return True
-    if (
-        value.get("category") in {"state_delta", "asset_delta"}
-        and value.get("effect_id")
-        and value.get("action") in {"added", "removed", "granted", "spent", "used"}
-    ):
-        return True
-    before_stems = {key[:-7] for key in keys if key.endswith("_before")}
-    after_stems = {key[:-6] for key in keys if key.endswith("_after")}
-    return bool(before_stems & after_stems)
+    return _state_effect_authority().is_typed_state_delta(value)
 
 
 def _state_diff_rows(
     toolbox_calls: Any, valid_finalizations: Any
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    registered = _registered_tool_names()
-    calls_by_decision = {
-        str((call.get("args") or {}).get("decision_id")): call
-        for call in toolbox_calls or []
-        if isinstance(call, dict)
-        and call.get("ok") is True
-        and str(call.get("tool") or "") in registered
-        and str(call.get("tool") or "").startswith("state.")
-        and isinstance(call.get("args"), dict)
-        and (call.get("args") or {}).get("decision_id")
-    }
+    authority = _state_effect_authority()
+    registry = _toolbox_registry()
+    calls = [call for call in toolbox_calls or [] if isinstance(call, dict)]
     for receipt in valid_finalizations or []:
         if not isinstance(receipt, dict):
             continue
@@ -396,8 +385,9 @@ def _state_diff_rows(
             for effect in bundle.get(category) or []:
                 if not isinstance(effect, dict) or not _has_explicit_delta(effect):
                     continue
-                source_decision_id = str(effect.get("source_decision_id") or "")
-                source_call = calls_by_decision.get(source_decision_id)
+                source_call = authority.proving_call(
+                    effect, calls, registry=registry,
+                )
                 if source_call is None:
                     continue
                 rows.append({
@@ -1969,16 +1959,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     authoritative_state_diffs = _state_diff_rows(toolbox_calls, valid_finalizations)
     malformed_visible_deltas: list[str] = []
     unbound_visible_deltas: list[str] = []
-    registered_state_decisions = {
-        str((call.get("args") or {}).get("decision_id"))
-        for call in toolbox_calls or []
-        if isinstance(call, dict)
-        and call.get("ok") is True
-        and str(call.get("tool") or "") in _registered_tool_names()
-        and str(call.get("tool") or "").startswith("state.")
-        and isinstance(call.get("args"), dict)
-        and (call.get("args") or {}).get("decision_id")
-    }
+    authority = _state_effect_authority()
+    registry = _toolbox_registry()
+    calls = [call for call in toolbox_calls or [] if isinstance(call, dict)]
     for receipt in valid_finalizations:
         if not isinstance(receipt, dict):
             continue
@@ -1989,7 +1972,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     malformed_visible_deltas.append(
                         f"{receipt.get('finalization_id') or 'unknown'}:{category}"
                     )
-                elif str(effect.get("source_decision_id") or "") not in registered_state_decisions:
+                elif authority.state_delta_proof_reason(
+                    effect, calls, registry=registry,
+                ) is not None:
                     unbound_visible_deltas.append(
                         f"{receipt.get('finalization_id') or 'unknown'}:{category}"
                     )
