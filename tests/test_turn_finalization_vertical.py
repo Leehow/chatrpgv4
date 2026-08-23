@@ -1762,3 +1762,203 @@ def test_first_impression_line_and_fiction_localize_english_names() -> None:
     assert segments[0]["text"] == "诺特 stood still."
     assert "马卡里奥" in rendered
     assert "Knotting" not in rendered
+
+
+def _collect_roll_ids(value: object) -> set[str]:
+    found: set[str] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if (
+                (key == "roll_id" or str(key).endswith("_roll_id"))
+                and isinstance(child, str)
+                and child
+            ):
+                found.add(child)
+            else:
+                found.update(_collect_roll_ids(child))
+    elif isinstance(value, list):
+        for child in value:
+            found.update(_collect_roll_ids(child))
+    return found
+
+
+def _assert_pi_output_context_contract(envelope: dict) -> None:
+    assert envelope["ok"] is True
+    assert envelope["tool"] == "turn.output_context"
+    data = envelope["data"]
+    operation = data["agency_review_operation"]
+    assert isinstance(operation, dict)
+    prefilled = operation["prefilled_arguments"]
+    assert isinstance(prefilled, dict)
+    revision = prefilled["revision"]
+    assert isinstance(revision, int) and not isinstance(revision, bool)
+    assert revision >= 1
+    refs = data["contract_projection"]["agency_authority"]["pc_subject_refs"]
+    assert isinstance(refs, list) and refs
+    assert all(isinstance(ref, str) and ref.strip() for ref in refs)
+    for key in (
+        "turn_id", "source_digest", "settlement_snapshot_id",
+        "mechanics_bundle_sha256",
+    ):
+        assert isinstance(data.get(key), str) and data[key]
+
+
+def test_pc_subject_refs_survive_failed_combat_when_party_is_empty(
+    tmp_path: Path,
+) -> None:
+    campaign_dir = tmp_path / "campaign"
+    campaign_dir.mkdir()
+    _write_json(
+        campaign_dir / "party.json",
+        {
+            "schema_version": 1,
+            "campaign_id": "campaign",
+            "investigator_ids": [],
+            "active_investigator_ids": [],
+        },
+    )
+    window = [
+        {
+            "ok": True,
+            "tool": "combat.resolve",
+            "args": {
+                "investigator": "thomas-hayes",
+                "decision_id": "combat-ok",
+            },
+            "data": {"investigator_id": "thomas-hayes"},
+        },
+        {
+            "ok": False,
+            "tool": "combat.resolve",
+            "args": {
+                "investigator": "thomas-hayes",
+                "decision_id": "combat-fail-1",
+            },
+            "data": None,
+        },
+        {
+            "ok": False,
+            "tool": "combat.resolve",
+            "args": {
+                "investigator": "thomas-hayes",
+                "decision_id": "combat-fail-2",
+            },
+            "data": None,
+        },
+    ]
+    failed_only = [row for row in window if row.get("ok") is not True]
+    refs = coc_turn_finalization._pc_subject_refs(
+        campaign_dir,
+        window=failed_only,
+        journal={"args": {"decision_id": "journal-mixed"}, "data": {}},
+    )
+    assert refs == ["pc:thomas-hayes"]
+    deltas = coc_turn_finalization._project_state_deltas(window)
+    assert all(row.get("source_decision_id") != "combat-fail-1" for row in deltas)
+    assert all(row.get("source_decision_id") != "combat-fail-2" for row in deltas)
+
+
+def test_mixed_combat_pending_turn_keeps_pc_subject_refs(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    workspace = tmp_path / "workspace"
+    coc_root = workspace / ".coc"
+    _write_json(
+        coc_root / "runtime.json",
+        {
+            "schema_version": 2,
+            "planner": {"kind": "deterministic"},
+            "rules": {"kind": "deterministic"},
+            "narrator": {"kind": "template"},
+            "player": {"kind": "human"},
+        },
+    )
+    quick = coc_starter.quick_start(
+        coc_root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id="mixed-combat-agency",
+        title="Mixed Combat Agency",
+    )
+    campaign_id = "mixed-combat-agency"
+    campaign_dir = Path(quick["campaign_dir"])
+    investigator_id = str(quick["investigator_id"])
+
+    def invoke(tool: str, args: dict | None = None) -> dict:
+        result = coc_toolbox.run_tool(
+            tool, workspace, campaign_id, dict(args or {})
+        )
+        assert isinstance(result, dict)
+        return result
+
+    moved = invoke(
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "move-mixed-combat"},
+    )
+    assert moved["ok"] is True, moved
+    successes = []
+    for index in range(2):
+        resolved = invoke(
+            "combat.resolve",
+            {
+                "affordance_id": "conventional-assault",
+                "investigator": investigator_id,
+                "weapon_id": "unarmed",
+                "decision_id": f"combat-ok-{index}",
+                "seed": 7 + index,
+            },
+        )
+        assert resolved["ok"] is True, resolved
+        successes.append(resolved)
+    failures = []
+    for index in range(2):
+        failed = invoke(
+            "combat.resolve",
+            {
+                "affordance_id": "not-a-real-affordance",
+                "investigator": investigator_id,
+                "weapon_id": "unarmed",
+                "decision_id": f"combat-fail-{index}",
+            },
+        )
+        assert failed["ok"] is False, failed
+        failures.append(failed)
+    journal = invoke(
+        "state.journal",
+        {
+            "summary": "调查员对干尸连刺数次，有的落空有的命中。",
+            "player_text": "我抽出匕首刺向那具干尸。",
+            "decision_id": "journal-mixed-combat",
+        },
+    )
+    assert journal["ok"] is True, journal
+
+    context = coc_turn_finalization.build_output_context(campaign_dir)
+    refs = context["contract_projection"]["agency_authority"]["pc_subject_refs"]
+    assert f"pc:{investigator_id}" in refs
+    public_ids = {
+        str(row.get("roll_id") or "")
+        for row in context["mechanics_bundle"]["public_check"]
+        if isinstance(row, dict)
+    }
+    public_ids.discard("")
+    failed_roll_ids = set()
+    for row in failures:
+        failed_roll_ids.update(_collect_roll_ids(row.get("data")))
+        failed_roll_ids.update(_collect_roll_ids(row.get("error")))
+    assert not failed_roll_ids & public_ids
+
+    first = invoke("turn.output_context")
+    _assert_pi_output_context_contract(first)
+    assert f"pc:{investigator_id}" in first["data"]["contract_projection"][
+        "agency_authority"
+    ]["pc_subject_refs"]
+    assert first["data"]["agency_review_operation"]["operation"] == "narration.review"
+    replay = invoke("turn.output_context")
+    assert replay["ok"] is True, replay
+    assert replay["data"]["source_digest"] == first["data"]["source_digest"]
+    assert replay["data"]["settlement_snapshot_id"] == first["data"][
+        "settlement_snapshot_id"
+    ]
+    assert replay["data"]["source_roll_ids"] == first["data"]["source_roll_ids"]

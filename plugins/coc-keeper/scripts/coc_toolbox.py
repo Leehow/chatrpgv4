@@ -23331,7 +23331,20 @@ def _turn_contract_projection(
     player = player_rows[0]
     run_segment_id = str(player.get("run_segment_id") or "").strip()
     session_id = str(player.get("session_id") or "").strip()
+    existing_projection = output_context.get("contract_projection")
+    existing_authority = (
+        existing_projection.get("agency_authority")
+        if isinstance(existing_projection, dict) else None
+    )
+    settled_refs = [
+        str(value)
+        for value in (existing_authority or {}).get("pc_subject_refs") or []
+        if isinstance(value, str) and value.strip()
+    ]
+    party_subject_refs = settled_refs or [f"pc:{value}" for value in ctx.party_ids()]
     investigator_id = (ctx.party_ids() or [""])[0]
+    if not investigator_id and party_subject_refs:
+        investigator_id = party_subject_refs[0].removeprefix("pc:")
     if not run_segment_id or not session_id:
         raise ToolError("state_corrupt", "pending turn identity is incomplete")
     try:
@@ -23350,7 +23363,6 @@ def _turn_contract_projection(
             "pending turn identity does not match the frozen run identity",
         )
     active_id = str(ctx.world().get("active_scene_id") or "") or None
-    party_subject_refs = [f"pc:{value}" for value in ctx.party_ids()]
     projection = {
         "schema_version": 1,
         "run_segment_id": run_segment_id,
