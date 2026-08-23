@@ -181,6 +181,58 @@ def test_confirmed_investigator_without_scenario_does_not_point_at_complete(
     assert derived["blocking_reason"]["code"] == "scenario_not_bound"
 
 
+def _stamp_active_scenario(root: Path, campaign_id: str, scenario_id: str) -> Path:
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    path = campaign_dir / "campaign.json"
+    campaign = json.loads(path.read_text(encoding="utf-8"))
+    campaign["active_scenario_id"] = scenario_id
+    path.write_text(json.dumps(campaign, indent=2) + "\n", encoding="utf-8")
+    return campaign_dir
+
+
+def test_confirmed_investigator_identity_mismatch_blocks_complete(tmp_path: Path):
+    _campaign(tmp_path, "mismatch-a")
+    _link(tmp_path, "mismatch-a")
+    campaign_dir = _stamp_active_scenario(tmp_path, "mismatch-a", "the-haunting")
+    _write_json(
+        campaign_dir / "scenario" / "module-meta.json",
+        {"schema_version": 1, "scenario_id": "the-white-war"},
+    )
+    derived = coc_opening_phase.derive_opening_phase(tmp_path, "mismatch-a")
+    assert derived["blocking_reason"]["code"] == "scenario_identity_mismatch"
+    assert derived["next_operation"] is None
+    envelope = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": "mismatch-a", "decision_id": "handoff-mismatch"},
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "scenario_identity_mismatch"
+
+
+def test_empty_stub_ir_is_not_compiled_readiness(tmp_path: Path):
+    _campaign(tmp_path, "stub-ir")
+    _link(tmp_path, "stub-ir")
+    campaign_dir = _stamp_active_scenario(tmp_path, "stub-ir", "the-haunting")
+    _write_json(
+        campaign_dir / "scenario" / "scenario.json",
+        {"schema_version": 1, "scenario_id": "the-haunting"},
+    )
+    for name in coc_opening_phase._starter_ir_filenames():
+        _write_json(campaign_dir / "scenario" / name, {})
+    derived = coc_opening_phase.derive_opening_phase(tmp_path, "stub-ir")
+    assert derived["blocking_reason"]["code"] == "scenario_not_ready"
+    envelope = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": "stub-ir", "decision_id": "handoff-stub"},
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "scenario_not_ready"
+
+
 def test_confirmed_investigator_points_at_setup_complete(tmp_path: Path):
     import coc_starter
 
@@ -599,11 +651,12 @@ def test_quick_fire_dice_contract_is_purpose_and_shape_bound():
         {**QUICK_FIRE_DICE, "purpose": "damage"},
         gate,
     ) is False
+    # EDU improvement checks use 1D100 under investigator_creation_characteristic.
     assert _allowed(
         "rules.roll_dice",
         {**QUICK_FIRE_DICE, "expression": "1D100"},
         gate,
-    ) is False
+    ) is True
     assert _allowed(
         "rules.roll_dice",
         {**QUICK_FIRE_DICE, "decision_id": "  "},

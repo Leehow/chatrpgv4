@@ -48,7 +48,10 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    rediscover Quick Fire metadata already owned by `coc-character`.
 3. Select the visible play language at campaign setup, defaulting to `zh-Hans`, and persist it as `play_language`.
 4. Select or create a campaign before character creation or play.
-   The continuation recovery first-call rule applies only when this host context
+   A host-selected campaign id that does not exist yet (`--campaign` /
+   `PI_COC_CAMPAIGN_ID`) is a selector only — it is not an existing setup
+   campaign and must not be pre-created. The continuation recovery first-call
+   rule applies only when this host context
    is reopening an already-existing exact-schema campaign generation. If the
    current initial request just created, quick-started, bound, or otherwise set
    up this campaign, retain those current receipts and continue directly. Do
@@ -66,16 +69,20 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    > - **《闹鬼》The Haunting** — 1920 年波士顿，房东委托调查恶名昭彰的 Corbitt 宅；报馆/档案/街坊多线调查后对峙地下室不死术士。开箱即玩。
    >
    > One-call MCP quick start (pregen investigator, The Haunting): invoke the
-   > `setup.quick_start` operation card with
-   > `{"scenario_id":"the-haunting","pregen_id":"thomas-hayes"}`.
+   > `setup.quick_start` operation card with explicit
+   > `{"campaign_id":"<selected-or-new-id>","scenario_id":"the-haunting","pregen_id":"thomas-hayes"}`.
    > A host without MCP may use the same canonical setup gateway:
    > ```bash
    > uv run --frozen python ../../scripts/coc_runtime_ops.py --setup --workspace . \
    >   --operation-json '{"schema_version":1,"kind":"campaign.quick_start","payload":{"scenario_id":"the-haunting","pregen_id":"thomas-hayes"}}'
    > ```
+   > Ordinary non-Pi/MCP onboarding may omit `campaign_id` and creates
+   > `{scenario_id}-qs`. A selected nonexistent id must be passed through as
+   > `campaign_id`; do not `campaign.create` first, and do not require
+   > `setup.inspect` first when the starter and pregen are already known.
 
    For the one-step starter path use the shared `campaign.quick_start` setup
-   operation. For a custom table, use `campaign.create`, bind the accepted
+   operation as the first mutation when the built-in starter is known. For a custom table, use `campaign.create`, bind the accepted
    source bundle with `scenario.bind_pdf`, adopt its six opening facts through
    `setup.adopt_source_facts`, then request `setup.investigator_contract` and
    run the investigator confirmation flow in

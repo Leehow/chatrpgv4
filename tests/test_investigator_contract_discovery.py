@@ -66,8 +66,15 @@ def _bind_playable_scenario(
         + "\n",
         encoding="utf-8",
     )
+    (scenario_dir / "module-meta.json").write_text(
+        json.dumps(
+            {"schema_version": 1, "scenario_id": scenario_id},
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     for name in (
-        "module-meta.json",
         "story-graph.json",
         "clue-graph.json",
         "npc-agendas.json",
@@ -75,7 +82,10 @@ def _bind_playable_scenario(
         "pacing-map.json",
         "improvisation-boundaries.json",
     ):
-        (scenario_dir / name).write_text("{}" + "\n", encoding="utf-8")
+        (scenario_dir / name).write_text(
+            json.dumps({"schema_version": 1}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def test_pi_opening_character_setup_gate_selects_era_contract_route(

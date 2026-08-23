@@ -44,9 +44,18 @@ def test_setup_prompt_uses_quick_start_as_first_builtin_mutation() -> None:
     setup = SETUP.read_text(encoding="utf-8")
     assert "Built-in starter, one mutation" in setup
     assert "setup.quick_start` as the **first mutation**" in setup
-    assert "Do **not**\n    call `campaign.create` first" in setup
+    assert "Do **not** call\n    `setup.inspect` first on a fresh selected id" in setup
+    assert "do **not** call `campaign.create` first" in setup
     assert "Custom / raw-PDF campaign, 1 → 2 → 3" in setup
     assert "A campaign with no `active_scenario_id` is not ready" in setup
+    assert "After `setup.inspect`" not in setup
+    main = (
+        REPO_ROOT / "plugins" / "coc-keeper" / "skills" / "coc-main" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "selector only" in main
+    assert '"campaign_id":"<selected-or-new-id>"' in main
+    assert "do not `campaign.create` first" in main
+    assert "do not require\n   > `setup.inspect` first" in main
 
 
 def test_setup_prompt_preserves_source_time_precision() -> None:

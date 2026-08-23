@@ -178,6 +178,62 @@ def test_setup_complete_empty_campaign_fails_without_bound_scenario(
     assert "setup_handoff" not in campaign
 
 
+def test_setup_complete_rejects_scenario_identity_mismatch(tmp_path: Path):
+    campaign_id = "id-mismatch"
+    campaign_dir = _make_campaign(tmp_path, campaign_id)
+    _link_investigator(tmp_path, campaign_id, "inv-ok")
+    campaign = json.loads((campaign_dir / "campaign.json").read_text())
+    campaign["active_scenario_id"] = "the-haunting"
+    (campaign_dir / "campaign.json").write_text(
+        json.dumps(campaign, indent=2) + "\n", encoding="utf-8",
+    )
+    _write_json(
+        campaign_dir / "scenario" / "module-meta.json",
+        {"schema_version": 1, "scenario_id": "the-white-war"},
+    )
+    envelope = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-mismatch"},
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "scenario_identity_mismatch"
+
+
+def test_setup_complete_rejects_empty_stub_ir_as_not_ready(tmp_path: Path):
+    campaign_id = "stub-not-ready"
+    campaign_dir = _make_campaign(tmp_path, campaign_id)
+    _link_investigator(tmp_path, campaign_id, "inv-ok")
+    campaign = json.loads((campaign_dir / "campaign.json").read_text())
+    campaign["active_scenario_id"] = "the-haunting"
+    (campaign_dir / "campaign.json").write_text(
+        json.dumps(campaign, indent=2) + "\n", encoding="utf-8",
+    )
+    _write_json(
+        campaign_dir / "scenario" / "scenario.json",
+        {"schema_version": 1, "scenario_id": "the-haunting"},
+    )
+    for name in (
+        "module-meta.json",
+        "story-graph.json",
+        "clue-graph.json",
+        "npc-agendas.json",
+        "threat-fronts.json",
+        "pacing-map.json",
+        "improvisation-boundaries.json",
+    ):
+        _write_json(campaign_dir / "scenario" / name, {})
+    envelope = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-stub"},
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "scenario_not_ready"
+
+
 def test_setup_complete_builtin_confirmed_is_idempotent(tmp_path: Path):
     campaign_id = "builtin-ready"
     quick = coc_starter.quick_start(
@@ -288,8 +344,15 @@ def _bind_playable_builtin(campaign_dir: Path, scenario_id: str = "lib-mod") -> 
         + "\n",
         encoding="utf-8",
     )
+    (scenario_dir / "module-meta.json").write_text(
+        json.dumps(
+            {"schema_version": 1, "scenario_id": scenario_id},
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     for name in (
-        "module-meta.json",
         "story-graph.json",
         "clue-graph.json",
         "npc-agendas.json",
@@ -297,7 +360,10 @@ def _bind_playable_builtin(campaign_dir: Path, scenario_id: str = "lib-mod") -> 
         "pacing-map.json",
         "improvisation-boundaries.json",
     ):
-        (scenario_dir / name).write_text("{}" + "\n", encoding="utf-8")
+        (scenario_dir / name).write_text(
+            json.dumps({"schema_version": 1}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _handoff_ready(tmp_path: Path, campaign_id: str) -> Path:
