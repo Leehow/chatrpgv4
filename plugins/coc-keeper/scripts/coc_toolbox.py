@@ -104,6 +104,7 @@ coc_exceptional_effects = _load_sibling(
     "coc_exceptional_effects", "coc_exceptional_effects.py"
 )
 coc_turn_manifest = _load_sibling("coc_turn_manifest", "coc_turn_manifest.py")
+coc_git_history = _load_sibling("coc_git_history", "coc_git_history.py")
 coc_continuation = _load_sibling("coc_continuation", "coc_continuation.py")
 coc_host_context = _load_sibling("coc_host_context", "coc_host_context.py")
 coc_working_set_cache = _load_sibling(
@@ -15285,7 +15286,7 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
     and state writes must never silently persist into canonical state or the
     battle report.  Rolls are dispositioned in an append-only ledger (never
     rewritten or deleted); turn-scoped state restores from the latest
-    finalization commit snapshot.  Rolls owned by a live pending-turn manifest
+    finalized turn commit.  Rolls owned by a live pending-turn manifest
     are legitimate in-flight work, never quarantine targets.
     """
     pending_window_rolls: set[str] = set()
@@ -15347,10 +15348,12 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
     # cannot wipe them.
     restored: str | None = None
     if not has_pending_turn:
-        latest = coc_turn_manifest.latest_commit_snapshot(ctx.campaign_dir)
-        if latest is not None:
-            coc_turn_manifest.restore_save_from_snapshot(ctx.campaign_dir, latest[1])
-            restored = latest[0]
+        try:
+            restored = coc_git_history.restore_save_subset(
+                ctx.root, ctx.campaign_id
+            )
+        except coc_git_history.GitHistoryError as exc:
+            raise ToolError("history_restore_failed", str(exc)) from exc
 
     now = _now_iso()
     coc_turn_finalization.record_roll_dispositions(
@@ -30756,6 +30759,66 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     ]
 
 
+def _finalization_turn_number(ctx: Ctx, receipt: dict[str, Any]) -> int:
+    raw = receipt.get("turn_number")
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+        return raw
+    projection = receipt.get("contract_projection")
+    if isinstance(projection, dict):
+        raw = projection.get("turn_number")
+        if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+            return raw
+    pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
+    if isinstance(pending, dict):
+        raw = pending.get("turn_number")
+        if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+            return raw
+    turn_id = receipt.get("turn_id")
+    if isinstance(turn_id, str) and turn_id:
+        path = coc_turn_manifest.manifest_path(ctx.campaign_dir, turn_id)
+        if path.is_file():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = None
+            if isinstance(payload, dict):
+                raw = payload.get("turn_number")
+                if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+                    return raw
+    pacing = ctx.pacing()
+    raw = pacing.get("turn_number")
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+        return raw
+    raise ToolError("state_corrupt", "finalization receipt has no turn_number")
+
+
+def _commit_finalized_turn_history(ctx: Ctx, receipt: dict[str, Any]) -> str:
+    campaign_id = ctx.campaign_id
+    if not isinstance(campaign_id, str) or not campaign_id:
+        raise ToolError("missing_campaign", "turn history commit requires a campaign")
+    turn_number = _finalization_turn_number(ctx, receipt)
+    try:
+        coc_git_history.ensure_repo(ctx.root, campaign_id)
+        return coc_git_history.commit_finalized_turn(
+            ctx.root,
+            campaign_id,
+            turn_number=turn_number,
+            finalization_id=str(receipt.get("finalization_id") or ""),
+            journal_decision_id=str(receipt.get("journal_decision_id") or ""),
+            settlement_snapshot_id=str(receipt.get("settlement_snapshot_id") or ""),
+            rendered_text_sha256=str(receipt.get("rendered_text_sha256") or ""),
+            schema_generation=coc_git_history.format_schema_generation(
+                coc_state.CURRENT_SCHEMA_VERSIONS
+            ),
+        )
+    except coc_git_history.GitHistoryError as exc:
+        raise ToolError("history_commit_failed", str(exc)) from exc
+    except ValueError as exc:
+        if isinstance(exc, ToolError):
+            raise
+        raise ToolError("history_commit_failed", str(exc)) from exc
+
+
 @tool(
     "turn.finalize",
     "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
@@ -30941,6 +31004,7 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
                 f"decision_id '{decision_id}' already owns a different narration revision or draft",
             )
         _record_finalized_keeper_text(ctx, existing)
+        _commit_finalized_turn_history(ctx, existing)
         uptake_warnings, uptake_hints = record_uptake(existing)
         return deepcopy(existing), [
             "duplicate decision_id: returning the immutable final turn output",
@@ -31027,6 +31091,7 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
             source_receipt=finalizations[-1],
             replacement_receipt=receipt,
         )
+        _commit_finalized_turn_history(ctx, receipt)
         uptake_warnings, uptake_hints = record_uptake(receipt)
         return receipt, [*checkpoint_warnings, *uptake_warnings], [
             "undelivered narration repaired without rerunning rules, state, or the journal",
@@ -31050,10 +31115,7 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
         )
         coc_turn_finalization.append_finalization(ctx.campaign_dir, receipt)
         _record_finalized_keeper_text(ctx, receipt)
-        coc_turn_manifest.write_commit_snapshot(
-            ctx.campaign_dir,
-            str(receipt.get("finalization_id") or decision_id),
-        )
+        _commit_finalized_turn_history(ctx, receipt)
     except coc_turn_finalization.TurnContractError as exc:
         raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
     uptake_warnings, uptake_hints = record_uptake(receipt)

@@ -30,8 +30,20 @@ IGNORE_PATHS: tuple[str, ...] = (
     "save/session-state.json",
     "save/toolbox-ledger.json",
     "save/commit-snapshots/",
+    "save/development-settlements/",
+    "save/roll-operation-receipts.json",
     "memory/index.json",
 )
+
+# Independent of IGNORE_PATHS: the save/ subset the old copytree snapshot
+# captured, and therefore the only paths restore may rewrite.
+RESTORE_SAVE_EXCLUDES: frozenset[str] = frozenset({
+    "commit-snapshots",
+    "development-settlements",
+    "session-state.json",
+    "toolbox-ledger.json",
+    "roll-operation-receipts.json",
+})
 
 # Used only when recovering a corrupt object database with no caller-supplied
 # generation string. Keep in sync with coc_state.CURRENT_SCHEMA_VERSIONS.
@@ -614,3 +626,64 @@ def remove_repo(root: Path | str, campaign_id: str) -> None:
         if not repo.is_dir() or repo.is_symlink():
             raise ValueError("campaign repo path is unsafe")
         shutil.rmtree(repo)
+
+
+def _is_restorable_save_path(relpath: str) -> bool:
+    if not relpath.startswith("save/"):
+        return False
+    first = relpath[5:].split("/", 1)[0]
+    return bool(first) and first not in RESTORE_SAVE_EXCLUDES
+
+
+def restore_save_subset(root: Path | str, campaign_id: str) -> str | None:
+    """Checkout HEAD's turn-scoped save/ subset into the campaign worktree.
+
+    Restores exactly the paths the retired copytree snapshot captured.
+    Leaves session-state, toolbox-ledger, development-settlements,
+    roll-operation-receipts, and any leftover commit-snapshots directory
+    untouched. Does not import, read, or delete a leftover snapshot dir.
+
+    Returns the HEAD ``Finalization-Id`` when a turn commit was restored,
+    or ``None`` when there is no turn commit to restore from.
+    """
+    campaign_id = _require_campaign_id(campaign_id)
+    repo = repo_path_for(root, campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    if not _looks_like_git_repo(repo) or _head_sha(repo, worktree) is None:
+        return None
+    message = _run_git(
+        ["log", "-1", "--format=%B"],
+        repo=repo,
+        worktree=worktree,
+    ).stdout
+    trailers = parse_trailers(message)
+    if trailers.get("COC-Commit-Type") != "turn":
+        return None
+    listed = _run_git(
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        repo=repo,
+        worktree=worktree,
+    )
+    paths = [
+        name for name in listed.stdout.splitlines() if _is_restorable_save_path(name)
+    ]
+    save_dir = worktree / "save"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    for child in list(save_dir.iterdir()):
+        if child.name in RESTORE_SAVE_EXCLUDES:
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    if paths:
+        batch_size = 200
+        for start in range(0, len(paths), batch_size):
+            batch = paths[start : start + batch_size]
+            _run_git(
+                ["checkout", "HEAD", "--", *batch],
+                repo=repo,
+                worktree=worktree,
+            )
+    finalization_id = trailers.get("Finalization-Id")
+    return finalization_id or None

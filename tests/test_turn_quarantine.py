@@ -1,8 +1,8 @@
-"""Turn commit closure: commit snapshots and resume-time turn-tail quarantine.
+"""Turn commit closure: git turn commits and resume-time turn-tail quarantine.
 
 Pins W1: finalization is the turn commit point. Public rolls bound to no
 finalization (an abandoned turn tail after a crash) are marked voided — never
-deleted — and turn-scoped state restores from the latest commit snapshot at
+deleted — and turn-scoped state restores from HEAD's save/ subset at
 session.resume, so unfinalized branches cannot leak into canonical state or
 the battle report.
 """
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -36,6 +37,32 @@ coc_starter = _load("coc_starter_turn_quarantine", SCRIPTS / "coc_starter.py")
 coc_turn_finalization = _load(
     "coc_turn_finalization_quarantine", SCRIPTS / "coc_turn_finalization.py"
 )
+coc_git_history = _load("coc_git_history_turn_quarantine", SCRIPTS / "coc_git_history.py")
+coc_state = _load("coc_state_turn_quarantine", SCRIPTS / "coc_state.py")
+
+SCHEMA = coc_git_history.format_schema_generation(coc_state.CURRENT_SCHEMA_VERSIONS)
+
+
+@pytest.fixture(autouse=True)
+def isolated_git_home(tmp_path, monkeypatch):
+    home = tmp_path / "_empty_home"
+    home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+    for key in (
+        "XDG_CONFIG_HOME",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_AUTHOR_DATE",
+        "GIT_COMMITTER_DATE",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
 
 def _write_json(path: Path, payload) -> None:
@@ -105,7 +132,57 @@ def _run(ws, tool: str, args: dict | None = None) -> dict:
     return result
 
 
-def _finalize_current_turn(ws, decision_id: str) -> dict:
+def _repo(ws) -> Path:
+    return ws["coc_root"] / "repos" / "campaigns" / f"{ws['campaign_id']}.git"
+
+
+def _git(ws, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "git",
+            f"--git-dir={_repo(ws)}",
+            f"--work-tree={ws['campaign_dir']}",
+            *args,
+        ],
+        check=check,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _commit_count(ws) -> int:
+    repo = _repo(ws)
+    if not (repo / "HEAD").is_file():
+        return 0
+    probe = _git(ws, "rev-parse", "--verify", "-q", "HEAD", check=False)
+    if probe.returncode != 0:
+        return 0
+    return int(_git(ws, "rev-list", "--count", "HEAD").stdout.strip())
+
+
+def _head_sha(ws) -> str | None:
+    if _commit_count(ws) == 0:
+        return None
+    return _git(ws, "rev-parse", "HEAD").stdout.strip()
+
+
+def _trailers(ws) -> dict[str, str]:
+    message = _git(ws, "log", "-1", "--format=%B").stdout
+    return coc_git_history.parse_trailers(message)
+
+
+def _tree_names(ws) -> set[str]:
+    if _commit_count(ws) == 0:
+        return set()
+    return {
+        line
+        for line in _git(ws, "ls-tree", "-r", "--name-only", "HEAD").stdout.splitlines()
+        if line
+    }
+
+
+def _build_finalize_args(ws, decision_id: str) -> dict:
     journaled = _run(
         ws,
         "state.journal",
@@ -152,17 +229,17 @@ def _finalize_current_turn(ws, decision_id: str) -> dict:
                 "segment_type": segment_type,
                 "source_ids": [str(row[source_key]) for row in rows],
             })
-    finalized = _run(
-        ws,
-        "turn.finalize",
-        {
-            "draft": draft,
-            "coverage": coverage,
-            "mechanics_placements": mechanics_placements,
-            "revision": 1,
-            "decision_id": decision_id,
-        },
-    )
+    return {
+        "draft": draft,
+        "coverage": coverage,
+        "mechanics_placements": mechanics_placements,
+        "revision": 1,
+        "decision_id": decision_id,
+    }
+
+
+def _finalize_current_turn(ws, decision_id: str) -> dict:
+    finalized = _run(ws, "turn.finalize", _build_finalize_args(ws, decision_id))
     assert finalized["ok"] is True, finalized
     return finalized
 
@@ -198,7 +275,7 @@ def _san_check(ws, *, decision_id: str, seed: int, loss_failure: str, loss_succe
     return result
 
 
-def test_finalize_writes_commit_snapshot(campaign_ws):
+def test_finalize_writes_one_turn_commit_with_receipt_trailers(campaign_ws):
     rolled = _run(
         campaign_ws,
         "rules.roll",
@@ -211,22 +288,88 @@ def test_finalize_writes_commit_snapshot(campaign_ws):
         },
     )
     assert rolled["ok"] is True, rolled
+    before = _commit_count(campaign_ws)
+    leftover = (
+        campaign_ws["campaign_dir"] / "save" / "commit-snapshots" / "legacy"
+    )
+    leftover.mkdir(parents=True)
+    marker = leftover / "world-state.json"
+    marker.write_text('{"legacy": true}\n', encoding="utf-8")
+    leftover_bytes = marker.read_bytes()
     finalized = _finalize_current_turn(campaign_ws, "committed-turn-finalize")
-    finalization_id = finalized["data"]["finalization_id"]
-    snapshot_dir = (
+    receipt = finalized["data"]
+    assert _commit_count(campaign_ws) == before + 1
+    trailers = _trailers(campaign_ws)
+    assert trailers["COC-Commit-Type"] == "turn"
+    assert trailers["Campaign-Id"] == campaign_ws["campaign_id"]
+    assert trailers["Timeline-Id"] == "tl-main"
+    assert trailers["Finalization-Id"] == receipt["finalization_id"]
+    assert trailers["Journal-Decision-Id"] == receipt["journal_decision_id"]
+    assert trailers["Settlement-Snapshot-Id"] == receipt["settlement_snapshot_id"]
+    assert trailers["Rendered-Text-SHA256"] == receipt["rendered_text_sha256"]
+    assert trailers["Schema-Generation"] == SCHEMA
+    assert trailers["Turn-Number"].isdigit()
+    names = _tree_names(campaign_ws)
+    assert any(
+        name.endswith(f"{campaign_ws['investigator_id']}.json")
+        and name.startswith("save/investigator-state/")
+        for name in names
+    )
+    assert not any(name.startswith("save/commit-snapshots/") for name in names)
+    assert leftover.is_dir()
+    assert marker.read_bytes() == leftover_bytes
+    produced = (
         campaign_ws["campaign_dir"]
         / "save"
         / "commit-snapshots"
-        / coc_toolbox.coc_turn_manifest._commit_snapshot_safe_id(finalization_id)
+        / receipt["finalization_id"]
     )
-    assert snapshot_dir.is_dir()
-    assert (snapshot_dir / "investigator-state" / f"{campaign_ws['investigator_id']}.json").is_file()
-    assert not (snapshot_dir / "commit-snapshots").exists()
-    latest = coc_toolbox.coc_turn_manifest.latest_commit_snapshot(
+    assert not produced.exists()
+
+
+def test_finalize_replay_same_finalization_id_does_not_duplicate_commit(campaign_ws):
+    args = _build_finalize_args(campaign_ws, "replay-turn-finalize")
+    first = _run(campaign_ws, "turn.finalize", args)
+    assert first["ok"] is True, first
+    sha = _head_sha(campaign_ws)
+    count = _commit_count(campaign_ws)
+    replayed = _run(campaign_ws, "turn.finalize", args)
+    assert replayed["ok"] is True, replayed
+    assert replayed["data"]["finalization_id"] == first["data"]["finalization_id"]
+    assert _head_sha(campaign_ws) == sha
+    assert _commit_count(campaign_ws) == count
+
+
+def test_finalize_commit_failure_leaves_receipt_without_turn_commit(
+    campaign_ws, monkeypatch
+):
+    args = _build_finalize_args(campaign_ws, "failed-history-finalize")
+    before = _commit_count(campaign_ws)
+    receipts_path = campaign_ws["campaign_dir"] / "logs" / "turn-finalizations.jsonl"
+    before_receipts = (
+        receipts_path.read_text(encoding="utf-8") if receipts_path.is_file() else ""
+    )
+
+    def boom(*_args, **_kwargs):
+        raise coc_toolbox.coc_git_history.GitHistoryError("injected commit failure")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_git_history, "commit_finalized_turn", boom
+    )
+    failed = _run(campaign_ws, "turn.finalize", args)
+    assert failed["ok"] is False, failed
+    assert failed["error"]["code"] == "history_commit_failed"
+    after_receipts = receipts_path.read_text(encoding="utf-8")
+    assert after_receipts != before_receipts
+    last = json.loads(after_receipts.strip().splitlines()[-1])
+    assert last["decision_id"] == "failed-history-finalize"
+    assert _commit_count(campaign_ws) == before
+    assert not (
         campaign_ws["campaign_dir"]
-    )
-    assert latest is not None
-    assert latest[0] == finalization_id
+        / "save"
+        / "commit-snapshots"
+        / last["finalization_id"]
+    ).exists()
 
 
 def test_creation_receipts_bind_luck_and_characteristic_rolls():

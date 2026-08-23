@@ -263,6 +263,12 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
     )
     (worktree / "save" / "session-state.json").write_text('{"junk": 1}\n', encoding="utf-8")
     (worktree / "save" / "toolbox-ledger.json").write_text('{"junk": 2}\n', encoding="utf-8")
+    (worktree / "save" / "roll-operation-receipts.json").write_text(
+        '{"receipts": {}}\n', encoding="utf-8"
+    )
+    settlements = worktree / "save" / "development-settlements"
+    settlements.mkdir(parents=True)
+    (settlements / "keep.json").write_text('{"ending": true}\n', encoding="utf-8")
     pending = worktree / "logs" / "pending-turns"
     pending.mkdir(parents=True)
     (pending / "queued.json").write_text("{}\n", encoding="utf-8")
@@ -276,10 +282,28 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
     names = _tree_names(tmp_path)
     assert "save/session-state.json" not in names
     assert "save/toolbox-ledger.json" not in names
+    assert "save/roll-operation-receipts.json" not in names
     assert "memory/index.json" not in names
     assert not any(name.startswith("logs/pending-turns/") for name in names)
     assert not any(name.startswith("save/commit-snapshots/") for name in names)
+    assert not any(name.startswith("save/development-settlements/") for name in names)
     assert "save/world-state.json" in names
+    assert {
+        "save/development-settlements/",
+        "save/roll-operation-receipts.json",
+        "save/commit-snapshots/",
+        "save/session-state.json",
+        "save/toolbox-ledger.json",
+        "logs/pending-turns/",
+        "memory/index.json",
+    }.issubset(set(hist.IGNORE_PATHS))
+    assert hist.RESTORE_SAVE_EXCLUDES == frozenset({
+        "commit-snapshots",
+        "development-settlements",
+        "session-state.json",
+        "toolbox-ledger.json",
+        "roll-operation-receipts.json",
+    })
 
 
 def test_git_missing_raises_unavailable(tmp_path, monkeypatch):
@@ -345,6 +369,106 @@ def test_create_campaign_lands_repo_and_baseline(tmp_path):
     assert "campaign.json" in names
     assert "save/world-state.json" in names
     assert "save/session-state.json" not in names
+
+
+def test_restore_save_subset_matches_committed_bytes_and_preserves_excludes(tmp_path):
+    worktree = _seed_campaign_files(tmp_path)
+    (worktree / "save" / "flags.json").write_text('{"a": 1}\n', encoding="utf-8")
+    (worktree / "save" / "session-state.json").write_text(
+        '{"cursor": 1}\n', encoding="utf-8"
+    )
+    (worktree / "save" / "toolbox-ledger.json").write_text(
+        '{"decisions": []}\n', encoding="utf-8"
+    )
+    (worktree / "save" / "roll-operation-receipts.json").write_text(
+        '{"receipts": {}}\n', encoding="utf-8"
+    )
+    settlements = worktree / "save" / "development-settlements"
+    settlements.mkdir(parents=True)
+    (settlements / "keep.json").write_text('{"ending": true}\n', encoding="utf-8")
+    leftover = worktree / "save" / "commit-snapshots" / "legacy"
+    leftover.mkdir(parents=True)
+    marker = leftover / "world-state.json"
+    marker.write_text('{"legacy": true}\n', encoding="utf-8")
+    leftover_bytes = marker.read_bytes()
+
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    assert hist.restore_save_subset(tmp_path, CAMPAIGN_ID) is None
+
+    (worktree / "save" / "world-state.json").write_text(
+        '{"status": "active"}\n', encoding="utf-8"
+    )
+    (worktree / "save" / "flags.json").write_text('{"a": 2}\n', encoding="utf-8")
+    (worktree / "save" / "session-state.json").write_text(
+        '{"cursor": 2}\n', encoding="utf-8"
+    )
+    _commit_turn(tmp_path, 1, "fin-restore")
+    committed_world = _git(tmp_path, "show", "HEAD:save/world-state.json")
+    committed_flags = _git(tmp_path, "show", "HEAD:save/flags.json")
+
+    (worktree / "save" / "world-state.json").write_text(
+        '{"tampered": true}\n', encoding="utf-8"
+    )
+    (worktree / "save" / "flags.json").write_text('{"tampered": true}\n', encoding="utf-8")
+    orphan = worktree / "save" / "combat.json"
+    orphan.write_text('{"orphan": true}\n', encoding="utf-8")
+    (worktree / "save" / "session-state.json").write_text(
+        '{"cursor": 99}\n', encoding="utf-8"
+    )
+    (worktree / "save" / "toolbox-ledger.json").write_text(
+        '{"decisions": ["new"]}\n', encoding="utf-8"
+    )
+    (worktree / "save" / "roll-operation-receipts.json").write_text(
+        '{"receipts": {"new": true}}\n', encoding="utf-8"
+    )
+    (settlements / "keep.json").write_text('{"ending": "mutated"}\n', encoding="utf-8")
+
+    restored = hist.restore_save_subset(tmp_path, CAMPAIGN_ID)
+    assert restored == "fin-restore"
+    assert (worktree / "save" / "world-state.json").read_text(encoding="utf-8") == committed_world
+    assert (worktree / "save" / "flags.json").read_text(encoding="utf-8") == committed_flags
+    assert not orphan.exists()
+    assert (worktree / "save" / "session-state.json").read_text(
+        encoding="utf-8"
+    ) == '{"cursor": 99}\n'
+    assert (worktree / "save" / "toolbox-ledger.json").read_text(
+        encoding="utf-8"
+    ) == '{"decisions": ["new"]}\n'
+    assert (worktree / "save" / "roll-operation-receipts.json").read_text(
+        encoding="utf-8"
+    ) == '{"receipts": {"new": true}}\n'
+    assert (settlements / "keep.json").read_text(encoding="utf-8") == '{"ending": "mutated"}\n'
+    assert marker.is_file()
+    assert marker.read_bytes() == leftover_bytes
+    names = _tree_names(tmp_path)
+    assert not any(name.startswith("save/commit-snapshots/") for name in names)
+
+
+def test_legacy_commit_snapshots_are_ignored_not_imported(tmp_path):
+    worktree = _seed_campaign_files(tmp_path)
+    leftover = worktree / "save" / "commit-snapshots" / "fin-old"
+    leftover.mkdir(parents=True)
+    marker = leftover / "world-state.json"
+    marker.write_text('{"do-not-import": true}\n', encoding="utf-8")
+    before = marker.read_bytes()
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    (worktree / "save" / "world-state.json").write_text(
+        '{"status": "active"}\n', encoding="utf-8"
+    )
+    _commit_turn(tmp_path, 1, "fin-new")
+    assert marker.read_bytes() == before
+    assert leftover.is_dir()
+    names = _tree_names(tmp_path)
+    assert not any(name.startswith("save/commit-snapshots/") for name in names)
+    hist.restore_save_subset(tmp_path, CAMPAIGN_ID)
+    assert marker.read_bytes() == before
+    assert leftover.is_dir()
 
 
 def test_rejects_unsafe_campaign_id(tmp_path):

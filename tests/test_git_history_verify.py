@@ -297,6 +297,7 @@ def test_baseline_only_exit_2(tmp_path):
 
 def test_repo_missing_exit_nonzero_with_clear_message(tmp_path):
     coc_state.create_campaign(tmp_path, CAMPAIGN_ID, "No Repo")
+    hist.remove_repo(tmp_path, CAMPAIGN_ID)
 
     code, stdout, stderr = _run_verify(tmp_path)
     assert code != 0
