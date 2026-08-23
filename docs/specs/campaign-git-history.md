@@ -38,10 +38,11 @@ subprocess 调 git 二进制；任何 Agent / 其它脚本不得直接写战役�
 
 `turn.finalize` 在全部 canonical 写入完成之后、交付之前**同步**调用
 Coordinator 提交。Those writes include the wrapper's pending-turn cleanup,
-source-cursor/manifest completion, and continuation checkpoint; the Git
-commit is the last step of the `turn.finalize` wrapper, not an inner step of
-the receipt builder. commit 失败 = finalize 失败（与旧 copytree 失败语义对等，
-fail-closed）。git 历史**替代** `commit-snapshots` 目录复制，成为崩溃恢复与
+source-cursor/manifest completion, and continuation checkpoint; those writes
+and the Git commit share one exclusive campaign lock. The Git commit is the
+last step of the `turn.finalize` wrapper, not an inner step of the receipt
+builder. A new turn commit is refused while `save/pending-turn.json` exists.
+commit 失败 = finalize 失败（与旧 copytree 失败语义对等，fail-closed）。git 历史**替代** `commit-snapshots` 目录复制，成为崩溃恢复与
 取证的唯一读取路径（single reader，无双读）。
 
 在途战役遗留的 `save/commit-snapshots/`：不导入、不读取、不删除。
@@ -147,7 +148,9 @@ dirty_paths / missing_paths / drifted_paths), `history_reset`, `findings`
 for the latest valid receipt, 1:1 receipt/commit pairing, and a clean tracked
 tree matching the campaign worktree. `FAIL` is a contradiction or corruption
 (wrong HEAD, unpaired receipts, hash drift, dirty authoritative paths,
-`repo_not_git`, `fsck_failed`). `NOT_PROVEN` is missing evidence: no sidecar,
+committed `save/pending-turn.json`, `repo_not_git`, `fsck_failed`). A
+worktree-only pending turn is not this finding; it follows the ordinary dirty
+authoritative-path contract. `NOT_PROVEN` is missing evidence: no sidecar,
 unsafe/missing campaign path, git unavailable, baseline-only, or a later
 `COC-History-Reset` trailer. A reset-explained later non-turn commit is
 permitted as the reset explanation and still `NOT_PROVEN`; it never upgrades

@@ -406,8 +406,10 @@ repo. Formal decisions live in `docs/specs/campaign-git-history.md` and
 
 `turn.finalize` commits after every canonical write and before delivery,
 including pending-turn cleanup, source-cursor/manifest completion, and the
-continuation checkpoint. The Git commit is the last step of the
-`turn.finalize` wrapper. A failed commit fails finalize. Campaign creation lands one
+continuation checkpoint. Those writes and the Git commit share one exclusive
+campaign lock. A new turn commit is refused while `save/pending-turn.json`
+exists. The Git commit is the last step of the `turn.finalize` wrapper. A
+failed commit fails finalize. Campaign creation lands one
 `COC-Commit-Type: baseline` commit and does not backfill older turns. Each
 finalized turn is `COC-Commit-Type: turn`. In-flight leftover
 `save/commit-snapshots/` directories are neither imported, read, nor deleted.
@@ -421,8 +423,9 @@ commit type, finalization trailer), the latest valid receipt, the tracked
 tree, and the campaign worktree. A later `COC-History-Reset` trailer makes
 the proof `NOT_PROVEN` even when that later non-turn commit is the permitted
 reset explanation. Missing sidecar, baseline-only, or unavailable git is
-also `NOT_PROVEN`. Hash drift, dirty authoritative paths, unpaired receipts,
-or a wrong HEAD are `FAIL`.
+also `NOT_PROVEN`. Hash drift, dirty authoritative paths, a committed
+`save/pending-turn.json`, unpaired receipts, or a wrong HEAD are `FAIL`.
+A worktree-only pending turn is not that committed-pending finding.
 
 The ignore face is the Coordinator constant `IGNORE_PATHS`, written only to
 the bare repo `info/exclude` (never a campaign-tree `.gitignore`):

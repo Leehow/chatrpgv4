@@ -58,6 +58,7 @@ CODE_WRONG_HEAD = "wrong_head"
 CODE_DIRTY_AUTHORITATIVE_STATE = "dirty_authoritative_state"
 CODE_HASH_DRIFT = "hash_drift"
 CODE_MISSING_CANONICAL_PATH = "missing_canonical_path"
+CODE_COMMITTED_PENDING_TURN = "committed_pending_turn"
 CODE_HISTORY_RESET = "history_reset"
 CODE_LATER_NON_TURN = "later_non_turn"
 
@@ -725,6 +726,14 @@ def _inspect_tree(
     drifted: list[str] = []
     dirty: list[str] = []
     drifted_set: set[str] = set()
+    if hist.PENDING_TURN_RELPATH in blobs:
+        findings.append(
+            Finding(
+                kind=CODE_COMMITTED_PENDING_TURN,
+                detail="HEAD contains a pending turn; a finalized turn commit must not",
+                path=hist.PENDING_TURN_RELPATH,
+            )
+        )
     for relpath in _required_state_paths(require_receipts_log=require_receipts_log):
         if relpath not in blobs:
             missing.append(relpath)
