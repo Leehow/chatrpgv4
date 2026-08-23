@@ -292,6 +292,43 @@ def test_same_valid_and_invalid_receipt_match_exporter_authority() -> None:
     assert coc_state_effect_authority.state_delta_proof_reason(effect, [invalid]) == "mismatch"
 
 
+def test_combat_receipt_projects_and_proves_hp_and_luck() -> None:
+    """Same join collect_finalize_violations uses: projected bundle vs window."""
+    window = [_call(
+        "combat.resolve",
+        "combat-luck",
+        extra_data={
+            "player_state_receipt": {
+                "schema_version": 1,
+                "investigator_id": "hero",
+                "hp": {"before": 10, "after": 9},
+                "luck": {"before": 40, "after": 30},
+                "conditions_before": [],
+                "conditions_after": [],
+                "loaded_ammunition": [],
+            },
+        },
+    )]
+    projected = coc_turn_finalization._project_state_deltas(window)
+    resources = [row.get("resource") for row in projected if row.get("effect_kind") == "scalar"]
+    assert resources == ["HP", "Luck"]
+    assert coc_turn_finalization._state_delta_proof_violations(window, projected) == []
+    blank = {
+        "schema_version": 1,
+        "category": "state_delta",
+        "effect_id": "effect:combat-luck:blank",
+        "effect_kind": "",
+        "investigator_id": "hero",
+        "before": 10,
+        "after": 9,
+        "source_decision_id": "combat-luck",
+    }
+    assert _reasons(
+        [_call("state.journal", "combat-luck", extra_data=window[0]["data"])],
+        [blank],
+    ) == ["mismatch"]
+
+
 def test_multi_effect_window_proves_each_effect_once() -> None:
     window = [
         _call("state.item_grant", "grant-keys", extra_data=_item_data()),

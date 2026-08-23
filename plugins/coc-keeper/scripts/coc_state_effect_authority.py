@@ -38,7 +38,7 @@ PLAYER_STATE_WRITER_DOMAINS = {
     "rules.sanity_check": frozenset({"san"}),
     "rules.luck_spend": frozenset({"luck"}),
     "rules.resource_delta": frozenset({"hp", "san", "luck", "mp"}),
-    "combat.resolve": frozenset({"hp", "condition", "loaded_ammunition"}),
+    "combat.resolve": frozenset({"hp", "luck", "condition", "loaded_ammunition"}),
     "sanity.execute": frozenset({"san", "hp", "condition"}),
     "state.clear_transient_condition": frozenset({"condition"}),
 }
@@ -249,7 +249,7 @@ def _operation_may_write(
     allowed = STATE_KIND_OPERATION_NAMES.get(kind)
     if allowed is not None:
         return tool in allowed
-    return tool.startswith("state.")
+    return False
 
 
 def _subject_matches(call: dict[str, Any], effect: dict[str, Any], kind: str) -> bool:
@@ -322,7 +322,7 @@ def _structured_delta_matches(
             and recorded.get("effect_id") == effect_id
             and action in {"apply", "consume", "resolve"}
         )
-    return True
+    return False
 
 
 def _scalar_matches(tool: str, data: dict[str, Any], effect: dict[str, Any]) -> bool:
