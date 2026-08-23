@@ -233,7 +233,7 @@ test("extension emits one safe fault, latches changed args, retries failed deliv
       "review-2", "narration.review", changed,
     )).content[0].text);
     assert.equal(latched.error.code, "turn_processing_fault_latched");
-    assert.equal(compilerCalls, 1);
+    assert.equal(compilerCalls, 2);
     assert.equal(
       clientCalls.some((call) => call.operation === "narration.review"),
       false,
