@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -328,3 +329,296 @@ def test_main_requires_campaign(tmp_path):
     )
     assert completed.returncode != 0
     assert "campaign" in (completed.stderr + completed.stdout).lower()
+
+
+PROOF_TOP_KEYS = {
+    "status",
+    "campaign_id",
+    "history_enabled",
+    "history_valid",
+    "repo_present",
+    "repo_healthy",
+    "git_available",
+    "fsck_ok",
+    "repo_path",
+    "worktree_path",
+    "head",
+    "latest_receipt",
+    "expected_head_sha",
+    "head_matches_latest_receipt",
+    "later_non_turn_commit",
+    "counts",
+    "tree",
+    "history_reset",
+    "findings",
+}
+
+
+def _codes(proof) -> list[str]:
+    return [item.code for item in proof.findings]
+
+
+def _healthy_two_turns(root: Path) -> tuple[str, str]:
+    _prepare_campaign(root)
+    _write_receipts(root, ["fin-0001", "fin-0002"])
+    sha1 = _commit_turn(root, 1, "fin-0001")
+    sha2 = _commit_turn(root, 2, "fin-0002")
+    return sha1, sha2
+
+
+def test_state_proof_pass_binds_head_receipt_and_tree(tmp_path):
+    sha1, sha2 = _healthy_two_turns(tmp_path)
+    leftover = _worktree(tmp_path) / "save" / "commit-snapshots" / "fin-0002"
+    leftover.mkdir(parents=True)
+    (leftover / "world-state.json").write_text("{}\n", encoding="utf-8")
+
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    payload = proof.to_dict()
+    assert set(payload) == PROOF_TOP_KEYS
+    assert payload["status"] == "PASS"
+    assert payload["history_enabled"] is True
+    assert payload["history_valid"] is True
+    assert payload["fsck_ok"] is True
+    assert payload["head"]["sha"] == sha2
+    assert payload["head"]["commit_type"] == "turn"
+    assert payload["head"]["finalization_id"] == "fin-0002"
+    assert payload["head"]["trailers"]["Finalization-Id"] == "fin-0002"
+    assert payload["latest_receipt"] == {
+        "finalization_id": "fin-0002",
+        "commit_sha": sha2,
+        "paired": True,
+    }
+    assert payload["expected_head_sha"] == sha2
+    assert payload["head_matches_latest_receipt"] is True
+    assert payload["later_non_turn_commit"] is None
+    assert payload["counts"] == {
+        "turn_commits": 2,
+        "receipts": 2,
+        "paired_receipts": 2,
+    }
+    assert payload["tree"]["clean"] is True
+    assert payload["tree"]["canonical_paths_present"] is True
+    assert payload["tree"]["dirty_paths"] == []
+    assert payload["tree"]["missing_paths"] == []
+    assert payload["tree"]["drifted_paths"] == []
+    assert payload["history_reset"] is False
+    assert payload["findings"] == []
+    assert sha1 != sha2
+    assert "commit-snapshot" not in json.dumps(payload)
+    assert not any(
+        path.startswith("save/commit-snapshots/")
+        for path in payload["tree"]["dirty_paths"]
+    )
+
+
+def test_state_proof_json_cli_emits_machine_payload(tmp_path):
+    _healthy_two_turns(tmp_path)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(VERIFY_SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--campaign",
+            CAMPAIGN_ID,
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "PASS"
+    assert set(payload) == PROOF_TOP_KEYS
+    assert completed.stderr == ""
+
+
+def test_state_proof_missing_repo_is_not_proven(tmp_path):
+    coc_state.create_campaign(tmp_path, CAMPAIGN_ID, "No Repo")
+    hist.remove_repo(tmp_path, CAMPAIGN_ID)
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "NOT_PROVEN"
+    assert proof.history_enabled is False
+    assert proof.repo_present is False
+    assert verify.CODE_MISSING_SIDECAR_REPO in _codes(proof)
+
+
+def test_state_proof_baseline_only_is_not_proven(tmp_path):
+    _prepare_campaign(tmp_path)
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "NOT_PROVEN"
+    assert proof.turn_commit_count == 0
+    assert proof.receipt_count == 0
+    assert verify.CODE_BASELINE_ONLY in _codes(proof)
+    assert proof.head_matches_latest_receipt is None
+
+
+def test_state_proof_missing_receipt_fails(tmp_path):
+    _prepare_campaign(tmp_path)
+    _commit_turn(tmp_path, 1, "fin-0001")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_MISSING_RECEIPT in _codes(proof)
+    assert "orphan_commit" in _codes(proof)
+
+
+def test_state_proof_expected_receipt_missing_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    proof = verify.state_integrity_proof(
+        tmp_path,
+        CAMPAIGN_ID,
+        expected_finalization_id="fin-missing",
+    )
+    assert proof.status == "FAIL"
+    assert verify.CODE_MISSING_RECEIPT in _codes(proof)
+    assert proof.latest_receipt.finalization_id == "fin-missing"
+    assert proof.latest_receipt.paired is False
+
+
+def test_state_proof_wrong_head_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    parent = _git(tmp_path, "rev-parse", "HEAD^").stdout.strip()
+    _git(tmp_path, "update-ref", "HEAD", parent)
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_WRONG_HEAD in _codes(proof)
+    assert "missing_commit" in _codes(proof)
+    assert proof.head_matches_latest_receipt is False
+    assert proof.head.finalization_id == "fin-0001"
+    assert proof.latest_receipt.finalization_id == "fin-0002"
+
+
+def test_state_proof_duplicate_receipt_fails(tmp_path):
+    _prepare_campaign(tmp_path)
+    _write_receipts(tmp_path, ["fin-0001", "fin-0001"])
+    _commit_turn(tmp_path, 1, "fin-0001")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert "duplicate_receipt" in _codes(proof)
+
+
+def test_state_proof_hash_drift_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    world = _worktree(tmp_path) / "save" / "world-state.json"
+    world.write_text('{"drifted": true}\n', encoding="utf-8")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_HASH_DRIFT in _codes(proof)
+    assert "save/world-state.json" in proof.tree.drifted_paths
+    assert proof.tree.clean is False
+    finding = next(item for item in proof.findings if item.code == verify.CODE_HASH_DRIFT)
+    assert finding.path == "save/world-state.json"
+    assert "head_blob=" in finding.detail
+    assert "worktree_blob=" in finding.detail
+
+
+def test_state_proof_dirty_untracked_canonical_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    extra = _worktree(tmp_path) / "save" / "extra-state.json"
+    extra.write_text('{"extra": true}\n', encoding="utf-8")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_DIRTY_AUTHORITATIVE_STATE in _codes(proof)
+    assert "save/extra-state.json" in proof.tree.dirty_paths
+
+
+def test_state_proof_missing_canonical_path_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    _git(tmp_path, "rm", "--cached", "campaign.json")
+    _git(tmp_path, "commit", "--allow-empty", "-m", "drop campaign.json")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_MISSING_CANONICAL_PATH in _codes(proof)
+    assert "campaign.json" in proof.tree.missing_paths
+    assert verify.CODE_WRONG_HEAD in _codes(proof)
+
+
+def test_state_proof_history_reset_later_non_turn_is_not_proven(tmp_path):
+    _healthy_two_turns(tmp_path)
+    message = "\n".join(
+        [
+            "coc baseline: history reset after corrupt object database",
+            "",
+            "COC-Commit-Type: baseline",
+            f"Campaign-Id: {CAMPAIGN_ID}",
+            "Timeline-Id: tl-main",
+            f"Schema-Generation: {SCHEMA}",
+            "COC-History-Reset: object database unreadable",
+            "",
+        ]
+    )
+    _git(tmp_path, "commit", "--allow-empty", "-m", message)
+    head = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "NOT_PROVEN"
+    assert proof.history_reset is True
+    assert verify.CODE_HISTORY_RESET in _codes(proof)
+    assert verify.CODE_LATER_NON_TURN in _codes(proof)
+    assert proof.later_non_turn_commit is not None
+    assert proof.later_non_turn_commit.sha == head
+    assert proof.later_non_turn_commit.reason_code == verify.CODE_HISTORY_RESET
+    assert proof.later_non_turn_commit.permitted is True
+    assert proof.head_matches_latest_receipt is False
+
+
+def test_state_proof_unpermitted_later_non_turn_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    message = "\n".join(
+        [
+            "coc baseline: unexpected extra baseline",
+            "",
+            "COC-Commit-Type: baseline",
+            f"Campaign-Id: {CAMPAIGN_ID}",
+            "Timeline-Id: tl-main",
+            f"Schema-Generation: {SCHEMA}",
+            "",
+        ]
+    )
+    _git(tmp_path, "commit", "--allow-empty", "-m", message)
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_WRONG_HEAD in _codes(proof)
+    assert verify.CODE_LATER_NON_TURN in _codes(proof)
+    assert proof.later_non_turn_commit is not None
+    assert proof.later_non_turn_commit.permitted is False
+    assert proof.later_non_turn_commit.reason_code == "unpermitted_non_turn"
+
+
+def test_state_proof_fsck_failure_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    objects = _repo(tmp_path) / "objects"
+    corrupted = False
+    for entry in objects.iterdir():
+        if entry.name in {"info", "pack"} or not entry.is_dir():
+            continue
+        for obj in entry.iterdir():
+            if obj.is_file():
+                obj.chmod(0o644)
+                obj.write_bytes(obj.read_bytes() + b"\x00junk")
+                corrupted = True
+                break
+        if corrupted:
+            break
+    assert corrupted
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert "fsck_failed" in _codes(proof)
+    assert proof.fsck_ok is False
+    assert proof.history_valid is False
+
+
+def test_state_proof_repo_not_git_fails(tmp_path):
+    coc_state.create_campaign(tmp_path, CAMPAIGN_ID, "Broken Repo")
+    repo = _repo(tmp_path)
+    for child in list(repo.iterdir()):
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    (repo / "not-git.txt").write_text("nope\n", encoding="utf-8")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_REPO_NOT_GIT in _codes(proof)
+    assert proof.history_enabled is False

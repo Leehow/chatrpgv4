@@ -471,6 +471,22 @@ def test_legacy_commit_snapshots_are_ignored_not_imported(tmp_path):
     assert leftover.is_dir()
 
 
+def test_authoritative_state_path_helpers():
+    assert hist.path_is_ignored("save/commit-snapshots/fin-x/world-state.json")
+    assert hist.path_is_ignored("save/session-state.json")
+    assert not hist.path_is_ignored("save/world-state.json")
+    assert hist.is_authoritative_state_path("campaign.json")
+    assert hist.is_authoritative_state_path("save/world-state.json")
+    assert hist.is_authoritative_state_path("save/flags.json")
+    assert not hist.is_authoritative_state_path("save/commit-snapshots/fin-x/world-state.json")
+    assert not hist.is_authoritative_state_path("memory/index.json")
+    assert hist.AUTHORITATIVE_STATE_PATHS == (
+        "campaign.json",
+        "save/world-state.json",
+        "logs/turn-finalizations.jsonl",
+    )
+
+
 def test_rejects_unsafe_campaign_id(tmp_path):
     with pytest.raises(ValueError, match="stable safe id"):
         hist.ensure_repo(tmp_path, "../escape")
