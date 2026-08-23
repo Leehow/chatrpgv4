@@ -5825,7 +5825,8 @@ export class OpeningTerminalContinuationGate {
       details?: unknown;
     };
     if (value.role === "user") {
-      this.markExternalUserInput(userMessageText(message));
+      const playerText = userMessageText(message);
+      if (playerText !== null) this.markExternalUserInput(playerText);
       return;
     }
     if (

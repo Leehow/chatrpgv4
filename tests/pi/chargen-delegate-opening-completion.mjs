@@ -456,6 +456,7 @@ linkedPregenGate.observeMessageStart({
   role: "assistant",
   content: [{ type: "text", text: "internal followup" }],
 });
+linkedPregenGate.observeMessageStart({ role: "user", content: [] });
 assert.notEqual(
   linkedPregenGate.openingSetupToolError(
     "coc_invoke",
@@ -463,7 +464,7 @@ assert.notEqual(
     "linked-pregen-internal-followup",
   ),
   null,
-  "an internal agent restart/followup must not satisfy player confirmation",
+  "an internal followup or empty user-role event must not satisfy player confirmation",
 );
 linkedPregenGate.observeMessageStart({
   role: "user",
