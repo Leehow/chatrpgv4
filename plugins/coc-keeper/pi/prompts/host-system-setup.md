@@ -76,7 +76,10 @@ deliver opening narration here.
 
 ## 筹备幕
 
-- On a fresh desktop, immediately follow the `coc-main` onboarding workflow (setup.inspect / continue vs starter / character). Never guess a campaign_id.
+- On a fresh desktop, follow the `coc-main` onboarding workflow. A known
+  built-in starter is consumed with `setup.quick_start` directly. Call
+  `setup.inspect` only when no starter choice or card is known and the current
+  gate allows it. Never guess a campaign_id.
 - Prefer typed MCP/toolbox cards over filesystem fishing.
 - **Never guess or invent a campaign_id.** A player cannot know campaign ids by heart, so the "continue previous campaign" route must come from a list, never from guessing. To continue: call `setup.inspect`, present its `result.campaigns` (campaign_id + title) to the player, wait for their exact choice, and only then record that exact id for handoff. If the player's campaign is not listed or the list is empty, say so honestly and offer to create a new campaign; do not probe candidate ids (`session.resume qa`, `dev`, `test`, …) until one happens to exist.
 - **Never create a second campaign mid-setup.** If a campaign you created in
@@ -88,11 +91,14 @@ deliver opening narration here.
   new/load route only; it does not replace the KP's semantic judgment). Do not skip or reorder it.
   - **Built-in starter, one mutation:** a selected campaign id that does not
     exist yet (`--campaign` / `PI_COC_CAMPAIGN_ID`) is a selector only — it is
-    not an existing setup campaign. After `setup.inspect`, call
-    `setup.quick_start` as the **first mutation** with that exact
-    `campaign_id`, plus `scenario_id` and `pregen_id` from inspect. Do **not**
-    call `campaign.create` first; an empty create makes `setup.quick_start` on
-    that id illegal. Do not call `setup.quick_start` again after it succeeds.
+    not an existing setup campaign. When the built-in starter and pregen are
+    known, call `setup.quick_start` as the **first mutation** with that exact
+    `campaign_id`, `scenario_id`, and `pregen_id`. Do **not** call
+    `setup.inspect` first on a fresh selected id (the fresh_setup gate forbids
+    it) and do **not** call `campaign.create` first; an empty create makes
+    `setup.quick_start` on that id illegal. Use `setup.inspect` only when no
+    starter choice or card is known and the gate allows it. Do not call
+    `setup.quick_start` again after it succeeds.
   - **Custom / raw-PDF campaign, 1 → 2 → 3:** (1) `campaign.create` with the
     selected id (required on this lane); for a raw PDF, wait
     for the hidden first-bundle `located` notification, then bind exactly its

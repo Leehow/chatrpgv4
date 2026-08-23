@@ -175,15 +175,30 @@ def _readiness_blocking_reason(readiness: dict[str, Any] | None) -> dict[str, An
     }
 
 
-_CANONICAL_IR_FILES = (
-    "module-meta.json",
-    "story-graph.json",
-    "clue-graph.json",
-    "npc-agendas.json",
-    "threat-fronts.json",
-    "pacing-map.json",
-    "improvisation-boundaries.json",
-)
+_CURRENT_STARTER_IR_SCHEMA_VERSION = 1
+
+
+def _coc_compiled_archive():
+    return _load_sibling(
+        ("coc_compiled_archive", "coc_compiled_archive_starter"),
+        "coc_compiled_archive_opening_phase",
+        "coc_compiled_archive.py",
+    )
+
+
+def _starter_ir_filenames() -> tuple[str, ...]:
+    """Canonical built-in IR filenames; prefer the already-imported starter set."""
+    for name in (
+        "coc_starter",
+        "coc_starter_opening_phase",
+        "coc_starter_setup_complete",
+        "coc_starter_setup_play_handoff",
+    ):
+        existing = sys.modules.get(name)
+        files = getattr(existing, "STARTER_SCENARIO_FILES", None) if existing else None
+        if isinstance(files, tuple) and files:
+            return files
+    return _coc_compiled_archive().CANONICAL_IR_FILES
 
 
 def _active_scenario_id(campaign: dict[str, Any] | None) -> str:
@@ -215,9 +230,41 @@ def _scenario_metadata_id(
     return raw.strip() if isinstance(raw, str) else ""
 
 
-def _builtin_ir_ready(campaign_dir: Path) -> bool:
+def _builtin_ir_ready(campaign_dir: Path, expected_scenario_id: str) -> bool:
+    """True only for current-schema starter IR with matching scenario identity.
+
+    Reuses ``STARTER_SCENARIO_FILES`` / ``CANONICAL_IR_FILES``. Does not call
+    ``validate_scenario``: that helper is the story-graph compiler and walks
+    module structure/prose. Shipped starter IR besides ``module-meta.json`` has
+    no top-level ``schema_version``, so readiness is: regular file, non-empty
+    JSON object, and ``module-meta`` current schema plus matching
+    ``scenario_id``. Empty ``{}`` stubs therefore fail closed.
+    """
     scenario_dir = Path(campaign_dir) / "scenario"
-    return all((scenario_dir / name).is_file() for name in _CANONICAL_IR_FILES)
+    expected = str(expected_scenario_id or "").strip()
+    if not expected:
+        return False
+    meta_id = ""
+    for name in _starter_ir_filenames():
+        path = scenario_dir / name
+        try:
+            mode = path.lstat().st_mode
+        except OSError:
+            return False
+        if not stat.S_ISREG(mode):
+            return False
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict) or not payload:
+            return False
+        if name == "module-meta.json":
+            if payload.get("schema_version") != _CURRENT_STARTER_IR_SCHEMA_VERSION:
+                return False
+            raw = payload.get("scenario_id")
+            meta_id = raw.strip() if isinstance(raw, str) else ""
+    return meta_id == expected
 
 
 def _bound_scenario_blocker(
@@ -268,7 +315,7 @@ def _bound_scenario_blocker(
                 "scenario_id": meta_id,
             },
         }
-    if not source_bound and not _builtin_ir_ready(campaign_dir):
+    if not source_bound and not _builtin_ir_ready(campaign_dir, active):
         return {
             "code": "scenario_not_ready",
             "message": (
