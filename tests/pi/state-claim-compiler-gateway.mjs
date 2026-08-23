@@ -365,6 +365,9 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, "state_claim_compiler_unavailable");
     assert.equal(envelope.error.retryable, false);
+    assert.equal(envelope.error.details.failure_class, "timeout");
+    assert.equal(envelope.error.details.pending_turn_preserved, true);
+    assert.equal(envelope.error.details.retryable, false);
     const changedReview = {
       ...baseReview,
       draft_text: "诺特把钥匙交给你；这把钥匙现在归你保管。",
@@ -410,6 +413,42 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
     );
     assert.equal(JSON.parse(rearmed.content[0].text).error.retryable, false);
     assert.equal(compilerCalls, 2);
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("resume session_start clear requires output_context before compile", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    const compiler = new PiStateClaimCompiler(async (input) => ({
+      result: resultFor(input),
+      responseModel: { provider: "p", id: "m", api: "a" },
+    }));
+    const h = harness(compiler);
+    await initialize(h);
+    const missing = JSON.parse(
+      (await invoke(h, "review-before-reregister", "narration.review", baseReview))
+        .content[0].text,
+    );
+    assert.equal(missing.ok, false);
+    assert.equal(missing.error.code, "state_claim_compiler_context_missing");
+    assert.equal(
+      h.clientCalls.some((call) => call.params.operation === "narration.review"),
+      false,
+    );
+    await invoke(h, "context-reregister", "turn.output_context", {});
+    const compiled = JSON.parse(
+      (await invoke(h, "review-after-reregister", "narration.review", baseReview))
+        .content[0].text,
+    );
+    assert.equal(compiled.ok, true);
+    assert.equal(
+      h.clientCalls.filter((call) => call.params.operation === "narration.review").length,
+      1,
+    );
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;
