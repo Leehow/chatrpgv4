@@ -10809,6 +10809,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // player turn's settlement boundary. Run them after this lifecycle hook
     // returns so a stalled retry cannot keep RPC/UI input locked forever.
     queueMicrotask(() => {
+      const fault = openingContinuationGate.takeTurnProcessingFaultForDelivery();
+      if (fault !== null) deliverTurnProcessingFault(fault);
       void (async () => {
         const ownedContinuedDispatches = supplyCoordinator.terminalDedupe();
         for (

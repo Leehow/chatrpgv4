@@ -272,3 +272,141 @@ test("extension emits one safe fault, latches changed args, retries failed deliv
     else process.env.COC_PI_SESSION_ROLE = previousRole;
   }
 });
+
+test("extension retries a retained fault at agent_end when no prose message settles", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    const compiler = new PiStateClaimCompiler(async () => {
+      throw new PiStateClaimCompilerFailure(
+        "state_claim_response_invalid",
+        "protocol_invalid",
+        { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+        4,
+      );
+    });
+    const tools = new Map();
+    const handlers = new Map();
+    const sent = [];
+    const sendAttempts = [];
+    let failFirstFaultDelivery = true;
+    const pi = {
+      registerTool(tool) { tools.set(tool.name, tool); },
+      registerCommand() {},
+      registerShortcut() {},
+      on(type, handler) {
+        const list = handlers.get(type) ?? [];
+        list.push(handler);
+        handlers.set(type, list);
+      },
+      appendEntry() {},
+      sendMessage(message, options) {
+        sendAttempts.push({ message, options });
+        if (
+          message.customType === extension.TURN_PROCESSING_FAULT_CUSTOM_TYPE
+          && failFirstFaultDelivery
+        ) {
+          failFirstFaultDelivery = false;
+          throw new Error("transient fault delivery failure");
+        }
+        sent.push({ message, options });
+      },
+      setActiveTools() {},
+      getThinkingLevel: () => "off",
+    };
+    const callTool = async (_name, params) => {
+      if (params.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            campaign_id: campaign,
+            mode: "awaiting_player",
+            evidence: { table_opening_id: "table-opening:fault" },
+            next_operations: [],
+          },
+        };
+      }
+      if (params.operation === "turn.output_context") return outputContext;
+      return { ok: true, tool: params.operation, data: {} };
+    };
+    extension.default(pi, {
+      coordinatorEnabled: async () => false,
+      startupCampaignId: () => null,
+      createStateClaimCompiler: () => compiler,
+      createClient: () => ({
+        callTool,
+        callToolWithTransportMeta: async (name, params) => ({
+          value: await callTool(name, params), transport: null,
+        }),
+        async close() {},
+      }),
+    });
+    const ctx = {
+      cwd: root,
+      mode: "rpc",
+      model: {
+        provider: "xai", id: "grok-4.5", api: "openai-responses",
+      },
+      sessionManager: {
+        getSessionId: () => "turn-processing-fault-agent-end",
+        getEntries: () => [],
+      },
+      hasUI: false,
+    };
+    for (const handler of handlers.get("session_start") ?? []) {
+      await handler({ type: "session_start" }, ctx);
+    }
+    const invoke = async (id, operation, arguments_) => tools.get("coc_invoke").execute(
+      id,
+      { operation, campaign, arguments: arguments_ },
+      undefined, undefined, ctx,
+    );
+    await invoke("resume", "session.resume", {});
+    for (const handler of handlers.get("message_start") ?? []) {
+      await handler({
+        type: "message_start",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "询问报酬。" }],
+          timestamp: 1,
+        },
+      }, ctx);
+    }
+    await invoke("context", "turn.output_context", {});
+    const failed = JSON.parse((await invoke(
+      "review", "narration.review", baseReview,
+    )).content[0].text);
+    assert.equal(failed.error.code, "state_claim_compiler_invalid");
+    assert.equal(sendAttempts.filter(
+      (entry) => entry.message.customType === extension.TURN_PROCESSING_FAULT_CUSTOM_TYPE,
+    ).length, 1);
+
+    for (const handler of handlers.get("agent_end") ?? []) {
+      await handler({ type: "agent_end" }, ctx);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const faultAttempts = sendAttempts.filter(
+      (entry) => entry.message.customType === extension.TURN_PROCESSING_FAULT_CUSTOM_TYPE,
+    );
+    assert.equal(faultAttempts.length, 2);
+    assert.equal(faultAttempts[1].options.triggerTurn, false);
+    assert.equal(sent.filter(
+      (entry) => entry.message.customType === extension.TURN_PROCESSING_FAULT_CUSTOM_TYPE,
+    ).length, 1);
+    assert.equal(sendAttempts.some((entry) => entry.options?.triggerTurn === true), false);
+
+    for (const handler of handlers.get("agent_end") ?? []) {
+      await handler({ type: "agent_end" }, ctx);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sendAttempts.filter(
+      (entry) => entry.message.customType === extension.TURN_PROCESSING_FAULT_CUSTOM_TYPE,
+    ).length, 2);
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
