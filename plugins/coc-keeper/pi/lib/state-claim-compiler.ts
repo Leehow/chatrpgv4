@@ -5,6 +5,9 @@ import type { JsonObject } from "./runtime.ts";
 
 export const STATE_CLAIM_HOST_FIELD = "state_claim_compilation";
 export const STATE_CLAIM_FUNCTION = "emit_state_claim_compilation";
+// Single-shot semantic compilation deadline. Slow providers such as
+// xai/grok-4.5 routinely exceed the previous 20s hard cap; do not retry.
+export const STATE_CLAIM_COMPILER_TIMEOUT_MS = 120_000;
 export const STATE_CLAIM_KINDS = [
   "assets_liquidate", "cash", "condition", "item", "loaded_ammunition",
   "purchase", "rest", "scalar", "time", "time_appearance",
@@ -62,7 +65,7 @@ type InflightEntry = {
 type Inference = (
   input: JsonObject,
   schema: JsonObject,
-  runtime: { ctx: ExtensionContext; signal?: AbortSignal },
+  runtime: { ctx: ExtensionContext; signal?: AbortSignal; timeoutMs?: number },
 ) => Promise<InferenceOutcome>;
 
 function stableJson(value: unknown): string {
@@ -296,7 +299,7 @@ function validateResult(raw: unknown, input: JsonObject): JsonObject {
   return { ...result, claims: normalizedClaims, paragraph_coverage: coverage };
 }
 
-async function directInference(input: JsonObject, schema: JsonObject, runtime: { ctx: ExtensionContext; signal?: AbortSignal }): Promise<InferenceOutcome> {
+async function directInference(input: JsonObject, schema: JsonObject, runtime: { ctx: ExtensionContext; signal?: AbortSignal; timeoutMs?: number }): Promise<InferenceOutcome> {
   const model = runtime.ctx.model;
   if (!model) throw new Error("state_claim_model_unavailable");
   const tool: Tool = {
@@ -313,7 +316,9 @@ async function directInference(input: JsonObject, schema: JsonObject, runtime: {
       tools: [tool],
     },
     {
-      signal: runtime.signal, timeoutMs: 20_000, maxRetries: 0, maxTokens: 1024,
+      signal: runtime.signal,
+      timeoutMs: runtime.timeoutMs ?? STATE_CLAIM_COMPILER_TIMEOUT_MS,
+      maxRetries: 0, maxTokens: 1024,
       cacheRetention: "none", sessionId: randomUUID(),
       toolChoice: requiredToolChoice(model.api),
     },
@@ -338,7 +343,7 @@ export class PiStateClaimCompiler {
   private readonly failures = new Map<string, PiStateClaimCompilerFailure>();
   private failureGeneration = 0;
 
-  constructor(infer: Inference = directInference, timeoutMs = 20_000) {
+  constructor(infer: Inference = directInference, timeoutMs = STATE_CLAIM_COMPILER_TIMEOUT_MS) {
     this.infer = infer;
     this.timeoutMs = timeoutMs;
   }
@@ -449,6 +454,7 @@ export class PiStateClaimCompiler {
           this.infer(input, resultSchema(input), {
             ctx: options.ctx,
             signal: controller.signal,
+            timeoutMs: this.timeoutMs,
           }).then((outcome) => ({
             result: validateResult(outcome.result, input),
             responseModel: responseModel(outcome.responseModel),

@@ -11,6 +11,7 @@ const moduleUrl = pathToFileURL(path.join(
 )).href;
 const {
   PiStateClaimCompiler, canonicalDigest, draftParagraphs,
+  STATE_CLAIM_COMPILER_TIMEOUT_MS,
 } = await import(moduleUrl);
 const { resolveJsonSchemaStrictSampling } = await import(pathToFileURL(
   embeddedPiFile(root, "pi-ai", "dist/api/constrained-sampling.js"),
@@ -187,6 +188,11 @@ test("stale turn identity fails before inference", async () => {
   assert.equal(calls, 0);
 });
 
+test("production compiler deadline is a single-shot budget larger than the old 20s cap", () => {
+  assert.equal(STATE_CLAIM_COMPILER_TIMEOUT_MS, 120_000);
+  assert.ok(STATE_CLAIM_COMPILER_TIMEOUT_MS > 20_000);
+});
+
 test("owned timeout bounds an inference that ignores abort and never caches it", async () => {
   let calls = 0;
   const compiler = new PiStateClaimCompiler(async () => {
@@ -195,12 +201,64 @@ test("owned timeout bounds an inference that ignores abort and never caches it",
   }, 5);
   compiler.observeOutputContext(campaignId, contextEnvelope());
   const options = { ...runtime, arguments: reviewArguments("No state change.") };
-  await assert.rejects(() => compiler.compileReview(options), /state_claim_compiler_timeout/);
+  await assert.rejects(
+    () => compiler.compileReview(options),
+    (error) => {
+      assert.match(error.message, /state_claim_compiler_timeout/);
+      assert.equal(error.failureClass, "timeout");
+      return true;
+    },
+  );
   await assert.rejects(() => compiler.compileReview(options), /state_claim_compiler_timeout/);
   assert.equal(calls, 1);
   compiler.beginExternalTurn();
   await assert.rejects(() => compiler.compileReview(options), /state_claim_compiler_timeout/);
   assert.equal(calls, 2);
+});
+
+test("inference slower than the old 20s budget still completes within the current deadline", async () => {
+  const previousBudgetMs = 20;
+  const currentBudgetMs = 50;
+  const inferDelayMs = 30;
+  assert.ok(inferDelayMs > previousBudgetMs);
+  assert.ok(inferDelayMs < currentBudgetMs);
+  assert.ok(STATE_CLAIM_COMPILER_TIMEOUT_MS > 20_000);
+
+  const delayedInfer = async (input) => {
+    await new Promise((resolve) => setTimeout(resolve, inferDelayMs));
+    return noClaimsOutcome(input);
+  };
+  const stale = new PiStateClaimCompiler(delayedInfer, previousBudgetMs);
+  stale.observeOutputContext(campaignId, contextEnvelope());
+  const options = { ...runtime, arguments: reviewArguments("No state change.") };
+  await assert.rejects(
+    () => stale.compileReview(options),
+    (error) => {
+      assert.match(error.message, /state_claim_compiler_timeout/);
+      assert.equal(error.failureClass, "timeout");
+      return true;
+    },
+  );
+
+  const compiler = new PiStateClaimCompiler(delayedInfer, currentBudgetMs);
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const receipt = await compiler.compileReview(options);
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.result.disposition, "no_claims_detected");
+});
+
+test("clear drops retained context until output_context is observed again", async () => {
+  const compiler = new PiStateClaimCompiler(async (input) => noClaimsOutcome(input));
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const options = { ...runtime, arguments: reviewArguments("No state change.") };
+  assert.equal((await compiler.compileReview(options)).status, "completed");
+  compiler.clear();
+  await assert.rejects(
+    () => compiler.compileReview(options),
+    /state_claim_compiler_context_missing/,
+  );
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  assert.equal((await compiler.compileReview(options)).status, "completed");
 });
 
 test("successful identical semantic input is singleflight and cached", async () => {
@@ -446,6 +504,8 @@ test("direct inference uses provider-supported one-tool requirement shapes", asy
       ...runtime, ctx, arguments: reviewArguments("No state change."),
     });
     assert.equal(observedOptions.toolChoice, expectedChoice, api);
+    assert.equal(observedOptions.timeoutMs, STATE_CLAIM_COMPILER_TIMEOUT_MS, api);
+    assert.equal(observedOptions.maxRetries, 0, api);
   }
   let calls = 0;
   const unsupported = new PiStateClaimCompiler();
