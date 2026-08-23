@@ -5,10 +5,9 @@ description: Produce the single final player-readable battle-report.md and its s
 
 # Export the Final COC Battle Report
 
-Use this skill after a real Codex-plugin playtest has finished. The player may
-be a Codex subagent. This skill is the only final battle-report writer: it reads
-the run evidence directly without invoking a legacy evaluator, formatter, or
-audit pipeline.
+Use this skill after a real plugin-native playtest has finished. This skill
+is the only final battle-report writer: it reads the run evidence directly
+without invoking a legacy evaluator, formatter, or audit pipeline.
 
 From the repository root, run:
 
@@ -21,11 +20,23 @@ only the completeness classification and the two player artifact paths. The
 internal `report_id` remains audit-only in `artifacts/audit/manifest.json`.
 
 Canonical run identity is the campaign-owned `save/run-identity.json` record
-(`coc_state.load_run_identity`). External `run.json` / `playtest.json` may
-supply non-authoritative harness metadata only; they must not override the
-canonical record or discard matching table-transcript rows. Identity
-conflicts or a corrupt/mismatched canonical record fail closed. The run
-directory should contain:
+(`schema_version: 1`) read through `coc_state.load_run_identity`. Required
+fields are `campaign_id`, `run_segment_id`, `session_id`, `plugin_version`,
+`ruleset_id`, and `ruleset_version`. The first successful
+`evidence.table_opening` or later canonical table-transcript write freezes it
+via `bind_run_identity`; later calls must repeat the same campaign / run /
+session or raise `run_identity_conflict` without rewriting the file. A missing
+record returns `None`. A present but incomplete, sentinel, identity-mismatched,
+or non-current record raises `UnsupportedSaveSchema` (clean-slate; no
+migration or dual reader).
+
+External `run.json` / `playtest.json` may supply non-authoritative harness
+metadata only. They must not override the canonical record or discard matching
+table-transcript rows. When the canonical record is present, the exporter binds
+report identity and filters canonical transcript rows to that run/session.
+Missing, corrupt, or harness-conflicting identity fails the `run_identity`
+dimension closed and keeps the unfiltered transcript rows. The run directory
+should contain:
 
 - allowlisted `host_model` metadata recording the exact model, reasoning
   effort, acceptance lane, pre-activation selection, mid-run switch status,
@@ -105,11 +116,21 @@ only when every referenced schema-v2 receipt passes the canonical
 is partial evidence and cannot pass accepted-transcript completeness. The
 canonical player row must bind the exact run segment, session, turn, and
 `state.journal` decision, while its Keeper row binds the exact accepted
-revision and finalization receipt. State passes only when structured Git
-history proof (`coc_git_history_verify.state_integrity_proof(...).to_dict()`)
-returns `PASS`; `FAIL` and `NOT_PROVEN` stay distinct. Never read or recreate
-`save/commit-snapshots`. Unregistered or shape-only state calls never become
-`state-diffs.jsonl` rows.
+revision and finalization receipt.
+
+Player evidence is schema 8; the Keeper/development audit envelope is schema 2.
+State completeness consumes
+`coc_git_history_verify.state_integrity_proof(...).to_dict()` and maps
+`PASS` / `FAIL` / `NOT_PROVEN` 1:1 onto the `state` dimension. Player
+`state_integrity` is the bounded projection (`status`, `reason_codes`,
+`repo_present`, `history_valid`, `fsck_ok`, `tree_clean`, `history_reset`,
+counts). The full proof lives only in audit
+`finalization_binding.git_history`. A later `COC-History-Reset` commit is
+`NOT_PROVEN`, never `PASS`. Never read or recreate `save/commit-snapshots`;
+those fields are gone from both schemas. Unregistered or shape-only state
+calls never become `state-diffs.jsonl` rows. Dice completeness is unchanged:
+every required public or consequence-public roll still needs a unique
+`roll_id` and source-traceable numbers.
 
 Both outputs also carry an observational **Play Conduct Signals** section
 (`play_conduct_signals` in the evidence JSON). It restates structured facts
