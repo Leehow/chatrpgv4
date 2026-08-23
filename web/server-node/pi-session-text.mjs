@@ -139,23 +139,11 @@ export function pickHostedSessionAgentDir({
 
 export function hostedSessionMessages({ agentDir, agentDirs, workspace, sessionId }) {
   const dirs = sessionAgentDirs({ agentDir, agentDirs, workspace });
-  let chosen = null;
-  let latestMtime = -1;
   for (const dir of dirs) {
     const file = findLatestSessionFile(dir, sessionId);
-    if (!file) continue;
-    let mtime = 0;
-    try {
-      mtime = fs.statSync(file).mtimeMs;
-    } catch {
-      continue;
-    }
-    if (mtime >= latestMtime) {
-      latestMtime = mtime;
-      chosen = file;
-    }
+    if (file) return visibleMessagesFromSessionFile(file);
   }
-  return chosen ? visibleMessagesFromSessionFile(chosen) : [];
+  return [];
 }
 
 export function lastVisibleAssistantText({ agentDir, agentDirs, workspace, sessionId }) {

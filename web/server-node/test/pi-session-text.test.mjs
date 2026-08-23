@@ -108,7 +108,7 @@ test("lastVisibleAssistantText finds the newest matching session file", () => {
   }
 });
 
-test("hostedSessionMessages searches repo, app, and workspace roots by newest evidence", () => {
+test("hostedSessionMessages prefers a canonical repo-local match over a newer legacy shadow", () => {
   const product = fs.mkdtempSync(path.join(os.tmpdir(), "coc-product-agent-"));
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-ws-"));
   const repoRoot = path.join(workspace, "repo");
@@ -143,8 +143,8 @@ test("hostedSessionMessages searches repo, app, and workspace roots by newest ev
       },
     ]);
     const legacyFile = path.join(local, "sessions", "cwd-key", `2026-08-17T04-46-20Z_${sessionId}.jsonl`);
-    fs.utimesSync(legacyFile, new Date(1_000), new Date(1_000));
-    fs.utimesSync(repoFile, new Date(2_000), new Date(2_000));
+    fs.utimesSync(repoFile, new Date(1_000), new Date(1_000));
+    fs.utimesSync(legacyFile, new Date(4_102_444_800_000), new Date(4_102_444_800_000));
     const messages = hostedSessionMessages({
       agentDirs: [runtime, product, local],
       sessionId,
@@ -153,5 +153,43 @@ test("hostedSessionMessages searches repo, app, and workspace roots by newest ev
   } finally {
     fs.rmSync(product, { recursive: true, force: true });
     fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("hostedSessionMessages falls back to the first legacy root with a matching session", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "coc-pi-session-roots-"));
+  const runtime = path.join(tmp, "repo", ".pi", "coc-agent");
+  const product = path.join(tmp, "app-support", "pi-agent");
+  const workspaceLegacy = path.join(tmp, "workspace", ".pi", "agent");
+  const sessionId = "web-the-white-war-qs-legacy-only";
+  try {
+    const productFile = writeSession(product, sessionId, [
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "App Support 回退记录。" }],
+        },
+      },
+    ]);
+    const workspaceFile = writeSession(workspaceLegacy, sessionId, [
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "工作区里时间更新的旧记录。" }],
+        },
+      },
+    ]);
+    fs.utimesSync(productFile, new Date(1_000), new Date(1_000));
+    fs.utimesSync(workspaceFile, new Date(2_000), new Date(2_000));
+
+    const messages = hostedSessionMessages({
+      agentDirs: [runtime, product, workspaceLegacy],
+      sessionId,
+    });
+    assert.equal(messages.at(-1)?.text, "App Support 回退记录。");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
