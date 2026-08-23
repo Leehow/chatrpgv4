@@ -167,6 +167,10 @@ const completeParams = {
   campaign: campaignId,
   arguments: structuredClone(starterDecision.next_operation.prefilled_arguments),
 };
+gate.observeMessageStart({
+  role: "user",
+  content: [{ type: "text", text: "确认打开游戏桌。" }],
+});
 const completeEnvelope = ({
   resultCampaignId = campaignId,
   receiptCampaignId = campaignId,
@@ -318,6 +322,7 @@ assert.equal(
 const quickStartCampaignId = "fresh-terminal-quick-start";
 const quickStartParams = {
   operation: "setup.quick_start",
+  root: "/tmp",
   arguments: {
     scenario_id: "the-haunting",
     campaign_id: quickStartCampaignId,
@@ -385,23 +390,23 @@ const linkedPregenParams = {
   arguments: {
     ...quickStartParams.arguments,
     campaign_id: linkedPregenCampaignId,
-    pregen_id: "thomas-hayes",
+    pregen_id: "catalog-slot",
   },
 };
 const linkedPregenEnvelope = quickStartEnvelope();
 linkedPregenEnvelope.data.result.campaign_id = linkedPregenCampaignId;
-linkedPregenEnvelope.data.result.investigator_id = "thomas-hayes";
+linkedPregenEnvelope.data.result.investigator_id = "sheet-id";
 linkedPregenEnvelope.data.result.needs_investigator = false;
-linkedPregenEnvelope.data.result.pregen_id = "thomas-hayes";
+linkedPregenEnvelope.data.result.pregen_id = "catalog-slot";
 linkedPregenEnvelope.data.result.character_path = (
-  "/tmp/.coc/investigators/thomas-hayes/character.json"
+  "/tmp/.coc/investigators/sheet-id/character.json"
 );
 linkedPregenEnvelope.data.result.campaign_dir = (
   `/tmp/.coc/campaigns/${linkedPregenCampaignId}`
 );
 linkedPregenEnvelope.data.state_refs = [
   `.coc/campaigns/${linkedPregenCampaignId}`,
-  ".coc/investigators/thomas-hayes/character.json",
+  ".coc/investigators/sheet-id/character.json",
 ];
 const linkedPregenGate = new OpeningTerminalContinuationGate();
 assert.equal(
@@ -429,6 +434,50 @@ assert.equal(
   null,
   "linked pregen still requires the player's semantic table-open confirmation",
 );
+const linkedCompleteParams = {
+  operation: "setup.complete",
+  campaign: linkedPregenCampaignId,
+  arguments: structuredClone(
+    linkedPregenGate.openingTableDecisionContext()
+      .next_operation.prefilled_arguments,
+  ),
+};
+assert.notEqual(
+  linkedPregenGate.openingSetupToolError(
+    "coc_invoke",
+    linkedCompleteParams,
+    "linked-pregen-same-player-turn",
+  ),
+  null,
+  "quick_start must not auto-complete a linked pregen in the same player turn",
+);
+linkedPregenGate.markAgentStart();
+linkedPregenGate.observeMessageStart({
+  role: "assistant",
+  content: [{ type: "text", text: "internal followup" }],
+});
+assert.notEqual(
+  linkedPregenGate.openingSetupToolError(
+    "coc_invoke",
+    linkedCompleteParams,
+    "linked-pregen-internal-followup",
+  ),
+  null,
+  "an internal agent restart/followup must not satisfy player confirmation",
+);
+linkedPregenGate.observeMessageStart({
+  role: "user",
+  content: [{ type: "text", text: "可以开桌" }],
+});
+assert.equal(
+  linkedPregenGate.openingSetupToolError(
+    "coc_invoke",
+    linkedCompleteParams,
+    "linked-pregen-new-player-turn",
+  ),
+  null,
+  "a new external player message may admit the exact setup.complete card",
+);
 
 for (const [label, mutate] of [
   ["wrong-campaign", (envelope) => {
@@ -446,6 +495,31 @@ for (const [label, mutate] of [
   ["malformed", (envelope) => {
     delete envelope.data.status;
   }],
+  ["linked-character-path-mismatch", (envelope, params) => {
+    params.arguments.pregen_id = "catalog-slot";
+    envelope.data.result.needs_investigator = false;
+    envelope.data.result.investigator_id = "sheet-id";
+    envelope.data.result.pregen_id = "catalog-slot";
+    envelope.data.result.character_path = "/tmp/arbitrary/character.json";
+    envelope.data.state_refs = [
+      `.coc/campaigns/${envelope.data.result.campaign_id}`,
+      ".coc/investigators/sheet-id/character.json",
+    ];
+  }],
+  ["linked-campaign-dir-mismatch", (envelope, params) => {
+    params.arguments.pregen_id = "catalog-slot";
+    envelope.data.result.needs_investigator = false;
+    envelope.data.result.investigator_id = "sheet-id";
+    envelope.data.result.pregen_id = "catalog-slot";
+    envelope.data.result.character_path = (
+      "/tmp/.coc/investigators/sheet-id/character.json"
+    );
+    envelope.data.result.campaign_dir = "/tmp/.coc/campaigns/other-campaign";
+    envelope.data.state_refs = [
+      `.coc/campaigns/${envelope.data.result.campaign_id}`,
+      ".coc/investigators/sheet-id/character.json",
+    ];
+  }],
 ]) {
   const campaignIdForCase = `${quickStartCampaignId}-${label}`;
   const params = {
@@ -459,7 +533,7 @@ for (const [label, mutate] of [
   envelope.data.result.campaign_id = campaignIdForCase;
   envelope.data.result.campaign_dir = `/tmp/.coc/campaigns/${campaignIdForCase}`;
   envelope.data.state_refs = [`.coc/campaigns/${campaignIdForCase}`];
-  mutate(envelope);
+  mutate(envelope, params);
   const rejectedGate = new OpeningTerminalContinuationGate();
   assert.equal(
     rejectedGate.openingSetupToolError(

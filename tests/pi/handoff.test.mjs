@@ -69,6 +69,28 @@ test("setup.complete ok with handoff_receipt alias", async () => {
   });
 });
 
+test("setup.complete rejects ambiguous receipt aliases by property presence", async () => {
+  const mod = await import(handoffUrl);
+  const primaryWithMalformedAlias = successEnvelope();
+  primaryWithMalformedAlias.data.result.handoff_receipt = "malformed";
+  assert.equal(
+    mod.handoffFromEnvelope(primaryWithMalformedAlias, expected),
+    null,
+    "a present malformed alias cannot be treated as absent",
+  );
+
+  const aliasWithMalformedPrimary = successEnvelope();
+  aliasWithMalformedPrimary.data.result.handoff_receipt = (
+    aliasWithMalformedPrimary.data.result.handoff
+  );
+  aliasWithMalformedPrimary.data.result.handoff = "malformed";
+  assert.equal(
+    mod.handoffFromEnvelope(aliasWithMalformedPrimary, expected),
+    null,
+    "a present malformed primary receipt cannot be treated as absent",
+  );
+});
+
 test("other operation is null", async () => {
   const mod = await import(handoffUrl);
   assert.equal(

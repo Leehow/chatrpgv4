@@ -27,10 +27,12 @@ function objectOrNull(value: unknown): JsonObject | null {
 }
 
 function pickReceipt(result: JsonObject): JsonObject | null {
-  const handoff = objectOrNull(result.handoff);
-  const alias = objectOrNull(result.handoff_receipt);
-  if ((handoff === null) === (alias === null)) return null;
-  return handoff ?? alias;
+  const hasHandoff = Object.hasOwn(result, "handoff");
+  const hasAlias = Object.hasOwn(result, "handoff_receipt");
+  if (hasHandoff === hasAlias) return null;
+  return objectOrNull(
+    hasHandoff ? result.handoff : result.handoff_receipt,
+  );
 }
 
 function exactReceipt(

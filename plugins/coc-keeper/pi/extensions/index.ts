@@ -1048,6 +1048,10 @@ export class OpeningTerminalContinuationGate {
   private openingSetupGenerationSequence = 0;
   private readonly openingSetupLatestIssuedGeneration = new Map<string, number>();
   private readonly openingSetupRetiredGeneration = new Map<string, number>();
+  private readonly setupHandoffDecisionPlayerEpoch = new Map<string, {
+    generation: string;
+    playerTurnEpoch: number;
+  }>();
   private openingSetupAgentTurn = 0;
   private openingSetupTurnCampaignId: string | null = null;
   private openingSetupTurnCampaignAmbiguous = false;
@@ -1233,6 +1237,10 @@ export class OpeningTerminalContinuationGate {
     );
     state.revision += 1;
     state.continuationReleaseOwner = null;
+    this.setupHandoffDecisionPlayerEpoch.set(campaignId, {
+      generation: state.generation,
+      playerTurnEpoch: this.playerTurnEpoch,
+    });
     this.openingSetupContinuationQueued.delete(campaignId);
   }
 
@@ -3131,6 +3139,32 @@ export class OpeningTerminalContinuationGate {
     this.noteOpeningSetupTurnCampaign(campaignId);
     if (this.exactOpeningSetupRouteInvocation(state.route, params)) {
       if (
+        state.phase === "handoff_decision"
+        && operation === "setup.complete"
+      ) {
+        const decisionEpoch = this.setupHandoffDecisionPlayerEpoch.get(
+          campaignId,
+        );
+        if (
+          decisionEpoch === undefined
+          || decisionEpoch.generation !== state.generation
+          || this.playerTurnEpoch <= decisionEpoch.playerTurnEpoch
+        ) {
+          this.recordOpeningSetupAudit({
+            status: "rejected",
+            reason: "setup_handoff_requires_new_external_player_turn",
+            campaign_id: campaignId,
+            generation: state.generation,
+            decision_player_turn_epoch: decisionEpoch?.playerTurnEpoch,
+            current_player_turn_epoch: this.playerTurnEpoch,
+          });
+          return (
+            "setup.complete requires a new external player message after the "
+            + "handoff decision was armed"
+          );
+        }
+      }
+      if (
         state.phase === "projection"
         && !state.characterSetupComplete
       ) {
@@ -3482,9 +3516,31 @@ export class OpeningTerminalContinuationGate {
       "scenario_id", "pregen_id", "character_path", "campaign_dir",
     ]);
     const quickStartWarnings = quickStartResult?.warnings;
+    const quickStartRoot = (
+      typeof params.root === "string"
+      && isAbsolute(params.root)
+      && params.root === resolve(params.root)
+    ) ? params.root : null;
     const quickStartInvestigatorId = typeof quickStartResult?.investigator_id === "string"
       ? quickStartResult.investigator_id
       : "";
+    const quickStartCampaignDir = typeof quickStartResult?.campaign_dir === "string"
+      ? quickStartResult.campaign_dir
+      : "";
+    const quickStartCharacterPath = typeof quickStartResult?.character_path === "string"
+      ? quickStartResult.character_path
+      : "";
+    const exactQuickStartCampaignDir = (
+      quickStartRoot !== null
+      && isAbsolute(quickStartCampaignDir)
+      && quickStartCampaignDir === resolve(quickStartCampaignDir)
+      && quickStartCampaignDir === resolve(
+        quickStartRoot,
+        ".coc",
+        "campaigns",
+        attempt.campaignId,
+      )
+    );
     const quickStartInvestigatorLess = (
       quickStartResult?.needs_investigator === true
       && (
@@ -3504,10 +3560,18 @@ export class OpeningTerminalContinuationGate {
       && Boolean(quickStartInvestigatorId.trim())
       && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(quickStartInvestigatorId)
       && typeof quickStartResult?.pregen_id === "string"
-      && Boolean(quickStartResult.pregen_id.trim())
+      && OPENING_START_LOCATION_ID.test(quickStartResult.pregen_id)
       && quickStartArguments?.pregen_id === quickStartResult.pregen_id
-      && typeof quickStartResult?.character_path === "string"
-      && Boolean(quickStartResult.character_path.trim())
+      && quickStartRoot !== null
+      && isAbsolute(quickStartCharacterPath)
+      && quickStartCharacterPath === resolve(quickStartCharacterPath)
+      && quickStartCharacterPath === resolve(
+        quickStartRoot,
+        ".coc",
+        "investigators",
+        quickStartInvestigatorId,
+        "character.json",
+      )
       && Array.isArray(quickStartStateRefs)
       && quickStartStateRefs.length === 2
       && quickStartStateRefs[0]
@@ -3545,8 +3609,8 @@ export class OpeningTerminalContinuationGate {
       )
       && quickStartResult.campaign_id === attempt.campaignId
       && quickStartResult.scenario_id === quickStartArguments.scenario_id
-      && typeof quickStartResult.campaign_dir === "string"
-      && Boolean(quickStartResult.campaign_dir.trim())
+      && isCanonicalCampaignId(attempt.campaignId)
+      && exactQuickStartCampaignDir
       && (quickStartInvestigatorLess || quickStartLinkedPregen)
     );
     const canonicalMaterializationProbe = (
@@ -4574,6 +4638,7 @@ export class OpeningTerminalContinuationGate {
         }
       }
       this.openingSetupStates.delete(campaignId);
+      this.setupHandoffDecisionPlayerEpoch.delete(campaignId);
       this.openingSetupContinuationQueued.delete(campaignId);
       this.openingSetupTerminalBlockers.delete(campaignId);
       if (
@@ -4585,6 +4650,7 @@ export class OpeningTerminalContinuationGate {
       return;
     }
     this.openingSetupStates.clear();
+    this.setupHandoffDecisionPlayerEpoch.clear();
     this.openingSetupAttempts.clear();
     this.openingSetupLatestIssuedGeneration.clear();
     this.openingSetupRetiredGeneration.clear();
@@ -9225,7 +9291,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // retain it in arguments.campaign_id and omit only the transport-level
       // recovery selector for this exact fresh-creation invocation.
       const { campaign: _freshCampaignSelector, ...freshCreationParams } = params;
-      params = freshCreationParams;
+      params = {
+        ...freshCreationParams,
+        root: freshCreationParams.root ?? startupResumeGate?.workspaceRoot,
+      };
     }
     if (isCanonicalInvokeSurface(name) && PRIVATE_LEASE_OPERATIONS.has(String(params.operation))) {
       try {
