@@ -21,6 +21,8 @@ COMPILER_RECEIPT_FIELDS = frozenset({
     "semantic_result_digest", "binding", "result", "binding_digest",
 })
 COMPILER_CONTRACT_ID = "coc.pi-state-claim-compilation-receipt.v1"
+COMPILER_MAX_CLAIMS = 64
+COMPILER_MAX_REASON_LENGTH = 600
 
 
 class StateAuthorityError(ValueError):
@@ -183,7 +185,9 @@ def normalize_compiler_receipt(
         or result.get("contract_id") != "coc.pi-state-claim-compiler-result.v1"
         or not isinstance(result.get("reason"), str)
         or not result["reason"].strip()
+        or len(result["reason"]) > COMPILER_MAX_REASON_LENGTH
         or not isinstance(claims, list)
+        or len(claims) > COMPILER_MAX_CLAIMS
         or result.get("disposition")
         != ("claims_detected" if claims else "no_claims_detected")
     ):
@@ -193,6 +197,8 @@ def normalize_compiler_receipt(
         )
     kp_by_id = {claim["claim_id"]: claim for claim in kp_claims}
     matched_ids: set[str] = set()
+    compiler_claim_ids: set[str] = set()
+    compiler_identities: set[tuple[str, str, str, str | None]] = set()
     compiled_claims: list[dict[str, Any]] = []
     gate = "clear"
     for index, claim in enumerate(claims):
@@ -209,21 +215,32 @@ def normalize_compiler_receipt(
         excerpt = str(claim.get("exact_excerpt") or "")
         matched_id = claim.get("matched_review_claim_id")
         reason = str(claim.get("reason") or "")
+        if matched_id is not None and not isinstance(matched_id, str):
+            raise StateAuthorityError(
+                "state_claim_compiler_malformed",
+                f"state-claim compiler result claims[{index}] match is invalid",
+            )
+        identity = (subject_ref, claim_kind, excerpt, matched_id)
         expected_id = "compiled:" + _canonical_digest(
-            [subject_ref, claim_kind, excerpt, matched_id]
+            list(identity)
         )[7:47]
         if (
             claim.get("compiler_claim_id") != expected_id
+            or expected_id in compiler_claim_ids
+            or identity in compiler_identities
             or subject_ref not in pc_subject_refs
             or claim_kind not in CLAIM_KINDS
             or not excerpt.strip()
             or excerpt not in draft
             or not reason.strip()
+            or len(reason) > COMPILER_MAX_REASON_LENGTH
         ):
             raise StateAuthorityError(
                 "state_claim_compiler_malformed",
                 f"state-claim compiler result claims[{index}] is invalid",
             )
+        compiler_claim_ids.add(expected_id)
+        compiler_identities.add(identity)
         matched = kp_by_id.get(matched_id) if isinstance(matched_id, str) else None
         if (
             matched is None
@@ -233,6 +250,11 @@ def normalize_compiler_receipt(
         ):
             gate = "rewrite_required"
         else:
+            if matched_id in matched_ids:
+                raise StateAuthorityError(
+                    "state_claim_compiler_malformed",
+                    "state-claim compiler matched one KP claim more than once",
+                )
             matched_ids.add(matched_id)
         compiled_claims.append(dict(claim))
     if matched_ids != set(kp_by_id):

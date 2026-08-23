@@ -390,6 +390,17 @@ const ocrSchema = {
 
 function result(value: JsonObject) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; }
 
+function modelVisibleCanonicalEnvelope(
+  operation: unknown,
+  value: JsonObject,
+): JsonObject {
+  if (operation !== "narration.review" || value.ok !== true) return value;
+  const data = objectOrNull(value.data);
+  if (data === null || !(STATE_CLAIM_HOST_FIELD in data)) return value;
+  const { [STATE_CLAIM_HOST_FIELD]: _hostReceipt, ...visibleData } = data;
+  return { ...value, data: visibleData };
+}
+
 function isPlainJsonObject(value: unknown): value is JsonObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -9017,7 +9028,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           tool: "narration.review",
           error: {
             code,
-            retryable: !contextMissing,
+            retryable: false,
             message: contextMissing
               ? "call turn.output_context for this pending turn before narration.review"
               : "player-state claim compilation did not complete; narration review was not recorded",
@@ -9033,13 +9044,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     let value: unknown;
     let transportMeta: McpTransportMeta | null = null;
-    const gatewayResult = (visible: JsonObject) => {
-      const rendered = result(visible);
-      // `details` travels only in Pi's internal tool-execution event. Its
-      // model-facing `content` remains the exact canonical envelope.
+    const gatewayResult = (canonical: JsonObject) => {
+      const visible = modelVisibleCanonicalEnvelope(params.operation, canonical);
+      const rendered = { ...result(visible), details: canonical };
+      // `details` retains the canonical host receipt for the internal event;
+      // model-facing `content` receives the host-only-field projection.
       return transportMeta === null
         ? rendered
-        : { ...rendered, details: { ...visible, coc_transport: transportMeta } };
+        : { ...rendered, details: { ...canonical, coc_transport: transportMeta } };
     };
     let scenePriorityHandled = false;
     try {
@@ -10157,6 +10169,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     (message) => {
       const externalUser = userMessageText(message) !== null;
       openingContinuationGate.observeMessageStart(message);
+      if (externalUser) stateClaimCompiler.beginExternalTurn();
       if (externalUser && startupResumeGate === null) {
         const preflightDelivery = deliverPendingPreInferenceFinalizationSteer(
           pi,

@@ -604,6 +604,7 @@ def _agency_review(
     }
     if compiler_receipt_mutator is not None:
         compiler_receipt_mutator(receipt)
+    receipt["semantic_result_digest"] = _digest(receipt["result"])
     receipt["binding_digest"] = _digest(receipt)
     args["state_claim_compilation"] = receipt
     return _run(ws, "narration.review", args)
@@ -699,14 +700,14 @@ def test_pi_state_authority_blocks_captured_cash_key_and_address_without_receipt
     ) == []
 
 
-def test_pi_state_authority_accepts_grounded_cash_and_item_claims(
+def test_pi_state_authority_accepts_grounded_cash_key_address_and_separate_clue(
     campaign_ws, monkeypatch
 ):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     investigator = campaign_ws["investigator_id"]
     cash = _run(campaign_ws, "state.cash_grant", {
         "investigator": investigator,
-        "amount": 8,
+        "amount": 20,
         "currency": "USD",
         "source": "npc-thomas-notte",
         "reason": "commission advance",
@@ -714,7 +715,7 @@ def test_pi_state_authority_accepts_grounded_cash_and_item_claims(
         "decision_id": "grant-grounded-prepayment",
     })
     assert cash["ok"] is True, cash
-    item = _run(campaign_ws, "state.item_grant", {
+    key = _run(campaign_ws, "state.item_grant", {
         "investigator": investigator,
         "kind": "gear",
         "label": "黄铜钥匙",
@@ -722,38 +723,75 @@ def test_pi_state_authority_accepts_grounded_cash_and_item_claims(
         "note": "托马斯·诺特交付的科比特宅钥匙",
         "decision_id": "grant-grounded-key",
     })
-    assert item["ok"] is True, item
+    assert key["ok"] is True, key
+    address = _run(campaign_ws, "state.item_grant", {
+        "investigator": investigator,
+        "kind": "gear",
+        "label": "科比特宅地址便签",
+        "item_id": "corbitt-house-address-note",
+        "note": "托马斯·诺特写下的委托地址",
+        "decision_id": "grant-grounded-address-note",
+    })
+    assert address["ok"] is True, address
+    clue = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-knott-keys",
+        "method": "accepted the commission and received its materials",
+        "decision_id": "record-grounded-knott-keys-clue",
+    })
+    assert clue["ok"] is True, clue
     context = _open_agency_turn(
         campaign_ws,
-        player_text="我接过预付定金和钥匙。",
+        player_text="我接过二十美元预付款、钥匙和地址便签。",
         decision_id="journal-state-authority-grounded",
     )
-    effects = {
-        row["effect_kind"]: row
+    cash_effects = [
+        row
         for row in context["mechanics_bundle"]["state_delta"]
-        if row["effect_kind"] in {"cash", "item"}
+        if row["effect_kind"] == "cash"
+    ]
+    item_effects = {
+        row["item_id"]: row
+        for row in context["mechanics_bundle"]["state_delta"]
+        if row["effect_kind"] == "item"
     }
-    assert set(effects) == {"cash", "item"}
-    draft = "诺特把黄铜钥匙和预付钞票一并交到你手里。"
+    assert len(cash_effects) == 1
+    assert set(item_effects) == {
+        "corbitt-house-key", "corbitt-house-address-note",
+    }
+    assert all(
+        row["effect_kind"] != "clue"
+        for row in context["mechanics_bundle"]["state_delta"]
+    )
+    draft = "诺特把二十美元预付款、黄铜钥匙和写着科比特宅地址的便签一并交到你手里。"
     state_review = {
         "disposition": "claims_listed",
-        "reason": "草稿明确声称当前调查员取得现金与钥匙。",
+        "reason": "草稿明确声称当前调查员取得现金、钥匙与地址便签。",
         "claims": [
             {
                 "claim_id": "claim-grounded-prepayment",
                 "subject_ref": f"pc:{investigator}",
                 "claim_kind": "cash",
-                "exact_excerpt": "预付钞票一并交到你手里",
-                "source_effect_id": effects["cash"]["effect_id"],
+                "exact_excerpt": "二十美元预付款",
+                "source_effect_id": cash_effects[0]["effect_id"],
                 "reason": "NPC 将预付款交给调查员。",
             },
             {
                 "claim_id": "claim-grounded-key",
                 "subject_ref": f"pc:{investigator}",
                 "claim_kind": "item",
-                "exact_excerpt": "把黄铜钥匙和预付钞票一并交到你手里",
-                "source_effect_id": effects["item"]["effect_id"],
+                "exact_excerpt": "黄铜钥匙",
+                "source_effect_id": item_effects["corbitt-house-key"]["effect_id"],
                 "reason": "NPC 将钥匙交给调查员。",
+            },
+            {
+                "claim_id": "claim-grounded-address-note",
+                "subject_ref": f"pc:{investigator}",
+                "claim_kind": "item",
+                "exact_excerpt": "写着科比特宅地址的便签",
+                "source_effect_id": item_effects[
+                    "corbitt-house-address-note"
+                ]["effect_id"],
+                "reason": "NPC 将地址便签交给调查员。",
             },
         ],
     }
@@ -789,6 +827,13 @@ def test_pi_state_authority_accepts_grounded_cash_and_item_claims(
     assert finalized["ok"] is True, finalized
     assert finalized["data"]["rendered_text"].count("委托预付定金") == 1
     assert finalized["data"]["rendered_text"].count("黄铜钥匙") == 2
+    assert finalized["data"]["rendered_text"].count("科比特宅地址便签") == 1
+    reloaded_world = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "clue-knott-keys" in reloaded_world["discovered_clue_ids"]
 
 
 def test_pi_state_authority_rewrites_when_kp_omits_grounded_compiled_claim(
@@ -1311,6 +1356,211 @@ def test_pi_state_claim_compiler_rejects_malformed_model_identity(
         compiler_receipt_mutator=lambda receipt: receipt["response_model"].update(
             {"id": ""}
         ),
+    )
+    assert review["ok"] is False
+    assert review["error"]["code"] == "state_claim_compiler_malformed"
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    ) == []
+
+
+def test_pi_state_claim_compiler_rejects_duplicate_compiler_identity(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过钥匙。",
+        decision_id="journal-compiler-duplicate-identity",
+    )
+    draft = "诺特把黄铜钥匙交到你手中。"
+    compiled = {
+        "claim_id": "compiled-duplicate-key",
+        "subject_ref": f"pc:{investigator}",
+        "claim_kind": "item",
+        "exact_excerpt": "黄铜钥匙交到你手中",
+        "source_effect_id": "not-authoritative-to-the-compiler",
+        "reason": "草稿声称调查员取得钥匙。",
+    }
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-compiler-duplicate-identity",
+        compiled_claims=[compiled, dict(compiled)],
+    )
+    assert review["ok"] is False
+    assert review["error"]["code"] == "state_claim_compiler_malformed"
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    ) == []
+
+
+def test_pi_state_claim_compiler_rejects_duplicate_kp_match(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": investigator,
+        "kind": "gear",
+        "label": "黄铜钥匙",
+        "item_id": "compiler-duplicate-match-key",
+        "note": "duplicate match fixture",
+        "decision_id": "grant-compiler-duplicate-match-key",
+    })
+    assert granted["ok"] is True, granted
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过钥匙。",
+        decision_id="journal-compiler-duplicate-match",
+    )
+    effect = next(
+        row for row in context["mechanics_bundle"]["state_delta"]
+        if row.get("item_id") == "compiler-duplicate-match-key"
+    )
+    draft = "诺特把黄铜钥匙交到你手中；这把钥匙现在归你保管。"
+    kp_claim = {
+        "claim_id": "claim-compiler-duplicate-match-key",
+        "subject_ref": f"pc:{investigator}",
+        "claim_kind": "item",
+        "exact_excerpt": "黄铜钥匙交到你手中",
+        "source_effect_id": effect["effect_id"],
+        "reason": "草稿声称调查员取得钥匙。",
+    }
+    compiled_claims = [
+        dict(kp_claim),
+        {
+            **kp_claim,
+            "claim_id": "compiled-same-key-second-mention",
+            "exact_excerpt": "这把钥匙现在归你保管",
+        },
+    ]
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-compiler-duplicate-match",
+        state_authority_review={
+            "disposition": "claims_listed",
+            "reason": "KP 声明一个权威钥匙变化。",
+            "claims": [kp_claim],
+        },
+        compiled_claims=compiled_claims,
+    )
+    assert review["ok"] is False
+    assert review["error"]["code"] == "state_claim_compiler_malformed"
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    ) == []
+
+
+def test_pi_state_claim_compiler_requires_every_kp_claim_exactly_once(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    for suffix, label in (("key", "黄铜钥匙"), ("note", "地址便签")):
+        granted = _run(campaign_ws, "state.item_grant", {
+            "investigator": investigator,
+            "kind": "gear",
+            "label": label,
+            "item_id": f"compiler-uncovered-{suffix}",
+            "note": "uncovered KP claim fixture",
+            "decision_id": f"grant-compiler-uncovered-{suffix}",
+        })
+        assert granted["ok"] is True, granted
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过钥匙和便签。",
+        decision_id="journal-compiler-uncovered-kp-claim",
+    )
+    effects = {
+        row["item_id"]: row
+        for row in context["mechanics_bundle"]["state_delta"]
+        if row.get("item_id", "").startswith("compiler-uncovered-")
+    }
+    draft = "诺特把黄铜钥匙和地址便签交到你手中。"
+    claims = [
+        {
+            "claim_id": f"claim-compiler-uncovered-{suffix}",
+            "subject_ref": f"pc:{investigator}",
+            "claim_kind": "item",
+            "exact_excerpt": excerpt,
+            "source_effect_id": effects[f"compiler-uncovered-{suffix}"]["effect_id"],
+            "reason": f"草稿声称调查员取得{label}。",
+        }
+        for suffix, label, excerpt in (
+            ("key", "钥匙", "黄铜钥匙"),
+            ("note", "便签", "地址便签"),
+        )
+    ]
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-compiler-uncovered-kp-claim",
+        state_authority_review={
+            "disposition": "claims_listed",
+            "reason": "KP 声明两个权威物品变化。",
+            "claims": claims,
+        },
+        compiled_claims=[claims[0]],
+    )
+    assert review["ok"] is True, review
+    assert review["data"]["state_authority_gate"] == "rewrite_required"
+    assert review["data"]["state_claim_review_disagreement"] is True
+
+
+@pytest.mark.parametrize("bound", ["result_reason", "claim_reason", "claims"])
+def test_pi_state_claim_compiler_enforces_local_result_bounds(
+    campaign_ws, monkeypatch, bound
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    draft = " ".join(f"状态声明{index}" for index in range(65))
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我继续听。",
+        decision_id=f"journal-compiler-bound-{bound}",
+    )
+    compiled_claims = []
+    mutator = None
+    if bound == "result_reason":
+        mutator = lambda receipt: receipt["result"].__setitem__("reason", "x" * 601)
+    elif bound == "claim_reason":
+        compiled_claims = [{
+            "claim_id": "compiled-long-reason",
+            "subject_ref": f"pc:{investigator}",
+            "claim_kind": "item",
+            "exact_excerpt": "状态声明0",
+            "source_effect_id": "compiler-does-not-bind-effects",
+            "reason": "x" * 601,
+        }]
+    else:
+        compiled_claims = [
+            {
+                "claim_id": f"compiled-bound-{index}",
+                "subject_ref": f"pc:{investigator}",
+                "claim_kind": "item",
+                "exact_excerpt": f"状态声明{index}",
+                "source_effect_id": f"compiler-effect-{index}",
+                "reason": "独立编译器识别到玩家状态声明。",
+            }
+            for index in range(65)
+        ]
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id=f"review-compiler-bound-{bound}",
+        compiled_claims=compiled_claims,
+        compiler_receipt_mutator=mutator,
     )
     assert review["ok"] is False
     assert review["error"]["code"] == "state_claim_compiler_malformed"

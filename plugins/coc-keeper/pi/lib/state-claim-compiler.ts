@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Tool } from "@earendil-works/pi-ai";
 import type { JsonObject } from "./runtime.ts";
 
 export const STATE_CLAIM_HOST_FIELD = "state_claim_compilation";
@@ -29,6 +30,10 @@ type RetainedContext = {
 };
 
 type InferenceOutcome = { result: JsonObject; responseModel: JsonObject };
+type InflightEntry = {
+  controller: AbortController;
+  promise: Promise<InferenceOutcome>;
+};
 type Inference = (
   input: JsonObject,
   schema: JsonObject,
@@ -64,6 +69,38 @@ function exactKeys(value: JsonObject, keys: readonly string[], label: string): v
   if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())) {
     throw new Error(`${label}_closed_schema_invalid`);
   }
+}
+
+function requiredToolChoice(api: string): "required" | "any" {
+  if (new Set([
+    "openai-completions", "openai-responses", "azure-openai-responses",
+    "openai-codex-responses", "pi-messages", "mistral-conversations",
+  ]).has(api)) return "required";
+  if (new Set([
+    "anthropic-messages", "bedrock-converse-stream",
+    "google-generative-ai", "google-vertex",
+  ]).has(api)) return "any";
+  throw new Error("state_claim_model_api_unsupported");
+}
+
+function waiterOutcome(
+  shared: Promise<InferenceOutcome>,
+  signal?: AbortSignal,
+): Promise<InferenceOutcome> {
+  if (!signal) return shared;
+  if (signal.aborted) return Promise.reject(new Error("state_claim_compiler_aborted"));
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    const abort = () => {
+      cleanup();
+      reject(new Error("state_claim_compiler_aborted"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    shared.then(
+      (value) => { cleanup(); resolve(value); },
+      (error) => { cleanup(); reject(error); },
+    );
+  });
 }
 
 function responseModel(value: unknown): JsonObject {
@@ -153,7 +190,8 @@ function validateResult(raw: unknown, input: JsonObject): JsonObject {
   if (result.schema_version !== 1 || result.contract_id !== "coc.pi-state-claim-compiler-result.v1") throw new Error("state_claim_result_identity_invalid");
   const claims = Array.isArray(result.claims) ? result.claims : null;
   if (claims === null) throw new Error("state_claim_result_shape_invalid");
-  string(result.reason, "state_claim_result_reason");
+  const resultReason = string(result.reason, "state_claim_result_reason");
+  if (resultReason.length > 600 || claims.length > 64) throw new Error("state_claim_result_bounds_invalid");
   const disposition = result.disposition;
   if (!new Set(["claims_detected", "no_claims_detected"]).has(String(disposition))
       || ((disposition === "claims_detected") !== (claims.length > 0))) throw new Error("state_claim_result_disposition_invalid");
@@ -161,6 +199,7 @@ function validateResult(raw: unknown, input: JsonObject): JsonObject {
   const pcRefs = new Set(input.pc_subject_refs as string[]);
   const candidates = new Map((input.candidate_claims as JsonObject[]).map((row) => [row.claim_id as string, row]));
   const seen = new Set<string>();
+  const matchedCandidateIds = new Set<string>();
   const normalizedClaims = claims.map((value, index) => {
     const claim = object(value, `state_claim_result_claim_${index}`);
     exactKeys(claim, ["subject_ref", "claim_kind", "exact_excerpt", "matched_review_claim_id", "reason"], `state_claim_result_claim_${index}`);
@@ -168,11 +207,12 @@ function validateResult(raw: unknown, input: JsonObject): JsonObject {
     const kind = string(claim.claim_kind, "state_claim_kind");
     const excerpt = string(claim.exact_excerpt, "state_claim_excerpt");
     const reason = string(claim.reason, "state_claim_reason");
-    if (!pcRefs.has(subject) || !(STATE_CLAIM_KINDS as readonly string[]).includes(kind) || !draft.includes(excerpt)) throw new Error("state_claim_result_value_invalid");
+    if (reason.length > 600 || !pcRefs.has(subject) || !(STATE_CLAIM_KINDS as readonly string[]).includes(kind) || !draft.includes(excerpt)) throw new Error("state_claim_result_value_invalid");
     const matched = claim.matched_review_claim_id;
     if (matched !== null) {
       const candidate = typeof matched === "string" ? candidates.get(matched) : undefined;
-      if (!candidate || candidate.subject_ref !== subject || candidate.claim_kind !== kind) throw new Error("state_claim_result_match_invalid");
+      if (!candidate || candidate.subject_ref !== subject || candidate.claim_kind !== kind || matchedCandidateIds.has(matched)) throw new Error("state_claim_result_match_invalid");
+      matchedCandidateIds.add(matched);
     }
     const identity = stableJson([subject, kind, excerpt, matched]);
     if (seen.has(identity)) throw new Error("state_claim_result_duplicate");
@@ -209,18 +249,24 @@ function validateResult(raw: unknown, input: JsonObject): JsonObject {
 async function directInference(input: JsonObject, schema: JsonObject, runtime: { ctx: ExtensionContext; signal?: AbortSignal }): Promise<InferenceOutcome> {
   const model = runtime.ctx.model;
   if (!model) throw new Error("state_claim_model_unavailable");
+  const tool: Tool = {
+    name: STATE_CLAIM_FUNCTION,
+    description: "Return the closed semantic state-claim compilation.",
+    parameters: schema as Tool["parameters"],
+    constrainedSampling: { type: "json_schema", strict: "require" },
+  };
   const response = await runtime.ctx.modelRegistry.complete(
     model,
     {
       systemPrompt: SYSTEM_PROMPT,
       messages: [{ role: "user", content: [{ type: "text", text: stableJson(input) }], timestamp: Date.now() }],
-      tools: [{ name: STATE_CLAIM_FUNCTION, description: "Return the closed semantic state-claim compilation.", parameters: schema, constrainedSampling: { type: "json_schema", strict: "require" } } as never],
+      tools: [tool],
     },
     {
       signal: runtime.signal, timeoutMs: 20_000, maxRetries: 0, maxTokens: 1024,
       cacheRetention: "none", sessionId: randomUUID(),
-      toolChoice: { type: "function", function: { name: STATE_CLAIM_FUNCTION } },
-    } as never,
+      toolChoice: requiredToolChoice(model.api),
+    },
   );
   const ordinary = response.content.filter((part) => part.type === "text" && part.text.trim());
   const calls = response.content.filter((part) => part.type === "toolCall");
@@ -237,8 +283,10 @@ export class PiStateClaimCompiler {
   private readonly infer: Inference;
   private readonly timeoutMs: number;
   private readonly retained = new Map<string, RetainedContext>();
-  private readonly inflight = new Map<string, Promise<InferenceOutcome>>();
+  private readonly inflight = new Map<string, InflightEntry>();
   private readonly cache = new Map<string, InferenceOutcome>();
+  private readonly failures = new Map<string, string>();
+  private failureGeneration = 0;
 
   constructor(infer: Inference = directInference, timeoutMs = 20_000) {
     this.infer = infer;
@@ -271,6 +319,21 @@ export class PiStateClaimCompiler {
     });
   }
 
+  beginExternalTurn(): void {
+    this.failureGeneration += 1;
+    this.failures.clear();
+  }
+
+  private rememberFailure(key: string, error: unknown, generation: number): never {
+    const message = error instanceof Error && error.message
+      ? error.message : "state_claim_compiler_unavailable";
+    if (generation === this.failureGeneration) {
+      this.failures.set(key, message);
+      if (this.failures.size > 64) this.failures.delete(this.failures.keys().next().value!);
+    }
+    throw new Error(message);
+  }
+
   async compileReview(options: {
     campaignId: string;
     arguments: JsonObject;
@@ -294,14 +357,20 @@ export class PiStateClaimCompiler {
       candidate_claims: candidates, paragraphs,
     };
     const inputDigest = canonicalDigest(input);
+    const failureKey = canonicalDigest({
+      campaign_id: retained.campaignId,
+      turn_id: retained.turnId,
+      source_digest: retained.sourceDigest,
+      revision,
+      semantic_input_digest: inputDigest,
+    });
+    const latchedFailure = this.failures.get(failureKey);
+    if (latchedFailure) throw new Error(latchedFailure);
     let compiled = this.cache.get(inputDigest);
     if (!compiled) {
-      let pending = this.inflight.get(inputDigest);
-      if (!pending) {
+      let entry = this.inflight.get(inputDigest);
+      if (!entry) {
         const controller = new AbortController();
-        const combinedSignal = options.signal
-          ? AbortSignal.any([options.signal, controller.signal])
-          : controller.signal;
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const timeoutFailure = new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
@@ -309,40 +378,34 @@ export class PiStateClaimCompiler {
             reject(new Error("state_claim_compiler_timeout"));
           }, this.timeoutMs);
         });
-        let abortListener: (() => void) | undefined;
-        const abortFailure = new Promise<never>((_resolve, reject) => {
-          if (!options.signal) return;
-          const fail = () => reject(new Error("state_claim_compiler_aborted"));
-          if (options.signal.aborted) fail();
-          else {
-            abortListener = fail;
-            options.signal.addEventListener("abort", fail, { once: true });
-          }
-        });
-        pending = Promise.race([
+        entry = { controller, promise: Promise.resolve({} as InferenceOutcome) };
+        const ownedEntry = entry;
+        const failureGeneration = this.failureGeneration;
+        entry.promise = Promise.race([
           this.infer(input, resultSchema(input), {
             ctx: options.ctx,
-            signal: combinedSignal,
+            signal: controller.signal,
           }).then((outcome) => ({
             result: validateResult(outcome.result, input),
             responseModel: responseModel(outcome.responseModel),
           })),
           timeoutFailure,
-          abortFailure,
-        ]).finally(() => {
+        ]).catch((error) => this.rememberFailure(
+          failureKey, error, failureGeneration,
+        )).finally(() => {
           if (timeout !== undefined) clearTimeout(timeout);
-          if (options.signal && abortListener) {
-            options.signal.removeEventListener("abort", abortListener);
+          if (this.inflight.get(inputDigest) === ownedEntry) {
+            this.inflight.delete(inputDigest);
           }
         });
-        this.inflight.set(inputDigest, pending);
+        this.inflight.set(inputDigest, entry);
       }
-      try { compiled = await pending; }
-      finally { this.inflight.delete(inputDigest); }
+      compiled = await waiterOutcome(entry.promise, options.signal);
       if (!options.isCurrent(options.sessionEpoch)) throw new Error("state_claim_compiler_epoch_stale");
       this.cache.set(inputDigest, compiled);
       if (this.cache.size > 64) this.cache.delete(this.cache.keys().next().value!);
     }
+    if (!options.isCurrent(options.sessionEpoch)) throw new Error("state_claim_compiler_epoch_stale");
     const result = compiled.result;
     const binding = {
       turn_id: retained.turnId, source_digest: retained.sourceDigest, revision,
@@ -365,8 +428,13 @@ export class PiStateClaimCompiler {
   }
 
   clear(): void {
+    this.failureGeneration += 1;
+    for (const entry of this.inflight.values()) {
+      entry.controller.abort("state_claim_compiler_session_cleared");
+    }
     this.retained.clear();
     this.inflight.clear();
     this.cache.clear();
+    this.failures.clear();
   }
 }
