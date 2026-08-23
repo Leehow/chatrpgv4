@@ -299,7 +299,26 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, "state_claim_compiler_unavailable");
     assert.equal(envelope.error.retryable, false);
-    const repeated = await invoke(h, "review-timeout-repeat", "narration.review", baseReview);
+    const changedReview = {
+      ...baseReview,
+      draft_text: "诺特把钥匙交给你；这把钥匙现在归你保管。",
+      decision_id: "review-gateway-changed-after-timeout",
+      state_authority_review: {
+        disposition: "claims_listed",
+        reason: "改变后的 KP 候选声明。",
+        claims: [{
+          claim_id: "claim-gateway-changed-key",
+          subject_ref: subjectRef,
+          claim_kind: "item",
+          exact_excerpt: "这把钥匙现在归你保管",
+          source_effect_id: "turn-effect-v1:changed-key",
+          reason: "草稿声称调查员持有钥匙。",
+        }],
+      },
+    };
+    const repeated = await invoke(
+      h, "review-timeout-changed", "narration.review", changedReview,
+    );
     assert.equal(JSON.parse(repeated.content[0].text).error.retryable, false);
     assert.equal(compilerCalls, 1);
     assert.equal(
@@ -320,7 +339,9 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
         },
       }, h.ctx);
     }
-    const rearmed = await invoke(h, "review-timeout-next-player", "narration.review", baseReview);
+    const rearmed = await invoke(
+      h, "review-timeout-next-player", "narration.review", changedReview,
+    );
     assert.equal(JSON.parse(rearmed.content[0].text).error.retryable, false);
     assert.equal(compilerCalls, 2);
   } finally {
