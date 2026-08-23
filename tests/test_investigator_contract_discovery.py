@@ -47,6 +47,37 @@ def _create_campaign(
     assert receipt["status"] == "PASS"
 
 
+def _bind_playable_scenario(
+    workspace: Path,
+    campaign_id: str = "contract-campaign",
+    scenario_id: str = "contract-mod",
+) -> None:
+    campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["active_scenario_id"] = scenario_id
+    campaign_path.write_text(
+        json.dumps(campaign, indent=2) + "\n", encoding="utf-8",
+    )
+    scenario_dir = campaign_dir / "scenario"
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    (scenario_dir / "scenario.json").write_text(
+        json.dumps({"schema_version": 1, "scenario_id": scenario_id}, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    for name in (
+        "module-meta.json",
+        "story-graph.json",
+        "clue-graph.json",
+        "npc-agendas.json",
+        "threat-fronts.json",
+        "pacing-map.json",
+        "improvisation-boundaries.json",
+    ):
+        (scenario_dir / name).write_text("{}" + "\n", encoding="utf-8")
+
+
 def test_pi_opening_character_setup_gate_selects_era_contract_route(
     tmp_path: Path,
 ) -> None:
@@ -946,6 +977,7 @@ def test_post_handoff_same_recipe_characteristic_roll_is_not_creation_provenance
         },
     )
     assert linked["status"] == "PASS"
+    _bind_playable_scenario(tmp_path)
     completed = coc_toolbox.run_tool(
         "setup.complete",
         tmp_path,

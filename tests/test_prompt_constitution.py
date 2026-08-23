@@ -40,6 +40,15 @@ def test_play_prompt_is_play_only() -> None:
     assert "A source-supported year does not authorize inventing" in play
 
 
+def test_setup_prompt_uses_quick_start_as_first_builtin_mutation() -> None:
+    setup = SETUP.read_text(encoding="utf-8")
+    assert "Built-in starter, one mutation" in setup
+    assert "setup.quick_start` as the **first mutation**" in setup
+    assert "Do **not**\n    call `campaign.create` first" in setup
+    assert "Custom / raw-PDF campaign, 1 → 2 → 3" in setup
+    assert "A campaign with no `active_scenario_id` is not ready" in setup
+
+
 def test_setup_prompt_preserves_source_time_precision() -> None:
     setup = SETUP.read_text(encoding="utf-8")
     assert "A source-supported year does not authorize inventing" in setup

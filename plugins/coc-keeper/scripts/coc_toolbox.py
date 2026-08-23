@@ -8456,7 +8456,7 @@ def _tool_setup_phase(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "setup.quick_start",
-    "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans.",
+    "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans.",
     {
         "scenario_id": {
             "type": "string",
@@ -8470,7 +8470,7 @@ def _tool_setup_phase(ctx: Ctx, args: dict[str, Any]):
         },
         "campaign_id": {
             "type": "string",
-            "desc": "optional stable campaign id; omit to create {scenario_id}-qs. Forbidden when a setup campaign already exists",
+            "desc": "optional stable campaign id; omit to create {scenario_id}-qs. Pass a launcher-selected nonexistent id here as the first mutation. Forbidden when a setup campaign already exists",
         },
         "title": {
             "type": "string",
@@ -8532,7 +8532,7 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "setup.complete",
-    "Handoff a finished setup campaign to play: confirm investigators and (when source-bound) a terminal opening projection, persist ready_for_table, and emit the setup-session exit receipt.",
+    "Handoff a finished setup campaign to play: require a bound current-schema scenario (active_scenario_id plus compiled built-in or source-module readiness), a confirmed investigator, and (when source-bound) a terminal opening projection; persist ready_for_table and emit the setup-session exit receipt.",
     {
         "campaign_id": {
             "type": "string",

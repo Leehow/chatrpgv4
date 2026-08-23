@@ -145,12 +145,12 @@ def test_starter_without_investigator_is_character_creation(tmp_path: Path):
     derived = coc_opening_phase.derive_opening_phase(tmp_path, "starter-a")
     assert derived["phase"] == coc_opening_phase.PHASE_CHARACTER_CREATION
     preparation = derived["detail"]["module_preparation"]
-    # Starter is not "another gate": module preparation is trivially satisfied.
+    # Empty create is not source-gated, but it is also not a bound starter.
     assert preparation["source_gated"] is False
     assert preparation["satisfied"] is True
     assert preparation["sub_phase"] is None
     assert preparation["readiness"]["state"] == "not_source_gated"
-    assert preparation["blocking_reason"] is None
+    assert preparation["blocking_reason"]["code"] == "scenario_not_bound"
     character_setup = derived["detail"]["character_setup"]
     assert character_setup["confirmed"] is False
     assert character_setup["policy"] == "guided_quick_fire"
@@ -168,10 +168,32 @@ def test_era_adaptive_starter_reports_its_chargen_policy(tmp_path: Path):
     )
 
 
-def test_confirmed_investigator_points_at_setup_complete(tmp_path: Path):
+def test_confirmed_investigator_without_scenario_does_not_point_at_complete(
+    tmp_path: Path,
+):
     _campaign(tmp_path, "starter-b")
     _link(tmp_path, "starter-b")
     derived = coc_opening_phase.derive_opening_phase(tmp_path, "starter-b")
+    assert derived["phase"] == coc_opening_phase.PHASE_CHARACTER_CREATION
+    assert derived["detail"]["character_setup"]["confirmed"] is True
+    assert derived["detail"]["character_setup"]["resume_gate_required"] is False
+    assert derived["next_operation"] is None
+    assert derived["blocking_reason"]["code"] == "scenario_not_bound"
+
+
+def test_confirmed_investigator_points_at_setup_complete(tmp_path: Path):
+    import coc_starter
+
+    workspace = tmp_path / "workspace"
+    started = coc_starter.quick_start(
+        workspace / ".coc",
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id="starter-b",
+    )
+    derived = coc_opening_phase.derive_opening_phase(
+        workspace, started["campaign_id"],
+    )
     assert derived["phase"] == coc_opening_phase.PHASE_CHARACTER_CREATION
     assert derived["detail"]["character_setup"]["confirmed"] is True
     assert derived["detail"]["character_setup"]["resume_gate_required"] is False
@@ -740,6 +762,12 @@ def test_setup_complete_blocks_from_the_derivation(tmp_path: Path):
     assert blocked["error"]["code"] == "character_setup_incomplete"
 
     _link(tmp_path, "complete-blocked")
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["active_scenario_id"] = "src-mod"
+    campaign_path.write_text(
+        json.dumps(campaign, indent=2) + "\n", encoding="utf-8",
+    )
     _write_json(
         campaign_dir / "scenario" / "scenario.json",
         {
