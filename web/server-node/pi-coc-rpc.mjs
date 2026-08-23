@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   lastVisibleAssistantText,
   SETUP_CHARACTER_OPENING_MARKER,
@@ -485,6 +485,12 @@ function canonicalEnvelope(value, depth = 0) {
   return null;
 }
 
+function canonicalTextSha256(text) {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(text), "utf8")
+    .digest("hex")}`;
+}
+
 export function deliveryReceiptFromToolEvent(event) {
   if (!event || event.type !== "tool_execution_end") return null;
   const envelope = canonicalEnvelope(event.result ?? event.details);
@@ -494,8 +500,11 @@ export function deliveryReceiptFromToolEvent(event) {
     : null;
   if (
     typeof data?.finalization_id !== "string"
+    || data.finalization_id.length === 0
     || typeof data?.rendered_text !== "string"
+    || data.rendered_text.length === 0
     || typeof data?.rendered_sha256 !== "string"
+    || data.rendered_sha256 !== canonicalTextSha256(data.rendered_text)
   ) return null;
   return {
     finalizationId: data.finalization_id,
@@ -950,7 +959,7 @@ export class PiCocRpcHost {
         details: frame.data.details,
       });
     }
-    return opened;
+    return { opened, recoveryFinalization };
   }
 
   #replaySessionAssistant(onSse) {
@@ -1268,7 +1277,11 @@ export class PiCocRpcHost {
     startGen,
     onSse,
     timeoutMs,
-    { suppressSilentNotice = false, turnActivity = null } = {},
+    {
+      suppressSilentNotice = false,
+      turnActivity = null,
+      initialRecoveryFinalization = null,
+    } = {},
   ) {
     const deadline = Date.now() + timeoutMs;
     const abortAt = this.abortGeneration;
@@ -1286,7 +1299,13 @@ export class PiCocRpcHost {
       let sawError = false;
       let sawHandoff = false;
       let terminalTurnFault = null;
-      let recoveryFinalization = null;
+      let recoveryFinalization = initialRecoveryFinalization === null
+        ? null
+        : {
+            mode: initialRecoveryFinalization.mode,
+            delivery: initialRecoveryFinalization.delivery,
+            delivered: initialRecoveryFinalization.delivered === true,
+          };
       let acceptedObserved = false;
       let timer = null;
       const notifyIfSilent = () => {
@@ -1557,6 +1576,7 @@ export class PiCocRpcHost {
     if (this.streaming) {
       await this.#waitSettleAfter(this.settleGeneration, relay, timeoutMs, {
         suppressSilentNotice: requireVisibleText,
+        initialRecoveryFinalization: replayed.recoveryFinalization,
       });
       return maybeSetupOpen(true);
     }
@@ -1566,6 +1586,7 @@ export class PiCocRpcHost {
       const abortAt = this.abortGeneration;
       const settled = this.#waitSettleAfter(startGen, relay, timeoutMs, {
         suppressSilentNotice: requireVisibleText,
+        initialRecoveryFinalization: replayed.recoveryFinalization,
       });
       const startDeadline = Date.now() + 60_000;
       while (!this.streaming && this.settleGeneration === startGen
@@ -1587,7 +1608,7 @@ export class PiCocRpcHost {
         { kind: "pi_coc_play_resume_not_started" },
       );
     }
-    return maybeSetupOpen(replayed);
+    return maybeSetupOpen(replayed.opened);
   }
 
   async attachOpening(options = {}) {

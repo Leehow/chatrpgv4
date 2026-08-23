@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,12 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const HOST_WEB_SEARCH_EXTENSION = resolveHostWebSearchExtension(REPO_ROOT);
+
+function canonicalTextSha256(text) {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(text), "utf8")
+    .digest("hex")}`;
+}
 
 function argsWithoutExtensions(args) {
   const out = [];
@@ -902,6 +909,8 @@ test("empty keeper-only message_end does not erase preceding visible narration",
 });
 
 test("finalization delivery metadata is extracted only from exact canonical receipts", () => {
+  const renderedText = "精确结算文本";
+  const renderedSha256 = canonicalTextSha256(renderedText);
   const receipt = deliveryReceiptFromToolEvent({
     type: "tool_execution_end",
     toolName: "coc_turn_finalize",
@@ -913,8 +922,8 @@ test("finalization delivery metadata is extracted only from exact canonical rece
           tool: "turn.finalize",
           data: {
             finalization_id: "finalization-1",
-            rendered_text: "精确结算文本",
-            rendered_sha256: "sha256:abc",
+            rendered_text: renderedText,
+            rendered_sha256: renderedSha256,
           },
         }),
       }],
@@ -922,9 +931,40 @@ test("finalization delivery metadata is extracted only from exact canonical rece
   });
   assert.deepEqual(receipt, {
     finalizationId: "finalization-1",
-    renderedText: "精确结算文本",
-    renderedSha256: "sha256:abc",
+    renderedText,
+    renderedSha256,
   });
+  assert.equal(deliveryReceiptFromToolEvent({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "finalization-forged-digest",
+        rendered_text: renderedText,
+        rendered_sha256: `sha256:${"0".repeat(64)}`,
+      },
+    },
+  }), null);
+  for (const [finalizationId, emptyText] of [
+    ["", renderedText],
+    ["finalization-empty-text", ""],
+  ]) {
+    assert.equal(deliveryReceiptFromToolEvent({
+      type: "tool_execution_end",
+      toolName: "coc_turn_finalize",
+      result: {
+        ok: true,
+        tool: "turn.finalize",
+        data: {
+          finalization_id: finalizationId,
+          rendered_text: emptyText,
+          rendered_sha256: canonicalTextSha256(emptyText),
+        },
+      },
+    }), null);
+  }
   assert.equal(deliveryReceiptFromToolEvent({
     type: "tool_execution_end",
     toolName: "coc_turn_finalize",
@@ -961,7 +1001,7 @@ test("host offers delivery acknowledgement only after exact finalization text re
       data: {
         finalization_id: "finalization-delivery",
         rendered_text: "精确交付",
-        rendered_sha256: "sha256:delivery",
+        rendered_sha256: canonicalTextSha256("精确交付"),
       },
     },
   })}\n`);
@@ -978,7 +1018,7 @@ test("host offers delivery acknowledgement only after exact finalization text re
   assert.deepEqual(host.offerStreamedDelivery(() => true), {
     finalizationId: "finalization-delivery",
     renderedText: "精确交付",
-    renderedSha256: "sha256:delivery",
+    renderedSha256: canonicalTextSha256("精确交付"),
   });
   assert.equal(host.takeStreamedDelivery(), null);
 });
@@ -1014,7 +1054,7 @@ test("turn recovery exposes delivery only when the SSE client accepted its text"
           data: {
             finalization_id: `recovery-finalization-${accepted}`,
             rendered_text: "恢复结算文本",
-            rendered_sha256: `sha256:recovery-${accepted}`,
+            rendered_sha256: canonicalTextSha256("恢复结算文本"),
           },
         },
       })}\n`);
@@ -1589,7 +1629,7 @@ test("pending-finalization reopen requires canonical finalize and exact delivery
         data: {
           finalization_id: "pending-finalization-recovered",
           rendered_text: "诺特把预付款和钥匙推到你面前。",
-          rendered_sha256: "sha256:pending-finalization-recovered",
+          rendered_sha256: canonicalTextSha256("诺特把预付款和钥匙推到你面前。"),
         },
       },
     })}\n`);
@@ -1650,6 +1690,168 @@ test("pre-attach open-turn recovery cannot replay an unfinalized settlement as s
   assert.equal(frames.some((frame) => frame.event === "delta"), false);
 });
 
+test("pre-attach pending-finalization obligation survives into the live settle wait", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "pre-attach-pending-finalization-race",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    result: { ok: true, tool: "narration.review", data: { review_id: "pre-attach-race-review" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.code === "turn_finalization_obligation_unmet"
+      && error.details?.recovery_mode === "pending_finalization",
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+});
+
+test("pre-attach pending-finalization accepts one exact finalized delivery", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "pre-attach-pending-finalization-success",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const renderedText = "恢复后的唯一精确交付。";
+  const renderedSha256 = canonicalTextSha256(renderedText);
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "pre-attach-finalization-success",
+        rendered_text: renderedText,
+        rendered_sha256: renderedSha256,
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: renderedText }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  assert.deepEqual(await attached, { opened: true });
+  assert.deepEqual(
+    frames.filter((frame) => frame.event === "delta"),
+    [{ event: "delta", data: { text: renderedText } }],
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 0);
+  assert.deepEqual(host.takeStreamedDelivery(), {
+    finalizationId: "pre-attach-finalization-success",
+    renderedText,
+    renderedSha256,
+  });
+  assert.equal(host.takeStreamedDelivery(), null);
+});
+
+test("invalid finalization digest cannot satisfy a recovery obligation", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "invalid-finalization-digest",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "invalid-finalization-digest",
+        rendered_text: "摘要与文本不一致。",
+        rendered_sha256: `sha256:${"0".repeat(64)}`,
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "摘要与文本不一致。" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.code === "turn_finalization_obligation_unmet"
+      && error.details?.finalization_receipt_observed === false,
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+  assert.equal(host.takeStreamedDelivery(), null);
+});
+
 test("recovery delivery rejected by a disconnected attach stream cannot report success", async () => {
   const child = fakeChild();
   const host = new PiCocRpcHost({
@@ -1684,7 +1886,7 @@ test("recovery delivery rejected by a disconnected attach stream cannot report s
       data: {
         finalization_id: "disconnected-finalization",
         rendered_text: "恢复后的精确文本",
-        rendered_sha256: "sha256:disconnected-finalization",
+        rendered_sha256: canonicalTextSha256("恢复后的精确文本"),
       },
     },
   })}\n`);
