@@ -1709,6 +1709,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     unbound_visible_deltas.append(
                         f"{receipt.get('finalization_id') or 'unknown'}:{category}"
                     )
+    # commit-snapshots 已由 git 历史替代，此探针仅对遗留战役有效。
     commit_snapshot_id = None
     snapshot_digest = None
     current_save_digest = None

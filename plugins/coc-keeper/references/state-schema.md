@@ -15,6 +15,8 @@ Keeper secrets.
 ├── rules/
 ├── investigators/
 ├── campaigns/
+├── repos/
+│   └── campaigns/                 # sidecar bare git: <campaign-id>.git
 ├── runtime/
 │   └── host-sessions/              # disposable startup/compaction epoch markers
 ├── playtests/
@@ -365,6 +367,43 @@ as their first campaign read. Concurrent host sessions are resolved by exact
 session identity rather than the most recently updated marker. User prompt text
 retained there remains explicitly
 `unclassified_host_input` until semantic Keeper judgment and `state.journal`.
+
+## Campaign Git History
+
+Per-campaign history is a sidecar bare git repository at
+`.coc/repos/campaigns/<campaign-id>.git`. The campaign directory is the
+worktree; it never contains a `.git` directory.
+`plugins/coc-keeper/scripts/coc_git_history.py` is the sole writer (Commit
+Coordinator). Other agents and scripts must not invoke git against a campaign
+repo. Formal decisions live in `docs/specs/campaign-git-history.md` and
+`docs/adr/0001-campaign-git-history.md`.
+
+`turn.finalize` commits after every canonical write and before delivery. A
+failed commit fails finalize. Campaign creation lands one
+`COC-Commit-Type: baseline` commit and does not backfill older turns. Each
+finalized turn is `COC-Commit-Type: turn`. In-flight leftover
+`save/commit-snapshots/` directories are neither imported, read, nor deleted.
+
+The ignore face is the Coordinator constant `IGNORE_PATHS`, written only to
+the bare repo `info/exclude` (never a campaign-tree `.gitignore`):
+`logs/pending-turns/`, `save/session-state.json`, `save/toolbox-ledger.json`,
+`save/commit-snapshots/`, `save/development-settlements/`,
+`save/roll-operation-receipts.json`, `memory/index.json`.
+
+Crash recovery checks out only HEAD's turn-scoped `save/` subset — the same
+paths the retired copytree snapshot captured. It never restores
+`session-state.json`, `toolbox-ledger.json`, `development-settlements/`,
+`roll-operation-receipts.json`, or a leftover `commit-snapshots/` directory.
+The ignore list and the restore subset are independent.
+`save/continuation/` remains a rebuildable resume cache, not the history
+store.
+
+Read-only diagnostic (reports only; never repairs; zero turn commits and zero
+receipts is an explicit failure, not a vacuous pass):
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_git_history_verify.py --root . --campaign <id>
+```
 
 ## Logs And Memory
 
