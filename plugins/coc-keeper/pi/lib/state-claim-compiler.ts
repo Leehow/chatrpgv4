@@ -30,6 +30,31 @@ type RetainedContext = {
 };
 
 type InferenceOutcome = { result: JsonObject; responseModel: JsonObject };
+export type StateClaimCompilerFailureClass =
+  | "capability_unsupported"
+  | "provider_unavailable"
+  | "timeout"
+  | "protocol_invalid"
+  | "result_invalid";
+
+export class PiStateClaimCompilerFailure extends Error {
+  readonly failureClass: StateClaimCompilerFailureClass;
+  readonly requestedModel: JsonObject | null;
+  readonly elapsedMs: number;
+
+  constructor(
+    message: string,
+    failureClass: StateClaimCompilerFailureClass,
+    requestedModel: JsonObject | null,
+    elapsedMs: number,
+  ) {
+    super(message);
+    this.name = "PiStateClaimCompilerFailure";
+    this.failureClass = failureClass;
+    this.requestedModel = requestedModel;
+    this.elapsedMs = Math.max(0, Math.round(elapsedMs));
+  }
+}
 type InflightEntry = {
   controller: AbortController;
   promise: Promise<InferenceOutcome>;
@@ -81,6 +106,31 @@ function requiredToolChoice(api: string): "required" | "any" {
     "google-generative-ai", "google-vertex",
   ]).has(api)) return "any";
   throw new Error("state_claim_model_api_unsupported");
+}
+
+function requestedModelIdentity(ctx: ExtensionContext): JsonObject | null {
+  return ctx.model
+    ? { provider: ctx.model.provider, id: ctx.model.id, api: ctx.model.api }
+    : null;
+}
+
+function failureClass(message: string): StateClaimCompilerFailureClass {
+  if (
+    message === "state_claim_model_api_unsupported"
+    || message.includes("requires JSON-schema constrained sampling")
+    || message.includes("strict tools are unsupported")
+  ) return "capability_unsupported";
+  if (message === "state_claim_compiler_timeout") return "timeout";
+  if (
+    message.startsWith("state_claim_model_protocol_")
+    || message.startsWith("state_claim_model_arguments_")
+    || message.startsWith("state_claim_response_")
+  ) return "protocol_invalid";
+  if (
+    message.startsWith("state_claim_result_")
+    || message.startsWith("state_claim_coverage_")
+  ) return "result_invalid";
+  return "provider_unavailable";
 }
 
 function waiterOutcome(
@@ -253,7 +303,7 @@ async function directInference(input: JsonObject, schema: JsonObject, runtime: {
     name: STATE_CLAIM_FUNCTION,
     description: "Return the closed semantic state-claim compilation.",
     parameters: schema as Tool["parameters"],
-    constrainedSampling: { type: "json_schema", strict: "require" },
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
   };
   const response = await runtime.ctx.modelRegistry.complete(
     model,
@@ -285,7 +335,7 @@ export class PiStateClaimCompiler {
   private readonly retained = new Map<string, RetainedContext>();
   private readonly inflight = new Map<string, InflightEntry>();
   private readonly cache = new Map<string, InferenceOutcome>();
-  private readonly failures = new Map<string, string>();
+  private readonly failures = new Map<string, PiStateClaimCompilerFailure>();
   private failureGeneration = 0;
 
   constructor(infer: Inference = directInference, timeoutMs = 20_000) {
@@ -324,14 +374,28 @@ export class PiStateClaimCompiler {
     this.failures.clear();
   }
 
-  private rememberFailure(key: string, error: unknown, generation: number): never {
+  private rememberFailure(
+    key: string,
+    error: unknown,
+    generation: number,
+    requestedModel: JsonObject | null,
+    startedAt: number,
+  ): never {
     const message = error instanceof Error && error.message
       ? error.message : "state_claim_compiler_unavailable";
+    const failure = error instanceof PiStateClaimCompilerFailure
+      ? error
+      : new PiStateClaimCompilerFailure(
+          message,
+          failureClass(message),
+          requestedModel,
+          Date.now() - startedAt,
+        );
     if (generation === this.failureGeneration) {
-      this.failures.set(key, message);
+      this.failures.set(key, failure);
       if (this.failures.size > 64) this.failures.delete(this.failures.keys().next().value!);
     }
-    throw new Error(message);
+    throw failure;
   }
 
   async compileReview(options: {
@@ -364,11 +428,13 @@ export class PiStateClaimCompiler {
       turn_id: retained.turnId,
     });
     const latchedFailure = this.failures.get(failureKey);
-    if (latchedFailure) throw new Error(latchedFailure);
+    if (latchedFailure) throw latchedFailure;
     let compiled = this.cache.get(inputDigest);
     if (!compiled) {
       let entry = this.inflight.get(inputDigest);
       if (!entry) {
+        const startedAt = Date.now();
+        const requestedModel = requestedModelIdentity(options.ctx);
         const controller = new AbortController();
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const timeoutFailure = new Promise<never>((_resolve, reject) => {
@@ -389,7 +455,7 @@ export class PiStateClaimCompiler {
           })),
           timeoutFailure,
         ]).catch((error) => this.rememberFailure(
-          failureKey, error, failureGeneration,
+          failureKey, error, failureGeneration, requestedModel, startedAt,
         )).finally(() => {
           if (timeout !== undefined) clearTimeout(timeout);
           if (this.inflight.get(inputDigest) === ownedEntry) {
@@ -411,9 +477,7 @@ export class PiStateClaimCompiler {
       settlement_snapshot_id: retained.settlementSnapshotId,
       mechanics_bundle_sha256: retained.mechanicsBundleSha256,
     };
-    const requestedModel = options.ctx.model
-      ? { provider: options.ctx.model.provider, id: options.ctx.model.id, api: options.ctx.model.api }
-      : null;
+    const requestedModel = requestedModelIdentity(options.ctx);
     const receipt: JsonObject = {
       schema_version: 1, contract_id: "coc.pi-state-claim-compilation-receipt.v1",
       status: "completed", compiler_contract_id: "coc.pi-state-claim-compiler.v1",

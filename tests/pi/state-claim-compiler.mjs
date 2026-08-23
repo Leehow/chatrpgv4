@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const moduleUrl = pathToFileURL(path.join(
@@ -11,6 +12,9 @@ const moduleUrl = pathToFileURL(path.join(
 const {
   PiStateClaimCompiler, canonicalDigest, draftParagraphs,
 } = await import(moduleUrl);
+const { resolveJsonSchemaStrictSampling } = await import(pathToFileURL(
+  embeddedPiFile(root, "pi-ai", "dist/api/constrained-sampling.js"),
+).href);
 
 const campaignId = "compiler-fixture";
 const subjectRef = "pc:thomas-hayes";
@@ -455,4 +459,60 @@ test("direct inference uses provider-supported one-tool requirement shapes", asy
     arguments: reviewArguments("No state change."),
   }), /state_claim_model_api_unsupported/);
   assert.equal(calls, 0);
+});
+
+test("direct inference prefers strict sampling without rejecting grok-4.5 capability", async () => {
+  const compiler = new PiStateClaimCompiler();
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  let observedTool;
+  const ctx = {
+    model: {
+      provider: "xai",
+      id: "grok-4.5",
+      api: "openai-responses",
+      compat: { supportsStrictMode: false },
+    },
+    modelRegistry: {
+      complete: async (_model, context, options) => {
+        observedTool = context.tools[0];
+        assert.deepEqual(observedTool.constrainedSampling, {
+          type: "json_schema",
+          strict: "prefer",
+        });
+        assert.equal(
+          resolveJsonSchemaStrictSampling(observedTool, false),
+          undefined,
+          "unsupported Grok strict capability must fall back to ordinary forced tool calling",
+        );
+        assert.equal(
+          resolveJsonSchemaStrictSampling(observedTool, true),
+          true,
+          "strict-capable providers must retain provider-side schema enforcement",
+        );
+        assert.equal(options.toolChoice, "required");
+        const input = JSON.parse(context.messages[0].content[0].text);
+        return {
+          stopReason: "toolUse",
+          content: [{
+            type: "toolCall",
+            name: "emit_state_claim_compilation",
+            arguments: resultFor(input, []),
+          }],
+          provider: "xai",
+          model: "grok-4.5",
+          api: "openai-responses",
+        };
+      },
+    },
+  };
+  const receipt = await compiler.compileReview({
+    ...runtime,
+    ctx,
+    arguments: reviewArguments("No state change."),
+  });
+  assert.ok(observedTool);
+  assert.equal(receipt.status, "completed");
+  assert.deepEqual(receipt.requested_model, {
+    provider: "xai", id: "grok-4.5", api: "openai-responses",
+  });
 });
