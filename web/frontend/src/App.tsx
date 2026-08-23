@@ -1178,174 +1178,178 @@ export default function App() {
       let settledText = "";
       const controller = new AbortController();
       turnAbortRef.current = controller;
-      try {
-        await api.streamTurn(active.session_id, text, provider, model, effectiveThinking, playerIntent, {
-          onTool: (phase, tool) => {
-            if (!ownsMessages()) return;
-            if (phase === "start") {
-              setMessages(foldInterimSegment);
-              settledText = "";
-            }
-            const display = tool.replace(/^coc_invoke:/, "");
-            if (!display) return;
-            // Catalog probes are internal deliberation noise, not table steps.
-            if (display.startsWith("coc_discover")) return;
-            if (phase === "start") {
-              const id = ++toolStepSeq.current;
-              setToolSteps((prev) => [...prev, { id, label: display, startedAt: Date.now() }]);
-            } else if (phase === "end") {
-              setToolSteps((prev) => {
-                const next = [...prev];
-                for (let i = next.length - 1; i >= 0; i--) {
-                  if (next[i].label === display && next[i].endedAt == null) {
-                    next[i] = { ...next[i], endedAt: Date.now() };
-                    break;
-                  }
-                }
-                return next;
-              });
-            }
-          },
-          onDelta: (delta) => {
-            if (!ownsMessages()) return;
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last && last.kind === "keeper" && last.streaming) {
-                // Never reset startedAt — elapsed is input→all-content, not drip.
-                next[next.length - 1] = {
-                  ...last,
-                  text: last.text + delta,
-                  startedAt: last.startedAt ?? inputAt,
-                };
-                settledText = last.text + delta;
-              }
-              return next;
-            });
-          },
-          onDeltaReset: () => {
-            if (!ownsMessages()) return;
+      const streamError = await api.streamTurn(active.session_id, text, provider, model, effectiveThinking, playerIntent, {
+        onTool: (phase, tool) => {
+          if (!ownsMessages()) return;
+          if (phase === "start") {
+            setMessages(foldInterimSegment);
             settledText = "";
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last && last.kind === "keeper" && last.streaming) {
-                next[next.length - 1] = {
-                  ...last,
-                  text: "",
-                  startedAt: last.startedAt ?? inputAt,
-                };
-              }
-              return next;
-            });
-          },
-          onThinking: (chunk) => {
-            if (!ownsMessages()) return;
-            setKpThinking((prev) => (prev + chunk).slice(-8000));
-          },
-          onUsage: (usage) => {
-            if (!ownsMessages()) return;
-            const value = { input: usage.input, output: usage.output };
-            liveUsageRef.current = value;
-            setLiveUsage(value);
-          },
-          onTurn: ({ events, state: nextState, usage }) => {
-            if (!ownsMessages()) return;
-            const narration = events
-              .filter(
-                (e) =>
-                  (e.type === "narration" || e.type === "speech") &&
-                  e.visibility === "player",
-              )
-              .map((e) => String(e.payload?.text ?? ""))
-              .filter((t) => t.trim())
-              .join("\n\n");
-            if (narration) settledText = narration;
-            // Update text now; duration is closed only after the SSE stream ends
-            // so we measure input → all content delivered, not mid-stream.
-            setMessages((prev) => {
+          }
+          const display = tool.replace(/^coc_invoke:/, "");
+          if (!display) return;
+          // Catalog probes are internal deliberation noise, not table steps.
+          if (display.startsWith("coc_discover")) return;
+          if (phase === "start") {
+            const id = ++toolStepSeq.current;
+            setToolSteps((prev) => [...prev, { id, label: display, startedAt: Date.now() }]);
+          } else if (phase === "end") {
+            setToolSteps((prev) => {
               const next = [...prev];
               for (let i = next.length - 1; i >= 0; i--) {
-                const row = next[i];
-                if (row.kind !== "keeper") continue;
-                const live = liveUsageRef.current;
-                const settledUsage =
-                  live && (live.input != null || live.output != null)
-                    ? { input: live.input ?? undefined, output: live.output ?? undefined }
-                    : usage &&
-                        (typeof usage.input_tokens === "number" ||
-                          typeof usage.output_tokens === "number")
-                      ? {
-                          input: usage.input_tokens ?? undefined,
-                          output: usage.output_tokens ?? undefined,
-                        }
-                      : undefined;
-                next[i] = {
-                  ...row,
-                  text: narration || row.text || settledText,
-                  startedAt: row.startedAt ?? inputAt,
-                  ...(settledUsage ? { usage: settledUsage } : {}),
-                };
-                break;
+                if (next[i].label === display && next[i].endedAt == null) {
+                  next[i] = { ...next[i], endedAt: Date.now() };
+                  break;
+                }
               }
               return next;
             });
-            if (nextState && !nextState.error) applyGameState(nextState);
-            for (const ev of events || []) {
-              if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
-            }
-            setToolSteps([]);
-            setLiveUsage(null);
-            liveUsageRef.current = null;
-          },
-          onHandoff: (payload) => {
-            if (!ownsMessages()) return;
-            noteHandoff(payload);
-          },
-          onError: (message) => {
-            if (!ownsMessages()) return;
-            const finishedAt = Date.now();
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last && last.kind === "keeper" && last.streaming && !last.text) {
-                next.pop();
-              } else if (last && last.kind === "keeper") {
-                const start = last.startedAt ?? inputAt;
-                next[next.length - 1] = {
-                  ...last,
-                  streaming: false,
-                  at: finishedAt,
-                  startedAt: start,
-                  durationMs: finishedAt - start,
-                };
-              }
-              return next;
-            });
-            setError(friendlyError(message));
-            setToolSteps([]);
-            setLiveUsage(null);
-            liveUsageRef.current = null;
-          },
-          onHandout: (card) => {
-            if (!ownsMessages()) return;
-            appendHandoutMessage(setMessages, card);
-          },
-          onNotice: (message) => {
-            if (!ownsMessages()) return;
-            if (!message) return;
-            setMessages((prev) => [
-              ...prev,
-              { kind: "note", text: message, tone: "info", at: Date.now() },
-            ]);
-          },
+          }
         },
-        controller.signal,
+        onDelta: (delta) => {
+          if (!ownsMessages()) return;
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last && last.kind === "keeper" && last.streaming) {
+              // Never reset startedAt — elapsed is input→all-content, not drip.
+              next[next.length - 1] = {
+                ...last,
+                text: last.text + delta,
+                startedAt: last.startedAt ?? inputAt,
+              };
+              settledText = last.text + delta;
+            }
+            return next;
+          });
+        },
+        onDeltaReset: () => {
+          if (!ownsMessages()) return;
+          settledText = "";
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last && last.kind === "keeper" && last.streaming) {
+              next[next.length - 1] = {
+                ...last,
+                text: "",
+                startedAt: last.startedAt ?? inputAt,
+              };
+            }
+            return next;
+          });
+        },
+        onThinking: (chunk) => {
+          if (!ownsMessages()) return;
+          setKpThinking((prev) => (prev + chunk).slice(-8000));
+        },
+        onUsage: (usage) => {
+          if (!ownsMessages()) return;
+          const value = { input: usage.input, output: usage.output };
+          liveUsageRef.current = value;
+          setLiveUsage(value);
+        },
+        onTurn: ({ events, state: nextState, usage }) => {
+          if (!ownsMessages()) return;
+          const narration = events
+            .filter(
+              (e) =>
+                (e.type === "narration" || e.type === "speech") &&
+                e.visibility === "player",
+            )
+            .map((e) => String(e.payload?.text ?? ""))
+            .filter((t) => t.trim())
+            .join("\n\n");
+          if (narration) settledText = narration;
+          // Update text now; duration is closed only after the SSE stream ends
+          // so we measure input → all content delivered, not mid-stream.
+          setMessages((prev) => {
+            const next = [...prev];
+            for (let i = next.length - 1; i >= 0; i--) {
+              const row = next[i];
+              if (row.kind !== "keeper") continue;
+              const live = liveUsageRef.current;
+              const settledUsage =
+                live && (live.input != null || live.output != null)
+                  ? { input: live.input ?? undefined, output: live.output ?? undefined }
+                  : usage &&
+                      (typeof usage.input_tokens === "number" ||
+                        typeof usage.output_tokens === "number")
+                    ? {
+                        input: usage.input_tokens ?? undefined,
+                        output: usage.output_tokens ?? undefined,
+                      }
+                    : undefined;
+              next[i] = {
+                ...row,
+                text: narration || row.text || settledText,
+                startedAt: row.startedAt ?? inputAt,
+                ...(settledUsage ? { usage: settledUsage } : {}),
+              };
+              break;
+            }
+            return next;
+          });
+          if (nextState && !nextState.error) applyGameState(nextState);
+          for (const ev of events || []) {
+            if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
+          }
+          setToolSteps([]);
+          setLiveUsage(null);
+          liveUsageRef.current = null;
+        },
+        onHandoff: (payload) => {
+          if (!ownsMessages()) return;
+          noteHandoff(payload);
+        },
+        onError: (message) => {
+          if (!ownsMessages()) return;
+          const finishedAt = Date.now();
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last && last.kind === "keeper" && last.streaming && !last.text) {
+              next.pop();
+            } else if (last && last.kind === "keeper") {
+              const start = last.startedAt ?? inputAt;
+              next[next.length - 1] = {
+                ...last,
+                streaming: false,
+                at: finishedAt,
+                startedAt: start,
+                durationMs: finishedAt - start,
+              };
+            }
+            return next;
+          });
+          setError(friendlyError(message));
+          setToolSteps([]);
+          setLiveUsage(null);
+          liveUsageRef.current = null;
+        },
+        onHandout: (card) => {
+          if (!ownsMessages()) return;
+          appendHandoutMessage(setMessages, card);
+        },
+        onNotice: (message) => {
+          if (!ownsMessages()) return;
+          if (!message) return;
+          setMessages((prev) => [
+            ...prev,
+            { kind: "note", text: message, tone: "info", at: Date.now() },
+          ]);
+        },
+      },
+      controller.signal,
+      ).then(
+        () => null,
+        (error: unknown) => error,
       );
-      } catch (e) {
+      if (streamError !== null) {
         if (turnAbortRef.current === controller) turnAbortRef.current = null;
         if (!ownsMessages()) return;
-        setError(friendlyError(e instanceof Error ? e.message : String(e)));
+        setError(friendlyError(
+          streamError instanceof Error ? streamError.message : String(streamError),
+        ));
         setBusy(false);
         return;
       }
