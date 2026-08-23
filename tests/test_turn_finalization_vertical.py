@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import sys
 
+import pytest
+
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "coc-keeper" / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -1782,7 +1784,9 @@ def _collect_roll_ids(value: object) -> set[str]:
     return found
 
 
-def _assert_pi_output_context_contract(envelope: dict) -> None:
+def _assert_pi_output_context_contract(
+    envelope: dict, *, allowed_refs: set[str],
+) -> None:
     assert envelope["ok"] is True
     assert envelope["tool"] == "turn.output_context"
     data = envelope["data"]
@@ -1796,6 +1800,7 @@ def _assert_pi_output_context_contract(envelope: dict) -> None:
     refs = data["contract_projection"]["agency_authority"]["pc_subject_refs"]
     assert isinstance(refs, list) and refs
     assert all(isinstance(ref, str) and ref.strip() for ref in refs)
+    assert set(refs) <= allowed_refs
     for key in (
         "turn_id", "source_digest", "settlement_snapshot_id",
         "mechanics_bundle_sha256",
@@ -1803,20 +1808,54 @@ def _assert_pi_output_context_contract(envelope: dict) -> None:
         assert isinstance(data.get(key), str) and data[key]
 
 
-def test_pc_subject_refs_survive_failed_combat_when_party_is_empty(
-    tmp_path: Path,
-) -> None:
-    campaign_dir = tmp_path / "campaign"
-    campaign_dir.mkdir()
+def _agency_campaign(
+    tmp_path: Path, *, party_ids: list[str], sheets: list[str] | None = None,
+) -> Path:
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "camp"
+    campaign_dir.mkdir(parents=True)
     _write_json(
         campaign_dir / "party.json",
         {
             "schema_version": 1,
-            "campaign_id": "campaign",
-            "investigator_ids": [],
-            "active_investigator_ids": [],
+            "campaign_id": "camp",
+            "investigator_ids": list(party_ids),
+            "active_investigator_ids": list(party_ids),
         },
     )
+    for ident in sheets or []:
+        _write_json(
+            tmp_path / ".coc" / "investigators" / ident / "character.json",
+            {"id": ident},
+        )
+    return campaign_dir
+
+
+def _failed_combat(investigator: str, decision_id: str) -> dict:
+    return {
+        "ok": False,
+        "tool": "combat.resolve",
+        "args": {"investigator": investigator, "decision_id": decision_id},
+        "data": None,
+    }
+
+
+def _failed_reaction(investigator: str, decision_id: str) -> dict:
+    return {
+        "ok": False,
+        "tool": "npc.reaction",
+        "args": {
+            "investigator": investigator,
+            "npc_id": "npc-walter-corbitt",
+            "decision_id": decision_id,
+        },
+        "data": None,
+    }
+
+
+def test_pc_subject_refs_ignore_unknown_ids_from_failed_calls(
+    tmp_path: Path,
+) -> None:
+    campaign_dir = _agency_campaign(tmp_path, party_ids=["thomas-hayes"])
     window = [
         {
             "ok": True,
@@ -1827,40 +1866,74 @@ def test_pc_subject_refs_survive_failed_combat_when_party_is_empty(
             },
             "data": {"investigator_id": "thomas-hayes"},
         },
-        {
-            "ok": False,
-            "tool": "combat.resolve",
-            "args": {
-                "investigator": "thomas-hayes",
-                "decision_id": "combat-fail-1",
-            },
-            "data": None,
-        },
-        {
-            "ok": False,
-            "tool": "combat.resolve",
-            "args": {
-                "investigator": "thomas-hayes",
-                "decision_id": "combat-fail-2",
-            },
-            "data": None,
-        },
+        _failed_combat("npc-walter-corbitt", "combat-fail-npc"),
+        _failed_combat("not-a-real-pc", "combat-fail-typo"),
+        _failed_reaction("npc-walter-corbitt", "reaction-fail-npc"),
     ]
-    failed_only = [row for row in window if row.get("ok") is not True]
     refs = coc_turn_finalization._pc_subject_refs(
         campaign_dir,
-        window=failed_only,
+        window=window,
         journal={"args": {"decision_id": "journal-mixed"}, "data": {}},
     )
     assert refs == ["pc:thomas-hayes"]
     deltas = coc_turn_finalization._project_state_deltas(window)
-    assert all(row.get("source_decision_id") != "combat-fail-1" for row in deltas)
-    assert all(row.get("source_decision_id") != "combat-fail-2" for row in deltas)
+    assert all(
+        row.get("source_decision_id") not in {
+            "combat-fail-npc", "combat-fail-typo", "reaction-fail-npc",
+        }
+        for row in deltas
+    )
+
+
+def test_pc_subject_refs_empty_party_without_sheet_does_not_mint(
+    tmp_path: Path,
+) -> None:
+    campaign_dir = _agency_campaign(tmp_path, party_ids=[])
+    refs = coc_turn_finalization._pc_subject_refs(
+        campaign_dir,
+        window=[
+            _failed_combat("thomas-hayes", "combat-fail-1"),
+            _failed_combat("thomas-hayes", "combat-fail-2"),
+        ],
+        journal={"args": {"decision_id": "journal-mixed"}, "data": {}},
+    )
+    assert refs == []
+
+
+def test_pc_subject_refs_empty_party_keeps_sheet_backed_pc(
+    tmp_path: Path,
+) -> None:
+    campaign_dir = _agency_campaign(
+        tmp_path, party_ids=[], sheets=["thomas-hayes"],
+    )
+    refs = coc_turn_finalization._pc_subject_refs(
+        campaign_dir,
+        window=[
+            _failed_combat("thomas-hayes", "combat-fail-known"),
+            _failed_combat("npc-walter-corbitt", "combat-fail-npc"),
+        ],
+        journal={"args": {"decision_id": "journal-mixed"}, "data": {}},
+    )
+    assert refs == ["pc:thomas-hayes"]
+
+
+def test_pc_subject_refs_corrupt_party_fails_closed(tmp_path: Path) -> None:
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "camp"
+    campaign_dir.mkdir(parents=True)
+    (campaign_dir / "party.json").write_text("{not-json", encoding="utf-8")
+    with pytest.raises(coc_turn_finalization.TurnContractError) as raised:
+        coc_turn_finalization._pc_subject_refs(
+            campaign_dir,
+            window=[_failed_combat("thomas-hayes", "combat-fail")],
+            journal={"args": {"decision_id": "journal-mixed"}, "data": {}},
+        )
+    assert raised.value.code == "state_corrupt"
 
 
 def test_mixed_combat_pending_turn_keeps_pc_subject_refs(
     tmp_path: Path, monkeypatch,
 ) -> None:
+    # Membership only. Does not claim to restore a missing agency_review_operation card.
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     workspace = tmp_path / "workspace"
     coc_root = workspace / ".coc"
@@ -1924,6 +1997,27 @@ def test_mixed_combat_pending_turn_keeps_pc_subject_refs(
         )
         assert failed["ok"] is False, failed
         failures.append(failed)
+    npc_fail = invoke(
+        "combat.resolve",
+        {
+            "affordance_id": "not-a-real-affordance",
+            "investigator": "npc-walter-corbitt",
+            "weapon_id": "unarmed",
+            "decision_id": "combat-fail-npc",
+        },
+    )
+    assert npc_fail["ok"] is False, npc_fail
+    typo_fail = invoke(
+        "combat.resolve",
+        {
+            "affordance_id": "not-a-real-affordance",
+            "investigator": "not-a-real-pc",
+            "weapon_id": "unarmed",
+            "decision_id": "combat-fail-typo",
+        },
+    )
+    assert typo_fail["ok"] is False, typo_fail
+    failures.extend([npc_fail, typo_fail])
     journal = invoke(
         "state.journal",
         {
@@ -1936,7 +2030,9 @@ def test_mixed_combat_pending_turn_keeps_pc_subject_refs(
 
     context = coc_turn_finalization.build_output_context(campaign_dir)
     refs = context["contract_projection"]["agency_authority"]["pc_subject_refs"]
-    assert f"pc:{investigator_id}" in refs
+    allowed = {f"pc:{investigator_id}"}
+    assert refs == [f"pc:{investigator_id}"]
+    assert set(refs) <= allowed
     public_ids = {
         str(row.get("roll_id") or "")
         for row in context["mechanics_bundle"]["public_check"]
@@ -1950,10 +2046,10 @@ def test_mixed_combat_pending_turn_keeps_pc_subject_refs(
     assert not failed_roll_ids & public_ids
 
     first = invoke("turn.output_context")
-    _assert_pi_output_context_contract(first)
-    assert f"pc:{investigator_id}" in first["data"]["contract_projection"][
-        "agency_authority"
-    ]["pc_subject_refs"]
+    _assert_pi_output_context_contract(first, allowed_refs=allowed)
+    assert first["data"]["contract_projection"]["agency_authority"][
+        "pc_subject_refs"
+    ] == [f"pc:{investigator_id}"]
     assert first["data"]["agency_review_operation"]["operation"] == "narration.review"
     replay = invoke("turn.output_context")
     assert replay["ok"] is True, replay
