@@ -30,7 +30,8 @@ def _node(script: Path, *args: str, env: dict[str, str] | None = None) -> dict:
         ["node", "--experimental-strip-types", str(script), *args],
         cwd=ROOT, env=run_env, check=True, capture_output=True, text=True,
     )
-    return json.loads(completed.stdout)
+    output = completed.stdout.strip()
+    return json.loads(output) if output else {}
 
 
 def _node_test(*scripts: Path, env: dict[str, str] | None = None) -> None:
@@ -334,6 +335,10 @@ def test_pi_chargen_delegate_allocates_campaign_scoped_ids():
     assert result["allocated"] != "inv-investigator"
     assert result["journalistInterestCount"] >= 6
     assert result["singleInterestCount"] >= 5
+
+
+def test_pi_setup_complete_binds_the_retained_handoff_decision():
+    _node(ROOT / "tests/pi/setup-complete-decision-binding.mjs", str(ROOT))
 
 
 def test_pi_opening_forwards_only_contract_selected_era_adaptive_creation():

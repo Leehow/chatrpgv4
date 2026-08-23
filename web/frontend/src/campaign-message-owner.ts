@@ -39,6 +39,15 @@ export function ownsCampaignMessageToken(
     && current.generation === token.generation;
 }
 
+export function campaignSessionAfterMessageOpen<
+  Session extends { campaign_id: string },
+>(
+  current: Session | null,
+  owner: CampaignMessageOwner,
+): Session | null {
+  return current?.campaign_id === owner.campaignId ? current : null;
+}
+
 export function releaseCampaignMessages(
   current: CampaignMessageOwner,
 ): CampaignMessageOwner {

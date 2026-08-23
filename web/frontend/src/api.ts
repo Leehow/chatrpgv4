@@ -567,7 +567,6 @@ export async function streamTurn(
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let sawEnd = false;
   let terminalError: string | null = null;
   for (;;) {
     let read: ReadableStreamReadResult<Uint8Array>;
@@ -658,7 +657,8 @@ export async function streamTurn(
       } else if (event === "notice") {
         handlers.onNotice?.(String(data.message ?? ""));
       } else if (event === "end") {
-        sawEnd = true;
+        if (terminalError !== null) throw new Error(terminalError);
+        return;
       } else if (event === "delivery_ack_required") {
         const finalizationId = String(data.finalization_id ?? "");
         const renderedSha256 = String(data.rendered_sha256 ?? "");
@@ -686,16 +686,12 @@ export async function streamTurn(
           receipt: data.receipt,
           at: data.at as string | number | undefined,
         });
-      } else if (event === "end") {
-        return;
       }
     }
   }
   if (signal?.aborted) return;
   if (terminalError !== null) throw new Error(terminalError);
-  if (!sawEnd) {
-    const message = "回合数据流在服务器终止帧前结束。";
-    handlers.onError?.(message);
-    throw new Error(message);
-  }
+  const message = "回合数据流在服务器终止帧前结束。";
+  handlers.onError?.(message);
+  throw new Error(message);
 }

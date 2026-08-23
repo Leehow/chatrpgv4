@@ -97,6 +97,67 @@ test("streamTurn rejects a clean HTTP EOF before the explicit end frame", async 
   }
 });
 
+test("streamTurn resolves at the explicit end frame before a later reader failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const errors = [];
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      const enc = new TextEncoder();
+      controller.enqueue(enc.encode(sseFrame("end", {})));
+      setTimeout(() => controller.error(new Error("late transport reset")), 0);
+    },
+  }), { status: 200 });
+  try {
+    await streamTurn(
+      "sid-terminal-end",
+      "",
+      "p",
+      "m",
+      "off",
+      undefined,
+      { onError: (message) => errors.push(message) },
+      undefined,
+      { attach: true },
+    );
+    assert.deepEqual(errors, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamTurn rejects a typed error observed before the explicit end frame", async () => {
+  const originalFetch = globalThis.fetch;
+  const errors = [];
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      const enc = new TextEncoder();
+      controller.enqueue(enc.encode([
+        sseFrame("error", { message: "typed terminal failure" }),
+        sseFrame("end", {}),
+      ].join("")));
+    },
+  }), { status: 200 });
+  try {
+    await assert.rejects(
+      () => streamTurn(
+        "sid-terminal-error",
+        "",
+        "p",
+        "m",
+        "off",
+        undefined,
+        { onError: (message) => errors.push(message) },
+        undefined,
+        { attach: true },
+      ),
+      /typed terminal failure/,
+    );
+    assert.deepEqual(errors, ["typed terminal failure"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("generatePortrait posts campaign and investigator ids without a client prompt", async () => {
   const originalFetch = globalThis.fetch;
   let url;

@@ -24,6 +24,7 @@ import {
 } from "./campaign-viewport-sync";
 import {
   beginCampaignMessageOpen,
+  campaignSessionAfterMessageOpen,
   initialCampaignMessageOwner,
   ownsCampaignMessageToken,
   releaseCampaignMessages,
@@ -635,6 +636,9 @@ export default function App() {
         campaignId,
       );
       messageOwnerRef.current = messageOpen.owner;
+      setSession((current) => (
+        campaignSessionAfterMessageOpen(current, messageOpen.owner)
+      ));
       const ownsMessages = () => (
         openGen === openGenRef.current
         && ownsCampaignMessageToken(messageOwnerRef.current, messageOpen.token)
