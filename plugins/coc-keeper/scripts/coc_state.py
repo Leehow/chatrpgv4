@@ -1015,6 +1015,9 @@ def discard_campaign_generation(
         raise ValueError("campaign path is unsafe") from exc
     if campaign_dir.is_symlink():
         raise ValueError("campaign path is unsafe")
+    import coc_git_history
+
+    coc_git_history.remove_repo(root, campaign_id)
     if campaign_dir.exists():
         if not campaign_dir.is_dir():
             raise ValueError("campaign path is unsafe")
@@ -1657,7 +1660,7 @@ def create_campaign(
             discard_campaign_generation(root, campaign_id, fresh_start=True)
         else:
             raise FileExistsError(f"campaign already exists: {campaign_id}")
-    return _create_campaign_at(
+    campaign_path = _create_campaign_at(
         root,
         campaign_dir,
         campaign_id,
@@ -1668,6 +1671,18 @@ def create_campaign(
         ruleset_id=ruleset_id,
         update_index=True,
     )
+    import coc_git_history
+
+    coc_git_history.ensure_repo(root, campaign_id)
+    coc_git_history.commit_baseline(
+        root,
+        campaign_id,
+        schema_generation=coc_git_history.format_schema_generation(
+            CURRENT_SCHEMA_VERSIONS
+        ),
+        note="initial campaign generation",
+    )
+    return campaign_path
 
 
 def prepare_character_creation_draft(
