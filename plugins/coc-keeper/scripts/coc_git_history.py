@@ -55,6 +55,7 @@ AUTHORITATIVE_STATE_PATHS: tuple[str, ...] = (
     "logs/turn-finalizations.jsonl",
 )
 AUTHORITATIVE_STATE_PREFIXES: tuple[str, ...] = ("save/",)
+PENDING_TURN_RELPATH = "save/pending-turn.json"
 
 # Used only when recovering a corrupt object database with no caller-supplied
 # generation string. Keep in sync with coc_state.CURRENT_SCHEMA_VERSIONS.
@@ -607,7 +608,9 @@ def commit_finalized_turn(
 
     Replay of the same ``Finalization-Id`` returns the existing commit and
     does not create another. Distinct finalizations always record a commit
-    (``--allow-empty``).
+    (``--allow-empty``). A new commit is refused while
+    ``save/pending-turn.json`` is present so an unfinalized later turn cannot
+    bind into this receipt.
     """
     campaign_id = _require_campaign_id(campaign_id)
     if not isinstance(turn_number, int) or isinstance(turn_number, bool) or turn_number < 0:
@@ -626,6 +629,12 @@ def commit_finalized_turn(
     existing = _sha_for_finalization_id(repo, worktree, finalization_id)
     if existing is not None:
         return existing
+    pending = worktree / PENDING_TURN_RELPATH
+    if pending.is_file() and not pending.is_symlink():
+        raise GitHistoryError(
+            "refusing to commit a finalized turn while "
+            f"{PENDING_TURN_RELPATH} exists"
+        )
     subject = f"coc turn {turn_number:04d}: {finalization_id}"
     trailers = [
         ("COC-Commit-Type", "turn"),

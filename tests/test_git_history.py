@@ -255,6 +255,26 @@ def test_commit_finalized_turn_is_idempotent_on_finalization_id(tmp_path):
     assert _commit_count(tmp_path) == 2
 
 
+def test_commit_finalized_turn_refuses_pending_turn_file(tmp_path):
+    _seed_campaign_files(tmp_path)
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    pending = _worktree(tmp_path) / hist.PENDING_TURN_RELPATH
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text('{"status": "pending"}\n', encoding="utf-8")
+    with pytest.raises(hist.GitHistoryError, match="pending-turn.json"):
+        _commit_turn(tmp_path, 1, "fin-pending")
+    assert _commit_count(tmp_path) == 1
+    pending.unlink()
+    first = _commit_turn(tmp_path, 1, "fin-pending")
+    pending.write_text('{"status": "later"}\n', encoding="utf-8")
+    replay = _commit_turn(tmp_path, 1, "fin-pending")
+    assert replay == first
+    assert _commit_count(tmp_path) == 2
+
+
 def test_ignored_paths_are_absent_from_tree(tmp_path):
     worktree = _seed_campaign_files(tmp_path)
     hist.ensure_repo(tmp_path, CAMPAIGN_ID)

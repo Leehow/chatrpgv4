@@ -2607,104 +2607,136 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             and ctx.campaign_dir is not None
             and envelope.get("ok") is True
             and name == "turn.finalize"
-            and log_end_offset is not None
         ):
             data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
-            try:
-                with coc_fileio.campaign_lock(
-                    ctx.campaign_dir,
-                    wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
-                ):
-                    try:
-                        repair_finalization_id = str(
-                            args.get("repair_finalization_id") or ""
-                        ).strip()
-                        if repair_finalization_id:
-                            coc_turn_manifest.complete_undelivered_output_repair(
-                                ctx.campaign_dir,
-                                journal_decision_id=str(
-                                    data.get("journal_decision_id") or ""
-                                ),
-                                previous_finalization_id=repair_finalization_id,
-                                finalization_id=str(
-                                    data.get("finalization_id") or ""
-                                ),
-                                accepted_revision=int(data.get("accepted_revision") or 0),
-                                settlement_snapshot_id=str(data.get("settlement_snapshot_id") or ""),
-                                rendered_text_sha256=str(data.get("rendered_text_sha256") or ""),
-                                contract_projection_sha256=str(data.get("contract_projection_sha256") or ""),
-                                completed_end_offset=log_end_offset,
-                            )
-                        else:
-                            coc_turn_manifest.complete_pending_turn(
-                                ctx.campaign_dir,
-                                journal_decision_id=str(
-                                    data.get("journal_decision_id") or ""
-                                ),
-                                finalization_id=str(
-                                    data.get("finalization_id") or ""
-                                ),
-                                accepted_revision=int(data.get("accepted_revision") or 0),
-                                settlement_snapshot_id=str(data.get("settlement_snapshot_id") or ""),
-                                rendered_text_sha256=str(data.get("rendered_text_sha256") or ""),
-                                contract_projection_sha256=str(data.get("contract_projection_sha256") or ""),
-                                completed_end_offset=log_end_offset,
-                            )
-                    except coc_turn_manifest.TurnManifestError as exc:
-                        envelope.setdefault("warnings", []).append(
-                            "turn finalization is durable, but the bounded source cursor will recover on the next campaign call: "
-                            + str(exc)
-                        )
-                    try:
-                        revision_vector, revision_token = _continuation_revision(ctx)
-                        checkpoint = coc_continuation.publish_finalized_checkpoint(
-                            ctx.campaign_dir,
-                            data,
-                            revision_vector=revision_vector,
-                            revision_token=revision_token,
-                        )
-                    except (
-                        coc_continuation.ContinuationError,
-                        coc_working_set_cache.WorkingSetCacheError,
-                    ) as exc:
-                        envelope.setdefault("warnings", []).append(
-                            "turn finalization is durable, but its rebuildable continuation checkpoint was not published; session.resume will retry from canonical receipts: "
-                            + str(exc)
-                        )
-                    else:
-                        envelope["continuation"] = {
-                            "checkpoint_id": checkpoint["checkpoint_id"],
-                            "turn_number": checkpoint["turn_number"],
-                            "content_sha256": checkpoint["content_sha256"],
-                        }
-            except coc_fileio.CampaignLockError as exc:
-                envelope.setdefault("warnings", []).append(
-                    "turn finalization is durable, but post-finalization cursor/checkpoint publication will recover on the next campaign call: "
-                    + str(exc)
-                )
-        if (
-            ctx is not None
-            and envelope.get("ok") is True
-            and name == "turn.finalize"
-        ):
-            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
-            if (
+            has_receipt = (
                 isinstance(data.get("finalization_id"), str)
-                and data["finalization_id"].strip()
-            ):
-                try:
-                    _commit_finalized_turn_history(ctx, data)
-                except ToolError as exc:
+                and bool(data["finalization_id"].strip())
+            )
+
+            def _fail_history_commit(exc: Exception) -> None:
+                if isinstance(exc, ToolError):
                     error = {"code": exc.code, "message": exc.message}
                     if exc.violations:
                         error["violations"] = exc.violations
                     if exc.details is not None:
                         error["details"] = deepcopy(exc.details)
-                    envelope["ok"] = False
-                    envelope["error"] = error
-                    envelope["hints"] = _error_recovery_hints(exc.code)
-                    envelope.pop("data", None)
-                    envelope.pop("continuation", None)
+                    hints = _error_recovery_hints(exc.code)
+                else:
+                    error = {
+                        "code": "history_commit_failed",
+                        "message": str(exc),
+                    }
+                    hints = _error_recovery_hints("history_commit_failed")
+                envelope["ok"] = False
+                envelope["error"] = error
+                envelope["hints"] = hints
+                envelope.pop("data", None)
+                envelope.pop("continuation", None)
+
+            try:
+                with coc_fileio.campaign_lock(
+                    ctx.campaign_dir,
+                    wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
+                ):
+                    if log_end_offset is not None:
+                        try:
+                            repair_finalization_id = str(
+                                args.get("repair_finalization_id") or ""
+                            ).strip()
+                            if repair_finalization_id:
+                                coc_turn_manifest.complete_undelivered_output_repair(
+                                    ctx.campaign_dir,
+                                    journal_decision_id=str(
+                                        data.get("journal_decision_id") or ""
+                                    ),
+                                    previous_finalization_id=repair_finalization_id,
+                                    finalization_id=str(
+                                        data.get("finalization_id") or ""
+                                    ),
+                                    accepted_revision=int(
+                                        data.get("accepted_revision") or 0
+                                    ),
+                                    settlement_snapshot_id=str(
+                                        data.get("settlement_snapshot_id") or ""
+                                    ),
+                                    rendered_text_sha256=str(
+                                        data.get("rendered_text_sha256") or ""
+                                    ),
+                                    contract_projection_sha256=str(
+                                        data.get("contract_projection_sha256") or ""
+                                    ),
+                                    completed_end_offset=log_end_offset,
+                                )
+                            else:
+                                coc_turn_manifest.complete_pending_turn(
+                                    ctx.campaign_dir,
+                                    journal_decision_id=str(
+                                        data.get("journal_decision_id") or ""
+                                    ),
+                                    finalization_id=str(
+                                        data.get("finalization_id") or ""
+                                    ),
+                                    accepted_revision=int(
+                                        data.get("accepted_revision") or 0
+                                    ),
+                                    settlement_snapshot_id=str(
+                                        data.get("settlement_snapshot_id") or ""
+                                    ),
+                                    rendered_text_sha256=str(
+                                        data.get("rendered_text_sha256") or ""
+                                    ),
+                                    contract_projection_sha256=str(
+                                        data.get("contract_projection_sha256") or ""
+                                    ),
+                                    completed_end_offset=log_end_offset,
+                                )
+                        except coc_turn_manifest.TurnManifestError as exc:
+                            envelope.setdefault("warnings", []).append(
+                                "turn finalization is durable, but the bounded source cursor will recover on the next campaign call: "
+                                + str(exc)
+                            )
+                        try:
+                            revision_vector, revision_token = _continuation_revision(ctx)
+                            checkpoint = coc_continuation.publish_finalized_checkpoint(
+                                ctx.campaign_dir,
+                                data,
+                                revision_vector=revision_vector,
+                                revision_token=revision_token,
+                            )
+                        except (
+                            coc_continuation.ContinuationError,
+                            coc_working_set_cache.WorkingSetCacheError,
+                        ) as exc:
+                            envelope.setdefault("warnings", []).append(
+                                "turn finalization is durable, but its rebuildable continuation checkpoint was not published; session.resume will retry from canonical receipts: "
+                                + str(exc)
+                            )
+                        else:
+                            envelope["continuation"] = {
+                                "checkpoint_id": checkpoint["checkpoint_id"],
+                                "turn_number": checkpoint["turn_number"],
+                                "content_sha256": checkpoint["content_sha256"],
+                            }
+                    if has_receipt:
+                        try:
+                            _commit_finalized_turn_history(ctx, data)
+                        except ToolError as exc:
+                            _fail_history_commit(exc)
+            except coc_fileio.CampaignLockError as exc:
+                if has_receipt:
+                    _fail_history_commit(
+                        ToolError(
+                            "history_commit_failed",
+                            "turn history commit requires the exclusive campaign lock: "
+                            + str(exc),
+                        )
+                    )
+                else:
+                    envelope.setdefault("warnings", []).append(
+                        "turn finalization is durable, but post-finalization cursor/checkpoint publication will recover on the next campaign call: "
+                        + str(exc)
+                    )
         if not retryable or attempt >= max_attempts:
             return envelope
         time.sleep(_TOOL_TRANSIENT_RETRY_DELAY_SECONDS * attempt)

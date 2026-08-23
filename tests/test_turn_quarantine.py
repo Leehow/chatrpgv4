@@ -12,6 +12,8 @@ import importlib.util
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -405,6 +407,126 @@ def test_finalize_wrapper_immediately_proves_clean_git_state(campaign_ws):
     assert "save/pending-turn.json" not in names
     assert "save/run-identity.lock" not in names
     assert lock.is_file()
+
+
+def test_finalize_commit_does_not_bind_next_turn_pending(campaign_ws, monkeypatch):
+    args = _build_finalize_args(campaign_ws, "locked-turn-finalize")
+    original = coc_toolbox.coc_git_history.commit_finalized_turn
+    entered = threading.Event()
+    release = threading.Event()
+
+    def gated(*call_args, **call_kwargs):
+        entered.set()
+        assert release.wait(timeout=8)
+        return original(*call_args, **call_kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_git_history, "commit_finalized_turn", gated
+    )
+    finalized_box: dict[str, dict] = {}
+
+    def finalize():
+        finalized_box["result"] = _run(campaign_ws, "turn.finalize", args)
+
+    worker = threading.Thread(target=finalize)
+    worker.start()
+    assert entered.wait(timeout=8)
+    journal_started = threading.Event()
+    journal_box: dict[str, dict] = {}
+
+    def journal_next_turn():
+        journal_started.set()
+        journal_box["result"] = _run(
+            campaign_ws,
+            "state.journal",
+            {
+                "summary": "journal after paused commit",
+                "player_text": "我在上一回合提交完成前开始下一回合。",
+                "decision_id": "next-turn-during-commit",
+            },
+        )
+
+    journal_worker = threading.Thread(target=journal_next_turn)
+    journal_worker.start()
+    assert journal_started.wait(timeout=5)
+    time.sleep(0.3)
+    assert "result" not in journal_box
+    assert "save/pending-turn.json" not in _tree_names(campaign_ws)
+    release.set()
+    worker.join(timeout=10)
+    journal_worker.join(timeout=15)
+    assert not worker.is_alive()
+    assert not journal_worker.is_alive()
+    finalized = finalized_box["result"]
+    assert finalized["ok"] is True, finalized
+    receipt = finalized["data"]
+    names = _tree_names(campaign_ws)
+    assert "save/pending-turn.json" not in names
+    assert _trailers(campaign_ws)["Finalization-Id"] == receipt["finalization_id"]
+    journaled = journal_box["result"]
+    assert journaled["ok"] is True, journaled
+    pending = campaign_ws["campaign_dir"] / "save" / "pending-turn.json"
+    assert pending.is_file()
+    proof = coc_git_history_verify.state_integrity_proof(
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        expected_finalization_id=receipt["finalization_id"],
+    )
+    codes = [item.code for item in proof.findings]
+    assert "committed_pending_turn" not in codes
+    assert proof.head.finalization_id == receipt["finalization_id"]
+
+
+def test_failed_finalize_commit_cannot_bind_later_pending_turn(
+    campaign_ws, monkeypatch
+):
+    args = _build_finalize_args(campaign_ws, "retry-after-next-turn")
+    before = _commit_count(campaign_ws)
+    receipts_path = campaign_ws["campaign_dir"] / "logs" / "turn-finalizations.jsonl"
+    original = coc_toolbox.coc_git_history.commit_finalized_turn
+
+    def boom(*_args, **_kwargs):
+        raise coc_toolbox.coc_git_history.GitHistoryError("injected commit failure")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_git_history, "commit_finalized_turn", boom
+    )
+    failed = _run(campaign_ws, "turn.finalize", args)
+    assert failed["ok"] is False, failed
+    assert failed["error"]["code"] == "history_commit_failed"
+    last = json.loads(receipts_path.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert last["decision_id"] == "retry-after-next-turn"
+    assert _commit_count(campaign_ws) == before
+    journaled = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "journal after failed history commit",
+            "player_text": "我在提交失败后开始下一回合。",
+            "decision_id": "next-turn-after-failed-commit",
+        },
+    )
+    assert journaled["ok"] is True, journaled
+    pending = campaign_ws["campaign_dir"] / "save" / "pending-turn.json"
+    assert pending.is_file()
+    monkeypatch.setattr(
+        coc_toolbox.coc_git_history,
+        "commit_finalized_turn",
+        original,
+    )
+    retried = _run(campaign_ws, "turn.finalize", args)
+    assert retried["ok"] is False, retried
+    assert retried["error"]["code"] == "history_commit_failed"
+    assert _commit_count(campaign_ws) == before
+    assert "save/pending-turn.json" not in _tree_names(campaign_ws)
+    after_receipts = [
+        json.loads(raw)
+        for raw in receipts_path.read_text(encoding="utf-8").splitlines()
+        if raw.strip()
+    ]
+    assert after_receipts[-1]["decision_id"] == last["decision_id"]
+    assert after_receipts[-1]["finalization_id"] == last["finalization_id"]
+    assert pending.is_file()
 
 
 def test_creation_receipts_bind_luck_and_characteristic_rolls():

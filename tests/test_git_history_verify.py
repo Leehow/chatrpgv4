@@ -514,6 +514,56 @@ def test_state_proof_hash_drift_fails(tmp_path):
     assert "worktree_blob=" in finding.detail
 
 
+def test_state_proof_committed_pending_turn_fails(tmp_path):
+    _healthy_two_turns(tmp_path)
+    pending = _worktree(tmp_path) / hist.PENDING_TURN_RELPATH
+    pending.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "campaign_id": CAMPAIGN_ID,
+                "journal_decision_id": "journal-next",
+                "status": "pending",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _git(tmp_path, "add", "-A", "--", ".")
+    _git(tmp_path, "commit", "--amend", "--no-edit")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_COMMITTED_PENDING_TURN in _codes(proof)
+    finding = next(
+        item for item in proof.findings if item.code == verify.CODE_COMMITTED_PENDING_TURN
+    )
+    assert finding.path == hist.PENDING_TURN_RELPATH
+
+
+def test_state_proof_worktree_only_pending_is_not_committed_pending(tmp_path):
+    _healthy_two_turns(tmp_path)
+    pending = _worktree(tmp_path) / hist.PENDING_TURN_RELPATH
+    pending.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "campaign_id": CAMPAIGN_ID,
+                "journal_decision_id": "journal-next",
+                "status": "pending",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert verify.CODE_COMMITTED_PENDING_TURN not in _codes(proof)
+    assert proof.status == "FAIL"
+    assert verify.CODE_DIRTY_AUTHORITATIVE_STATE in _codes(proof)
+    assert hist.PENDING_TURN_RELPATH in proof.tree.dirty_paths
+
+
 def test_state_proof_dirty_untracked_canonical_fails(tmp_path):
     _healthy_two_turns(tmp_path)
     extra = _worktree(tmp_path) / "save" / "extra-state.json"
