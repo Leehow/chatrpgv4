@@ -4,8 +4,103 @@ import fs from "node:fs";
 
 import {
   buildPdfIngestRequest,
+  continueRegisteredPdfUpload,
   pdfOcrHintForError,
 } from "./lib/pdf-upload-policy.ts";
+
+const CANONICAL_BUNDLE = ".coc/source-bundles/coc-an-amaranthine-desire";
+const FILE_SHA =
+  "b0b3b1772fadddf168e8f4d32497b045e40a33744838fef221167b3385516c4e";
+const HASH_BUNDLE =
+  ".coc/source-bundles/b0b3b1772fadddf1-coc-an-amaranthine-desire";
+
+function spyIngest() {
+  const calls = [];
+  return {
+    calls,
+    ingestPdf: async (req) => {
+      calls.push(req);
+      return {
+        ok: true,
+        result: {
+          status: "matched_bundle",
+          file_sha256: FILE_SHA,
+          matched_bundle: {
+            path: HASH_BUNDLE,
+            title: "hash overwrite",
+            bundle_id: "b0b3b1772fadddf1-coc-an-amaranthine-desire",
+          },
+        },
+      };
+    },
+  };
+}
+
+test("matched_bundle reuses canonical path/title/hash and does not ingest", async () => {
+  const { calls, ingestPdf } = spyIngest();
+  const continued = await continueRegisteredPdfUpload(
+    {
+      status: "matched_bundle",
+      file_sha256: FILE_SHA,
+      stored_path:
+        ".coc/uploads/pdfs/b0b3b1772fadddf1_COC_-An_Amaranthine_Desire.pdf",
+      matched_bundle: {
+        path: CANONICAL_BUNDLE,
+        title: "An Amaranthine Desire",
+        bundle_id: "coc-an-amaranthine-desire",
+      },
+    },
+    ingestPdf,
+  );
+  assert.equal(calls.length, 0);
+  assert.deepEqual(continued, {
+    action: "reuse",
+    bundlePath: CANONICAL_BUNDLE,
+    titleHint: "An Amaranthine Desire",
+    fileSha256: FILE_SHA,
+  });
+
+  const applySource = fs.readFileSync(
+    new URL("./lib/pdfUpload.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(applySource, /continueRegisteredPdfUpload\(result, api\.ingestPdf\)/);
+  assert.doesNotMatch(
+    applySource,
+    /stored_pending_ingest" \|\| result\.status === "matched_bundle"/,
+  );
+});
+
+test("stored_pending_ingest still calls ingest", async () => {
+  const { calls, ingestPdf } = spyIngest();
+  const stored_path = ".coc/uploads/pdfs/abc_Masks.pdf";
+  const continued = await continueRegisteredPdfUpload(
+    { status: "stored_pending_ingest", stored_path, file_sha256: FILE_SHA },
+    ingestPdf,
+  );
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { stored_path, file_sha256: FILE_SHA });
+  assert.equal(continued.action, "ingest");
+  assert.equal(continued.ingest.result.matched_bundle.path, HASH_BUNDLE);
+});
+
+test("matched_bundle without path fails closed and does not ingest or open",
+  async () => {
+    for (const result of [
+      { status: "matched_bundle", file_sha256: FILE_SHA },
+      { status: "matched_bundle", matched_bundle: null },
+      { status: "matched_bundle", matched_bundle: { path: "   " } },
+    ]) {
+      const { calls, ingestPdf } = spyIngest();
+      const continued = await continueRegisteredPdfUpload(result, ingestPdf);
+      assert.equal(calls.length, 0);
+      assert.equal(continued.action, "reject");
+      assert.equal("bundlePath" in continued, false);
+      assert.equal(continued.bundlePath, undefined);
+      assert.match(continued.message, /缺少有效路径/);
+    }
+  },
+);
 
 test("PDF ingest continues from the exact stored path returned by upload", () => {
   assert.deepEqual(
