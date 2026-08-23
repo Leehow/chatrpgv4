@@ -13,11 +13,16 @@ const {
   path.join(root, "plugins/coc-keeper/pi/extensions/index.ts")
 );
 
-const chargenSkillIds = chargenDelegateSchema.properties
-  .occupation_skill_names.items.enum;
-assert.ok(chargenSkillIds.includes("Fighting (Sword)"));
-assert.ok(chargenSkillIds.includes("Persuade"));
-assert.equal(chargenSkillIds.includes("Command"), false);
+assert.deepEqual(
+  chargenDelegateSchema.properties.occupation_skill_names.items,
+  { type: "string", minLength: 1 },
+  "the typed brief must admit nonempty concrete specialization ids",
+);
+assert.deepEqual(
+  chargenDelegateSchema.properties.interest_skill_names.items,
+  { type: "string", minLength: 1 },
+  "the runtime, not a stale host enum, owns canonical skill validation",
+);
 assert.ok(chargenDelegateSchema.properties.mode.enum.includes("era_adaptive"));
 
 const campaignId = "safe-character-setup";
@@ -238,7 +243,8 @@ const hostSystem = await readFile(
 );
 for (const expected of [
   "Default guided character path",
-  "one more meaningful creation question",
+  "ask one more meaningful creation",
+  "question in table voice",
   "coc_chargen_delegate",
   "complete player-visible draft",
 ]) {
