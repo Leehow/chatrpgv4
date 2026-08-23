@@ -2047,7 +2047,9 @@ def test_active_pi_skill_states_state_authority_attestation_limit():
     for phrase in (
         "semantic attestation, not proof of absence",
         "fresh Pi/Grok browser replay remains mandatory acceptance evidence",
-        "no keyword gate or second model",
+        "Pi host independently compiles",
+        "This compiler is not a second KP",
+        "receipt is host-owned and absent from the model-visible tool schema",
     ):
         assert phrase in skill, phrase
 

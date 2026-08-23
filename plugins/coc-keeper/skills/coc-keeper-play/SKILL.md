@@ -206,8 +206,13 @@ output evidence boundary, not a replacement prose engine:
    authority boundary, narration review remains optional advice.
    A `no_player_state_change_claimed` declaration with empty claims is KP
    semantic attestation, not proof of absence; fresh Pi/Grok browser replay
-   remains mandatory acceptance evidence. This accepted residual adds no
-   keyword gate or second model: the live KP remains the sole semantic judge.
+   remains mandatory acceptance evidence. The Pi host independently compiles
+   every exact draft paragraph for player-state claims and compares that
+   closed result with the KP declaration. This compiler is not a second KP: it
+   cannot see frozen effects, rewrite prose, decide world truth, or mutate
+   state. Its receipt is host-owned and absent from the model-visible tool
+   schema; never invent or pass one. Missing, stale, malformed, unavailable,
+   or disagreeing compilation fails closed into the same prose-only revision.
 
 **Mechanical output gate.** Formal mechanical markers — `【明骰】`, dice lines
 (`掷骰：N`), and SAN/HP numeric transfers (`SAN 50→46`, `HP 6→4`, `损失 N 点`) —

@@ -290,7 +290,9 @@ contract above still applies. This is the natural rhythm:
    PC propositions as `agency_claims` before finalizing. An unauthorized PC
    voluntary/internal claim or ungrounded player-state claim requires the same
    narration-only revision 2; rules, state, journal, coverage, and mechanics
-   remain frozen. `turn.finalize.advisory_uptake` is only for a candidate
+   remain frozen. Pi host independently compiles the exact draft for PC state
+   claims and injects its private receipt after the Keeper arguments are fixed;
+   never author or pass that hidden field. `turn.finalize.advisory_uptake` is only for a candidate
    actually adopted or modified in this draft; when advice is ignored, omit
    `advisory_uptake` entirely (an optional `evidence.record_adoption` call may
    record the ignored disposition). Never put all of a turn's rolls at the end

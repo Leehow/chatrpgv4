@@ -175,6 +175,11 @@ pending, rewrite prose only, review `revision: 2`, and finalize that revision
 without rerunning rules, state, journal, coverage, or mechanics. An ungrounded
 state claim uses that same revision-2 repair under Rule 2. Agency violation is
 the sole hard narrative finding; all prose-quality findings remain advisory.
+Pi host also independently compiles every exact paragraph for PC state claims
+and compares it with this KP declaration. That compiler sees no frozen effects
+and has no prose, plot, state, or finalization authority. Its receipt is
+host-owned, not a Keeper argument; missing, stale, malformed, unavailable, or
+disagreeing compilation keeps the same frozen turn in rewrite-required state.
 
 Never copy a rendered `【明骰】` / `【变化】` / `【特殊影响】` block into
 `draft`; `mechanics_placements` is its only player-visible source and the

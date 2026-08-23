@@ -2433,13 +2433,15 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 for key in missing_params
                 if key not in {
                     "turn_id", "source_digest", "revision",
-                    "state_authority_review",
+                    "state_authority_review", "state_claim_compilation",
                 }
             ]
         elif name == "narration.review" and not _pi_play_agency_review_required():
             missing_params = [
                 key for key in missing_params
-                if key != "state_authority_review"
+                if key not in {
+                    "state_authority_review", "state_claim_compilation",
+                }
             ]
         if (
             missing_params
@@ -23421,6 +23423,11 @@ def _pending_authority_review_revision(
             "required_fields": sorted(coc_state_authority.REVIEW_FIELDS),
             "additionalProperties": False,
         },
+        "state_claim_compilation": {
+            "type": "object",
+            "required": True,
+            "desc": "Pi-host-owned independent semantic claim receipt. The Pi adapter injects it for the exact draft; the Keeper must not author or modify it.",
+        },
         "investigator": {"type": "string", "desc": "investigator id for budget derivation (defaults to the party's first member)"},
     },
     access="mutation",
@@ -23444,7 +23451,8 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         key: deepcopy(args.get(key))
         for key in (
             "turn_id", "source_digest", "revision", "draft_text", "findings",
-            "state_authority_review", "investigator",
+            "state_authority_review", "state_claim_compilation",
+            "investigator",
         )
     })
     prior = ctx.ledger_lookup("narration.review", args.get("decision_id"))
@@ -23564,6 +23572,22 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 required=_pi_play_agency_review_required(),
             )
         )
+        state_claim_compilation, compiler_gate = (
+            coc_state_authority.normalize_compiler_receipt(
+                args.get("state_claim_compilation"),
+                draft=draft,
+                settled=settled,
+                party_ids=ctx.party_ids(),
+                turn_id=str(args["turn_id"]),
+                source_digest=str(args["source_digest"]),
+                revision=revision,
+                kp_review=state_authority_review,
+                required=_pi_play_agency_review_required(),
+            )
+        )
+        state_claim_review_disagreement = compiler_gate == "rewrite_required"
+        if compiler_gate == "rewrite_required":
+            state_authority_gate = "rewrite_required"
     except coc_state_authority.StateAuthorityError as exc:
         raise ToolError(exc.code, str(exc)) from exc
     review_id = "narration-review-v1:" + hashlib.sha256(
@@ -23593,6 +23617,8 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
             if _pi_play_agency_review_required() else "advisory"
         ),
         "state_authority_review": state_authority_review,
+        "state_claim_compilation": state_claim_compilation,
+        "state_claim_review_disagreement": state_claim_review_disagreement,
         "state_authority_gate": state_authority_gate,
     }
     if _review_requires_rewrite(data):
@@ -31308,6 +31334,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
             "discovery_required": False,
             "authority": "semantic_agency_and_player_state_review",
             "hard_gate_scope": "agency_and_player_state_authority_only",
+            "host_state_claim_compiler_required": True,
         }
     required_obligation_ids = [
         str(obligation_id)

@@ -235,6 +235,14 @@ def test_pi_typed_tool_surface():
     _node_test(ROOT / "tests/pi/typed-tool-surface.mjs")
 
 
+def test_pi_state_claim_compiler_contract():
+    _node_test(ROOT / "tests/pi/state-claim-compiler.mjs")
+
+
+def test_pi_state_claim_compiler_gateway():
+    _node_test(ROOT / "tests/pi/state-claim-compiler-gateway.mjs")
+
+
 def test_pi_provider_capability_schema_semantics():
     _node_test(ROOT / "tests/pi/provider-capability-schema.mjs")
 

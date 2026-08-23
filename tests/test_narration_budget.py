@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -42,6 +43,27 @@ def _read_jsonl(path: Path) -> list[dict]:
         for raw in path.read_text(encoding="utf-8").splitlines()
         if raw.strip()
     ]
+
+
+def _digest(value) -> str:
+    return "sha256:" + hashlib.sha256(
+        json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _paragraphs(draft: str) -> list[str]:
+    rows, lines = [], []
+    for line in draft.split("\n"):
+        if line.strip():
+            lines.append(line)
+        elif lines:
+            rows.append("\n".join(lines))
+            lines = []
+    if lines:
+        rows.append("\n".join(lines))
+    return rows
 
 
 @pytest.fixture()
@@ -460,6 +482,8 @@ def _agency_review(
     ws, context: dict, *, draft: str, revision: int, decision_id: str,
     findings: list[dict] | None = None,
     state_authority_review: dict | None = None,
+    compiled_claims: list[dict] | None = None,
+    compiler_receipt_mutator=None,
 ) -> dict:
     args = {
         "draft_text": draft,
@@ -478,6 +502,110 @@ def _agency_review(
             "claims": [],
         }
     )
+    raw_declared_claims = (
+        args["state_authority_review"].get("claims")
+        if isinstance(args["state_authority_review"], dict) else None
+    )
+    declared_claims = (
+        raw_declared_claims if isinstance(raw_declared_claims, list) else []
+    )
+    compiler_source = (
+        compiled_claims
+        if compiled_claims is not None
+        else [dict(claim) for claim in declared_claims]
+    )
+    candidates = sorted(
+        [
+            {
+                "claim_id": claim["claim_id"],
+                "subject_ref": claim["subject_ref"],
+                "claim_kind": claim["claim_kind"],
+                "exact_excerpt": claim["exact_excerpt"],
+            }
+            for claim in declared_claims
+        ],
+        key=lambda value: json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ),
+    )
+    result_claims = []
+    for claim in compiler_source:
+        matched = next((
+            candidate["claim_id"] for candidate in declared_claims
+            if candidate["subject_ref"] == claim["subject_ref"]
+            and candidate["claim_kind"] == claim["claim_kind"]
+            and candidate.get("source_effect_id") == claim.get("source_effect_id")
+        ), None)
+        identity = [
+            claim["subject_ref"], claim["claim_kind"],
+            claim["exact_excerpt"], matched,
+        ]
+        result_claims.append({
+            "compiler_claim_id": "compiled:" + _digest(identity)[7:47],
+            "subject_ref": claim["subject_ref"],
+            "claim_kind": claim["claim_kind"],
+            "exact_excerpt": claim["exact_excerpt"],
+            "matched_review_claim_id": matched,
+            "reason": claim["reason"],
+        })
+    paragraphs = _paragraphs(draft)
+    semantic_input = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-state-claim-compiler-input.v1",
+        "draft_text": draft,
+        "pc_subject_refs": [f"pc:{ws['investigator_id']}"],
+        "candidate_claims": candidates,
+        "paragraphs": [
+            {"paragraph_index": index, "paragraph_sha256": _digest(text)}
+            for index, text in enumerate(paragraphs)
+        ],
+    }
+    result = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-state-claim-compiler-result.v1",
+        "disposition": (
+            "claims_detected" if result_claims else "no_claims_detected"
+        ),
+        "reason": "Independent semantic fixture reviewed every paragraph.",
+        "claims": result_claims,
+        "paragraph_coverage": [
+            {
+                "paragraph_index": index,
+                "paragraph_sha256": _digest(text),
+                "claim_indices": [
+                    claim_index
+                    for claim_index, claim in enumerate(result_claims)
+                    if claim["exact_excerpt"] in text
+                ],
+            }
+            for index, text in enumerate(paragraphs)
+        ],
+    }
+    binding = {
+        "turn_id": context["turn_id"],
+        "source_digest": context["source_digest"],
+        "revision": revision,
+        "draft_sha256": _digest(draft),
+        "kp_review_digest": _digest(args["state_authority_review"]),
+        "settlement_snapshot_id": context["settlement_snapshot_id"],
+        "mechanics_bundle_sha256": context["mechanics_bundle_sha256"],
+    }
+    receipt = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-state-claim-compilation-receipt.v1",
+        "status": "completed",
+        "compiler_contract_id": "coc.pi-state-claim-compiler.v1",
+        "requested_model": {"provider": "fixture", "id": "semantic", "api": "fixture"},
+        "response_model": {"provider": "fixture", "id": "semantic", "api": "fixture"},
+        "semantic_input_digest": _digest(semantic_input),
+        "semantic_result_digest": _digest(result),
+        "binding": binding,
+        "result": result,
+    }
+    if compiler_receipt_mutator is not None:
+        compiler_receipt_mutator(receipt)
+    receipt["binding_digest"] = _digest(receipt)
+    args["state_claim_compilation"] = receipt
     return _run(ws, "narration.review", args)
 
 
@@ -500,19 +628,19 @@ def _finalize_agency_turn(
     return _run(ws, "turn.finalize", args)
 
 
-def test_pi_state_authority_blocks_captured_cash_and_key_without_receipts(
+def test_pi_state_authority_blocks_captured_cash_key_and_address_without_receipts(
     campaign_ws, monkeypatch
 ):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
-        player_text="我接受委托。请把约定的预付定金和钥匙现在交给我。",
+        player_text="我接受委托。请把预付定金、钥匙和地址便签现在交给我。",
         decision_id="journal-state-authority-unbound",
     )
     assert context["mechanics_bundle"]["state_delta"] == []
     draft = (
         "诺特把那串黄铜钥匙推过桌面。"
-        "预付的钞票跟便签一起压到你手边。"
+        "预付的钞票压到你手边，写着科比特宅地址的便签也一并交给了你。"
     )
     review = _agency_review(
         campaign_ws,
@@ -521,27 +649,36 @@ def test_pi_state_authority_blocks_captured_cash_and_key_without_receipts(
         revision=1,
         decision_id="review-state-authority-unbound",
         state_authority_review={
-            "disposition": "claims_listed",
-            "reason": "草稿明确声称当前调查员取得现金与钥匙。",
-            "claims": [
+            "disposition": "no_player_state_change_claimed",
+            "reason": "桌面交付动作没有改变调查员的账本或物品栏。",
+            "claims": [],
+        },
+        compiled_claims=[
                 {
-                    "claim_id": "claim-prepayment",
+                    "claim_id": "compiled-prepayment",
                     "subject_ref": f"pc:{campaign_ws['investigator_id']}",
                     "claim_kind": "cash",
-                    "exact_excerpt": "预付的钞票跟便签一起压到你手边",
+                    "exact_excerpt": "预付的钞票压到你手边",
                     "source_effect_id": None,
                     "reason": "NPC 将预付款交给调查员。",
                 },
                 {
-                    "claim_id": "claim-brass-key",
+                    "claim_id": "compiled-brass-key",
                     "subject_ref": f"pc:{campaign_ws['investigator_id']}",
                     "claim_kind": "item",
                     "exact_excerpt": "诺特把那串黄铜钥匙推过桌面",
                     "source_effect_id": None,
                     "reason": "NPC 将钥匙交给调查员。",
                 },
-            ],
-        },
+                {
+                    "claim_id": "compiled-address-note",
+                    "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                    "claim_kind": "item",
+                    "exact_excerpt": "写着科比特宅地址的便签也一并交给了你",
+                    "source_effect_id": None,
+                    "reason": "NPC 将写有委托地址的信息卡交给调查员。",
+                },
+        ],
     )
     assert review["ok"] is True, review
     assert review["data"]["state_authority_hard_gate"] is True
@@ -652,6 +789,56 @@ def test_pi_state_authority_accepts_grounded_cash_and_item_claims(
     assert finalized["ok"] is True, finalized
     assert finalized["data"]["rendered_text"].count("委托预付定金") == 1
     assert finalized["data"]["rendered_text"].count("黄铜钥匙") == 2
+
+
+def test_pi_state_authority_rewrites_when_kp_omits_grounded_compiled_claim(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.cash_grant", {
+        "investigator": investigator,
+        "amount": 20,
+        "currency": "USD",
+        "source": "npc-thomas-knott",
+        "reason": "captured commission prepayment",
+        "localized_reason": "一天预付调查费",
+        "decision_id": "grant-compiled-omission",
+    })
+    assert granted["ok"] is True, granted
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接受委托并接过预付款。",
+        decision_id="journal-compiled-omission",
+    )
+    cash_effect = next(
+        row for row in context["mechanics_bundle"]["state_delta"]
+        if row["effect_kind"] == "cash"
+    )
+    draft = "诺特把二十美元预付款推到你手中。"
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-compiled-omission",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "KP 漏列了草稿中的现金交付。",
+            "claims": [],
+        },
+        compiled_claims=[{
+            "claim_id": "compiled-cash-prepayment",
+            "subject_ref": f"pc:{investigator}",
+            "claim_kind": "cash",
+            "exact_excerpt": "二十美元预付款推到你手中",
+            "source_effect_id": cash_effect["effect_id"],
+            "reason": "草稿把权威现金交到调查员控制中。",
+        }],
+    )
+    assert review["ok"] is True, review
+    assert review["data"]["state_authority_gate"] == "rewrite_required"
+    assert review["data"]["state_claim_review_disagreement"] is True
 
 
 @pytest.mark.parametrize("effect_kind", ["cash", "item"])
@@ -1070,6 +1257,66 @@ def test_pi_state_authority_review_is_idempotency_bound(campaign_ws, monkeypatch
     )
     assert conflict["ok"] is False
     assert conflict["error"]["code"] == "idempotency_conflict"
+
+
+@pytest.mark.parametrize(
+    ("field", "stale_value"),
+    [
+        ("settlement_snapshot_id", "turn-settlement-v1:stale"),
+        ("mechanics_bundle_sha256", "sha256:stale-mechanics"),
+        ("draft_sha256", "sha256:stale-draft"),
+    ],
+)
+def test_pi_state_claim_compiler_rejects_stale_binding_identity(
+    campaign_ws, monkeypatch, field, stale_value
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我继续听。",
+        decision_id=f"journal-compiler-stale-{field}",
+    )
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft="诺特仍坐在桌后。",
+        revision=1,
+        decision_id=f"review-compiler-stale-{field}",
+        compiler_receipt_mutator=lambda receipt: receipt["binding"].__setitem__(
+            field, stale_value
+        ),
+    )
+    assert review["ok"] is False
+    assert review["error"]["code"] == "state_claim_compiler_stale"
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    ) == []
+
+
+def test_pi_state_claim_compiler_rejects_malformed_model_identity(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我继续听。",
+        decision_id="journal-compiler-model-invalid",
+    )
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft="诺特仍坐在桌后。",
+        revision=1,
+        decision_id="review-compiler-model-invalid",
+        compiler_receipt_mutator=lambda receipt: receipt["response_model"].update(
+            {"id": ""}
+        ),
+    )
+    assert review["ok"] is False
+    assert review["error"]["code"] == "state_claim_compiler_malformed"
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    ) == []
 
 
 def test_pi_agency_violation_requires_prose_only_revision_two(
