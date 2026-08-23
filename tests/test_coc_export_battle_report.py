@@ -1,7 +1,7 @@
 import hashlib
 import importlib.util
 import json
-import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -122,29 +122,98 @@ def _refresh_receipt(receipt):
     return receipt
 
 
+SCRIPTS = Path("plugins/coc-keeper/scripts")
+
+
+def _load_script(name: str, path: Path):
+    cached = sys.modules.get(name)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _canonical_transcript_path(run: Path):
     return run / "sandbox" / ".coc" / "campaigns" / "case-1" / "logs" / "table-transcript.jsonl"
 
 
-def _write_commit_snapshot(campaign: Path, finalization_id: str):
-    source = campaign / "save"
-    destination = source / "commit-snapshots" / finalization_id
-    if destination.exists():
-        shutil.rmtree(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    for path in sorted(source.rglob("*")):
-        relative = path.relative_to(source)
-        if relative.parts[0] in {
-            "commit-snapshots", "development-settlements", "session-state.json",
-            "toolbox-ledger.json", "roll-operation-receipts.json",
-        }:
+def _canonical_run_identity(campaign_id="case-1"):
+    return {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "run_segment_id": "run-1",
+        "session_id": "session-1",
+        "plugin_version": "0.4.0-alpha.0",
+        "ruleset_id": "coc7",
+        "ruleset_version": "1.0.0",
+    }
+
+
+def _write_run_identity(campaign: Path, **overrides):
+    payload = _canonical_run_identity(campaign.name)
+    payload.update(overrides)
+    _write_json(campaign / "save" / "run-identity.json", payload)
+    return payload
+
+
+def _prove_git_state(run: Path, campaign_id="case-1"):
+    hist = _load_script("coc_git_history_export_test", SCRIPTS / "coc_git_history.py")
+    state = _load_script("coc_state_export_test", SCRIPTS / "coc_state.py")
+    root = run / "sandbox"
+    campaign = root / ".coc" / "campaigns" / campaign_id
+    if not (campaign / "campaign.json").exists():
+        _write_json(campaign / "campaign.json", {
+            "schema_version": 3,
+            "campaign_id": campaign_id,
+            "ruleset_id": "coc7",
+            "title": "Export Fixture",
+        })
+    world_path = campaign / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8")) if world_path.exists() else {}
+    if not isinstance(world, dict):
+        world = {}
+    world.setdefault("schema_version", 2)
+    world.setdefault("campaign_id", campaign_id)
+    _write_json(world_path, world)
+    pacing_path = campaign / "save" / "pacing-state.json"
+    if not pacing_path.exists():
+        _write_json(pacing_path, {"schema_version": 1, "campaign_id": campaign_id})
+    receipts_path = campaign / "logs" / "turn-finalizations.jsonl"
+    receipts = []
+    if receipts_path.exists():
+        receipts = [
+            json.loads(line)
+            for line in receipts_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    hist.ensure_repo(root, campaign_id)
+    schema = hist.format_schema_generation(state.CURRENT_SCHEMA_VERSIONS)
+    hist.commit_baseline(
+        root, campaign_id, schema_generation=schema, note="export fixture",
+    )
+    for index, receipt in enumerate(receipts, start=1):
+        if not isinstance(receipt, dict) or not receipt.get("finalization_id"):
             continue
-        target = destination / relative
-        if path.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-        elif path.is_file():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, target)
+        hist.commit_finalized_turn(
+            root,
+            campaign_id,
+            turn_number=index,
+            finalization_id=str(receipt["finalization_id"]),
+            journal_decision_id=str(
+                receipt.get("journal_decision_id") or f"journal-{index}"
+            ),
+            settlement_snapshot_id=str(
+                receipt.get("settlement_snapshot_id") or f"settle-{index}"
+            ),
+            rendered_text_sha256=str(
+                receipt.get("rendered_text_sha256") or ("a" * 64)
+            ),
+            schema_generation=schema,
+        )
 
 
 def _scene_promotion(drift_id="drift-1", scene_id="transit"):
@@ -190,7 +259,6 @@ def _bind_rolls(run: Path, finalization_id, roll_ids):
     calls = [json.loads(raw) for raw in calls_path.read_text(encoding="utf-8").splitlines() if raw.strip()]
     next(call for call in calls if call.get("tool") == "state.journal")["args"]["decision_id"] = f"{finalization_id}-journal"
     _write_jsonl(calls_path, calls)
-    _write_commit_snapshot(campaign, finalization_id)
 
 
 def _write_json(path: Path, value):
@@ -310,7 +378,7 @@ def _fixture(run: Path, *, metadata_name="run.json"):
         "reason": "Kept the pressure but changed the NPC beat.",
         "visibility": "keeper_internal",
     }])
-    _write_commit_snapshot(campaign, "fin-1")
+    _write_run_identity(campaign)
     return {
         "metadata": metadata, "rolls": rolls,
         "transcript": canonical_transcript, "legacy_transcript": transcript,
@@ -321,6 +389,7 @@ def test_writes_the_single_final_report_pair_deterministically(tmp_path):
     module = _load()
     run = tmp_path / "run"
     expected = _fixture(run)
+    _prove_git_state(run)
     first = module.export_battle_report(run)
     artifacts = run / "artifacts"
     json_before = (artifacts / JSON_OUTPUT).read_bytes()
@@ -337,7 +406,9 @@ def test_writes_the_single_final_report_pair_deterministically(tmp_path):
     assert payload["run_metadata"]["campaign_id"] == expected["metadata"]["campaign_id"]
     assert "session_id" not in payload["run_metadata"]
     assert payload["completeness"]["classification"] == "COMPLETE"
-    assert payload["schema_version"] == 7
+    assert payload["schema_version"] == 8
+    assert payload["state_integrity"]["status"] == "PASS"
+    assert payload["public_rolls"]["finalization_binding"]["git_history_status"] == "PASS"
     assert "keeper_internal" not in payload
     assert "effect_id" not in payload["exceptional_effects"][0]
     assert "source_roll" not in payload["exceptional_effects"][0]
@@ -376,10 +447,11 @@ def test_accepts_simplified_run_or_legacy_playtest_metadata(tmp_path, metadata_n
 def test_missing_required_run_identity_is_incomplete(tmp_path, missing):
     module = _load()
     run = tmp_path / missing
-    fixture = _fixture(run)
-    metadata = dict(fixture["metadata"])
-    metadata.pop(missing)
-    _write_json(run / "run.json", metadata)
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    payload = _canonical_run_identity()
+    payload.pop(missing)
+    _write_json(campaign / "save" / "run-identity.json", payload)
 
     report = module.export_battle_report(run)
 
@@ -393,10 +465,9 @@ def test_missing_required_run_identity_is_incomplete(tmp_path, missing):
 def test_placeholder_run_identity_is_incomplete(tmp_path, sentinel):
     module = _load()
     run = tmp_path / sentinel
-    fixture = _fixture(run)
-    metadata = dict(fixture["metadata"])
-    metadata["run_segment_id"] = sentinel
-    _write_json(run / "run.json", metadata)
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_run_identity(campaign, run_segment_id=sentinel)
     report = module.export_battle_report(run)
     assert report["completeness"]["classification"] == "INCOMPLETE"
     assert report["completeness"]["dimensions"]["run_identity"]["status"] == "FAIL"
@@ -569,6 +640,7 @@ def test_nested_dice_total_is_complete_and_rendered(
         ],
     )
     _bind_rolls(run, "fin-nested", [f"nested-{total}"])
+    _prove_git_state(run)
 
     report = module.export_battle_report(run)
 
@@ -875,7 +947,7 @@ def test_play_conduct_signals_restate_structured_facts_without_changing_complete
         {"event_id": "e1", "npc_id": "npc-clerk", "scene_id": "archive", "interaction_kind": "dialogue", "identity_contract": {"npc_id": "npc-clerk"}, "identity_binding": {"status": "authored_bound"}},
         {"event_id": "e2", "npc_id": "npc-stranger", "scene_id": "office", "interaction_kind": "dialogue", "identity_contract": None, "identity_binding": {"status": "improvised"}},
     ])
-    _write_commit_snapshot(campaign, "fin-6")
+    _prove_git_state(run)
 
     report = module.export_battle_report(run)
 
@@ -918,8 +990,7 @@ def test_play_conduct_signals_count_matching_authored_skill_rolls_as_evidence(tm
         {"clue_id": "clue-library", "delivery_kind": "skill_check", "skill": "Library Use"},
     ])
     _discover_clues(run, ["clue-spot", "clue-library"])
-    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
-    _write_commit_snapshot(campaign, "fin-1")
+    _prove_git_state(run)
 
     report = module.export_battle_report(run)
 
@@ -939,7 +1010,6 @@ def test_play_conduct_signals_report_unavailable_sources_honestly(tmp_path):
     (campaign / "logs" / "toolbox-calls.jsonl").unlink()
     (campaign / "logs" / "advisory-adoptions.jsonl").unlink()
     (campaign / "save" / "npc-engagement-receipts.json").unlink()
-    _write_commit_snapshot(campaign, "fin-1")
 
     report = module.export_battle_report(run)
 
@@ -1018,6 +1088,7 @@ def test_player_report_renders_only_rolls_bound_to_finalization_receipts(tmp_pat
         {"roll_id": "keeper-1", "visibility": "keeper_only", "payload": {"roll": 99, "secret_text": "KEEPER_ROLL_SECRET"}},
     ])
     _bind_rolls(run, "fin-bound", ["bound-1"])
+    _prove_git_state(run)
 
     report = module.export_battle_report(run)
 
@@ -1080,6 +1151,7 @@ def test_creation_luck_receipt_binds_public_roll_without_finalization(tmp_path):
             },
         },
     ])
+    _prove_git_state(run)
 
     report = module.export_battle_report(run)
 
@@ -1548,7 +1620,6 @@ def test_dispositioned_revision_is_audit_only(tmp_path):
         {"tool": "state.journal", "ok": True, "args": {"decision_id": "fin-2-journal"}, "data": {}},
     ]
     _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", calls)
-    _write_commit_snapshot(campaign, "fin-2")
 
     module.export_battle_report(run)
     primary = (
@@ -1823,16 +1894,24 @@ def test_state_dimension_never_fabricates_a_fold_or_diff(tmp_path):
     run = tmp_path / "state"
     _fixture(run)
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    leftover = campaign / "save" / "commit-snapshots" / "fin-1"
+    leftover.mkdir(parents=True)
+    (leftover / "world-state.json").write_text("{}\n", encoding="utf-8")
     _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [{
         "tool": "state.set_flag", "ok": True,
         "args": {"decision_id": "flag-1"}, "data": {"flag": "x", "value": True},
     }])
     report = module.export_battle_report(run)
-    assert report["completeness"]["dimensions"]["state"]["status"] == "PASS"
-    assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text(encoding="utf-8") == ""
-    shutil.rmtree(campaign / "save" / "commit-snapshots" / "fin-1")
-    report = module.export_battle_report(run)
     assert report["completeness"]["dimensions"]["state"]["status"] == "NOT_PROVEN"
+    assert report["state_integrity"]["status"] == "NOT_PROVEN"
+    assert "missing_sidecar_repo" in report["state_integrity"]["reason_codes"]
+    assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text(encoding="utf-8") == ""
+    _prove_git_state(run)
+    report = module.export_battle_report(run)
+    assert report["completeness"]["dimensions"]["state"]["status"] == "PASS"
+    assert report["state_integrity"]["status"] == "PASS"
+    assert leftover.is_dir()
+    assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text(encoding="utf-8") == ""
 
 
 def test_soft_over_length_on_accepted_revision_does_not_fail_completeness(tmp_path):
@@ -1853,6 +1932,7 @@ def test_soft_over_length_on_accepted_revision_does_not_fail_completeness(tmp_pa
     _refresh_receipt(receipt)
     _write_jsonl(receipt_path, [receipt])
     _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [review])
+    _prove_git_state(run)
     report = module.export_battle_report(run)
     assert report["completeness"]["classification"] == "COMPLETE"
 
@@ -1902,6 +1982,7 @@ def test_state_requires_current_save_to_equal_accepted_snapshot_and_rejects_fake
         "data": {"before": 1, "after": 2, "delta": 1},
     })
     _write_jsonl(calls_path, calls)
+    _prove_git_state(run)
     world_path = campaign / "save" / "world-state.json"
     world = json.loads(world_path.read_text())
     world["post_finalization_mutation"] = True
@@ -1909,7 +1990,9 @@ def test_state_requires_current_save_to_equal_accepted_snapshot_and_rejects_fake
 
     report = module.export_battle_report(run)
 
-    assert report["completeness"]["dimensions"]["state"]["status"] == "NOT_PROVEN"
+    assert report["completeness"]["dimensions"]["state"]["status"] == "FAIL"
+    assert report["state_integrity"]["status"] == "FAIL"
+    assert "hash_drift" in report["state_integrity"]["reason_codes"]
     assert (run / "artifacts" / "audit" / "state-diffs.jsonl").read_text() == ""
 
 
@@ -1978,3 +2061,173 @@ def test_player_artifacts_use_labels_and_keep_raw_ids_audit_only(tmp_path):
     visit(evidence)
     assert forbidden_keys == []
     assert report["completeness"]["dimensions"]["agency"]["status"] == "PASS"
+
+
+def test_canonical_identity_overrides_incomplete_harness_and_keeps_transcript(tmp_path):
+    module = _load()
+    run = tmp_path / "canonical-wins"
+    _fixture(run)
+    metadata = json.loads((run / "run.json").read_text(encoding="utf-8"))
+    metadata.pop("run_segment_id")
+    metadata.pop("session_id")
+    metadata.pop("plugin_version")
+    metadata.pop("ruleset_id")
+    metadata.pop("ruleset_version")
+    _write_json(run / "run.json", metadata)
+    foreign = {
+        "turn": 9, "role": "player", "text": "foreign session",
+        "turn_id": "turn-9", "run_segment_id": "other-run",
+        "session_id": "other-session", "journal_decision_id": "foreign-journal",
+    }
+    transcript_path = _canonical_transcript_path(run)
+    rows = [
+        json.loads(line)
+        for line in transcript_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    _write_jsonl(transcript_path, [*rows, foreign])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["dimensions"]["run_identity"]["status"] == "PASS"
+    assert report["source_identity"]["run_segment_id"] == "run-1"
+    assert report["transcript"]["dialogue_record_count"] == 2
+    assert all("foreign session" not in row["text"] for row in report["transcript"]["records"])
+    validation = json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    assert validation["source_identity"]["identity_source"] == "canonical_campaign"
+    assert validation["source_identity"]["canonical_present"] is True
+
+
+def test_missing_canonical_identity_keeps_rows_and_fails_closed(tmp_path):
+    module = _load()
+    run = tmp_path / "missing-canonical"
+    _fixture(run)
+    identity_path = (
+        run / "sandbox" / ".coc" / "campaigns" / "case-1" / "save" / "run-identity.json"
+    )
+    identity_path.unlink()
+
+    report = module.export_battle_report(run)
+    dimension = _audit_completeness(run)["dimensions"]["run_identity"]
+
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert dimension["status"] == "FAIL"
+    assert any("missing" in finding for finding in dimension["findings"])
+    assert report["transcript"]["dialogue_record_count"] == 2
+    assert report["source_identity"].get("run_segment_id") is None
+    validation = json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    assert validation["source_identity"]["identity_source"] == "missing"
+    assert validation["source_identity"]["canonical_present"] is False
+
+
+def test_identity_conflict_between_canonical_and_harness_fails_closed(tmp_path):
+    module = _load()
+    run = tmp_path / "identity-conflict"
+    _fixture(run)
+    metadata = json.loads((run / "run.json").read_text(encoding="utf-8"))
+    metadata["run_segment_id"] = "harness-run"
+    metadata["session_id"] = "harness-session"
+    _write_json(run / "run.json", metadata)
+
+    report = module.export_battle_report(run)
+    dimension = _audit_completeness(run)["dimensions"]["run_identity"]
+
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert dimension["status"] == "FAIL"
+    assert any("conflicts" in finding for finding in dimension["findings"])
+    assert report["source_identity"]["run_segment_id"] == "run-1"
+    assert report["transcript"]["dialogue_record_count"] == 2
+    validation = json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    assert set(validation["source_identity"]["harness_conflict_fields"]) == {
+        "run_segment_id", "session_id",
+    }
+
+
+def test_corrupt_canonical_identity_fails_closed(tmp_path):
+    module = _load()
+    run = tmp_path / "identity-corrupt"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_json(campaign / "save" / "run-identity.json", {
+        "schema_version": 2,
+        "campaign_id": "case-1",
+        "run_segment_id": "run-1",
+        "session_id": "session-1",
+        "plugin_version": "0.4.0-alpha.0",
+        "ruleset_id": "coc7",
+        "ruleset_version": "1.0.0",
+    })
+
+    report = module.export_battle_report(run)
+    dimension = _audit_completeness(run)["dimensions"]["run_identity"]
+
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert dimension["status"] == "FAIL"
+    assert any("corrupt" in finding or "mismatched" in finding for finding in dimension["findings"])
+    assert report["transcript"]["dialogue_record_count"] == 2
+    validation = json.loads(
+        (run / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    assert validation["source_identity"]["identity_source"] == "corrupt"
+    assert validation["source_identity"]["identity_error"]["reason"].startswith(
+        "schema_version_mismatch"
+    )
+
+
+def test_git_state_proof_matrix_and_player_evidence_stay_bounded(tmp_path):
+    module = _load()
+    missing = tmp_path / "git-missing"
+    _fixture(missing)
+    leftover = missing / "sandbox" / ".coc" / "campaigns" / "case-1" / "save" / "commit-snapshots" / "fin-1"
+    leftover.mkdir(parents=True)
+    (leftover / "world-state.json").write_text("{}", encoding="utf-8")
+    missing_report = module.export_battle_report(missing)
+    assert missing_report["completeness"]["dimensions"]["state"]["status"] == "NOT_PROVEN"
+    assert missing_report["state_integrity"]["status"] == "NOT_PROVEN"
+    assert "missing_sidecar_repo" in missing_report["state_integrity"]["reason_codes"]
+    assert missing_report["public_rolls"]["finalization_binding"]["git_history_status"] == "NOT_PROVEN"
+    assert "commit_snapshot_id" not in json.dumps(missing_report)
+    assert "latest_commit_snapshot_present" not in json.dumps(missing_report)
+    player_missing = (missing / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    assert ".git" not in player_missing
+    assert "commit-snapshots" not in player_missing
+
+    healthy = tmp_path / "git-pass"
+    _fixture(healthy)
+    _prove_git_state(healthy)
+    leftover_ok = healthy / "sandbox" / ".coc" / "campaigns" / "case-1" / "save" / "commit-snapshots" / "fin-1"
+    leftover_ok.mkdir(parents=True)
+    (leftover_ok / "world-state.json").write_text("{}", encoding="utf-8")
+    pass_report = module.export_battle_report(healthy)
+    assert pass_report["completeness"]["dimensions"]["state"]["status"] == "PASS"
+    assert pass_report["state_integrity"]["status"] == "PASS"
+    assert pass_report["state_integrity"]["reason_codes"] == []
+    audit = json.loads(
+        (healthy / "artifacts" / "audit" / "report-validation.json").read_text(encoding="utf-8")
+    )
+    git_history = audit["finalization_binding"]["git_history"]
+    assert git_history["status"] == "PASS"
+    assert git_history["head"]["finalization_id"] == "fin-1"
+    assert "commit_snapshot_id" not in audit["finalization_binding"]
+    player_pass = (healthy / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    assert "fin-1" not in player_pass
+    assert ".git" not in player_pass
+
+    drifted = tmp_path / "git-fail"
+    _fixture(drifted)
+    _prove_git_state(drifted)
+    world_path = drifted / "sandbox" / ".coc" / "campaigns" / "case-1" / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["post_finalization_mutation"] = True
+    _write_json(world_path, world)
+    fail_report = module.export_battle_report(drifted)
+    assert fail_report["completeness"]["dimensions"]["state"]["status"] == "FAIL"
+    assert fail_report["state_integrity"]["status"] == "FAIL"
+    assert "hash_drift" in fail_report["state_integrity"]["reason_codes"]
+    assert fail_report["public_rolls"]["status"] == "PASS"

@@ -20,8 +20,12 @@ On success, the CLI exits zero and prints a player-safe JSON summary containing
 only the completeness classification and the two player artifact paths. The
 internal `report_id` remains audit-only in `artifacts/audit/manifest.json`.
 
-The run directory may use `run.json` or `playtest.json` for identity. It should
-contain:
+Canonical run identity is the campaign-owned `save/run-identity.json` record
+(`coc_state.load_run_identity`). External `run.json` / `playtest.json` may
+supply non-authoritative harness metadata only; they must not override the
+canonical record or discard matching table-transcript rows. Identity
+conflicts or a corrupt/mismatched canonical record fail closed. The run
+directory should contain:
 
 - allowlisted `host_model` metadata recording the exact model, reasoning
   effort, acceptance lane, pre-activation selection, mid-run switch status,
@@ -101,9 +105,11 @@ only when every referenced schema-v2 receipt passes the canonical
 is partial evidence and cannot pass accepted-transcript completeness. The
 canonical player row must bind the exact run segment, session, turn, and
 `state.journal` decision, while its Keeper row binds the exact accepted
-revision and finalization receipt. State passes only when the current
-authoritative save tree exactly matches the latest accepted commit snapshot;
-unregistered or shape-only state calls never become `state-diffs.jsonl` rows.
+revision and finalization receipt. State passes only when structured Git
+history proof (`coc_git_history_verify.state_integrity_proof(...).to_dict()`)
+returns `PASS`; `FAIL` and `NOT_PROVEN` stay distinct. Never read or recreate
+`save/commit-snapshots`. Unregistered or shape-only state calls never become
+`state-diffs.jsonl` rows.
 
 Both outputs also carry an observational **Play Conduct Signals** section
 (`play_conduct_signals` in the evidence JSON). It restates structured facts

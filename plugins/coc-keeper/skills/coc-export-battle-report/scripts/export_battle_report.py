@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 JSON_OUTPUT = "battle-report-evidence.json"
 MARKDOWN_OUTPUT = "battle-report.md"
 METADATA_CANDIDATES = ("run.json", "playtest.json")
@@ -98,6 +98,210 @@ def _registered_tool_names() -> set[str]:
 
         _TOOLBOX_MODULE = coc_toolbox
     return set(_TOOLBOX_MODULE.TOOLS)
+
+
+_STATE_MODULE: Any = None
+_GIT_VERIFY_MODULE: Any = None
+
+REQUIRED_RUN_IDENTITY_FIELDS = (
+    "campaign_id",
+    "run_segment_id",
+    "session_id",
+    "plugin_version",
+    "ruleset_id",
+    "ruleset_version",
+)
+_IDENTITY_SENTINELS = {
+    "missing", "unknown", "unset", "placeholder", "none", "null", "n/a", "na",
+}
+_HARNESS_ONLY_IDENTITY_FIELDS = (
+    "run_segment_id",
+    "session_id",
+    "plugin_version",
+    "ruleset_id",
+    "ruleset_version",
+)
+
+
+def _plugin_scripts_dir() -> Path:
+    scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    return scripts_dir
+
+
+def _state_api() -> Any:
+    global _STATE_MODULE
+    if _STATE_MODULE is None:
+        _plugin_scripts_dir()
+        import coc_state
+
+        _STATE_MODULE = coc_state
+    return _STATE_MODULE
+
+
+def _git_verify_api() -> Any:
+    global _GIT_VERIFY_MODULE
+    if _GIT_VERIFY_MODULE is None:
+        _plugin_scripts_dir()
+        import coc_git_history_verify
+
+        _GIT_VERIFY_MODULE = coc_git_history_verify
+    return _GIT_VERIFY_MODULE
+
+
+def _identity_string(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        return None
+    if value.casefold() in _IDENTITY_SENTINELS:
+        return None
+    return value
+
+
+def _campaign_workspace_root(
+    run_dir: Path, campaign_relative: str | None
+) -> Path | None:
+    if not campaign_relative:
+        return None
+    parts = Path(campaign_relative).parts
+    if len(parts) < 3 or parts[-2] != "campaigns" or parts[-3] != ".coc":
+        return None
+    prefix = parts[:-3]
+    return run_dir.joinpath(*prefix) if prefix else run_dir
+
+
+def _resolve_canonical_run_identity(
+    run_dir: Path,
+    campaign_relative: str | None,
+    harness: dict[str, Any],
+) -> tuple[dict[str, str], list[str], dict[str, Any]]:
+    """Bind export identity to the campaign-owned record. Fail closed.
+
+    External run.json / playtest.json may keep non-authoritative harness
+    metadata. They must not override a present canonical record or discard
+    matching transcript rows when that record is complete.
+    """
+    evidence: dict[str, Any] = {
+        "source": "missing",
+        "canonical_present": False,
+        "harness_conflict_fields": [],
+        "error": None,
+    }
+    findings: list[str] = []
+    if campaign_relative is None:
+        findings.append("campaign source directory is missing")
+        return {}, findings, evidence
+    campaign_dir = run_dir / campaign_relative
+    state = _state_api()
+    try:
+        canonical = state.load_run_identity(campaign_dir)
+    except state.UnsupportedSaveSchema as exc:
+        evidence["source"] = "corrupt"
+        evidence["error"] = exc.to_dict()
+        findings.append(
+            "canonical campaign run identity is corrupt or mismatched "
+            f"({exc.reason})"
+        )
+        return {}, findings, evidence
+    if canonical is None:
+        findings.append("canonical campaign run identity is missing")
+        return {}, findings, evidence
+    identity = {
+        field: str(canonical[field])
+        for field in REQUIRED_RUN_IDENTITY_FIELDS
+    }
+    evidence["source"] = "canonical_campaign"
+    evidence["canonical_present"] = True
+    conflicts = [
+        field
+        for field in REQUIRED_RUN_IDENTITY_FIELDS
+        if _identity_string(harness.get(field)) not in {None, identity[field]}
+    ]
+    if conflicts:
+        evidence["harness_conflict_fields"] = conflicts
+        findings.append(
+            "harness metadata conflicts with canonical campaign run identity: "
+            + ", ".join(conflicts)
+        )
+    return identity, findings, evidence
+
+
+def _apply_authoritative_identity(
+    metadata: dict[str, Any],
+    identity: dict[str, str],
+    *,
+    canonical_present: bool,
+) -> None:
+    if canonical_present:
+        metadata.update(identity)
+        return
+    for field in _HARNESS_ONLY_IDENTITY_FIELDS:
+        metadata.pop(field, None)
+
+
+def _bounded_state_integrity(proof: dict[str, Any] | None) -> dict[str, Any]:
+    payload = proof if isinstance(proof, dict) else {}
+    findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
+    reason_codes = [
+        str(item.get("code"))
+        for item in findings
+        if isinstance(item, dict) and item.get("code")
+    ]
+    tree = payload.get("tree") if isinstance(payload.get("tree"), dict) else {}
+    counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
+    status = payload.get("status")
+    if status not in {"PASS", "FAIL", "NOT_PROVEN"}:
+        status = "NOT_PROVEN"
+        if "unusable_git_proof" not in reason_codes:
+            reason_codes.append("unusable_git_proof")
+    return {
+        "status": status,
+        "reason_codes": reason_codes,
+        "repo_present": payload.get("repo_present") is True,
+        "history_valid": payload.get("history_valid") is True,
+        "fsck_ok": payload.get("fsck_ok"),
+        "tree_clean": tree.get("clean"),
+        "history_reset": payload.get("history_reset") is True,
+        "counts": {
+            "turn_commits": counts.get("turn_commits"),
+            "receipts": counts.get("receipts"),
+            "paired_receipts": counts.get("paired_receipts"),
+        },
+    }
+
+
+def _collect_git_state_proof(
+    run_dir: Path,
+    campaign_relative: str | None,
+    valid_finalizations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    verify = _git_verify_api()
+    valid_ids = [
+        str(row.get("finalization_id"))
+        for row in valid_finalizations
+        if isinstance(row, dict) and isinstance(row.get("finalization_id"), str)
+        and row.get("finalization_id")
+    ]
+    expected_id = valid_ids[-1] if valid_ids else None
+    workspace = _campaign_workspace_root(run_dir, campaign_relative)
+    if campaign_relative is None or workspace is None:
+        return {
+            "status": verify.STATUS_NOT_PROVEN,
+            "findings": [{
+                "code": "campaign_workspace_unresolved",
+                "detail": "campaign workspace root could not be resolved",
+                "sha": None,
+                "finalization_id": expected_id,
+                "path": None,
+            }],
+        }
+    proof = verify.state_integrity_proof(
+        workspace,
+        Path(campaign_relative).name,
+        expected_finalization_id=expected_id,
+        valid_finalization_ids=valid_ids,
+    )
+    return proof.to_dict()
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -202,30 +406,6 @@ def _state_diff_rows(
                     "effect": effect,
                 })
     return _stable_rows(rows)
-
-
-_SNAPSHOT_EXCLUDES = {
-    "commit-snapshots", "development-settlements", "session-state.json",
-    "toolbox-ledger.json", "roll-operation-receipts.json",
-}
-
-
-def _tree_digest(root: Path) -> str | None:
-    if not root.is_dir() or root.is_symlink():
-        return None
-    rows: list[tuple[str, str]] = []
-    for path in sorted(root.rglob("*")):
-        relative = path.relative_to(root)
-        if relative.parts and relative.parts[0] in _SNAPSHOT_EXCLUDES:
-            continue
-        if path.is_symlink():
-            return None
-        if path.is_dir():
-            continue
-        if not path.is_file():
-            return None
-        rows.append((relative.as_posix(), _sha256(path.read_bytes())))
-    return _canonical_digest(rows)
 
 
 def _valid_scene_promotion(row: Any) -> bool:
@@ -1024,6 +1204,15 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             raw_metadata = campaign_json
             metadata = _safe_metadata(campaign_json)
 
+    canonical_identity, run_identity_findings, identity_evidence = (
+        _resolve_canonical_run_identity(run_dir, campaign_relative, metadata)
+    )
+    _apply_authoritative_identity(
+        metadata,
+        canonical_identity,
+        canonical_present=identity_evidence["canonical_present"],
+    )
+
     final_path = run_dir / "transcript.jsonl"
     partial_path = run_dir / "partial-transcript.jsonl"
     canonical_transcript_relative = (
@@ -1060,7 +1249,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             or partial_path.exists()
         ),
     ) or []
-    if transcript_origin == "canonical":
+    if transcript_origin == "canonical" and identity_evidence["canonical_present"]:
         transcript = [
             row for row in transcript
             if isinstance(row, dict)
@@ -1069,6 +1258,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         ]
         manifest[transcript_relative]["included_record_count"] = len(transcript)
         manifest[transcript_relative]["projection"] = "current_run_exact_table_text"
+    elif transcript_origin == "canonical":
+        manifest[transcript_relative]["included_record_count"] = len(transcript)
+        manifest[transcript_relative]["projection"] = "unbound_canonical_table_text"
     dialogue = []
     for source_line, row in enumerate(transcript, start=1):
         if not _is_dialogue_row(row):
@@ -1399,34 +1591,12 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "findings": list(findings),
         }
 
-    required_run_identity = (
-        "run_segment_id",
-        "campaign_id",
-        "session_id",
-        "plugin_version",
-        "ruleset_id",
-        "ruleset_version",
-    )
-    identity_sentinels = {
-        "missing", "unknown", "unset", "placeholder", "none", "null", "n/a", "na"
-    }
-    missing_run_identity = [
-        field
-        for field in required_run_identity
-        if not isinstance(metadata.get(field), str)
-        or not metadata[field].strip()
-        or metadata[field].strip().casefold() in identity_sentinels
-    ]
-    run_identity_findings = [
-        f"required run identity field {field} is missing"
-        for field in missing_run_identity
-    ]
-    if campaign_relative is None:
-        run_identity_findings.append("campaign source directory is missing")
     dimension(
         "run_identity",
         not run_identity_findings,
-        *(run_identity_findings or ["exact run segment, campaign, session, plugin, and ruleset identity resolved"]),
+        *(run_identity_findings or [
+            "canonical campaign run identity bound the exact run segment, campaign, session, plugin, and ruleset"
+        ]),
     )
     dimension("source_identity", bool(metadata) and campaign_relative is not None, "run metadata and campaign directory resolved" if metadata and campaign_relative else "run metadata or campaign directory is missing")
     transcript_findings: list[str] = []
@@ -1709,51 +1879,26 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     unbound_visible_deltas.append(
                         f"{receipt.get('finalization_id') or 'unknown'}:{category}"
                     )
-    # commit-snapshots 已由 git 历史替代，此探针仅对遗留战役有效。
-    commit_snapshot_id = None
-    snapshot_digest = None
-    current_save_digest = None
-    if campaign_relative and valid_finalizations:
-        last_finalization = next(
-            (
-                row for row in reversed(valid_finalizations)
-                if isinstance(row, dict)
-                and isinstance(row.get("finalization_id"), str)
-                and row.get("finalization_id")
-            ),
-            None,
-        )
-        if last_finalization is not None:
-            last_id = str(last_finalization["finalization_id"])
-            safe_id = "".join(
-                char if (char.isalnum() or char in "._-") else "-"
-                for char in last_id
-            )
-            snapshot_path = (
-                Path(run_dir) / campaign_relative / "save" / "commit-snapshots" / safe_id
-            )
-            if snapshot_path.is_dir() and not snapshot_path.is_symlink():
-                commit_snapshot_id = last_id
-                snapshot_digest = _tree_digest(snapshot_path)
-                current_save_digest = _tree_digest(
-                    Path(run_dir) / campaign_relative / "save"
-                )
+    git_history_proof = _collect_git_state_proof(
+        run_dir, campaign_relative, valid_finalizations
+    )
+    state_integrity = _bounded_state_integrity(git_history_proof)
+    git_status = state_integrity["status"]
     state_findings: list[str] = []
     if not character_ok:
         state_findings.append("canonical final investigator state is missing")
     if invalid_finalization_rows:
         state_findings.append("one or more finalization rows fail the canonical receipt validator")
-    if valid_finalizations and commit_snapshot_id is None:
-        state_findings.append("latest accepted finalization lacks its canonical commit snapshot")
     if not valid_finalizations:
         state_findings.append("no canonically valid accepted finalization proves final state")
-    if commit_snapshot_id is not None and (
-        snapshot_digest is None or current_save_digest is None
-        or snapshot_digest != current_save_digest
-    ):
-        state_findings.append(
-            "current authoritative save does not exactly match the latest accepted commit snapshot"
-        )
+    if git_status != "PASS":
+        reason_codes = state_integrity["reason_codes"]
+        if reason_codes:
+            state_findings.append(
+                f"git state proof is {git_status}: " + ", ".join(reason_codes)
+            )
+        else:
+            state_findings.append(f"git state proof is {git_status}")
     if malformed_visible_deltas:
         state_findings.append(
             "visible state effects lack typed before/after or delta evidence: "
@@ -1764,14 +1909,17 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "typed state effects lack a successful registered canonical state operation: "
             + ", ".join(sorted(unbound_visible_deltas))
         )
-    state_status = None
-    if state_findings and not invalid_finalization_rows:
+    if invalid_finalization_rows or git_status == "FAIL":
+        state_status = None
+    elif state_findings:
         state_status = "NOT_PROVEN"
+    else:
+        state_status = None
     dimension(
         "state",
         not state_findings,
         *(state_findings or [
-            "canonical final state and latest commit snapshot are present; "
+            "canonical final state is present and structured git history proof passed; "
             f"{len(authoritative_state_diffs)} genuine typed delta row(s) retained without an invented event fold"
         ]),
         status=state_status,
@@ -2269,8 +2417,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         ],
         "relationship_rewards": relationship_rewards,
         "development_settlements": settlements,
+        "state_integrity": state_integrity,
         "audit": {
-            "schema_version": 1,
+            "schema_version": 2,
             "audience": "keeper_development_audit_only",
             "not_player_facing": True,
             "source_manifest": sorted(manifest.values(), key=lambda item: item["path"]),
@@ -2296,8 +2445,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 "bound_roll_ids": sorted(bound_roll_ids),
                 "zero_roll_receipt_ids": sorted(zero_roll_receipt_ids),
                 "undispositioned_orphans": _stable_rows(undispositioned_orphans),
-                "commit_snapshot_id": commit_snapshot_id,
+                "git_history": git_history_proof,
             },
+            "run_identity": identity_evidence,
             "narration_reviews": {
                 "count": narration_review_count,
                 "rule_counts": narration_rule_counts,
@@ -2317,13 +2467,15 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 "zero_roll_turn_count": len(zero_roll_receipt_ids),
                 "undispositioned_orphan_count": len(undispositioned_orphans),
                 "dispositioned_orphan_count": len(dispositioned_orphan_ids),
-                "latest_commit_snapshot_present": commit_snapshot_id is not None,
+                "git_history_status": git_status,
             },
             "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines and not undispositioned_orphans and not invalid_finalization_rows else "FAIL",
         },
         "run_metadata": metadata,
         "source_identity": {
             "metadata_source": metadata_source,
+            "identity_source": identity_evidence.get("source"),
+            "canonical_present": identity_evidence.get("canonical_present") is True,
             "campaign_id": metadata.get("campaign_id"),
             "campaign_source_directory": campaign_relative,
             "run_id": metadata.get("run_id"),
@@ -2334,6 +2486,10 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "ruleset_version": metadata.get("ruleset_version"),
             "transcript_sha256": manifest[transcript_relative].get("sha256"),
             "transcript_source": transcript_relative,
+            "harness_conflict_fields": list(
+                identity_evidence.get("harness_conflict_fields") or []
+            ),
+            "identity_error": identity_evidence.get("error"),
         },
         "source_manifest": sorted(manifest.values(), key=lambda item: item["path"]),
         "transcript": {
@@ -3428,7 +3584,15 @@ def _render_rules_audit(report: dict[str, Any], audit: dict[str, Any]) -> str:
     binding = audit.get("finalization_binding") or {}
     lines.append(f"- contract: {public_binding.get('contract')}")
     lines.append(f"- bound_roll_id_count: {len(binding.get('bound_roll_ids') or [])}")
-    lines.append(f"- commit_snapshot_id: {binding.get('commit_snapshot_id')}")
+    git_history = binding.get("git_history") if isinstance(binding.get("git_history"), dict) else {}
+    lines.append(f"- git_history_status: {git_history.get('status') or public_binding.get('git_history_status')}")
+    git_codes = [
+        item.get("code")
+        for item in (git_history.get("findings") or [])
+        if isinstance(item, dict) and item.get("code")
+    ]
+    if git_codes:
+        lines.append("- git_history_reason_codes: " + ", ".join(str(code) for code in git_codes))
     for orphan in binding.get("undispositioned_orphans") or []:
         lines.append(f"- UNDISPOSITIONED ORPHAN: {orphan}")
     reviews = audit.get("narration_reviews") or {}
