@@ -98,6 +98,19 @@ function harness(compiler) {
           };
         }
         if (params.operation === "turn.output_context") return outputContext;
+        if (params.operation === "narration.review") {
+          return {
+            ok: true,
+            tool: "narration.review",
+            data: {
+              accepted: true,
+              state_authority_gate: "clear",
+              state_claim_compilation: {
+                sentinel: "host-receipt-must-not-reach-model",
+              },
+            },
+          };
+        }
         return { ok: true, tool: params.operation, data: { accepted: true } };
       };
       return {
@@ -140,7 +153,25 @@ async function invoke(h, id, operation, arguments_) {
   );
 }
 
-test("host overwrites forged compiler receipt before canonical MCP forwarding", async () => {
+async function invokeReviewSurface(h, surface, id, arguments_) {
+  if (surface === "coc_invoke") {
+    return await invoke(h, id, "narration.review", arguments_);
+  }
+  if (surface === "coc_advice") {
+    return await h.tools.get(surface).execute(
+      id,
+      { operation: "narration.review", campaign, arguments: arguments_ },
+      undefined, undefined, h.ctx,
+    );
+  }
+  return await h.tools.get(surface).execute(
+    id,
+    { campaign, ...arguments_ },
+    undefined, undefined, h.ctx,
+  );
+}
+
+test("all invoke surfaces overwrite input and scrub host receipt from output", async () => {
   const previousRole = process.env.COC_PI_SESSION_ROLE;
   process.env.COC_PI_SESSION_ROLE = "play";
   try {
@@ -150,6 +181,7 @@ test("host overwrites forged compiler receipt before canonical MCP forwarding", 
     };
     const compiler = {
       clear() {},
+      beginExternalTurn() {},
       observeOutputContext() {},
       async compileReview(options) {
         assert.equal(Object.hasOwn(options.arguments, "state_claim_compilation"), false);
@@ -160,20 +192,30 @@ test("host overwrites forged compiler receipt before canonical MCP forwarding", 
     await initialize(h);
     await invoke(h, "context", "turn.output_context", {});
     const forged = { forged: true };
-    const result = await invoke(h, "review", "narration.review", {
-      ...baseReview,
-      state_claim_compilation: forged,
-    });
-    const envelope = JSON.parse(result.content[0].text);
-    assert.equal(envelope.ok, true, JSON.stringify(envelope));
+    for (const [index, surface] of [
+      "coc_invoke", "coc_advice", "coc_narration_review",
+    ].entries()) {
+      const result = await invokeReviewSurface(h, surface, `review-${index}`, {
+        ...baseReview,
+        decision_id: `review-gateway-${index}`,
+        state_claim_compilation: forged,
+      });
+      const envelope = JSON.parse(result.content[0].text);
+      assert.equal(envelope.ok, true, JSON.stringify(envelope));
+      assert.equal(JSON.stringify(envelope).includes("host-receipt-must-not-reach-model"), false);
+      assert.equal(JSON.stringify(result.details).includes("host-receipt-must-not-reach-model"), true);
+      assert.equal(Object.hasOwn(envelope.data, "state_claim_compilation"), false);
+    }
     const reviewCalls = h.clientCalls.filter(
       (call) => call.params.operation === "narration.review",
     );
-    assert.equal(reviewCalls.length, 1);
-    const forwarded = reviewCalls[0].params.arguments;
-    assert.notDeepEqual(forwarded.state_claim_compilation, forged);
-    assert.deepEqual(forwarded.state_claim_compilation, hostReceipt);
-    assert.equal(forwarded.state_claim_compilation.binding.mechanics_bundle_sha256, "sha256:mechanics-gateway-1");
+    assert.equal(reviewCalls.length, 3);
+    for (const call of reviewCalls) {
+      const forwarded = call.params.arguments;
+      assert.notDeepEqual(forwarded.state_claim_compilation, forged);
+      assert.deepEqual(forwarded.state_claim_compilation, hostReceipt);
+      assert.equal(forwarded.state_claim_compilation.binding.mechanics_bundle_sha256, "sha256:mechanics-gateway-1");
+    }
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;
@@ -241,8 +283,12 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
   const previousRole = process.env.COC_PI_SESSION_ROLE;
   process.env.COC_PI_SESSION_ROLE = "play";
   try {
+    let compilerCalls = 0;
     const compiler = new PiStateClaimCompiler(
-      async () => await new Promise(() => {}),
+      async () => {
+        compilerCalls += 1;
+        return await new Promise(() => {});
+      },
       5,
     );
     const h = harness(compiler);
@@ -252,6 +298,10 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
     const envelope = JSON.parse(result.content[0].text);
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, "state_claim_compiler_unavailable");
+    assert.equal(envelope.error.retryable, false);
+    const repeated = await invoke(h, "review-timeout-repeat", "narration.review", baseReview);
+    assert.equal(JSON.parse(repeated.content[0].text).error.retryable, false);
+    assert.equal(compilerCalls, 1);
     assert.equal(
       h.clientCalls.filter((call) => call.params.operation === "turn.output_context").length,
       1,
@@ -260,6 +310,19 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
       h.clientCalls.some((call) => call.params.operation === "narration.review"),
       false,
     );
+    for (const handler of h.handlers.get("message_start") || []) {
+      await handler({
+        type: "message_start",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "请重试刚才挂起的回合。" }],
+          timestamp: 2,
+        },
+      }, h.ctx);
+    }
+    const rearmed = await invoke(h, "review-timeout-next-player", "narration.review", baseReview);
+    assert.equal(JSON.parse(rearmed.content[0].text).error.retryable, false);
+    assert.equal(compilerCalls, 2);
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;

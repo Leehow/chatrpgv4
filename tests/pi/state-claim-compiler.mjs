@@ -151,7 +151,7 @@ for (const fixture of [
   });
 }
 
-test("malformed paragraph coverage fails closed and is not cached", async () => {
+test("malformed paragraph coverage is latched until the next external turn", async () => {
   let calls = 0;
   const compiler = new PiStateClaimCompiler(async (input) => {
     calls += 1;
@@ -165,6 +165,9 @@ test("malformed paragraph coverage fails closed and is not cached", async () => 
   compiler.observeOutputContext(campaignId, contextEnvelope());
   const options = { ...runtime, arguments: reviewArguments("One paragraph.") };
   await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
+  await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
+  assert.equal(calls, 1);
+  compiler.beginExternalTurn();
   await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
   assert.equal(calls, 2);
 });
@@ -189,6 +192,9 @@ test("owned timeout bounds an inference that ignores abort and never caches it",
   compiler.observeOutputContext(campaignId, contextEnvelope());
   const options = { ...runtime, arguments: reviewArguments("No state change.") };
   await assert.rejects(() => compiler.compileReview(options), /state_claim_compiler_timeout/);
+  await assert.rejects(() => compiler.compileReview(options), /state_claim_compiler_timeout/);
+  assert.equal(calls, 1);
+  compiler.beginExternalTurn();
   await assert.rejects(() => compiler.compileReview(options), /state_claim_compiler_timeout/);
   assert.equal(calls, 2);
 });
@@ -250,4 +256,192 @@ test("direct model protocol rejects text-only, wrong, and multiple tool calls", 
       arguments: reviewArguments("No state change."),
     }), /state_claim_model_protocol_invalid/);
   }
+});
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const noClaimsOutcome = (input) => ({
+  result: resultFor(input, []),
+  responseModel: { provider: "p", id: "m", api: "a" },
+});
+
+test("first waiter abort does not poison a non-aborted shared waiter", async () => {
+  const pending = deferred();
+  let calls = 0;
+  const compiler = new PiStateClaimCompiler(async (input) => {
+    calls += 1;
+    await pending.promise;
+    return noClaimsOutcome(input);
+  });
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const controller = new AbortController();
+  const first = compiler.compileReview({
+    ...runtime, signal: controller.signal,
+    arguments: reviewArguments("No state change."),
+  });
+  const second = compiler.compileReview({
+    ...runtime, arguments: reviewArguments("No state change."),
+  });
+  controller.abort();
+  await assert.rejects(() => first, /state_claim_compiler_aborted/);
+  pending.resolve();
+  assert.equal((await second).status, "completed");
+  assert.equal(calls, 1);
+});
+
+test("second waiter abort does not cancel the shared provider request", async () => {
+  const pending = deferred();
+  let calls = 0;
+  const compiler = new PiStateClaimCompiler(async (input) => {
+    calls += 1;
+    await pending.promise;
+    return noClaimsOutcome(input);
+  });
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const controller = new AbortController();
+  const first = compiler.compileReview({
+    ...runtime, arguments: reviewArguments("No state change."),
+  });
+  const second = compiler.compileReview({
+    ...runtime, signal: controller.signal,
+    arguments: reviewArguments("No state change."),
+  });
+  controller.abort();
+  await assert.rejects(() => second, /state_claim_compiler_aborted/);
+  pending.resolve();
+  assert.equal((await first).status, "completed");
+  assert.equal(calls, 1);
+});
+
+test("late generation cannot delete a fresh identical inflight entry", async () => {
+  const generations = [];
+  let calls = 0;
+  let activeEpoch = 1;
+  const compiler = new PiStateClaimCompiler(async (input) => {
+    calls += 1;
+    const gate = deferred();
+    generations.push({ gate, input });
+    await gate.promise;
+    return noClaimsOutcome(input);
+  });
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const first = compiler.compileReview({
+    ...runtime,
+    sessionEpoch: 1,
+    isCurrent: (epoch) => epoch === activeEpoch,
+    arguments: reviewArguments("No state change."),
+  });
+  await Promise.resolve();
+  compiler.clear();
+  activeEpoch = 2;
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const second = compiler.compileReview({
+    ...runtime,
+    sessionEpoch: 2,
+    isCurrent: (epoch) => epoch === activeEpoch,
+    arguments: reviewArguments("No state change."),
+  });
+  await Promise.resolve();
+  generations[0].gate.resolve();
+  await assert.rejects(() => first, /state_claim_compiler_epoch_stale/);
+  const third = compiler.compileReview({
+    ...runtime,
+    sessionEpoch: 2,
+    isCurrent: (epoch) => epoch === activeEpoch,
+    arguments: reviewArguments("No state change."),
+  });
+  assert.equal(calls, 2);
+  generations[1].gate.resolve();
+  assert.equal((await second).status, "completed");
+  assert.equal((await third).status, "completed");
+});
+
+test("cached compilation still checks the current session epoch", async () => {
+  const compiler = new PiStateClaimCompiler(async (input) => noClaimsOutcome(input));
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const args = reviewArguments("No state change.");
+  await compiler.compileReview({ ...runtime, arguments: args });
+  await assert.rejects(() => compiler.compileReview({
+    ...runtime,
+    arguments: args,
+    isCurrent: () => false,
+  }), /state_claim_compiler_epoch_stale/);
+});
+
+test("provider failure is latched only until the next external player turn", async () => {
+  let calls = 0;
+  const compiler = new PiStateClaimCompiler(async () => {
+    calls += 1;
+    throw new Error("provider_refused");
+  });
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const options = { ...runtime, arguments: reviewArguments("No state change.") };
+  await assert.rejects(() => compiler.compileReview(options), /provider_refused/);
+  await assert.rejects(() => compiler.compileReview(options), /provider_refused/);
+  assert.equal(calls, 1);
+  compiler.beginExternalTurn();
+  await assert.rejects(() => compiler.compileReview(options), /provider_refused/);
+  assert.equal(calls, 2);
+});
+
+test("direct inference uses provider-supported one-tool requirement shapes", async () => {
+  const cases = [
+    ["openai-completions", "required"],
+    ["openai-responses", "required"],
+    ["azure-openai-responses", "required"],
+    ["openai-codex-responses", "required"],
+    ["pi-messages", "required"],
+    ["mistral-conversations", "required"],
+    ["anthropic-messages", "any"],
+    ["bedrock-converse-stream", "any"],
+    ["google-generative-ai", "any"],
+    ["google-vertex", "any"],
+  ];
+  for (const [api, expectedChoice] of cases) {
+    let observedOptions;
+    const compiler = new PiStateClaimCompiler();
+    compiler.observeOutputContext(campaignId, contextEnvelope());
+    const ctx = {
+      model: { provider: "requested", id: "keeper", api },
+      modelRegistry: {
+        complete: async (_model, context, options) => {
+          observedOptions = options;
+          const input = JSON.parse(context.messages[0].content[0].text);
+          return {
+            stopReason: "toolUse",
+            content: [{
+              type: "toolCall",
+              name: "emit_state_claim_compilation",
+              arguments: resultFor(input, []),
+            }],
+            provider: "actual", model: "semantic", api,
+          };
+        },
+      },
+    };
+    await compiler.compileReview({
+      ...runtime, ctx, arguments: reviewArguments("No state change."),
+    });
+    assert.equal(observedOptions.toolChoice, expectedChoice, api);
+  }
+  let calls = 0;
+  const unsupported = new PiStateClaimCompiler();
+  unsupported.observeOutputContext(campaignId, contextEnvelope());
+  await assert.rejects(() => unsupported.compileReview({
+    ...runtime,
+    ctx: {
+      model: { provider: "requested", id: "keeper", api: "unknown-api" },
+      modelRegistry: { complete: async () => { calls += 1; } },
+    },
+    arguments: reviewArguments("No state change."),
+  }), /state_claim_model_api_unsupported/);
+  assert.equal(calls, 0);
 });
