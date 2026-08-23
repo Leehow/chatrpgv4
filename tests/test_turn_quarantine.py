@@ -28,6 +28,7 @@ def _load(name: str, rel: str | Path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -38,6 +39,10 @@ coc_turn_finalization = _load(
     "coc_turn_finalization_quarantine", SCRIPTS / "coc_turn_finalization.py"
 )
 coc_git_history = _load("coc_git_history_turn_quarantine", SCRIPTS / "coc_git_history.py")
+coc_git_history_verify = _load(
+    "coc_git_history_verify_turn_quarantine",
+    SCRIPTS / "coc_git_history_verify.py",
+)
 coc_state = _load("coc_state_turn_quarantine", SCRIPTS / "coc_state.py")
 
 SCHEMA = coc_git_history.format_schema_generation(coc_state.CURRENT_SCHEMA_VERSIONS)
@@ -370,6 +375,36 @@ def test_finalize_commit_failure_leaves_receipt_without_turn_commit(
         / "commit-snapshots"
         / last["finalization_id"]
     ).exists()
+
+
+def test_finalize_wrapper_immediately_proves_clean_git_state(campaign_ws):
+    lock = campaign_ws["campaign_dir"] / "save" / "run-identity.lock"
+    lock.write_text("held\n", encoding="utf-8")
+    finalized = _finalize_current_turn(campaign_ws, "proof-after-finalize")
+    receipt = finalized["data"]
+    pending = campaign_ws["campaign_dir"] / "save" / "pending-turn.json"
+    assert not pending.exists()
+    proof = coc_git_history_verify.state_integrity_proof(
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        expected_finalization_id=receipt["finalization_id"],
+    )
+    payload = proof.to_dict()
+    assert payload["status"] == "PASS", payload
+    assert payload["head"]["commit_type"] == "turn"
+    assert payload["head"]["finalization_id"] == receipt["finalization_id"]
+    assert payload["latest_receipt"]["finalization_id"] == receipt["finalization_id"]
+    assert payload["latest_receipt"]["paired"] is True
+    assert payload["head_matches_latest_receipt"] is True
+    assert payload["tree"]["clean"] is True
+    assert payload["tree"]["dirty_paths"] == []
+    assert payload["tree"]["drifted_paths"] == []
+    assert payload["tree"]["missing_paths"] == []
+    assert payload["findings"] == []
+    names = _tree_names(campaign_ws)
+    assert "save/pending-turn.json" not in names
+    assert "save/run-identity.lock" not in names
+    assert lock.is_file()
 
 
 def test_creation_receipts_bind_luck_and_characteristic_rolls():
