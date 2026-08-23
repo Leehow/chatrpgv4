@@ -2459,3 +2459,84 @@ def test_git_state_proof_matrix_and_player_evidence_stay_bounded(tmp_path):
     assert fail_report["state_integrity"]["status"] == "FAIL"
     assert "hash_drift" in fail_report["state_integrity"]["reason_codes"]
     assert fail_report["public_rolls"]["status"] == "PASS"
+
+
+def _hp_effect():
+    return {
+        "schema_version": 1,
+        "category": "state_delta",
+        "effect_id": "effect:hp-1:HP",
+        "effect_kind": "scalar",
+        "resource": "HP",
+        "investigator_id": "hero",
+        "before": 10,
+        "delta": -2,
+        "after": 8,
+        "source_decision_id": "hp-1",
+    }
+
+
+def _hp_call(tool, *, replay=False, ok=True):
+    row = {
+        "ok": ok,
+        "tool": tool,
+        "args": {"decision_id": "hp-1", "investigator": "hero"},
+        "data": {
+            "investigator_id": "hero",
+            "player_state_receipt": {
+                "schema_version": 1,
+                "investigator_id": "hero",
+                "hp": {"before": 10, "after": 8},
+            },
+        },
+    }
+    if replay:
+        row["idempotent_replay"] = True
+    return row
+
+
+def test_exporter_and_finalizer_share_valid_and_invalid_state_proof():
+    module = _load()
+    scripts = Path("plugins/coc-keeper/scripts")
+    if str(scripts.resolve()) not in sys.path:
+        sys.path.insert(0, str(scripts.resolve()))
+    import coc_turn_finalization
+
+    effect = _hp_effect()
+    valid = [_hp_call("combat.resolve")]
+    invalid = [_hp_call("rules.roll")]
+    replay_only = [_hp_call("combat.resolve", replay=True)]
+    original_and_replay = [
+        _hp_call("combat.resolve"),
+        _hp_call("combat.resolve", replay=True),
+    ]
+    assert coc_turn_finalization._state_delta_proof_violations(valid, [effect]) == []
+    assert module._state_effect_authority().state_delta_proof_reason(
+        effect, valid, registry=module._toolbox_registry(),
+    ) is None
+    assert module._state_diff_rows(valid, [{
+        "finalization_id": "fin-hp",
+        "bundle": {"state_delta": [effect], "asset_delta": []},
+    }])[0]["source_tool"] == "combat.resolve"
+
+    assert coc_turn_finalization._state_delta_proof_violations(invalid, [effect])
+    assert module._state_effect_authority().state_delta_proof_reason(
+        effect, invalid, registry=module._toolbox_registry(),
+    ) == "mismatch"
+    assert module._state_diff_rows(invalid, [{
+        "finalization_id": "fin-hp",
+        "bundle": {"state_delta": [effect], "asset_delta": []},
+    }]) == []
+
+    assert "(replay)" in coc_turn_finalization._state_delta_proof_violations(
+        replay_only, [effect],
+    )[0]["message"]
+    assert module._state_effect_authority().state_delta_proof_reason(
+        effect, replay_only, registry=module._toolbox_registry(),
+    ) == "replay"
+    assert coc_turn_finalization._state_delta_proof_violations(
+        original_and_replay, [effect],
+    ) == []
+    assert module._state_effect_authority().state_delta_proof_reason(
+        effect, original_and_replay, registry=module._toolbox_registry(),
+    ) is None
