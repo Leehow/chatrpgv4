@@ -241,6 +241,95 @@ test("tableIntentFromOpeningPhase follows the projection's session_role", () => 
   assert.equal(tableIntentFromOpeningPhase({}), null);
 });
 
+test("terminal turn-processing fault maps to a typed SSE error, never narration", () => {
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "fault-campaign",
+    turn_id: "turn-1",
+    player_turn_epoch: 7,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: { provider: "xai", id: "grok-4.5", api: "openai-completions" },
+    elapsed_ms: 1234,
+    secret_extra: "must-not-leak",
+  };
+  const frames = mapRpcEventToSse({
+    type: "custom_message",
+    customType: "coc-turn-processing-fault",
+    content: JSON.stringify(fault),
+    details: fault,
+  });
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].event, "error");
+  assert.equal(frames[0].data.message, fault.message);
+  assert.equal(frames[0].data.code, fault.code);
+  assert.equal(frames[0].data.retryable, false);
+  assert.deepEqual(frames[0].data.details.requested_model, fault.requested_model);
+  assert.equal(frames[0].data.details.pending_turn_preserved, true);
+  assert.equal("secret_extra" in frames[0].data.details, false);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+});
+
+test("required-visible recovery preserves terminal typed fault instead of replacing it", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "typed-fault-recovery",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({
+    requireVisibleText: true,
+    onSse: (frame) => frames.push(frame),
+  });
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "typed-fault-recovery",
+    turn_id: "turn-retained",
+    player_turn_epoch: 4,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: null,
+    elapsed_ms: 55,
+  };
+  child.stdout.write(`${JSON.stringify({
+    type: "custom_message",
+    customType: "coc-turn-processing-fault",
+    content: JSON.stringify(fault),
+    details: fault,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.pending_turn_preserved === true,
+  );
+  assert.deepEqual(frames.map((frame) => frame.event), ["error"]);
+  assert.equal(frames[0].data.code, "state_claim_compiler_invalid");
+});
+
 test("buildChildEnv marks an attached UI and play workspace", () => {
   const env = buildChildEnv({
     workspace: "/tmp/coc-workspace",
@@ -1072,7 +1161,7 @@ test("promptPlayOpening fails closed without visible player text", async () => {
   );
 });
 
-test("attachOpening returns without replaying a turn that settled before the UI attached", async () => {
+test("attachOpening replays only current-child output settled before UI attach", async () => {
   const child = fakeChild();
   const host = new PiCocRpcHost({
     repoRoot: "/tmp/missing-repo",
@@ -1099,7 +1188,7 @@ test("attachOpening returns without replaying a turn that settled before the UI 
     onSse: (frame) => frames.push(frame),
   });
   assert.deepEqual(result, { opened: true });
-  assert.deepEqual(frames, []);
+  assert.deepEqual(frames, [{ event: "delta", data: { text: "先建卡" } }]);
 });
 
 test("attachOpening replays settled session assistant text without injecting", async () => {
@@ -1219,7 +1308,9 @@ test("fresh character-setup opener resumes before source-gated contract", () => 
 test("play-table opener still resumes an already-selected generation exactly once", () => {
   assert.equal(PLAY_TABLE_OPENING_PROMPT.match(/session\.resume/g)?.length, 1);
   assert.match(PLAY_TABLE_OPENING_PROMPT, /coc_evidence_table_opening/);
-  assert.match(PLAY_TABLE_OPENING_PROMPT, /opening is already persisted/);
+  assert.match(PLAY_TABLE_OPENING_PROMPT, /pending turn/);
+  assert.match(PLAY_TABLE_OPENING_PROMPT, /awaiting_player/);
+  assert.match(PLAY_TABLE_OPENING_PROMPT, /Never replay an older assistant opening/);
 });
 
 test("attachOpening character-setup injects one hidden prompt when auto-open is silent", async () => {
@@ -1270,7 +1361,7 @@ test("attachOpening character-setup injects one hidden prompt when auto-open is 
   assert.deepEqual(again, { opened: true });
 });
 
-test("attachOpening with play intent (ready_for_table/active) never injects the setup opener", async () => {
+test("attachOpening with play intent fails closed when resume continuation never starts", async () => {
   const child = fakeChild();
   const written = [];
   child.stdin.on("data", (chunk) => written.push(String(chunk)));
@@ -1284,14 +1375,207 @@ test("attachOpening with play intent (ready_for_table/active) never injects the 
   });
   host.start();
   child.stderr.write(`${UI_IDLE_MARKER}\n`);
-  const result = await host.attachOpening();
-  // Play reopen stays a resume: no hidden setup prompt is ever written.
-  assert.deepEqual(result, { opened: false });
+  await assert.rejects(
+    host.attachOpening(),
+    (error) => error.kind === "pi_coc_play_resume_not_started",
+  );
   assert.equal(
     written.join("").split("\n").filter(Boolean)
       .some((line) => JSON.parse(line).type === "prompt"),
     false,
   );
+});
+
+test("ordinary play reopen settles silently after resume awaiting_player", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "awaiting-player",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_start",
+    toolName: "coc_session_resume",
+    toolCallId: "resume-awaiting",
+    args: {},
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    toolCallId: "resume-awaiting",
+    result: { ok: true, tool: "session.resume", data: { mode: "awaiting_player" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  assert.deepEqual(await attached, { opened: true });
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+  assert.deepEqual(frames.filter((frame) => frame.event === "tool"), [
+    { event: "tool", data: { phase: "start", tool: "coc_session_resume", tool_call_id: "resume-awaiting" } },
+    { event: "tool", data: { phase: "end", tool: "coc_session_resume", tool_call_id: "resume-awaiting" } },
+  ]);
+  assert.equal(written.join("").includes('"type":"prompt"'), false);
+});
+
+test("pending-finalization reopen emits recovered text, never the old opening or player input", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-pi-pending-reopen-"));
+  try {
+    const sessionDir = path.join(agentDir, "sessions", "cwd");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, "2026-08-23T00-00-00Z_web-pending.jsonl"),
+      [
+        JSON.stringify({
+          type: "message",
+          message: { role: "assistant", content: [{ type: "text", text: "旧的正式开场" }] },
+        }),
+        JSON.stringify({
+          type: "message",
+          message: { role: "user", content: "要求20美元预付款" },
+        }),
+      ].join("\n") + "\n",
+    );
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "pending",
+      sessionId: "web-pending",
+      agentDir,
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+    });
+    host.start();
+    child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    const frames = [];
+    const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+    child.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_session_resume",
+      result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "诺特把预付款和钥匙推到你面前。" },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "诺特把预付款和钥匙推到你面前。" }],
+      },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    assert.deepEqual(await attached, { opened: true });
+    const deltas = frames.filter((frame) => frame.event === "delta");
+    assert.deepEqual(deltas, [{
+      event: "delta",
+      data: { text: "诺特把预付款和钥匙推到你面前。" },
+    }]);
+    assert.equal(JSON.stringify(frames).includes("旧的正式开场"), false);
+    assert.equal(written.join("").includes("要求20美元预付款"), false);
+    assert.equal(written.join("").includes('"type":"prompt"'), false);
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("genuine table opening delivers the receipt text exactly once", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "new-table-opening",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "table_opening" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_evidence_table_opening",
+    result: { ok: true, tool: "evidence.table_opening" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "十月的雨落在波士顿街头。" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "十月的雨落在波士顿街头。" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  assert.deepEqual(await attached, { opened: true });
+  assert.deepEqual(frames.filter((frame) => frame.event === "delta"), [{
+    event: "delta",
+    data: { text: "十月的雨落在波士顿街头。" },
+  }]);
+  const secondFrames = [];
+  assert.deepEqual(await host.attachOpening({
+    onSse: (frame) => secondFrames.push(frame),
+  }), { opened: true });
+  assert.deepEqual(secondFrames, []);
+});
+
+test("concurrent play attaches join one continuation and do not duplicate SSE delivery", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "attach-singleflight",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const firstFrames = [];
+  const secondFrames = [];
+  const first = host.attachOpening({ onSse: (frame) => firstFrames.push(frame) });
+  const second = host.attachOpening({ onSse: (frame) => secondFrames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "仅交付一次" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "仅交付一次" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  assert.deepEqual(await Promise.all([first, second]), [
+    { opened: true },
+    { opened: true },
+  ]);
+  assert.deepEqual(firstFrames, [{ event: "delta", data: { text: "仅交付一次" } }]);
+  assert.deepEqual(secondFrames, []);
 });
 
 test("attachOpening character-setup does not inject when auto-open already has visible text", async () => {

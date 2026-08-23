@@ -55,12 +55,12 @@ test("awaiting_player plus existing table_opening satisfies play auto-open", asy
   }), false);
 });
 
-test("play-role auto-open does not triggerTurn when resume already awaits player", async () => {
+test("play-role auto-open always triggers one resume-first continuation", async () => {
   const welcome = await loadWelcome();
   assert.equal(welcome.tableOpenShouldTriggerTurn({
     intent: "continue",
     resumeSatisfied: true,
-  }), false);
+  }), true);
   assert.equal(welcome.tableOpenShouldTriggerTurn({
     intent: "character-setup",
     resumeSatisfied: true,
@@ -127,7 +127,26 @@ test("play-role auto-open does not triggerTurn when resume already awaits player
     row.message?.customType === "coc-pi-table-open"
   ));
   assert.equal(tableOpen.length, 1);
-  assert.equal(tableOpen[0].options?.triggerTurn, false);
-  assert.equal(tableOpen[0].message?.details?.table_open_satisfied, true);
+  assert.equal(tableOpen[0].options?.triggerTurn, true);
+  assert.equal(tableOpen[0].message?.details?.table_open_satisfied, false);
+  assert.match(tableOpen[0].message?.content ?? "", /session\.resume/);
+  assert.match(tableOpen[0].message?.content ?? "", /pending_finalization/);
   assert.match(tableOpen[0].message?.content ?? "", /awaiting_player/);
+  assert.match(tableOpen[0].message?.content ?? "", /Never replay an older assistant opening/);
+  assert.equal(sent.some((row) => (
+    row.message?.customType === welcome.STARTUP_RESUME_CUSTOM_TYPE
+  )), false);
+});
+
+test("play-role resume session with visible history still triggers continuation", async () => {
+  const welcome = await loadWelcome();
+  assert.equal(welcome.shouldAutoOpenTable("resume", false, {
+    intent: "continue",
+    hasVisibleAssistant: true,
+  }), true);
+  assert.equal(welcome.shouldAutoOpenTable("resume", false, {
+    intent: "continue",
+    hasVisibleAssistant: true,
+    startupCampaignSelected: false,
+  }), false);
 });

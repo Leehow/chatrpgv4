@@ -47,14 +47,15 @@ export const AGENT_SETTLE_QUIESCENCE_MS = 100;
 
 /** Host-owned continuation for a respawned play RPC child. */
 export const PLAY_TABLE_OPENING_PROMPT = [
-  "Host continuation after setup.complete / ready_for_table handoff.",
+  "Host continuation for a newly spawned selected play campaign.",
   "You are the play-role Keeper for this already-selected campaign.",
   "First call session.resume on this campaign.",
-  "If coc_evidence_table_opening remains visible after resume, call it and",
-  "deliver only the player-visible formal opening from that receipt.",
-  "If that typed tool is absent, the opening is already persisted: do not call",
-  "or replay it; wait for the player or continue the buffered player action.",
-  "Do not invent opening text. Do not ask the player to choose a campaign.",
+  "Branch only on that result: recover and finalize a retained pending turn",
+  "from canonical receipts without resending player input; for table_opening",
+  "call coc_evidence_table_opening exactly once; for awaiting_player emit no",
+  "new table prose and wait. Emit only an exact pending delivery when present.",
+  "Never replay an older assistant opening, reroll, repeat state writes, invent",
+  "opening text, or ask the player to choose a campaign.",
 ].join(" ");
 
 /** Host-owned recovery after a provider continuation lost all RPC progress. */
@@ -529,6 +530,61 @@ export function parseSetupHandoffEvent(event) {
   };
 }
 
+function turnProcessingFaultDetails(event) {
+  if (!event || event.type !== "custom_message"
+    || event.customType !== "coc-turn-processing-fault") return null;
+  let source = event.details;
+  if ((!source || typeof source !== "object") && typeof event.content === "string") {
+    try {
+      source = JSON.parse(event.content);
+    } catch {
+      return null;
+    }
+  }
+  if (!source || typeof source !== "object"
+    || source.contract_id !== "coc.pi-turn-processing-fault.v1"
+    || source.schema_version !== 1
+    || source.kind !== "turn_processing_fault"
+    || source.status !== "terminal"
+    || source.stage !== "state_claim_compilation"
+    || !["state_claim_compiler_invalid", "state_claim_compiler_unavailable"]
+      .includes(source.code)) return null;
+  const requestedModel = source.requested_model && typeof source.requested_model === "object"
+    ? {
+        provider: typeof source.requested_model.provider === "string"
+          ? source.requested_model.provider : null,
+        id: typeof source.requested_model.id === "string" ? source.requested_model.id : null,
+        api: typeof source.requested_model.api === "string" ? source.requested_model.api : null,
+      }
+    : null;
+  return {
+    schema_version: 1,
+    contract_id: source.contract_id,
+    kind: source.kind,
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: typeof source.campaign_id === "string" ? source.campaign_id : null,
+    turn_id: typeof source.turn_id === "string" ? source.turn_id : null,
+    player_turn_epoch: Number.isInteger(source.player_turn_epoch)
+      ? source.player_turn_epoch : null,
+    code: source.code,
+    message: typeof source.message === "string" && source.message.trim()
+      ? source.message.trim() : "回合处理失败；当前回合仍保留，请刷新后恢复。",
+    retryable: source.retryable === true,
+    will_retry: source.will_retry === true,
+    pending_turn_preserved: source.pending_turn_preserved === true,
+    failure_class: [
+      "capability_unsupported",
+      "provider_unavailable",
+      "timeout",
+      "protocol_invalid",
+      "result_invalid",
+    ].includes(source.failure_class) ? source.failure_class : null,
+    requested_model: requestedModel,
+    elapsed_ms: Number.isInteger(source.elapsed_ms) ? source.elapsed_ms : null,
+  };
+}
+
 function toolEventFrame(phase, event) {
   const data = { phase, tool: toolLabel(event) };
   // Pi core keeps this id on the execution event even when parallel calls end
@@ -562,6 +618,18 @@ function containsOpeningSourceReviewGate(value, depth = 0) {
 
 export function mapRpcEventToSse(event) {
   if (!event || typeof event !== "object") return [];
+  const processingFault = turnProcessingFaultDetails(event);
+  if (processingFault) {
+    return [{
+      event: "error",
+      data: {
+        message: processingFault.message,
+        code: processingFault.code,
+        retryable: processingFault.retryable,
+        details: processingFault,
+      },
+    }];
+  }
   const handoff = parseSetupHandoffEvent(event);
   if (handoff) {
     return [{ event: "coc_setup_handoff", data: handoff }];
@@ -721,6 +789,8 @@ export class PiCocRpcHost {
     this.#abortBoundary = null;
     this.#abortCommandPending = false;
     this.#activePromptCount = 0;
+    this.#openingAttached = false;
+    this.#openingAttachPromise = null;
     this.#processExitObserved = false;
     this.#processCloseObserved = false;
   }
@@ -739,6 +809,8 @@ export class PiCocRpcHost {
   #abortBoundary;
   #abortCommandPending;
   #activePromptCount;
+  #openingAttached;
+  #openingAttachPromise;
   #processExitObserved;
   #processCloseObserved;
 
@@ -1220,21 +1292,34 @@ export class PiCocRpcHost {
     }
   }
 
-  async attachOpening({
+  async #runAttachOpening({
     onSse,
     timeoutMs = 900_000,
     requireVisibleText = false,
   } = {}) {
     let sawVisibleText = false;
+    let terminalFault = null;
     const relay = (frame) => {
       if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
         sawVisibleText = true;
       } else if (frame?.event === "delta_reset") {
         sawVisibleText = false;
+      } else if (
+        frame?.event === "error"
+        && frame.data?.details?.kind === "turn_processing_fault"
+        && frame.data?.details?.status === "terminal"
+      ) {
+        terminalFault = frame.data;
       }
       onSse?.(frame);
     };
     const finish = (opened) => {
+      if (terminalFault) {
+        throw new PiCocRpcError(terminalFault.message, {
+          kind: "pi_coc_turn_processing_fault",
+          details: terminalFault.details,
+        });
+      }
       if (requireVisibleText && !sawVisibleText) {
         throw new PiCocRpcError("开桌会话未产出玩家可见文本。", {
           kind: "pi_coc_opening_not_visible",
@@ -1278,6 +1363,7 @@ export class PiCocRpcHost {
         sawVisibleText,
       });
       if (injected) {
+        if (terminalFault) return finish(true);
         if (requireVisibleText && !sawVisibleText) {
           throw new PiCocRpcError("开桌会话未产出玩家可见文本。", {
             kind: "pi_coc_opening_not_visible",
@@ -1293,8 +1379,10 @@ export class PiCocRpcHost {
       });
     }
     if (this.settleGeneration > 0 && !this.streaming) {
-      if (requireVisibleText) this.#replaySse(relay);
-      if (!sawVisibleText) this.#replaySessionAssistant(relay);
+      if (!sawVisibleText) this.#replaySse(relay);
+      if (!sawVisibleText && this.tableIntent !== "continue") {
+        this.#replaySessionAssistant(relay);
+      }
       return maybeSetupOpen(true);
     }
     const replayed = this.#replaySse(relay);
@@ -1322,10 +1410,30 @@ export class PiCocRpcHost {
         return maybeSetupOpen(true);
       }
     }
-    if (this.#replaySessionAssistant(relay)) {
+    if (this.tableIntent !== "continue" && this.#replaySessionAssistant(relay)) {
       return maybeSetupOpen(true);
     }
+    if (this.tableIntent === "continue") {
+      throw new PiCocRpcError(
+        "pi-coc play host did not start its session.resume continuation",
+        { kind: "pi_coc_play_resume_not_started" },
+      );
+    }
     return maybeSetupOpen(replayed);
+  }
+
+  async attachOpening(options = {}) {
+    if (this.#openingAttached) return { opened: true };
+    if (this.#openingAttachPromise) return this.#openingAttachPromise;
+    const run = this.#runAttachOpening(options);
+    this.#openingAttachPromise = run;
+    try {
+      const result = await run;
+      this.#openingAttached = true;
+      return result;
+    } finally {
+      if (this.#openingAttachPromise === run) this.#openingAttachPromise = null;
+    }
   }
 
   async prompt(message, { onSse, timeoutMs = 900_000 } = {}) {

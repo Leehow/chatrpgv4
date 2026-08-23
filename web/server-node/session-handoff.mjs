@@ -89,12 +89,10 @@ export class CampaignHostOrchestrator {
     this.#handoffPromises = new Map();
     this.#recoveryPromises = new Map();
     this.createHost = createHost;
-    this.attachFn = attachFn || ((host, opts) => {
-      if (typeof host.promptPlayOpening === "function") {
-        return host.promptPlayOpening(opts);
-      }
-      return host.attachOpening(opts);
-    });
+    // The play child's welcome hook owns its one resume-first continuation.
+    // Handoff/recovery only attaches to that turn; issuing another prompt here
+    // would race or duplicate session.resume.
+    this.attachFn = attachFn || ((host, opts) => host.attachOpening(opts));
     this.resolveRoleFn = resolveRoleFn || defaultResolveSessionRole;
     this.lastHandoff = new Map();
     this.#listeners = new Set();
@@ -363,7 +361,10 @@ export class CampaignHostOrchestrator {
         session_role: currentRole || inferSessionRole({ tableIntent }),
         transitioning: true,
       });
-      const promptResult = await host.promptTurnRecovery({ onSse });
+      const promptResult = await host.attachOpening({
+        onSse,
+        requireVisibleText: true,
+      });
       this.#setStatus(campaignId, {
         session_role: currentRole || inferSessionRole({ tableIntent }),
         transitioning: false,

@@ -10,6 +10,7 @@ import {
   PiCocRpcHost,
   PLAY_TABLE_OPENING_PROMPT,
   PLAY_TURN_RECOVERY_PROMPT,
+  UI_AUTO_OPEN_MARKER,
 } from "../pi-coc-rpc.mjs";
 import {
   CampaignHostOrchestrator,
@@ -50,9 +51,10 @@ function fakeHost({ campaignId = "c1" } = {}) {
     async waitUntilReady() {
       this.readyCalls += 1;
     },
-    async attachOpening() {
+    async attachOpening({ onSse } = {}) {
       this.attached += 1;
-      throw new Error("handoff must not attachOpening without prompting play");
+      onSse?.({ event: "delta", data: { text: "雾中的宅邸在你面前显出轮廓。" } });
+      return { opened: true };
     },
     async promptPlayOpening({ onSse } = {}) {
       this.prompted += 1;
@@ -144,9 +146,9 @@ test("handoff event path: spawn + attach + role flip", async () => {
   await orchestrator.completeHandoffOpening("haunting-1", {
     onSse: (frame) => frames.push(frame),
   });
-  assert.equal(created[1].prompted, 1);
-  assert.equal(created[1].attached, 0);
-  assert.equal(created[1].lastPrompt, PLAY_TABLE_OPENING_PROMPT);
+  assert.equal(created[1].prompted, 0);
+  assert.equal(created[1].attached, 1);
+  assert.equal(created[1].lastPrompt, null);
   assert.deepEqual(frames, [
     { event: "delta", data: { text: "雾中的宅邸在你面前显出轮廓。" } },
   ]);
@@ -217,8 +219,8 @@ test("exit code 42 fallback starts the same handoff", async () => {
     transitioning: true,
   });
   await orchestrator.completeHandoffOpening("c42");
-  assert.equal(created[1].prompted, 1);
-  assert.equal(created[1].attached, 0);
+  assert.equal(created[1].prompted, 0);
+  assert.equal(created[1].attached, 1);
   assert.deepEqual(orchestrator.statusOf("c42"), {
     session_role: "play",
     transitioning: false,
@@ -379,11 +381,12 @@ test("provider stall recovery respawns the same session and resumes without play
   assert.equal(recovered.host.sessionId, stalled.sessionId);
   assert.equal(recovered.host.turnIdleTimeoutMs, stalled.turnIdleTimeoutMs);
   assert.equal(recovered.host.nowFn, stalled.nowFn);
-  assert.equal(recovered.host.recoveryPrompted, 1);
-  assert.equal(recovered.host.lastPrompt, PLAY_TURN_RECOVERY_PROMPT);
-  assert.equal(recovered.promptResult.recovered, true);
+  assert.equal(recovered.host.recoveryPrompted, 0);
+  assert.equal(recovered.host.attached, 1);
+  assert.equal(recovered.host.lastPrompt, null);
+  assert.equal(recovered.promptResult.opened, true);
   assert.deepEqual(frames, [
-    { event: "delta", data: { text: "已从保留的回合结算继续。" } },
+    { event: "delta", data: { text: "雾中的宅邸在你面前显出轮廓。" } },
   ]);
   assert.deepEqual(orchestrator.statusOf("stall-recovery"), {
     session_role: "play",
@@ -425,7 +428,7 @@ test("failed provider-stall recovery retires the replacement before accepting an
     createHost: (opts) => {
       const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
       if (created.length === 1) {
-        host.promptTurnRecovery = async () => {
+        host.attachOpening = async () => {
           host.streaming = true;
           const error = new Error("recovery provider stalled");
           error.kind = "pi_coc_rpc_idle_timeout";
@@ -575,7 +578,7 @@ test("parseSessionRoleStdout reads play or setup from JSON or token", () => {
   assert.equal(parseSessionRoleStdout("setup"), "setup");
 });
 
-function fakeRpcChild({ prompts } = {}) {
+function fakeRpcChild({ prompts, autoOpen = false } = {}) {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -598,6 +601,28 @@ function fakeRpcChild({ prompts } = {}) {
           command: "get_state",
           success: true,
         })}\n`);
+        if (autoOpen) {
+          autoOpen = false;
+          queueMicrotask(() => {
+            stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+            stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+            stdout.write(`${JSON.stringify({
+              type: "message_update",
+              assistantMessageEvent: {
+                type: "text_delta",
+                delta: "宅邸的门缝里漏出一丝冷光。",
+              },
+            })}\n`);
+            stdout.write(`${JSON.stringify({
+              type: "message_end",
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: "宅邸的门缝里漏出一丝冷光。" }],
+              },
+            })}\n`);
+            stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+          });
+        }
         continue;
       }
       if (msg.type === "prompt") {
@@ -627,7 +652,7 @@ function fakeRpcChild({ prompts } = {}) {
   return child;
 }
 
-test("respawned play child receives opening prompt and agent_start", async () => {
+test("respawned play child attaches to its one extension-owned continuation", async () => {
   const setupPrompts = [];
   const playPrompts = [];
   const children = [];
@@ -639,7 +664,10 @@ test("respawned play child receives opening prompt and agent_start", async () =>
       launcherPath: process.execPath,
       spawnFn: () => {
         const prompts = children.length === 0 ? setupPrompts : playPrompts;
-        const child = fakeRpcChild({ prompts });
+        const child = fakeRpcChild({
+          prompts,
+          autoOpen: children.length > 0,
+        });
         children.push(child);
         return child;
       },
@@ -660,9 +688,7 @@ test("respawned play child receives opening prompt and agent_start", async () =>
 
   assert.equal(children.length, 2);
   assert.equal(setupPrompts.length, 0);
-  assert.equal(playPrompts.length, 1);
-  assert.equal(playPrompts[0].type, "prompt");
-  assert.equal(playPrompts[0].message, PLAY_TABLE_OPENING_PROMPT);
+  assert.equal(playPrompts.length, 0);
   assert.deepEqual(frames, [
     { event: "delta", data: { text: "宅邸的门缝里漏出一丝冷光。" } },
   ]);

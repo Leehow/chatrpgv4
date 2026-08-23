@@ -120,10 +120,10 @@ try {
     && resumedFirst?.message?.content.includes("startup-campaign")
   );
   const resumedEntry = lifecycleSent.find((entry) => (
-    entry.message.customType === mod.STARTUP_RESUME_CUSTOM_TYPE
+    entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
   ));
   resumedHiddenResumeInstruction = (
-    resumedEntry?.options?.triggerTurn === false
+    resumedEntry?.options?.triggerTurn === true
     && resumedEntry?.message?.content.includes(
       '"operation":"session.resume"',
     )
@@ -300,10 +300,16 @@ process.stdout.write(JSON.stringify({
     intent: "character-setup",
     hasVisibleAssistant: true,
   }) === false,
+  // Compatibility key retained for the Python smoke assertion; the new
+  // resume contract intentionally makes this expression true.
   noAutoOpenContinueAfterToolHistory: mod.shouldAutoOpenTable("startup", false, {
     intent: "continue",
     hasVisibleAssistant: false,
-  }) === false,
+  }) === true,
+  autoOpenContinueAfterVisibleHistory: mod.shouldAutoOpenTable("resume", false, {
+    intent: "continue",
+    hasVisibleAssistant: true,
+  }) === true,
   visibleAssistantFromText: mod.sessionHasVisibleAssistant({
     sessionManager: {
       getEntries: () => [{
