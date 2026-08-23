@@ -1779,6 +1779,67 @@ def test_rules_opposed_fumble_binds_exceptional_effect(campaign_ws):
     assert source["outcome"] == "fumble"
 
 
+def test_rules_opposed_player_projection_hides_npc_secret_targets(campaign_ws):
+    pow_settled = _run(
+        campaign_ws,
+        "rules.opposed",
+        {
+            "contest_kind": "noncombat",
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "POW",
+            "target": 40,
+            "opponent_value": 90,
+            "opponent_label": "a will that is not his own",
+            "reason": "resist the unseen pressure",
+            "decision_id": "proj-pow-90",
+            "seed": 7,
+        },
+    )
+    assert pow_settled["ok"] is True, pow_settled
+    con_settled = _run(
+        campaign_ws,
+        "rules.opposed",
+        {
+            "contest_kind": "noncombat",
+            "investigator": campaign_ws["investigator_id"],
+            "characteristic": "CON",
+            "target": 55,
+            "opponent_value": 99,
+            "opponent_label": "a crushing physical presence",
+            "reason": "hold against the pressure",
+            "decision_id": "proj-con-99",
+            "seed": 11,
+        },
+    )
+    assert con_settled["ok"] is True, con_settled
+
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rows = [
+        json.loads(line)
+        for line in rolls_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    by_id = {row["roll_id"]: row for row in rows}
+    render = coc_toolbox.coc_turn_finalization._render_public_roll
+
+    for settled, secret in ((pow_settled, 90), (con_settled, 99)):
+        mine = by_id[settled["data"]["investigator_roll_id"]]
+        theirs = by_id[settled["data"]["opponent_roll_id"]]
+        mine_flat = {**mine.get("payload", {}), **mine}
+        their_flat = {**theirs.get("payload", {}), **theirs}
+        assert their_flat["base_target"] == secret
+        assert mine_flat["player_projection"]["base_target"] == mine_flat["base_target"]
+        assert "base_target" not in their_flat["player_projection"]
+        assert their_flat["player_projection"]["contest_winner"] == settled["data"]["winner"]
+        npc_line = render(their_flat, play_language="zh-Hans")
+        pc_line = render(mine_flat, play_language="zh-Hans")
+        assert f"基础值：{secret}" not in npc_line
+        assert f"门槛：普通（≤{secret}）" not in npc_line
+        assert str(their_flat["roll"]) in npc_line
+        assert str(mine_flat["base_target"]) in pc_line
+        assert "基础值" in pc_line
+
+
 def test_rules_roll_skill_check_returns_success_level_fields(campaign_ws):
     envelope = _run(
         campaign_ws,

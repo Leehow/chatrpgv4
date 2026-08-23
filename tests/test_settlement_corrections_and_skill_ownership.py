@@ -210,7 +210,9 @@ def test_compose_development_player_facing_requires_all_public_checks():
     assert len(facing["rendered_lines"]) == 4
     text = facing["rendered_text"]
     assert "【明骰】" in text
-    assert "Listen" in text
+    assert "聆听" in text
+    assert "Listen" not in text
+    assert "幸运" in text
     assert "75" in text
 
     incomplete = coc_runtime._compose_development_player_facing(

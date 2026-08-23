@@ -744,6 +744,42 @@ def _hidden_key(key: Any) -> bool:
     )
 
 
+def _language_api() -> Any:
+    _plugin_scripts_dir()
+    import coc_language
+
+    return coc_language
+
+
+def _roll_api() -> Any:
+    _plugin_scripts_dir()
+    import coc_roll
+
+    return coc_roll
+
+
+def _project_public_roll_record(row: dict[str, Any]) -> dict[str, Any]:
+    """Player-safe public roll: typed projection, never raw NPC targets."""
+    projected = _player_safe(row)
+    if not isinstance(projected, dict):
+        return {"redacted": True}
+    roll_api = _roll_api()
+    payload = projected.get("payload") if isinstance(projected.get("payload"), dict) else {}
+    merged = {**payload, **{key: value for key, value in projected.items() if key != "payload"}}
+    view = roll_api.player_facing_roll_view(merged)
+    if isinstance(projected.get("payload"), dict):
+        for key in roll_api.SECRET_TARGET_KEYS:
+            if key not in view:
+                projected["payload"].pop(key, None)
+        projection = merged.get("player_projection")
+        if isinstance(projection, dict):
+            projected["payload"]["player_projection"] = projection
+    for key in roll_api.SECRET_TARGET_KEYS:
+        if key not in view:
+            projected.pop(key, None)
+    return projected
+
+
 def _player_safe(value: Any) -> Any:
     if isinstance(value, dict):
         if value.get("secret") is True or value.get("visibility") == "keeper_only":
@@ -1213,13 +1249,26 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
 
     campaign_relative = _campaign_relative(run_dir, raw_metadata)
 
-    if not metadata and campaign_relative:
+    campaign_localized_terms: dict[str, Any] | None = None
+    if campaign_relative:
         campaign_json_relative = f"{campaign_relative}/campaign.json"
-        campaign_json = _read_source(run_dir, campaign_json_relative, "json", manifest)
+        campaign_exists = _safe_source_path(run_dir, campaign_json_relative).exists()
+        campaign_json = (
+            _read_source(run_dir, campaign_json_relative, "json", manifest)
+            if campaign_exists else None
+        )
         if isinstance(campaign_json, dict):
-            metadata_source = campaign_json_relative
-            raw_metadata = campaign_json
-            metadata = _safe_metadata(campaign_json)
+            extra_terms = campaign_json.get("localized_terms")
+            if isinstance(extra_terms, dict):
+                campaign_localized_terms = extra_terms
+            if not metadata.get("play_language"):
+                play_language = campaign_json.get("play_language")
+                if isinstance(play_language, str) and play_language.strip():
+                    metadata["play_language"] = play_language
+            if not metadata:
+                metadata_source = campaign_json_relative
+                raw_metadata = campaign_json
+                metadata = _safe_metadata(campaign_json)
 
     canonical_identity, run_identity_findings, identity_evidence = (
         _resolve_canonical_run_identity(run_dir, campaign_relative, metadata)
@@ -1581,7 +1630,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     {"roll_id": roll_id, "source_line": source_line}
                 )
                 continue
-            projected = _player_safe(row)
+            projected = _project_public_roll_record(row)
             assert isinstance(projected, dict)
             projected.pop("source_ref", None)
             projected.pop("source_path", None)
@@ -2571,6 +2620,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines and not undispositioned_orphans and not invalid_finalization_rows else "FAIL",
         },
         "run_metadata": metadata,
+        "localized_terms": campaign_localized_terms,
         "source_identity": {
             "metadata_source": metadata_source,
             "identity_source": identity_evidence.get("source"),
@@ -2766,11 +2816,26 @@ def _first_not_none(*values: Any) -> Any:
     return None
 
 
-def _structured_skill_labels(report: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """Player-facing labels already carried by each structured character card."""
+def _play_language(report: dict[str, Any]) -> str:
     metadata = report.get("run_metadata")
-    if not isinstance(metadata, dict) or metadata.get("play_language") != "zh-Hans":
-        return {}
+    language = metadata.get("play_language") if isinstance(metadata, dict) else None
+    if isinstance(language, str) and language.strip():
+        return language
+    return _language_api().DEFAULT_PLAY_LANGUAGE
+
+
+def _resolved_player_terms(report: dict[str, Any]) -> dict[str, str]:
+    language = _play_language(report)
+    extra = report.get("localized_terms")
+    campaign = {"localized_terms": extra} if isinstance(extra, dict) else None
+    return _language_api().resolved_localized_terms(language, campaign)
+
+
+def _structured_skill_labels(report: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Investigator sheet overrides on top of the shared term resolver."""
+    language = _play_language(report)
+    terms = _resolved_player_terms(report)
+    zh_overlay = ZH_MECHANICAL_LABELS if language == "zh-Hans" else {}
     labels_by_investigator: dict[str, dict[str, str]] = {}
     for investigator in report.get("investigators") or []:
         if not isinstance(investigator, dict):
@@ -2784,7 +2849,7 @@ def _structured_skill_labels(report: dict[str, Any]) -> dict[str, dict[str, str]
             character.get("initial_skill_rows")
             if isinstance(character, dict) else None
         )
-        labels: dict[str, str] = {}
+        labels: dict[str, str] = {**terms, **zh_overlay}
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
@@ -2796,10 +2861,7 @@ def _structured_skill_labels(report: dict[str, Any]) -> dict[str, dict[str, str]
             ):
                 labels[key] = label
         if isinstance(investigator_id, str):
-            labels_by_investigator[investigator_id] = {
-                **ZH_MECHANICAL_LABELS,
-                **labels,
-            }
+            labels_by_investigator[investigator_id] = labels
     return labels_by_investigator
 
 
@@ -2807,11 +2869,18 @@ def _display_skill(
     labels_by_investigator: dict[str, dict[str, str]],
     investigator_id: Any,
     canonical_skill: Any,
+    *,
+    terms: dict[str, str] | None = None,
+    play_language: str | None = None,
 ) -> Any:
-    if not isinstance(investigator_id, str) or not isinstance(canonical_skill, str):
+    if not isinstance(canonical_skill, str):
         return canonical_skill
-    return labels_by_investigator.get(investigator_id, {}).get(
-        canonical_skill, canonical_skill
+    if isinstance(investigator_id, str):
+        mapped = labels_by_investigator.get(investigator_id, {}).get(canonical_skill)
+        if isinstance(mapped, str) and mapped.strip():
+            return mapped
+    return _language_api().player_facing_skill_label(
+        canonical_skill, play_language, terms=terms
     )
 
 
@@ -3130,6 +3199,8 @@ def _markdown(report: dict[str, Any]) -> str:
     metadata = report["run_metadata"]
     completeness = report["completeness"]
     skill_labels = _structured_skill_labels(report)
+    play_language = _play_language(report)
+    player_terms = _resolved_player_terms(report)
     lines = [
         "# COC Actual-Play Battle Report", "",
         "This is the final player-readable report produced directly from a real playtest run.", "",
@@ -3283,7 +3354,7 @@ def _markdown(report: dict[str, Any]) -> str:
                 "#### Initial Skills",
                 "",
                 " | ".join(
-                    f"{_display_skill(skill_labels, investigator.get('investigator_display_name') or name, key)}: {_display(value)}"
+                    f"{_display_skill(skill_labels, investigator.get('investigator_display_name') or name, key, terms=player_terms, play_language=play_language)}: {_display(value)}"
                     for key, value in character["initial_skills"].items()
                 ),
                 "",
@@ -3411,7 +3482,8 @@ def _markdown(report: dict[str, Any]) -> str:
         parts = [
             "Public social check",
             str(_display_skill(
-                skill_labels, entry.get("actor"), entry.get("skill")
+                skill_labels, entry.get("actor"), entry.get("skill"),
+                terms=player_terms, play_language=play_language,
             )),
         ]
         if _is_numeric(entry.get("roll")):
@@ -3482,15 +3554,25 @@ def _markdown(report: dict[str, Any]) -> str:
             _first(payload, ("actor", "investigator_id")),
         )
         canonical_check = _first_not_none(
-            _first(payload, ("skill", "attribute", "reason", "expression")),
-            _first(roll, ("skill", "reason", "expression")),
+            _first(payload, ("display_skill", "skill", "attribute", "reason", "expression")),
+            _first(roll, ("display_skill", "skill", "reason", "expression")),
+        )
+        roll_view = _roll_api().player_facing_roll_view({**payload, **{
+            key: value for key, value in roll.items() if key != "payload"
+        }})
+        view_exposes_target = any(
+            key in roll_view
+            for key in ("required_target", "effective_target", "target")
         )
         lines.extend([f"### Check {roll_index}", ""])
         fields = (
             ("Actor", actor),
             (
                 "Check",
-                _display_skill(skill_labels, actor, canonical_check),
+                _display_skill(
+                    skill_labels, actor, canonical_check,
+                    terms=player_terms, play_language=play_language,
+                ),
             ),
             (
                 "Roll",
@@ -3506,7 +3588,7 @@ def _markdown(report: dict[str, Any]) -> str:
                 _first_not_none(
                     _first(payload, ("effective_target", "target")),
                     _first(roll, ("effective_target", "target")),
-                ),
+                ) if view_exposes_target else None,
             ),
             (
                 "Difficulty",

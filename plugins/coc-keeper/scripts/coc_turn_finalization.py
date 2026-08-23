@@ -2106,13 +2106,21 @@ def _render_public_roll(
     chrome = coc_language.table_mechanics_labels(language)
     vocabulary = terms if terms is not None else coc_language.resolved_localized_terms(language)
     tag = chrome.get("public_check_tag", "Public roll")
+    view = coc_roll.player_facing_roll_view(raw)
     explicit_skill = (
-        raw.get("display_skill")
+        view.get("display_skill")
+        or raw.get("display_skill")
+        or view.get("skill")
         or raw.get("skill")
-        or raw.get("characteristic")
     )
+    if not explicit_skill and not coc_roll.hides_secret_characteristic_target(raw):
+        explicit_skill = raw.get("characteristic")
     if explicit_skill:
         skill = str(explicit_skill)
+        if skill == raw.get("skill") or skill == view.get("skill"):
+            skill = coc_language.player_facing_skill_label(
+                skill, language, terms=vocabulary
+            )
     elif str(raw.get("kind") or "").casefold() == "dice":
         # ``kind`` is a machine enum, not table prose.  Falling through to
         # raw["kind"] leaked the literal English word ``dice`` at zh/ja tables.
@@ -2129,32 +2137,41 @@ def _render_public_roll(
             skill = str(chrome.get("die_fallback", "Die"))
         else:
             skill = str(chrome.get("check_fallback", "Check"))
-    if _roll_kind(raw) == "check" and all(
-        key in raw for key in (
-            "roll", "base_target", "required_level", "required_target",
-            "achieved_level", "passed", "surplus_levels", "outcome",
+    percentile_view = (
+        raw if coc_roll.is_first_contact_roll(raw) else view
+    )
+    is_percentile = _roll_kind(raw) == "check" and (
+        all(key in percentile_view for key in coc_roll._FULL_PERCENTILE_KEYS)
+        or (
+            "roll" in percentile_view
+            and (
+                percentile_view.get("achieved_level") is not None
+                or str(percentile_view.get("outcome") or "") in coc_roll._PERCENTILE_OUTCOMES
+            )
         )
-    ):
-        detail = coc_roll.format_percentile_result(
-            raw, language=language, compact=True
+    )
+    if is_percentile:
+        detail = coc_roll.format_player_facing_percentile(
+            percentile_view, language=language, compact=True
         )
-        if all(_exact_int(raw.get(key)) for key in ("original_roll", "luck_spent", "adjusted_roll")):
+        luck_source = percentile_view
+        if all(_exact_int(luck_source.get(key)) for key in ("original_roll", "luck_spent", "adjusted_roll")):
             # Rewrite luck-spend clause in the active play language.
             if language == "zh-Hans" or language.startswith("zh"):
                 detail = detail.replace(
-                    f"掷骰：{raw['adjusted_roll']}；",
+                    f"掷骰：{luck_source['adjusted_roll']}；",
                     (
-                        f"原始：{raw['original_roll']}；幸运 -{raw['luck_spent']}；"
-                        f"调整：{raw['adjusted_roll']}；"
+                        f"原始：{luck_source['original_roll']}；幸运 -{luck_source['luck_spent']}；"
+                        f"调整：{luck_source['adjusted_roll']}；"
                     ),
                     1,
                 )
             else:
                 detail = detail.replace(
-                    f"roll: {raw['adjusted_roll']};",
+                    f"roll: {luck_source['adjusted_roll']};",
                     (
-                        f"raw: {raw['original_roll']}; luck -{raw['luck_spent']}; "
-                        f"adjusted: {raw['adjusted_roll']};"
+                        f"raw: {luck_source['original_roll']}; luck -{luck_source['luck_spent']}; "
+                        f"adjusted: {luck_source['adjusted_roll']};"
                     ),
                     1,
                 )

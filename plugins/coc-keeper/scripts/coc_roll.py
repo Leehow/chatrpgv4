@@ -493,6 +493,272 @@ def format_percentile_result(
     )
 
 
+PLAYER_PROJECTION_KEY = "player_projection"
+_FIRST_CONTACT_KINDS = frozenset({"npc_first_impression"})
+_FIRST_CONTACT_SKILLS = frozenset({"First Impression", "初印象"})
+_NPC_SUBJECT_KINDS = frozenset({"opponent", "npc", "threat"})
+_PC_SUBJECT_KINDS = frozenset({"investigator", "pc"})
+SECRET_TARGET_KEYS = frozenset({
+    "base_target",
+    "required_target",
+    "effective_target",
+    "target",
+    "characteristic",
+    "opponent_value",
+})
+_PROJECTION_SAFE_KEYS = (
+    "visibility",
+    "roll",
+    "achieved_level",
+    "outcome",
+    "passed",
+    "required_level",
+    "surplus_levels",
+    "contest_winner",
+    "opposed_side",
+    "skill",
+    "kind",
+    "die_expression",
+    "original_roll",
+    "luck_spent",
+    "adjusted_roll",
+    "bonus",
+    "penalty",
+    "pushed",
+)
+_PROJECTION_TARGET_KEYS = (
+    "base_target",
+    "required_target",
+    "effective_target",
+    "target",
+)
+_FIRST_CONTACT_PUBLIC_KEYS = (
+    "app",
+    "credit_rating",
+    "governing_attribute",
+    "governing_value",
+    "npc_display_name",
+)
+_PERCENTILE_OUTCOMES = frozenset({
+    "critical", "extreme", "hard", "regular", "success", "failure", "fumble",
+    "regular_success", "hard_success", "extreme_success", "critical_success",
+})
+_FULL_PERCENTILE_KEYS = (
+    "roll",
+    "base_target",
+    "required_level",
+    "required_target",
+    "achieved_level",
+    "passed",
+    "surplus_levels",
+    "outcome",
+)
+_CONTEST_LABELS_ZH = {
+    "investigator": "调查员胜",
+    "opponent": "对手胜",
+    "none": "无人胜出",
+}
+_CONTEST_LABELS_EN = {
+    "investigator": "investigator wins",
+    "opponent": "opponent wins",
+    "none": "no winner",
+}
+
+
+def _exact_projection_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def is_first_contact_roll(raw: dict[str, Any] | None) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    kind = str(raw.get("kind") or "")
+    skill = str(raw.get("skill") or raw.get("display_skill") or "")
+    return kind in _FIRST_CONTACT_KINDS or skill in _FIRST_CONTACT_SKILLS
+
+
+def roll_subject_kind(raw: dict[str, Any] | None) -> str | None:
+    """Structural subject kind. Never inferred from a display name."""
+    if not isinstance(raw, dict):
+        return None
+    subject = raw.get("subject")
+    if isinstance(subject, dict):
+        kind = subject.get("kind")
+        if isinstance(kind, str) and kind.strip():
+            return kind.strip().casefold()
+    side = raw.get("opposed_side")
+    if side == "investigator":
+        return "investigator"
+    if side == "opponent":
+        return "opponent"
+    return None
+
+
+def hides_secret_characteristic_target(raw: dict[str, Any] | None) -> bool:
+    """True when player renderers must not consume raw NPC/opponent targets."""
+    if is_first_contact_roll(raw):
+        return False
+    return roll_subject_kind(raw) in _NPC_SUBJECT_KINDS
+
+
+def player_projection_includes_target(raw: dict[str, Any] | None) -> bool:
+    if is_first_contact_roll(raw):
+        return True
+    kind = roll_subject_kind(raw)
+    if kind in _NPC_SUBJECT_KINDS:
+        return False
+    if kind in _PC_SUBJECT_KINDS:
+        return True
+    return True
+
+
+def build_player_projection(
+    raw: dict[str, Any],
+    *,
+    include_target: bool | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Typed player view of one canonical roll. Audit receipts keep full fields."""
+    include = (
+        player_projection_includes_target(raw)
+        if include_target is None
+        else bool(include_target)
+    )
+    view: dict[str, Any] = {
+        "visibility": str(raw.get("visibility") or "public"),
+    }
+    for key in _PROJECTION_SAFE_KEYS:
+        if raw.get(key) is not None:
+            view[key] = raw[key]
+    if include:
+        for key in _PROJECTION_TARGET_KEYS:
+            if raw.get(key) is not None:
+                view[key] = raw[key]
+        if raw.get("characteristic") is not None:
+            view["characteristic"] = raw["characteristic"]
+        if is_first_contact_roll(raw):
+            for key in _FIRST_CONTACT_PUBLIC_KEYS:
+                if key in raw:
+                    view[key] = raw[key]
+    if extra:
+        for key, value in extra.items():
+            if value is not None:
+                view[key] = value
+    return view
+
+
+def player_facing_roll_view(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """View a player renderer may consume.
+
+    A typed ``player_projection`` is authoritative for target-bearing fields.
+    Missing projection plus a structural NPC/opponent subject never falls back
+    to raw secret targets. First-contact remains fully public.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    projection = raw.get(PLAYER_PROJECTION_KEY)
+    if isinstance(projection, dict) and projection:
+        view = dict(projection)
+        for key in (
+            "display_skill",
+            "skill",
+            "kind",
+            "roll_id",
+            "npc_display_name",
+            "contest_winner",
+            "opposed_side",
+        ):
+            if key not in view and raw.get(key) is not None:
+                view[key] = raw[key]
+        if is_first_contact_roll(raw):
+            for key in _FIRST_CONTACT_PUBLIC_KEYS:
+                if key not in view and key in raw:
+                    view[key] = raw[key]
+        return view
+    if hides_secret_characteristic_target(raw):
+        return {
+            key: value
+            for key, value in raw.items()
+            if key not in SECRET_TARGET_KEYS
+        }
+    return raw
+
+
+def _contest_clause(winner: Any, language: str) -> str:
+    if winner in (None, ""):
+        return ""
+    key = str(winner)
+    if language == "zh-Hans":
+        return f"；对抗：{_CONTEST_LABELS_ZH.get(key, key)}"
+    return f"; contest: {_CONTEST_LABELS_EN.get(key, key)}"
+
+
+def format_player_facing_percentile(
+    view: dict[str, Any],
+    *,
+    language: str = "zh-Hans",
+    compact: bool = True,
+) -> str:
+    """Render a player view. Target numbers appear only when present on the view."""
+    if all(key in view for key in _FULL_PERCENTILE_KEYS):
+        text = format_percentile_result(view, language=language, compact=compact)
+        return text + _contest_clause(view.get("contest_winner"), language)
+
+    roll = view.get("roll")
+    achieved = str(view.get("achieved_level") or view.get("outcome") or "")
+    passed = view.get("passed")
+    surplus_raw = view.get("surplus_levels")
+    surplus = int(surplus_raw) if _exact_projection_int(surplus_raw) and surplus_raw > 0 else 0
+    luck_ready = all(
+        _exact_projection_int(view.get(key))
+        for key in ("original_roll", "luck_spent", "adjusted_roll")
+    )
+    if language == "zh-Hans":
+        achieved_label = _outcome_label(achieved, language) if achieved else ""
+        surplus_text = f"（超出 {surplus} 级）" if surplus else ""
+        if passed is True:
+            verdict = "；通过"
+        elif passed is False:
+            verdict = "；未通过"
+        else:
+            verdict = ""
+        if luck_ready:
+            head = (
+                f"原始：{view['original_roll']}；幸运 -{view['luck_spent']}；"
+                f"调整：{view['adjusted_roll']}；"
+            )
+        elif roll is not None:
+            head = f"掷骰：{roll}；"
+        else:
+            head = ""
+        reached = f"达到：{achieved_label}{surplus_text}" if achieved_label else ""
+        context = f"{head}{reached}{verdict}"
+    else:
+        achieved_label = achieved.replace("_", " ").title() if achieved else ""
+        surplus_text = (
+            f" (surplus {surplus} level{'s' if surplus != 1 else ''})"
+            if surplus else ""
+        )
+        if passed is True:
+            verdict = "; passed"
+        elif passed is False:
+            verdict = "; not passed"
+        else:
+            verdict = ""
+        if luck_ready:
+            head = (
+                f"raw: {view['original_roll']}; luck -{view['luck_spent']}; "
+                f"adjusted: {view['adjusted_roll']}; "
+            )
+        elif roll is not None:
+            head = f"roll: {roll}; "
+        else:
+            head = ""
+        reached = f"achieved: {achieved_label}{surplus_text}" if achieved_label else ""
+        context = f"{head}{reached}{verdict}".rstrip("; ")
+    return context + _contest_clause(view.get("contest_winner"), language)
+
+
 def public_api_index() -> dict[str, dict[str, Any]]:
     """Return a small public helper index for live-play tool discovery."""
     return {

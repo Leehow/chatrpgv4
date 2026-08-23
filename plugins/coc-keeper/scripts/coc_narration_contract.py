@@ -29,8 +29,10 @@ from coc_narration_style import (
     player_facing_style_contract as _player_facing_style_contract,
     validate_crisis_scene_render_frame,
 )
+import coc_language
 import coc_npc_state
 import coc_epistemic_narration
+import coc_roll
 
 # guard_player_visible_text findings use severity "rewrite" (advisory).
 # Only "block" would gate a turn; the prose guard does not emit it today.
@@ -800,16 +802,23 @@ def build_rules_owned_public_roll_block(
         if not roll_id or roll_id in seen_roll_ids:
             continue
         seen_roll_ids.add(roll_id)
+        view = coc_roll.player_facing_roll_view(raw)
         skill = str(
-            raw.get("skill")
-            or raw.get("characteristic")
+            view.get("display_skill")
+            or view.get("skill")
+            or raw.get("skill")
+            or (
+                raw.get("characteristic")
+                if not coc_roll.hides_secret_characteristic_target(raw)
+                else None
+            )
             or raw.get("purpose")
             or raw.get("kind")
             or "roll"
         ).strip()
         die = str(raw.get("die_expression") or raw.get("die") or "").strip()
         skill_or_die = f"{skill} ({die})" if die and die != skill else skill
-        outcome = str(raw.get("outcome") or "unknown").strip()
+        outcome = str(view.get("outcome") or raw.get("outcome") or "unknown").strip()
         fumble_consequence = raw.get("fumble_consequence")
         fumble_summary = (
             fumble_consequence.get("summary", "").strip()
@@ -835,7 +844,9 @@ def build_rules_owned_public_roll_block(
                 entry["target_actor_id"] = raw["target_actor_id"]
             raw_faces = "+".join(str(value) for value in dice["raw"]) or "—"
             if play_language == "zh-Hans":
-                display_skill = _ZH_ROLL_SKILL_LABELS.get(skill, skill)
+                display_skill = _ZH_ROLL_SKILL_LABELS.get(skill) or (
+                    coc_language.player_facing_skill_label(skill, play_language)
+                )
                 lines.append(
                     f"【明骰】{display_skill} ({dice['expression']})："
                     f"骰面 {raw_faces} → 总值 {rolled_total}。"
@@ -849,11 +860,14 @@ def build_rules_owned_public_roll_block(
                 )
             entries.append(entry)
             continue
-        entry["roll"] = raw.get("roll")
-        target = raw.get("required_target", raw.get("effective_target", raw.get("target")))
+        entry["roll"] = view.get("roll", raw.get("roll"))
+        target = view.get(
+            "required_target",
+            view.get("effective_target", view.get("target")),
+        )
         if target is not None:
             entry["target"] = target
-        difficulty = raw.get("difficulty")
+        difficulty = view.get("difficulty", raw.get("difficulty"))
         if difficulty is not None:
             entry["difficulty"] = difficulty
         for key in (
@@ -880,7 +894,9 @@ def build_rules_owned_public_roll_block(
                 )
             )
         if play_language == "zh-Hans":
-            display_skill = _ZH_ROLL_SKILL_LABELS.get(skill, skill)
+            display_skill = _ZH_ROLL_SKILL_LABELS.get(skill) or (
+                coc_language.player_facing_skill_label(skill, play_language)
+            )
             display_skill_or_die = (
                 f"{display_skill} ({die})" if die and die != skill else display_skill
             )
