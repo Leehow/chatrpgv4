@@ -81,6 +81,198 @@ def test_validate_valid_scenario_no_errors(tmp_path):
     result = coc_scenario_compile.validate_scenario(sc)
     assert result["errors"] == []
 
+
+def test_validate_player_handout_clue_accepts_unique_reverse_asset_link(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "clue-graph.json"
+    graph = json.loads(path.read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+    })
+    path.write_text(json.dumps(graph))
+    _write_handout_store(sc, [
+        _valid_handout_card(clue_refs=["a"]),
+    ])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert result["errors"] == []
+
+
+def test_validate_player_handout_clue_rejects_unknown_asset_id(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "clue-graph.json"
+    graph = json.loads(path.read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+        "handout_asset_id": "handout-missing",
+    })
+    path.write_text(json.dumps(graph))
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "handout-missing" in error and "registered valid card" in error
+        for error in result["errors"]
+    )
+
+
+def _write_handout_store(sc, cards):
+    (sc / "handouts.json").write_text(json.dumps({
+        "schema_version": 1,
+        "handouts": cards,
+    }))
+
+
+def _valid_handout_card(**overrides):
+    card = {
+        "asset_id": "handout-a",
+        "kind": "document",
+        "title": "A player handout",
+        "text": "Exact authored body.",
+        "localized_text": "本项目创作的道具正文。",
+        "source_refs": ["starter-original-derivative:test"],
+        "player_visible": True,
+    }
+    card.update(overrides)
+    return card
+
+
+def test_validate_rejects_every_malformed_card_even_when_unlinked(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _write_handout_store(sc, [{
+        "asset_id": "malformed-unlinked",
+        "kind": "not-a-card-kind",
+        "opening_card": True,
+    }])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "handouts.handouts[0].kind must be one of" in error
+        for error in result["errors"]
+    )
+
+
+def test_validate_rejects_unlinked_card_without_static_asset_id(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _write_handout_store(sc, [{
+        "kind": "document",
+        "title": "No static identity",
+        "opening_card": True,
+    }])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "handouts.handouts[0].asset_id is required" in error
+        for error in result["errors"]
+    )
+
+
+def test_validate_rejects_duplicate_handout_asset_id_before_store_collapse(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _write_handout_store(sc, [
+        _valid_handout_card(),
+        _valid_handout_card(title="Second card with the same id"),
+    ])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "duplicate_handout_asset_id" in error and "handout-a" in error
+        for error in result["errors"]
+    )
+
+
+def test_validate_player_handout_clue_rejects_hidden_card(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "clue-graph.json"
+    graph = json.loads(path.read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+        "handout_asset_id": "handout-a",
+    })
+    path.write_text(json.dumps(graph))
+    _write_handout_store(sc, [_valid_handout_card(player_visible=False)])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "player_visible:true" in error and "handout-a" in error
+        for error in result["errors"]
+    )
+
+
+def test_validate_player_handout_clue_accepts_valid_visible_card(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "clue-graph.json"
+    graph = json.loads(path.read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+        "handout_asset_id": "handout-a",
+    })
+    path.write_text(json.dumps(graph))
+    _write_handout_store(sc, [
+        _valid_handout_card(clue_refs=["a"]),
+    ])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert result["errors"] == []
+
+
+def test_validate_player_handout_clue_accepts_valid_asset_index_card(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "clue-graph.json"
+    graph = json.loads(path.read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+        "handout_asset_id": "handout-a",
+    })
+    path.write_text(json.dumps(graph))
+    index = sc.parent / "index" / "handout-assets.json"
+    index.parent.mkdir()
+    index.write_text(json.dumps({
+        "schema_version": 1,
+        "assets": [_valid_handout_card(clue_refs=["a"])],
+    }))
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert result["errors"] == []
+
+
+def test_validate_player_handout_clue_rejects_conflicting_reverse_ref(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "clue-graph.json"
+    graph = json.loads(path.read_text())
+    graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+        "handout_asset_id": "handout-a",
+    })
+    path.write_text(json.dumps(graph))
+    _write_handout_store(sc, [
+        _valid_handout_card(),
+        _valid_handout_card(
+            asset_id="handout-b",
+            clue_refs=["a"],
+        ),
+    ])
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any(
+        "handout_link_conflict" in error and "handout-b" in error
+        for error in result["errors"]
+    )
+
 def test_validate_missing_dramatic_question(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     g = json.loads((sc/"story-graph.json").read_text())
@@ -835,6 +1027,7 @@ def _minimal_compiled(**overrides):
                             "clue_id": "clue-b",
                             "delivery_kind": "handout",
                             "visibility": "player-safe",
+                            "handout_asset_id": "handout-clue-b",
                             "leads_to": ["finale"],
                             "origin": "source",
                         },
@@ -851,6 +1044,17 @@ def _minimal_compiled(**overrides):
             "fronts": [
                 {"front_id": "front-1", "scope": "scenario", "clocks": [], "origin": "source"},
             ]
+        },
+        "handouts": {
+            "schema_version": 1,
+            "handouts": [{
+                "asset_id": "handout-clue-b",
+                "kind": "document",
+                "text": "Exact fixture body.",
+                "source_refs": ["starter-original-derivative:test:clue-b"],
+                "player_visible": True,
+                "clue_refs": ["clue-b"],
+            }],
         },
     }
     compiled.update(overrides)

@@ -425,6 +425,51 @@ def test_scene_context_consumes_archive_and_exposes_identity(tmp_path: Path):
     ]
 
 
+def test_scene_context_exposes_only_pending_read_aloud_card_metadata(tmp_path: Path):
+    cid, camp_dir = _campaign(tmp_path)
+    pack = _deep("opening", with_secret=True)
+    pack["read_aloud"] = [{
+        "id": "threshold",
+        "trigger": "keeper_choice",
+        "title": "门槛",
+        "text": "SOURCE BODY MUST STAY OUT OF SCENE CONTEXT",
+        "localized_text": "本地化正文也不能提前进入场景上下文",
+        "source_refs": [{
+            "source_id": "pdf:ca-demo",
+            "pdf_index": 2,
+            "text_sha256": "e" * 64,
+        }],
+    }]
+    ir = project.merge_deep_location_into_ir(project.load_campaign_ir(camp_dir), pack)
+    project.write_ir_to_campaign(camp_dir, ir, asset_root_id="ca-demo")
+
+    envelope = toolbox.run_tool("scene.context", tmp_path, cid, {})
+
+    assert envelope["ok"] is True
+    pending = envelope["data"]["pending_handouts"]
+    assert pending == [{
+        "asset_id": "read-aloud:opening:threshold",
+        "kind": "read_aloud",
+        "title": "门槛",
+        "trigger": "keeper_choice",
+        "condition": None,
+        "source_refs": [{
+            "source_id": "pdf:ca-demo",
+            "pdf_index": 2,
+            "text_sha256": "e" * 64,
+        }],
+    }]
+    assert "SOURCE BODY" not in json.dumps(envelope, ensure_ascii=False)
+    assert "本地化正文" not in json.dumps(envelope, ensure_ascii=False)
+
+    world_path = camp_dir / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["delivered_handout_ids"] = ["read-aloud:opening:threshold"]
+    world_path.write_text(json.dumps(world), encoding="utf-8")
+    delivered = toolbox.run_tool("scene.context", tmp_path, cid, {})
+    assert delivered["data"]["pending_handouts"] == []
+
+
 def test_scene_context_source_material_reaches_pi_mcp_projection(tmp_path: Path):
     cid, _camp_dir = _campaign(tmp_path)
     raw = toolbox.run_tool("scene.context", tmp_path, cid, {})

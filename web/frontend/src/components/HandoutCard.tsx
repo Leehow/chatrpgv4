@@ -2,7 +2,7 @@ import { BookOpen, FileText, Map as MapIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HandoutCard } from "../types";
 
-/** 原文卡类型元数据：中文标签 + 图标（Tailwind 类名固定，不做动态拼接）。 */
+/** 卡片类型元数据；展示标签优先使用服务器按 play_language 投影的值。 */
 export const HANDOUT_KIND_META: Record<
   string,
   { label: string; icon: React.ComponentType<{ className?: string }>; badgeCls: string }
@@ -29,7 +29,15 @@ export function handoutKindMeta(kind: string | undefined) {
 }
 
 /** 类型徽章：资料页签列表与叙述流卡片共用。 */
-export function HandoutKindBadge({ kind, className }: { kind: string | undefined; className?: string }) {
+export function HandoutKindBadge({
+  kind,
+  label,
+  className,
+}: {
+  kind: string | undefined;
+  label?: string | null;
+  className?: string;
+}) {
   const meta = handoutKindMeta(kind);
   const Icon = meta.icon;
   return (
@@ -41,14 +49,13 @@ export function HandoutKindBadge({ kind, className }: { kind: string | undefined
       )}
     >
       <Icon className="size-3" aria-hidden />
-      {meta.label}
+      {label || meta.label}
     </span>
   );
 }
 
 /**
- * 原文信息卡视图：纸张质感、标题、原文全文（逐字）、来源页码。
- * 卡内文字是模组原文的逐字投影，永不改写或总结。
+ * 玩家资料卡视图：来源原文与项目创作的战役内道具使用不同标签。
  */
 export function HandoutCardView({ card }: { card: HandoutCard }) {
   const body = (card.text ?? "").trim() || (card.summary ?? "").trim();
@@ -56,10 +63,10 @@ export function HandoutCardView({ card }: { card: HandoutCard }) {
   return (
     <section
       className="handout-card w-full rounded-xl p-4 sm:p-5"
-      aria-label={`原文卡：${card.title}`}
+      aria-label={`${card.card_label || "资料卡"}：${card.title}`}
     >
       <header className="flex flex-wrap items-center gap-2">
-        <HandoutKindBadge kind={card.kind} />
+        <HandoutKindBadge kind={card.kind} label={card.kind_label} />
         <h4 className="font-display min-w-0 flex-1 text-base leading-snug font-semibold text-foreground sm:text-lg">
           {card.title}
         </h4>
@@ -81,7 +88,7 @@ export function HandoutCardView({ card }: { card: HandoutCard }) {
       ) : null}
       {pages.length ? (
         <footer className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-dashed border-border/80 pt-2 text-[11px] tracking-wide text-muted-foreground">
-          <span>来源页</span>
+          <span>{card.source_label || "来源页"}</span>
           {pages.map((page) => (
             <span
               key={page}

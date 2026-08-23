@@ -90,12 +90,12 @@ assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_turn",
   operation: "state.journal",
   phase: "pending_finalization",
-}).ok, false);
+}).ok, true);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_turn",
   operation: "turn.finalize",
   phase: "ending",
-}).ok, false);
+}).ok, true);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_state",
   operation: "state.move_scene",
@@ -104,8 +104,8 @@ assert.equal(mod.evaluateExecuteAcl({
 assert.ok(mod.activeToolsForPhase("ending").includes(
   mod.domainToolForOperation("state.journal"),
 ));
-assert.ok(!mod.activeToolsForPhase("ending", "play").includes("coc_turn_finalize"));
-assert.ok(!mod.activeToolsForPhase("ending", "play").includes("coc_turn_output_context"));
+assert.ok(mod.activeToolsForPhase("ending", "play").includes("coc_turn_finalize"));
+assert.ok(mod.activeToolsForPhase("ending", "play").includes("coc_turn_output_context"));
 assert.ok(!mod.activeToolsForPhase("ending").includes("coc_state_end_session"));
 
 for (const [operation, policy] of Object.entries(mod.OPERATION_POLICY)) {
@@ -143,6 +143,11 @@ assert.ok(!liveActive.includes("coc_setup"));
 const stateOps = mod.domainToolSchema("coc_state").properties.operation.enum;
 for (const operation of [
   "state.item_grant",
+  "state.cash_grant",
+  "state.cash_query",
+  "state.cash_spend",
+  "state.deliver_handout",
+  "state.replay_handout",
 ]) {
   assert.ok(stateOps.includes(operation), `${operation} on coc_state enum`);
   assert.equal(mod.domainToolForOperation(operation), "coc_state", operation);
@@ -335,12 +340,12 @@ assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_turn",
   operation: "turn.output_context",
   phase: "live_turn",
-}).ok, false);
+}).ok, true);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_turn",
   operation: "turn.finalize",
   phase: "live_turn",
-}).ok, false);
+}).ok, true);
 assert.equal(
   mod.inferPhaseFromEnvelope(
     "turn.finalize",
@@ -816,6 +821,6 @@ assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_turn",
   operation: "turn.finalize",
   phase: "live_turn",
-}).ok, false);
+}).ok, true);
 
 process.stdout.write(JSON.stringify({ ok: true }));

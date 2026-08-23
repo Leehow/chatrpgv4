@@ -97,6 +97,61 @@ def test_card_optional_field_shapes():
     assert errors == []
 
 
+def test_authored_derivative_body_is_distinct_from_source_verbatim_text():
+    card = _card(
+        content_origin="authored_derivative",
+        authored_text="Contributor-authored in-world prop.",
+        text=None,
+        source_refs=None,
+        localized_language="zh-Hans",
+        localized_title="战役内道具",
+        localized_summary="由项目贡献者创作的剧情资料。",
+        localized_text="贡献者创作的战役内道具正文。",
+    )
+
+    assert coc_scenario.validate_handout_card(card) == []
+    assert any(
+        "authored_derivative" in error and ".text" in error
+        for error in coc_scenario.validate_handout_card(
+            {**card, "text": "This must not claim to be source verbatim."}
+        )
+    )
+    assert any(
+        "source_refs" in error
+        for error in coc_scenario.validate_handout_card(
+            {**card, "source_refs": ["not-a-source-page"]}
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"asset_id": 7}, "asset_id"),
+        ({"asset_id": " handout-letter "}, "asset_id"),
+        ({"handout_id": ["handout-letter"]}, "handout_id"),
+        ({"handout_id": " handout-letter "}, "handout_id"),
+        ({"player_visible": "false"}, "player_visible"),
+        ({"opening_card": "true"}, "opening_card"),
+        ({"image_ref": ["images/letter.png"]}, "image_ref"),
+    ],
+)
+def test_card_identity_visibility_and_asset_shapes_are_strict(overrides, field):
+    errors = coc_scenario.validate_handout_card(_card(**overrides))
+    assert any(field in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "content_origin",
+    [None, 7, "", {}, [], "unknown"],
+)
+def test_present_invalid_content_origin_never_uses_the_default(content_origin):
+    errors = coc_scenario.validate_handout_card(
+        _card(content_origin=content_origin)
+    )
+    assert any("content_origin" in error for error in errors)
+
+
 def test_card_source_index_derivation():
     assert coc_scenario.handout_card_source_indices(
         ["pdf_index-16", "pdf_index-3", "note"]
@@ -117,6 +172,7 @@ def test_load_handout_assets_skips_invalid_cards(tmp_path):
         {k: v for k, v in _card(asset_id="handout-no-kind").items() if k != "kind"},
         # text without source_refs -> skipped
         _card(asset_id="handout-untraced", source_refs=None),
+        _card(asset_id=" handout-padded "),
         # not an object -> skipped
         "not-a-card",
     ])

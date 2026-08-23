@@ -10,6 +10,89 @@ export function needsSetupHandoff({ host, promptResult, transitioning = false } 
   );
 }
 
+function reportStallRecovery(onSse, error) {
+  onSse?.({
+    event: "status",
+    data: {
+      phase: "recovering",
+      diagnostic: error.details ?? null,
+    },
+  });
+}
+
+export async function attachWithStallRecovery({
+  host,
+  campaignId,
+  orchestrator,
+  onSse,
+}) {
+  try {
+    return {
+      host,
+      promptResult: (await host.attachOpening({ onSse })) || {},
+    };
+  } catch (error) {
+    if (error?.kind !== "pi_coc_rpc_idle_timeout") throw error;
+    reportStallRecovery(onSse, error);
+    return orchestrator.recoverStalledTurn(campaignId, {
+      onSse,
+      recoveryDiagnostic: error.details ?? null,
+    });
+  }
+}
+
+export async function promptWithStallRecovery({
+  host,
+  message,
+  campaignId,
+  orchestrator,
+  onSse,
+}) {
+  try {
+    return {
+      host,
+      promptResult: (await host.prompt(message, { onSse })) || {},
+    };
+  } catch (error) {
+    if (error?.kind !== "pi_coc_rpc_idle_timeout") throw error;
+    reportStallRecovery(onSse, error);
+    return orchestrator.recoverStalledTurn(campaignId, {
+      onSse,
+      recoveryDiagnostic: error.details ?? null,
+    });
+  }
+}
+
+/** Reconcile an already-aborted turn; the caller must not resend its input. */
+export async function recoverAbortedTurn({
+  campaignId,
+  orchestrator,
+  onSse,
+}) {
+  return orchestrator.recoverStalledTurn(campaignId, { onSse });
+}
+
+/** Finish a host-owned recovery through the normal delivery/finalize boundary. */
+export async function finishRecoveredTurn({
+  recovery,
+  campaignId,
+  orchestrator,
+  onSse,
+  onDelivery,
+  finalize,
+}) {
+  const { host, promptResult = {} } = recovery;
+  host.offerStreamedDelivery(onDelivery);
+  return finishPromptTurn({
+    host,
+    promptResult,
+    campaignId,
+    orchestrator,
+    onSse,
+    finalize,
+  });
+}
+
 export async function finishPromptTurn({
   host,
   promptResult,

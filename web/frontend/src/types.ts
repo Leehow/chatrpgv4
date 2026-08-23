@@ -115,10 +115,17 @@ export interface DisplayValue {
 
 export interface Weapon {
   label?: string;
+  /** Canonical play-language title used only when the weapon has no label. */
+  title_fallback_label?: string;
   skill_label?: string;
   damage?: string;
-  range?: string;
+  range?: number | string;
+  range_label?: string;
   ammo?: number | string;
+  ammo_label?: string;
+  params_source?: "explicit" | "ruleset_catalog" | "module_preset" | "unresolved";
+  mechanics_available?: boolean;
+  mechanics_status_label?: string;
 }
 
 /** One live inventory entry merged from the character sheet plus the
@@ -202,6 +209,8 @@ export interface CharacterSheet {
     starred?: boolean;
   }[];
   skills?: DisplayValue[];
+  /** Canonical play-language heading for the weapon section. */
+  weapon_section_label?: string;
   weapons?: Weapon[];
   equipment?: string[];
   /** Live campaign-merged inventory; absent/null outside a campaign context
@@ -307,21 +316,30 @@ export interface DiscoveredClue {
   summary: string;
 }
 
-/** 原文信息卡类型：手稿全文 document / 朗读框文 read_aloud / 地图 map。 */
+/** 资料卡类型：文献 document / 朗读内容 read_aloud / 地图 map。 */
 export type HandoutKind = "document" | "read_aloud" | "map";
 
-/** 玩家安全原文卡投影（web/server-node 只读产出，仅含已交付卡）。 */
+/** 玩家安全资料卡投影（web/server-node 只读产出，仅含已交付卡）。 */
 export interface HandoutCard {
   asset_id: string;
+  /** Inline event identity; changes only for an explicit validated replay. */
+  presentation_id?: string;
+  /** Monotonic per-material presentation revision. */
+  presentation_revision?: number;
   kind: HandoutKind;
+  content_origin?: "source_verbatim" | "authored_derivative";
   title: string;
-  /** 原文全文（优先 localized_text 的完整译文，其次源语言逐字摘录）。 */
+  /** Active play-language labels selected by the server projection. */
+  card_label?: string | null;
+  kind_label?: string | null;
+  source_label?: string | null;
+  /** 当前游玩语言下的已登记完整正文。 */
   text?: string | null;
   /** 面向玩家的安全摘要（无图时的降级描述）。 */
   summary?: string | null;
   /** 交付校验后的静态图 URL（未交付卡的图片服务器返回 404）。 */
   image_url?: string | null;
-  /** 溯源页引用（如 "pdf_index-16"）。 */
+  /** 仅源文卡携带的溯源页引用（如 "pdf_index-16"）。 */
   source_pages?: string[];
 }
 
@@ -419,8 +437,8 @@ export interface SessionInfo {
   host?: "pi-coc";
   /** Fresh host, or investigator-less setup: frontend should attach. */
   host_opening?: boolean;
-  /** Every already-delivered handout card at session load — restored inline
-   *  into the narration flow without waiting for a turn. */
+  /** Every already-delivered handout card for persistent Materials hydration.
+   *  Session load must not synthesize a new inline presentation. */
   handouts?: HandoutCard[];
   state: GameState;
 }

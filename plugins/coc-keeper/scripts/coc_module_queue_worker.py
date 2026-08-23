@@ -1002,6 +1002,25 @@ def campaigns_using_asset(workspace: Path, asset_root_id: str) -> list[str]:
     return found
 
 
+def play_languages_using_asset(workspace: Path, asset_root_id: str) -> list[str]:
+    """Active table languages that source work must localize player text for."""
+    languages: set[str] = set()
+    campaigns_root = coc_state.coc_root(Path(workspace).resolve()) / "campaigns"
+    for campaign_id in campaigns_using_asset(workspace, asset_root_id):
+        path = campaigns_root / campaign_id / "campaign.json"
+        try:
+            campaign = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        language = (
+            str(campaign.get("play_language") or "").strip()
+            if isinstance(campaign, dict)
+            else ""
+        )
+        languages.add(language or "zh-Hans")
+    return sorted(languages)
+
+
 def requeue_stale_in_flight(
     workspace: Path,
     asset_root_id: str,
@@ -1437,6 +1456,7 @@ def _write_host_work_request(
     if not source:
         source = identity_source
     entity_kind = coc_module_assets._job_entity_kind(str(job.get("kind") or ""))
+    play_languages = play_languages_using_asset(workspace, asset_root_id)
     target_id = str(job.get("target_id") or "")
     job_kind = str(job.get("kind") or "")
     if job_kind in {"partial_opening", "locate_mechanics_index"}:
@@ -1674,6 +1694,7 @@ def _write_host_work_request(
             and job.get("consumer_refs")
             else "legacy_unowned"
         ),
+        "play_languages": play_languages,
         "instruction": (
             "Source scope is unknown. Do not open or scan the PDF and do not "
             "scan unrelated cached pages. Leave this request unresolved until "
@@ -1843,14 +1864,43 @@ def _write_host_work_request(
             "evidence_gap=false, source_page_indices, and host_timing; the "
             "fulfillment operation binds the request transiently, and later "
             "questions must query that pack rather than reopen the same PDF "
-            "scope. Do not invent handout/secret bodies without page evidence."
+            "scope. Do not invent handout/secret bodies without page evidence. "
+            "For every source-backed read_aloud, preserve source title/text in "
+            "title/text and provide full localized_title/localized_text locale "
+            "maps for every play_languages entry; never substitute source prose "
+            "for a missing table-language value."
         ),
     }
     if payload["consumer_refs"] is None:
         payload.pop("consumer_refs")
     if dependency_ref is not None:
         payload["dependency_ref"] = dependency_ref
-    coc_module_assets.validate_host_work_request_shape(payload)
+    if job_kind == "deepen_handout":
+        allowed_assets = coc_module_assets.registered_source_asset_refs(
+            workspace,
+            asset_root_id,
+            requested_pdf_indices=requested_indices,
+        )
+        payload["allowed_registered_asset_refs"] = allowed_assets
+        payload.update(coc_module_assets.handout_allowed_relation_refs(
+            workspace, asset_root_id, target_id,
+        ))
+        payload["instruction"] = (
+            "Host PDF skill: read only cached_page_refs for this exact "
+            "deepen_handout request. Return one direct card pack following the "
+            "closed coc.handout-card-pack.v1 result_contract. Copy only exact "
+            "cached page refs as pdf_index-N strings and use image_ref only "
+            "from allowed_registered_asset_refs whose pdf_index is one of "
+            "the selected source-ref pages. Source-language verbatim "
+            "text must occur in the cited cached page bytes; localized_text "
+            "is the play-language translation. scene_refs and clue_refs must "
+            "be subsets of allowed_scene_refs and allowed_clue_refs. Card "
+            "identification, kind, "
+            "and when_to_deliver are semantic readings of these pages; never "
+            "scan prose with keywords or regex. Return player_visible=true "
+            "source material only, related_packs=[], and no aliases, extra "
+            "fields, Keeper notes, secret prose, or parent repair."
+        )
     if job_kind == "partial_opening":
         payload["result_contract"] = _foreground_opening_result_contract()
     elif job_kind in {"deepen_location", "partial_neighbor"}:
@@ -1912,6 +1962,18 @@ def _write_host_work_request(
             cached_page_refs=cached_page_refs,
             batch_subjects=batch_subjects,
         )
+    elif job_kind == "deepen_handout":
+        payload["result_contract"] = coc_module_assets.handout_card_result_contract(
+            job_id=jid,
+            target_id=target_id,
+            cached_page_refs=cached_page_refs,
+            allowed_registered_asset_refs=payload[
+                "allowed_registered_asset_refs"
+            ],
+            allowed_scene_refs=payload["allowed_scene_refs"],
+            allowed_clue_refs=payload["allowed_clue_refs"],
+        )
+    coc_module_assets.validate_host_work_request_shape(payload)
     pending_supersedes = sorted({
         str(value).strip()
         for value in job.get("supersedes_host_job_ids") or []

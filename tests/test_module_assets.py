@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 import hashlib
 import importlib.util
 import json
@@ -574,6 +575,313 @@ def _write_host_bundle(
         "pages": pages,
     }), encoding="utf-8")
     return bundle, file_sha, hashlib.sha256(page_bytes).hexdigest()
+
+
+def _write_host_bundle_with_assets(
+    tmp_path: Path,
+    assets_by_path: dict[str, bytes],
+    *,
+    bundle_name: str = "bound-source-assets",
+    asset_pdf_indices: dict[str, int] | None = None,
+    include_page_one: bool = False,
+) -> Path:
+    """Create one real host bundle whose declared assets exercise registration."""
+    bundle, _file_sha, _page_sha = _write_host_bundle(
+        tmp_path,
+        page_count=2 if include_page_one else 1,
+        include_page_one=include_page_one,
+    )
+    target = tmp_path / bundle_name
+    bundle.rename(target)
+    manifest_path = target / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    rows = []
+    for relative, payload in assets_by_path.items():
+        path = target / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+        rows.append({
+            "path": relative,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "pdf_index": int((asset_pdf_indices or {}).get(relative, 0)),
+        })
+    manifest["assets"] = rows
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return target
+
+
+def test_register_source_bundle_preserves_validated_image_assets(tmp_path: Path):
+    png = b"\x89PNG\r\n\x1a\n" + b"project-authored-png"
+    jpeg = b"\xff\xd8\xff\xe0" + b"project-authored-jpeg" + b"\xff\xd9"
+    webp = b"RIFF" + (20).to_bytes(4, "little") + b"WEBPVP8 " + b"fixture"
+    bundle = _write_host_bundle_with_assets(tmp_path, {
+        "assets/cellar.png": png,
+        "assets/letter.jpg": jpeg,
+        "assets/route.webp": webp,
+    })
+
+    first = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="media-source",
+    )
+    second = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="media-source",
+    )
+
+    module_root = tmp_path / ".coc" / "module-assets" / "media-source"
+    assert (module_root / "assets/cellar.png").read_bytes() == png
+    assert (module_root / "assets/letter.jpg").read_bytes() == jpeg
+    assert (module_root / "assets/route.webp").read_bytes() == webp
+    expected = [
+        {
+            "source_bundle_path": "assets/cellar.png",
+            "image_ref": "assets/cellar.png",
+            "pdf_index": 0,
+            "media_type": "image/png",
+            "sha256": hashlib.sha256(png).hexdigest(),
+            "size_bytes": len(png),
+            "bundle_sha256s": [first["bundle_sha256"]],
+        },
+        {
+            "source_bundle_path": "assets/letter.jpg",
+            "image_ref": "assets/letter.jpg",
+            "pdf_index": 0,
+            "media_type": "image/jpeg",
+            "sha256": hashlib.sha256(jpeg).hexdigest(),
+            "size_bytes": len(jpeg),
+            "bundle_sha256s": [first["bundle_sha256"]],
+        },
+        {
+            "source_bundle_path": "assets/route.webp",
+            "image_ref": "assets/route.webp",
+            "pdf_index": 0,
+            "media_type": "image/webp",
+            "sha256": hashlib.sha256(webp).hexdigest(),
+            "size_bytes": len(webp),
+            "bundle_sha256s": [first["bundle_sha256"]],
+        },
+    ]
+    manifest = json.loads((module_root / "source-assets.json").read_text())
+    assert manifest == {"schema_version": 1, "assets": expected}
+    assert first["registered_assets"] == expected
+    assert second["registered_assets"] == expected
+
+
+def test_registered_asset_refs_are_narrowed_to_the_requested_source_pages(
+    tmp_path: Path,
+):
+    page_zero = b"\x89PNG\r\n\x1a\npage-zero"
+    page_one = b"\x89PNG\r\n\x1a\npage-one"
+    bundle = _write_host_bundle_with_assets(
+        tmp_path,
+        {
+            "assets/page-zero.png": page_zero,
+            "assets/page-one.png": page_one,
+        },
+        asset_pdf_indices={
+            "assets/page-zero.png": 0,
+            "assets/page-one.png": 1,
+        },
+        include_page_one=True,
+    )
+    registration = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="page-bound-media",
+    )
+
+    page_zero_refs = assets.registered_source_asset_refs(
+        tmp_path,
+        "page-bound-media",
+        requested_pdf_indices=[0],
+    )
+    page_one_refs = assets.registered_source_asset_refs(
+        tmp_path,
+        "page-bound-media",
+        requested_pdf_indices=[1],
+    )
+
+    assert page_zero_refs == [{
+        "image_ref": "assets/page-zero.png",
+        "pdf_index": 0,
+        "media_type": "image/png",
+        "sha256": hashlib.sha256(page_zero).hexdigest(),
+        "size_bytes": len(page_zero),
+        "bundle_sha256": registration["bundle_sha256"],
+    }]
+    assert page_one_refs == [{
+        "image_ref": "assets/page-one.png",
+        "pdf_index": 1,
+        "media_type": "image/png",
+        "sha256": hashlib.sha256(page_one).hexdigest(),
+        "size_bytes": len(page_one),
+        "bundle_sha256": registration["bundle_sha256"],
+    }]
+
+
+@pytest.mark.parametrize("pdf_index", [None, True, -1, 999])
+def test_direct_bundle_asset_page_drift_is_no_mutation_and_retryable(
+    tmp_path: Path, pdf_index,
+):
+    image = b"\x89PNG\r\n\x1a\ndirect-dict"
+    bundle_path = _write_host_bundle_with_assets(
+        tmp_path, {"assets/direct.png": image},
+    )
+    valid = assets.coc_pdf_bundle.load_host_bundle(bundle_path)
+    corrupted = deepcopy(valid)
+    if pdf_index is None:
+        corrupted["assets"][0].pop("pdf_index")
+        corrupted["bundle_sha256"] = "0" * 64
+        corrupted["source"]["bundle_sha256"] = "0" * 64
+    else:
+        corrupted["assets"][0]["pdf_index"] = pdf_index
+        digest = assets.coc_pdf_bundle._canonical_digest(
+            corrupted["source"], corrupted["pages"], corrupted["assets"],
+        )
+        corrupted["bundle_sha256"] = digest
+        corrupted["source"]["bundle_sha256"] = digest
+
+    with pytest.raises(assets.ModuleAssetsError, match="asset.*pdf_index"):
+        assets.register_source_bundle(
+            tmp_path, corrupted, asset_root_id="direct-page-bound",
+        )
+
+    module_root = assets._module_dir(tmp_path, "direct-page-bound")
+    assert not module_root.exists()
+    assert assets.lookup_by_sha256(
+        tmp_path, valid["source"]["file_sha256"],
+    ) is None
+
+    retried = assets.register_source_bundle(
+        tmp_path, valid, asset_root_id="direct-page-bound",
+    )
+    assert retried["registered_assets"][0]["pdf_index"] == 0
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("unsupported", "unsupported image media"),
+        ("bad_magic", "match image media"),
+        ("oversize", "exceeds 20 MiB"),
+    ],
+)
+def test_register_source_bundle_rejects_invalid_assets_before_mutation(
+    tmp_path: Path,
+    case: str,
+    message: str,
+):
+    if case == "unsupported":
+        relative, payload = "assets/not-image.txt", b"not an image"
+    elif case == "bad_magic":
+        relative, payload = "assets/fake.png", b"not a png"
+    else:
+        relative = "assets/too-large.png"
+        payload = b"\x89PNG\r\n\x1a\n" + b"x" * (20 * 1024 * 1024)
+    bundle = _write_host_bundle_with_assets(tmp_path, {relative: payload})
+
+    with pytest.raises((assets.ModuleAssetsError, ValueError), match=message):
+        assets.register_source_bundle(
+            tmp_path, bundle, asset_root_id="rejected-media",
+        )
+
+    assert not (
+        tmp_path / ".coc" / "module-assets" / "rejected-media"
+    ).exists()
+
+
+def test_register_source_bundle_rejects_asset_collision_without_page_mutation(
+    tmp_path: Path,
+):
+    first_png = b"\x89PNG\r\n\x1a\nfirst"
+    first_bundle = _write_host_bundle_with_assets(
+        tmp_path, {"assets/map.png": first_png}, bundle_name="asset-window-one",
+    )
+    assets.register_source_bundle(
+        tmp_path, first_bundle, asset_root_id="asset-collision",
+    )
+    module_root = tmp_path / ".coc" / "module-assets" / "asset-collision"
+    page_before = (module_root / "pages/0000.md").read_bytes()
+
+    second_png = b"\x89PNG\r\n\x1a\nsecond"
+    second_bundle = _write_host_bundle_with_assets(
+        tmp_path, {"assets/map.png": second_png}, bundle_name="asset-window-two",
+    )
+    with pytest.raises(assets.ModuleAssetsError, match="asset path collision"):
+        assets.register_source_bundle(
+            tmp_path, second_bundle, asset_root_id="asset-collision",
+        )
+
+    assert (module_root / "assets/map.png").read_bytes() == first_png
+    assert (module_root / "pages/0000.md").read_bytes() == page_before
+
+
+def test_register_source_bundle_rejects_target_asset_symlink_escape(
+    tmp_path: Path,
+):
+    initial, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    assets.register_source_bundle(
+        tmp_path, initial, asset_root_id="asset-symlink-escape",
+    )
+    module_root = (
+        tmp_path / ".coc/module-assets/asset-symlink-escape"
+    )
+    page_before = (module_root / "pages/0000.md").read_bytes()
+    outside = tmp_path / "escaped-assets"
+    outside.mkdir()
+    (module_root / "assets").symlink_to(outside, target_is_directory=True)
+    incoming_payload = b"\x89PNG\r\n\x1a\nconfined"
+    (initial / "assets").mkdir()
+    (initial / "assets/map.png").write_bytes(incoming_payload)
+    manifest_path = initial / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["assets"] = [{
+        "path": "assets/map.png",
+        "sha256": hashlib.sha256(incoming_payload).hexdigest(),
+        "pdf_index": 0,
+    }]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(assets.ModuleAssetsError, match="symlink"):
+        assets.register_source_bundle(
+            tmp_path, initial, asset_root_id="asset-symlink-escape",
+        )
+
+    assert list(outside.iterdir()) == []
+    assert (module_root / "pages/0000.md").read_bytes() == page_before
+
+
+def test_register_source_bundle_rejects_internal_target_symlink_component(
+    tmp_path: Path,
+):
+    initial, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    assets.register_source_bundle(
+        tmp_path, initial, asset_root_id="asset-internal-symlink",
+    )
+    module_root = tmp_path / ".coc/module-assets/asset-internal-symlink"
+    page_before = (module_root / "pages/0000.md").read_bytes()
+    actual_assets = module_root / "actual-assets"
+    actual_assets.mkdir()
+    (module_root / "assets").symlink_to(
+        actual_assets, target_is_directory=True,
+    )
+    payload = b"\x89PNG\r\n\x1a\ninternal-symlink"
+    (initial / "assets").mkdir()
+    (initial / "assets/map.png").write_bytes(payload)
+    manifest_path = initial / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["assets"] = [{
+        "path": "assets/map.png",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "pdf_index": 0,
+    }]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(assets.ModuleAssetsError, match="symlink"):
+        assets.register_source_bundle(
+            tmp_path, initial, asset_root_id="asset-internal-symlink",
+        )
+
+    assert list(actual_assets.iterdir()) == []
+    assert not (module_root / "source-assets.json").exists()
+    assert (module_root / "pages/0000.md").read_bytes() == page_before
 
 
 def _write_revision_bundle(
@@ -1160,6 +1468,7 @@ def _classification_host_request(
         "cached_scope_complete": None,
         "work_level": "near_term",
         "work_group_id": "classification-refresh-group",
+        "play_languages": [],
         "result_contract": request["result_contract"],
         "classification_request": request,
         "consumer_refs": [{
@@ -1295,6 +1604,7 @@ def test_host_work_lease_renew_and_release_require_exact_owner(tmp_path: Path):
         "cached_scope_complete": True,
         "dispatch_state": "ready",
         "work_group_id": "group-lease",
+        "play_languages": [],
         "consumer_refs": [consumer],
         "consumer_state": "owned",
     }), encoding="utf-8")
@@ -1401,6 +1711,7 @@ def test_host_work_renew_supersedes_all_stale_consumers_before_extension(
         "cached_scope_complete": True,
         "dispatch_state": "ready",
         "work_group_id": "group-stale-renew",
+        "play_languages": [],
         "consumer_refs": [consumer],
         "consumer_state": "owned",
     }), encoding="utf-8")
@@ -1467,6 +1778,7 @@ def test_host_work_stale_consumers_supersede_and_legacy_stays_unclaimable(
         "cached_scope_complete": True,
         "dispatch_state": "ready",
         "work_group_id": "consumer-group",
+        "play_languages": [],
     }
     (work_dir / "owned.json").write_text(json.dumps({
         **common,
@@ -1621,6 +1933,7 @@ def _write_opening_host_request(
         "source_scope_signature": assets.opening_source_scope_signature(scope),
         "cached_page_refs": json.loads(json.dumps(scope["page_refs"])),
         "cached_scope_complete": True,
+        "play_languages": [],
         "work_level": "current_dependency",
         "dependency_ref": {
             "operation": "progressive.project_opening",

@@ -29,6 +29,11 @@ const SPOTLIGHT = [
   "rules.psychology_observe",
   "rules.social_adjudicate",
   "npc.reaction",
+  "state.cash_grant",
+  "state.cash_query",
+  "state.cash_spend",
+  "state.deliver_handout",
+  "state.replay_handout",
   "state.journal",
   "turn.output_context",
   "turn.finalize",
@@ -70,9 +75,37 @@ test("live play exposes the agency review then finalize contract", () => {
   assert.match(review.description, /agency_violation/);
   assert.match(review.description, /revision 2/);
   assert.match(review.description, /same frozen settlement/);
+  assert.match(review.description, /state_authority_review/);
+  assert.match(review.description, /current frozen mechanics effect/);
+  assert.ok(review.parameters.required.includes("state_authority_review"));
+  assert.ok(!review.parameters.required.includes("state_claim_compilation"));
+  assert.ok(!Object.hasOwn(review.parameters.properties, "state_claim_compilation"));
+  const stateReview = review.parameters.properties.state_authority_review;
+  assert.equal(stateReview.additionalProperties, false);
+  assert.deepEqual(
+    new Set(stateReview.required),
+    new Set(["disposition", "reason", "claims"]),
+  );
+  assert.equal(stateReview.properties.claims.items.additionalProperties, false);
+  assert.ok(stateReview.properties.claims.items.required.includes("source_effect_id"));
   assert.match(finalize.description, /first call the narration\.review operation/);
   assert.match(finalize.description, /never rerun rules\/state\/journal/);
-  assert.match(finalize.description, /Non-agency review findings stay advisory/);
+  assert.match(finalize.description, /Prose-quality review findings stay advisory/);
+});
+
+test("live play exposes cash and handout state operations as exact typed tools", () => {
+  const play = domain.activeToolsForPhase("live_turn", "play");
+  for (const operation of [
+    "state.cash_grant",
+    "state.cash_query",
+    "state.cash_spend",
+    "state.deliver_handout",
+    "state.replay_handout",
+  ]) {
+    const tool = catalog.byOperation.get(operation);
+    assert.ok(tool, operation);
+    assert.ok(play.includes(typed.typedToolNameForOperation(operation)), operation);
+  }
 });
 
 test("derived names are deterministic and fail closed on collision", () => {
@@ -110,7 +143,7 @@ test("setup/play hide generic wrappers; unset role keeps them (legacy)", () => {
   }
   assert.ok(play.includes("coc_rules_roll"));
   assert.ok(play.includes("coc_npc_reaction"));
-  assert.ok(!play.includes("coc_turn_finalize"));
+  assert.ok(play.includes("coc_turn_finalize"));
   assert.ok(play.includes("coc_state_journal"));
   assert.ok(!play.includes("coc_setup_complete"));
   assert.ok(setup.includes("coc_setup_inspect"));

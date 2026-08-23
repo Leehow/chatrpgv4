@@ -53,6 +53,17 @@ def test_repetition_policy_does_not_suppress_current_player_action_uptake():
     assert "current player action" in repetition["instruction"]
 
 
+def test_non_chinese_contract_reports_language_without_claiming_chinese_guard():
+    for language in ("en-US", "ja-JP"):
+        contract = coc_narration_style.player_facing_style_contract(language)
+        assert contract["language"] == language
+        assert contract["deterministic_guard"] == "unavailable"
+        assert coc_narration_style.audit_player_visible_text("这表明风险。", language) == []
+
+    zh_contract = coc_narration_style.player_facing_style_contract("zh-Hans")
+    assert zh_contract["deterministic_guard"] == "non_authoritative_surface_smoke"
+
+
 def test_crisis_render_contract_keeps_blocking_internal_and_natural_rendering():
     contract = coc_narration_style.crisis_scene_render_contract("zh-Hans")
 

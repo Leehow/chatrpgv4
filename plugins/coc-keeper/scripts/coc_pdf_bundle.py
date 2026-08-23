@@ -23,6 +23,7 @@ MANIFEST_NAME = "manifest.json"
 MAX_PAGES = 32
 MAX_CHARACTERS = 300_000
 MAX_STRUCTURED_PAGE_BYTES = 5_000_000
+MAX_IMAGE_ASSET_BYTES = 20 * 1024 * 1024
 ACCEPTED_REVIEW_STATES = frozenset({"auto_accepted", "manual_accepted"})
 STRUCTURED_PAGE_FORMATS = frozenset({"paddleocr-vl-layout-v1"})
 OCR_REVISION_LAYERS = frozenset({"fast", "detail"})
@@ -32,6 +33,12 @@ OCR_REVISION_KEYS = frozenset({
 })
 _HEX = frozenset("0123456789abcdef")
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+IMAGE_MEDIA_BY_SUFFIX = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
 
 
 class PdfSourceBundleError(ValueError):
@@ -81,6 +88,29 @@ def _bundle_file(root: Path, relative: Any, field: str) -> Path:
     return path
 
 
+def _image_media_type(path: Path, payload: bytes, field: str) -> str:
+    """Validate one bounded host-extracted image without decoding it."""
+    media_type = IMAGE_MEDIA_BY_SUFFIX.get(path.suffix.lower())
+    if media_type is None:
+        raise PdfSourceBundleError(
+            f"{field} has unsupported image media; use PNG, JPEG, or WebP"
+        )
+    signatures = {
+        "image/png": payload.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg": payload.startswith(b"\xff\xd8\xff"),
+        "image/webp": (
+            len(payload) >= 12
+            and payload.startswith(b"RIFF")
+            and payload[8:12] == b"WEBP"
+        ),
+    }
+    if not signatures[media_type]:
+        raise PdfSourceBundleError(
+            f"{field} bytes do not match image media {media_type}"
+        )
+    return media_type
+
+
 def _normalize_markdown(text: str) -> str:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     normalized = "\n".join(line.rstrip() for line in lines).strip()
@@ -123,7 +153,14 @@ def _canonical_digest(
         },
         "pages": digest_pages,
         "assets": sorted(
-            ({"path": item["path"], "sha256": item["sha256"]} for item in assets),
+            (
+                {
+                    "path": item["path"],
+                    "sha256": item["sha256"],
+                    "pdf_index": item["pdf_index"],
+                }
+                for item in assets
+            ),
             key=lambda item: item["path"],
         ),
     }
@@ -131,6 +168,71 @@ def _canonical_digest(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def canonicalize_loaded_assets(
+    value: Any,
+    *,
+    selected_pdf_indices: set[int],
+) -> list[dict[str, Any]]:
+    """Validate normalized asset rows crossing an already-loaded bundle seam."""
+    if not isinstance(value, list):
+        raise PdfSourceBundleError("source bundle assets must be a list")
+    required = {"path", "sha256", "pdf_index", "media_type", "size_bytes"}
+    seen_paths: set[str] = set()
+    canonical: list[dict[str, Any]] = []
+    for position, raw in enumerate(value):
+        field = f"source bundle assets[{position}]"
+        if not isinstance(raw, dict) or set(raw) != required:
+            raise PdfSourceBundleError(
+                f"{field} must contain exactly path, sha256, pdf_index, "
+                "media_type, and size_bytes"
+            )
+        relative = raw.get("path")
+        if not isinstance(relative, str) or not relative:
+            raise PdfSourceBundleError(f"{field}.path must be relative")
+        relative_path = Path(relative)
+        if (
+            relative_path.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative_path.parts)
+            or str(relative_path) != relative
+        ):
+            raise PdfSourceBundleError(f"{field}.path must be normalized and relative")
+        if relative in seen_paths:
+            raise PdfSourceBundleError(f"{field}.path must be unique")
+        seen_paths.add(relative)
+        sha256 = _require_sha256(raw.get("sha256"), f"{field}.sha256")
+        pdf_index = raw.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise PdfSourceBundleError(
+                f"{field}.pdf_index must be a non-negative integer"
+            )
+        if pdf_index not in selected_pdf_indices:
+            raise PdfSourceBundleError(
+                f"{field}.pdf_index must identify one selected bundle page"
+            )
+        media_type = raw.get("media_type")
+        if media_type != IMAGE_MEDIA_BY_SUFFIX.get(relative_path.suffix.lower()):
+            raise PdfSourceBundleError(f"{field}.media_type is invalid")
+        size_bytes = raw.get("size_bytes")
+        if (
+            isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, int)
+            or not 0 < size_bytes <= MAX_IMAGE_ASSET_BYTES
+        ):
+            raise PdfSourceBundleError(f"{field}.size_bytes is invalid")
+        canonical.append({
+            "path": relative,
+            "sha256": sha256,
+            "pdf_index": pdf_index,
+            "media_type": media_type,
+            "size_bytes": size_bytes,
+        })
+    return sorted(canonical, key=lambda row: row["path"])
 
 
 def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
@@ -395,10 +497,38 @@ def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
             raise PdfSourceBundleError(f"duplicate asset path: {relative}")
         seen_assets.add(relative)
         declared_hash = _require_sha256(raw_asset.get("sha256"), f"{field}.sha256")
-        if sha256_file(asset_path) != declared_hash:
+        pdf_index = raw_asset.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise PdfSourceBundleError(
+                f"{field}.pdf_index must be a non-negative integer"
+            )
+        if pdf_index not in seen_indices:
+            raise PdfSourceBundleError(
+                f"{field}.pdf_index must identify one selected bundle page"
+            )
+        size_bytes = asset_path.stat().st_size
+        if size_bytes <= 0:
+            raise PdfSourceBundleError(f"{field} must not be empty")
+        if size_bytes > MAX_IMAGE_ASSET_BYTES:
+            raise PdfSourceBundleError(f"{field} exceeds 20 MiB")
+        payload = asset_path.read_bytes()
+        media_type = _image_media_type(asset_path, payload, field)
+        if hashlib.sha256(payload).hexdigest() != declared_hash:
             raise PdfSourceBundleError(f"{field} SHA-256 does not match manifest")
-        assets.append({"path": relative, "sha256": declared_hash})
-    assets.sort(key=lambda item: item["path"])
+        assets.append({
+            "path": relative,
+            "sha256": declared_hash,
+            "pdf_index": pdf_index,
+            "media_type": media_type,
+            "size_bytes": size_bytes,
+        })
+    assets = canonicalize_loaded_assets(
+        assets, selected_pdf_indices=seen_indices,
+    )
 
     source_id = raw_source.get("source_id")
     if not isinstance(source_id, str) or not _SOURCE_ID.fullmatch(source_id.strip()):

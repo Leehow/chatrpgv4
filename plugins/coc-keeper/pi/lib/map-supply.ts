@@ -13,8 +13,6 @@ export type MapImageRef = {
   sha256: string;
 };
 
-const TITLE = /^#{1,6}\s*(?:地图|圖|图|插图|插圖|示意图|示意圖)\s*(?:[0-9０-９一二三四五六七八九十]+)?\s*$/mu;
-const LOW_TEXT_DENSITY_CHARS = 80;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MEDIA_BY_EXTENSION: Record<string, MapImageRef["media_type"]> = {
   ".png": "image/png",
@@ -34,29 +32,27 @@ function isBelow(path: string, root: string): boolean {
   return rel !== "" && !rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel);
 }
 
-function textDensity(markdown: string): number {
-  return markdown
-    .replace(/^\s{0,3}#{1,6}\s+/gmu, "")
-    .replace(/[\s`*_>\-\[\]()]/gmu, "")
-    .length;
-}
-
 export function detectMapSupplyPages(
-  pages: ReadonlyArray<{ pdf_index: number; markdown: string }>,
+  pages: ReadonlyArray<{ pdf_index: number }>,
+  candidatePdfIndices: readonly number[] = [],
   needsOcr: readonly number[] = [],
 ): { needs_image: number[]; needs_ocr_or_image: number[]; reasons: Record<number, string[]> } {
+  const available = new Set(
+    pages
+      .map((page) => page.pdf_index)
+      .filter((pdfIndex) => Number.isInteger(pdfIndex) && pdfIndex >= 0),
+  );
   const image = new Set<number>();
   const reasons: Record<number, string[]> = {};
-  for (const page of pages) {
-    if (!Number.isInteger(page.pdf_index) || page.pdf_index < 0) continue;
-    const lines = page.markdown.split(/\r?\n/u);
-    const hits: string[] = [];
-    if (lines.some((line) => TITLE.test(line.trim()))) hits.push("illustration_heading");
-    if (textDensity(page.markdown) <= LOW_TEXT_DENSITY_CHARS) hits.push("low_text_density");
-    if (hits.length) {
-      image.add(page.pdf_index);
-      reasons[page.pdf_index] = hits;
+  for (const pdfIndex of candidatePdfIndices) {
+    if (!Number.isInteger(pdfIndex) || pdfIndex < 0) {
+      throw new Error("candidate_pdf_indices must contain non-negative integers");
     }
+    if (!available.has(pdfIndex)) {
+      throw new Error(`candidate_pdf_indices references unavailable cached page ${pdfIndex}`);
+    }
+    image.add(pdfIndex);
+    reasons[pdfIndex] = ["structured_candidate_ref"];
   }
   return {
     needs_image: [...image].sort((left, right) => left - right),
@@ -67,17 +63,17 @@ export function detectMapSupplyPages(
 
 export async function detectMapSupplyPageDirectory(
   pagesDir: string,
+  candidatePdfIndices: readonly number[] = [],
   needsOcr: readonly number[] = [],
 ): Promise<{ needs_image: number[]; needs_ocr_or_image: number[]; reasons: Record<number, string[]> }> {
   const root = resolve(pagesDir);
   const entries = await readdir(root, { withFileTypes: true });
-  const pages = await Promise.all(entries
+  const pages = entries
     .filter((entry) => entry.isFile() && /^\d+\.md$/u.test(entry.name))
-    .map(async (entry) => ({
+    .map((entry) => ({
       pdf_index: Number.parseInt(entry.name.slice(0, -3), 10),
-      markdown: await readFile(resolve(root, entry.name), "utf8"),
-    })));
-  return detectMapSupplyPages(pages, needsOcr);
+    }));
+  return detectMapSupplyPages(pages, candidatePdfIndices, needsOcr);
 }
 
 function sha256(bytes: Uint8Array): string {

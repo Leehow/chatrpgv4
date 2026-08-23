@@ -89,6 +89,49 @@ def _game_file_bytes(root: Path) -> dict[Path, bytes]:
     }
 
 
+def _write_current_imported_investigator(
+    coc_root: Path, investigator_id: str,
+) -> None:
+    """Materialize exact current imported state for legacy focused fixtures."""
+    investigator_dir = coc_root / "investigators" / investigator_id
+    character_path = investigator_dir / "character.json"
+    if character_path.is_file():
+        character = json.loads(character_path.read_text(encoding="utf-8"))
+    else:
+        character = {
+            "id": investigator_id,
+            "name": investigator_id,
+            "characteristics": {
+                "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50,
+                "APP": 50, "INT": 50, "POW": 50, "EDU": 50,
+            },
+            "derived": {
+                "HP": 10, "MP": 10, "SAN": 50,
+                "DB": "none", "MOV": 8,
+            },
+            "skills": {"Credit Rating": 20},
+        }
+    derived = coc_toolbox.coc_runtime_ops.coc_character.derive_values(
+        character["characteristics"],
+        luck=character["characteristics"]["POW"],
+    )
+    character["derived"]["Luck"] = derived["Luck"]
+    character["derived"]["Build"] = derived["Build"]
+    _write_json(character_path, character)
+    creation_path = investigator_dir / "creation.json"
+    creation = (
+        json.loads(creation_path.read_text(encoding="utf-8"))
+        if creation_path.is_file()
+        else {
+            "schema_version": 1,
+            "investigator_id": investigator_id,
+            "method": "imported_character_sheet",
+        }
+    )
+    creation["input_mode"] = "import_complete_sheet"
+    _write_json(creation_path, creation)
+
+
 @pytest.fixture
 def campaign_ws(tmp_path: Path):
     """Fresh workspace with a the-haunting / thomas-hayes quick-start campaign."""
@@ -358,6 +401,13 @@ def test_scene_context_softly_redirects_nonactive_preview_to_typed_move(
     campaign_ws,
 ):
     current = _run(campaign_ws, "scene.context")
+    move_card = current["data"]["exits"][0]["operation_opportunity"]
+    assert "travel_minutes" not in move_card["prefilled_arguments"]
+    assert move_card["argument_boundary"] == {
+        "submission_shape": "prefilled_plus_missing_only",
+        "forbidden_arguments": ["travel_minutes"],
+        "reason": "travel_minutes is valid only when source-authored and prefilled",
+    }
     destination = current["data"]["exits"][0]["to"]
     preview = _run(campaign_ws, "scene.context", {"scene_id": destination})
     assert preview["ok"] is True
@@ -7831,6 +7881,30 @@ def test_rich_advice_storylets_and_narration_are_canonically_reachable(campaign_
     assert review["data"]["findings"][0]["reason"].startswith("The draft")
 
 
+@pytest.mark.parametrize("play_language", ["en-US", "ja-JP"])
+def test_narration_brief_uses_campaign_play_language(campaign_ws, play_language):
+    description = coc_toolbox.TOOLS["narration.brief"]["summary"]
+    assert "Chinese" not in description
+    assert "play_language" in description
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = play_language
+    campaign_path.write_text(
+        json.dumps(campaign, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    narration = _run(campaign_ws, "narration.brief", {
+        "candidate_plan": {},
+        "applied_events": [],
+    })
+
+    assert narration["ok"] is True, narration
+    style = narration["data"]["style_contract"]
+    assert style["language"] == play_language
+    assert style["deterministic_guard"] == "unavailable"
+
+
 def test_personal_horror_and_adoption_receipts_prove_actual_use(campaign_ws):
     added = _run(campaign_ws, "state.personal_horror_add", {
         "hook_id": "hook-editor",
@@ -8249,9 +8323,38 @@ def test_single_npc_query_projects_unrolled_first_contact_readiness(campaign_ws)
     )
     assert reaction["roll_created"] is False
     assert reaction["fresh_decision_id_required"] is True
+    assert reaction["campaign_id"] == campaign_ws["campaign_id"]
+    assert reaction["prefilled_arguments"]["run_id"] == (
+        f"campaign:{campaign_ws['campaign_id']}"
+    )
     assert reaction["missing_arguments"] == [
-        "npc_display_name", "run_id", "context", "decision_id",
+        "npc_display_name",
+        "context.player_conduct",
+        "context.scene_constraints",
+        "context.authored_or_relationship_boundary",
+        "context.semantic_reason",
+        "decision_id",
     ]
+    social = readiness["social_adjudication_operation"]
+    assert social["prefilled_arguments"] == {
+        "investigator": campaign_ws["investigator_id"],
+        "npc_id": npc_id,
+    }
+    assert social["missing_arguments"] == [
+        "conversation_window_id", "commitment_id", "approach",
+        "goal_summary", "decision_id",
+    ]
+    assert social["valid_optional_evidence_refs"] == [
+        "npc_fact:npc-steven-knott/fact-knott-commission",
+        "npc_fact:npc-steven-knott/fact-knott-research-leads",
+        "npc_fact:npc-steven-knott/fact-knott-macario-tragedy",
+    ]
+    assert social["safe_omissions"] == {
+        "motive": "omit to use neutral intensity 0",
+        "leverage": "omit when no exact player-known typed source applies",
+        "feasibility": "omit to derive the canonical default",
+        "feasibility_refs": "omit together with feasibility",
+    }
     assert (rolls_path.read_bytes() if rolls_path.is_file() else b"") == rolls_before
     bulk = _run(campaign_ws, "npc.query")
     assert all("first_contact_readiness" not in row for row in bulk["data"]["npcs"])
@@ -11811,6 +11914,7 @@ def _opening_component_workspace(
     source_id: str = "pdf:opening-component",
     source_title: str = "Opening Component",
     canonical_title: str | None = None,
+    source_assets: dict[str, tuple[bytes, int]] | None = None,
 ) -> dict:
     workspace = tmp_path / "opening-workspace"
     campaign_id = "opening-component"
@@ -11846,6 +11950,16 @@ def _opening_component_workspace(
                 else (page_body or "Accepted extra source page.").split("，")[0]
             ],
         })
+    manifest_assets = []
+    for relative, (payload, pdf_index) in (source_assets or {}).items():
+        asset_path = bundle / relative
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_bytes(payload)
+        manifest_assets.append({
+            "path": relative,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "pdf_index": pdf_index,
+        })
     (bundle / "manifest.json").write_text(json.dumps({
         "schema_version": 1,
         "producer": "codex-pdf-skill",
@@ -11857,6 +11971,7 @@ def _opening_component_workspace(
             "page_count": source_page_count or max(page_indices) + 1,
         },
         "pages": pages,
+        "assets": manifest_assets,
     }), encoding="utf-8")
     assets = coc_toolbox.coc_module_project.coc_module_assets
     registration = assets.register_source_bundle(
@@ -13251,6 +13366,8 @@ def _l0_direct_opening_l0() -> dict:
             "id": "opening-player",
             "audience": "player",
             "text": "A bounded authored opening.",
+            "localized_title": {"zh-Hans": "开场"},
+            "localized_text": {"zh-Hans": "一段有明确边界的原作开场。"},
             "variant_of": None,
         },
         {
@@ -13261,7 +13378,10 @@ def _l0_direct_opening_l0() -> dict:
         },
     ]
     l0["opening_handouts"] = [
-        {"id": "handout-1", "title": "小卡片#1", "when_to_give": "开场简报"},
+        {
+            "id": "handout-1", "title": "小卡片#1",
+            "when_to_give": "开场简报", "source_refs": ["pdf_index-0"],
+        },
     ]
     return l0
 
@@ -13370,6 +13490,231 @@ def test_opening_bootstrap_l0_direct_write_skips_coordinator(
     assert repeated["data"]["source_work"]["status"] == "current"
 
 
+def test_raw_bundle_opening_naturally_queues_and_compiles_media_cards(
+    tmp_path: Path, monkeypatch,
+):
+    """Binding + L0 discovery creates card stubs/jobs; the test never seeds one."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    scene_image = b"\x89PNG\r\n\x1a\nscene"
+    map_image = b"\x89PNG\r\n\x1a\nmap"
+    ws = _opening_component_workspace(
+        tmp_path,
+        extra_pdf_indices=(1, 2),
+        source_page_count=3,
+        source_assets={
+            "assets/opening-scene.png": (scene_image, 0),
+            "assets/warehouse-map.png": (map_image, 1),
+        },
+    )
+    assets_mod = coc_toolbox.coc_module_project.coc_module_assets
+    card_ids = ["opening-scene", "warehouse-map", "archive-note"]
+    assert all(
+        assets_mod.get_entity(
+            ws["workspace"], ws["asset_root_id"], "handout", card_id,
+        ) is None
+        for card_id in card_ids
+    )
+    l0 = _l0_direct_opening_l0()
+    l0["opening_handouts"] = [
+        {
+            "id": "opening-scene",
+            "title": "码头景象",
+            "when_to_give": "开场抵达时",
+            "kind": "document",
+            "source_refs": ["pdf_index-0"],
+        },
+        {
+            "id": "warehouse-map",
+            "title": "仓库地图",
+            "when_to_give": "地图被找到时",
+            "kind": "map",
+            "source_refs": ["pdf_index-1"],
+        },
+        {
+            "id": "archive-note",
+            "title": "档案原文",
+            "when_to_give": "档案被读到时",
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-2"],
+        },
+    ]
+    adapter = _load(
+        "coc_pdf_adapter_natural_media_test",
+        REPO / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py",
+    )
+    producer_schema = adapter._module_init_l0_schema()
+    required_handout_fields = set(
+        producer_schema["opening_handout_required_fields"]
+    )
+    allowed_handout_fields = required_handout_fields | {"kind"}
+    assert all(
+        required_handout_fields <= set(row) <= allowed_handout_fields
+        for row in l0["opening_handouts"]
+    )
+    producer_result = adapter._validate_opening_extractor_result({
+        "schema_version": 1,
+        "contract_id": "coc.pi-opening-text-extractor-result.v1",
+        "status": "reviewed",
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "source_bundle_path": str(ws["workspace"] / "opening-source"),
+        "failure_class": None,
+        "facts": _minimal_opening_source_facts("pdf:opening-component"),
+        "module_init_l0": l0,
+        "selected_opening_pdf_indices": [0],
+        "fact_evidence_pdf_indices": [0, 1, 2],
+    }, {
+        "campaign_id": ws["campaign_id"],
+        "scenario_id": ws["asset_root_id"],
+        "source_bundle_path": str(ws["workspace"] / "opening-source"),
+        "source": {"source_id": "pdf:opening-component"},
+    }, [0], [0, 1, 2])
+    l0 = producer_result["module_init_l0"]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    source_work = boot["data"]["source_work"]
+    assert source_work["opening_handout_card_ids"] == [
+        "opening-scene", "warehouse-map", "archive-note",
+    ]
+    stubs = [
+        assets_mod.get_entity(
+            ws["workspace"], ws["asset_root_id"], "handout", card_id,
+        )
+        for card_id in card_ids
+    ]
+    assert all(isinstance(row, dict) for row in stubs)
+    assert {row["handout_id"] for row in stubs} == {
+        "opening-scene", "warehouse-map", "archive-note",
+    }
+    assert {row["parse_state"] for row in stubs} == {"named_only"}
+    assert all("image_ref" not in row and "text" not in row for row in stubs)
+
+    queue_worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_natural_media_test",
+        "coc_module_queue_worker.py",
+    )
+    while True:
+        produced = queue_worker.run_worker_once(ws["workspace"], parallel=1)
+        if produced["claimed"] == 0:
+            break
+    requests = {
+        row["target_id"]: row
+        for row in assets_mod.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row.get("kind") == "deepen_handout"
+    }
+    assert set(requests) == {"opening-scene", "warehouse-map", "archive-note"}
+    assert "opening-keeper" not in requests
+    packs = {
+        "opening-scene": {
+            "kind": "document",
+            "source_refs": ["pdf_index-0"],
+            "image_ref": "assets/opening-scene.png",
+        },
+        "warehouse-map": {
+            "kind": "map",
+            "source_refs": ["pdf_index-1"],
+            "image_ref": "assets/warehouse-map.png",
+        },
+        "archive-note": {
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-2"],
+            "text": "Accepted extra source page.",
+            "localized_text": "已验收的额外来源页。",
+        },
+    }
+    for card_id, request in requests.items():
+        semantic = packs[card_id]
+        fulfilled = _run(ws, "progressive.fulfill_host_work", {
+            "worker_result": {
+                "job_id": request["job_id"],
+                "pack": {
+                    "handout_id": card_id,
+                    "asset_id": card_id,
+                    "title": next(
+                        row["title"] for row in stubs
+                        if row["handout_id"] == card_id
+                    ),
+                    "scene_refs": ["opening"],
+                    "clue_refs": [],
+                    "player_visible": True,
+                    "parse_state": "deep",
+                    "evidence_gap": False,
+                    "origin": "source",
+                    "provenance": {
+                        "authority": "source_authored", "basis": "host_pack",
+                    },
+                    **semantic,
+                },
+                "related_packs": [],
+            },
+        })
+        assert fulfilled["ok"] is True, fulfilled
+    coc_toolbox.coc_module_project.project_skeleton_to_campaign(
+        ws["workspace"], ws["campaign_id"], ws["asset_root_id"],
+    )
+    handouts = json.loads(
+        (ws["campaign_dir"] / "scenario/handouts.json").read_text(encoding="utf-8")
+    )["handouts"]
+    assert {row["asset_id"] for row in handouts} == set(packs)
+    by_id = {row["asset_id"]: row for row in handouts}
+    assert by_id["opening-scene"]["image_ref"] == "assets/opening-scene.png"
+    assert by_id["warehouse-map"]["kind"] == "map"
+    assert by_id["warehouse-map"]["image_ref"] == "assets/warehouse-map.png"
+    assert by_id["archive-note"]["kind"] == "read_aloud"
+    assert by_id["archive-note"]["text"] == "Accepted extra source page."
+
+
+def test_opening_bootstrap_rejects_uncached_handout_ref_without_durable_work(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    l0 = _l0_direct_opening_l0()
+    l0["opening_handouts"][0]["source_refs"] = ["pdf_index-999"]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"], "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is False, boot
+    assert boot["error"]["code"] == "opening_l0_direct_write_invalid"
+    assets_mod = coc_toolbox.coc_module_project.coc_module_assets
+    assert assets_mod.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    ) is None
+    assert assets_mod.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    ) is None
+    assert not [
+        row for row in assets_mod.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row.get("kind") == "deepen_handout"
+    ]
+
+
 def test_l0_direct_opening_pack_is_equivalent_partial_structure():
     """The pure L0 builder emits the same projection fields a foreground
     partial opening slice would, with read_aloud/keeper_only split by hook
@@ -13398,6 +13743,10 @@ def test_l0_direct_opening_pack_is_equivalent_partial_structure():
     assert pack["player_safe_summary"] == "A bounded authored opening."
     assert pack["read_aloud"][0]["trigger"] == "on_enter"
     assert pack["read_aloud"][0]["source_refs"] == refs
+    assert pack["read_aloud"][0]["localized_title"] == {"zh-Hans": "开场"}
+    assert pack["read_aloud"][0]["localized_text"] == {
+        "zh-Hans": "一段有明确边界的原作开场。",
+    }
     assert pack["keeper_only"][0]["note"] == "Keeper-only opening note."
     assert pack["source_page_indices"] == [0]
 
@@ -15107,6 +15456,9 @@ def test_pi_fast_locator_provenance_cannot_become_a_playable_opening(
         "investigator_ids": ["linked-investigator"],
         "active_investigator_ids": ["linked-investigator"],
     })
+    _write_current_imported_investigator(
+        ws["workspace"] / ".coc", "linked-investigator",
+    )
     after_character = _run(ws, "progressive.project_opening", {
         "asset_root_id": ws["asset_root_id"],
         "source_file_sha256": ws["file_sha256"],

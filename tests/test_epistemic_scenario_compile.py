@@ -60,6 +60,7 @@ def _compiled():
                             "clue_id": "clue-b",
                             "delivery_kind": "handout",
                             "visibility": "player-safe",
+                            "handout_asset_id": "handout-clue-b",
                             "leads_to": ["finale"],
                             "origin": "source",
                         },
@@ -76,6 +77,17 @@ def _compiled():
         },
         "npc_agendas": {"npcs": []},
         "threat_fronts": {"fronts": []},
+        "handouts": {
+            "schema_version": 1,
+            "handouts": [{
+                "asset_id": "handout-clue-b",
+                "kind": "document",
+                "text": "Exact fixture handout body.",
+                "source_refs": ["starter-original-derivative:test:clue-b"],
+                "player_visible": True,
+                "clue_refs": ["clue-b"],
+            }],
+        },
     }
 
 

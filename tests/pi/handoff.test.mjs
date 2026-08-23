@@ -13,8 +13,15 @@ const receipt = {
   schema_version: 1,
   decision_id: "handoff-3",
   campaign_id: "builtin-ready",
+  investigator_ids: ["inv-ok"],
   completed_at: "2026-04-08T00:00:00Z",
-  builder_summary_hash: "sha256:abc",
+  opening_projection_ref: null,
+  lane_interrupted_at_handoff: false,
+};
+
+const expected = {
+  campaignId: "builtin-ready",
+  decisionId: "handoff-3",
 };
 
 function successEnvelope(overrides = {}) {
@@ -29,8 +36,9 @@ function successEnvelope(overrides = {}) {
       result: {
         campaign_id: "builtin-ready",
         ready_for_table: true,
+        next: "table_opening",
         status: "ready_for_table",
-        handoff: receipt,
+        handoff: structuredClone(receipt),
       },
     },
     ...overrides,
@@ -44,9 +52,9 @@ test("exit code constant is 42", async () => {
 
 test("setup.complete ok with handoff receipt", async () => {
   const mod = await import(handoffUrl);
-  assert.deepEqual(mod.handoffFromEnvelope(successEnvelope()), {
+  assert.deepEqual(mod.handoffFromEnvelope(successEnvelope(), expected), {
     campaign_id: "builtin-ready",
-    receipt,
+    receipt: structuredClone(receipt),
   });
 });
 
@@ -55,10 +63,32 @@ test("setup.complete ok with handoff_receipt alias", async () => {
   const envelope = successEnvelope();
   delete envelope.data.result.handoff;
   envelope.data.result.handoff_receipt = receipt;
-  assert.deepEqual(mod.handoffFromEnvelope(envelope), {
+  assert.deepEqual(mod.handoffFromEnvelope(envelope, expected), {
     campaign_id: "builtin-ready",
-    receipt,
+    receipt: structuredClone(receipt),
   });
+});
+
+test("setup.complete rejects ambiguous receipt aliases by property presence", async () => {
+  const mod = await import(handoffUrl);
+  const primaryWithMalformedAlias = successEnvelope();
+  primaryWithMalformedAlias.data.result.handoff_receipt = "malformed";
+  assert.equal(
+    mod.handoffFromEnvelope(primaryWithMalformedAlias, expected),
+    null,
+    "a present malformed alias cannot be treated as absent",
+  );
+
+  const aliasWithMalformedPrimary = successEnvelope();
+  aliasWithMalformedPrimary.data.result.handoff_receipt = (
+    aliasWithMalformedPrimary.data.result.handoff
+  );
+  aliasWithMalformedPrimary.data.result.handoff = "malformed";
+  assert.equal(
+    mod.handoffFromEnvelope(aliasWithMalformedPrimary, expected),
+    null,
+    "a present malformed primary receipt cannot be treated as absent",
+  );
 });
 
 test("other operation is null", async () => {
@@ -82,6 +112,43 @@ test("missing receipt is null", async () => {
   const envelope = successEnvelope();
   delete envelope.data.result.handoff;
   assert.equal(mod.handoffFromEnvelope(envelope), null);
+  envelope.data.result.receipt = structuredClone(receipt);
+  assert.equal(
+    mod.handoffFromEnvelope(envelope, expected),
+    null,
+    "generic receipt is not a canonical setup handoff alias",
+  );
+});
+
+test("setup.complete receipt is bound to the exact campaign and decision", async () => {
+  const mod = await import(handoffUrl);
+  assert.equal(mod.handoffFromEnvelope(successEnvelope(), {
+    ...expected,
+    campaignId: "other-campaign",
+  }), null);
+  assert.equal(mod.handoffFromEnvelope(successEnvelope(), {
+    ...expected,
+    decisionId: "other-decision",
+  }), null);
+  const wrongResultCampaign = successEnvelope();
+  wrongResultCampaign.data.result.campaign_id = "other-campaign";
+  assert.equal(mod.handoffFromEnvelope(wrongResultCampaign, expected), null);
+  const notReady = successEnvelope();
+  notReady.data.result.ready_for_table = false;
+  assert.equal(mod.handoffFromEnvelope(notReady, expected), null);
+});
+
+test("setup.complete receipt is exact schema v1", async () => {
+  const mod = await import(handoffUrl);
+  const extra = successEnvelope();
+  extra.data.result.handoff.unexpected = true;
+  assert.equal(mod.handoffFromEnvelope(extra, expected), null);
+  const unsafe = successEnvelope();
+  unsafe.data.result.handoff.investigator_ids = ["../outside"];
+  assert.equal(mod.handoffFromEnvelope(unsafe, expected), null);
+  const duplicate = successEnvelope();
+  duplicate.data.result.handoff.investigator_ids = ["inv-ok", "inv-ok"];
+  assert.equal(mod.handoffFromEnvelope(duplicate, expected), null);
 });
 
 test("malformed envelope is null", async () => {

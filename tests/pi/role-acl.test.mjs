@@ -100,7 +100,7 @@ test("a settled ending cannot start another end_session", async () => {
       toolName: "coc_turn",
       operation: "turn.finalize",
       phase: "ending",
-    }).ok, false);
+    }).ok, true);
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_turn",
       operation: "state.journal",
@@ -110,7 +110,7 @@ test("a settled ending cannot start another end_session", async () => {
       toolName: "coc_turn",
       operation: "turn.output_context",
       phase: "ending",
-    }).ok, false);
+    }).ok, true);
   });
 });
 
@@ -237,7 +237,7 @@ test("setup role startup union does not grant play-only execute rights", async (
       toolName: "coc_turn",
       operation: "turn.finalize",
       phase: "live_turn",
-    }).code, "phase_forbidden");
+    }).code, "role_forbidden");
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
       operation: "rules.roll",
@@ -280,7 +280,7 @@ test("play role startup union keeps live tools and pending non-resume is forbidd
       toolName: "coc_turn",
       operation: "turn.finalize",
       phase: "live_turn",
-    }).ok, false);
+    }).ok, true);
   });
 });
 

@@ -30,7 +30,8 @@ def _node(script: Path, *args: str, env: dict[str, str] | None = None) -> dict:
         ["node", "--experimental-strip-types", str(script), *args],
         cwd=ROOT, env=run_env, check=True, capture_output=True, text=True,
     )
-    return json.loads(completed.stdout)
+    output = completed.stdout.strip()
+    return json.loads(output) if output else {}
 
 
 def _node_test(*scripts: Path, env: dict[str, str] | None = None) -> None:
@@ -87,13 +88,39 @@ def _load_pdf_adapter(name: str):
 
 def test_operation_policy_execution_class_consumes_canonical_export():
     script = """
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 const policy = await import(pathToFileURL(process.argv[1]).href);
+const typed = await import(pathToFileURL(process.argv[2]).href);
+const archive = JSON.parse(readFileSync(process.argv[3], 'utf8'));
 const parallel = Object.entries(policy.OPERATION_POLICY)
   .filter(([, value]) => policy.executionClassForPolicy(value) === 'parallel_read')
   .map(([name]) => name).sort();
+const names = Object.keys(policy.OPERATION_POLICY).sort();
+const surfaced = [...new Set(Object.values(policy.OPERATIONS_BY_SURFACE).flat())].sort();
+const policies = Object.fromEntries(Object.entries(policy.OPERATION_POLICY).map(
+  ([name, value]) => [name, {
+    ...value,
+    phases: [...value.phases],
+    execution_class: policy.executionClassForPolicy(value),
+  }],
+));
+const surfaceBuckets = Object.fromEntries(Object.entries(policy.OPERATIONS_BY_SURFACE).map(
+  ([surface, operations]) => [surface, [...operations].sort()],
+));
+const archivePolicies = Object.fromEntries(Object.entries(archive.operations).map(
+  ([name, operation]) => [name, operation.policy],
+));
 console.log(JSON.stringify({
   parallel,
+  names,
+  policies,
+  surfaceBuckets,
+  archiveNames: Object.keys(archive.operations).sort(),
+  archivePolicies,
+  surfaced,
+  typedOperations: typed.listTypedOperationTools().map((row) => row.operation).sort(),
   missing: policy.executionClassForPolicy(undefined),
   unknown: policy.executionClassForPolicy({ execution_class: 'unknown' }),
   dangerous: policy.executionClassForPolicy(policy.OPERATION_POLICY['turn.finalize']),
@@ -102,7 +129,10 @@ console.log(JSON.stringify({
     completed = subprocess.run(
         [
             "node", "--experimental-strip-types", "--input-type=module", "-e",
-            script, str(PLUGIN / "pi/lib/operation-policy.ts"),
+            script,
+            str(PLUGIN / "pi/lib/operation-policy.ts"),
+            str(PLUGIN / "pi/lib/typed-tools.ts"),
+            str(PLUGIN / "references/mcp-operation-contracts.json"),
         ],
         cwd=ROOT, check=True, capture_output=True, text=True,
     )
@@ -112,8 +142,42 @@ console.log(JSON.stringify({
         name for name, spec in toolbox.TOOLS.items()
         if spec["execution_class"] == "parallel_read"
     )
+    canonical_names = sorted(toolbox.TOOLS)
+    canonical_policies = {
+        name: {
+            **toolbox.operation_policy(name),
+            "execution_class": toolbox.TOOLS[name].get(
+                "execution_class", "serial_campaign"
+            ),
+        }
+        for name in canonical_names
+    }
+    archive_policies = {
+        name: toolbox.operation_policy(name)
+        for name in canonical_names
+    }
+    surface_buckets = {
+        surface: sorted(
+            name for name in canonical_names
+            if toolbox.operation_policy(name)["kp_surface"] == surface
+        )
+        for surface in sorted(
+            toolbox.coc_operation_policy.KP_SURFACES - {"none"}
+        )
+    }
+    expected_surfaced = sorted(
+        name for name in canonical_names
+        if toolbox.operation_policy(name)["kp_surface"] != "none"
+    )
     assert exported == {
         "parallel": canonical_parallel,
+        "names": canonical_names,
+        "policies": canonical_policies,
+        "surfaceBuckets": surface_buckets,
+        "archiveNames": canonical_names,
+        "archivePolicies": archive_policies,
+        "surfaced": expected_surfaced,
+        "typedOperations": expected_surfaced,
         "missing": "serial_campaign",
         "unknown": "serial_campaign",
         "dangerous": "serial_campaign",
@@ -170,6 +234,14 @@ def test_pi_operation_contract_loader():
 
 def test_pi_typed_tool_surface():
     _node_test(ROOT / "tests/pi/typed-tool-surface.mjs")
+
+
+def test_pi_state_claim_compiler_contract():
+    _node_test(ROOT / "tests/pi/state-claim-compiler.mjs")
+
+
+def test_pi_state_claim_compiler_gateway():
+    _node_test(ROOT / "tests/pi/state-claim-compiler-gateway.mjs")
 
 
 def test_pi_provider_capability_schema_semantics():
@@ -237,6 +309,7 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
         "ok": True,
         "activeTools": [
             "subagent", "subagent_wait",
+            "coc_source_assets",
             "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
             "coc_chargen_delegate",
         ],
@@ -263,6 +336,10 @@ def test_pi_chargen_delegate_allocates_campaign_scoped_ids():
     assert result["allocated"] != "inv-investigator"
     assert result["journalistInterestCount"] >= 6
     assert result["singleInterestCount"] >= 5
+
+
+def test_pi_setup_complete_binds_the_retained_handoff_decision():
+    _node(ROOT / "tests/pi/setup-complete-decision-binding.mjs", str(ROOT))
 
 
 def test_pi_opening_forwards_only_contract_selected_era_adaptive_creation():
@@ -2205,6 +2282,38 @@ def test_pi_mechanical_output_gate_intercepts_unbound_markers():
     }
 
 
+def test_pi_injects_finalization_steer_before_first_live_turn_inference():
+    result = _node(
+        ROOT / "tests/pi/pre-inference-finalization-steer.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "first": {
+            "kind": "settled_output_preflight",
+            "status": "armed",
+            "epoch": 1,
+            "action": "tools_then_journal_context_finalize_exact",
+            "instructionHasClosure": True,
+            "instructionHasStateAuthority": True,
+        },
+        "pendingStableBeforeDelivery": True,
+        "failedDelivery": "failed",
+        "retryRetainedSameEpoch": True,
+        "delivered": "delivered",
+        "duplicateAfterSuccess": "not_required",
+        "hiddenFollowupSuppressed": True,
+        "nonFinalizingPhaseSuppressed": True,
+        "nextEpoch": 3,
+        "delivery": {
+            "appended": 2,
+            "sent": 1,
+            "customType": "coc-settled-output-preflight",
+            "display": False,
+            "options": {"deliverAs": "steer"},
+        },
+    }
+
+
 def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
     result = _node(ROOT / "tests/pi/finalization-gateway.mjs", str(ROOT))
     assert result == {
@@ -3986,6 +4095,25 @@ def _locator_bundle(
         json.dumps(manifest), encoding="utf-8",
     )
 
+
+def test_pi_pdf_producer_contracts_allow_page_bound_image_assets(tmp_path: Path):
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"fixture")
+    task = _locator_task(tmp_path, tmp_path / "bundle", pdf)
+    task["source_bundle_manifest_contract"] = {
+        "template": {"assets": []},
+        "assets_may_be_empty": True,
+        "nonempty_assets_permitted": True,
+        "asset_row_required_fields": ["path", "sha256", "pdf_index"],
+    }
+    adapter = _load_pdf_adapter("coc_pdf_adapter_media_contract_test")
+
+    locator_prompt = adapter._locator_prompt(task)
+    assert "manifest.assets is a required array and may be empty" in locator_prompt
+    assert "zero-based pdf_index of its selected pages[] row" in locator_prompt
+    assert "manifest.assets is a required array and may be empty" in (
+        adapter._FULL_PARSE_PROMPT
+    )
 
 def test_pdf_skill_adapter_locator_run_uses_shared_pi_timeout_budget(
     tmp_path: Path, monkeypatch,

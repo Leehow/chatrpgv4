@@ -29,19 +29,24 @@ const missingPdf = path.join(temp, "does-not-exist.pdf");
 const handlers = new Map();
 const sent = [];
 const epoch = { value: 1 };
-const injectedPaths = new Set();
+let failNextSend = false;
 registerPlayerPdfBindInstruction({
   on(type, handler) {
     const registered = handlers.get(type) || [];
     registered.push(handler);
     handlers.set(type, registered);
   },
-  sendMessage: (message, options) => sent.push({ message, options }),
+  sendMessage(message, options) {
+    if (failNextSend) {
+      failNextSend = false;
+      throw new Error("injected send failure");
+    }
+    sent.push({ message, options });
+  },
 }, {
   workspaceRoot: () => "/workspace",
   isCurrent: (value) => value === epoch.value,
   epoch: () => epoch.value,
-  injectedPaths,
 });
 
 async function emit(message) {
@@ -109,20 +114,34 @@ await emit({
 });
 assert.equal(sent.length, 2, "a new PDF path injects once");
 
+// Delivery failure rolls back the reservation so a transient host error does
+// not permanently suppress this path for the rest of the session.
+const retryPdf = path.join(temp, "retry-after-send-failure.pdf");
+await writeFile(retryPdf, "%PDF-1.4 retry fixture");
+const retryMessage = {
+  role: "user",
+  content: [{ type: "text", text: `再试这个：${retryPdf}` }],
+};
+failNextSend = true;
+await emit(retryMessage);
+assert.equal(sent.length, 2, "failed delivery is not reported as injected");
+await emit(retryMessage);
+assert.equal(sent.length, 3, "released path is injected on the next message");
+
 // Non-PDF / no-path messages stay silent.
 await emit({ role: "user", content: [{ type: "text", text: "继续。" }] });
 await emit({ role: "user", content: [{ type: "text", text: "看一下这本书的介绍" }] });
 await emit({ role: "assistant", content: [{ type: "text", text: pdfPath }] });
 await emit({ role: "custom", customType: "coc-pi-welcome", content: "welcome", display: false });
 await emit({ role: "user", content: [{ type: "toolResult", id: "t-1" }] });
-assert.equal(sent.length, 2, "PDF-free, assistant, custom, and toolResult messages never inject");
+assert.equal(sent.length, 3, "PDF-free, assistant, custom, and toolResult messages never inject");
 
 // A URL ending in .pdf is structurally excluded.
 await emit({
   role: "user",
   content: [{ type: "text", text: `查一下 https://example.com/guide.pdf 这页` }],
 });
-assert.equal(sent.length, 2, "URL .pdf tokens are not local PDF paths");
+assert.equal(sent.length, 3, "URL .pdf tokens are not local PDF paths");
 
 // A .pdf mention that does not exist on disk is a document mention, not a
 // player-provided module: the existence gate keeps it silent.
@@ -130,16 +149,42 @@ await emit({
   role: "user",
   content: [{ type: "text", text: `把 ${missingPdf} 加进规则` }],
 });
-assert.equal(sent.length, 2, "missing file stays silent");
+assert.equal(sent.length, 3, "missing file stays silent");
 
-// Session boundary resets the dedup (the extension clears its session set on
-// session_shutdown) so a later session may inject again.
+// Advancing the session epoch resets module-owned dedup state so a later
+// session may inject the same path again.
 epoch.value = 2;
-injectedPaths.clear();
 await emit(userWithPdf);
-assert.equal(sent.length, 3, "a new session epoch may inject the same path once");
+assert.equal(sent.length, 4, "a new session epoch may inject the same path once");
 await emit(userWithPdf);
-assert.equal(sent.length, 3, "still once per session");
+assert.equal(sent.length, 4, "still once per session");
+
+// Two same-path events may both reach the asynchronous file check, but only
+// one may reserve and deliver after that check completes.
+const concurrentPdf = path.join(temp, "concurrent-same-path.pdf");
+await writeFile(concurrentPdf, "%PDF-1.4 concurrent fixture");
+const concurrentMessage = {
+  role: "user",
+  content: [{ type: "text", text: `并发打开：${concurrentPdf}` }],
+};
+await Promise.all([emit(concurrentMessage), emit(concurrentMessage)]);
+assert.equal(sent.length, 5, "concurrent same-path messages inject exactly once");
+
+// A file check admitted by an old epoch must not deliver after the epoch
+// changes, and must not reserve the path in the newer session's dedup state.
+const staleEpochPdf = path.join(temp, "stale-epoch.pdf");
+await writeFile(staleEpochPdf, "%PDF-1.4 stale epoch fixture");
+const staleEpochMessage = {
+  role: "user",
+  content: [{ type: "text", text: `旧会话开始：${staleEpochPdf}` }],
+};
+epoch.value = 3;
+const staleDelivery = emit(staleEpochMessage);
+epoch.value = 4;
+await staleDelivery;
+assert.equal(sent.length, 5, "old epoch completion does not send");
+await emit(staleEpochMessage);
+assert.equal(sent.length, 6, "old epoch completion does not poison new dedup state");
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

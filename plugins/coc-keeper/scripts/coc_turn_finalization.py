@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+import coc_character
+import coc_creation_provenance
 import coc_first_impression
 import coc_fileio
 import coc_language
@@ -1622,11 +1624,12 @@ def creation_receipt_bound_roll_ids(
 ) -> set[str]:
     """Collect public-roll ids already verified by investigator.create.
 
-    Quick Fire records bind ``luck_roll_receipt``. KP-guided rolled-character
-    records additionally bind every same-shaped
-    ``characteristic_roll_receipts`` entry. The create runtime has already
-    verified the dice recipe and campaign identity; this read-side helper only
-    recognizes that durable authoritative receipt shape.
+    Quick Fire records bind ``luck_roll_receipt``, every candidate receipt in
+    ``luck_roll_candidates``, and every check/improvement receipt nested under
+    ``edu_improvement_rolls``. KP-guided rolled-character records additionally
+    bind every same-shaped ``characteristic_roll_receipts`` entry. The create
+    runtime has already verified the dice recipe and campaign identity; this
+    read-side helper only recognizes that durable authoritative receipt shape.
     """
     if not isinstance(campaign_id, str) or not campaign_id:
         return set()
@@ -1639,6 +1642,27 @@ def creation_receipt_bound_roll_ids(
         )
         if luck_roll_id is not None:
             bound.add(luck_roll_id)
+        luck_roll_candidates = creation.get("luck_roll_candidates")
+        if isinstance(luck_roll_candidates, list):
+            for candidate in luck_roll_candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                roll_id = _creation_receipt_roll_id(
+                    candidate.get("receipt"), campaign_id=campaign_id,
+                )
+                if roll_id is not None:
+                    bound.add(roll_id)
+        edu_improvement_rolls = creation.get("edu_improvement_rolls")
+        if isinstance(edu_improvement_rolls, list):
+            for record in edu_improvement_rolls:
+                if not isinstance(record, dict):
+                    continue
+                for field in ("check_receipt", "improve_receipt"):
+                    roll_id = _creation_receipt_roll_id(
+                        record.get(field), campaign_id=campaign_id,
+                    )
+                    if roll_id is not None:
+                        bound.add(roll_id)
         characteristic_receipts = creation.get("characteristic_roll_receipts")
         if not isinstance(characteristic_receipts, dict):
             continue
@@ -1651,36 +1675,189 @@ def creation_receipt_bound_roll_ids(
     return bound
 
 
-def _campaign_creation_records(campaign_dir: Path) -> list[Any]:
-    """Read current creation receipts without treating malformed files as proof."""
+def _campaign_creation_records(
+    campaign_dir: Path,
+) -> list[tuple[dict[str, Any], set[str]]]:
+    """Read and authoritatively verify creation receipts in campaign scope."""
+    campaign_dir = Path(campaign_dir)
+
+    def read_required_object(path: Path, label: str) -> dict[str, Any]:
+        if path.is_symlink() or not path.is_file():
+            raise TurnContractError(
+                "state_corrupt", f"{label} is missing or not a regular file",
+            )
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise TurnContractError(
+                "state_corrupt", f"{label} is unreadable or malformed",
+            ) from exc
+        if not isinstance(value, dict):
+            raise TurnContractError(
+                "state_corrupt", f"{label} must be a JSON object",
+            )
+        return value
+
+    campaign = read_required_object(campaign_dir / "campaign.json", "campaign state")
+    handoff_present = "setup_handoff" in campaign
+    handoff = campaign.get("setup_handoff")
+    if handoff_present and not isinstance(handoff, dict):
+        raise TurnContractError("state_corrupt", "setup handoff is malformed")
+
+    party_path = campaign_dir / "party.json"
+    if (
+        not party_path.exists()
+        and not party_path.is_symlink()
+        and not handoff_present
+    ):
+        return []
+    party = read_required_object(party_path, "campaign party state")
+    raw_party_ids = party.get("investigator_ids") if isinstance(party, dict) else None
+    raw_active_ids = (
+        party.get("active_investigator_ids") if isinstance(party, dict) else None
+    )
+    if (
+        not isinstance(party, dict)
+        or party.get("schema_version") != 1
+        or party.get("campaign_id") != campaign_dir.name
+        or not isinstance(raw_party_ids, list)
+        or not isinstance(raw_active_ids, list)
+    ):
+        raise TurnContractError(
+            "state_corrupt", "campaign party identity is malformed",
+        )
+    def valid_investigator_id(value: Any) -> bool:
+        return bool(
+            isinstance(value, str)
+            and value
+            and value == value.strip()
+            and value not in {".", ".."}
+            and "/" not in value
+            and "\\" not in value
+        )
+
+    if (
+        any(not valid_investigator_id(value) for value in raw_party_ids)
+        or any(not valid_investigator_id(value) for value in raw_active_ids)
+        or len(set(raw_party_ids)) != len(raw_party_ids)
+        or len(set(raw_active_ids)) != len(raw_active_ids)
+        or not set(raw_active_ids).issubset(set(raw_party_ids))
+    ):
+        raise TurnContractError(
+            "state_corrupt", "campaign party investigator ids are malformed",
+        )
+    party_ids = set(raw_party_ids)
+
+    if isinstance(handoff, dict):
+        raw_handoff_ids = handoff.get("investigator_ids")
+        if (
+            handoff.get("schema_version") != 1
+            or handoff.get("campaign_id") != campaign_dir.name
+            or not isinstance(raw_handoff_ids, list)
+        ):
+            raise TurnContractError(
+                "state_corrupt", "setup handoff investigator scope is malformed",
+            )
+        if (
+            any(not valid_investigator_id(value) for value in raw_handoff_ids)
+            or len(set(raw_handoff_ids)) != len(raw_handoff_ids)
+        ):
+            raise TurnContractError(
+                "state_corrupt", "setup handoff investigator ids are malformed",
+            )
+        handoff_ids = {
+            value for value in raw_handoff_ids
+            if isinstance(value, str) and value in party_ids
+        }
+        party_ids &= handoff_ids
+
     investigators_dir = Path(campaign_dir).parent.parent / "investigators"
-    if not investigators_dir.is_dir() or investigators_dir.is_symlink():
-        return []
+    if party_ids and (
+        not investigators_dir.is_dir() or investigators_dir.is_symlink()
+    ):
+        raise TurnContractError(
+            "state_corrupt", "linked investigator state root is missing or invalid",
+        )
+    records: list[tuple[dict[str, Any], set[str]]] = []
     try:
-        investigator_dirs = sorted(investigators_dir.iterdir(), key=lambda path: path.name)
-    except OSError:
-        return []
-    records: list[Any] = []
-    for investigator_dir in investigator_dirs:
+        setup_fence = coc_turn_manifest.setup_creation_roll_fence(campaign_dir)
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise TurnContractError(exc.code, str(exc)) from exc
+    for investigator_id in sorted(party_ids):
+        investigator_dir = investigators_dir / investigator_id
         if investigator_dir.is_symlink() or not investigator_dir.is_dir():
-            continue
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} state is missing or invalid",
+            )
         creation_path = investigator_dir / "creation.json"
-        if creation_path.is_symlink() or not creation_path.is_file():
+        creation = read_required_object(
+            creation_path, f"linked investigator {investigator_id} creation receipt",
+        )
+        if (
+            not isinstance(creation, dict)
+            or creation.get("schema_version") != 1
+            or creation.get("investigator_id") != investigator_id
+        ):
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} creation receipt is invalid",
+            )
+        character_path = investigator_dir / "character.json"
+        character = read_required_object(
+            character_path, f"linked investigator {investigator_id} character sheet",
+        )
+        if (
+            not isinstance(character, dict)
+            or character.get("id") != investigator_id
+            or coc_character.validate_character_create_sheet(character, creation)
+        ):
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} creation state is invalid",
+            )
+        if creation.get("input_mode") not in {
+            "guided_quick_fire", coc_character.ERA_ADAPTIVE_INPUT_MODE,
+        }:
             continue
         try:
-            records.append(json.loads(creation_path.read_text(encoding="utf-8")))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
+            trusted_references = (
+                coc_creation_provenance.validated_creation_roll_references(
+                campaign_dir.parents[2],
+                character,
+                creation,
+                current_campaign_id=campaign_dir.name,
+                )
+            )
+        except coc_creation_provenance.CreationProvenanceError as exc:
+            raise TurnContractError(
+                "state_corrupt",
+                f"linked investigator {investigator_id} creation provenance is invalid: {exc}",
+            ) from exc
+        trusted_roll_ids = set(trusted_references)
+        if setup_fence is not None:
+            allowed = setup_fence["roll_decisions"]
+            if any(
+                allowed.get(roll_id) != decision_id
+                for roll_id, decision_id in trusted_references.items()
+            ):
+                raise TurnContractError(
+                    "state_corrupt",
+                    f"linked investigator {investigator_id} creation receipt "
+                    "is outside the earliest setup handoff fence",
+                )
+        records.append((creation, trusted_roll_ids))
     return records
 
 
 def campaign_creation_receipt_bound_roll_ids(campaign_dir: Path) -> set[str]:
-    """Return creation-bound roll ids for this campaign's investigator root."""
+    """Return creation-bound roll ids for the confirmed campaign party only."""
     campaign_dir = Path(campaign_dir)
-    return creation_receipt_bound_roll_ids(
-        campaign_dir.name,
-        _campaign_creation_records(campaign_dir),
-    )
+    return {
+        roll_id
+        for _creation, trusted_roll_ids in _campaign_creation_records(campaign_dir)
+        for roll_id in trusted_roll_ids
+    }
 
 
 def unbound_public_roll_ids(campaign_dir: Path) -> list[str]:
@@ -2263,6 +2440,12 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     except coc_turn_manifest.TurnManifestError as exc:
         raise TurnContractError(exc.code, str(exc)) from exc
     finalizations = load_finalizations(campaign_dir)
+    # Durable exact-replay rows remain audit evidence in the source window but
+    # are not a new settlement. Exclude them before every mechanics projection.
+    window = [
+        call for call in window
+        if call.get("idempotent_replay") is not True
+    ]
     start = int(manifest["source_start_index"])
     end = int(manifest["journal_call_index"])
     hidden_roll_ids = _superseded_roll_ids(campaign_dir)

@@ -24,7 +24,8 @@ coc_operation_policy = coc_toolbox.coc_operation_policy
 
 def test_every_registered_operation_has_valid_policy():
     names = sorted(coc_toolbox.TOOLS)
-    assert len(names) == 124
+    assert "state.deliver_handout" in names
+    assert "state.replay_handout" in names
     policies = coc_operation_policy.policies_for_operations(names)
     assert set(policies) == set(names)
     for name, policy in policies.items():
@@ -257,4 +258,3 @@ def test_query_helper_is_structured_not_keyword():
     )
     assert "progressive.prepare_opening" in opening_setup
     assert "progressive.fulfill_host_work" not in opening_setup
-

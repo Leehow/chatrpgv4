@@ -549,8 +549,9 @@ export async function streamTurn(
     });
   } catch {
     if (signal?.aborted) return;
-    handlers.onError?.("无法连接到服务器。");
-    return;
+    const message = "无法连接到服务器。";
+    handlers.onError?.(message);
+    throw new Error(message);
   }
   if (!resp.ok || !resp.body) {
     let message = `HTTP ${resp.status}`;
@@ -561,19 +562,21 @@ export async function streamTurn(
       /* keep HTTP status */
     }
     handlers.onError?.(message);
-    return;
+    throw new Error(message);
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminalError: string | null = null;
   for (;;) {
     let read: ReadableStreamReadResult<Uint8Array>;
     try {
       read = await reader.read();
     } catch {
       if (signal?.aborted) return;
-      handlers.onError?.("回合数据流中断。");
-      return;
+      const message = terminalError ?? "回合数据流中断。";
+      handlers.onError?.(message);
+      throw new Error(message);
     }
     const { done, value } = read;
     if (done) break;
@@ -619,12 +622,31 @@ export async function streamTurn(
           },
         );
       } else if (event === "error") {
-        handlers.onError?.(String(data.message ?? "未知错误"));
+        terminalError = String(data.message ?? "未知错误");
+        handlers.onError?.(terminalError);
       } else if (event === "handout") {
+        const contentOrigin = data.content_origin === undefined
+          ? "source_verbatim"
+          : data.content_origin;
+        if (
+          contentOrigin !== "source_verbatim"
+          && contentOrigin !== "authored_derivative"
+        ) continue;
         handlers.onHandout?.({
           asset_id: String(data.asset_id ?? ""),
+          presentation_id: typeof data.presentation_id === "string" && data.presentation_id
+            ? data.presentation_id
+            : undefined,
+          presentation_revision: Number.isSafeInteger(data.presentation_revision)
+            && Number(data.presentation_revision) > 0
+            ? Number(data.presentation_revision)
+            : undefined,
           kind: normalizeHandoutKind(data.kind),
+          content_origin: contentOrigin,
           title: String(data.title ?? ""),
+          card_label: data.card_label == null ? null : String(data.card_label),
+          kind_label: data.kind_label == null ? null : String(data.kind_label),
+          source_label: data.source_label == null ? null : String(data.source_label),
           text: data.text == null ? null : String(data.text),
           summary: data.summary == null ? null : String(data.summary),
           image_url: typeof data.image_url === "string" && data.image_url ? data.image_url : null,
@@ -634,6 +656,9 @@ export async function streamTurn(
         });
       } else if (event === "notice") {
         handlers.onNotice?.(String(data.message ?? ""));
+      } else if (event === "end") {
+        if (terminalError !== null) throw new Error(terminalError);
+        return;
       } else if (event === "delivery_ack_required") {
         const finalizationId = String(data.finalization_id ?? "");
         const renderedSha256 = String(data.rendered_sha256 ?? "");
@@ -661,9 +686,12 @@ export async function streamTurn(
           receipt: data.receipt,
           at: data.at as string | number | undefined,
         });
-      } else if (event === "end") {
-        return;
       }
     }
   }
+  if (signal?.aborted) return;
+  if (terminalError !== null) throw new Error(terminalError);
+  const message = "回合数据流在服务器终止帧前结束。";
+  handlers.onError?.(message);
+  throw new Error(message);
 }

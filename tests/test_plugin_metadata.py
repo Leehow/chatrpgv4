@@ -433,6 +433,30 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "scene_edges[].to": "not scene_edges[].destination",
     }
     assert body_requirements["parent_repair_allowed"] is False
+    handout = contract["packet"]["handout_card"]
+    assert handout["request_kind"] == "deepen_handout"
+    assert handout["result_contract_id"] == "coc.handout-card-pack.v1"
+    assert handout["required_request_fields"] == [
+        "job_id",
+        "target_id",
+        "requested_pdf_indices",
+        "cached_page_refs",
+        "allowed_registered_asset_refs",
+        "allowed_scene_refs",
+        "allowed_clue_refs",
+        "result_contract",
+    ]
+    assert handout["result_contract_requirements"] == {
+        "closed": True,
+        "player_visible": True,
+        "exact_cached_page_refs_only": True,
+        "exact_registered_asset_refs_only": True,
+        "verbatim_text_bound_to_cited_page_bytes": True,
+        "structured_relation_refs_only": True,
+        "related_packs": "must_be_empty",
+        "parent_repair_allowed": False,
+        "semantic_card_identification_not_keyword_gate": True,
+    }
     assert opening_setup["start_clock_source_ref_required_fields"] == [
         "source_id", "pdf_index",
     ]
@@ -619,6 +643,12 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "compile exactly one `coc.source-pack-worker.v1` json object",
         "request_purpose=foreground_opening_slice",
         "request.result_contract",
+        "coc.handout-card-pack.v1",
+        "allowed_registered_asset_refs",
+        "allowed_scene_refs",
+        "allowed_clue_refs",
+        "verbatim text must occur in the exact cited cached page bytes",
+        "never use keywords or regex to identify a card",
         "`deepen_location`, `partial_neighbor`, or `partial_opening`",
         "`location_id` rather than `entity_id`",
         "`title` rather than `name`",
@@ -1996,6 +2026,34 @@ def test_canonical_skills_have_matching_frontmatter_names():
         assert match.group(1).strip() == directory.name
 
 
+def test_pi_play_host_prompt_keeps_prejournal_player_state_authority():
+    prompt = " ".join(
+        _text(PLUGIN_ROOT / "pi" / "prompts" / "host-system-play.md").split()
+    )
+    for phrase in (
+        "state.cash_grant",
+        "state.item_grant",
+        "before `state.journal`",
+        "state_authority_review",
+        "source_effect_id",
+    ):
+        assert phrase in prompt, phrase
+
+
+def test_active_pi_skill_states_state_authority_attestation_limit():
+    skill = " ".join(
+        _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").split()
+    )
+    for phrase in (
+        "semantic attestation, not proof of absence",
+        "fresh Pi/Grok browser replay remains mandatory acceptance evidence",
+        "Pi host independently compiles",
+        "This compiler is not a second KP",
+        "receipt is host-owned and absent from the model-visible tool schema",
+    ):
+        assert phrase in skill, phrase
+
+
 def test_required_canonical_skills_are_present():
     names = {
         path.name
@@ -2143,7 +2201,6 @@ def test_keeper_play_professional_inference_boundary_is_always_on():
     assert "check adjudication flow" in tooling
     # Orientation points KP at the boundary before skill selection.
     assert "professional inference boundary before selecting a skill" in play_main
-
     # Routed ordinary-turn reference expands operational method/goal guidance.
     assert "check adjudication flow (kp owns the choice)" in tooling
     for phrase in (
@@ -2170,3 +2227,16 @@ def test_keeper_play_professional_inference_boundary_is_always_on():
     assert "not corpse-keyword routing" in tooling
     # General-perception success still limited to observable layer.
     assert "general-perception success still yields only the observable layer" in tooling
+
+
+def test_keeper_play_handout_link_guidance_covers_direct_and_reverse_identity():
+    play = " ".join(
+        _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").split()
+    )
+    for phrase in (
+        "direct `handout_asset_id`",
+        "unique exact reverse `clue_refs`",
+        "returned delivery result or warning is authoritative",
+        "No keyword or prose matching",
+    ):
+        assert phrase in play, phrase

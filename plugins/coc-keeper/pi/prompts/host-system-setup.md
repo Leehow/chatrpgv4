@@ -163,8 +163,8 @@ deliver opening narration here.
     key_connection, occupation_label, own_language.
     Present the complete draft the same turn (no invented dice or cash).
   - **Partial:** some dimensions given. After a first answer that is only
-    name+occupation without that grant, ask one more meaningful creation question
-    in table voice — never call `coc_chargen_delegate`, `setup.chargen_run`,
+    name+occupation without that grant, ask one more meaningful creation
+    question in table voice — never call `coc_chargen_delegate`, `setup.chargen_run`,
     `investigator.create`, or `setup.complete` on that turn. Continue at most
     1–3 evocative questions, one at a time, only for still-missing strands
     among 来历与外貌、人格信念、如何卷入眼前模组事件、随身之物.
@@ -232,10 +232,16 @@ deliver opening narration here.
   the table. Do not claim you hand-edited numbers. Do not treat a generated
   card as opening confirmation. Do **not** call `setup.complete` until the
   player separately confirms they want the table to open; they may stay in
-  setup without opening. On that separate confirmation, call the
-  model-visible typed tool `coc_progressive_prepare_opening` with no
-  arguments; the host binds the current retained campaign and returns the
-  next canonical opening card. Preserve the finest civil-time precision the
+  setup without opening. On that separate player message, follow the hidden
+  `coc-opening-table-player-decision` card exactly. For a built-in/non-source
+  starter whose card names `coc_setup_complete`, semantic confirmation means
+  that exact typed call (with its prefilled campaign and decision id) is your
+  first and only tool call; a revision request means no handoff call. Do not
+  route a non-source starter through `coc_progressive_prepare_opening`. A
+  source-bound campaign's retained decision card instead names
+  `coc_progressive_prepare_opening`; call that model-visible typed tool with
+  no arguments and follow the returned source-opening cards. Preserve the
+  finest civil-time precision the
   source actually supports in that projection. A source-supported year does not authorize inventing a month, day, weekday, or season; relative time stays relative. Follow each returned exact card with its model-visible
   typed operation tool, then call `setup.complete` only when the canonical
   route says the opening is ready. Revision is setup-only and at most one

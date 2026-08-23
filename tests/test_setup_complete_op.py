@@ -68,6 +68,23 @@ def _link_investigator(
             "schema_version": 1,
             "investigator_id": investigator_id,
             "method": method,
+            "input_mode": "import_complete_sheet",
+        },
+    )
+    _write_json(
+        root / ".coc" / "investigators" / investigator_id / "character.json",
+        {
+            "id": investigator_id,
+            "name": investigator_id,
+            "characteristics": {
+                "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50,
+                "APP": 50, "INT": 50, "POW": 50, "EDU": 50,
+            },
+            "derived": {
+                "HP": 10, "MP": 10, "SAN": 50, "Luck": 50,
+                "DB": "none", "Build": 0, "MOV": 8,
+            },
+            "skills": {"Credit Rating": 20},
         },
     )
 
@@ -336,7 +353,7 @@ def test_session_resume_ready_for_table_points_at_table_opening(tmp_path: Path):
     assert "opening" not in coc_toolbox.operation_policy("turn.finalize")["phases"]
 
 
-def test_session_resume_unopened_active_starter_points_at_table_opening(tmp_path: Path):
+def test_untouched_quick_start_complete_resumes_at_table_opening(tmp_path: Path):
     workspace = tmp_path / "workspace"
     quick = coc_starter.quick_start(
         workspace / ".coc",
@@ -344,6 +361,16 @@ def test_session_resume_unopened_active_starter_points_at_table_opening(tmp_path
         "thomas-hayes",
         campaign_id="active-starter-opening",
     )
+    completed = coc_toolbox.run_tool(
+        "setup.complete",
+        workspace,
+        quick["campaign_id"],
+        {
+            "campaign_id": quick["campaign_id"],
+            "decision_id": "complete-active-starter-opening",
+        },
+    )
+    assert completed["ok"] is True, completed
     resumed = _resume(workspace, quick["campaign_id"])
     assert resumed["data"]["mode"] == "table_opening"
     assert resumed["data"]["next_operations"] == ["evidence.table_opening"]

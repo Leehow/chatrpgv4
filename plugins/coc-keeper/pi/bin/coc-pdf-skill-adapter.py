@@ -1337,8 +1337,8 @@ def _locator_prompt(task: dict[str, Any]) -> str:
         "or rewrite them. Render and visually inspect every page the scope "
         "needs, and write a source bundle at task.source_bundle_path "
         "containing exactly the selected pages. Its manifest.json must follow "
-        "task.source_bundle_manifest_contract.template exactly: every key in "
-        "that template is required and `producer` is a literal string that "
+        "task.source_bundle_manifest_contract.template structure: every top-level "
+        "key in that template is required and `producer` is a literal string that "
         "must be copied verbatim, not replaced with your own identity. "
         "manifest.source must copy task.source unchanged and page_count is "
         "the real page count of the whole PDF. Each pages[] row needs "
@@ -1346,6 +1346,11 @@ def _locator_prompt(task: dict[str, Any]) -> str:
         "bundle, text_sha256 of that file's exact bytes, review_state, "
         "parse_confidence between 0 and 1, and grep_anchors: a non-empty list "
         "of short substrings copied verbatim from that page's own Markdown. "
+        "manifest.assets is a required array and may be empty. Preserve every "
+        "relevant extracted PNG, JPEG, or WebP under assets/; each non-empty "
+        "asset row contains exact path, sha256, and the zero-based pdf_index of "
+        "its selected pages[] row. Do not classify semantic role from filename, "
+        "dimensions, or prose keywords. "
         "The repository re-checks each anchor against the file, so never "
         "paraphrase or invent one. Do not use OCR, read campaign "
         "saves/transcripts, call "
@@ -1719,12 +1724,24 @@ def _module_init_l0_schema() -> dict[str, Any]:
             "variant_of": "null or non-empty string; key is always required",
         },
         "opening_handout_required_fields": [
-            "id", "title", "when_to_give",
+            "id", "title", "when_to_give", "source_refs",
         ],
         "opening_handout_field_rules": {
             "id": "non-empty string",
             "title": "null or non-empty string",
             "when_to_give": "null or non-empty string",
+            "source_refs": (
+                "non-empty unique array of canonical pdf_index-N strings; "
+                "every N names one task.pages row actually read for this result"
+            ),
+            "kind": "optional document, read_aloud, or map semantic hint",
+        },
+        "opening_handout_body_contract": {
+            "forbidden_direct_fields": [
+                "text", "localized_text", "image_ref",
+            ],
+            "compiler": "deepen_handout",
+            "result_contract": "coc.handout-card-pack.v1",
         },
         "chargen_deltas_rule": (
             "array of objects up to 128 items; [] is valid when the source makes "
@@ -1822,8 +1839,15 @@ def _opening_text_prompt(
         "(use [] when the source lists no hooks -- never null and never "
         "empty-string entries), backstory_blocks is null, a string, an "
         "array, or an object, and stats_ref is null, a string, or an object. "
-        "Handout rules: id is a non-empty string, and title and when_to_give "
-        "are non-empty strings or null. module_meta MUST include every field "
+        "Handout rules: id is a non-empty string; title and when_to_give "
+        "are non-empty strings or null; source_refs is a required non-empty "
+        "unique array of exact canonical pdf_index-N strings naming only "
+        "task.pages rows actually read and retained in selected_opening_pdf_indices "
+        "or fact_evidence_pdf_indices; optional kind is exactly document, "
+        "read_aloud, or map. opening_handouts are discovery "
+        "metadata only: omit text, localized_text, and image_ref; the "
+        "deepen_handout coc.handout-card-pack.v1 compiler owns source-bound "
+        "card bodies and registered image refs. module_meta MUST include every field "
         "named by its required fields list. module_meta field rules: "
         "title_zh, title_en, era, locale, duration_hint, and structure_type "
         "are non-empty strings or null. When task.play_language is zh-Hans, "
@@ -1988,6 +2012,48 @@ def _validate_opening_facts(
     return validated
 
 
+_HANDOUT_SOURCE_REF = re.compile(r"pdf_index-(0|[1-9]\d*)")
+
+
+def _canonicalize_opening_handout_refs(
+    value: dict[str, Any],
+    *,
+    allowed_pdf_indices: set[int],
+) -> dict[str, Any]:
+    """Bind producer handout discoveries to pages retained for this result."""
+    canonical_l0 = json.loads(json.dumps(value))
+    handouts = canonical_l0.get("opening_handouts")
+    if not isinstance(handouts, list):
+        _fail("opening handouts are invalid")
+    for position, handout in enumerate(handouts):
+        label = f"opening handout {position}"
+        if not isinstance(handout, dict):
+            _fail(f"{label} is invalid")
+        refs = handout.get("source_refs")
+        if not isinstance(refs, list) or not refs:
+            _fail(f"{label} source_refs are required")
+        indices: list[int] = []
+        for ref in refs:
+            match = _HANDOUT_SOURCE_REF.fullmatch(ref) if isinstance(ref, str) else None
+            if match is None:
+                _fail(f"{label} source_refs must be canonical pdf_index-N refs")
+            pdf_index = int(match.group(1))
+            if pdf_index not in allowed_pdf_indices:
+                _fail(f"{label} source_refs are outside reviewed pages")
+            indices.append(pdf_index)
+        if len(indices) != len(set(indices)):
+            _fail(f"{label} source_refs must be unique")
+        handout["source_refs"] = [
+            f"pdf_index-{pdf_index}" for pdf_index in sorted(indices)
+        ]
+        if (
+            "kind" in handout
+            and handout["kind"] not in {"document", "read_aloud", "map"}
+        ):
+            _fail(f"{label} kind is invalid")
+    return canonical_l0
+
+
 def _validate_opening_result(
     value: Any, task: dict[str, Any],
 ) -> dict[str, Any]:
@@ -2036,6 +2102,10 @@ def _validate_opening_result(
             result.get("facts"),
             source_id=str(task["source"]["source_id"]),
             selected_pdf_indices=fact_indices,
+        )
+        result["module_init_l0"] = _canonicalize_opening_handout_refs(
+            result["module_init_l0"],
+            allowed_pdf_indices=set(indices) | set(fact_indices),
         )
     elif (
         indices
@@ -3068,7 +3138,11 @@ _FULL_PARSE_PROMPT = (
     "task.source_bundle_manifest_contract at task.source_bundle_path. "
     "manifest.source.source_id, path, file_sha256, and page_count must exactly "
     "match task.source and task.page_count; manifest.source.title must exactly "
-    "match task.source.title. Do not render, transcribe, or rewrite any page "
+    "match task.source.title. manifest.assets is a required array and may be "
+    "empty; preserve every relevant extracted PNG, JPEG, or WebP under assets/ "
+    "with exact path, sha256, and the zero-based pdf_index of its pages[] row. "
+    "Do not classify an asset's semantic role from filename, dimensions, or "
+    "prose keywords. Do not render, transcribe, or rewrite any page "
     "in task.cached_pdf_indices. Do not use OCR, read .coc, campaign saves, "
     "transcripts, AGENTS.md, or repository source; do not call gameplay tools "
     "or write outside task.source_bundle_path. Return only one strict JSON "

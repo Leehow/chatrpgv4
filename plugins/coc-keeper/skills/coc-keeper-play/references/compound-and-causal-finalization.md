@@ -159,7 +159,10 @@ empty violation list means the commit call succeeds unchanged.
 The initial accepted draft normally uses `revision: 1`. In Pi play, every
 pending draft first uses the exact `agency_review_operation` returned by
 `turn.output_context`; `narration_review_id` must name that review bound to the exact
-turn/source/revision/draft. `agency_claims` bind exact draft excerpts to their
+turn/source/revision/draft. Its `state_authority_review` declares every
+player-state change claimed in the draft and binds each exact excerpt to one
+matching current frozen `source_effect_id`; a null source records an ungrounded
+claim. `agency_claims` bind exact draft excerpts to their
 authority: voluntary investigator claims use the exact current
 `player_input:<journal decision_id>`; forced behavior uses a matching active
 override frozen in `contract_projection`; involuntary physiology uses the
@@ -169,8 +172,14 @@ evidence only. An empty list does not semantically prove that the prose contains
 no agency violation. A clean bound semantic review supplies that proof. If it
 records `agency_violation`, no output is accepted: keep the exact settlement
 pending, rewrite prose only, review `revision: 2`, and finalize that revision
-without rerunning rules, state, journal, coverage, or mechanics. This is the
-sole hard review rule; all non-agency findings remain advisory.
+without rerunning rules, state, journal, coverage, or mechanics. An ungrounded
+state claim uses that same revision-2 repair under Rule 2. Agency violation is
+the sole hard narrative finding; all prose-quality findings remain advisory.
+Pi host also independently compiles every exact paragraph for PC state claims
+and compares it with this KP declaration. That compiler sees no frozen effects
+and has no prose, plot, state, or finalization authority. Its receipt is
+host-owned, not a Keeper argument; missing, stale, malformed, unavailable, or
+disagreeing compilation keeps the same frozen turn in rewrite-required state.
 
 Never copy a rendered `【明骰】` / `【变化】` / `【特殊影响】` block into
 `draft`; `mechanics_placements` is its only player-visible source and the

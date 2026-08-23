@@ -23,6 +23,13 @@ import {
   type CampaignViewportSync,
 } from "./campaign-viewport-sync";
 import {
+  beginCampaignMessageOpen,
+  campaignSessionAfterMessageOpen,
+  initialCampaignMessageOwner,
+  ownsCampaignMessageToken,
+  releaseCampaignMessages,
+} from "./campaign-message-owner";
+import {
   handoffCampaignId,
   initialTransitionState,
   isHandoffEvent,
@@ -37,6 +44,7 @@ import {
   responsiveSidebarClasses,
   shouldUploadLayoutFallback,
 } from "./sidebar-layout";
+import { appendHandoutPresentation } from "./handout-presentation";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -82,19 +90,12 @@ function playerMessage(text: string, at: number = Date.now()): ChatMessage {
   return { kind: "player", text, at };
 }
 
-/** 新交付的原文卡内嵌进叙述流（按 asset_id 去重：服务器重启后的
- *  会话加载重放不会重复渲染同一张卡）。 */
+/** Only a server-issued presentation event enters the narration flow. */
 function appendHandoutMessage(
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   card: HandoutCard,
 ) {
-  if (!card.asset_id) return;
-  setMessages((prev) => {
-    if (prev.some((m) => m.kind === "handout" && m.card.asset_id === card.asset_id)) {
-      return prev;
-    }
-    return [...prev, { kind: "handout" as const, card, at: Date.now() }];
-  });
+  setMessages((prev) => appendHandoutPresentation(prev, card, Date.now()));
 }
 
 function transcriptMessages(messages: TranscriptMessage[]): ChatMessage[] {
@@ -257,6 +258,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const openingRef = useRef<string | null>(null);
   const openGenRef = useRef(0);
+  const messageOwnerRef = useRef(initialCampaignMessageOwner());
   const lastRefreshAtRef = useRef(0);
   const activeSessionRef = useRef<SessionInfo | null>(null);
   const campaignSyncRef = useRef<CampaignViewportSync | null>(null);
@@ -629,8 +631,19 @@ export default function App() {
       if (openingRef.current === campaignId) return null;
       turnAbortRef.current?.abort();
       const openGen = ++openGenRef.current;
+      const messageOpen = beginCampaignMessageOpen(
+        messageOwnerRef.current,
+        campaignId,
+      );
+      messageOwnerRef.current = messageOpen.owner;
+      setSession((current) => (
+        campaignSessionAfterMessageOpen(current, messageOpen.owner)
+      ));
+      const ownsMessages = () => (
+        openGen === openGenRef.current
+        && ownsCampaignMessageToken(messageOwnerRef.current, messageOpen.token)
+      );
       openingRef.current = campaignId;
-      const switchingCampaign = Boolean(session && session.campaign_id !== campaignId);
       // Live turn chrome belongs to one campaign/session.  Clearing it before
       // the replacement RPC host starts prevents an aborted room's thinking,
       // tool steps, usage, or streaming tail from appearing in the new room.
@@ -638,7 +651,7 @@ export default function App() {
       setKpThinking("");
       setLiveUsage(null);
       liveUsageRef.current = null;
-      if (switchingCampaign) {
+      if (messageOpen.clearMessages) {
         setMessages([]);
         setState(null);
         setTransition(initialTransitionState);
@@ -648,29 +661,34 @@ export default function App() {
       }
       setBusy(true);
       setError(null);
+      let streamController: AbortController | null = null;
       try {
         const info = await api.createSession(campaignId, {
           provider,
           model,
           thinking: effectiveThinking,
         });
-        if (openGen !== openGenRef.current) return null;
+        if (!ownsMessages()) return null;
         setSession(info);
         applyGameState(info.state);
-        const sameCampaign = !session || session.campaign_id === campaignId;
         try {
           const t = await api.fetchTranscript(info.session_id);
-          if (openGen !== openGenRef.current) return null;
-          replaceMessagesFromTranscript(setMessages, t.messages, sameCampaign);
+          if (!ownsMessages()) return null;
+          replaceMessagesFromTranscript(
+            setMessages,
+            t.messages,
+            !messageOpen.clearMessages,
+          );
         } catch {
-          replaceMessagesFromTranscript(setMessages, [], sameCampaign);
+          if (!ownsMessages()) return null;
+          replaceMessagesFromTranscript(
+            setMessages,
+            [],
+            !messageOpen.clearMessages,
+          );
         }
-        // Restore already-delivered handout cards into the narration flow
-        // right at session load (dedup by asset_id inside).
-        for (const card of info.handouts ?? []) {
-          if (openGen !== openGenRef.current) return null;
-          appendHandoutMessage(setMessages, card);
-        }
+        // info.handouts hydrates state.materials only. Refresh is not a new
+        // presentation event, so it must not append cards to the transcript.
         // Every newly spawned pi-coc host must be attached until its startup
         // resume/setup chain genuinely settles. Historical transcript text is
         // display hydration only; it is not evidence that this new RPC child
@@ -700,6 +718,7 @@ export default function App() {
           },
         ]);
         const controller = new AbortController();
+        streamController = controller;
         turnAbortRef.current = controller;
         let settledText = "";
         await api.streamTurn(
@@ -711,7 +730,7 @@ export default function App() {
           undefined,
           {
             onTool: (phase, tool) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               if (phase === "start") {
                 setMessages(foldInterimSegment);
                 settledText = "";
@@ -735,7 +754,7 @@ export default function App() {
               }
             },
             onDelta: (delta) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -751,7 +770,7 @@ export default function App() {
               });
             },
             onDeltaReset: () => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               settledText = "";
               setMessages((prev) => {
                 const next = [...prev];
@@ -767,17 +786,17 @@ export default function App() {
               });
             },
             onThinking: (chunk) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               setKpThinking((prev) => (prev + chunk).slice(-8000));
             },
             onUsage: (usage) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               const value = { input: usage.input, output: usage.output };
               liveUsageRef.current = value;
               setLiveUsage(value);
             },
             onTurn: ({ events, state: nextState }) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               if (nextState && !nextState.error) applyGameState(nextState);
               for (const ev of events || []) {
                 if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
@@ -787,11 +806,11 @@ export default function App() {
               liveUsageRef.current = null;
             },
             onHandoff: (payload) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               noteHandoff(payload);
             },
             onError: (message) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -803,11 +822,11 @@ export default function App() {
               setError(friendlyError(message));
             },
             onHandout: (card) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               appendHandoutMessage(setMessages, card);
             },
             onNotice: (message) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               if (!message) return;
               setMessages((prev) => [
                 ...prev,
@@ -818,7 +837,7 @@ export default function App() {
           controller.signal,
           { attach: true },
         );
-        if (openGen !== openGenRef.current) return null;
+        if (!ownsMessages()) return null;
         const stopped = controller.signal.aborted;
         turnAbortRef.current = null;
         const finishedAt = Date.now();
@@ -861,16 +880,24 @@ export default function App() {
         // combat, and other public receipts render as structured UI cards.
         try {
           const transcript = await api.fetchTranscript(info.session_id);
-          replaceMessagesFromTranscript(setMessages, transcript.messages, true);
+          if (!ownsMessages()) return null;
+          replaceMessagesFromTranscript(
+            setMessages,
+            transcript.messages,
+            ownsCampaignMessageToken(messageOwnerRef.current, messageOpen.token),
+          );
         } catch {
           // Keep the settled stream visible; top-bar refresh retries projection.
         }
+        if (!ownsMessages()) return null;
         try {
           const opened = await api.fetchState(info.session_id);
-          if (openGen === openGenRef.current) applyGameState(opened);
+          if (!ownsMessages()) return null;
+          applyGameState(opened);
         } catch {
           /* attach already applied turn state */
         }
+        if (!ownsMessages()) return null;
         setMessages((prev) => {
           const withoutOpeningChrome = prev.filter((row) =>
             row.kind !== "note"
@@ -887,11 +914,15 @@ export default function App() {
             return !sameTranscriptMessage(rows[index - 1], row);
           });
         });
+        if (!ownsMessages()) return null;
         campaignSyncRef.current?.publish(info.campaign_id, info.session_id, true);
         setBusy(false);
         return info;
       } catch (e) {
-        if (openGen !== openGenRef.current) return null;
+        if (streamController && turnAbortRef.current === streamController) {
+          turnAbortRef.current = null;
+        }
+        if (!ownsMessages()) return null;
         setError(friendlyError(e instanceof Error ? e.message : String(e)));
         setBusy(false);
         return null;
@@ -899,7 +930,7 @@ export default function App() {
         if (openingRef.current === campaignId) openingRef.current = null;
       }
     },
-    [applyGameState, effectiveThinking, model, noteHandoff, provider, session],
+    [applyGameState, effectiveThinking, model, noteHandoff, provider],
   );
 
   // Leave the new-campaign form as soon as a session exists so the
@@ -985,6 +1016,15 @@ export default function App() {
   const refresh = useCallback(async () => {
     const active = session;
     if (!active || busy) return;
+    const messageToken = {
+      campaignId: active.campaign_id,
+      generation: messageOwnerRef.current.generation,
+    };
+    const ownsMessages = () => ownsCampaignMessageToken(
+      messageOwnerRef.current,
+      messageToken,
+    );
+    if (!ownsMessages()) return;
     setBusy(true);
     setError(null);
     try {
@@ -993,23 +1033,32 @@ export default function App() {
       try {
         nextState = await api.fetchState(sid);
       } catch {
+        if (!ownsMessages()) return;
         const reopened = await api.createSession(active.campaign_id, {
           provider,
           model,
           thinking: effectiveThinking,
         });
+        if (!ownsMessages()) return;
         setSession(reopened);
         sid = reopened.session_id;
         nextState = reopened.state;
       }
+      if (!ownsMessages()) return;
       applyGameState(nextState);
       const t = await api.fetchTranscript(sid);
-      replaceMessagesFromTranscript(setMessages, t.messages, true);
+      if (!ownsMessages()) return;
+      replaceMessagesFromTranscript(
+        setMessages,
+        t.messages,
+        ownsCampaignMessageToken(messageOwnerRef.current, messageToken),
+      );
       lastRefreshAtRef.current = Date.now();
     } catch (e) {
+      if (!ownsMessages()) return;
       setError(friendlyError(e instanceof Error ? e.message : String(e)));
     } finally {
-      setBusy(false);
+      if (ownsMessages()) setBusy(false);
     }
   }, [applyGameState, busy, effectiveThinking, model, provider, session]);
 
@@ -1101,6 +1150,15 @@ export default function App() {
     async (text: string, playerIntent?: PlayerIntent) => {
       const active = session;
       if (!active || busy || !text.trim() || transition.phase !== "idle") return;
+      const messageToken = {
+        campaignId: active.campaign_id,
+        generation: messageOwnerRef.current.generation,
+      };
+      const ownsMessages = () => ownsCampaignMessageToken(
+        messageOwnerRef.current,
+        messageToken,
+      );
+      if (!ownsMessages()) return;
       setBusy(true);
       setError(null);
       setToolSteps([]);
@@ -1124,8 +1182,9 @@ export default function App() {
       let settledText = "";
       const controller = new AbortController();
       turnAbortRef.current = controller;
-      await api.streamTurn(active.session_id, text, provider, model, effectiveThinking, playerIntent, {
+      const streamError = await api.streamTurn(active.session_id, text, provider, model, effectiveThinking, playerIntent, {
         onTool: (phase, tool) => {
+          if (!ownsMessages()) return;
           if (phase === "start") {
             setMessages(foldInterimSegment);
             settledText = "";
@@ -1151,6 +1210,7 @@ export default function App() {
           }
         },
         onDelta: (delta) => {
+          if (!ownsMessages()) return;
           setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
@@ -1167,6 +1227,7 @@ export default function App() {
           });
         },
         onDeltaReset: () => {
+          if (!ownsMessages()) return;
           settledText = "";
           setMessages((prev) => {
             const next = [...prev];
@@ -1182,14 +1243,17 @@ export default function App() {
           });
         },
         onThinking: (chunk) => {
+          if (!ownsMessages()) return;
           setKpThinking((prev) => (prev + chunk).slice(-8000));
         },
         onUsage: (usage) => {
+          if (!ownsMessages()) return;
           const value = { input: usage.input, output: usage.output };
           liveUsageRef.current = value;
           setLiveUsage(value);
         },
         onTurn: ({ events, state: nextState, usage }) => {
+          if (!ownsMessages()) return;
           const narration = events
             .filter(
               (e) =>
@@ -1237,8 +1301,12 @@ export default function App() {
           setLiveUsage(null);
           liveUsageRef.current = null;
         },
-        onHandoff: (payload) => noteHandoff(payload),
+        onHandoff: (payload) => {
+          if (!ownsMessages()) return;
+          noteHandoff(payload);
+        },
         onError: (message) => {
+          if (!ownsMessages()) return;
           const finishedAt = Date.now();
           setMessages((prev) => {
             const next = [...prev];
@@ -1263,9 +1331,11 @@ export default function App() {
           liveUsageRef.current = null;
         },
         onHandout: (card) => {
+          if (!ownsMessages()) return;
           appendHandoutMessage(setMessages, card);
         },
         onNotice: (message) => {
+          if (!ownsMessages()) return;
           if (!message) return;
           setMessages((prev) => [
             ...prev,
@@ -1273,9 +1343,23 @@ export default function App() {
           ]);
         },
       },
-      controller.signal);
+      controller.signal,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      if (streamError !== null) {
+        if (turnAbortRef.current === controller) turnAbortRef.current = null;
+        if (!ownsMessages()) return;
+        setError(friendlyError(
+          streamError instanceof Error ? streamError.message : String(streamError),
+        ));
+        setBusy(false);
+        return;
+      }
+      if (!ownsMessages()) return;
       const stopped = controller.signal.aborted;
-      turnAbortRef.current = null;
+      if (turnAbortRef.current === controller) turnAbortRef.current = null;
       // Authoritative close: stream fully finished (turn event + end).
       const finishedAt = Date.now();
       setMessages((prev) => {
@@ -1317,12 +1401,17 @@ export default function App() {
       // segments (including public dice receipts) replace the streaming text.
       try {
         const transcript = await api.fetchTranscript(active.session_id);
-        replaceMessagesFromTranscript(setMessages, transcript.messages, true);
+        if (!ownsMessages()) return;
+        replaceMessagesFromTranscript(
+          setMessages,
+          transcript.messages,
+          ownsCampaignMessageToken(messageOwnerRef.current, messageToken),
+        );
       } catch {
         // The streamed narration remains usable when transcript refresh is
         // temporarily unavailable; the top-bar refresh can retry later.
       }
-      setBusy(false);
+      if (ownsMessages()) setBusy(false);
     },
     [session, busy, provider, model, effectiveThinking, applyGameState, noteHandoff, transition.phase],
   );
@@ -1339,6 +1428,8 @@ export default function App() {
    *  在途回合在服务端照常结算，重新打开战役即可看到。已在首页时幂等。 */
   const goHome = useCallback(() => {
     turnAbortRef.current?.abort();
+    openGenRef.current += 1;
+    messageOwnerRef.current = releaseCampaignMessages(messageOwnerRef.current);
     setSession(null);
     setState(null);
     setTransition(initialTransitionState);
@@ -1347,6 +1438,7 @@ export default function App() {
     setKpThinking("");
     setLiveUsage(null);
     liveUsageRef.current = null;
+    setBusy(false);
     setError(null);
     setCreating(false);
     setPdfImportPath(null);
@@ -1378,10 +1470,13 @@ export default function App() {
           // Deleting the open campaign: drop the local view; the server
           // closed the underlying session before moving the directory.
           turnAbortRef.current?.abort();
+          openGenRef.current += 1;
+          messageOwnerRef.current = releaseCampaignMessages(messageOwnerRef.current);
           setSession(null);
           setState(null);
           setTransition(initialTransitionState);
           setMessages([]);
+          setBusy(false);
           localStorage.removeItem(LS.campaign);
         }
         const fresh = await api.fetchBootstrap();

@@ -570,6 +570,7 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert host_work, "missing host-work request for cellar"
     request = json.loads(host_work[0].read_text(encoding="utf-8"))
     assert request["requested_pdf_indices"] == [1]
+    assert request["play_languages"] == ["zh-Hans"]
     assert request["cached_scope_complete"] is True
     assert request["cached_page_refs"][0]["pdf_index"] == 1
     assert "do not reopen the PDF" in request["instruction"]
@@ -663,10 +664,45 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert packet["contract_id"] == "coc.source-pack-worker.v1"
     assert packet["cached_scope_complete"] is True
     assert packet["requested_pdf_indices"] == [1]
+    assert packet["play_languages"] == ["zh-Hans"]
+    assert packet["requests"][0]["play_languages"] == ["zh-Hans"]
     assert packet["requests"][0]["job_id"] == request["job_id"]
     assert packet["requests"][0]["result_contract"] == result_contract
     assert any("continue play" in hint for hint in claim_hints)
     leased_request = assets.list_host_work_requests(tmp_path, "qw-demo")[0]
+
+    missing_locale = _deep("cellar")
+    missing_locale["host_work_job_id"] = request["job_id"]
+    missing_locale["source_page_indices"] = [1]
+    missing_locale["clues"][0]["source_refs"] = [{"pdf_index": 1}]
+    missing_locale["clues"][0]["provenance"]["source_refs"] = [
+        {"pdf_index": 1},
+    ]
+    missing_locale["read_aloud"] = [{
+        "id": "missing-active-locale",
+        "trigger": "on_enter",
+        "title": "Cached source scope",
+        "text": "Cached source scope.",
+        "source_refs": [{"source_id": "pdf:qw-demo", "pdf_index": 1}],
+    }]
+    with pytest.raises(assets.ModuleAssetsError, match="localized_title.*zh-Hans"):
+        assets.put_entity(tmp_path, "qw-demo", "location", "cellar", missing_locale)
+
+    out_of_request = _deep("cellar")
+    out_of_request["host_work_job_id"] = request["job_id"]
+    out_of_request["read_aloud"] = [{
+        "id": "wrong-page-box",
+        "trigger": "on_enter",
+        "title": "Wrong page",
+        "text": "Accepted authored clue scope.",
+        "localized_title": {"zh-Hans": "错误页面"},
+        "localized_text": {"zh-Hans": "已接受的创作线索范围。"},
+        "source_refs": [{"source_id": "pdf:qw-demo", "pdf_index": 0}],
+    }]
+    with pytest.raises(assets.ModuleAssetsError, match="outside the host-work request"):
+        assets.put_entity(
+            tmp_path, "qw-demo", "location", "cellar", out_of_request,
+        )
 
     fulfilled_pack = _deep("cellar")
     fulfilled, _warnings, _hints = toolbox.TOOLS[
@@ -1257,6 +1293,258 @@ def test_same_source_scope_dedupes_after_stub_dig_metadata_update(
         (tmp_path / ".coc/module-assets/qw-demo/host-work").glob("*.json")
     )
     assert len(host_work) == 1
+
+
+def test_deepen_handout_closed_contract_fulfills_exact_card_and_rejects_leaks(
+    tmp_path: Path,
+):
+    cid = _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    bundle = tmp_path / "qw-demo-source-0-1"
+    image = b"\x89PNG\r\n\x1a\nproject-authored-handout"
+    image_path = bundle / "assets/letter.png"
+    image_path.parent.mkdir(parents=True)
+    image_path.write_bytes(image)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["assets"] = [{
+        "path": "assets/letter.png",
+        "sha256": hashlib.sha256(image).hexdigest(),
+        "pdf_index": 1,
+    }]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    registration = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="qw-demo",
+    )
+    handout_stub = {
+        "handout_id": "letter",
+        "asset_id": "letter",
+        "kind": "document",
+        "title": "The letter",
+        "player_visible": True,
+        "parse_state": "named_only",
+        "source_page_indices": [0, 1],
+        "body_source_page_indices": [0, 1],
+        "scene_refs": ["cellar"],
+        "clue_refs": [],
+    }
+    assets.put_entity(
+        tmp_path, "qw-demo", "handout", "letter", handout_stub,
+    )
+    queued = assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_handout",
+        target_id="letter",
+        reason="structured handout reference",
+        consumer_refs=[assets.campaign_consumer_ref(
+            tmp_path, cid, "qw-demo", intent_kind="player_dig",
+        )],
+        kick_worker=False,
+    )
+    produced = worker.run_worker_once(tmp_path, parallel=1)
+    assert produced["claimed"] == 1
+    request = assets.get_host_work_request(
+        tmp_path, "qw-demo", queued["job"]["job_id"],
+    )
+    assert request is not None
+    contract = request["result_contract"]
+    assert contract["contract_id"] == "coc.handout-card-pack.v1"
+    assert contract["closed"] is True
+    assert contract["fixed_fields"] == {
+        "handout_id": "letter",
+        "asset_id": "letter",
+        "parse_state": "deep",
+        "evidence_gap": False,
+        "origin": "source",
+        "player_visible": True,
+    }
+    allowed_asset = {
+        "image_ref": "assets/letter.png",
+        "pdf_index": 1,
+        "media_type": "image/png",
+        "sha256": hashlib.sha256(image).hexdigest(),
+        "size_bytes": len(image),
+        "bundle_sha256": registration["bundle_sha256"],
+    }
+    assert request["allowed_registered_asset_refs"] == [allowed_asset]
+    assert contract["allowed_registered_asset_refs"] == [allowed_asset]
+    assert request["allowed_scene_refs"] == ["cellar"]
+    assert request["allowed_clue_refs"] == []
+    assert contract["allowed_scene_refs"] == ["cellar"]
+    assert contract["allowed_clue_refs"] == []
+    escaped_request = deepcopy(request)
+    escaped_request["allowed_registered_asset_refs"][0]["image_ref"] = (
+        "../secret.png"
+    )
+    with pytest.raises(assets.ModuleAssetsError, match="confined"):
+        assets.validate_host_work_request_shape(escaped_request)
+    widened_contract = deepcopy(request)
+    widened_contract["result_contract"]["allowed_pack_fields"].append(
+        "keeper_notes"
+    )
+    with pytest.raises(assets.ModuleAssetsError, match="canonical closed"):
+        assets.validate_host_work_request_shape(widened_contract)
+    invalid_relation_request = deepcopy(request)
+    invalid_relation_request["allowed_scene_refs"] = ["../cellar"]
+    invalid_relation_request["result_contract"]["allowed_scene_refs"] = [
+        "../cellar"
+    ]
+    with pytest.raises(assets.ModuleAssetsError, match="canonical id array"):
+        assets.validate_host_work_request_shape(invalid_relation_request)
+
+    claimed = assets.claim_host_work_requests(
+        tmp_path,
+        "qw-demo",
+        executor_id="handout-contract-test",
+        limit=1,
+    )
+    claimed_request = claimed["packets"][0]["requests"][0]
+    assert claimed_request["allowed_registered_asset_refs"] == [allowed_asset]
+    assert claimed_request["allowed_scene_refs"] == ["cellar"]
+    assert claimed_request["allowed_clue_refs"] == []
+    assert claimed_request["result_contract"] == contract
+    exact_pack = {
+        "handout_id": "letter",
+        "asset_id": "letter",
+        "kind": "document",
+        "title": "The letter",
+        "summary": "A source-authored note.",
+        "text": "Cached source scope.",
+        "localized_text": "缓存页面中的原文便笺。",
+        "when_to_deliver": "调查员实际读到这封信时",
+        "image_ref": "assets/letter.png",
+        "source_refs": ["pdf_index-1"],
+        "scene_refs": ["cellar"],
+        "clue_refs": [],
+        "player_visible": True,
+        "parse_state": "deep",
+        "evidence_gap": False,
+        "origin": "source",
+        "provenance": {"authority": "source_authored", "basis": "host_pack"},
+    }
+    invalid_packs = []
+    extra = deepcopy(exact_pack)
+    extra["keeper_notes"] = "must not leak"
+    invalid_packs.append((extra, "unsupported fields"))
+    alias = deepcopy(exact_pack)
+    alias["id"] = alias.pop("handout_id")
+    invalid_packs.append((alias, "unsupported fields"))
+    outside = deepcopy(exact_pack)
+    outside["source_refs"] = ["pdf_index-2"]
+    invalid_packs.append((outside, "exact cached page"))
+    unknown_image = deepcopy(exact_pack)
+    unknown_image["image_ref"] = "assets/unknown.png"
+    invalid_packs.append((unknown_image, "registered asset"))
+    wrong_page_image = deepcopy(exact_pack)
+    wrong_page_image.pop("text")
+    wrong_page_image["source_refs"] = ["pdf_index-0"]
+    invalid_packs.append((wrong_page_image, "same cited page"))
+    hidden = deepcopy(exact_pack)
+    hidden["player_visible"] = False
+    invalid_packs.append((hidden, "player_visible=true"))
+    fabricated = deepcopy(exact_pack)
+    fabricated["text"] = "THIS SENTENCE DOES NOT EXIST IN ANY CACHED PAGE."
+    invalid_packs.append((fabricated, "verbatim text"))
+    guessed_existing_clue = deepcopy(exact_pack)
+    guessed_existing_clue["clue_refs"] = ["clue-opening"]
+    invalid_packs.append((guessed_existing_clue, "allowed clue_refs"))
+    guessed_missing_clue = deepcopy(exact_pack)
+    guessed_missing_clue["clue_refs"] = ["clue-invented"]
+    invalid_packs.append((guessed_missing_clue, "allowed clue_refs"))
+    guessed_existing_scene = deepcopy(exact_pack)
+    guessed_existing_scene["scene_refs"] = ["opening"]
+    invalid_packs.append((guessed_existing_scene, "allowed scene_refs"))
+    guessed_missing_scene = deepcopy(exact_pack)
+    guessed_missing_scene["scene_refs"] = ["scene-invented"]
+    invalid_packs.append((guessed_missing_scene, "allowed scene_refs"))
+
+    ctx = toolbox.Ctx(tmp_path, cid)
+    for invalid, message in invalid_packs:
+        with pytest.raises(toolbox.ToolError, match=message):
+            toolbox.TOOLS["progressive.fulfill_host_work"]["handler"](
+                ctx,
+                {
+                    "worker_result": {
+                        "job_id": request["job_id"],
+                        "pack": invalid,
+                        "related_packs": [],
+                    },
+                },
+            )
+        assert assets.get_entity(tmp_path, "qw-demo", "handout", "letter")[
+            "parse_state"
+        ] == "named_only"
+        unresolved = toolbox.coc_handouts.HandoutCatalog.load(ctx)
+        for clue_id in ("clue-opening", "clue-invented"):
+            with pytest.raises(
+                toolbox.coc_handouts.HandoutError,
+                match="no unique handout_asset_id or card clue_refs linkage",
+            ):
+                unresolved.resolve_clue_delivery(ctx.world(), clue_id)
+
+    drifted_stub = deepcopy(handout_stub)
+    drifted_stub["scene_refs"] = []
+    assets.put_entity(
+        tmp_path, "qw-demo", "handout", "letter", drifted_stub,
+    )
+    with pytest.raises(toolbox.ToolError, match="drifted after request"):
+        toolbox.TOOLS["progressive.fulfill_host_work"]["handler"](
+            ctx,
+            {
+                "worker_result": {
+                    "job_id": request["job_id"],
+                    "pack": exact_pack,
+                    "related_packs": [],
+                },
+            },
+        )
+    assets.put_entity(
+        tmp_path, "qw-demo", "handout", "letter", handout_stub,
+    )
+
+    registered_image = (
+        tmp_path / ".coc/module-assets/qw-demo/assets/letter.png"
+    )
+    registered_image.write_bytes(b"\x89PNG\r\n\x1a\nchanged-after-claim")
+    with pytest.raises(toolbox.ToolError, match="drift"):
+        toolbox.TOOLS["progressive.fulfill_host_work"]["handler"](
+            ctx,
+            {
+                "worker_result": {
+                    "job_id": request["job_id"],
+                    "pack": exact_pack,
+                    "related_packs": [],
+                },
+            },
+        )
+    assert assets.get_entity(tmp_path, "qw-demo", "handout", "letter")[
+        "parse_state"
+    ] == "named_only"
+    registered_image.write_bytes(image)
+
+    fulfilled, _warnings, _hints = toolbox.TOOLS[
+        "progressive.fulfill_host_work"
+    ]["handler"](
+        ctx,
+        {
+            "worker_result": {
+                "job_id": request["job_id"],
+                "pack": exact_pack,
+                "related_packs": [],
+            },
+        },
+    )
+    assert fulfilled["request_status"] == "fulfilled"
+    stored = assets.get_entity(tmp_path, "qw-demo", "handout", "letter")
+    assert stored["image_ref"] == "assets/letter.png"
+    catalog = toolbox.coc_handouts.HandoutCatalog.load(ctx)
+    card = next(
+        row for row in catalog.project(ctx.world(), "keeper")["cards"]
+        if row["asset_id"] == "letter"
+    )
+    assert card["kind"] == "document"
+    assert card["image_ref"] == "assets/letter.png"
 
 
 def test_wider_stub_scope_supersedes_open_host_request(tmp_path: Path):

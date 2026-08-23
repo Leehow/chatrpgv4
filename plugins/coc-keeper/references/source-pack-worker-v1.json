@@ -34,6 +34,7 @@
       "requested_source_scope",
       "source_scope_signature",
       "deadline_class",
+      "play_languages",
       "requested_pdf_indices",
       "cached_scope_complete",
       "result_delivery",
@@ -63,6 +64,7 @@
       ],
       "required_request_fields": [
         "request_purpose",
+        "play_languages",
         "requested_source_scope",
         "source_scope_signature",
         "result_contract"
@@ -417,7 +419,7 @@
         "for foreground v1 keep scene_edges and affordances empty; never infer a structured clock or route from prose",
         "before status=usable self-check the closed minimum; if a required field cannot be supplied, return status=abstain with results=[] and never ask the parent to repair it",
         "missing NPC agenda is soft_deferred and must never cause a replacement opening pack before play",
-        "return parse_state=partial, exact source_page_indices/source_refs, and host_work_job_id equal to the request job_id",
+        "return parse_state=partial, exact source_page_indices/source_refs, and host_work_job_id equal to the request job_id; every read_aloud preserves source title/text and supplies complete localized_title/localized_text locale maps for every play_languages value",
         "submit the complete outer result through the named direct transport, or return it unchanged to an adapter that lacks that transport; partial_opening is never deep coverage"
       ]
     },
@@ -427,6 +429,7 @@
       "required_request_fields": [
         "job_id",
         "target_id",
+        "play_languages",
         "requested_pdf_indices",
         "cached_page_refs",
         "result_contract"
@@ -463,6 +466,50 @@
         "use exact canonical row templates and field names rather than intuitive aliases",
         "return the direct location entity pack without an entity wrapper",
         "submit status=abstain with results=[] when required fields cannot be supplied; never ask the parent to repair a usable result"
+      ]
+    },
+    "handout_card": {
+      "request_kind": "deepen_handout",
+      "source_aspect": "body",
+      "required_request_fields": [
+        "job_id",
+        "target_id",
+        "requested_pdf_indices",
+        "cached_page_refs",
+        "allowed_registered_asset_refs",
+        "allowed_scene_refs",
+        "allowed_clue_refs",
+        "result_contract"
+      ],
+      "result_contract_id": "coc.handout-card-pack.v1",
+      "result_contract_requirements": {
+        "closed": true,
+        "player_visible": true,
+        "exact_cached_page_refs_only": true,
+        "exact_registered_asset_refs_only": true,
+        "verbatim_text_bound_to_cited_page_bytes": true,
+        "structured_relation_refs_only": true,
+        "related_packs": "must_be_empty",
+        "parent_repair_allowed": false,
+        "semantic_card_identification_not_keyword_gate": true
+      },
+      "registered_asset_ref_required_fields": [
+        "image_ref",
+        "pdf_index",
+        "media_type",
+        "sha256",
+        "size_bytes",
+        "bundle_sha256"
+      ],
+      "rules": [
+        "copy the closed request.result_contract fields exactly and return the handout entity itself",
+        "use target_id as both handout_id and asset_id and preserve the fixed deep source player-visible fields",
+        "select source refs only from exact cached_page_refs and optional image_ref only from allowed_registered_asset_refs whose pdf_index is one of the selected source-ref pages",
+        "source-language verbatim text must occur in the exact cited cached page bytes; localized_text remains a play-language translation and is not claimed as verbatim source text",
+        "scene_refs and clue_refs may select only exact ids in allowed_scene_refs and allowed_clue_refs; absent justification means an empty result field",
+        "choose kind and when_to_deliver by semantic review of the bounded source pages; never use keywords, regex, headings, or text density as card authority",
+        "exclude Keeper-only notes, hidden annotations, module secrets, and unsupported aliases or extra fields",
+        "keep related_packs empty; if the closed pack cannot be supplied, return status=abstain with results=[]"
       ]
     },
     "mechanics_locator_pass": {

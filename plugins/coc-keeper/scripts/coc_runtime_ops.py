@@ -16,6 +16,7 @@ import random
 import re
 import secrets
 import shutil
+import sys
 import tempfile
 from contextlib import ExitStack
 from copy import deepcopy
@@ -25,6 +26,10 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+import coc_creation_provenance
+
 SCHEMA_VERSION = 1
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
@@ -191,23 +196,6 @@ def _read_object(path: Path) -> dict[str, Any]:
     return value
 
 
-_QUICK_FIRE_ROLL_RECEIPT_FIELDS = frozenset({
-    "schema_version",
-    "tool",
-    "decision_id",
-    "fingerprint",
-    "operation",
-    "resolution",
-    "roll_id",
-    "roll_record",
-    "data",
-    "warnings",
-    "hints",
-    "log_prefix_size",
-    "log_prefix_sha256",
-    "integrity_digest",
-})
-
 
 def _canonical_sha256(value: Any) -> str:
     encoded = json.dumps(
@@ -220,386 +208,6 @@ def _canonical_sha256(value: Any) -> str:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def _reissue_roll_guidance(campaign_id: str, expression: str, purpose: str | None) -> str:
-    """Exact corrected rules.roll_dice call for a receipt that failed verification."""
-    arguments: dict[str, Any] = {
-        "expression": expression,
-        "decision_id": "<new-unique-decision-id>",
-    }
-    if purpose is not None:
-        arguments["purpose"] = purpose
-    return json.dumps(
-        {"operation": "rules.roll_dice", "campaign": campaign_id, "arguments": arguments},
-        ensure_ascii=False,
-    )
-
-
-def _describe_receipt_verification_failure(
-    *,
-    label: str,
-    campaign_id: str,
-    decision_id: str,
-    roll_id: str,
-    receipt: Any,
-    operation: Any,
-    expected_operation: dict[str, Any],
-    expression: str,
-    purpose: str | None,
-) -> str:
-    """Name the dominant receipt mismatch instead of a blanket failure.
-
-    The blanket form hid the actual cause (most often a roll recorded without
-    the required closed purpose), which forced blind retries.
-    """
-    suffix = f" Re-issue the authoritative roll on campaign '{campaign_id}' first: " + _reissue_roll_guidance(
-        campaign_id, expression, purpose,
-    )
-    if not isinstance(receipt, dict):
-        return (
-            f"{label} roll receipt is unavailable: no rules.roll_dice receipt is "
-            f"recorded for decision_id '{decision_id}' on campaign '{campaign_id}'."
-            + suffix
-        )
-    if operation != expected_operation:
-        recorded = operation if isinstance(operation, dict) else None
-        if isinstance(recorded, dict):
-            missing_purpose = (
-                purpose is not None and "purpose" not in recorded
-            )
-            detail = (
-                f" (the recorded roll carries no purpose; it must be "
-                f"purpose='{purpose}')"
-                if missing_purpose
-                else ""
-            )
-        else:
-            detail = ""
-        return (
-            f"{label} recorded roll operation {operation!r} does not match the "
-            f"required {expected_operation!r} for decision_id '{decision_id}'."
-            + detail + suffix
-        )
-    if receipt.get("roll_id") != roll_id:
-        return (
-            f"{label} receipt roll_id {receipt.get('roll_id')!r} does not match "
-            f"the referenced roll_id {roll_id!r}."
-        )
-    return (
-        f"{label} source receipt does not match the exact campaign, "
-        f"{expression} recipe, and roll_id: recorded receipt failed integrity "
-        f"or cross-record consistency against the required operation "
-        f"{expected_operation!r}."
-    )
-
-
-def _authoritative_dice_roll_total(
-    root: Path,
-    reference: Any,
-    *,
-    current_campaign_id: str,
-    expression: str,
-    purpose: str | None,
-    label: str,
-) -> int:
-    """Verify one existing campaign dice receipt and return its authoritative total."""
-    if not isinstance(reference, dict) or set(reference) != {
-        "campaign_id", "decision_id", "roll_id",
-    }:
-        raise RuntimeOperationError(
-            f"{label} roll receipt requires exactly campaign_id, decision_id, and roll_id"
-        )
-    campaign_id = _id(reference.get("campaign_id"), f"{label}_roll_receipt.campaign_id")
-    if campaign_id != current_campaign_id:
-        raise RuntimeOperationError(
-            f"{label} roll receipt campaign_id must equal the declared current campaign_id"
-        )
-    decision_id = reference.get("decision_id")
-    roll_id = reference.get("roll_id")
-    if not isinstance(decision_id, str) or not decision_id.strip():
-        raise RuntimeOperationError(f"{label} roll receipt decision_id must be non-empty")
-    if not isinstance(roll_id, str) or not roll_id.strip():
-        raise RuntimeOperationError(f"{label} roll receipt roll_id must be non-empty")
-    normalized_expression = expression.strip().upper()
-    match = coc_roll.ROLL_PATTERN.fullmatch(normalized_expression)
-    if match is None:
-        raise RuntimeOperationError(f"{label} dice expression is invalid")
-    expected_resolution = {
-        "expression": normalized_expression,
-        "count": int(match.group("count")),
-        "sides": int(match.group("sides")),
-        "modifier": int(match.group("modifier") or 0),
-    }
-    campaign_dir = root / ".coc" / "campaigns" / campaign_id
-    campaign_path = campaign_dir / "campaign.json"
-    receipt_path = campaign_dir / "save" / "roll-operation-receipts.json"
-    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
-    coc_root = root / ".coc"
-    if (
-        not campaign_path.is_file()
-        or not _target_kind_is_safe(coc_root, campaign_path)
-        or not receipt_path.is_file()
-        or not _target_kind_is_safe(coc_root, receipt_path)
-        or not rolls_path.is_file()
-        or not _target_kind_is_safe(coc_root, rolls_path)
-    ):
-        raise RuntimeOperationError(f"{label} source receipt is unavailable for campaign: {campaign_id}")
-    document = _read_object(receipt_path)
-    if (
-        set(document) != {"schema_version", "receipts", "pending_side_effects", "luck_spends"}
-        or document.get("schema_version") != 6
-        or not isinstance(document.get("receipts"), dict)
-        or not isinstance(document.get("pending_side_effects"), dict)
-        or not isinstance(document.get("luck_spends"), dict)
-    ):
-        raise RuntimeOperationError(f"{label} source receipt document is invalid")
-    by_tool = document["receipts"].get("rules.roll_dice")
-    receipt = by_tool.get(decision_id) if isinstance(by_tool, dict) else None
-    operation = receipt.get("operation") if isinstance(receipt, dict) else None
-    resolution = receipt.get("resolution") if isinstance(receipt, dict) else None
-    data = receipt.get("data") if isinstance(receipt, dict) else None
-    record = receipt.get("roll_record") if isinstance(receipt, dict) else None
-    payload = record.get("payload") if isinstance(record, dict) else None
-    rolls = data.get("rolls") if isinstance(data, dict) else None
-    reason = operation.get("reason") if isinstance(operation, dict) else None
-    expected_operation = {"expression": normalized_expression, "reason": reason}
-    if purpose is not None:
-        expected_operation["purpose"] = purpose
-    receipt_body = (
-        {key: deepcopy(value) for key, value in receipt.items() if key != "integrity_digest"}
-        if isinstance(receipt, dict) else None
-    )
-    purpose_matches = (
-        all(candidate.get("purpose") == purpose for candidate in (data, record, payload))
-        if purpose is not None and all(isinstance(candidate, dict) for candidate in (data, record, payload))
-        else purpose is None and all(
-            isinstance(candidate, dict) and "purpose" not in candidate
-            for candidate in (operation, data, record, payload)
-        )
-    )
-    reason_matches = (
-        all(candidate.get("reason") == reason for candidate in (data, record, payload))
-        if isinstance(reason, str) and all(isinstance(candidate, dict) for candidate in (data, record, payload))
-        else reason is None and all(
-            isinstance(candidate, dict) and "reason" not in candidate
-            for candidate in (data, record, payload)
-        )
-    )
-    valid = bool(
-        isinstance(receipt, dict)
-        and set(receipt) == set(_QUICK_FIRE_ROLL_RECEIPT_FIELDS)
-        and receipt.get("schema_version") == 5
-        and receipt.get("tool") == "rules.roll_dice"
-        and receipt.get("decision_id") == decision_id
-        and receipt.get("roll_id") == roll_id
-        and operation == expected_operation
-        and resolution == expected_resolution
-        and receipt.get("fingerprint") == _canonical_sha256({"tool": "rules.roll_dice", "operation": expected_operation})
-        and receipt.get("integrity_digest") == _canonical_sha256(receipt_body)
-        and isinstance(data, dict)
-        and isinstance(record, dict)
-        and isinstance(payload, dict)
-        and data.get("expression") == normalized_expression
-        and data.get("count") == expected_resolution["count"]
-        and data.get("sides") == expected_resolution["sides"]
-        and data.get("modifier") == expected_resolution["modifier"]
-        and reason_matches
-        and purpose_matches
-        and data.get("roll_id") == roll_id
-        and isinstance(rolls, list)
-        and len(rolls) == expected_resolution["count"]
-        and all(
-            isinstance(face, int) and not isinstance(face, bool)
-            and 1 <= face <= expected_resolution["sides"]
-            for face in rolls
-        )
-        and isinstance(data.get("total"), int)
-        and not isinstance(data.get("total"), bool)
-        and data.get("total") == sum(rolls) + expected_resolution["modifier"]
-        and record.get("roll_id") == roll_id
-        and record.get("visibility") == "public"
-        and record.get("event_type") == "roll"
-        and all(record.get(key) == value for key, value in data.items())
-        and all(payload.get(key) == value for key, value in data.items())
-        and payload.get("die_expression") == normalized_expression
-        and payload.get("individual_faces") == rolls
-        and payload.get("final_total") == data.get("total")
-        and payload.get("roll") == data.get("total")
-    )
-    if not valid:
-        raise RuntimeOperationError(
-            _describe_receipt_verification_failure(
-                label=label,
-                campaign_id=campaign_id,
-                decision_id=decision_id,
-                roll_id=roll_id,
-                receipt=receipt,
-                operation=operation,
-                expected_operation=expected_operation,
-                expression=normalized_expression,
-                purpose=purpose,
-            )
-        )
-    try:
-        roll_rows = [
-            json.loads(line) for line in rolls_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise RuntimeOperationError(f"{label} roll log is unreadable") from exc
-    if [row for row in roll_rows if row.get("roll_id") == roll_id] != [record]:
-        raise RuntimeOperationError(f"{label} roll log does not contain exactly the referenced authoritative roll")
-    return int(data["total"])
-
-
-def _validate_quick_fire_luck_receipt(
-    root: Path,
-    creation: dict[str, Any] | None,
-    *,
-    current_campaign_id: str,
-) -> None:
-    """Bind deterministic Quick Fire Luck to the shared authoritative dice verifier."""
-    if not isinstance(creation, dict):
-        return
-    assignment = creation.get("characteristic_assignment_order")
-    luck_total = creation.get("luck_roll_total")
-    if assignment is None and luck_total is None:
-        return
-    reference = creation.get("luck_roll_receipt")
-    if not isinstance(reference, dict) or set(reference) != {
-        "campaign_id", "decision_id", "roll_id",
-    }:
-        raise RuntimeOperationError(
-            "deterministic Quick Fire creation requires luck_roll_receipt "
-            "with exactly campaign_id, decision_id, and roll_id"
-        )
-    campaign_id = _id(reference.get("campaign_id"), "luck_roll_receipt.campaign_id")
-    if campaign_id != current_campaign_id:
-        raise RuntimeOperationError(
-            "luck_roll_receipt.campaign_id must equal the declared current campaign_id"
-        )
-    if not isinstance(reference.get("decision_id"), str) or not reference["decision_id"].strip():
-        raise RuntimeOperationError("luck_roll_receipt.decision_id must be a non-empty string")
-    if not isinstance(reference.get("roll_id"), str) or not reference["roll_id"].strip():
-        raise RuntimeOperationError("luck_roll_receipt.roll_id must be a non-empty string")
-    try:
-        total = _authoritative_dice_roll_total(
-            root, reference, current_campaign_id=current_campaign_id,
-            expression="3D6", purpose="investigator_creation_luck", label="Quick Fire Luck",
-        )
-    except RuntimeOperationError as exc:
-        raise RuntimeOperationError(
-            "Quick Fire Luck source receipt does not match the exact campaign, "
-            f"3D6 recipe, roll_id, and luck_roll_total: {exc}"
-        ) from exc
-    if total != luck_total:
-        raise RuntimeOperationError(
-            "Quick Fire Luck source receipt does not match the exact campaign, "
-            f"3D6 recipe, roll_id, and luck_roll_total: the authoritative 3D6 "
-            f"total is {total}, but the payload luck_roll_total is {luck_total!r}"
-        )
-
-
-def _require_generated_age_dice_assertions(
-    sheet: dict[str, Any],
-    creation: dict[str, Any],
-) -> None:
-    """Generated create with sheet.age asserts the age bracket and needs receipts.
-
-    import_complete_sheet / pregen paths send finished characteristics and must
-    omit this bundle. Omitting receipts while asserting age is rejected.
-    """
-    input_mode = creation.get("input_mode")
-    if input_mode == "import_complete_sheet":
-        return
-    age_present = "age" in sheet
-    bundle_present = (
-        "edu_improvement_rolls" in creation
-        or "luck_roll_candidates" in creation
-        or "characteristic_reductions" in creation
-    )
-    if input_mode == coc_character.ERA_ADAPTIVE_INPUT_MODE and not bundle_present:
-        return
-    if not age_present and not bundle_present:
-        return
-    age = sheet.get("age")
-    if isinstance(age, bool) or not isinstance(age, int):
-        raise RuntimeOperationError("age must be an integer when supplied")
-    try:
-        required_edu = coc_character.required_edu_improvement_checks(age)
-        keep = coc_character.chargen_luck_rolls_keep_highest(age)
-    except ValueError as exc:
-        raise RuntimeOperationError(str(exc)) from exc
-    rolls = creation.get("edu_improvement_rolls")
-    if not isinstance(rolls, list) or len(rolls) != required_edu:
-        raise RuntimeOperationError(
-            f"generated create with age={age} asserts {required_edu} EDU "
-            "improvement check receipt(s); omit sheet.age or attach "
-            "edu_improvement_rolls. import_complete_sheet must omit this bundle"
-        )
-    if keep > 1:
-        candidates = creation.get("luck_roll_candidates")
-        if not isinstance(candidates, list) or len(candidates) != keep:
-            raise RuntimeOperationError(
-                f"generated create with age={age} asserts {keep} Luck receipts "
-                "(keep highest); omit sheet.age or attach luck_roll_candidates"
-            )
-
-
-def _validate_chargen_age_dice_receipts(
-    root: Path,
-    creation: dict[str, Any],
-    *,
-    current_campaign_id: str,
-) -> None:
-    """Bind EDU improvement and extra Luck candidate totals to rules receipts."""
-    rolls = creation.get("edu_improvement_rolls")
-    if isinstance(rolls, list):
-        for index, record in enumerate(rolls):
-            if not isinstance(record, dict):
-                raise RuntimeOperationError("edu_improvement_rolls entries must be objects")
-            check_receipt = record.get("check_receipt")
-            total = _authoritative_dice_roll_total(
-                root,
-                check_receipt,
-                current_campaign_id=current_campaign_id,
-                expression="1D100",
-                purpose="investigator_creation_characteristic",
-                label=f"chargen EDU check {index}",
-            )
-            if total != record.get("roll"):
-                raise RuntimeOperationError(
-                    f"edu_improvement_rolls[{index}].roll does not match its rules receipt"
-                )
-            if "improvement_roll" in record:
-                improve_total = _authoritative_dice_roll_total(
-                    root,
-                    record.get("improve_receipt"),
-                    current_campaign_id=current_campaign_id,
-                    expression="1D10",
-                    purpose="investigator_creation_characteristic",
-                    label=f"chargen EDU improve {index}",
-                )
-                if improve_total != record.get("improvement_roll"):
-                    raise RuntimeOperationError(
-                        f"edu_improvement_rolls[{index}].improvement_roll does not match its rules receipt"
-                    )
-    candidates = creation.get("luck_roll_candidates")
-    if isinstance(candidates, list):
-        for index, row in enumerate(candidates):
-            if not isinstance(row, dict):
-                raise RuntimeOperationError("luck_roll_candidates entries must be objects")
-            total = _authoritative_dice_roll_total(
-                root,
-                row.get("receipt"),
-                current_campaign_id=current_campaign_id,
-                expression="3D6",
-                purpose="investigator_creation_luck",
-                label=f"chargen Luck candidate {index}",
-            )
-            if total != row.get("total"):
-                raise RuntimeOperationError(
-                    f"luck_roll_candidates[{index}].total does not match its rules receipt"
-                )
 
 
 def _chargen_public_dice(creation: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
@@ -791,6 +399,73 @@ def _chargen_edu_improvement_rolls(
     return records
 
 
+# The dependency-lower provenance module is the single executable owner.  Keep
+# these names as compatibility facades for investigator.create call sites.
+def _provenance_call(function, *args, **kwargs):
+    try:
+        return function(*args, **kwargs)
+    except coc_creation_provenance.CreationProvenanceError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+
+
+def _authoritative_dice_roll_total(
+    root: Path,
+    reference: Any,
+    *,
+    current_campaign_id: str,
+    expression: str,
+    purpose: str | None,
+    label: str,
+) -> int:
+    return _provenance_call(
+        coc_creation_provenance.authoritative_dice_roll_total,
+        root,
+        reference,
+        current_campaign_id=current_campaign_id,
+        expression=expression,
+        purpose=purpose,
+        label=label,
+    )
+
+
+def _require_generated_age_dice_assertions(
+    sheet: dict[str, Any], creation: dict[str, Any],
+) -> None:
+    _provenance_call(
+        coc_creation_provenance.require_generated_age_dice_assertions,
+        sheet,
+        creation,
+    )
+
+
+def _validate_quick_fire_luck_receipt(
+    root: Path,
+    creation: dict[str, Any] | None,
+    *,
+    current_campaign_id: str,
+) -> None:
+    _provenance_call(
+        coc_creation_provenance.validate_quick_fire_luck_receipt,
+        root,
+        creation,
+        current_campaign_id=current_campaign_id,
+    )
+
+
+def _validate_chargen_age_dice_receipts(
+    root: Path,
+    creation: dict[str, Any],
+    *,
+    current_campaign_id: str,
+) -> None:
+    _provenance_call(
+        coc_creation_provenance.validate_chargen_age_dice_receipts,
+        root,
+        creation,
+        current_campaign_id=current_campaign_id,
+    )
+
+
 def _validate_kp_guided_characteristic_roll_receipts(
     root: Path,
     sheet: dict[str, Any],
@@ -798,49 +473,29 @@ def _validate_kp_guided_characteristic_roll_receipts(
     *,
     current_campaign_id: str,
 ) -> None:
-    """Bind rolled KP-guided characteristics to the shared dice verifier."""
-    method_id = creation.get("method")
-    method = coc_character.characteristic_generation_methods().get(method_id)
-    if not isinstance(method, dict) or method.get("requires_rolls") is not True:
-        return
-    references = creation.get("characteristic_roll_receipts")
-    expressions = coc_character.characteristic_roll_expressions()
-    expected_keys = {*coc_character.REQUIRED_CHARACTERISTICS, "Luck"}
-    if not isinstance(references, dict) or set(references) != expected_keys or set(expressions) != expected_keys:
-        raise RuntimeOperationError("KP-guided characteristic roll recipe is incomplete")
-    try:
-        multiplier = coc_character.characteristic_generation_multiplier()
-    except ValueError as exc:
-        raise RuntimeOperationError(str(exc)) from exc
-    characteristics = sheet.get("characteristics")
-    derived = sheet.get("derived")
-    if not isinstance(characteristics, dict) or not isinstance(derived, dict):
-        raise RuntimeOperationError("KP-guided characteristic roll binding requires complete characteristics and derived values")
-    for characteristic in coc_character.REQUIRED_CHARACTERISTICS:
-        total = _authoritative_dice_roll_total(
-            root, references[characteristic], current_campaign_id=current_campaign_id,
-            expression=expressions[characteristic], purpose=None, label=f"KP-guided {characteristic}",
-        )
-        if characteristics.get(characteristic) != total * multiplier:
-            raise RuntimeOperationError(
-                f"KP-guided {characteristic} must equal its authoritative "
-                f"{expressions[characteristic]} total times {multiplier}"
-            )
-    if references["Luck"] != creation.get("luck_roll_receipt"):
-        raise RuntimeOperationError("KP-guided Luck characteristic_roll_receipts entry must equal luck_roll_receipt")
-    roll_ids = [
-        reference.get("roll_id") if isinstance(reference, dict) else None
-        for reference in references.values()
-    ]
-    if (
-        any(not isinstance(roll_id, str) or not roll_id.strip() for roll_id in roll_ids)
-        or len(set(roll_ids)) != len(expected_keys)
-    ):
-        raise RuntimeOperationError(
-            "KP-guided characteristic roll receipts must use distinct authoritative roll_id values"
-        )
-    if derived.get("Luck") != creation.get("luck_roll_total") * multiplier:
-        raise RuntimeOperationError(f"KP-guided derived Luck must equal its authoritative total times {multiplier}")
+    _provenance_call(
+        coc_creation_provenance.validate_kp_guided_characteristic_roll_receipts,
+        root,
+        sheet,
+        creation,
+        current_campaign_id=current_campaign_id,
+    )
+
+
+def validated_creation_roll_ids(
+    root: Path,
+    sheet: dict[str, Any],
+    creation: dict[str, Any],
+    *,
+    current_campaign_id: str,
+) -> set[str]:
+    return _provenance_call(
+        coc_creation_provenance.validated_creation_roll_ids,
+        root,
+        sheet,
+        creation,
+        current_campaign_id=current_campaign_id,
+    )
 
 
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
@@ -1226,7 +881,7 @@ _MODULE_INIT_HOOK_REQUIRED_FIELDS = frozenset({
     "id", "audience", "text", "variant_of",
 })
 _MODULE_INIT_HANDOUT_REQUIRED_FIELDS = frozenset({
-    "id", "title", "when_to_give",
+    "id", "title", "when_to_give", "source_refs",
 })
 
 
@@ -1400,41 +1055,35 @@ def _validate_module_init_l0(value: Any) -> dict[str, Any]:
             raise RuntimeOperationError(f"{label}.id must be a non-empty string")
         _module_init_text_or_none(handout["title"], f"{label}.title")
         _module_init_text_or_none(handout["when_to_give"], f"{label}.when_to_give")
-        # Optional verbatim-card fields. An opening handout may carry its full
-        # verbatim body; a text body must trace to bundle pages via string
-        # source_refs (same contract as handout asset cards).
+        direct_body_fields = sorted(
+            {"text", "localized_text", "image_ref"}.intersection(handout)
+        )
+        if direct_body_fields:
+            raise RuntimeOperationError(
+                f"{label} must leave {', '.join(direct_body_fields)} to the "
+                "deepen_handout closed contract"
+            )
         kind = handout.get("kind")
         if kind is not None and kind not in coc_scenario.HANDOUT_CARD_KINDS:
             raise RuntimeOperationError(
                 f"{label}.kind must be one of: "
                 + ", ".join(coc_scenario.HANDOUT_CARD_KINDS)
             )
-        _module_init_verbatim_text_or_none(handout.get("text"), f"{label}.text")
-        _module_init_text_or_none(
-            handout.get("localized_text"), f"{label}.localized_text", maximum=20_000,
-        )
         _module_init_text_or_none(
             handout.get("when_to_deliver"), f"{label}.when_to_deliver",
         )
-        _module_init_text_or_none(handout.get("image_ref"), f"{label}.image_ref")
-        source_refs = handout.get("source_refs")
-        if source_refs is not None and (
+        source_refs = handout["source_refs"]
+        if (
             not isinstance(source_refs, list)
             or not source_refs
             or any(
-                not isinstance(ref, str) or not ref.strip()
+                coc_module_assets.handout_card_ref_index(ref) is None
                 for ref in source_refs
             )
+            or len(source_refs) != len(set(source_refs))
         ):
             raise RuntimeOperationError(
-                f"{label}.source_refs must be a non-empty array of strings"
-            )
-        if isinstance(handout.get("text"), str) and handout["text"].strip() and not (
-            isinstance(source_refs, list) and source_refs
-        ):
-            raise RuntimeOperationError(
-                f"{label}.text requires non-empty source_refs tracing the "
-                "verbatim excerpt to bundle pages"
+                f"{label}.source_refs must be unique canonical pdf_index-N refs"
             )
     return data
 
@@ -1453,20 +1102,9 @@ def _module_init_verbatim_text_or_none(value: Any, label: str) -> None:
 def l0_opening_handout_cards(
     l0: dict[str, Any],
     *,
-    fallback_pdf_indices: list[int] | None = None,
+    scene_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Lift module-init L0 ``opening_handouts`` into handout entity packs.
-
-    Opening cards join the unified verbatim-card pipeline: each becomes a
-    ``handout`` entity pack (card fields + deep parse state + L0 provenance
-    + the structured ``opening_card`` flag) that projects into the campaign
-    card store and is **staged for KP delivery** — setup never delivers.
-    The KP hands each card over right after the table opening via
-    ``state.deliver_handout``, the same path as every other card.
-    ``kind`` defaults to ``read_aloud`` for legacy L0 entries: opening cards
-    are authored table-read material. Page provenance prefers the entry's own
-    ``source_refs``; without one the reviewed opening window anchors the card.
-    """
+    """Lift L0 discoveries into source stubs for the closed card compiler."""
     cards: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for handout in l0.get("opening_handouts") or []:
@@ -1476,16 +1114,11 @@ def l0_opening_handout_cards(
         if not handout_id or handout_id in seen_ids:
             continue
         seen_ids.add(handout_id)
-        source_refs = [
-            str(ref).strip()
-            for ref in (handout.get("source_refs") or [])
-            if isinstance(ref, str) and ref.strip()
-        ]
-        if not source_refs:
-            source_refs = [
-                f"pdf_index-{index}"
-                for index in (fallback_pdf_indices or [])
-            ]
+        source_page_indices = sorted({
+            int(coc_module_assets.handout_card_ref_index(ref))
+            for ref in handout["source_refs"]
+        })
+        source_refs = [f"pdf_index-{index}" for index in source_page_indices]
         card: dict[str, Any] = {
             "handout_id": handout_id,
             "asset_id": handout_id,
@@ -1496,25 +1129,16 @@ def l0_opening_handout_cards(
                 or handout.get("when_to_give")
                 or "opening"
             ),
-            # Structured semantic flag authored at L0 lift time: this card is
-            # opening briefing material. Delivery still waits for the KP.
             "opening_card": True,
             "source_refs": source_refs,
+            "source_page_indices": source_page_indices,
+            "body_source_page_indices": source_page_indices,
             "player_visible": True,
-            "parse_state": "deep",
-            "evidence_gap": False,
+            "parse_state": "named_only",
             "origin": "source",
-            "provenance": {
-                "authority": "source_authored",
-                "basis": "module_init_l0",
-            },
-            "scene_refs": [],
+            "scene_refs": [scene_id] if scene_id else [],
             "clue_refs": [],
         }
-        for field in ("text", "localized_text", "image_ref"):
-            value = handout.get(field)
-            if isinstance(value, str) and value.strip():
-                card[field] = value
         cards.append(card)
     return cards
 

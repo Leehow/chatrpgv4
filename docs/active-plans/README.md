@@ -12,6 +12,7 @@ worker handoffs, or weaken validation. The Codex lead owns updates by default.
 
 | Work ID | Plan | Status | Last Updated | Next Action |
 |---|---|---|---:|---|
+| pi-coc-system-regressions-20260822 | [Pi-Coc system regressions and repository health](pi-coc-system-regressions-and-repository-health.md) | `In Progress` | 2026-08-22 | Authorize the two exact shared language-source files for R3/A9, then finish weapon integration, logical-unit deepening, and real acceptance. |
 | pi-coc-adjudication-narration-report-contracts | [Pi-Coc adjudication, narration, and evidence contracts](pi-coc-adjudication-narration-report-contracts.md) | `Implemented` | 2026-08-22 | Complete target-branch integration and the post-merge ZAI GLM acceptance pair. |
 | coc-gate-recoverability | [Gate recoverability (开场闸门可恢复性)](coc-gate-recoverability.md) | `In Progress` | 2026-08-06 | 第 0 步全局排查完成([清单](coc-gate-recoverability-step0-scan.md)):canonical 侧 67 处 blocked 无卡、`failed_fields` 零实现、~55 种手工拒绝形状;pi 侧重复契约判断 28、观察黑洞 18、执行前拦截 12。下一步是第 1 步:把不变量写成测试,优先 startup 投影簇(`index.ts:7020-7378`)与 canonical 开场 8 gate。 |
 | coc-investigator-sheet-schema-discovery | [Investigator sheet schema discovery](coc-investigator-sheet-schema-discovery.md) | `Partial` | 2026-07-23 | Discoverability vertical is integrated and focused-validated. Executable validator/materializer migration and reusable-investigator ruleset identity remain Deferred until separately approved. |

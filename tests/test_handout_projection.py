@@ -126,6 +126,7 @@ def _handout_pack(**overrides):
         "localized_text": "第二页逐字信件正文。",
         "when_to_deliver": "调查员检查书桌时",
         "source_refs": ["pdf_index-2"],
+        "clue_refs": ["clue-letter"],
         "player_visible": True,
         "parse_state": "deep",
         "evidence_gap": False,
@@ -178,6 +179,7 @@ def test_deep_handout_pack_reapplies_into_campaign_ir(tmp_path):
     assert card["text"] == "The verbatim letter body from page 2."
     assert card["localized_text"] == "第二页逐字信件正文。"
     assert card["source_refs"] == ["pdf_index-2"]
+    assert card["clue_refs"] == ["clue-letter"]
     assert card["player_visible"] is True
     assert card["parse_state"] == "deep"
     # Machinery evidence fields do not leak into the card record.
@@ -200,6 +202,59 @@ def test_merge_deep_entity_into_ir_supports_handout_and_upserts(tmp_path):
     cards = ir["handouts.json"]["handouts"]
     assert len(cards) == 1
     assert cards[0]["title"] == "未署名的信（修订）"
+
+
+@pytest.mark.parametrize(
+    "merge_order",
+    [("clue", "handout"), ("handout", "clue")],
+)
+def test_deep_clue_and_handout_merge_order_preserves_reverse_link(merge_order):
+    ir = project.project_skeleton_to_ir(_skeleton())
+    packs = {
+        "clue": {
+            "clue_id": "clue-letter",
+            "conclusion_id": "conclusion-letter",
+            "delivery_kind": "handout",
+            "visibility": "player-safe",
+            "player_safe_summary": "A letter was recovered.",
+            "parse_state": "deep",
+            "evidence_gap": False,
+        },
+        "handout": _handout_pack(),
+    }
+
+    for kind in merge_order:
+        ir = project.merge_deep_entity_into_ir(ir, kind, packs[kind])
+
+    clue = next(
+        row
+        for conclusion in ir["clue-graph.json"]["conclusions"]
+        for row in conclusion.get("clues", [])
+        if row.get("clue_id") == "clue-letter"
+    )
+    card = next(
+        row for row in ir["handouts.json"]["handouts"]
+        if row.get("asset_id") == "handout-letter"
+    )
+    assert "handout_asset_id" not in clue
+    assert card["clue_refs"] == ["clue-letter"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"asset_id": ["handout-letter"]}, "asset_id"),
+        ({"player_visible": "false"}, "player_visible"),
+        ({"localized_text": {"zh-Hans": ["伪造正文"]}}, "localized_text"),
+        ({"localized_text": {"": "伪造正文"}}, "localized_text"),
+        ({"text": {"body": "not verbatim text"}}, "text"),
+        ({"image_ref": ["images/letter.png"]}, "image_ref"),
+    ],
+)
+def test_deep_handout_projection_rejects_malformed_card_shapes(overrides, field):
+    with pytest.raises(project.ModuleProjectError) as excinfo:
+        project.handout_card_from_pack(_handout_pack(**overrides))
+    assert field in str(excinfo.value)
 
 
 def test_stub_and_evidence_gap_handouts_do_not_project(tmp_path):
@@ -251,39 +306,48 @@ def test_write_and_load_campaign_ir_round_trip_keeps_card_store(tmp_path):
 def test_l0_opening_handout_cards_lift_defaults_and_own_refs():
     l0 = {
         "opening_handouts": [
-            # Legacy entry: no kind, no refs -> read_aloud + opening window.
-            {"id": "briefing", "title": "开场简报", "when_to_give": "开场"},
-            # Card entry: own kind + own verbatim text + own page ref.
+            # Kind remains optional, but exact source provenance does not.
+            {
+                "id": "briefing", "title": "开场简报", "when_to_give": "开场",
+                "source_refs": ["pdf_index-1", "pdf_index-0"],
+            },
+            # Discovery metadata only: bodies are compiled by deepen_handout.
             {
                 "id": "letter",
                 "title": "未署名的信",
                 "when_to_give": "递上信件时",
                 "kind": "document",
-                "text": "Verbatim letter body.",
                 "source_refs": ["pdf_index-3"],
             },
         ],
     }
-    cards = runtime_ops.l0_opening_handout_cards(l0, fallback_pdf_indices=[0, 1])
+    cards = runtime_ops.l0_opening_handout_cards(l0, scene_id="opening")
     assert [card["asset_id"] for card in cards] == ["briefing", "letter"]
     assert cards[0]["kind"] == "read_aloud"
     assert cards[0]["source_refs"] == ["pdf_index-0", "pdf_index-1"]
     assert cards[0]["when_to_deliver"] == "开场"
     assert cards[0]["player_visible"] is True
-    assert cards[0]["parse_state"] == "deep"
+    assert cards[0]["parse_state"] == "named_only"
+    assert cards[0]["body_source_page_indices"] == [0, 1]
+    assert cards[0]["scene_refs"] == ["opening"]
     assert cards[0]["opening_card"] is True
     assert cards[1]["kind"] == "document"
     assert cards[1]["source_refs"] == ["pdf_index-3"]
-    assert cards[1]["text"] == "Verbatim letter body."
-    assert cards[1]["provenance"]["basis"] == "module_init_l0"
+    assert cards[1]["body_source_page_indices"] == [3]
+    assert "text" not in cards[1]
+    assert "image_ref" not in cards[1]
+    assert "provenance" not in cards[1]
 
 
 def test_l0_opening_handout_card_survives_put_entity(tmp_path):
     _put_source_bound_skeleton(tmp_path)
     l0 = {"opening_handouts": [
-        {"id": "briefing", "title": "开场简报", "when_to_give": "开场"},
+        {
+            "id": "briefing", "title": "开场简报", "when_to_give": "开场",
+            "source_refs": ["pdf_index-1"],
+        },
     ]}
-    card = runtime_ops.l0_opening_handout_cards(l0, fallback_pdf_indices=[1])[0]
+    card = runtime_ops.l0_opening_handout_cards(l0)[0]
     stored = assets.put_entity(
         tmp_path, "handout-proj", "handout", card["handout_id"], card,
     )
@@ -293,3 +357,4 @@ def test_l0_opening_handout_card_survives_put_entity(tmp_path):
     )
     assert reloaded["source_refs"] == ["pdf_index-1"]
     assert reloaded["kind"] == "read_aloud"
+    assert reloaded["parse_state"] == "named_only"

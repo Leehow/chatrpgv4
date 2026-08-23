@@ -9,19 +9,32 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   lastVisibleAssistantText,
   SETUP_CHARACTER_OPENING_MARKER,
+  TURN_RECOVERY_MARKER,
 } from "./pi-session-text.mjs";
-import { resolveProductAgentDir } from "./agent-dir.mjs";
+import {
+  resolveHostedSessionAgentDirs,
+  resolvePiCocAgentDir,
+  resolveProductAgentDir,
+} from "./agent-dir.mjs";
 import { loadUserPrefs, pickUiPrefs, resolveUserPrefsPath } from "./user-prefs.mjs";
 import {
   applyGrokBuildExtensionSettingsEnv,
   grokBuildExtensionMountArgs,
 } from "./grok-build-extension.mjs";
+import {
+  DEFAULT_RPC_TURN_IDLE_TIMEOUT_MS,
+  PiRpcTurnIdleWatchdog,
+} from "./pi-rpc-turn-watchdog.mjs";
 
-export { SETUP_CHARACTER_OPENING_MARKER, isHiddenSetupOpeningPrompt } from "./pi-session-text.mjs";
+export {
+  SETUP_CHARACTER_OPENING_MARKER,
+  TURN_RECOVERY_MARKER,
+  isHiddenSetupOpeningPrompt,
+} from "./pi-session-text.mjs";
 
 export const UI_AUTO_OPEN_MARKER = "[coc-pi-ui] auto-open";
 export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
@@ -38,14 +51,28 @@ export const AGENT_SETTLE_QUIESCENCE_MS = 100;
 
 /** Host-owned continuation for a respawned play RPC child. */
 export const PLAY_TABLE_OPENING_PROMPT = [
-  "Host continuation after setup.complete / ready_for_table handoff.",
+  "Host continuation for a newly spawned selected play campaign.",
   "You are the play-role Keeper for this already-selected campaign.",
   "First call session.resume on this campaign.",
-  "If coc_evidence_table_opening remains visible after resume, call it and",
-  "deliver only the player-visible formal opening from that receipt.",
-  "If that typed tool is absent, the opening is already persisted: do not call",
-  "or replay it; wait for the player or continue the buffered player action.",
-  "Do not invent opening text. Do not ask the player to choose a campaign.",
+  "Branch only on that result: recover and finalize a retained pending turn",
+  "from canonical receipts without resending player input; for table_opening",
+  "call coc_evidence_table_opening exactly once; for awaiting_player emit no",
+  "new table prose and wait. Emit only an exact pending delivery when present.",
+  "Never replay an older assistant opening, reroll, repeat state writes, invent",
+  "opening text, or ask the player to choose a campaign.",
+].join(" ");
+
+/** Host-owned recovery after a provider continuation lost all RPC progress. */
+export const PLAY_TURN_RECOVERY_PROMPT = [
+  TURN_RECOVERY_MARKER,
+  "Host recovery after an interrupted pi-coc provider continuation.",
+  "This is not a new player action and does not repeat the player's prior input.",
+  "First call session.resume for this already-selected campaign.",
+  "Follow its exact pending_finalization or open_turn_recovery contract.",
+  "Preserve all already-written rules and state effects and their decision ids;",
+  "do not replay mutations, reroll, or invent replacement state.",
+  "Complete only the retained turn's missing review/finalization/delivery work,",
+  "then deliver the exact player-visible result from canonical receipts.",
 ].join(" ");
 
 /**
@@ -342,17 +369,22 @@ export function buildChildEnv({
 }) {
   const env = { ...parentEnv };
   env.COC_WORKSPACE = path.resolve(workspace);
-  // Runtime identity is the explicitly selected product home. Historical
-  // workspace homes are transcript hydration sources only; they must never
-  // become a writable Pi home merely because an old session exists there.
-  const productAgentDir = path.resolve(resolveProductAgentDir({
-    agentDir: agentDir || env.PI_AGENT_DIR || "",
-    userData: env.COC_DESKTOP_USER_DATA,
-  }));
-  env.PI_AGENT_DIR = productAgentDir;
-  env.PI_CODING_AGENT_DIR = productAgentDir;
+  // Source/dev Pi-Coc has one canonical writable identity. App-owned,
+  // inherited, coding-track, and historical workspace homes remain read-only
+  // configuration/evidence sources and can never redirect this child.
+  const runtimeAgentDir = resolvePiCocAgentDir({ repoRoot });
+  env.PI_COC_AGENT_DIR = runtimeAgentDir;
+  env.PI_CODING_AGENT_DIR = runtimeAgentDir;
+  env.PI_AGENT_DIR = runtimeAgentDir;
   const keyDirs = [];
-  pushUniqueDir(keyDirs, productAgentDir);
+  pushUniqueDir(keyDirs, runtimeAgentDir);
+  // App-owned search configuration is a read-only legacy input during the
+  // transition. It may populate ephemeral child env keys, but it never owns
+  // the child's Pi home or any write path.
+  pushUniqueDir(keyDirs, resolveProductAgentDir({
+    agentDir: agentDir || "",
+    userData: parentEnv.COC_DESKTOP_USER_DATA,
+  }));
   injectWebSearchKeysIntoEnv(env, { keyDirs });
   // Extension settings snapshot (non-secret only): the grok-build-oauth
   // agent half reads PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH; tokens never
@@ -453,6 +485,12 @@ function canonicalEnvelope(value, depth = 0) {
   return null;
 }
 
+function canonicalTextSha256(text) {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(text), "utf8")
+    .digest("hex")}`;
+}
+
 export function deliveryReceiptFromToolEvent(event) {
   if (!event || event.type !== "tool_execution_end") return null;
   const envelope = canonicalEnvelope(event.result ?? event.details);
@@ -462,13 +500,59 @@ export function deliveryReceiptFromToolEvent(event) {
     : null;
   if (
     typeof data?.finalization_id !== "string"
+    || data.finalization_id.length === 0
     || typeof data?.rendered_text !== "string"
+    || data.rendered_text.length === 0
     || typeof data?.rendered_sha256 !== "string"
+    || data.rendered_sha256 !== canonicalTextSha256(data.rendered_text)
   ) return null;
   return {
     finalizationId: data.finalization_id,
     renderedText: data.rendered_text,
     renderedSha256: data.rendered_sha256,
+  };
+}
+
+function recoveryFinalizationModeFromToolEvent(event) {
+  if (!event || event.type !== "tool_execution_end") return null;
+  const envelope = canonicalEnvelope(event.result ?? event.details);
+  if (envelope?.ok !== true || envelope.tool !== "session.resume") return null;
+  const mode = typeof envelope.data?.mode === "string" ? envelope.data.mode : "";
+  return mode === "pending_finalization" || mode === "open_turn_recovery"
+    ? mode
+    : null;
+}
+
+function recoveryFinalizationFault(campaignId, obligation) {
+  const details = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "turn_finalization",
+    campaign_id: campaignId || null,
+    turn_id: null,
+    player_turn_epoch: null,
+    code: "turn_finalization_obligation_unmet",
+    message: "回合处理失败：保留回合未完成权威结算与交付。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "finalization_obligation_unmet",
+    requested_model: null,
+    elapsed_ms: null,
+    recovery_mode: obligation.mode,
+    finalization_receipt_observed: obligation.delivery !== null,
+    delivery_observed: obligation.delivered,
+  };
+  return {
+    event: "error",
+    data: {
+      message: details.message,
+      code: details.code,
+      retryable: false,
+      details,
+    },
   };
 }
 
@@ -507,6 +591,61 @@ export function parseSetupHandoffEvent(event) {
   };
 }
 
+function turnProcessingFaultDetails(event) {
+  if (!event || event.type !== "custom_message"
+    || event.customType !== "coc-turn-processing-fault") return null;
+  let source = event.details;
+  if ((!source || typeof source !== "object") && typeof event.content === "string") {
+    try {
+      source = JSON.parse(event.content);
+    } catch {
+      return null;
+    }
+  }
+  if (!source || typeof source !== "object"
+    || source.contract_id !== "coc.pi-turn-processing-fault.v1"
+    || source.schema_version !== 1
+    || source.kind !== "turn_processing_fault"
+    || source.status !== "terminal"
+    || source.stage !== "state_claim_compilation"
+    || !["state_claim_compiler_invalid", "state_claim_compiler_unavailable"]
+      .includes(source.code)) return null;
+  const requestedModel = source.requested_model && typeof source.requested_model === "object"
+    ? {
+        provider: typeof source.requested_model.provider === "string"
+          ? source.requested_model.provider : null,
+        id: typeof source.requested_model.id === "string" ? source.requested_model.id : null,
+        api: typeof source.requested_model.api === "string" ? source.requested_model.api : null,
+      }
+    : null;
+  return {
+    schema_version: 1,
+    contract_id: source.contract_id,
+    kind: source.kind,
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: typeof source.campaign_id === "string" ? source.campaign_id : null,
+    turn_id: typeof source.turn_id === "string" ? source.turn_id : null,
+    player_turn_epoch: Number.isInteger(source.player_turn_epoch)
+      ? source.player_turn_epoch : null,
+    code: source.code,
+    message: typeof source.message === "string" && source.message.trim()
+      ? source.message.trim() : "回合处理失败；当前回合仍保留，请刷新后恢复。",
+    retryable: source.retryable === true,
+    will_retry: source.will_retry === true,
+    pending_turn_preserved: source.pending_turn_preserved === true,
+    failure_class: [
+      "capability_unsupported",
+      "provider_unavailable",
+      "timeout",
+      "protocol_invalid",
+      "result_invalid",
+    ].includes(source.failure_class) ? source.failure_class : null,
+    requested_model: requestedModel,
+    elapsed_ms: Number.isInteger(source.elapsed_ms) ? source.elapsed_ms : null,
+  };
+}
+
 function toolEventFrame(phase, event) {
   const data = { phase, tool: toolLabel(event) };
   // Pi core keeps this id on the execution event even when parallel calls end
@@ -540,6 +679,18 @@ function containsOpeningSourceReviewGate(value, depth = 0) {
 
 export function mapRpcEventToSse(event) {
   if (!event || typeof event !== "object") return [];
+  const processingFault = turnProcessingFaultDetails(event);
+  if (processingFault) {
+    return [{
+      event: "error",
+      data: {
+        message: processingFault.message,
+        code: processingFault.code,
+        retryable: processingFault.retryable,
+        details: processingFault,
+      },
+    }];
+  }
   const handoff = parseSetupHandoffEvent(event);
   if (handoff) {
     return [{ event: "coc_setup_handoff", data: handoff }];
@@ -637,10 +788,11 @@ function stripPlayerEnvelopeMarkers(text) {
 }
 
 export class PiCocRpcError extends Error {
-  constructor(message, { kind = "pi_coc_rpc_failed" } = {}) {
+  constructor(message, { kind = "pi_coc_rpc_failed", details = null } = {}) {
     super(message);
     this.name = "PiCocRpcError";
     this.kind = kind;
+    this.details = details;
   }
 }
 
@@ -657,6 +809,8 @@ export class PiCocRpcHost {
     model,
     thinking,
     spawnFn = spawn,
+    turnIdleTimeoutMs = DEFAULT_RPC_TURN_IDLE_TIMEOUT_MS,
+    nowFn = Date.now,
   }) {
     this.repoRoot = repoRoot;
     this.workspace = path.resolve(workspace);
@@ -666,12 +820,21 @@ export class PiCocRpcHost {
       agentDir: agentDir || process.env.PI_AGENT_DIR || "",
       userData: process.env.COC_DESKTOP_USER_DATA,
     }));
+    this.runtimeAgentDir = resolvePiCocAgentDir({ repoRoot });
+    this.sessionAgentDirs = resolveHostedSessionAgentDirs({
+      repoRoot,
+      workspace: this.workspace,
+      agentDir: this.agentDir,
+      userData: process.env.COC_DESKTOP_USER_DATA,
+    });
     this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
     this.tableIntent = tableIntent || null;
     this.provider = provider || "";
     this.model = model || "";
     this.thinking = thinking || "";
     this.spawnFn = spawnFn;
+    this.turnIdleTimeoutMs = turnIdleTimeoutMs;
+    this.nowFn = nowFn;
     this.child = null;
     this.ready = false;
     this.closed = false;
@@ -691,6 +854,13 @@ export class PiCocRpcHost {
     this.#setupOpeningPrompted = false;
     this.#pendingFinalizedDelivery = null;
     this.#streamedFinalizedDelivery = null;
+    this.#abortBoundary = null;
+    this.#abortCommandPending = false;
+    this.#activePromptCount = 0;
+    this.#openingAttached = false;
+    this.#openingAttachPromise = null;
+    this.#processExitObserved = false;
+    this.#processCloseObserved = false;
   }
 
   isHandoffShutdown() {
@@ -704,6 +874,13 @@ export class PiCocRpcHost {
   #setupOpeningPrompted;
   #pendingFinalizedDelivery;
   #streamedFinalizedDelivery;
+  #abortBoundary;
+  #abortCommandPending;
+  #activePromptCount;
+  #openingAttached;
+  #openingAttachPromise;
+  #processExitObserved;
+  #processCloseObserved;
 
   #noteStreamedText(text, accepted) {
     const pending = this.#pendingFinalizedDelivery;
@@ -723,22 +900,71 @@ export class PiCocRpcHost {
 
   #replaySse(onSse) {
     let opened = false;
+    let recoveryFinalization = null;
+    let terminalFaultObserved = false;
+    let handoffObserved = false;
     for (const event of this.#eventLog) {
+      const recoveryMode = recoveryFinalizationModeFromToolEvent(event);
+      if (recoveryMode !== null) {
+        recoveryFinalization = {
+          mode: recoveryMode,
+          delivery: null,
+          delivered: false,
+        };
+      }
+      const delivery = deliveryReceiptFromToolEvent(event);
+      if (recoveryFinalization !== null && delivery !== null) {
+        recoveryFinalization.delivery = delivery;
+      }
       for (const frame of mapRpcEventToSse(event)) {
+        if (
+          frame?.event === "error"
+          && frame.data?.details?.kind === "turn_processing_fault"
+          && frame.data?.details?.status === "terminal"
+        ) terminalFaultObserved = true;
+        if (frame?.event === "coc_setup_handoff") handoffObserved = true;
+        if (frame?.event === "delta" && recoveryFinalization !== null) {
+          if (
+            recoveryFinalization.delivered
+            || recoveryFinalization.delivery === null
+            || String(frame.data?.text || "")
+              !== recoveryFinalization.delivery.renderedText
+          ) continue;
+        }
         const accepted = onSse?.(frame);
         if (frame?.event === "delta") {
           this.#noteStreamedText(frame.data?.text, accepted);
+          if (recoveryFinalization !== null && accepted !== false) {
+            recoveryFinalization.delivered = true;
+          }
         }
         opened = true;
       }
       if (event?.type === "agent_settled") opened = true;
     }
-    return opened;
+    if (
+      recoveryFinalization !== null
+      && (!recoveryFinalization.delivery || !recoveryFinalization.delivered)
+      && !terminalFaultObserved
+      && !handoffObserved
+      && this.settleGeneration > 0
+    ) {
+      const frame = recoveryFinalizationFault(
+        this.campaignId,
+        recoveryFinalization,
+      );
+      onSse?.(frame);
+      throw new PiCocRpcError(frame.data.message, {
+        kind: "pi_coc_turn_processing_fault",
+        details: frame.data.details,
+      });
+    }
+    return { opened, recoveryFinalization };
   }
 
   #replaySessionAssistant(onSse) {
     const text = stripPlayerEnvelopeMarkers(lastVisibleAssistantText({
-      agentDir: this.agentDir,
+      agentDirs: this.sessionAgentDirs,
       workspace: this.workspace,
       sessionId: this.sessionId,
     })).trim();
@@ -758,7 +984,7 @@ export class PiCocRpcHost {
     }
     if (visibleText.trim()) return true;
     return Boolean(lastVisibleAssistantText({
-      agentDir: this.agentDir,
+      agentDirs: this.sessionAgentDirs,
       workspace: this.workspace,
       sessionId: this.sessionId,
     }));
@@ -795,11 +1021,19 @@ export class PiCocRpcHost {
     if (event?.type === "agent_start") {
       this.streaming = true;
       this.lastSettledAt = 0;
+      if (this.#abortBoundary === null) this.#abortCommandPending = false;
     }
     if (event?.type === "agent_settled") {
       this.streaming = false;
       this.settleGeneration += 1;
       this.lastSettledAt = Date.now();
+      if (
+        this.#abortBoundary !== null
+        && this.settleGeneration > this.#abortBoundary.settleGeneration
+      ) {
+        this.#abortBoundary = null;
+      }
+      this.#abortCommandPending = false;
     }
     if (event?.type === "message_update" && event.usage) {
       this.lastUsage = event.usage;
@@ -883,6 +1117,7 @@ export class PiCocRpcHost {
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => this.#noteStderr(chunk));
     child.on("exit", (code, signal) => {
+      this.#processExitObserved = true;
       this.closed = true;
       this.streaming = false;
       this.lastExitCode = code;
@@ -896,6 +1131,9 @@ export class PiCocRpcHost {
       );
       for (const pending of this.#pending.values()) pending.reject(err);
       this.#pending.clear();
+    });
+    child.on("close", () => {
+      this.#processCloseObserved = true;
     });
   }
 
@@ -1005,9 +1243,52 @@ export class PiCocRpcHost {
     return new PiCocRpcError("pi-coc turn aborted", { kind: "pi_coc_rpc_aborted" });
   }
 
-  #waitSettleAfter(startGen, onSse, timeoutMs, { suppressSilentNotice = false } = {}) {
+  async #sendAbortOnce() {
+    if (this.#abortCommandPending) return false;
+    this.#abortCommandPending = true;
+    try {
+      await this.#write({ type: "abort" });
+    } catch {
+      // The generation fence still unblocks callers. Recovery will close an
+      // unresponsive child before reusing the persisted session.
+    }
+    return true;
+  }
+
+  #beginAbort() {
+    if (this.#abortBoundary !== null) return Promise.resolve(false);
+    this.#abortBoundary = { settleGeneration: this.settleGeneration };
+    this.abortGeneration += 1;
+    return this.#sendAbortOnce();
+  }
+
+  async waitForAbortSettlement(timeoutMs = 2_000) {
+    const boundary = this.#abortBoundary;
+    if (boundary === null) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (this.#abortBoundary === boundary && !this.closed) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return this.#abortBoundary !== boundary;
+  }
+
+  #waitSettleAfter(
+    startGen,
+    onSse,
+    timeoutMs,
+    {
+      suppressSilentNotice = false,
+      turnActivity = null,
+      initialRecoveryFinalization = null,
+    } = {},
+  ) {
     const deadline = Date.now() + timeoutMs;
     const abortAt = this.abortGeneration;
+    const idleWatchdog = new PiRpcTurnIdleWatchdog({
+      timeoutMs: this.turnIdleTimeoutMs,
+      now: this.nowFn,
+    });
     return new Promise((resolve, reject) => {
       // Transparency only (never blocks): a settled turn that produced neither
       // player-visible text nor an error frame is a silent no-op for the
@@ -1017,6 +1298,15 @@ export class PiCocRpcHost {
       let sawPlayerText = false;
       let sawError = false;
       let sawHandoff = false;
+      let terminalTurnFault = null;
+      let recoveryFinalization = initialRecoveryFinalization === null
+        ? null
+        : {
+            mode: initialRecoveryFinalization.mode,
+            delivery: initialRecoveryFinalization.delivery,
+            delivered: initialRecoveryFinalization.delivered === true,
+          };
+      let acceptedObserved = false;
       let timer = null;
       const notifyIfSilent = () => {
         if (
@@ -1040,10 +1330,52 @@ export class PiCocRpcHost {
         else resolve({ sawPlayerText, sawError, sawHandoff, ...result });
       };
       const settle = (result = {}) => {
-        if (!result.handoff) notifyIfSilent();
+        if (terminalTurnFault !== null) {
+          finish(new PiCocRpcError(terminalTurnFault.message, {
+            kind: "pi_coc_turn_processing_fault",
+            details: terminalTurnFault.details,
+          }));
+          return;
+        }
+        if (result.handoff) {
+          finish(null, result);
+          return;
+        }
+        if (
+          recoveryFinalization !== null
+          && (!recoveryFinalization.delivery || !recoveryFinalization.delivered)
+        ) {
+          const frame = recoveryFinalizationFault(
+            this.campaignId,
+            recoveryFinalization,
+          );
+          onSse?.(frame);
+          finish(new PiCocRpcError(frame.data.message, {
+            kind: "pi_coc_turn_processing_fault",
+            details: frame.data.details,
+          }));
+          return;
+        }
+        notifyIfSilent();
         finish(null, result);
       };
       const off = this.onEvent((event) => {
+        const recoveryMode = recoveryFinalizationModeFromToolEvent(event);
+        if (recoveryMode !== null) {
+          recoveryFinalization = {
+            mode: recoveryMode,
+            delivery: null,
+            delivered: false,
+          };
+        }
+        const eventDelivery = deliveryReceiptFromToolEvent(event);
+        if (recoveryFinalization !== null && eventDelivery !== null) {
+          recoveryFinalization.delivery = eventDelivery;
+        }
+        idleWatchdog.observe(event, {
+          finalizationReceipt: eventDelivery !== null,
+          canonicalToolEnvelope: canonicalEnvelope(event?.result ?? event?.details),
+        });
         for (const frame of mapRpcEventToSse(event)) {
           if (frame.event === "delta" && String(frame.data?.text || "").trim()) {
             sawPlayerText = true;
@@ -1051,33 +1383,70 @@ export class PiCocRpcHost {
             sawPlayerText = false;
           } else if (frame.event === "error") {
             sawError = true;
+            if (
+              terminalTurnFault === null
+              && frame.data?.details?.kind === "turn_processing_fault"
+              && frame.data?.details?.status === "terminal"
+            ) {
+              terminalTurnFault = frame.data;
+            }
           } else if (frame.event === "coc_setup_handoff") {
             if (sawHandoff) continue;
             sawHandoff = true;
           }
+          if (frame.event === "delta" && recoveryFinalization !== null) {
+            const exactDelivery = recoveryFinalization.delivery;
+            if (
+              recoveryFinalization.delivered
+              || exactDelivery === null
+              || String(frame.data?.text || "") !== exactDelivery.renderedText
+            ) continue;
+          }
           const accepted = onSse?.(frame);
           if (frame.event === "delta") {
             this.#noteStreamedText(frame.data?.text, accepted);
+            if (recoveryFinalization !== null && accepted !== false) {
+              recoveryFinalization.delivered = true;
+            }
           }
         }
         // Do not resolve directly from the `agent_settled` listener. A hidden
         // follow-up may be queued by the extension in the same lifecycle turn.
       });
       timer = setInterval(() => {
+        if (turnActivity?.accepted && !acceptedObserved) {
+          acceptedObserved = true;
+          idleWatchdog.progress();
+        }
         const quietFor = this.lastSettledAt > 0
           ? Date.now() - this.lastSettledAt
           : 0;
-        if (
+        if (this.abortGeneration > abortAt) {
+          if (sawHandoff || this.isHandoffShutdown()) {
+            settle({ handoff: true });
+          } else {
+            finish(this.#abortedError());
+          }
+        } else if (
           this.settleGeneration > startGen
           && !this.streaming
           && quietFor >= AGENT_SETTLE_QUIESCENCE_MS
         ) {
           settle({ handoff: sawHandoff });
-        } else if (this.abortGeneration > abortAt) {
-          finish(this.#abortedError());
+        } else if ((this.streaming || acceptedObserved) && idleWatchdog.expired()) {
+          void this.#beginAbort();
+          finish(new PiCocRpcError(
+            "pi-coc provider continuation lost RPC progress",
+            {
+              kind: "pi_coc_rpc_idle_timeout",
+              details: idleWatchdog.diagnostics(),
+            },
+          ));
         } else if (this.closed) {
           if (this.isHandoffShutdown()) {
             settle({ handoff: true });
+          } else if (recoveryFinalization !== null) {
+            settle();
           } else {
             finish(new PiCocRpcError("pi-coc RPC exited during turn"));
           }
@@ -1110,21 +1479,34 @@ export class PiCocRpcHost {
     }
   }
 
-  async attachOpening({
+  async #runAttachOpening({
     onSse,
     timeoutMs = 900_000,
     requireVisibleText = false,
   } = {}) {
     let sawVisibleText = false;
+    let terminalFault = null;
     const relay = (frame) => {
       if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
         sawVisibleText = true;
       } else if (frame?.event === "delta_reset") {
         sawVisibleText = false;
+      } else if (
+        frame?.event === "error"
+        && frame.data?.details?.kind === "turn_processing_fault"
+        && frame.data?.details?.status === "terminal"
+      ) {
+        terminalFault = frame.data;
       }
-      onSse?.(frame);
+      return onSse?.(frame);
     };
     const finish = (opened) => {
+      if (terminalFault) {
+        throw new PiCocRpcError(terminalFault.message, {
+          kind: "pi_coc_turn_processing_fault",
+          details: terminalFault.details,
+        });
+      }
       if (requireVisibleText && !sawVisibleText) {
         throw new PiCocRpcError("开桌会话未产出玩家可见文本。", {
           kind: "pi_coc_opening_not_visible",
@@ -1168,6 +1550,7 @@ export class PiCocRpcHost {
         sawVisibleText,
       });
       if (injected) {
+        if (terminalFault) return finish(true);
         if (requireVisibleText && !sawVisibleText) {
           throw new PiCocRpcError("开桌会话未产出玩家可见文本。", {
             kind: "pi_coc_opening_not_visible",
@@ -1183,14 +1566,17 @@ export class PiCocRpcHost {
       });
     }
     if (this.settleGeneration > 0 && !this.streaming) {
-      if (requireVisibleText) this.#replaySse(relay);
-      if (!sawVisibleText) this.#replaySessionAssistant(relay);
+      if (!sawVisibleText) this.#replaySse(relay);
+      if (!sawVisibleText && this.tableIntent !== "continue") {
+        this.#replaySessionAssistant(relay);
+      }
       return maybeSetupOpen(true);
     }
     const replayed = this.#replaySse(relay);
     if (this.streaming) {
       await this.#waitSettleAfter(this.settleGeneration, relay, timeoutMs, {
         suppressSilentNotice: requireVisibleText,
+        initialRecoveryFinalization: replayed.recoveryFinalization,
       });
       return maybeSetupOpen(true);
     }
@@ -1200,6 +1586,7 @@ export class PiCocRpcHost {
       const abortAt = this.abortGeneration;
       const settled = this.#waitSettleAfter(startGen, relay, timeoutMs, {
         suppressSilentNotice: requireVisibleText,
+        initialRecoveryFinalization: replayed.recoveryFinalization,
       });
       const startDeadline = Date.now() + 60_000;
       while (!this.streaming && this.settleGeneration === startGen
@@ -1212,28 +1599,61 @@ export class PiCocRpcHost {
         return maybeSetupOpen(true);
       }
     }
-    if (this.#replaySessionAssistant(relay)) {
+    if (this.tableIntent !== "continue" && this.#replaySessionAssistant(relay)) {
       return maybeSetupOpen(true);
     }
-    return maybeSetupOpen(replayed);
+    if (this.tableIntent === "continue") {
+      throw new PiCocRpcError(
+        "pi-coc play host did not start its session.resume continuation",
+        { kind: "pi_coc_play_resume_not_started" },
+      );
+    }
+    return maybeSetupOpen(replayed.opened);
+  }
+
+  async attachOpening(options = {}) {
+    if (this.#openingAttached) return { opened: true };
+    if (this.#openingAttachPromise) return this.#openingAttachPromise;
+    const run = this.#runAttachOpening(options);
+    this.#openingAttachPromise = run;
+    try {
+      const result = await run;
+      this.#openingAttached = true;
+      return result;
+    } finally {
+      if (this.#openingAttachPromise === run) this.#openingAttachPromise = null;
+    }
   }
 
   async prompt(message, { onSse, timeoutMs = 900_000 } = {}) {
-    const startGen = this.settleGeneration;
-    const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs);
-    const payload = {
-      type: "prompt",
-      message: String(message ?? ""),
-    };
-    if (this.streaming) payload.streamingBehavior = "followUp";
-    try {
-      await this.#request(payload, 15_000);
-    } catch (err) {
-      if (err?.kind !== "pi_coc_rpc_handoff") throw err;
-      const result = await settled;
-      return { ...result, handoff: true };
+    if (this.#abortBoundary !== null) {
+      throw new PiCocRpcError(
+        "pi-coc abort is awaiting agent_settled",
+        { kind: "pi_coc_rpc_abort_pending" },
+      );
     }
-    return await settled;
+    this.#activePromptCount += 1;
+    try {
+      const startGen = this.settleGeneration;
+      const turnActivity = { accepted: false };
+      const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs, { turnActivity });
+      const payload = {
+        type: "prompt",
+        message: String(message ?? ""),
+      };
+      if (this.streaming) payload.streamingBehavior = "followUp";
+      try {
+        await this.#request(payload, 15_000);
+        turnActivity.accepted = true;
+      } catch (err) {
+        if (err?.kind !== "pi_coc_rpc_handoff") throw err;
+        const result = await settled;
+        return { ...result, handoff: true };
+      }
+      return await settled;
+    } finally {
+      this.#activePromptCount -= 1;
+    }
   }
 
   async promptPlayOpening({ onSse, timeoutMs = 900_000 } = {}) {
@@ -1244,7 +1664,7 @@ export class PiCocRpcHost {
         if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
           sawVisibleText = true;
         }
-        onSse?.(frame);
+        return onSse?.(frame);
       },
     });
     if (!sawVisibleText) {
@@ -1255,8 +1675,36 @@ export class PiCocRpcHost {
     return { ...result, opened: true };
   }
 
+  async promptTurnRecovery({ onSse, timeoutMs = 900_000 } = {}) {
+    let sawVisibleText = false;
+    const result = await this.prompt(PLAY_TURN_RECOVERY_PROMPT, {
+      timeoutMs,
+      onSse: (frame) => {
+        if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
+          sawVisibleText = true;
+        }
+        return onSse?.(frame);
+      },
+    });
+    if (!sawVisibleText) {
+      throw new PiCocRpcError("pi-coc recovery produced no visible output", {
+        kind: "pi_coc_recovery_not_visible",
+      });
+    }
+    return { ...result, recovered: true };
+  }
+
   takeStreamedDelivery() {
     const delivery = this.#streamedFinalizedDelivery;
+    this.#streamedFinalizedDelivery = null;
+    return delivery;
+  }
+
+  offerStreamedDelivery(offer) {
+    const delivery = this.#streamedFinalizedDelivery;
+    if (delivery === null) return null;
+    const accepted = offer?.(delivery);
+    if (accepted === false) return null;
     this.#streamedFinalizedDelivery = null;
     return delivery;
   }
@@ -1312,42 +1760,84 @@ export class PiCocRpcHost {
   }
 
   async abort() {
-    this.abortGeneration += 1;
     if (!this.child || this.closed) return;
-    try {
-      await this.#write({ type: "abort" });
-    } catch {
-      /* best effort: waiters already unblocked */
+    if (this.streaming || this.#activePromptCount > 0) {
+      await this.#beginAbort();
+      return;
     }
+    this.abortGeneration += 1;
+    await this.#sendAbortOnce();
+    this.#abortCommandPending = false;
   }
 
-  async close() {
+  async close({
+    protocolAbort = true,
+    termTimeoutMs = 2_000,
+    killTimeoutMs = 2_000,
+  } = {}) {
     this.expectedShutdown = true;
-    if (!this.child || this.closed) return;
-    this.abortGeneration += 1;
-    try {
-      await this.#write({ type: "abort" });
-    } catch {
-      /* best effort */
+    if (!this.child) return;
+    if (this.#processExitObserved && this.#processCloseObserved) {
+      this.child = null;
+      return;
     }
-    this.child.kill("SIGTERM");
+    this.abortGeneration += 1;
+    if (protocolAbort && !this.#processExitObserved) await this.#sendAbortOnce();
     const child = this.child;
-    await new Promise((resolve) => {
-      const timer = setTimeout(() => {
+    const signalAndWait = (signal, timeoutMs) => new Promise((resolve) => {
+      if (this.#processExitObserved && this.#processCloseObserved) {
+        resolve(true);
+        return;
+      }
+      let done = false;
+      let timer = null;
+      const finish = (released) => {
+        if (done) return;
+        done = true;
+        if (timer !== null) clearTimeout(timer);
+        child.off("exit", onExit);
+        child.off("close", onClose);
+        resolve(released);
+      };
+      const maybeFinish = () => {
+        if (this.#processExitObserved && this.#processCloseObserved) finish(true);
+      };
+      const onExit = () => maybeFinish();
+      const onClose = () => maybeFinish();
+      child.once("exit", onExit);
+      child.once("close", onClose);
+      timer = setTimeout(() => finish(false), timeoutMs);
+      if (signal) {
         try {
-          child.kill("SIGKILL");
+          child.kill(signal);
         } catch {
-          /* already gone */
+          maybeFinish();
         }
-        resolve();
-      }, 2_000);
-      child.once("exit", () => {
-        clearTimeout(timer);
-        resolve();
-      });
+      }
     });
+    let exited = await signalAndWait(
+      this.#processExitObserved ? null : "SIGTERM",
+      termTimeoutMs,
+    );
+    if (!exited) {
+      exited = await signalAndWait(
+        this.#processExitObserved ? null : "SIGKILL",
+        killTimeoutMs,
+      );
+    }
+    if (!exited) {
+      throw new PiCocRpcError(
+        "pi-coc child did not exit after SIGTERM/SIGKILL",
+        { kind: "pi_coc_rpc_close_timeout" },
+      );
+    }
+    if (!this.#processExitObserved || !this.#processCloseObserved) {
+      throw new PiCocRpcError(
+        "pi-coc child exit/stdio close was not observed by its host",
+        { kind: "pi_coc_rpc_close_timeout" },
+      );
+    }
     this.child = null;
-    this.closed = true;
   }
 }
 

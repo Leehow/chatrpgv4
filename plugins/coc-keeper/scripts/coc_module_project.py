@@ -78,6 +78,7 @@ coc_compiled_archive = _load_sibling(
 )
 coc_npc_roles = _load_sibling("coc_npc_roles_module_project", "coc_npc_roles.py")
 coc_rulesets = _load_sibling("coc_rulesets_module_project", "coc_rulesets.py")
+coc_scenario = _load_sibling("coc_scenario_module_project", "coc_scenario.py")
 
 
 class ModuleProjectError(ValueError):
@@ -601,6 +602,78 @@ def _relationship_from_role_tags(value: Any) -> str | None:
     return None
 
 
+def _read_aloud_card_source_refs(refs: Any) -> list[str]:
+    """Project exact location-pack page evidence into card source labels."""
+    out: list[str] = []
+    for ref in refs or []:
+        if isinstance(ref, str) and ref.strip():
+            label = ref.strip()
+        elif (
+            isinstance(ref, dict)
+            and isinstance(ref.get("pdf_index"), int)
+            and not isinstance(ref.get("pdf_index"), bool)
+            and ref["pdf_index"] >= 0
+        ):
+            label = f"pdf_index-{ref['pdf_index']}"
+        else:
+            raise ModuleProjectError(
+                "read_aloud source_refs must contain exact page refs"
+            )
+        if label not in out:
+            out.append(label)
+    if not out:
+        raise ModuleProjectError("read_aloud card requires exact source refs")
+    return out
+
+
+def _project_location_read_aloud_cards(
+    out: dict[str, Any],
+    *,
+    scene_id: str,
+    scene_title: str,
+    rows: Any,
+) -> None:
+    """Upsert source-backed location passages into the unified card store."""
+    doc = out.setdefault("handouts.json", {"schema_version": 1, "handouts": []})
+    if not isinstance(doc, dict):
+        raise ModuleProjectError("handouts.json IR entry must be an object")
+    cards = doc.setdefault("handouts", [])
+    if not isinstance(cards, list):
+        raise ModuleProjectError("handouts.json.handouts must be a list")
+    for row in rows or []:
+        row_id = str(row.get("id") or "").strip()
+        asset_id = f"read-aloud:{scene_id}:{row_id}"
+        title = str(row.get("title") or scene_title or row_id).strip()
+        card: dict[str, Any] = {
+            "asset_id": asset_id,
+            "kind": "read_aloud",
+            "title": title,
+            "text": str(row["text"]),
+            "when_to_deliver": str(row["trigger"]),
+            "source_refs": _read_aloud_card_source_refs(row.get("source_refs")),
+            "scene_refs": [scene_id],
+            "player_visible": True,
+            "parse_state": "deep",
+            "origin": "source",
+        }
+        for field in ("localized_title", "localized_text", "localized_language"):
+            if row.get(field) is not None:
+                card[field] = json.loads(json.dumps(row[field]))
+        existing = next(
+            (
+                candidate for candidate in cards
+                if isinstance(candidate, dict)
+                and candidate.get("asset_id") == asset_id
+            ),
+            None,
+        )
+        if existing is None:
+            cards.append(card)
+        else:
+            existing.clear()
+            existing.update(card)
+
+
 def merge_deep_location_into_ir(
     ir: dict[str, Any],
     pack: dict[str, Any],
@@ -655,6 +728,14 @@ def merge_deep_location_into_ir(
         # player-facing text, so they travel with the scene rather than into
         # the Keeper-only channel below.
         scene["read_aloud"] = json.loads(json.dumps(pack.get("read_aloud") or []))
+        _project_location_read_aloud_cards(
+            out,
+            scene_id=lid,
+            scene_title=str(
+                scene.get("display_name") or pack.get("title") or lid
+            ),
+            rows=pack.get("read_aloud") or [],
+        )
     if pack.get("keeper_only") is not None:
         # Keeper notes ride under one clearly named key so every player-facing
         # projection has a single thing to exclude.  Scattering them among
@@ -1036,8 +1117,10 @@ def merge_deep_threat_into_ir(
 
 
 HANDOUT_CARD_PROJECTION_FIELDS = (
-    "asset_id", "kind", "title", "summary", "player_visible",
-    "when_to_deliver", "opening_card", "text", "localized_text", "image_ref",
+    "asset_id", "kind", "content_origin", "title", "summary",
+    "localized_title", "localized_summary", "localized_language",
+    "player_visible", "when_to_deliver", "opening_card", "text",
+    "authored_text", "localized_text", "image_ref",
     "source_refs", "scene_refs", "clue_refs",
 )
 
@@ -1051,9 +1134,17 @@ def handout_card_from_pack(pack: dict[str, Any]) -> dict[str, Any]:
     Machinery-only fields (ingest timing, revision bookkeeping) stay in the
     module-assets store.
     """
-    asset_id = str(pack.get("asset_id") or pack.get("handout_id") or "").strip()
-    if not asset_id:
+    errors = coc_scenario.validate_handout_card(pack, prefix="deep handout pack")
+    if errors:
+        raise ModuleProjectError("; ".join(errors))
+    raw_asset_id = (
+        pack.get("asset_id")
+        if pack.get("asset_id") is not None
+        else pack.get("handout_id")
+    )
+    if not isinstance(raw_asset_id, str) or not raw_asset_id.strip():
         raise ModuleProjectError("deep handout pack missing handout_id/asset_id")
+    asset_id = raw_asset_id.strip()
     card: dict[str, Any] = {"asset_id": asset_id}
     for field in HANDOUT_CARD_PROJECTION_FIELDS:
         if field == "asset_id":
@@ -3201,12 +3292,16 @@ def build_l0_direct_opening_pack(
         if not hook_id or hook_id in seen_read_ids:
             continue
         seen_read_ids.add(hook_id)
-        read_aloud.append({
+        read_row = {
             "id": hook_id,
             "trigger": "on_enter",
             "text": str(hook["text"]).strip(),
             "source_refs": json.loads(json.dumps(refs)),
-        })
+        }
+        for field in ("title", "localized_title", "localized_text", "localized_language"):
+            if hook.get(field) is not None:
+                read_row[field] = json.loads(json.dumps(hook[field]))
+        read_aloud.append(read_row)
     keeper_only: list[dict[str, Any]] = []
     seen_keeper_ids: set[str] = set()
     for hook in keeper_hooks:

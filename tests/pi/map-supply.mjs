@@ -10,18 +10,32 @@ const root = path.resolve(process.argv[2] || process.cwd());
 const workspace = await mkdtemp(path.join(os.tmpdir(), "coc-map-supply-"));
 const pages = path.join(workspace, ".coc", "module-assets", "cold-harvest", "pages");
 await mkdir(pages, { recursive: true });
-await writeFile(path.join(pages, "0016.md"), "## 地图 1\n", "utf8");
+await writeFile(path.join(pages, "0016.md"), "## Ground floor plan\n", "utf8");
 await writeFile(path.join(pages, "0022.md"), "![只剩图片引用](lost.png)\n", "utf8");
 await writeFile(path.join(pages, "0023.md"), "# 正文\n这是一段足够长的正文，不应被当作图像页。".repeat(8), "utf8");
 
 const direct = detectMapSupplyPages([
-  { pdf_index: 16, markdown: "## 地图 1\n" },
+  { pdf_index: 16, markdown: "## Ground floor plan\n" },
   { pdf_index: 22, markdown: "![only image](lost.png)\n" },
   { pdf_index: 23, markdown: "# 正文\n" + "文字".repeat(100) },
-], [1, 16]);
-assert.deepEqual(direct.needs_image, [16, 22]);
-assert.deepEqual(direct.needs_ocr_or_image, [1, 16, 22]);
-assert.deepEqual(direct.reasons[16], ["illustration_heading", "low_text_density"]);
+], [16], [1, 16]);
+assert.deepEqual(direct.needs_image, [16]);
+assert.deepEqual(direct.needs_ocr_or_image, [1, 16]);
+assert.deepEqual(direct.reasons[16], ["structured_candidate_ref"]);
+
+const noCandidates = detectMapSupplyPages([
+  { pdf_index: 16, markdown: "## 地图 1\n" },
+  { pdf_index: 22, markdown: "![only image](lost.png)\n" },
+], [], [1]);
+assert.deepEqual(noCandidates.needs_image, []);
+assert.deepEqual(noCandidates.needs_ocr_or_image, [1]);
+assert.deepEqual(noCandidates.reasons, {});
+assert.throws(
+  () => detectMapSupplyPages(
+    [{ pdf_index: 16, markdown: "unused" }], [99], [],
+  ),
+  /unavailable cached page 99/u,
+);
 
 const renderer = path.join(workspace, "renderer.mjs");
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9J3S8AAAAASUVORK5CYII=";
@@ -56,12 +70,14 @@ const mapSupply = tools.get("coc_map_supply");
 assert.ok(mapSupply, "Pi registers coc_map_supply");
 const ctx = { cwd: workspace, mode: "rpc", sessionManager: { getSessionId: () => "map-probe" } };
 
-const detected = await mapSupply.execute("detect", { operation: "detect", pages_dir: pages, needs_ocr: [1, 16] }, undefined, undefined, ctx);
+const detected = await mapSupply.execute("detect", {
+  operation: "detect", pages_dir: pages, candidate_pdf_indices: [16, 22], needs_ocr: [1, 16],
+}, undefined, undefined, ctx);
 assert.deepEqual(detected.details.needs_image, [16, 22]);
 assert.deepEqual(detected.details.needs_ocr_or_image, [1, 16, 22]);
 
 const rendered = await mapSupply.execute("render", {
-  operation: "render", pages_dir: pages, needs_ocr: [1], asset_root_id: "cold-harvest",
+  operation: "render", pages_dir: pages, candidate_pdf_indices: [16, 22], needs_ocr: [1], asset_root_id: "cold-harvest",
   source_pdf_path: path.join(workspace, "source.pdf"),
 }, undefined, undefined, ctx);
 assert.equal(rendered.details.status, "rendered");

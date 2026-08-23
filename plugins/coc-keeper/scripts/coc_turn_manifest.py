@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import stat
 from typing import Any, Collection
 
 import coc_fileio
@@ -24,6 +25,10 @@ PENDING_FILENAME = "pending-turn.json"
 MANIFEST_DIRNAME = "turn-manifests"
 TOOLBOX_LOG = Path("logs") / "toolbox-calls.jsonl"
 FINALIZATION_LOG = Path("logs") / "turn-finalizations.jsonl"
+_SETUP_HANDOFF_FIELDS = frozenset({
+    "schema_version", "decision_id", "campaign_id", "investigator_ids",
+    "completed_at", "opening_projection_ref", "lane_interrupted_at_handoff",
+})
 
 CURSOR_FIELDS = frozenset({
     "schema_version",
@@ -297,13 +302,31 @@ def _contains_historical_turns(campaign_dir: Path) -> bool:
     return False
 
 
+def _cursor_is_regular_file(path: Path) -> bool:
+    """Classify the durable cursor lexically without following symlinks."""
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise TurnManifestError(
+            "state_corrupt", "turn source cursor path is unreadable",
+        ) from exc
+    if not stat.S_ISREG(mode):
+        raise TurnManifestError(
+            "state_corrupt",
+            "turn source cursor path must be a regular file",
+        )
+    return True
+
+
 def load_or_create_cursor(
     campaign_dir: Path, *, validate_finalization_binding: bool = True
 ) -> dict[str, Any]:
     campaign_dir = Path(campaign_dir)
     campaign_id = campaign_dir.name
     path = _cursor_path(campaign_dir)
-    if path.is_file():
+    if _cursor_is_regular_file(path):
         cursor = _validate_cursor(
             _read_object(path, code="state_corrupt"), campaign_id
         )
@@ -434,6 +457,241 @@ def _count_rows(path: Path, start_offset: int, end_offset: int) -> int:
     return len(rows)
 
 
+def _persisted_setup_handoff(campaign_dir: Path) -> dict[str, Any] | None:
+    """Distinguish an absent handoff from present-but-corrupt campaign state."""
+    campaign_path = Path(campaign_dir) / "campaign.json"
+    if campaign_path.is_symlink() or not campaign_path.is_file():
+        raise TurnManifestError(
+            "state_corrupt", "campaign.json is missing or is not a regular file",
+        )
+    try:
+        campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise TurnManifestError("state_corrupt", "campaign.json is unreadable") from exc
+    if not isinstance(campaign, dict):
+        raise TurnManifestError("state_corrupt", "campaign.json must be an object")
+    if "setup_handoff" not in campaign:
+        return None
+    handoff = campaign["setup_handoff"]
+    decision_id = handoff.get("decision_id") if isinstance(handoff, dict) else None
+    investigator_ids = (
+        handoff.get("investigator_ids") if isinstance(handoff, dict) else None
+    )
+    if (
+        not isinstance(handoff, dict)
+        or set(handoff) != _SETUP_HANDOFF_FIELDS
+        or handoff.get("schema_version") != 1
+        or handoff.get("campaign_id") != Path(campaign_dir).name
+        or not isinstance(decision_id, str)
+        or not decision_id.strip()
+        or not isinstance(investigator_ids, list)
+        or not investigator_ids
+        or any(
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            or value in {".", ".."}
+            or "/" in value
+            or "\\" in value
+            for value in investigator_ids
+        )
+        or len(set(investigator_ids)) != len(investigator_ids)
+        or not isinstance(handoff.get("completed_at"), str)
+        or not handoff["completed_at"].strip()
+        or handoff.get("opening_projection_ref") is not None
+        and not isinstance(handoff.get("opening_projection_ref"), dict)
+        or not isinstance(handoff.get("lane_interrupted_at_handoff"), bool)
+    ):
+        raise TurnManifestError(
+            "state_corrupt", "persisted setup_handoff is not an exact schema-v1 receipt",
+        )
+    return deepcopy(handoff)
+
+
+def _matches_persisted_setup_handoff(
+    campaign_dir: Path, row: dict[str, Any], handoff: dict[str, Any],
+) -> bool:
+    args = row.get("args") if isinstance(row.get("args"), dict) else {}
+    data = row.get("data") if isinstance(row.get("data"), dict) else {}
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    campaign_id = Path(campaign_dir).name
+    return bool(
+        row.get("schema_version") == 2
+        and row.get("ok") is True
+        and row.get("tool") == "setup.complete"
+        and args.get("campaign_id") == campaign_id
+        and args.get("decision_id") == handoff.get("decision_id")
+        and data.get("schema_version") == 1
+        and data.get("status") == "PASS"
+        and data.get("kind") == "campaign.complete"
+        and result.get("campaign_id") == campaign_id
+        and result.get("ready_for_table") is True
+        and result.get("next") == "table_opening"
+        and result.get("handoff") == handoff
+    )
+
+
+def _setup_source_boundary(campaign_dir: Path) -> dict[str, Any] | None:
+    """Return the earliest exact setup.complete boundary matching durable state."""
+    handoff = _persisted_setup_handoff(campaign_dir)
+    if handoff is None:
+        return None
+    rows, _ = _slice_rows(_toolbox_path(campaign_dir), 0)
+    for position, (row, row_end) in enumerate(rows):
+        if _matches_persisted_setup_handoff(campaign_dir, row, handoff):
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "kind": "setup_handoff_virtual",
+                "durable_start_offset": 0,
+                "durable_start_index": 0,
+                "effective_start_offset": row_end,
+                "effective_start_index": position + 1,
+                "setup_handoff": {
+                    **handoff,
+                    "sealed_end_offset": row_end,
+                    "sealed_next_index": position + 1,
+                },
+                "cursor_close_owner": "evidence.table_opening",
+            }
+    # A crash may persist campaign.json before the generic toolbox receipt is
+    # appended. Keep the physical boundary and opening owner in that state:
+    # setup rows remain visible, journal stays blocked, and an idempotent
+    # setup.complete replay can later establish the exact virtual seal.
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "setup_handoff_unverified",
+        "durable_start_offset": 0,
+        "durable_start_index": 0,
+        "effective_start_offset": 0,
+        "effective_start_index": 0,
+        "setup_handoff": {**handoff},
+        "cursor_close_owner": "evidence.table_opening",
+    }
+    return result
+
+
+def setup_creation_roll_fence(campaign_dir: Path) -> dict[str, Any] | None:
+    """Return exact successful roll identities before the earliest setup seal.
+
+    This is derived from the same persisted-handoff match as resume projection;
+    it never advances the durable opening cursor.  Direct campaigns and a
+    crash before the generic setup.complete receipt have no provable fence.
+    """
+    boundary = _setup_source_boundary(Path(campaign_dir))
+    if boundary is None or boundary.get("kind") != "setup_handoff_virtual":
+        return None
+    setup_index = int(boundary["effective_start_index"]) - 1
+    rows, _ = _slice_rows(
+        _toolbox_path(Path(campaign_dir)),
+        0,
+        end_offset=int(boundary["effective_start_offset"]),
+    )
+    if setup_index < 0 or setup_index >= len(rows):
+        raise TurnManifestError(
+            "state_corrupt", "setup handoff source fence is inconsistent",
+        )
+    roll_decisions: dict[str, str] = {}
+    for row, _row_end in rows[:setup_index]:
+        args = row.get("args") if isinstance(row.get("args"), dict) else {}
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        decision_id = args.get("decision_id")
+        roll_id = data.get("roll_id")
+        if (
+            row.get("schema_version") != 2
+            or row.get("ok") is not True
+            or row.get("tool") != "rules.roll_dice"
+            or not isinstance(decision_id, str)
+            or not decision_id.strip()
+            or not isinstance(roll_id, str)
+            or not roll_id.strip()
+        ):
+            continue
+        previous = roll_decisions.get(roll_id)
+        if previous is not None and previous != decision_id:
+            raise TurnManifestError(
+                "state_corrupt", "setup source prefix reuses a roll id",
+            )
+        roll_decisions[roll_id] = decision_id
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "setup_complete_index": setup_index,
+        "setup_complete_start_offset": (
+            0 if setup_index == 0 else rows[setup_index - 1][1]
+        ),
+        "roll_decisions": roll_decisions,
+    }
+
+
+def _validated_virtual_source_boundary(
+    campaign_dir: Path, cursor: dict[str, Any],
+) -> dict[str, Any]:
+    """Derive the one non-durable setup boundary from durable evidence."""
+    offset_started = cursor["next_source_offset"] != 0
+    index_started = cursor["next_source_index"] != 0
+    if offset_started != index_started:
+        raise TurnManifestError(
+            "state_corrupt", "turn source cursor has inconsistent opening position",
+        )
+    if offset_started:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "durable_cursor",
+            "durable_start_offset": cursor["next_source_offset"],
+            "durable_start_index": cursor["next_source_index"],
+            "effective_start_offset": cursor["next_source_offset"],
+            "effective_start_index": cursor["next_source_index"],
+            "setup_handoff": None,
+            "cursor_close_owner": "turn.finalize",
+        }
+    if cursor["last_finalized_turn_id"] is not None or cursor[
+        "last_finalization_id"
+    ] is not None:
+        raise TurnManifestError(
+            "state_corrupt", "an unopened source cursor cannot name a finalized turn",
+        )
+    boundary = _setup_source_boundary(campaign_dir)
+    if boundary is None:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "durable_cursor",
+            "durable_start_offset": 0,
+            "durable_start_index": 0,
+            "effective_start_offset": 0,
+            "effective_start_index": 0,
+            "setup_handoff": None,
+            "cursor_close_owner": "turn.finalize",
+        }
+    return boundary
+
+
+def effective_source_boundary(campaign_dir: Path) -> dict[str, Any]:
+    """Read the structured boundary shared by resume and quarantine projection.
+
+    A missing cursor is a valid virgin campaign state.  Boundary inspection is
+    a preflight, so it must not materialize that state on disk; only the
+    cursor-owning opening/finalization mutations may do so.
+    """
+    campaign_dir = Path(campaign_dir)
+    cursor_path = _cursor_path(campaign_dir)
+    if _cursor_is_regular_file(cursor_path):
+        cursor = load_or_create_cursor(campaign_dir)
+    else:
+        if _contains_historical_turns(campaign_dir):
+            raise TurnManifestError(
+                "fresh_campaign_required",
+                "campaign has historical journals without bounded turn manifests; start a fresh current-schema campaign",
+            )
+        cursor = {
+            "schema_version": SCHEMA_VERSION,
+            "campaign_id": campaign_dir.name,
+            "next_source_offset": 0,
+            "next_source_index": 0,
+            "last_finalized_turn_id": None,
+            "last_finalization_id": None,
+        }
+    return _validated_virtual_source_boundary(campaign_dir, cursor)
+
+
 def _earliest_table_opening_boundary(
     campaign_dir: Path,
     *,
@@ -500,7 +758,7 @@ def _advance_table_opening_boundary(
         _validate_cursor(
             _read_object(cursor_path, code="state_corrupt"), campaign_dir.name
         )
-        if cursor_path.is_file()
+        if _cursor_is_regular_file(cursor_path)
         else None
     )
     if cursor is not None:
@@ -771,9 +1029,9 @@ def resume_window(
     values remain in the cited toolbox receipts and canonical state files.
     """
     campaign_dir = Path(campaign_dir)
-    cursor = load_or_create_cursor(campaign_dir)
+    boundary = effective_source_boundary(campaign_dir)
     rows, observed_end = _slice_rows(
-        _toolbox_path(campaign_dir), cursor["next_source_offset"]
+        _toolbox_path(campaign_dir), boundary["effective_start_offset"]
     )
     meaningful_tool_ids = frozenset(str(value) for value in meaningful_tools)
     meaningful = [
@@ -798,7 +1056,7 @@ def resume_window(
             or id(row) not in selected_ids
         ):
             continue
-        call_index = int(cursor["next_source_index"]) + position
+        call_index = int(boundary["effective_start_index"]) + position
         projection = _resume_row_projection(row, call_index)
         size = len(
             json.dumps(
@@ -821,10 +1079,10 @@ def resume_window(
             continue
         projections.append(projection)
         used_bytes += size
-    return {
+    result = {
         "schema_version": SCHEMA_VERSION,
-        "source_start_offset": cursor["next_source_offset"],
-        "source_start_index": cursor["next_source_index"],
+        "source_start_offset": boundary["effective_start_offset"],
+        "source_start_index": boundary["effective_start_index"],
         "observed_end_offset": observed_end,
         "source_row_count": len(rows),
         "meaningful_row_count": len(meaningful),
@@ -836,6 +1094,18 @@ def resume_window(
         "source_digest": _digest([row for row, _end in rows]),
         "rows": projections,
     }
+    if boundary["kind"] == "setup_handoff_virtual":
+        result["setup_source_prefix_seal"] = {
+            "schema_version": 1,
+            "decision_id": boundary["setup_handoff"]["decision_id"],
+            "sealed_source_row_count": boundary["setup_handoff"][
+                "sealed_next_index"
+            ],
+            "effective_source_start_index": boundary["effective_start_index"],
+            "cursor_closed": False,
+            "cursor_close_owner": "evidence.table_opening",
+        }
+    return result
 
 
 def uncommitted_source_rows(campaign_dir: Path) -> list[dict[str, Any]]:
@@ -846,9 +1116,9 @@ def uncommitted_source_rows(campaign_dir: Path) -> list[dict[str, Any]]:
     invalidation disposition.
     """
     campaign_dir = Path(campaign_dir)
-    cursor = load_or_create_cursor(campaign_dir)
+    boundary = effective_source_boundary(campaign_dir)
     rows, _observed_end = _slice_rows(
-        _toolbox_path(campaign_dir), cursor["next_source_offset"]
+        _toolbox_path(campaign_dir), boundary["effective_start_offset"]
     )
     return [deepcopy(row) for row, _row_end in rows]
 
@@ -871,6 +1141,12 @@ def start_pending_turn(
         raise TurnManifestError(
             "turn_finalization_pending",
             "the previous journaled turn must be finalized or repaired before another turn can close",
+        )
+    boundary = effective_source_boundary(campaign_dir)
+    if boundary["cursor_close_owner"] == "evidence.table_opening":
+        raise TurnManifestError(
+            "table_opening_required",
+            "evidence.table_opening must close the setup prefix before state.journal",
         )
     cursor = load_or_create_cursor(campaign_dir)
     turn_id = _turn_id(campaign_dir.name, journal_decision_id)
@@ -934,6 +1210,7 @@ def refresh_pending_window(
             row.get("ok") is True
             and row.get("tool") == "state.journal"
             and args.get("decision_id") == manifest["journal_decision_id"]
+            and row.get("idempotent_replay") is not True
         ):
             journal_position = position
             journal_row = row
@@ -944,7 +1221,11 @@ def refresh_pending_window(
             "the journal state committed but its toolbox receipt is not yet durable; retry turn.output_context",
         )
 
-    selected = [deepcopy(row) for row, _end in rows[: journal_position + 1]]
+    selected = [
+        deepcopy(row)
+        for row, _end in rows[: journal_position + 1]
+        if row.get("idempotent_replay") is not True
+    ]
     repairs: list[dict[str, Any]] = []
     retry_boundary_seen = False
     for row, _row_end in rows[journal_position + 1 :]:
@@ -959,22 +1240,29 @@ def refresh_pending_window(
             # same validation and never writes a receipt, so it cannot be a
             # post-journal settlement.
             continue
-        if row.get("idempotent_replay") is True:
-            # The dispatcher emits this marker only after a read-only proof
-            # that the exact source receipt, event, and ledger were already
-            # complete before state.journal.  It is not a later settlement.
-            if tool != "state.record_npc_engagement":
-                raise TurnManifestError(
-                    "state_corrupt",
-                    "unsupported post-journal idempotent replay marker",
-                )
-            continue
         if tool == "state.journal":
             if args.get("decision_id") == manifest["journal_decision_id"]:
+                # Exact journal retries remain append-only transport/audit
+                # evidence. The original unmarked receipt continues to own the
+                # frozen source boundary and digest.
                 continue
             # A different journal after ours means a retry attempt started.
             # All subsequent rows belong to that retry, not to our turn.
             retry_boundary_seen = True
+            continue
+        if row.get("idempotent_replay") is True:
+            # The dispatcher emits this marker only after durable proof that
+            # the exact state result already existed. These two state tools are
+            # the only non-journal state operations permitted to reach this
+            # post-journal scan; their exact replay is audit, not settlement.
+            if tool not in {
+                "state.record_npc_engagement",
+                "state.exceptional_effect",
+            }:
+                raise TurnManifestError(
+                    "state_corrupt",
+                    "unsupported post-journal idempotent replay marker",
+                )
             continue
         if retry_boundary_seen:
             continue

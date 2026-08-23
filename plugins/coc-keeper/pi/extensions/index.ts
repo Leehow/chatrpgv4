@@ -43,8 +43,10 @@ import {
 import {
   buildMechanicalOutputGateEnvelope,
   buildSettledOutputGateEnvelope,
+  buildSettledOutputPreflightEnvelope,
   detectMechanicalMarkers,
   MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
+  SETTLED_OUTPUT_PREFLIGHT_CUSTOM_TYPE,
   SETTLED_OUTPUT_GATE_CUSTOM_TYPE,
   mechanicalMarkerClassesUncovered,
   type MechanicalMarker,
@@ -121,9 +123,26 @@ import {
   typedToolNameForOperation,
   wrapTypedToolInvokeParams,
 } from "../lib/typed-tools.ts";
+import {
+  registerPlayerPdfBindInstruction,
+  userMessageText,
+} from "../lib/player-pdf-bind.ts";
+import {
+  PiStateClaimCompiler,
+  PiStateClaimCompilerFailure,
+  STATE_CLAIM_HOST_FIELD,
+} from "../lib/state-claim-compiler.ts";
+export {
+  PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE,
+  detectPlayerPdfBindRequest,
+  playerPdfBindInstruction,
+  registerPlayerPdfBindInstruction,
+} from "../lib/player-pdf-bind.ts";
+export type { PlayerPdfBindDetection } from "../lib/player-pdf-bind.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
+export const TURN_PROCESSING_FAULT_CUSTOM_TYPE = "coc-turn-processing-fault";
 // The locator producer child runs under the adapter's 900s budget; this
 // outer budget must stay above it with margin (same ratio as the opening
 // review and full-parse lanes: 900s child inside a 20min outer budget). The
@@ -183,6 +202,7 @@ const mapSupplySchema = {
   properties: {
     operation: { type: "string", enum: ["detect", "render", "present"] },
     pages_dir: { type: "string" },
+    candidate_pdf_indices: { type: "array", maxItems: 256, items: { type: "integer", minimum: 0 } },
     needs_ocr: { type: "array", maxItems: 256, items: { type: "integer", minimum: 0 } },
     asset_root_id: { type: "string" },
     source_pdf_path: { type: "string" },
@@ -377,6 +397,17 @@ const ocrSchema = {
 } as const;
 
 function result(value: JsonObject) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; }
+
+function modelVisibleCanonicalEnvelope(
+  operation: unknown,
+  value: JsonObject,
+): JsonObject {
+  if (operation !== "narration.review" || value.ok !== true) return value;
+  const data = objectOrNull(value.data);
+  if (data === null || !(STATE_CLAIM_HOST_FIELD in data)) return value;
+  const { [STATE_CLAIM_HOST_FIELD]: _hostReceipt, ...visibleData } = data;
+  return { ...value, data: visibleData };
+}
 
 function isPlainJsonObject(value: unknown): value is JsonObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -918,6 +949,7 @@ type OpeningSetupState = {
     | "retry"
     | "projection"
     | "ready"
+    | "handoff_decision"
     | "opening_evidence"
     | "contract_invalid";
   dispatchIdentity: string | null;
@@ -996,6 +1028,7 @@ export class OpeningTerminalContinuationGate {
   private agentActive = false;
   private queuedVisibleDispositions: QueuedVisibleAssistantDisposition[] = [];
   private playerTurnEpoch = 0;
+  private currentExternalPlayerText: string | null = null;
   private finalizedOutput: {
     epoch: number;
     renderedText: string;
@@ -1011,6 +1044,12 @@ export class OpeningTerminalContinuationGate {
     { dice: number; resource: number }
   >();
   private pendingMechanicalOutputGateEnvelope: JsonObject | null = null;
+  private turnProcessingFault: {
+    epoch: number;
+    fault: JsonObject;
+    deliveryTaken: boolean;
+  } | null = null;
+  private preInferenceFinalizationSteerEpoch = 0;
   private nonblockingContinuation: {
     epoch: number;
     dispatchKey: string;
@@ -1022,6 +1061,10 @@ export class OpeningTerminalContinuationGate {
   private openingSetupGenerationSequence = 0;
   private readonly openingSetupLatestIssuedGeneration = new Map<string, number>();
   private readonly openingSetupRetiredGeneration = new Map<string, number>();
+  private readonly setupHandoffDecisionPlayerEpoch = new Map<string, {
+    generation: string;
+    playerTurnEpoch: number;
+  }>();
   private openingSetupAgentTurn = 0;
   private openingSetupTurnCampaignId: string | null = null;
   private openingSetupTurnCampaignAmbiguous = false;
@@ -1065,14 +1108,20 @@ export class OpeningTerminalContinuationGate {
     value: unknown,
     brief?: ChargenClerkBrief,
   ): boolean {
-    const state = this.openingSetupStates.get(campaignId);
     const result = objectOrNull(value);
     if (
-      state === undefined
-      || result?.ok !== true
+      result?.ok !== true
       || typeof result.investigator_id !== "string"
       || !result.investigator_id.trim()
     ) return false;
+
+    let state = this.openingSetupStates.get(campaignId);
+    if (state === undefined) {
+      // The aggregate chargen receipt proves character persistence only. It
+      // cannot prove whether a missing volatile opening route was a non-source
+      // starter or a source-bound campaign, so never synthesize a handoff path.
+      return false;
+    }
 
     state.characterSetupComplete = true;
     const characteristics = objectOrNull(result.characteristics) ?? {};
@@ -1115,7 +1164,14 @@ export class OpeningTerminalContinuationGate {
     if (state.phase === "reviewed") {
       this.armOpeningSelectionRoute(state);
     } else if (state.phase === "ready") {
-      this.armOpeningEvidenceRoute(state);
+      if (sessionRoleFromEnv() === "setup") {
+        this.armSetupHandoffDecisionRoute(
+          state,
+          result.investigator_id.trim(),
+        );
+      } else {
+        this.armOpeningEvidenceRoute(state);
+      }
     } else if (
       state.phase === "projection"
       && state.backgroundTerminalReceipt?.status === "fulfilled"
@@ -1131,6 +1187,74 @@ export class OpeningTerminalContinuationGate {
       revision: state.revision,
     });
     return true;
+  }
+
+  private setupHandoffDecisionId(
+    campaignId: string,
+    investigatorId: string,
+  ): string {
+    const digest = canonicalJsonValueSha256({
+      contract_id: "coc.pi-setup-handoff-decision.v1",
+      campaign_id: campaignId,
+      investigator_id: investigatorId,
+    }).slice("sha256:".length, "sha256:".length + 32);
+    return `pi-setup-handoff-${digest}`;
+  }
+
+  private setupHandoffDecisionRoute(
+    campaignId: string,
+    investigatorId: string,
+  ): OpeningSetupRoute {
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_setup_handoff_decision",
+      campaign_id: campaignId,
+      next_operation: {
+        schema_version: 1,
+        operation: "setup.complete",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {
+          campaign_id: campaignId,
+          decision_id: this.setupHandoffDecisionId(
+            campaignId,
+            investigatorId,
+          ),
+        },
+        missing_arguments: [],
+        hard_gate: true,
+        authority: "canonical_setup",
+        reason: (
+          "The confirmed investigator is ready; handoff still requires the "
+          + "player's separate semantic confirmation."
+        ),
+      },
+      instruction: (
+        "on the next player message, judge semantically whether they confirm "
+        + "opening the table or request a setup revision"
+      ),
+    };
+  }
+
+  private armSetupHandoffDecisionRoute(
+    state: OpeningSetupState,
+    investigatorId: string,
+  ): void {
+    const campaignId = state.route.campaign_id;
+    state.phase = "handoff_decision";
+    state.route = this.setupHandoffDecisionRoute(
+      campaignId,
+      investigatorId,
+    );
+    state.revision += 1;
+    state.continuationReleaseOwner = null;
+    this.setupHandoffDecisionPlayerEpoch.set(campaignId, {
+      generation: state.generation,
+      playerTurnEpoch: this.playerTurnEpoch,
+    });
+    this.openingSetupContinuationQueued.delete(campaignId);
   }
 
   private openingSetupStateForTranscript(): OpeningSetupState | null {
@@ -2772,8 +2896,16 @@ export class OpeningTerminalContinuationGate {
     if (typeof params.campaign === "string" && params.campaign.length > 0) {
       return params.campaign;
     }
-    if (params.operation !== "setup.invoke") return null;
     const args = objectOrNull(params.arguments);
+    if (params.operation === "setup.quick_start") {
+      return (
+        typeof args?.campaign_id === "string"
+        && args.campaign_id.length > 0
+      )
+        ? args.campaign_id
+        : null;
+    }
+    if (params.operation !== "setup.invoke") return null;
     if (args?.kind !== "campaign.create") return null;
     const payload = objectOrNull(args.payload);
     return (
@@ -3019,6 +3151,32 @@ export class OpeningTerminalContinuationGate {
     }
     this.noteOpeningSetupTurnCampaign(campaignId);
     if (this.exactOpeningSetupRouteInvocation(state.route, params)) {
+      if (
+        state.phase === "handoff_decision"
+        && operation === "setup.complete"
+      ) {
+        const decisionEpoch = this.setupHandoffDecisionPlayerEpoch.get(
+          campaignId,
+        );
+        if (
+          decisionEpoch === undefined
+          || decisionEpoch.generation !== state.generation
+          || this.playerTurnEpoch <= decisionEpoch.playerTurnEpoch
+        ) {
+          this.recordOpeningSetupAudit({
+            status: "rejected",
+            reason: "setup_handoff_requires_new_external_player_turn",
+            campaign_id: campaignId,
+            generation: state.generation,
+            decision_player_turn_epoch: decisionEpoch?.playerTurnEpoch,
+            current_player_turn_epoch: this.playerTurnEpoch,
+          });
+          return (
+            "setup.complete requires a new external player message after the "
+            + "handoff decision was armed"
+          );
+        }
+      }
       if (
         state.phase === "projection"
         && !state.characterSetupComplete
@@ -3330,6 +3488,144 @@ export class OpeningTerminalContinuationGate {
       && returnedGate.campaign_id === attempt.campaignId
       && returnedGate.next_operation === null
     );
+    const freshCharacterCreation = objectOrNull(data?.character_creation);
+    const freshBriefingPath = typeof freshCharacterCreation?.briefing_path === "string"
+      ? freshCharacterCreation.briefing_path
+      : "";
+    const canonicalFreshStarterCharacterSetupProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "session.resume"
+      && this.unboundAttemptIsFresh(attempt)
+      && envelope?.ok === true
+      && envelope.tool === "session.resume"
+      && data?.schema_version === 1
+      && data.campaign_id === attempt.campaignId
+      && data.mode === "awaiting_player"
+      && freshCharacterCreation !== null
+      && hasRequiredKeys(freshCharacterCreation, [
+        "status", "campaign_id", "era", "play_language", "title",
+        "briefing_path", "language",
+      ])
+      && freshCharacterCreation.status === "incomplete"
+      && freshCharacterCreation.campaign_id === attempt.campaignId
+      && typeof freshCharacterCreation.era === "string"
+      && Boolean(freshCharacterCreation.era.trim())
+      && typeof freshCharacterCreation.play_language === "string"
+      && Boolean(freshCharacterCreation.play_language.trim())
+      && freshCharacterCreation.language === freshCharacterCreation.play_language
+      && typeof freshCharacterCreation.title === "string"
+      && Boolean(freshCharacterCreation.title.trim())
+      && freshBriefingPath.startsWith(
+        `.coc/campaigns/${attempt.campaignId}/assets/character-creation/`,
+      )
+      && !freshBriefingPath.includes("/../")
+      && !freshBriefingPath.endsWith("/..")
+    );
+    const quickStartArguments = objectOrNull(params.arguments);
+    const quickStartResult = objectOrNull(data?.result);
+    const quickStartStateRefs = data?.state_refs;
+    const quickStartResultKeys = new Set([
+      "campaign_id", "investigator_id", "needs_investigator",
+      "scenario_id", "pregen_id", "character_path", "campaign_dir",
+    ]);
+    const quickStartWarnings = quickStartResult?.warnings;
+    const quickStartRoot = (
+      typeof params.root === "string"
+      && isAbsolute(params.root)
+      && params.root === resolve(params.root)
+    ) ? params.root : null;
+    const quickStartInvestigatorId = typeof quickStartResult?.investigator_id === "string"
+      ? quickStartResult.investigator_id
+      : "";
+    const quickStartCampaignDir = typeof quickStartResult?.campaign_dir === "string"
+      ? quickStartResult.campaign_dir
+      : "";
+    const quickStartCharacterPath = typeof quickStartResult?.character_path === "string"
+      ? quickStartResult.character_path
+      : "";
+    const exactQuickStartCampaignDir = (
+      quickStartRoot !== null
+      && isAbsolute(quickStartCampaignDir)
+      && quickStartCampaignDir === resolve(quickStartCampaignDir)
+      && quickStartCampaignDir === resolve(
+        quickStartRoot,
+        ".coc",
+        "campaigns",
+        attempt.campaignId,
+      )
+    );
+    const quickStartInvestigatorLess = (
+      quickStartResult?.needs_investigator === true
+      && (
+        quickStartArguments?.pregen_id === undefined
+        || quickStartArguments.pregen_id === null
+      )
+      && quickStartResult.investigator_id === null
+      && quickStartResult.pregen_id === null
+      && quickStartResult.character_path === null
+      && Array.isArray(quickStartStateRefs)
+      && quickStartStateRefs.length === 1
+      && quickStartStateRefs[0]
+        === `.coc/campaigns/${attempt.campaignId}`
+    );
+    const quickStartLinkedPregen = (
+      quickStartResult?.needs_investigator === false
+      && Boolean(quickStartInvestigatorId.trim())
+      && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(quickStartInvestigatorId)
+      && typeof quickStartResult?.pregen_id === "string"
+      && OPENING_START_LOCATION_ID.test(quickStartResult.pregen_id)
+      && quickStartArguments?.pregen_id === quickStartResult.pregen_id
+      && quickStartRoot !== null
+      && isAbsolute(quickStartCharacterPath)
+      && quickStartCharacterPath === resolve(quickStartCharacterPath)
+      && quickStartCharacterPath === resolve(
+        quickStartRoot,
+        ".coc",
+        "investigators",
+        quickStartInvestigatorId,
+        "character.json",
+      )
+      && Array.isArray(quickStartStateRefs)
+      && quickStartStateRefs.length === 2
+      && quickStartStateRefs[0]
+        === `.coc/campaigns/${attempt.campaignId}`
+      && quickStartStateRefs[1]
+        === `.coc/investigators/${quickStartInvestigatorId}/character.json`
+    );
+    const canonicalFreshQuickStartProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "setup.quick_start"
+      && attempt.agentTurn === this.openingSetupAgentTurn
+      && this.unboundAttemptIsFresh(attempt)
+      && envelope?.ok === true
+      && envelope.tool === "setup.quick_start"
+      && data?.schema_version === 1
+      && data.status === "PASS"
+      && data.kind === "campaign.quick_start"
+      && quickStartArguments !== null
+      && typeof quickStartArguments.scenario_id === "string"
+      && Boolean(quickStartArguments.scenario_id.trim())
+      && quickStartArguments.campaign_id === attempt.campaignId
+      && quickStartResult !== null
+      && [...quickStartResultKeys].every((key) => key in quickStartResult)
+      && Object.keys(quickStartResult).every((key) => (
+        quickStartResultKeys.has(key) || key === "warnings"
+      ))
+      && (
+        quickStartWarnings === undefined
+        || (
+          Array.isArray(quickStartWarnings)
+          && quickStartWarnings.every((warning) => (
+            typeof warning === "string" && Boolean(warning.trim())
+          ))
+        )
+      )
+      && quickStartResult.campaign_id === attempt.campaignId
+      && quickStartResult.scenario_id === quickStartArguments.scenario_id
+      && isCanonicalCampaignId(attempt.campaignId)
+      && exactQuickStartCampaignDir
+      && (quickStartInvestigatorLess || quickStartLinkedPregen)
+    );
     const canonicalMaterializationProbe = (
       attempt.attemptClass === "probe"
       && operation === "session.resume"
@@ -3488,6 +3784,95 @@ export class OpeningTerminalContinuationGate {
         accepted: true,
         dispatchAllowed: false,
         reason: "prebound_opening_source_review_required",
+      };
+    }
+    if (state === undefined && canonicalFreshQuickStartProbe) {
+      const route = this.recoveredCurrentCharacterSetupRoute(
+        attempt.campaignId,
+      );
+      const initialized = this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "ready",
+        attempt,
+      );
+      if (quickStartLinkedPregen) {
+        initialized.characterSetupComplete = true;
+        this.armSetupHandoffDecisionRoute(
+          initialized,
+          quickStartInvestigatorId,
+        );
+      }
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: quickStartLinkedPregen
+          ? "canonical_fresh_quick_start_pregen_handoff_hydrated"
+          : "canonical_fresh_quick_start_character_setup_hydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: quickStartLinkedPregen
+          ? "fresh_quick_start_pregen_handoff_decision"
+          : "fresh_quick_start_character_setup",
+        ...(quickStartLinkedPregen
+          ? {}
+          : {
+              modelProjection: this.safeRecoveredCharacterSetupProjection(
+                attempt.campaignId,
+                route,
+              ),
+            }),
+      };
+    }
+    if (
+      state === undefined
+      && attempt.attemptClass === "probe"
+      && operation === "setup.quick_start"
+    ) {
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "fresh_quick_start_result_invalid",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "fresh_quick_start_result_invalid",
+      };
+    }
+    if (state === undefined && canonicalFreshStarterCharacterSetupProbe) {
+      const route = this.recoveredCurrentCharacterSetupRoute(
+        attempt.campaignId,
+      );
+      this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "ready",
+        attempt,
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: "canonical_fresh_starter_character_setup_rehydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "fresh_starter_character_setup",
+        modelProjection: this.safeRecoveredCharacterSetupProjection(
+          attempt.campaignId,
+          route,
+        ),
       };
     }
     if (state === undefined && canonicalCharacterSetupProbe) {
@@ -3846,7 +4231,39 @@ export class OpeningTerminalContinuationGate {
     }
     if (operation === "setup.complete") {
       this.finalizeOpeningSetupAttempt(invocationId);
-      if (envelope?.ok === true) {
+      if (attempt.agentTurn !== this.openingSetupAgentTurn) {
+        const hasCurrentAttempt = [...this.openingSetupAttempts.values()].some(
+          (candidate) => (
+            candidate.campaignId === attempt.campaignId
+            && candidate.agentTurn === this.openingSetupAgentTurn
+          ),
+        );
+        if (!hasCurrentAttempt) {
+          this.openingSetupContinuationQueued.delete(attempt.campaignId);
+        }
+        this.recordOpeningSetupAudit({
+          status: "ignored",
+          reason: "opening_setup_handoff_late_agent_turn",
+          campaign_id: attempt.campaignId,
+          invocation_id: invocationId,
+          attempt_agent_turn: attempt.agentTurn,
+          current_agent_turn: this.openingSetupAgentTurn,
+        });
+        return {
+          accepted: false,
+          dispatchAllowed: false,
+          reason: "opening_setup_handoff_late_agent_turn",
+        };
+      }
+      const argumentsObject = objectOrNull(params.arguments);
+      const decisionId = typeof argumentsObject?.decision_id === "string"
+        ? argumentsObject.decision_id
+        : "";
+      const handoff = handoffFromEnvelope(envelope, {
+        campaignId: attempt.campaignId,
+        decisionId,
+      });
+      if (handoff !== null) {
         this.clearOpeningSetupRoute(
           attempt.campaignId,
           state.generation,
@@ -3857,10 +4274,17 @@ export class OpeningTerminalContinuationGate {
           reason: "opening_setup_handoff_complete",
         };
       }
+      this.openingSetupContinuationQueued.delete(attempt.campaignId);
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "opening_setup_handoff_invalid",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
       return {
         accepted: false,
         dispatchAllowed: false,
-        reason: "opening_setup_handoff_failed",
+        reason: "opening_setup_handoff_invalid",
       };
     }
     if (operation === "progressive.prepare_opening") {
@@ -4140,6 +4564,7 @@ export class OpeningTerminalContinuationGate {
     if (
       state === null
       || state.route.next_operation === null
+      || state.phase === "handoff_decision"
       || (
         (state.phase === "projection" || state.phase === "selection")
         && !state.characterSetupComplete
@@ -4156,6 +4581,28 @@ export class OpeningTerminalContinuationGate {
 
   openingTableDecisionContext(): JsonObject | null {
     const state = this.openingSetupStateForTranscript();
+    if (
+      state !== null
+      && state.characterSetupComplete
+      && state.phase === "handoff_decision"
+      && state.route.next_operation?.operation === "setup.complete"
+    ) {
+      return {
+        schema_version: 1,
+        campaign_id: state.route.campaign_id,
+        phase: state.route.phase,
+        player_decision_required: true,
+        instruction: (
+          "Judge the player's latest message semantically. If they confirm "
+          + "opening the table, the first and only tool call is the exact "
+          + "model-visible typed tool named typed_tool with the prefilled "
+          + "arguments below. If they request a revision, do not invoke "
+          + "setup.complete; remain in setup and handle only that revision."
+        ),
+        typed_tool: typedToolNameForOperation("setup.complete"),
+        next_operation: structuredClone(state.route.next_operation),
+      };
+    }
     if (
       state === null
       || !state.characterSetupComplete
@@ -4204,6 +4651,7 @@ export class OpeningTerminalContinuationGate {
         }
       }
       this.openingSetupStates.delete(campaignId);
+      this.setupHandoffDecisionPlayerEpoch.delete(campaignId);
       this.openingSetupContinuationQueued.delete(campaignId);
       this.openingSetupTerminalBlockers.delete(campaignId);
       if (
@@ -4215,6 +4663,7 @@ export class OpeningTerminalContinuationGate {
       return;
     }
     this.openingSetupStates.clear();
+    this.setupHandoffDecisionPlayerEpoch.clear();
     this.openingSetupAttempts.clear();
     this.openingSetupLatestIssuedGeneration.clear();
     this.openingSetupRetiredGeneration.clear();
@@ -4651,6 +5100,43 @@ export class OpeningTerminalContinuationGate {
     return {
       ...params,
       campaign: state.route.campaign_id,
+    };
+  }
+
+  prepareSetupCompleteArguments(value: unknown): unknown {
+    const args = objectOrNull(value);
+    if (
+      args === null
+      || args.decision_id !== undefined
+      || typeof args.campaign_id !== "string"
+      || !args.campaign_id.trim()
+      || (
+        args.campaign !== undefined
+        && args.campaign !== args.campaign_id
+      )
+    ) return value;
+    const campaignId = args.campaign_id.trim();
+    const state = this.openingSetupStates.get(campaignId);
+    const card = state?.route.next_operation;
+    const prefilled = objectOrNull(card?.prefilled_arguments);
+    const missing = Array.isArray(card?.missing_arguments)
+      ? card.missing_arguments
+      : null;
+    if (
+      state === undefined
+      || !state.characterSetupComplete
+      || state.phase !== "handoff_decision"
+      || state.route.campaign_id !== campaignId
+      || card?.operation !== "setup.complete"
+      || missing === null
+      || missing.length !== 0
+      || prefilled?.campaign_id !== campaignId
+      || typeof prefilled.decision_id !== "string"
+      || !prefilled.decision_id
+    ) return value;
+    return {
+      ...args,
+      decision_id: prefilled.decision_id,
     };
   }
 
@@ -5187,13 +5673,94 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
-  markExternalUserInput(): void {
+  armTurnProcessingFault(base: JsonObject): { fault: JsonObject; first: boolean } {
+    if (
+      this.turnProcessingFault !== null
+      && this.turnProcessingFault.epoch === this.playerTurnEpoch
+    ) return { fault: this.turnProcessingFault.fault, first: false };
+    const fault: JsonObject = {
+      ...base,
+      player_turn_epoch: this.playerTurnEpoch,
+    };
+    this.turnProcessingFault = {
+      epoch: this.playerTurnEpoch,
+      fault,
+      deliveryTaken: false,
+    };
+    this.pendingMechanicalOutputGateEnvelope = null;
+    return { fault, first: true };
+  }
+
+  currentTurnProcessingFault(): JsonObject | null {
+    return this.turnProcessingFault?.epoch === this.playerTurnEpoch
+      ? this.turnProcessingFault.fault
+      : null;
+  }
+
+  takeTurnProcessingFaultForDelivery(): JsonObject | null {
+    const retained = this.turnProcessingFault;
+    if (
+      retained === null
+      || retained.epoch !== this.playerTurnEpoch
+      || retained.deliveryTaken
+    ) return null;
+    retained.deliveryTaken = true;
+    return retained.fault;
+  }
+
+  releaseTurnProcessingFaultDelivery(fault: JsonObject): void {
+    if (
+      this.turnProcessingFault?.epoch === this.playerTurnEpoch
+      && this.turnProcessingFault.fault === fault
+    ) {
+      this.turnProcessingFault.deliveryTaken = false;
+    }
+  }
+
+  markExternalUserInput(playerText: string | null = null): void {
     this.playerTurnEpoch += 1;
+    this.currentExternalPlayerText = playerText;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
     this.currentDependencySuppression = null;
     this.currentVisibleCampaignId = null;
     this.pendingMechanicalOutputGateEnvelope = null;
+    this.turnProcessingFault = null;
+  }
+
+  bindHandoutReplayRequest(params: JsonObject): JsonObject {
+    if (params.operation !== "state.replay_handout") return params;
+    const args = objectOrNull(params.arguments);
+    const assertion = objectOrNull(args?.request_assertion);
+    const assetId = typeof args?.handout_id === "string"
+      ? args.handout_id.trim()
+      : "";
+    const playerText = typeof assertion?.player_text === "string"
+      ? assertion.player_text
+      : null;
+    if (
+      this.playerTurnEpoch < 1
+      || this.currentExternalPlayerText === null
+      || playerText !== this.currentExternalPlayerText
+    ) {
+      throw new Error(
+        "state.replay_handout request_assertion.player_text must equal the "
+        + "exact current external player message",
+      );
+    }
+    if (!assetId) {
+      throw new Error("state.replay_handout handout_id must be non-empty");
+    }
+    return {
+      ...params,
+      arguments: {
+        ...args,
+        request_assertion: {
+          ...assertion,
+          player_turn_epoch: this.playerTurnEpoch,
+        },
+      },
+    };
   }
 
   observeCanonicalReceipt(
@@ -5249,6 +5816,32 @@ export class OpeningTerminalContinuationGate {
     const envelope = this.pendingMechanicalOutputGateEnvelope;
     this.pendingMechanicalOutputGateEnvelope = null;
     return envelope;
+  }
+
+  takePreInferenceFinalizationSteer(
+    requireFinalization: boolean,
+  ): JsonObject | null {
+    if (
+      !requireFinalization
+      || this.playerTurnEpoch <= 0
+      || this.preInferenceFinalizationSteerEpoch === this.playerTurnEpoch
+    ) {
+      return null;
+    }
+    return buildSettledOutputPreflightEnvelope(this.playerTurnEpoch);
+  }
+
+  markPreInferenceFinalizationSteerDelivered(envelope: JsonObject): boolean {
+    if (
+      envelope.kind !== "settled_output_preflight"
+      || envelope.player_turn_epoch !== this.playerTurnEpoch
+      || this.playerTurnEpoch <= 0
+      || this.preInferenceFinalizationSteerEpoch === this.playerTurnEpoch
+    ) {
+      return false;
+    }
+    this.preInferenceFinalizationSteerEpoch = this.playerTurnEpoch;
+    return true;
   }
 
   coordinatorContinuationContext(
@@ -5327,7 +5920,8 @@ export class OpeningTerminalContinuationGate {
       details?: unknown;
     };
     if (value.role === "user") {
-      this.markExternalUserInput();
+      const playerText = userMessageText(message);
+      if (playerText !== null) this.markExternalUserInput(playerText);
       return;
     }
     if (
@@ -5494,6 +6088,10 @@ export class OpeningTerminalContinuationGate {
       return false;
     }
     const currentSuppression = this.currentDependencySuppression;
+    if (this.currentTurnProcessingFault() !== null) {
+      this.pendingMechanicalOutputGateEnvelope = null;
+      return false;
+    }
     const terminalConsumptionPending = (
       this.currentVisibleCampaignId !== null
       && [...this.currentDependencyWaits.values()].some((wait) => (
@@ -5700,10 +6298,13 @@ export class OpeningTerminalContinuationGate {
     this.agentActive = false;
     this.queuedVisibleDispositions = [];
     this.playerTurnEpoch = 0;
+    this.currentExternalPlayerText = null;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
     this.epochMechanicalReceipts.clear();
     this.pendingMechanicalOutputGateEnvelope = null;
+    this.turnProcessingFault = null;
+    this.preInferenceFinalizationSteerEpoch = 0;
     this.clearOpeningSetupRoute();
     this.openingSetupGenerationSequence = 0;
     this.openingSetupAgentTurn = 0;
@@ -5777,193 +6378,6 @@ export function registerPlayerTranscriptGate(
       return;
     }
     return { message: withoutAssistantText(event.message) };
-  });
-}
-
-/**
- * Extension-layer forced injection for raw-PDF module binds.
- *
- * Skills are advisory for the live KP: observed DeepSeek sessions receive a
- * player message carrying a local PDF path, never load coc-module-init's bind
- * flow (pi docs: models do not always load SKILL.md), and instead call
- * unrelated setup.invoke operations or claim the system is "producing a source
- * bundle" while no parsing ever happens. This hook structurally detects the
- * `.pdf` path in the player's user message and steers one hidden instruction
- * into the KP context BEFORE its first model call, so `scenario.bind_pdf`
- * becomes the KP's first tool call without relying on the model reading any
- * skill. Injection is once per session per normalized PDF path.
- */
-export const PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE =
-  "coc-player-pdf-bind-instruction";
-
-/** One-shot hidden instruction: bind the player-provided raw PDF first. */
-export function playerPdfBindInstruction(pdfPath: string): string {
-  return (
-    `玩家提供了 PDF：${pdfPath}。第一步必须调 \`scenario.bind_pdf\`（参数 `
-    + `source_bundle_path=${pdfPath}）。若返回 bundle-must-be-directory 错误，`
-    + "这是正确触发，系统会自动产包；等 hidden "
-    + "`coc-raw-pdf-bind-first-bundle-terminal` 通知（含真实 bundle 路径）后"
-    + "再 bind。不要调 setup.invoke 其他操作，不要宣称系统在后台工作直到收到"
-    + "通知。"
-  );
-}
-
-export type PlayerPdfBindDetection =
-  | { status: "inject"; pdfPath: string }
-  | { status: "skip"; reason: string };
-
-/**
- * Extract the text payload of a user message (ignores toolResult parts so
- * tool-result transcripts never look like new player input).
- */
-function userMessageText(message: unknown): string | null {
-  if (!message || typeof message !== "object") return null;
-  const value = message as { role?: unknown; content?: unknown };
-  if (value.role !== "user") return null;
-  if (!Array.isArray(value.content)) return null;
-  const texts: string[] = [];
-  for (const part of value.content) {
-    if (!part || typeof part !== "object") continue;
-    const candidate = part as { type?: unknown; text?: unknown };
-    if (candidate.type !== "text" || typeof candidate.text !== "string") {
-      continue;
-    }
-    texts.push(candidate.text);
-  }
-  const text = texts.join("\n").trim();
-  return text.length > 0 ? text : null;
-}
-
-/**
- * Normalize a raw `.pdf` token into an absolute path. URLs and empty tokens
- * are rejected structurally; `~` and relative paths resolve against the
- * workspace root exactly like the canonical toolbox does for
- * `source_bundle_path`.
- */
-function normalizePlayerPdfPath(
-  raw: string,
-  workspaceRoot: string,
-): string | null {
-  const stripped = raw.trim().replace(
-    /^[`"'“”『「]+|[`"'“”『」]+$/g,
-    "",
-  );
-  if (!stripped) return null;
-  // Structural guard: a URL is a link, not a local PDF path. Never treat
-  // http(s)://…/x.pdf as a bindable source.
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(stripped)) return null;
-  const expanded = stripped.startsWith("~/")
-    ? join(homedir(), stripped.slice(2))
-    : stripped;
-  return isAbsolute(expanded)
-    ? resolve(expanded)
-    : resolve(workspaceRoot, expanded);
-}
-
-/**
- * Extract the raw `.pdf` path token from a user message. Priority order:
- * quote-delimited `.pdf` substrings (paths containing spaces), then
- * whitespace tokens ending in `.pdf`. A token's path portion begins at the
- * first path separator so CJK prose directly abutting an absolute path
- * (「跑这个本：/tmp/x.pdf」) never pollutes the resolved path; URL tokens are
- * excluded before extraction.
- */
-function extractPdfPathToken(text: string): string | null {
-  const quoted = text.match(
-    /(?:[`"'“”『「])([^`"'“”『」]*?\.pdf)(?:[`"'“”『」])/i,
-  );
-  if (quoted) return quoted[1];
-  for (const token of text.split(/\s+/)) {
-    if (!/\.pdf$/i.test(token)) continue;
-    if (token.includes("://")) continue;
-    const candidate = token.startsWith("~/")
-      ? token
-      : (() => {
-        const index = token.search(/[/\\]/);
-        return index >= 0 ? token.slice(index) : token;
-      })();
-    const cleaned = candidate.replace(/[\])},.，。、；：]+$/g, "");
-    if (!/\.pdf$/i.test(cleaned)) continue;
-    return cleaned;
-  }
-  return null;
-}
-
-/**
- * Structural detection, not keyword matching: the only signal is a `.pdf`
- * path token in the player's user message (quote-delimited first so paths
- * containing spaces survive, then any whitespace-delimited token). Returns
- * the normalized absolute path when detected.
- */
-export function detectPlayerPdfBindRequest(
-  message: unknown,
-  workspaceRoot: string,
-): PlayerPdfBindDetection {
-  const text = userMessageText(message);
-  if (text === null) {
-    return { status: "skip", reason: "not_a_user_text_message" };
-  }
-  const rawCandidate = extractPdfPathToken(text);
-  if (rawCandidate === null) {
-    return { status: "skip", reason: "no_pdf_path_token" };
-  }
-  const pdfPath = normalizePlayerPdfPath(rawCandidate, workspaceRoot);
-  if (pdfPath === null) {
-    return { status: "skip", reason: "pdf_path_url_or_empty" };
-  }
-  return { status: "inject", pdfPath };
-}
-
-/**
- * Register the forced-injection listener. On a player user message carrying a
- * real local `.pdf` path, one hidden instruction is steered into the KP
- * context before the first model call of that turn (`deliverAs: "steer"` is
- * drained by the agent loop before `streamAssistantResponse`). Once-per-path
- * dedup survives within the caller-provided session set and is rolled back on
- * a delivery failure so one transient drop does not burn the injection.
- */
-export function registerPlayerPdfBindInstruction(
-  pi: ExtensionAPI,
-  options: {
-    workspaceRoot: (ctx: ExtensionContext) => string;
-    isCurrent: (epoch: number) => boolean;
-    epoch: () => number;
-    injectedPaths?: Set<string>;
-  },
-): void {
-  const injectedPaths = options.injectedPaths ?? new Set<string>();
-  pi.on("message_start", async (event, ctx) => {
-    const detection = await detectPlayerPdfBindRequest(
-      event.message,
-      options.workspaceRoot(ctx),
-    );
-    if (detection.status !== "inject") return;
-    if (!options.isCurrent(options.epoch())) return;
-    if (injectedPaths.has(detection.pdfPath)) return;
-    // Only bindable reality is injected: a path that does not exist on disk is
-    // a document mention, not a player-provided module, so it stays silent.
-    let fileStat;
-    try {
-      fileStat = await stat(detection.pdfPath);
-    } catch {
-      return;
-    }
-    if (!fileStat.isFile()) return;
-    injectedPaths.add(detection.pdfPath);
-    try {
-      pi.sendMessage({
-        customType: PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE,
-        content: playerPdfBindInstruction(detection.pdfPath),
-        display: false,
-        details: {
-          schema_version: 1,
-          pdf_path: detection.pdfPath,
-          instruction_ref: "pi.player-pdf-bind.first-instruction.v1",
-        },
-      }, { deliverAs: "steer" });
-    } catch {
-      injectedPaths.delete(detection.pdfPath);
-    }
   });
 }
 
@@ -6089,6 +6503,42 @@ export function deliverMechanicalOutputGateInstruction(
   } catch {
     return false;
   }
+}
+
+export function deliverPreInferenceFinalizationSteer(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  envelope: JsonObject | null,
+): boolean {
+  if (envelope === null) return false;
+  try {
+    pi.appendEntry("coc-settled-output-preflight", envelope);
+  } catch { /* preflight audit is best effort */ }
+  try {
+    pi.sendMessage({
+      customType: SETTLED_OUTPUT_PREFLIGHT_CUSTOM_TYPE,
+      content: JSON.stringify(envelope),
+      display: false,
+      details: envelope,
+    }, { deliverAs: "steer" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function deliverPendingPreInferenceFinalizationSteer(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  gate: OpeningTerminalContinuationGate,
+  requireFinalization: boolean,
+): "not_required" | "delivered" | "failed" {
+  const envelope = gate.takePreInferenceFinalizationSteer(
+    requireFinalization,
+  );
+  if (envelope === null) return "not_required";
+  if (!deliverPreInferenceFinalizationSteer(pi, envelope)) return "failed";
+  return gate.markPreInferenceFinalizationSteerDelivered(envelope)
+    ? "delivered"
+    : "failed";
 }
 
 function absolute(value: unknown, label: string) {
@@ -7074,7 +7524,15 @@ export async function autoDispatchPiRawPdfBindBundle(
           // repository re-checks them, so an invented anchor rejects the bundle.
           grep_anchors: ["<exact substring copied from that page>"],
         }],
+        // Required array; empty is valid when this selected window has no
+        // extractable image. Each row binds exact bytes to one selected page.
+        assets: [{
+          path: "<bundle-relative PNG, JPEG, or WebP path>",
+          sha256: "<sha256 of exact image bytes>",
+          pdf_index: "<selected zero-based PDF index containing this image>",
+        }],
       },
+      assets_may_be_empty: true,
     },
     result_delivery: "natural_completion_notification_only",
   };
@@ -7566,6 +8024,7 @@ interface MainExtensionOverrides {
     context: PrivateLaunchContext,
     signal?: AbortSignal,
   ) => ChildRun;
+  createStateClaimCompiler?: () => PiStateClaimCompiler;
 }
 
 export function explicitPiStartupCampaignId(
@@ -7711,10 +8170,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
   let pendingStewardRefillStates = new Map<string, JsonObject>();
   let pendingStewardRefillRuns = new Set<Promise<unknown>>();
-  let injectedPlayerPdfPaths = new Set<string>();
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const nonRetryableFailureCircuit = new NonRetryableFailureCircuit();
+  const stateClaimCompiler = (
+    overrides.createStateClaimCompiler?.() ?? new PiStateClaimCompiler()
+  );
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
@@ -7762,10 +8223,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     };
     setImmediate(leave);
   };
-  const emitSetupHandoff = (envelope: JsonObject | null, operation: string) => {
+  const emitSetupHandoff = (
+    envelope: JsonObject | null,
+    operation: string,
+    params: JsonObject,
+  ) => {
+    const argumentsObject = objectOrNull(params.arguments);
+    const campaignId = typeof params.campaign === "string"
+      ? params.campaign
+      : "";
+    const decisionId = typeof argumentsObject?.decision_id === "string"
+      ? argumentsObject.decision_id
+      : "";
     const handoff = handoffFromEnvelope({
       ...(envelope ?? {}),
       operation,
+    }, {
+      campaignId,
+      decisionId,
     });
     if (handoff === null) return;
     const payload = {
@@ -7804,6 +8279,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     overrides.createClient?.(ctx)
     ?? new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui")
   );
+  const deliverTurnProcessingFault = (fault: JsonObject): boolean => {
+    try {
+      pi.sendMessage({
+        customType: TURN_PROCESSING_FAULT_CUSTOM_TYPE,
+        content: JSON.stringify(fault),
+        display: false,
+        details: fault,
+      }, { triggerTurn: false });
+      return true;
+    } catch {
+      openingContinuationGate.releaseTurnProcessingFaultDelivery(fault);
+      return false;
+    }
+  };
   const refreshKeeperBriefing = async (
     ctx: ExtensionContext,
     campaignId: string,
@@ -8020,6 +8509,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = false;
     openingContinuationGate.reset();
     nonRetryableFailureCircuit.reset();
+    stateClaimCompiler.clear();
     startSemanticSupply(ctx, sessionEpoch);
     sourceProducerStates = new Map<string, JsonObject>();
     sourceProducerControllers = new Map<string, AbortController>();
@@ -8932,6 +9422,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
     }
+    params = openingContinuationGate.bindHandoutReplayRequest(params);
     params = bindStartupResumeInvocation(name, params);
     params = openingContinuationGate.bindRetainedOpeningRoute(params);
     const epoch = sessionEpoch;
@@ -8964,7 +9455,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // retain it in arguments.campaign_id and omit only the transport-level
       // recovery selector for this exact fresh-creation invocation.
       const { campaign: _freshCampaignSelector, ...freshCreationParams } = params;
-      params = freshCreationParams;
+      params = {
+        ...freshCreationParams,
+        root: freshCreationParams.root ?? startupResumeGate?.workspaceRoot,
+      };
     }
     if (isCanonicalInvokeSurface(name) && PRIVATE_LEASE_OPERATIONS.has(String(params.operation))) {
       try {
@@ -9057,6 +9551,152 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         return result(blocked);
       }
     }
+    if (
+      isCanonicalInvokeSurface(name)
+      && params.operation === "narration.review"
+      && sessionRoleFromEnv() === "play"
+    ) {
+      const retainedFault = openingContinuationGate.currentTurnProcessingFault();
+      if (retainedFault !== null) {
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code: "turn_processing_fault_latched",
+            retryable: false,
+            message: "this player turn has a terminal processing fault; recover the preserved turn before retrying",
+            details: retainedFault,
+          },
+        });
+      }
+      const campaignId = typeof params.campaign === "string" ? params.campaign.trim() : "";
+      const reviewArgs = objectOrNull(params.arguments);
+      if (!campaignId || reviewArgs === null) {
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code: "state_claim_compiler_context_missing",
+            message: "call turn.output_context for this pending turn before narration.review",
+          },
+        });
+      }
+      // The field is host-owned on typed, domain, and compatibility paths.
+      // Never preserve a caller-supplied value, even when it happens to be valid.
+      const {
+        [STATE_CLAIM_HOST_FIELD]: _forgedCompilation,
+        ...keeperReviewArgs
+      } = reviewArgs;
+      try {
+        const compilation = await stateClaimCompiler.compileReview({
+          campaignId,
+          arguments: keeperReviewArgs,
+          ctx,
+          signal,
+          sessionEpoch: epoch,
+          isCurrent,
+        });
+        params = {
+          ...params,
+          arguments: {
+            ...keeperReviewArgs,
+            [STATE_CLAIM_HOST_FIELD]: compilation,
+          },
+        };
+      } catch (error) {
+        const failure = error instanceof Error ? error.message : "";
+        const contextMissing = failure === "state_claim_compiler_context_missing";
+        const typedFailure = error instanceof PiStateClaimCompilerFailure
+          ? error
+          : null;
+        const invalid = typedFailure !== null
+          ? typedFailure.failureClass === "protocol_invalid"
+            || typedFailure.failureClass === "result_invalid"
+          : failure.startsWith("state_claim_result_")
+            || failure.startsWith("state_claim_coverage_")
+            || failure.startsWith("state_claim_response_")
+            || failure.startsWith("state_claim_model_protocol_")
+            || failure.startsWith("state_claim_model_arguments_");
+        const code = contextMissing
+          ? "state_claim_compiler_context_missing"
+          : invalid
+            ? "state_claim_compiler_invalid"
+            : "state_claim_compiler_unavailable";
+        const armed = typedFailure === null
+          ? null
+          : openingContinuationGate.armTurnProcessingFault({
+            schema_version: 1,
+            contract_id: "coc.pi-turn-processing-fault.v1",
+            kind: "turn_processing_fault",
+            status: "terminal",
+            stage: "state_claim_compilation",
+            campaign_id: campaignId,
+            turn_id: typeof keeperReviewArgs.turn_id === "string"
+              ? keeperReviewArgs.turn_id
+              : null,
+            code,
+            message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+            retryable: false,
+            will_retry: false,
+            pending_turn_preserved: true,
+            failure_class: typedFailure.failureClass,
+            requested_model: typedFailure.requestedModel === null
+              ? null
+              : {
+                provider: typeof typedFailure.requestedModel.provider === "string"
+                  ? typedFailure.requestedModel.provider
+                  : null,
+                id: typeof typedFailure.requestedModel.id === "string"
+                  ? typedFailure.requestedModel.id
+                  : null,
+                api: typeof typedFailure.requestedModel.api === "string"
+                  ? typedFailure.requestedModel.api
+                  : null,
+              },
+            elapsed_ms: typedFailure.elapsedMs,
+          });
+        try {
+          pi.appendEntry("coc-state-claim-compiler", {
+            schema_version: 1,
+            status: "failed",
+            code,
+            campaign_id: campaignId,
+            turn_id: keeperReviewArgs.turn_id,
+            draft_sha256: typeof keeperReviewArgs.draft_text === "string"
+              ? createHash("sha256").update(JSON.stringify(keeperReviewArgs.draft_text), "utf8").digest("hex")
+              : null,
+            ...(typedFailure === null ? {} : {
+              failure_class: typedFailure.failureClass,
+              requested_model: typedFailure.requestedModel,
+              elapsed_ms: typedFailure.elapsedMs,
+            }),
+          });
+        } catch { /* compiler failure audit is best effort */ }
+        if (armed?.first === true) {
+          try {
+            pi.appendEntry(TURN_PROCESSING_FAULT_CUSTOM_TYPE, armed.fault);
+          } catch { /* terminal fault audit is best effort */ }
+          const deliverable = (
+            openingContinuationGate.takeTurnProcessingFaultForDelivery()
+          );
+          if (deliverable !== null) {
+            deliverTurnProcessingFault(deliverable);
+          }
+        }
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code,
+            retryable: false,
+            message: contextMissing
+              ? "call turn.output_context for this pending turn before narration.review"
+              : "player-state claim compilation did not complete; narration review was not recorded",
+            ...(armed === null ? {} : { details: armed.fault }),
+          },
+        });
+      }
+    }
     let preparedSceneSupply: JsonObject | null = null;
     if (isCanonicalInvokeSurface(name) && params.operation === "state.move_scene") {
       const preflight = await sceneSupplyPreflight(params, signal, ctx);
@@ -9065,13 +9705,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     let value: unknown;
     let transportMeta: McpTransportMeta | null = null;
-    const gatewayResult = (visible: JsonObject) => {
-      const rendered = result(visible);
-      // `details` travels only in Pi's internal tool-execution event. Its
-      // model-facing `content` remains the exact canonical envelope.
+    const gatewayResult = (canonical: JsonObject) => {
+      const visible = modelVisibleCanonicalEnvelope(params.operation, canonical);
+      const rendered = { ...result(visible), details: canonical };
+      // `details` retains the canonical host receipt for the internal event;
+      // model-facing `content` receives the host-only-field projection.
       return transportMeta === null
         ? rendered
-        : { ...rendered, details: { ...visible, coc_transport: transportMeta } };
+        : { ...rendered, details: { ...canonical, coc_transport: transportMeta } };
     };
     let scenePriorityHandled = false;
     try {
@@ -9083,6 +9724,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       value = call.value;
       transportMeta = call.transport;
       turnTelemetry?.recordTransportMeta(_id, transportMeta);
+      if (
+        params.operation === "turn.output_context"
+        && typeof params.campaign === "string"
+        && sessionRoleFromEnv() === "play"
+      ) {
+        stateClaimCompiler.observeOutputContext(params.campaign, value);
+      }
       if (
         process.env.COC_PI_SCENE_SUPPLY === "1"
         && params.operation === "steward.scene_supply"
@@ -9413,7 +10061,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       if (startupFreshSetupAttempt) {
         const selectedCampaignId = startupResumeGate?.campaignId ?? "";
-        if (exactStartupFreshSetupResult(value, selectedCampaignId)) {
+        if (
+          exactStartupFreshSetupResult(value, selectedCampaignId)
+          && (
+            !startupFreshQuickStartAttempt
+            || (
+              openingObservation.accepted
+              && (
+                openingObservation.reason === "fresh_quick_start_character_setup"
+                || openingObservation.reason
+                  === "fresh_quick_start_pregen_handoff_decision"
+              )
+            )
+          )
+        ) {
           startupResumeGate = null;
           applyKpActiveTools();
         } else {
@@ -9693,7 +10354,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const envelope = objectOrNull(value);
       const data = objectOrNull(envelope?.data);
       openingContinuationGate.observeCanonicalReceipt(operation, envelope);
-      emitSetupHandoff(envelope, operation);
+      if (
+        operation !== "setup.complete"
+        || (
+          openingObservation.accepted
+          && openingObservation.reason === "opening_setup_handoff_complete"
+        )
+      ) {
+        emitSetupHandoff(envelope, operation, params);
+      }
       const nextPhase = inferPhaseFromEnvelope(operation, value, kpPlayPhase, {
         workspaceRoot: typeof params.root === "string" ? params.root : ctx.cwd,
         campaignId: typeof params.campaign === "string" ? params.campaign : undefined,
@@ -9910,6 +10579,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       label: typed.label,
       description: typed.description,
       parameters: typed.parameters,
+      ...(typed.operation === "setup.complete" ? {
+        prepareArguments: (args: unknown) => (
+          openingContinuationGate.prepareSetupCompleteArguments(args)
+        ),
+      } : {}),
       execute: gateway(typed.name),
       ...compactToolRenderers(typed.name),
     });
@@ -9932,16 +10606,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   pi.registerTool({
     name: "coc_map_supply", label: "COC map supply",
-    description: "Detect native-text image pages, validate externally rendered map assets, or privately inject one map image for the Keeper.", parameters: mapSupplySchema,
+    description: "Validate explicit structured image-page candidates, validate externally rendered map assets, or privately inject one map image for the Keeper.", parameters: mapSupplySchema,
     ...compactToolRenderers("coc_map_supply"),
     async execute(_id: string, params: JsonObject, _signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
       const operation = String(params.operation ?? "");
       const needsOcr = Array.isArray(params.needs_ocr)
         ? params.needs_ocr.filter((value): value is number => Number.isInteger(value) && value >= 0)
         : [];
+      const candidatePdfIndices = Array.isArray(params.candidate_pdf_indices)
+        ? params.candidate_pdf_indices.filter((value): value is number => Number.isInteger(value) && value >= 0)
+        : [];
       if (operation === "detect") {
         if (typeof params.pages_dir !== "string" || !params.pages_dir.trim()) throw new Error("detect requires pages_dir");
-        return result(await detectMapSupplyPageDirectory(params.pages_dir, needsOcr));
+        return result(await detectMapSupplyPageDirectory(params.pages_dir, candidatePdfIndices, needsOcr));
       }
       if (operation === "render") {
         if (
@@ -9949,7 +10626,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           || typeof params.asset_root_id !== "string" || !params.asset_root_id.trim()
           || typeof params.source_pdf_path !== "string" || !params.source_pdf_path.trim()
         ) throw new Error("render requires pages_dir, asset_root_id, and source_pdf_path");
-        const selection = await detectMapSupplyPageDirectory(params.pages_dir, needsOcr);
+        const selection = await detectMapSupplyPageDirectory(params.pages_dir, candidatePdfIndices, needsOcr);
         if (!selection.needs_image.length) return result({ ...selection, assets: [], status: "nothing_to_render" });
         return result({
           ...selection,
@@ -10174,10 +10851,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         } catch { /* hidden structured blocker audit is best effort */ }
       }
       if (decision === false) {
-        deliverMechanicalOutputGateInstruction(
-          pi,
-          openingContinuationGate.takeMechanicalOutputGateEnvelope(),
-        );
+        const fault = openingContinuationGate.takeTurnProcessingFaultForDelivery();
+        if (fault !== null) deliverTurnProcessingFault(fault);
+        else {
+          deliverMechanicalOutputGateInstruction(
+            pi,
+            openingContinuationGate.takeMechanicalOutputGateEnvelope(),
+          );
+        }
       }
       if (shouldTriggerOpeningSetupContinuation(decision)) {
         const route = (
@@ -10202,7 +10883,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return decision;
     },
     (message) => {
+      const externalUser = userMessageText(message) !== null;
       openingContinuationGate.observeMessageStart(message);
+      if (externalUser) stateClaimCompiler.beginExternalTurn();
+      if (externalUser && startupResumeGate === null) {
+        const preflightDelivery = deliverPendingPreInferenceFinalizationSteer(
+          pi,
+          openingContinuationGate,
+          turnFinalizationRequiredForPhase(kpPlayPhase),
+        );
+        if (preflightDelivery === "failed") {
+          try {
+            pi.appendEntry("coc-settled-output-preflight-delivery-failed", {
+              schema_version: 1,
+              kind: "settled_output_preflight_delivery",
+              status: "failed",
+              failure_class: "steer_send_failed",
+            });
+          } catch { /* delivery failure is still surfaced below */ }
+          throw new Error(
+            "failed to deliver the settled-output preflight steer",
+          );
+        }
+      }
       applyKpActiveTools();
     },
     () => openingContinuationGate.hasPendingFinalizedOutput(),
@@ -10213,7 +10916,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     workspaceRoot: (ctx) => ctx.cwd,
     isCurrent,
     epoch: () => sessionEpoch,
-    injectedPaths: injectedPlayerPdfPaths,
   });
   pi.on("message_start", (event) => {
     if (userMessageText(event.message) === null) return;
@@ -10235,6 +10937,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // player turn's settlement boundary. Run them after this lifecycle hook
     // returns so a stalled retry cannot keep RPC/UI input locked forever.
     queueMicrotask(() => {
+      const fault = openingContinuationGate.takeTurnProcessingFaultForDelivery();
+      if (fault !== null) deliverTurnProcessingFault(fault);
       void (async () => {
         const ownedContinuedDispatches = supplyCoordinator.terminalDedupe();
         for (
@@ -10289,6 +10993,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     startupResumeGate = null;
     sceneSupplyDispatches.clear();
     openingContinuationGate.reset();
+    stateClaimCompiler.clear();
     await supplyCoordinator.shutdown();
     for (const controller of sourceProducerControllers.values()) {
       controller.abort("session_shutdown");
@@ -10312,7 +11017,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleStates.clear();
     pendingStewardRefillStates.clear();
     pendingStewardRefillRuns.clear();
-    injectedPlayerPdfPaths.clear();
     const ownedMcp = mcp;
     mcp = null;
     await ownedMcp?.close();

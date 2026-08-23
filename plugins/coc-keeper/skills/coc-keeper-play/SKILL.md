@@ -194,13 +194,25 @@ output evidence boundary, not a replacement prose engine:
    expiry. An empty claim list does **not** prove absence of agency violations.
    In Pi play, `turn.output_context.agency_review_operation` is required for
    every pending narration revision. Call `narration.review` on the exact
-   turn/source/revision/draft, then bind its review ID and all authorized PC
-   propositions in `turn.finalize.agency_claims`. An `agency_violation` is the
-   sole hard review finding: do not finalize that draft; rewrite narration as
-   revision 2 against the same frozen settlement and never rerun rules, state,
-   journal, coverage, or mechanics. Length, repetition, scope, style, and all
-   other review findings remain advisory. Outside this Pi agency boundary,
-   narration review remains optional advice.
+   turn/source/revision/draft. Its closed `state_authority_review` semantically
+   declares every player-state change claimed by the draft: each claim cites an
+   exact excerpt and the matching current frozen `source_effect_id`; use null
+   only to audit an ungrounded claim that must be removed. Then bind the review
+   ID and all authorized PC propositions in `turn.finalize.agency_claims`.
+   `agency_violation` is the sole hard *narrative finding*; an ungrounded state
+   claim is separately blocked by Rule 2 state authority. Either rejection uses
+   the same prose-only revision 2 and frozen settlement. Length, repetition,
+   scope, style, and all other prose findings remain advisory. Outside this Pi
+   authority boundary, narration review remains optional advice.
+   A `no_player_state_change_claimed` declaration with empty claims is KP
+   semantic attestation, not proof of absence; fresh Pi/Grok browser replay
+   remains mandatory acceptance evidence. The Pi host independently compiles
+   every exact draft paragraph for player-state claims and compares that
+   closed result with the KP declaration. This compiler is not a second KP: it
+   cannot see frozen effects, rewrite prose, decide world truth, or mutate
+   state. Its receipt is host-owned and absent from the model-visible tool
+   schema; never invent or pass one. Missing, stale, malformed, unavailable,
+   or disagreeing compilation fails closed into the same prose-only revision.
 
 **Mechanical output gate.** Formal mechanical markers — `【明骰】`, dice lines
 (`掷骰：N`), and SAN/HP numeric transfers (`SAN 50→46`, `HP 6→4`, `损失 N 点`) —
@@ -230,21 +242,35 @@ opening procedure is normative in
   Prefer `localized_text[play_language]` / `localized_terms[play_language]`
   when present. Diegetic foreign speech is the only comprehension-skill
   exception — load `references/style-scene-craft.md` for tiers.
-- **Verbatim handout delivery.** When play semantically meets a handout
+- **Exact handout delivery.** When play semantically meets a handout
   card's delivery condition (`when_to_deliver`), call `state.deliver_handout`
   (idempotent via `decision_id`, with `scene_id`/`reason` evidence) before the
   prose that presents the card as delivered — a card in the player's hands
   is not real until that write lands, same discipline as items and cash.
-  Recording a clue that carries `handout_asset_id` delivers its linked card
-  in the same transaction; never re-deliver it by hand. Around the card you
-  own only framing — who finds it, in what situation — rendered in
-  `play_language`; the card body is the card's `localized_text` when present,
-  otherwise its verbatim `text`: never rewrite, summarize, or paraphrase it
-  into your own prose. Undelivered card text is keeper-only: query cards
+  Recording a clue with either a valid direct `handout_asset_id` or a unique
+  exact reverse `clue_refs` relation auto-delivers its linked card in the same
+  transaction. The returned delivery result or warning is authoritative;
+  never re-deliver it by hand. No keyword or prose matching participates in
+  this identity resolution. Around the card you own only framing — who finds
+  it, in what situation — rendered in
+  `play_language`; use the active-language body returned by the delivery.
+  Source-verbatim cards preserve their cited excerpt; `authored_derivative`
+  cards preserve their explicitly registered in-world prop body and must not
+  be described as source text. Never rewrite, summarize, or paraphrase either
+  body into your own prose. Undelivered card text is keeper-only: query cards
   through the keeper-side handout query and never dump them. Opening
   handouts deliver right after the table opening through the same path.
   Delivery timing is your semantic judgment — no quota, no fixed pipeline;
   the deliver tool records state and never gates narration.
+  Document, read-aloud, image, and player-visible map cards all use this same
+  material path. Automatic delivery presents a card only once. Call
+  `state.replay_handout` only when the card is already player-visible and the
+  current player message explicitly asks to see or hear that same material
+  again; pass the exact current player message and a concise semantic reason
+  in `request_assertion` (the Pi gateway binds the current turn epoch). Never
+  infer replay from a vague hint, prose fragment, keyword, or regex. If the
+  request could mean either recall or a fresh presentation, ask the player to
+  clarify and do not call the replay tool on that turn.
 - **Operational invisibility.** Parse/cache/queue/IR status, host work,
   `deep pack`, “已深解析”, tool latency, and reuse diagnostics are KP-internal
   evidence. Never narrate them to the player. Render only their diegetic
@@ -308,8 +334,8 @@ opening procedure is normative in
   `storylets.suggest`, `narration.brief`, `narration.review`, and related
   advisory tools are optional; skip them when fiction already has momentum.
   Absence never fails a turn. The one explicit exception is Pi play's
-  user-authorized agency-ownership review before accepted output; it does not
-  make any other prose-quality finding mandatory or blocking.
+  user-authorized agency-and-player-state authority review before accepted
+  output; it does not make any prose-quality finding mandatory or blocking.
 
 Log-style summary, AI-summary voice, translationese, or restating tool/clue/roll
 payloads as if they were finished table prose is **not acceptable player-**
@@ -387,9 +413,9 @@ settled finalization.
    `director.advise` / `storylets.suggest` remain available;
    `narration.brief` and prose-quality review are only for beats that are genuinely
    hard to self-review. Pi play nevertheless uses the same
-   `narration.review` once per pending draft revision for the narrow agency
-   ownership contract; a clean review is required evidence, while every
-   non-agency finding remains advisory. A
+   `narration.review` once per pending draft revision for the narrow agency and
+   player-state authority contract; a clean review is required evidence, while
+   every prose-quality finding remains advisory. A
    `coc_advisory_sidecar_v1=true` host may use the optional background adviser
    contract in `references/turn-tooling-and-typed-ops.md` on a genuinely complex
    beat; it never waits, becomes a second KP, or replaces semantic/rules/state/
@@ -408,7 +434,7 @@ settled finalization.
    unit. The tool stamps `game_time` — do not pass
    wall-clock time. Players see only the localized reason and game time from
    `turn.finalize`.
-   Then `state.journal` → `turn.output_context` → draft → Pi agency review →
+   Then `state.journal` → `turn.output_context` → draft → Pi authority review →
    coverage → `turn.finalize` → deliver exact `rendered_text`. Normally omit
    `mechanics_placements`: the finalizer inserts public rolls before their
    covered result and groups later changes once. Put setup and consequence in

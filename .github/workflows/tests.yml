@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version-file: .python-version
@@ -22,6 +24,20 @@ jobs:
           enable-cache: true
       - name: Sync frozen Python environment
         run: uv sync --frozen --dev
+      - name: Reject suspicious committed blobs
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          base_sha="$EVENT_BASE_SHA"
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+            base_sha="$(git merge-base HEAD "origin/$DEFAULT_BRANCH" || true)"
+          fi
+          if [[ -z "$base_sha" || "$base_sha" == "$(git rev-parse HEAD)" ]]; then
+            base_sha="$(git rev-parse HEAD^ 2>/dev/null || git hash-object -t tree /dev/null)"
+          fi
+          PYTHONDONTWRITEBYTECODE=1 uv run --frozen python \
+            scripts/check_staged_files.py --base "$base_sha" --head HEAD
       - name: Run deterministic contracts
         run: PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/ -q -p no:cacheprovider
 

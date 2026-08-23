@@ -491,9 +491,13 @@ function throwUnknownCampaign() {
 
 const freshCampaign = "typed-opening-fresh-campaign";
 let freshCreated = false;
+let freshResumeCalls = 0;
 const fresh = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
-  if (params.operation === "session.resume") throwUnknownCampaign();
+  if (params.operation === "session.resume") {
+    freshResumeCalls += 1;
+    throwUnknownCampaign();
+  }
   if (params.operation === "setup.quick_start") {
     // Real MCP/toolbox shape: lifting the not-yet-created campaign_id into
     // the outer campaign selector makes Ctx try to rehydrate a campaign that
@@ -539,8 +543,21 @@ const fresh = harness((name, params) => {
       tool: "setup.quick_start",
       data: {
         schema_version: 1,
+        status: "PASS",
         kind: "campaign.quick_start",
-        result: { campaign_id: freshCampaign },
+        result: {
+          campaign_id: freshCampaign,
+          investigator_id: "thomas-hayes",
+          needs_investigator: false,
+          scenario_id: "the-haunting",
+          pregen_id: "thomas-hayes",
+          character_path: `${root}/.coc/investigators/thomas-hayes/character.json`,
+          campaign_dir: `${root}/.coc/campaigns/${freshCampaign}`,
+        },
+        state_refs: [
+          `.coc/campaigns/${freshCampaign}`,
+          ".coc/investigators/thomas-hayes/character.json",
+        ],
       },
     };
   }
@@ -581,18 +598,28 @@ if (wrongFreshAccepted) throw new Error("fresh setup accepted a guessed campaign
 const quickStarted = await invokeTyped(fresh, "coc_setup_quick_start", "fresh-exact-id", {
   root,
   scenario_id: "the-haunting",
-  pregen_id: "starter",
+  pregen_id: "thomas-hayes",
   campaign_id: freshCampaign,
 });
 if (quickStarted.ok !== true || !freshCreated) {
   throw new Error(`exact fresh quick_start was blocked: ${JSON.stringify(quickStarted)}`);
 }
-const afterFresh = await invokeTyped(fresh, "coc_setup_inspect", "fresh-inspect", {
-  root,
-  campaign: freshCampaign,
-});
-if (afterFresh.ok !== true) {
-  throw new Error(`startup gate remained armed after quick_start: ${JSON.stringify(afterFresh)}`);
+let afterFreshOpeningGate = false;
+try {
+  await invokeTyped(fresh, "coc_setup_inspect", "fresh-inspect", {
+    root,
+    campaign: freshCampaign,
+  });
+} catch (error) {
+  const message = String(error);
+  afterFreshOpeningGate = message.includes("Pi opening setup hard gate is active");
+  if (message.includes("fresh setup is bound")) throw error;
+}
+if (!afterFreshOpeningGate) {
+  throw new Error("quick_start did not replace startup ACL with character-setup gate");
+}
+if (freshResumeCalls !== 1) {
+  throw new Error(`fresh quick_start triggered a second session.resume: ${freshResumeCalls}`);
 }
 await fresh.shutdown();
 

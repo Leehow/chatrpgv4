@@ -21,6 +21,7 @@ def _load(name: str, path: Path):
 coc_toolbox = _load("coc_toolbox_chargen_run", SCRIPTS / "coc_toolbox.py")
 coc_runtime_ops = coc_toolbox.coc_runtime_ops
 coc_character = coc_runtime_ops.coc_character
+coc_turn_finalization = coc_toolbox.coc_turn_finalization
 
 
 def _create_campaign(
@@ -552,6 +553,10 @@ def test_chargen_run_ww1_era_adaptive_system_owns_numbers(tmp_path: Path) -> Non
     assert result["ok"] is True
     chars = result["characteristics"]
     stored, creation = _stored_investigator(tmp_path, "ww1-ada")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
+    assert set(result["roll_ids"]) <= (
+        coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(campaign_dir)
+    )
     assert chars == _expected_age_adjusted_chars(creation, int(stored["age"]))
     assert creation["input_mode"] == coc_character.ERA_ADAPTIVE_INPUT_MODE
     assert stored["era_adaptive"] is True

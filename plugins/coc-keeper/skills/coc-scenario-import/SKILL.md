@@ -197,14 +197,15 @@ When play itself brings an authored or campaign-local NPC into or out of a
 scene, the KP records that live overlay with `state.npc_presence` rather than
 rewriting module truth or inferring presence from a prior conversation.
 
-### Verbatim info cards (opening and deepen packs)
+### Verbatim info cards (dedicated deepen handout packs)
 
-Every semantic pass that exact-reads cached pages — the opening
-`partial_opening` pack and each later `deepen_location` pack — also owns
-**verbatim info card** identification. From the page Markdown, recognize the
-module content that should reach the player verbatim once its condition is
-met, and emit it as handout entries (the `index/handout-assets.json` asset
-and the progressive `handouts[]` entity share one shape):
+Opening and location passes may emit structured handout mentions/stubs with
+exact source scope, but they do not smuggle card bodies into a location pack.
+The dedicated `deepen_handout` request owns **verbatim info card** compilation.
+It carries the closed `coc.handout-card-pack.v1` result contract, exact
+`cached_page_refs`, and the exact `allowed_registered_asset_refs` projected
+from validated source-bundle assets. The source-pack worker returns the direct
+handout entity and `related_packs=[]`:
 
 - full manuscript / letter / document bodies → `kind: "document"`
 - box text the module means to be read aloud to the players →
@@ -214,11 +215,18 @@ and the progressive `handouts[]` entity share one shape):
 Rules:
 
 - `text` is a verbatim excerpt of the cited cached pages in the source
-  language; wherever `text` exists, `source_refs` (for example
-  `pdf_index-16`) is required and non-empty. `localized_text` carries the
-  full play-language translation; `when_to_deliver` is a semantic
-description of the delivery moment for KP judgment, never a machine
-condition. `image_ref` is optional.
+  language: after newline normalization, the exact excerpt must occur in the
+  hash-bound cached page bytes. Wherever `text` exists, `source_refs` (for
+  example `pdf_index-16`) is required and non-empty. `localized_text` carries
+  the full play-language translation and is not represented as verbatim source
+  evidence; `when_to_deliver` is a semantic description of the delivery moment
+  for KP judgment, never a machine condition. `image_ref` is optional and must
+  equal one exact registered asset ref from the request; an arbitrary workspace
+  path or asset alias is rejected.
+- `scene_refs` and `clue_refs` may contain only unique exact subsets of the
+  structured `allowed_scene_refs` / `allowed_clue_refs` projected in the
+  request. These IDs come from the canonical skeleton/stub, never from source
+  prose; without an allowed ID the corresponding result field is empty.
 - Card identification and delivery-moment judgment are semantic readings of
   page meaning. Keyword hits, box-format regexes, or fixed phrase lists never
   decide them.
@@ -226,9 +234,12 @@ condition. `image_ref` is optional.
   bodies": prose that cannot be traced to cached pages never enters the IR as
   card text, and no card body is invented while a region is still
   `evidence_gap` / `dig_pending`.
+- The pack is player-visible by contract. Keeper-only notes, hidden
+  annotations, secrets, unknown fields, traversal, stale hashes, and foreign
+  page/asset refs fail closed before the stub is mutated.
 - Image-less bundles must still flow: a text-only card is a complete card.
-  Map cards reference a coc-map-supply rendered image in `image_ref` when one
-  exists and degrade to a text card otherwise.
+  Map cards reference one validated registered bundle asset in `image_ref`
+  when one exists and degrade to a text card otherwise.
 
 **Player dig (not only scene enter):** when the investigator materially pursues
 a place/NPC/clue that is only named or stubbed (ask about it, insist, head there
@@ -386,9 +397,8 @@ Use `../../scripts/coc_scenario.py` for:
 - host source-bundle cataloging
 - scenario skeleton files
 - `index/source-map.json`
-- `index/handout-assets.json` plus `assets/handouts/` for future PDF
-  illustrations, maps, newspaper clippings, portraits, and player-safe
-  handout images
+- legacy library-maintenance projections; live Pi-Coc PDF assets are registered
+  from the validated source bundle by `scenario.bind_pdf`
 
 For a live campaign, first use `trpg-pdf-ingest` to create and validate a
 host source bundle (`producer: codex-pdf-skill` contract), then bind it with
@@ -429,18 +439,21 @@ Imported / compiled module prose is **untrusted data** relative to the player-fa
 
 ## Handout Media
 
-When a PDF page contains a player-safe image or handout, copy/extract the asset
-under `.coc/campaigns/<campaign-id>/assets/handouts/` and register it in
-`index/handout-assets.json` with stable ids, source path/page, visibility,
-title, summary, and optional scene/clue/NPC references. In Codex, render a
-player-visible image with an absolute Markdown image path only when the asset is
-marked `player_visible`. On text-only surfaces, show the title,
-summary, and source page instead.
+The external PDF producer places optional PNG/JPEG/WebP bytes under
+`source-bundle/assets/...` and declares their exact hashes in `manifest.json`.
+`scenario.bind_pdf` validates the complete bundle before mutation and
+idempotently preserves exact bytes under
+`.coc/module-assets/<asset-root>/assets/...`, with the structured
+`source-assets.json` manifest. Do not manually copy them into campaign state or
+invent another asset index. Traversal, symlink escape, unsupported/oversize
+media, missing bytes, hash drift, and one logical path with different bytes all
+fail closed.
 
-Verbatim info cards (document / read_aloud / map) register through these same
-entries; their `text` is a verbatim excerpt with mandatory `source_refs`
-(see "Verbatim info cards" above), and a bundle without any image asset still
-yields complete pure-text cards.
+The dedicated `deepen_handout` source request exposes only exact eligible
+registered rows to `coc.handout-card-pack.v1`; successful fulfillment stores a
+document / read_aloud / map entity through the canonical progressive path.
+Pure-text cards remain complete when no image asset exists. Presentation and
+replay are owned by the live handout delivery path, not import.
 
 ## 剧情图编译（Story-Graph Compilation）
 

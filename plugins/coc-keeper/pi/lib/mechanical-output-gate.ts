@@ -24,6 +24,10 @@ export const MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE = "coc-mechanical-output-gate";
 
 export const SETTLED_OUTPUT_GATE_CUSTOM_TYPE = "coc-settled-output-gate";
 
+export const SETTLED_OUTPUT_PREFLIGHT_CUSTOM_TYPE = (
+  "coc-settled-output-preflight"
+);
+
 export const MECHANICAL_OUTPUT_GATE_INSTRUCTION = (
   "你的上一条输出包含正式机械标记（【明骰】／掷骰：N／SAN·HP 数值转移），"
   + "但本回合没有对应的权威收据，已被门禁拦截、未送达玩家。"
@@ -40,6 +44,24 @@ export const SETTLED_OUTPUT_GATE_INSTRUCTION = (
   + "玩家行动。现在按现有收据与当前玩家原文依次完成 state.journal、"
   + "turn.output_context、turn.finalize；最后只输出 turn.finalize 返回的 exact "
   + "rendered_text。即使本回合没有公开骰或数值变化，也必须走同一个结算边界。"
+);
+
+export const SETTLED_OUTPUT_PREFLIGHT_INSTRUCTION = (
+  "This external player turn requires a hash-bound finalization receipt before any "
+  + "player-visible body is admissible. Begin this inference with the canonical "
+  + "tool call(s) needed to ground and settle the player's action; do not spend a "
+  + "generation drafting tool-free player-visible prose. Before state.journal, "
+  + "semantically decide whether the intended fiction changes the current PC's cash, "
+  + "inventory, resources, conditions, or time, and execute the owning state/rules "
+  + "operation first. An NPC handoff of money or an item is not true until "
+  + "state.cash_grant / state.item_grant succeeds. Later state_authority_review must "
+  + "list each such draft claim and bind source_effect_id to its exact current effect id; "
+  + "an ungrounded claim forces prose-only revision 2. After all rules and state "
+  + "writes, close the same current player input through state.journal, "
+  + "turn.output_context, the returned agency review operation when required, and "
+  + "turn.finalize. Then output only turn.finalize.rendered_text exactly. This is a "
+  + "closure steer, not a fixed semantic pipeline: the Keeper still chooses the "
+  + "fiction, grounding, checks, and state changes."
 );
 
 export type MechanicalMarkerClass = "dice" | "resource";
@@ -128,5 +150,18 @@ export function buildSettledOutputGateEnvelope(
     player_turn_epoch: playerTurnEpoch,
     action: "journal_context_finalize_exact",
     instruction: SETTLED_OUTPUT_GATE_INSTRUCTION,
+  };
+}
+
+export function buildSettledOutputPreflightEnvelope(
+  playerTurnEpoch: number,
+): JsonObject {
+  return {
+    schema_version: 1,
+    kind: "settled_output_preflight",
+    status: "armed",
+    player_turn_epoch: playerTurnEpoch,
+    action: "tools_then_journal_context_finalize_exact",
+    instruction: SETTLED_OUTPUT_PREFLIGHT_INSTRUCTION,
   };
 }

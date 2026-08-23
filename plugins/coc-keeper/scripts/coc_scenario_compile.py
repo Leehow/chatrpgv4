@@ -43,6 +43,7 @@ coc_director_strategies = _load_sibling(
 coc_mechanics = _load_sibling(
     "coc_mechanics_scenario_compile", "coc_mechanics.py"
 )
+coc_scenario = _load_sibling("coc_scenario_compile_cards", "coc_scenario.py")
 
 import coc_pdf_source
 import coc_epistemic_lifecycle
@@ -1817,6 +1818,78 @@ def _check_mechanics_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
     return findings
 
 
+def _check_handout_link_contract(
+    compiled: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Validate structured player-handout clue identity linkage."""
+    findings: list[dict[str, str]] = []
+    declared_cards: dict[str, dict[str, Any]] = {}
+    valid_cards: dict[str, dict[str, Any]] = {}
+    duplicate_ids: set[str] = set()
+    for index, card in enumerate(
+        (compiled.get("handouts") or {}).get("handouts") or []
+    ):
+        path = f"handouts.handouts[{index}]"
+        if not isinstance(card, dict):
+            for error in coc_scenario.validate_handout_card(card, prefix=path):
+                findings.append(_finding(
+                    "invalid_handout_card", "error", error, path=path,
+                ))
+            continue
+        asset_id = str(card.get("asset_id") or "").strip()
+        if not asset_id:
+            findings.append(_finding(
+                "invalid_handout_card",
+                "error",
+                f"{path}.asset_id is required in a compiled card store",
+                path=path,
+            ))
+        if asset_id and asset_id in declared_cards:
+            duplicate_ids.add(asset_id)
+            valid_cards.pop(asset_id, None)
+            findings.append(_finding(
+                "duplicate_handout_asset_id",
+                "error",
+                f"duplicate handout asset_id '{asset_id}'",
+                path=path,
+            ))
+        elif asset_id:
+            declared_cards[asset_id] = card
+        errors = coc_scenario.validate_handout_card(card, prefix=path)
+        for error in errors:
+            findings.append(_finding(
+                "invalid_handout_card", "error", error, path=path,
+            ))
+        if asset_id and not errors and asset_id not in duplicate_ids:
+            valid_cards[asset_id] = card
+    for path, clue in _iter_clues(compiled):
+        if (
+            str(clue.get("delivery_kind") or "") != "handout"
+            or str(clue.get("visibility") or "") != "player-safe"
+        ):
+            continue
+        clue_id = str(clue.get("clue_id") or "").strip()
+        asset_id = str(clue.get("handout_asset_id") or "").strip()
+        if asset_id and asset_id in declared_cards and asset_id not in valid_cards:
+            findings.append(_finding(
+                "invalid_handout_card",
+                "error",
+                f"clue '{clue_id}' references handout '{asset_id}', but the "
+                "registered card is invalid",
+                path=path,
+            ))
+            continue
+        try:
+            coc_scenario.resolve_handout_clue_link(
+                valid_cards, clue_id, asset_id or None
+            )
+        except coc_scenario.HandoutLinkError as exc:
+            findings.append(_finding(
+                exc.code, "error", exc.message, path=path,
+            ))
+    return findings
+
+
 def validate_compiled_scenario(
     compiled: dict[str, Any],
     source_segments: list[dict[str, Any]] | None = None,
@@ -1848,6 +1921,7 @@ def validate_compiled_scenario(
     findings.extend(_check_threat_clock_identity_contract(compiled))
     findings.extend(_check_npc_disclosure_contract(compiled))
     findings.extend(_check_mechanics_contract(compiled))
+    findings.extend(_check_handout_link_contract(compiled))
     findings.extend(_check_time_loop_signal_contract(compiled))
     findings.extend(_check_epistemic_sidecars(compiled, id_maps))
     findings.extend(_check_source_evidence(
@@ -1910,6 +1984,24 @@ def doctor(*, rules_dir: Path | None = None) -> list[dict[str, Any]]:
     return results
 
 
+def _load_compiled_handouts(scenario_dir: Path) -> dict[str, Any]:
+    """Load every static card row so validation sees duplicates and errors."""
+    cards: list[Any] = []
+    index_path = scenario_dir.parent / "index" / "handout-assets.json"
+    if index_path.exists():
+        index_doc = _read(index_path)
+        if isinstance(index_doc, dict):
+            for card in index_doc.get("assets") or []:
+                cards.append(card)
+    scenario_path = scenario_dir / "handouts.json"
+    if scenario_path.exists():
+        scenario_doc = _read(scenario_path)
+        if isinstance(scenario_doc, dict):
+            for card in scenario_doc.get("handouts") or []:
+                cards.append(card)
+    return {"schema_version": 1, "handouts": cards}
+
+
 def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
     """Load on-disk scenario JSON files into the in-memory compiled shape."""
     return {
@@ -1921,6 +2013,7 @@ def load_compiled_from_dir(scenario_dir: Path) -> dict[str, Any]:
         "epistemic_graph": _read(scenario_dir / "epistemic-graph.json") if (scenario_dir / "epistemic-graph.json").exists() else {},
         "reveal_contracts": _read(scenario_dir / "reveal-contracts.json") if (scenario_dir / "reveal-contracts.json").exists() else {},
         "compile_confidence": _read(scenario_dir / "compile-confidence.json") if (scenario_dir / "compile-confidence.json").exists() else {},
+        "handouts": _load_compiled_handouts(scenario_dir),
     }
 
 
@@ -2233,6 +2326,7 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
     compiled = load_compiled_from_dir(scenario_dir)
     epi_findings = _check_epistemic_sidecars(compiled, _collect_id_maps(compiled))
     epi_findings.extend(_check_mechanics_contract(compiled))
+    epi_findings.extend(_check_handout_link_contract(compiled))
     index_dir = scenario_dir.parent / "index"
     source_bundle = None
     if (index_dir / "page-map.json").exists() or (index_dir / "parse-manifest.json").exists():

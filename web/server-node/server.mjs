@@ -26,20 +26,27 @@ import {
 } from "./pi-coc-rpc.mjs";
 import {
   CampaignHostOrchestrator,
+  consumeDeliveredTurnProcessingFault,
   defaultResolveSessionRole,
   isStaleModelCatalogError,
   SESSION_TRANSITIONING_CODE,
 } from "./session-handoff.mjs";
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
-import { finishPromptTurn } from "./turn-flow.mjs";
+import {
+  attachWithStallRecovery,
+  finishPromptTurn,
+  promptWithStallRecovery,
+  recoverAbortedTurn,
+  finishRecoveredTurn,
+} from "./turn-flow.mjs";
+import { HandoutSessionDelivery } from "./handout-delivery.mjs";
 import {
   campaignDir,
   campaignDisplayTitle,
   characterSetupPendingFromOpeningPhase,
   combatInitiativeDisplay,
   cocRoot,
-  deliveredHandoutsDisplay,
   discoveredCluesDisplay,
   enrichTranscriptFromEvents,
   findBundleByPdfSha256,
@@ -60,7 +67,11 @@ import {
   attachPortraitToDisplayCharacter,
 } from "./projections.mjs";
 import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./model-editor.mjs";
-import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
+import {
+  armProductAgentEnv,
+  resolveHostedSessionAgentDirs,
+  resolveProductAgentDir,
+} from "./agent-dir.mjs";
 import { loadUserPrefs, resolveUserPrefsPath, saveUserPrefs } from "./user-prefs.mjs";
 import { loadWebSearchKeysView, saveWebSearchApiKeys } from "./web-search-keys.mjs";
 import { loadOcrTokenView, saveOcrToken } from "./ocr-secrets.mjs";
@@ -72,6 +83,7 @@ import {
   resolvePortraitStaticFile,
 } from "./portrait-generate.mjs";
 import { deleteSourceBundle } from "./source-bundles.mjs";
+import { decodeRequestPath, serveStatic } from "./static-files.mjs";
 import {
   OPENING_READY_WINDOW_COUNT,
   pdfWindowBundleId,
@@ -116,6 +128,7 @@ let sidecar = null;
 
 /** sid -> {session_id, campaign_id, investigator_id} */
 const SESSIONS = new Map();
+const HANDOUT_DELIVERY = new HandoutSessionDelivery();
 /** campaign_id -> PiCocRpcHost (owned by the setup/play orchestrator) */
 const orchestrator = new CampaignHostOrchestrator({
   createHost: (opts) => new PiCocRpcHost(opts),
@@ -334,7 +347,7 @@ async function statePayload(info) {
     lang,
   );
   // 原文信息卡：会话加载/状态拉取时全量已交付卡供「资料」页签。
-  state.materials = deliveredHandoutsDisplay(WORKSPACE, info.campaign_id);
+  state.materials = HANDOUT_DELIVERY.materials(WORKSPACE, info.campaign_id);
   state.combat = combatInitiativeDisplay(WORKSPACE, info.campaign_id, {
     investigatorId: liveInvestigator,
     investigatorName: state.character?.name ?? null,
@@ -375,7 +388,11 @@ async function transcriptPayload(info) {
   if (timed !== null) return timed;
   const hosted = hostedSessionMessages({
     workspace: WORKSPACE,
-    agentDir: resolveProductAgentDir(),
+    agentDirs: resolveHostedSessionAgentDirs({
+      repoRoot: REPO_ROOT,
+      workspace: WORKSPACE,
+      agentDir: resolveProductAgentDir(),
+    }),
     sessionId: info.session_id || webSessionId(info.campaign_id),
   });
   if (hosted.length) return hosted;
@@ -933,6 +950,7 @@ async function handleTrashCampaign(req, res) {
   for (const [sid, info] of [...SESSIONS]) {
     if (info.campaign_id !== campaignId) continue;
     SESSIONS.delete(sid);
+    HANDOUT_DELIVERY.clear(sid);
   }
   const host = HOSTS.get(campaignId);
   if (host) {
@@ -1006,16 +1024,17 @@ async function handleCreateSession(req, res) {
     investigator_id: investigatorId,
   };
   SESSIONS.set(sessionId, info);
-  // Session load: re-arm the per-campaign pushed set so the next SSE stream
-  // re-flushes any card delivered after this response, and return every
-  // already-delivered card inline so the browser restores the narration
-  // inline cards immediately (no turn needed).
-  resetPushedHandouts(campaignId);
+  // Session load returns delivered materials for the persistent Materials
+  // panel, while hydration seeds presentation ids so refresh never fabricates
+  // a new inline presentation event.
   let handouts;
   try {
-    handouts = deliveredHandoutsDisplay(WORKSPACE, campaignId);
+    handouts = HANDOUT_DELIVERY.hydrate(
+      WORKSPACE, sessionId, campaignId,
+    );
   } catch {
     handouts = [];
+    HANDOUT_DELIVERY.seed(sessionId, []);
   }
   const opening = sessionOpeningFlags({
     spawned,
@@ -1072,40 +1091,6 @@ async function handleTranscript(req, res, sid) {
 
 function sseWrite(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-}
-
-/** Handout cards already pushed to the browser, per campaign (server
- *  process scope). Diffed against the campaign projection so newly
- *  delivered cards — including ones delivered while this browser was
- *  closed — stream as `handout` events exactly once per session load. */
-const pushedHandouts = new Map();
-
-/** Reset a campaign's pushed set: a fresh browser session load re-flushes
- *  every delivered card on the next stream, so a restored browser regains
- *  the inline narration cards (the panel gets them from state.materials).
- *  The frontend dedupes by asset_id, so a concurrent re-flush is harmless. */
-function resetPushedHandouts(campaignId) {
-  pushedHandouts.delete(campaignId);
-}
-
-function handoutSseDiff(campaignId, write) {
-  let delivered;
-  try {
-    delivered = deliveredHandoutsDisplay(WORKSPACE, campaignId);
-  } catch {
-    return;
-  }
-  let seen = pushedHandouts.get(campaignId);
-  if (!seen) {
-    seen = new Set();
-    pushedHandouts.set(campaignId, seen);
-  }
-  for (const card of delivered) {
-    if (seen.has(card.asset_id)) continue;
-    // Mark as pushed only after the frame was actually written — a dropped
-    // client (safeWrite false) must get the card again on its next stream.
-    if (write("handout", card)) seen.add(card.asset_id);
-  }
 }
 
 async function handleTurn(req, res, sid) {
@@ -1171,7 +1156,9 @@ async function handleTurn(req, res, sid) {
       state = { error: `${err?.constructor?.name || "Error"}: ${err?.message || err}` };
     }
     // 原文卡交付事件：turn 结束时对已推送集合求差分注入。
-    handoutSseDiff(info.campaign_id, safeWrite);
+    HANDOUT_DELIVERY.pushNew(
+      WORKSPACE, sid, info.campaign_id, safeWrite,
+    );
     const usage = activeHost.lastUsage;
     safeWrite("turn", {
       events: [],
@@ -1186,8 +1173,8 @@ async function handleTurn(req, res, sid) {
     safeWrite("end", {});
   };
 
+  let host = HOSTS.get(info.campaign_id);
   try {
-    let host = HOSTS.get(info.campaign_id);
     let handoffOpeningCompleted = false;
     if (
       host?.isHandoffShutdown?.()
@@ -1228,17 +1215,29 @@ async function handleTurn(req, res, sid) {
     if (thinking) await host.setThinking(thinking);
     let promptResult = {};
     if (attach) {
-      if (!handoffOpeningCompleted) await host.attachOpening({ onSse });
+      if (!handoffOpeningCompleted) {
+        ({ host, promptResult } = await attachWithStallRecovery({
+          host,
+          campaignId: info.campaign_id,
+          orchestrator,
+          onSse,
+        }));
+      }
     } else {
-      promptResult = (await host.prompt(playerInput, { onSse })) || {};
+      ({ host, promptResult } = await promptWithStallRecovery({
+        host,
+        message: playerInput,
+        campaignId: info.campaign_id,
+        orchestrator,
+        onSse,
+      }));
     }
-    const delivery = host.takeStreamedDelivery();
-    if (delivery !== null) {
+    host.offerStreamedDelivery((delivery) => (
       safeWrite("delivery_ack_required", {
         finalization_id: delivery.finalizationId,
         rendered_sha256: delivery.renderedSha256,
-      });
-    }
+      })
+    ));
     host = await finishPromptTurn({
       host,
       promptResult,
@@ -1248,8 +1247,48 @@ async function handleTurn(req, res, sid) {
       finalize,
     });
   } catch (err) {
-    if (err?.kind === "pi_coc_rpc_aborted") {
-      safeWrite("end", { aborted: true });
+    if (await consumeDeliveredTurnProcessingFault({
+      error: err,
+      campaignId: info.campaign_id,
+      expectedHost: host,
+      orchestrator,
+    })) {
+      // The typed terminal fault was already sent by the host's SSE relay.
+      // Suppress a generic duplicate and detach only that exact poisoned
+      // child so refresh starts a fresh resume-first RPC process.
+    } else if (err?.kind === "pi_coc_rpc_aborted") {
+      const interruptedHost = HOSTS.get(info.campaign_id);
+      if (interruptedHost) {
+        try {
+          const recovery = await recoverAbortedTurn({
+            campaignId: info.campaign_id,
+            orchestrator,
+            onSse,
+          });
+          await finishRecoveredTurn({
+            recovery,
+            campaignId: info.campaign_id,
+            orchestrator,
+            onSse,
+            onDelivery: (delivery) => safeWrite("delivery_ack_required", {
+              finalization_id: delivery.finalizationId,
+              rendered_sha256: delivery.renderedSha256,
+            }),
+            finalize,
+          });
+        } catch (recoveryError) {
+          safeWrite("status", { phase: "recovery_failed" });
+          safeWrite("end", { aborted: true, recovered: false });
+        }
+      } else {
+        safeWrite("end", { aborted: true, recovered: false });
+      }
+    } else if (
+      err?.kind === "pi_coc_rpc_recovery_failed"
+      || err?.kind === "pi_coc_recovery_not_visible"
+    ) {
+      safeWrite("status", { phase: "recovery_failed" });
+      safeWrite("end", { recovered: false });
     } else if (err?.kind === "pi_coc_rpc_handoff") {
       try {
         await finishPromptTurn({
@@ -2041,53 +2080,11 @@ async function handleIngestPdf(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const CONTENT_TYPES = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ico": "image/x-icon",
-};
-
-function serveStatic(req, res, urlPath) {
-  if (!fs.existsSync(DIST_DIR)) {
-    const body = Buffer.from(
-      "<!doctype html><meta charset='utf-8'><title>coc web</title>" +
-        "<body style='font-family:monospace;background:#10161a;color:#cfe;'>" +
-        "<h2>Frontend not built</h2>" +
-        "<pre>cd web/frontend && npm install && npm run build</pre>",
-    );
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(body);
-    return;
-  }
-  const rel = urlPath.replace(/^\/+/, "") || "index.html";
-  let candidate = path.resolve(DIST_DIR, rel);
-  if (!candidate.startsWith(path.resolve(DIST_DIR))) {
-    sendJson(res, 403, { error: "forbidden" });
-    return;
-  }
-  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
-    candidate = path.join(DIST_DIR, "index.html"); // SPA fallback
-  }
-  const body = fs.readFileSync(candidate);
-  res.writeHead(200, {
-    "Content-Type": CONTENT_TYPES[path.extname(candidate).toLowerCase()] || "application/octet-stream",
-    "Content-Length": body.length,
-  });
-  res.end(body);
-}
-
 // ---------------------------------------------------------------------------
 // Router
 
 async function route(req, res) {
-  const urlPath = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+  const urlPath = decodeRequestPath(req.url);
   const method = req.method || "GET";
   const parts = urlPath.split("/").filter(Boolean);
 
@@ -2134,7 +2131,7 @@ async function route(req, res) {
       return handleCampaignHandoutAsset(req, res, parts[2], parts.slice(4).join("/"));
     }
     if (urlPath.startsWith("/api/")) throw httpError(404, "not found");
-    return serveStatic(req, res, urlPath);
+    return serveStatic(req, res, urlPath, { distDir: DIST_DIR });
   }
 
   if (method === "POST") {

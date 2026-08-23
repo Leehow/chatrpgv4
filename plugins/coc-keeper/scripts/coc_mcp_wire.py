@@ -1499,9 +1499,10 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         "forbidden_aliases": ["draft_text", "journal_decision_id"],
         "instruction": (
             "Merge prefilled_arguments unchanged, add only missing_arguments, "
-            "and invoke directly without coc_discover. When agency review is "
-            "required, call agency_review_operation on the exact draft first; "
-            "only agency ownership violations block acceptance."
+            "and invoke directly without coc_discover. When authority review is "
+            "required, call agency_review_operation on the exact draft first, "
+            "including its closed state_authority_review; agency ownership and "
+            "player-state receipt binding are the only hard review scopes."
         ),
     }
     if required_obligation_ids:

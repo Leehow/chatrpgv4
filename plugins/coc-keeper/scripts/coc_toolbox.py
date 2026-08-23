@@ -113,6 +113,9 @@ coc_working_set_cache = _load_sibling(
 coc_turn_finalization = _load_sibling(
     "coc_turn_finalization", "coc_turn_finalization.py"
 )
+coc_state_authority = _load_sibling(
+    "coc_state_authority_toolbox", "coc_state_authority.py"
+)
 coc_development = _load_sibling("coc_development_toolbox", "coc_development.py")
 coc_runtime_ops = _load_sibling("coc_runtime_ops_toolbox", "coc_runtime_ops.py")
 coc_narrative_enrichment = _load_sibling(
@@ -143,6 +146,7 @@ coc_operation_policy = _load_sibling(
 coc_opening_phase = _load_sibling("coc_opening_phase", "coc_opening_phase.py")
 coc_memory = _load_sibling("coc_memory", "coc_memory.py")
 coc_scenario = _load_sibling("coc_scenario_toolbox", "coc_scenario.py")
+coc_handouts = _load_sibling("coc_handouts_toolbox", "coc_handouts.py")
 
 SCENARIO_FILES = (
     "story-graph.json",
@@ -2106,6 +2110,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                         )
             pending_turn_manifest = None
             pending_exact_replay = None
+            prior_idempotency_entry = None
+            prior_state_call_logged = False
             context_rehydration_advisory = None
             if spec["needs_campaign"] and ctx.campaign_dir is not None:
                 host_marker = coc_host_context.current_marker(ctx.root)
@@ -2134,7 +2140,22 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     # Check the durable decision disposition before any
                     # handler-specific receipt replay can resurrect a branch
                     # whose state was removed by session.resume.
-                    ctx.ledger_lookup(name, str(args["decision_id"]))
+                    prior_idempotency_entry = ctx.ledger_lookup(
+                        name, str(args["decision_id"])
+                    )
+                    if (
+                        name.startswith("state.")
+                        and prior_idempotency_entry is not None
+                    ):
+                        prior_state_call_logged = any(
+                            row.get("ok") is True
+                            and row.get("tool") == name
+                            and (row.get("args") or {}).get("decision_id")
+                            == args["decision_id"]
+                            for row in _jsonl_rows(
+                                ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+                            )
+                        )
             if (
                 pending_turn_manifest is not None
                 and spec.get("access", "mutation") != "query"
@@ -2306,7 +2327,18 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             }
             if cache_metadata is not None:
                 envelope["cache"] = cache_metadata
-            if pending_exact_replay is not None:
+            # Successful state handlers return their frozen prior data on an
+            # exact decision replay. Compare that structured result with the
+            # durable ledger entry so the call row carries an explicit marker;
+            # warning text is never used as replay authority.
+            exact_prior_state_replay = (
+                name.startswith("state.")
+                and prior_idempotency_entry is not None
+                and prior_state_call_logged
+                and isinstance(data, dict)
+                and data == prior_idempotency_entry.get("data")
+            )
+            if pending_exact_replay is not None or exact_prior_state_replay:
                 envelope["idempotent_replay"] = True
             if context_rehydration_advisory is not None:
                 envelope.setdefault("warnings", []).append(
@@ -2400,7 +2432,17 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             missing_params = [
                 key
                 for key in missing_params
-                if key not in {"turn_id", "source_digest", "revision"}
+                if key not in {
+                    "turn_id", "source_digest", "revision",
+                    "state_authority_review", "state_claim_compilation",
+                }
+            ]
+        elif name == "narration.review" and not _pi_play_agency_review_required():
+            missing_params = [
+                key for key in missing_params
+                if key not in {
+                    "state_authority_review", "state_claim_compilation",
+                }
             ]
         if (
             missing_params
@@ -2474,6 +2516,17 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             try:
                 with coc_fileio.campaign_lock(ctx.campaign_dir, **lock_kwargs):
                     try:
+                        if name == "session.resume":
+                            # Resume can repair/disposition abandoned state.  Its
+                            # opening boundary and creation evidence therefore
+                            # have to be readable before any generic recovery
+                            # mutation is allowed to run.
+                            coc_turn_manifest.effective_source_boundary(
+                                ctx.campaign_dir
+                            )
+                            coc_turn_finalization.campaign_creation_receipt_bound_roll_ids(
+                                ctx.campaign_dir
+                            )
                         if not spec.get("strict_read_only"):
                             coc_turn_manifest.recover_table_opening_boundary(
                                 ctx.campaign_dir
@@ -2482,6 +2535,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                                 ctx.campaign_dir
                             )
                     except coc_turn_manifest.TurnManifestError as exc:
+                        envelope = failure(exc.code, str(exc))
+                    except coc_turn_finalization.TurnContractError as exc:
                         envelope = failure(exc.code, str(exc))
                     except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
                         envelope = failure("recovery_conflict", str(exc))
@@ -2898,13 +2953,24 @@ def _first_contact_readiness(
             "first_impression_ref": receipt.get("receipt_id") if exists else None,
         }
         if not exists:
-            prefilled = {"npc_id": npc_id, "investigator": investigator_id}
-            missing = ["run_id", "context", "decision_id"]
+            prefilled = {
+                "npc_id": npc_id,
+                "investigator": investigator_id,
+                "run_id": coc_npc_event_chain.resolve_run_id(ctx.campaign_dir),
+            }
+            missing = [
+                "context.player_conduct",
+                "context.scene_constraints",
+                "context.authored_or_relationship_boundary",
+                "context.semantic_reason",
+                "decision_id",
+            ]
             if localized_name is not None:
                 prefilled["npc_display_name"] = localized_name
             else:
                 missing.insert(0, "npc_display_name")
             next_operation_cards.append({
+                "campaign_id": ctx.campaign_id,
                 "operation": "npc.reaction",
                 "invoke_via": "coc_invoke",
                 "prefilled_arguments": prefilled,
@@ -2912,6 +2978,46 @@ def _first_contact_readiness(
                 "fresh_decision_id_required": True,
                 "roll_created": False,
             })
+
+    social_adjudication_operation = None
+    if investigator_id is not None:
+        fact_refs = [
+            f"npc_fact:{npc_id}/{fact_id}"
+            for fact_id in (
+                str(row.get("fact_id") or "").strip()
+                for row in ((authored or {}).get("facts") or [])
+                if isinstance(row, dict)
+            )
+            if fact_id
+        ]
+        social_adjudication_operation = {
+            "operation": "rules.social_adjudicate",
+            "invoke_via": "coc_rules_social_adjudicate",
+            "prefilled_arguments": {
+                "investigator": investigator_id,
+                "npc_id": npc_id,
+            },
+            "missing_arguments": [
+                "conversation_window_id",
+                "commitment_id",
+                "approach",
+                "goal_summary",
+                "decision_id",
+            ],
+            "valid_optional_evidence_refs": fact_refs,
+            "safe_omissions": {
+                "motive": "omit to use neutral intensity 0",
+                "leverage": (
+                    "omit when no exact player-known typed source applies"
+                ),
+                "feasibility": "omit to derive the canonical default",
+                "feasibility_refs": "omit together with feasibility",
+            },
+            "argument_boundary": {
+                "submission_shape": "prefilled_plus_missing_and_grounded_optional_only",
+                "do_not_invent_refs": True,
+            },
+        }
 
     if not mechanics_ready:
         mechanics_missing = ["purpose", "decision_id"]
@@ -2950,6 +3056,7 @@ def _first_contact_readiness(
         "pending_source_dependency": pending_source_dependency,
         "requested_pair_first_impression": requested_pair,
         "next_operation_cards": next_operation_cards,
+        "social_adjudication_operation": social_adjudication_operation,
     }
 
 
@@ -10528,6 +10635,27 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
         "replayed": False,
         "request_digest": _request_digest(args),
     }
+    if feasibility == "roll":
+        data["roll_operation"] = {
+            "operation": "rules.roll",
+            "invoke_via": "coc_rules_roll",
+            "prefilled_arguments": {
+                "investigator": investigator_id,
+                "npc_id": npc_id,
+                "skill": approach_skill,
+                "difficulty": final_difficulty,
+                "bonus": bonus,
+                "penalty": penalty,
+                "goal": goal_summary,
+                "difficulty_basis": "opponent_skill",
+                "social_adjudication_ref": goal_key,
+            },
+            "missing_arguments": ["stakes", "decision_id"],
+            "argument_boundary": {
+                "submission_shape": "prefilled_plus_missing_only",
+                "forbidden_arguments": ["target", "reason"],
+            },
+        }
     resolutions[goal_key] = {
         "adjudication": {key: value for key, value in data.items() if key != "replayed"},
         "leverage_ids": current_leverage_ids,
@@ -14536,6 +14664,12 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                     )
                     or []
                 ),
+                "_archive_pending_handout_cards": deepcopy(
+                    (scene_shard.get("keeper_only") or {}).get(
+                        "pending_handout_cards"
+                    )
+                    or []
+                ),
                 "_archive_source_refs": deepcopy(
                     (scene_shard.get("provenance") or {}).get("source_refs")
                     or []
@@ -14758,6 +14892,19 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                 "invoke_via": "coc_invoke",
                 "prefilled_arguments": prefilled_arguments,
                 "missing_arguments": ["reason", "decision_id"],
+                **(
+                    {
+                        "argument_boundary": {
+                            "submission_shape": "prefilled_plus_missing_only",
+                            "forbidden_arguments": ["travel_minutes"],
+                            "reason": (
+                                "travel_minutes is valid only when source-authored "
+                                "and prefilled"
+                            ),
+                        }
+                    }
+                    if "travel_minutes" not in prefilled_arguments else {}
+                ),
                 "authority": "advisory",
                 "hard_gate": False,
             },
@@ -14974,6 +15121,25 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         or (scene or {}).get("source_refs")
         or []
     )
+    delivered_handout_ids = {
+        str(value)
+        for value in (world.get("delivered_handout_ids") or [])
+        if str(value).strip()
+    }
+    raw_pending_handouts = (scene or {}).get("_archive_pending_handout_cards")
+    if not isinstance(raw_pending_handouts, list):
+        raw_pending_handouts = coc_compiled_archive.pending_read_aloud_metadata(
+            str(active_id or ""),
+            (scene or {}).get("display_name"),
+            (scene or {}).get("read_aloud") or [],
+        )
+    pending_handouts = [
+        deepcopy(row)
+        for row in raw_pending_handouts
+        if isinstance(row, dict)
+        and str(row.get("asset_id") or "").strip()
+        and str(row.get("asset_id")) not in delivered_handout_ids
+    ]
 
     data = {
         "campaign_id": ctx.campaign_id,
@@ -15044,6 +15210,10 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "pending_san_triggers": [
             trigger for trigger in pending_san_triggers if trigger["status"] == "pending"
         ],
+        # Body-free source card metadata for semantic Keeper timing. The
+        # canonical handout query remains the only way to read an undelivered
+        # card body; this list never authorizes or auto-triggers delivery.
+        "pending_handouts": pending_handouts,
         "keeper_mechanics": {
             "secret": True,
             "affordance_operations": affordance_operations,
@@ -15257,10 +15427,16 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
 
 
 _TURN_RECOVERY_MEANINGFUL_QUERIES = frozenset({"actions.advise"})
-_TURN_RECOVERY_NON_TURN_MUTATIONS = frozenset({"session.delivery_ack"})
+_TURN_RECOVERY_NON_TURN_MUTATIONS = frozenset({
+    "evidence.table_opening",
+    "session.delivery_ack",
+    "setup.complete",
+})
 _TURN_TAIL_DURABLE_DECISION_TOOLS = frozenset({
+    "evidence.table_opening",
     "session.begin",
     "session.delivery_ack",
+    "setup.complete",
     "development.settle",
     "state.end_session",
 })
@@ -15315,7 +15491,8 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
 
     invalidation_candidates: set[tuple[str, str]] = set()
     if not has_pending_turn:
-        for row in coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir):
+        source_tail = coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir)
+        for row in source_tail:
             tool_name = str(row.get("tool") or "")
             tool_spec = TOOLS.get(tool_name)
             row_args = row.get("args") if isinstance(row.get("args"), dict) else {}
@@ -15354,6 +15531,16 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
             )
         except coc_git_history.GitHistoryError as exc:
             raise ToolError("history_restore_failed", str(exc)) from exc
+    if restored is None:
+        # With no prior finalized history baseline, quarantine cannot claim
+        # that unrelated state writes were rolled back. Tombstone only the
+        # exact roll-source decisions being dispositioned; otherwise canonical
+        # state would remain live behind an unusable idempotency key.
+        invalidation_candidates = {
+            (tool_name, decision_id)
+            for tool_name, decision_id in invalidation_candidates
+            if f"{tool_name}:{decision_id}" in orphan_sources
+        }
 
     now = _now_iso()
     coc_turn_finalization.record_roll_dispositions(
@@ -15640,10 +15827,18 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         if current_window["meaningful_row_count"]:
             mode = "open_turn_recovery"
             next_operations = ["continue_current_turn_from_receipts"]
-            hints.insert(
-                0,
-                "continue semantic adjudication from current_turn.rows; reuse successful receipts by decision_id and never reroll them",
-            )
+            if turn_tail_quarantine.get("invalidated_decisions"):
+                hints.insert(
+                    0,
+                    "continue semantic adjudication from current_turn.rows, but do not reuse "
+                    "decision ids listed in turn_tail_quarantine.invalidated_decisions; "
+                    "those abandoned receipts are invalidated rather than reusable",
+                )
+            else:
+                hints.insert(
+                    0,
+                    "continue semantic adjudication from current_turn.rows; reuse successful receipts by decision_id and never reroll them",
+                )
         else:
             mode = "awaiting_player"
             next_operations = ["interpret_current_player_message"]
@@ -17127,7 +17322,7 @@ def _l0_direct_opening_projection(
             "start_location_id": location_id,
         }
     try:
-        refs = assets_mod._cached_source_refs(
+        refs = assets_mod.cached_source_refs(
             ctx.root,
             root_info["asset_root_id"],
             {"source_refs": list(scope["page_refs"])},
@@ -17140,6 +17335,23 @@ def _l0_direct_opening_projection(
             source_refs=refs,
             scope_pdf_indices=pages,
         )
+        # Opening handouts join the unified verbatim-card pipeline: each L0
+        # opening card becomes a canonical handout entity that the selected-
+        # opening projection reprojects into the campaign card store.
+        opening_cards = coc_runtime_ops.l0_opening_handout_cards(
+            l0,
+            scene_id=location_id,
+        )
+        for card in opening_cards:
+            assets_mod.cached_source_refs(
+                ctx.root,
+                root_info["asset_root_id"],
+                {"source_refs": list(card["source_refs"])},
+                field=f"opening_handout {card['handout_id']}",
+                allow_string_refs=True,
+            )
+        # All location and handout source refs are now proven against the bound
+        # root. Only after that closed validation may durable entities/jobs land.
         stored = assets_mod.put_entity(
             ctx.root,
             root_info["asset_root_id"],
@@ -17147,13 +17359,8 @@ def _l0_direct_opening_projection(
             location_id,
             pack,
         )
-        # Opening handouts join the unified verbatim-card pipeline: each L0
-        # opening card becomes a canonical handout entity that the selected-
-        # opening projection reprojects into the campaign card store.
-        opening_cards = coc_runtime_ops.l0_opening_handout_cards(
-            l0, fallback_pdf_indices=list(pages),
-        )
         opening_card_ids: list[str] = []
+        opening_card_jobs: list[dict[str, Any]] = []
         for card in opening_cards:
             assets_mod.put_entity(
                 ctx.root,
@@ -17163,6 +17370,20 @@ def _l0_direct_opening_projection(
                 card,
             )
             opening_card_ids.append(str(card["asset_id"]))
+            opening_card_jobs.append(assets_mod.enqueue_job(
+                ctx.root,
+                root_info["asset_root_id"],
+                kind="deepen_handout",
+                target_id=str(card["handout_id"]),
+                priority=100,
+                reason="module_init_l0_opening_handout",
+                consumer_refs=[assets_mod.campaign_consumer_ref(
+                    ctx.root,
+                    str(ctx.campaign_id),
+                    root_info["asset_root_id"],
+                    intent_kind="scene_enter",
+                )],
+            ))
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError(
             "opening_l0_direct_write_invalid", str(exc),
@@ -17188,6 +17409,11 @@ def _l0_direct_opening_projection(
         raise ToolError(exc.code, exc.message) from exc
     except coc_module_project.ModuleProjectError as exc:
         raise ToolError("opening_projection_failed", str(exc)) from exc
+    # Opening cards stop at the candidate set: setup only materializes card
+    # entities and their campaign projection. Delivery timing is always the
+    # KP's semantic judgment — the KP hands the opening cards to the players
+    # right after the table opening via state.deliver_handout (same path as
+    # every other card). No delivery write happens here.
     return {
         "status": "complete",
         "idempotent": False,
@@ -17197,6 +17423,7 @@ def _l0_direct_opening_projection(
         "start_location_id": location_id,
         "stored_entity": stored,
         "opening_handout_card_ids": opening_card_ids,
+        "opening_handout_jobs": opening_card_jobs,
         "opening_projection": projection,
         "watch_drain": drain,
     }
@@ -18637,6 +18864,259 @@ _LOCATION_PACK_STRUCTURAL_FIELDS = frozenset({
 _LOCATION_PACK_DEFAULT_SEMANTIC_FIELDS = ("title", "player_safe_summary")
 
 
+def _normalized_verbatim_excerpt(value: str) -> str:
+    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return "\n".join(line.rstrip() for line in lines).strip()
+
+
+def _require_handout_text_evidence(
+    text: str,
+    request: dict[str, Any],
+    supplied_refs: list[str],
+    *,
+    root: Path,
+    root_id: str,
+) -> None:
+    """Bind source-verbatim card text to current cited cached page bytes."""
+    expected_by_ref = {
+        str(row.get("card_source_ref") or ""): row
+        for row in (request.get("result_contract") or {}).get(
+            "allowed_exact_source_refs"
+        ) or []
+        if isinstance(row, dict) and str(row.get("card_source_ref") or "")
+    }
+    cited_pages: list[str] = []
+    for source_ref in supplied_refs:
+        expected = expected_by_ref.get(source_ref)
+        if not isinstance(expected, dict):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout text cites an unavailable cached page",
+            )
+        pdf_index = expected.get("pdf_index")
+        if isinstance(pdf_index, bool) or not isinstance(pdf_index, int):
+            raise ToolError(
+                "invalid_state", "handout request cached page identity is invalid",
+            )
+        current_ref = (
+            coc_module_project.coc_module_assets.cached_page_ref(
+                root, root_id, pdf_index,
+            )
+        )
+        if not isinstance(current_ref, dict) or any(
+            current_ref.get(field) != expected.get(field)
+            for field in ("source_id", "pdf_index", "text_sha256")
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout cited cached page bytes drifted after request creation",
+            )
+        page = coc_module_project.coc_module_assets.get_page(
+            root, root_id, pdf_index,
+        )
+        page_text = page.get("text") if isinstance(page, dict) else None
+        if not isinstance(page_text, str):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout cited cached page text is unavailable",
+            )
+        canonical_page = page_text.replace("\r\n", "\n").replace("\r", "\n")
+        if not canonical_page.endswith("\n"):
+            canonical_page += "\n"
+        normalized_page = _normalized_verbatim_excerpt(canonical_page)
+        if hashlib.sha256(canonical_page.encode("utf-8")).hexdigest() != str(
+            expected.get("text_sha256") or ""
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout cited cached page bytes do not match their hash",
+            )
+        cited_pages.append(normalized_page)
+    excerpt = _normalized_verbatim_excerpt(text)
+    if not excerpt or (
+        all(excerpt not in page for page in cited_pages)
+        and excerpt not in "\n".join(cited_pages)
+    ):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout verbatim text is absent from its cited cached pages",
+        )
+
+
+def _require_closed_handout_worker_pack(
+    pack: dict[str, Any],
+    request: dict[str, Any],
+    *,
+    root_id: str,
+    root: Path,
+    target_id: str,
+    related_packs: Any,
+) -> None:
+    """Reject handout child output outside its exact pages/assets before put."""
+    contract = request.get("result_contract")
+    if (
+        not isinstance(contract, dict)
+        or contract.get("contract_id") != "coc.handout-card-pack.v1"
+        or contract.get("closed") is not True
+    ):
+        raise ToolError(
+            "invalid_state", "deepen_handout request lacks its closed card contract",
+        )
+    if related_packs not in (None, []):
+        raise ToolError(
+            "invalid_source_worker_pack", "handout fulfillment requires related_packs=[]",
+        )
+    allowed_fields = set(contract.get("allowed_pack_fields") or [])
+    required_fields = set(contract.get("required_pack_fields") or [])
+    # host_timing is injected above by repository lease measurement; it is
+    # never a worker-allowed semantic field in the closed card contract.
+    worker_fields = set(pack) - {"host_timing"}
+    extra = sorted(worker_fields - allowed_fields)
+    missing = sorted(required_fields - worker_fields)
+    if extra or missing:
+        detail = (
+            f"unsupported fields: {', '.join(extra)}" if extra
+            else f"missing required fields: {', '.join(missing)}"
+        )
+        raise ToolError("invalid_source_worker_pack", detail)
+    fixed = contract.get("fixed_fields")
+    if not isinstance(fixed, dict):
+        raise ToolError("invalid_state", "handout result contract fixed fields are invalid")
+    for field, expected in fixed.items():
+        if pack.get(field) != expected:
+            message = (
+                "player_visible=true is required for a source handout result"
+                if field == "player_visible"
+                else f"pack.{field} must equal the request-bound value"
+            )
+            raise ToolError("invalid_source_worker_pack", message)
+    if pack.get("handout_id") != target_id or pack.get("asset_id") != target_id:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout_id and asset_id must equal the request target_id",
+        )
+    if pack.get("kind") not in set(contract.get("kind_values") or []):
+        raise ToolError("invalid_source_worker_pack", "handout kind is unsupported")
+    if not isinstance(pack.get("title"), str) or not str(pack["title"]).strip():
+        raise ToolError("invalid_source_worker_pack", "handout title must be non-empty")
+    provenance = pack.get("provenance")
+    expected_provenance = (contract.get("provenance") or {}).get("required")
+    if provenance != expected_provenance:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout provenance must be exactly source_authored host_pack",
+        )
+    allowed_source_refs = {
+        str(row.get("card_source_ref") or "")
+        for row in contract.get("allowed_exact_source_refs") or []
+        if isinstance(row, dict) and str(row.get("card_source_ref") or "")
+    }
+    supplied_refs = pack.get("source_refs")
+    if (
+        not isinstance(supplied_refs, list)
+        or not supplied_refs
+        or any(not isinstance(ref, str) for ref in supplied_refs)
+        or len(supplied_refs) != len(set(supplied_refs))
+        or not set(supplied_refs) <= allowed_source_refs
+    ):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout source_refs must be a unique exact cached page subset",
+        )
+    try:
+        current_relations = (
+            coc_module_project.coc_module_assets.handout_allowed_relation_refs(
+                root, root_id, target_id,
+            )
+        )
+    except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            f"handout relation binding is unavailable: {exc}",
+        ) from exc
+    for field in ("scene_refs", "clue_refs"):
+        supplied = pack.get(field, [])
+        allowed = request.get(f"allowed_{field}")
+        if allowed != current_relations.get(f"allowed_{field}"):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"handout allowed {field} drifted after request creation",
+            )
+        if (
+            not isinstance(supplied, list)
+            or any(not isinstance(value, str) or not value for value in supplied)
+            or len(supplied) != len(set(supplied))
+            or not isinstance(allowed, list)
+            or not set(supplied) <= set(allowed)
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"handout {field} must be a unique subset of allowed {field}",
+            )
+    image_ref = pack.get("image_ref")
+    if image_ref is not None:
+        allowed_assets = request.get("allowed_registered_asset_refs")
+        if not isinstance(allowed_assets, list) or image_ref not in {
+            str(row.get("image_ref") or "")
+            for row in allowed_assets if isinstance(row, dict)
+        }:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout image_ref must equal one exact registered asset ref",
+            )
+        try:
+            current_assets = (
+                coc_module_project.coc_module_assets.registered_source_asset_refs(
+                    root,
+                    root_id,
+                    requested_pdf_indices=list(
+                        request.get("requested_pdf_indices") or []
+                    ),
+                )
+            )
+        except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"registered asset drifted after request creation: {exc}",
+            ) from exc
+        expected_rows = [
+            row for row in allowed_assets
+            if isinstance(row, dict) and row.get("image_ref") == image_ref
+        ]
+        cited_pdf_indices = {
+            coc_module_project.coc_module_assets.handout_card_ref_index(ref)
+            for ref in supplied_refs
+        }
+        if any(
+            row.get("pdf_index") not in cited_pdf_indices
+            for row in expected_rows
+        ):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "handout image_ref must bind to the same cited page",
+            )
+        current_rows = [row for row in current_assets if row.get("image_ref") == image_ref]
+        if current_rows != expected_rows:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "registered asset hash or bundle binding drifted after request creation",
+            )
+    text = pack.get("text")
+    if image_ref is None and (not isinstance(text, str) or not text.strip()):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            "handout card requires source text or an exact registered image",
+        )
+    if isinstance(text, str):
+        _require_handout_text_evidence(
+            text,
+            request,
+            supplied_refs,
+            root=root,
+            root_id=root_id,
+        )
+
+
 def _location_pack_required_semantic_fields(
     request: dict[str, Any],
 ) -> list[str]:
@@ -19809,6 +20289,15 @@ def _fulfill_host_work_for_asset_unlocked(
             force_host_job=True,
         )
     else:
+        if job_kind == "deepen_handout":
+            _require_closed_handout_worker_pack(
+                pack,
+                request,
+                root_id=root_id,
+                root=ctx.root,
+                target_id=target_id,
+                related_packs=args.get("related_packs"),
+            )
         expected_state = (
             "partial"
             if job_kind in {"partial_neighbor", "partial_opening"}
@@ -20558,7 +21047,7 @@ def _tool_progressive_retry_full_parse(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "clues.query",
-    "Clue graph with discovery state, plus the campaign's verbatim handout "
+    "Clue graph with discovery state, plus the campaign's registered handout "
     "cards with delivery state. Filter clues by scene_id or clue_id. "
     "Undiscovered clues are keeper secrets; undelivered card bodies are "
     "keeper-only until state.deliver_handout.",
@@ -20624,62 +21113,19 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
         "conclusions": conclusions,
     }
     if args.get("include_handouts", True):
-        cards = _handout_cards_indexed(ctx)
-        delivered = _delivered_handout_ids(world)
         projection = str(args.get("handouts_projection") or "keeper")
-        if projection not in {"keeper", "player"}:
-            raise ToolError(
-                "invalid_param",
-                "handouts_projection must be 'keeper' or 'player'",
+        try:
+            data["handouts"] = coc_handouts.HandoutCatalog.load(ctx).project(
+                world, projection
             )
-        if projection == "player":
-            # Player face lists only delivered, player-visible cards. Their
-            # id set is likewise bounded to those cards — a keeper-facing
-            # card's existence (even delivered) is not player knowledge.
-            player_ids = {
-                asset_id for asset_id, card in cards.items()
-                if asset_id in delivered
-                and bool(card.get("player_visible", True))
-            }
-            data["handouts"] = {
-                "projection": projection,
-                "delivered_handout_ids": sorted(player_ids),
-                "cards": [
-                    _handout_public_view(cards[asset_id], delivered)
-                    for asset_id in sorted(player_ids)
-                ],
-            }
-        else:
-            card_rows: list[dict[str, Any]] = []
-            for asset_id in sorted(cards):
-                card = cards[asset_id]
-                row = {
-                    "asset_id": asset_id,
-                    "kind": card.get("kind"),
-                    "title": card.get("title"),
-                    "summary": card.get("summary"),
-                    "when_to_deliver": card.get("when_to_deliver"),
-                    "text": card.get("text"),
-                    "localized_text": card.get("localized_text"),
-                    "image_ref": card.get("image_ref"),
-                    "source_refs": list(card.get("source_refs") or []),
-                    "player_visible": bool(card.get("player_visible", True)),
-                    "scene_refs": list(card.get("scene_refs") or []),
-                    "clue_refs": list(card.get("clue_refs") or []),
-                    "delivered": asset_id in delivered,
-                }
-                card_rows.append(row)
-            data["handouts"] = {
-                "projection": projection,
-                "delivered_handout_ids": sorted(delivered),
-                "cards": card_rows,
-            }
+        except coc_handouts.HandoutError as exc:
+            raise ToolError(exc.code, exc.message) from exc
     return data, [], [
         "conclusion solution prose is intentionally omitted here; reveal only the "
         "player-safe text of clues already recorded as discovered",
         "undelivered handout card bodies are keeper-only; deliver via "
         "state.deliver_handout when the fiction earns it, then present the "
-        "card body verbatim",
+        "registered card body exactly",
     ]
 
 
@@ -22795,7 +23241,23 @@ def _settled_narration_budget(
             events.append({"event_type": "scene_transition"})
     if bundle.get("exceptional_effect"):
         events.append({"event_type": "exceptional_effect_apply"})
-    return _narration_budget(ctx, investigator_id, events)
+    budget = _narration_budget(ctx, investigator_id, events)
+    public_check_count = len([
+        row for row in bundle.get("public_check") or []
+        if isinstance(row, dict)
+    ])
+    # Default causal placement inserts each public check before the paragraph
+    # containing its result. In the worst case every check has an independent
+    # result paragraph, so all N results need one preceding setup paragraph.
+    required_paragraphs = max(2, public_check_count + 1)
+    if required_paragraphs > int(budget["max_paragraphs"]):
+        extra_paragraphs = required_paragraphs - int(budget["max_paragraphs"])
+        budget = {
+            **budget,
+            "max_chars": int(budget["max_chars"]) + 175 * extra_paragraphs,
+            "max_paragraphs": required_paragraphs,
+        }
+    return budget
 
 
 def _turn_contract_projection(
@@ -22865,7 +23327,8 @@ def _turn_contract_projection(
 
 @tool(
     "narration.brief",
-    "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract.",
+    "Build a minimum-privilege player-safe narration envelope plus the "
+    "active campaign play_language style contract.",
     {
         "candidate_plan": {"type": "object", "required": True, "desc": "KP-adopted or modified Director plan"},
         "investigator": {"type": "string", "desc": "investigator id"},
@@ -22918,7 +23381,9 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
         "narration_envelope": envelope,
         "budget": budget,
         "control_overrides": control_overrides,
-        "style_contract": coc_narration_style.player_facing_style_contract("zh-Hans"),
+        "style_contract": coc_narration_style.player_facing_style_contract(
+            _campaign_play_language(ctx)
+        ),
     }, [], hints
 
 
@@ -22936,6 +23401,12 @@ def _review_has_agency_violation(review: dict[str, Any]) -> bool:
         for finding in review.get("findings") or []
     )
 
+
+def _review_requires_rewrite(review: dict[str, Any]) -> bool:
+    return (
+        _review_has_agency_violation(review)
+        or review.get("state_authority_gate") == "rewrite_required"
+    )
 
 def _valid_narration_review_digest(review: dict[str, Any]) -> bool:
     digest = review.get("review_digest")
@@ -23024,7 +23495,7 @@ def _tool_narration_advisory_review(
     ]
 
 
-def _pending_agency_review_revision(
+def _pending_authority_review_revision(
     ctx: Ctx, settled: dict[str, Any]
 ) -> int:
     """Return the only review revision legal for the frozen pending turn."""
@@ -23036,12 +23507,12 @@ def _pending_agency_review_revision(
         and row.get("revision") == 1
         and _valid_narration_review_digest(row)
     ]
-    return 2 if any(_review_has_agency_violation(row) for row in prior_rows) else 1
+    return 2 if any(_review_requires_rewrite(row) for row in prior_rows) else 1
 
 
 @tool(
     "narration.review",
-    "Semantically review the exact pending narration before Pi-play finalization. Order: draft from turn.output_context; review the exact turn/source/revision/draft; mark unauthorized PC voluntary action, speech, plan, belief, trust, or active emotion as agency_violation with the exact pc:<id> and source_ref=null; then finalize only a clean review and bind authorized PC propositions through agency_claims. An agency violation requires narration-only revision 2 with the same frozen settlement. Length, repetition, scope, and style findings remain advisory; no keyword matcher or prose-quality hard gate.",
+    "Semantically review the exact pending narration before Pi-play finalization. Declare every player-state change claim in state_authority_review and bind it to the exact current frozen mechanics effect; an unbound claim or agency_violation requires narration-only revision 2 with the same frozen settlement. Then finalize only a clean review and bind authorized PC propositions through agency_claims. Length, repetition, scope, and style findings remain advisory; no keyword matcher, second Keeper, or prose-quality hard gate.",
     {
         "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
         "turn_id": {"type": "string", "required": True},
@@ -23049,6 +23520,44 @@ def _pending_agency_review_revision(
         "revision": {"type": "integer", "minimum": 1, "required": True},
         "draft_text": {"type": "string", "required": True, "desc": "exact draft reviewed by the KP"},
         "findings": {"type": "array", "desc": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory"},
+        "state_authority_review": {
+            "type": "object",
+            "required": True,
+            "desc": "required Pi semantic declaration of player-state claims. Bind every listed claim to one exact current mechanics effect id; use null only to audit an ungrounded claim that must be removed in revision 2",
+            "properties": {
+                "disposition": {
+                    "type": "string",
+                    "enum": ["no_player_state_change_claimed", "claims_listed"],
+                },
+                "reason": {"type": "string", "minLength": 1},
+                "claims": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim_id": {"type": "string", "minLength": 1},
+                            "subject_ref": {"type": "string", "minLength": 1},
+                            "claim_kind": {
+                                "type": "string",
+                                "enum": sorted(coc_state_authority.CLAIM_KINDS),
+                            },
+                            "exact_excerpt": {"type": "string", "minLength": 1},
+                            "source_effect_id": {"type": ["string", "null"]},
+                            "reason": {"type": "string", "minLength": 1},
+                        },
+                        "required_fields": sorted(coc_state_authority.CLAIM_FIELDS),
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required_fields": sorted(coc_state_authority.REVIEW_FIELDS),
+            "additionalProperties": False,
+        },
+        "state_claim_compilation": {
+            "type": "object",
+            "required": True,
+            "desc": "Pi-host-owned independent semantic claim receipt. The Pi adapter injects it for the exact draft; the Keeper must not author or modify it.",
+        },
         "investigator": {"type": "string", "desc": "investigator id for budget derivation (defaults to the party's first member)"},
     },
     access="mutation",
@@ -23070,7 +23579,11 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "narration.review requires decision_id and revision 1 or 2")
     request_digest = _canonical_digest({
         key: deepcopy(args.get(key))
-        for key in ("turn_id", "source_digest", "revision", "draft_text", "findings", "investigator")
+        for key in (
+            "turn_id", "source_digest", "revision", "draft_text", "findings",
+            "state_authority_review", "state_claim_compilation",
+            "investigator",
+        )
     })
     prior = ctx.ledger_lookup("narration.review", args.get("decision_id"))
     if prior is not None:
@@ -23124,7 +23637,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         expected_revision = int(settled.get("accepted_revision") or 0) + 1
     pending_review_revision = None
     if pending is not None and _pi_play_agency_review_required():
-        pending_review_revision = _pending_agency_review_revision(ctx, settled)
+        pending_review_revision = _pending_authority_review_revision(ctx, settled)
     if (
         args.get("turn_id") != settled.get("turn_id")
         or args.get("source_digest") != settled.get("source_digest")
@@ -23179,6 +23692,34 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 "invalid_param",
                 f"findings[{index}] agency_violation must name a current PC and source_ref=null; authorized claims belong in turn.finalize.agency_claims",
             )
+    try:
+        state_authority_review, state_authority_gate = (
+            coc_state_authority.normalize_review(
+                args.get("state_authority_review"),
+                draft=draft,
+                settled=settled,
+                party_ids=ctx.party_ids(),
+                required=_pi_play_agency_review_required(),
+            )
+        )
+        state_claim_compilation, compiler_gate = (
+            coc_state_authority.normalize_compiler_receipt(
+                args.get("state_claim_compilation"),
+                draft=draft,
+                settled=settled,
+                party_ids=ctx.party_ids(),
+                turn_id=str(args["turn_id"]),
+                source_digest=str(args["source_digest"]),
+                revision=revision,
+                kp_review=state_authority_review,
+                required=_pi_play_agency_review_required(),
+            )
+        )
+        state_claim_review_disagreement = compiler_gate == "rewrite_required"
+        if compiler_gate == "rewrite_required":
+            state_authority_gate = "rewrite_required"
+    except coc_state_authority.StateAuthorityError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
     review_id = "narration-review-v1:" + hashlib.sha256(
         f"{ctx.campaign_id}:{decision_id}".encode("utf-8")
     ).hexdigest()[:40]
@@ -23188,6 +23729,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "authority": "advisory",
         "hard_gate": False,
         "agency_hard_gate": _pi_play_agency_review_required(),
+        "state_authority_hard_gate": _pi_play_agency_review_required(),
         "decision_id": decision_id,
         "review_id": review_id,
         "turn_id": str(args["turn_id"]),
@@ -23196,7 +23738,6 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "draft_sha256": _canonical_digest(draft),
         "request_digest": request_digest,
         "findings": findings,
-        "recommendation": "consider_revision" if findings else "no_revision_suggested",
         "agency_gate": (
             (
                 "rewrite_required"
@@ -23205,7 +23746,17 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
             )
             if _pi_play_agency_review_required() else "advisory"
         ),
+        "state_authority_review": state_authority_review,
+        "state_claim_compilation": state_claim_compilation,
+        "state_claim_review_disagreement": state_claim_review_disagreement,
+        "state_authority_gate": state_authority_gate,
     }
+    if _review_requires_rewrite(data):
+        data["recommendation"] = "revision_required"
+    elif findings:
+        data["recommendation"] = "consider_revision"
+    else:
+        data["recommendation"] = "no_revision_suggested"
     data["review_digest"] = _canonical_digest(data)
     ctx.ledger_record(args["decision_id"], "narration.review", data)
     coc_state.append_jsonl(
@@ -23217,9 +23768,16 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     ]
     if data["agency_gate"] == "rewrite_required":
         hints.append(
-            "agency ownership is the sole hard review boundary: do not finalize this draft or rerun settlement; rewrite prose only and review revision 2"
+            "agency ownership is a hard review boundary: do not finalize this draft or rerun settlement; rewrite prose only and review revision 2; prose-quality findings remain advisory"
         )
-    else:
+    if data["state_authority_gate"] == "rewrite_required":
+        hints.append(
+            "player-state authority is ungrounded: do not finalize or mutate the frozen settlement; remove/defer the claim in narration-only revision 2"
+        )
+    if (
+        data["agency_gate"] != "rewrite_required"
+        and data["state_authority_gate"] != "rewrite_required"
+    ):
         hints.append(
             "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize"
         )
@@ -24126,10 +24684,12 @@ def _tool_state_cash_semantic(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "state.deliver_handout",
-    "Deliver a verbatim info card (handout) to the players. Idempotent via "
+    "Deliver an exact registered info card (handout) to the players. "
+    "Source cards preserve verbatim excerpts; authored-derivative cards "
+    "preserve their registered in-world prop text. Idempotent via "
     "decision_id. This only writes delivery state — judging WHEN a card is "
     "delivered stays with the Keeper; narration frames the find, the card "
-    "body is presented verbatim, never paraphrased.",
+    "registered body is presented exactly, never paraphrased.",
     {
         "handout_id": {
             "type": "string",
@@ -24148,36 +24708,23 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
         return prior.get("data"), [
             "duplicate decision_id: returning the previously settled result",
         ], []
-    cards = _handout_cards_indexed(ctx)
-    card = cards.get(handout_id)
-    if card is not None and not bool(card.get("player_visible", True)):
-        # Fail-closed: this tool is the player delivery mechanism. A card
-        # explicitly marked player_visible:false is keeper-facing reference
-        # material and can never be handed to the players through it.
-        raise ToolError(
-            "handout_not_player_visible",
-            f"handout '{handout_id}' is marked player_visible:false — it is "
-            "keeper-facing material and cannot be delivered to players; fix "
-            "the card registration if player delivery was intended",
-        )
     warnings: list[str] = []
-    if card is None:
-        warnings.append(
-            f"handout '{handout_id}' is not a registered card — delivery is "
-            "recorded, but there is no card body to project; register the "
-            "card (module handout entity or index asset) for player-facing "
-            "rendering"
-        )
     world = ctx.world()
     scene_id = str(args.get("scene_id") or "").strip() or None
     reason = str(args.get("reason") or "").strip() or None
-    newly, already = _apply_handout_delivery(world, [handout_id])
+    try:
+        delivery = coc_handouts.HandoutCatalog.load(ctx).deliver(world, handout_id)
+    except coc_handouts.HandoutError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    newly = list(delivery.newly)
+    already = list(delivery.already)
     if newly:
         ctx.save_world(world)
         ctx.log_event({
             "event_type": "handout_delivered",
             "asset_id": handout_id,
             "source": "state.deliver_handout",
+            **(delivery.presentation or {}),
             **({"scene_id": scene_id} if scene_id else {}),
             **({"reason": reason} if reason else {}),
             "ts": _now_iso(),
@@ -24187,18 +24734,145 @@ def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
         "delivered": True,
         "newly_delivered": newly,
         "already_delivered": already,
-        "delivered_total": len(_delivered_handout_ids(world)),
-        "card": (_handout_public_view(card, {handout_id}) if card else None),
+        "delivered_total": delivery.delivered_total,
+        "card": delivery.card,
+        "presentation": delivery.presentation,
     }
     hints: list[str] = []
-    if card is not None and newly:
+    if newly:
         hints.append(
-            "present the card body verbatim (localized_text preferred over "
-            "text); your narration frames who finds it and in what situation "
-            "— do not rewrite or summarize the card's own text"
+            "present the registered card body exactly (active-language text "
+            "preferred); your narration frames who finds it and in what "
+            "situation — do not rewrite or summarize the card's own text"
         )
     ctx.ledger_record(args.get("decision_id"), "state.deliver_handout", data)
     return data, warnings, hints
+
+
+def _normalize_handout_replay_assertion(value: Any) -> dict[str, Any]:
+    """Validate structured KP judgment without classifying player prose."""
+    if not isinstance(value, dict):
+        raise ToolError("invalid_param", "request_assertion must be an object")
+    allowed = {
+        "explicit_player_request", "player_text", "semantic_reason",
+        "player_turn_epoch",
+    }
+    extra = set(value) - allowed
+    if extra:
+        raise ToolError(
+            "invalid_param",
+            f"request_assertion has unsupported fields: {sorted(extra)}",
+        )
+    if value.get("explicit_player_request") is not True:
+        raise ToolError(
+            "explicit_player_request_required",
+            "replay requires the Keeper to assert an explicit player request; "
+            "ask a clarifying question instead when the reference is ambiguous",
+        )
+    player_text = value.get("player_text")
+    if not isinstance(player_text, str) or not player_text.strip():
+        raise ToolError(
+            "invalid_param", "request_assertion.player_text must be exact and nonblank"
+        )
+    semantic_reason = value.get("semantic_reason")
+    if not isinstance(semantic_reason, str) or not semantic_reason.strip():
+        raise ToolError(
+            "invalid_param", "request_assertion.semantic_reason is required"
+        )
+    epoch = value.get("player_turn_epoch")
+    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 1:
+        raise ToolError(
+            "invalid_param",
+            "request_assertion.player_turn_epoch must be the current host player epoch",
+        )
+    return {
+        "explicit_player_request": True,
+        "player_text": player_text,
+        "player_text_sha256": "sha256:" + hashlib.sha256(
+            player_text.encode("utf-8")
+        ).hexdigest(),
+        "semantic_reason": semantic_reason.strip(),
+        "player_turn_epoch": epoch,
+    }
+
+
+@tool(
+    "state.replay_handout",
+    "Present an already-delivered player-visible card again only after the "
+    "Keeper semantically confirms an explicit request in the current player "
+    "message. This creates a new presentation identity without changing "
+    "delivery/material state. Ambiguous references require a clarifying "
+    "question and no tool call; code never keyword-classifies player prose.",
+    {
+        "handout_id": {
+            "type": "string",
+            "required": True,
+            "desc": "asset_id of an already-delivered player-visible card",
+        },
+        "request_assertion": {
+            "type": "object",
+            "required": True,
+            "desc": "structured Keeper assertion bound to the exact current player message; Pi injects player_turn_epoch after checking player_text",
+            "properties": {
+                "explicit_player_request": {"type": "boolean"},
+                "player_text": {"type": "string"},
+                "semantic_reason": {"type": "string"},
+                "player_turn_epoch": {"type": "integer", "minimum": 1},
+            },
+            "required_fields": [
+                "explicit_player_request", "player_text", "semantic_reason",
+            ],
+            "additionalProperties": False,
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_replay_handout(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.replay_handout"
+    handout_id = str(args["handout_id"]).strip()
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled presentation"
+        ], []
+    assertion = _normalize_handout_replay_assertion(args.get("request_assertion"))
+    world = ctx.world()
+    try:
+        replay = coc_handouts.HandoutCatalog.load(ctx).replay(
+            world,
+            handout_id,
+            request_assertion=assertion,
+        )
+    except coc_handouts.HandoutError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    if not replay.already_consumed:
+        ctx.save_world(world)
+        ctx.log_event({
+            "event_type": "handout_presented",
+            **replay.presentation,
+            "source": tool_name,
+            "request_assertion": replay.request_assertion,
+            "ts": _now_iso(),
+        })
+    data = {
+        "asset_id": replay.asset_id,
+        "delivered": True,
+        "delivery_changed": False,
+        "presentation": replay.presentation,
+        "card": replay.card,
+        "request_assertion": replay.request_assertion,
+    }
+    ctx.ledger_record(args.get("decision_id"), tool_name, data)
+    warnings = (
+        ["replay authority already consumed for this asset and player epoch; "
+         "returning the original presentation"]
+        if replay.already_consumed
+        else []
+    )
+    return data, warnings, [
+        "present this exact card again; do not paraphrase its body or create "
+        "another delivery/material entry"
+    ]
 
 
 @tool(
@@ -24244,6 +24918,62 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                 "or consciously rule a free reveal"
             )
 
+    # Resolve the current-schema player handout contract before constructing
+    # either discovery document.  Handout delivery is optional metadata: a bad
+    # structured link becomes an advisory while canonical clue/flag/world
+    # writes continue.  Missing active-language read-aloud content follows the
+    # same optional-delivery boundary and performs no entitlement/presentation
+    # mutation. Structured ids only; prose is never classified.
+    linked_handout_id: str | None = None
+    linked_handout_newly: list[str] = []
+    linked_handout_presentation: dict[str, Any] | None = None
+    handout_delivery_warning: dict[str, Any] | None = None
+    linkage_skipped_hidden_card = False
+    handout_link_resolution_attempted = False
+    handout_catalog: coc_handouts.HandoutCatalog | None = None
+    if (
+        clue is not None
+        and str(clue.get("delivery_kind") or "") == "handout"
+        and str(clue.get("visibility") or "") == "player-safe"
+    ):
+        handout_link_resolution_attempted = True
+        handout_catalog = coc_handouts.HandoutCatalog.load(ctx)
+        try:
+            linkage = handout_catalog.resolve_clue_delivery(
+                world,
+                clue_id,
+                str(clue.get("handout_asset_id") or "").strip() or None,
+            )
+        except coc_handouts.HandoutError as exc:
+            handout_delivery_warning = {
+                "code": exc.code,
+                "message": exc.message,
+                **(
+                    {
+                        "handout_id": str(
+                            clue.get("handout_asset_id") or ""
+                        ).strip() or None,
+                    }
+                    if exc.code == "handout_locale_missing"
+                    else {}
+                ),
+            }
+            if exc.code == "handout_locale_missing":
+                warnings.append(
+                    f"{exc.code}: clue discovery was recorded but its linked "
+                    "handout was not delivered because active-language content "
+                    "is unavailable"
+                )
+            else:
+                warnings.append(
+                    f"optional handout delivery skipped [{exc.code}]: "
+                    f"{exc.message}; clue discovery remains authoritative"
+                )
+        else:
+            linked_handout_id = linkage.asset_id
+            linked_handout_newly = list(linkage.newly)
+            linked_handout_presentation = linkage.presentation
+
     scene_contract = (
         (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
     )
@@ -24284,27 +25014,53 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     newly_unlocked = _evaluate_and_apply_unlocks(
         ctx, world, clue_records=clues_found
     )
-    # Same-transaction linkage: a clue that carries a registered handout card
-    # delivers that card with the discovery write (single source of truth —
-    # the clue record's handout_asset_id, never a prose keyword).
-    # player_visible:false cards are keeper reference material and never
-    # link-deliver to players.
-    linked_handout_id: str | None = None
-    linked_handout_newly: list[str] = []
-    linkage_skipped_hidden_card = False
-    if clue is not None:
+    # Same-transaction linkage: preserve the existing best-effort behavior for
+    # non-handout clues that carry an explicitly registered companion card.
+    if (
+        clue is not None
+        and linked_handout_id is None
+        and not handout_link_resolution_attempted
+    ):
         asset_id = str(clue.get("handout_asset_id") or "").strip()
         if asset_id:
-            linked_card = _handout_cards_indexed(ctx).get(asset_id)
-            if linked_card is not None and bool(
-                linked_card.get("player_visible", True)
-            ):
-                linked_handout_newly, _linked_already = _apply_handout_delivery(
-                    world, [asset_id],
+            try:
+                linkage = (
+                    handout_catalog or coc_handouts.HandoutCatalog.load(ctx)
+                ).link_delivery(world, asset_id)
+            except coc_handouts.HandoutError as exc:
+                handout_delivery_warning = {
+                    "code": exc.code,
+                    "message": exc.message,
+                }
+                warnings.append(
+                    f"optional handout delivery skipped [{exc.code}]: "
+                    f"{exc.message}; clue discovery remains authoritative"
                 )
-                linked_handout_id = asset_id
-            elif linked_card is not None:
-                linkage_skipped_hidden_card = True
+            else:
+                linkage_skipped_hidden_card = linkage.hidden_card
+                if linkage.asset_id is None:
+                    code = (
+                        "handout_not_player_visible"
+                        if linkage.hidden_card
+                        else "unknown_handout"
+                    )
+                    message = (
+                        f"handout '{asset_id}' is not player-visible"
+                        if linkage.hidden_card
+                        else f"handout '{asset_id}' is not a registered valid card"
+                    )
+                    handout_delivery_warning = {
+                        "code": code,
+                        "message": message,
+                    }
+                    warnings.append(
+                        f"optional handout delivery skipped [{code}]: "
+                        f"{message}; clue discovery remains authoritative"
+                    )
+                else:
+                    linked_handout_id = linkage.asset_id
+                    linked_handout_newly = list(linkage.newly)
+                    linked_handout_presentation = linkage.presentation
     # Persist provenance before the world discovery.  A crash between these
     # two current-state files therefore fails closed for authored unlocks: a
     # local-only clue can never briefly exist as an unlabelled prerequisite.
@@ -24315,6 +25071,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
             "event_type": "handout_delivered",
             "asset_id": linked_handout_newly[0],
             "source": "clue_linkage",
+            **(linked_handout_presentation or {}),
             "clue_id": clue_id,
             "scene_id": active,
             "ts": _now_iso(),
@@ -24464,8 +25221,11 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "discovered_total": len(discovered),
         "newly_unlocked_scenes": newly_unlocked,
         "delivered_handout_id": linked_handout_id,
+        "handout_presentation": linked_handout_presentation,
         "route_completion": deepcopy(route_completion),
     }
+    if handout_delivery_warning is not None:
+        data["handout_delivery_warning"] = deepcopy(handout_delivery_warning)
     if clue is None:
         data["provenance"] = deepcopy(clue_record)
     progressive_hints: list[str] = []
@@ -24495,8 +25255,8 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     if linked_handout_newly:
         hints.append(
             f"clue '{clue_id}' delivered handout card "
-            f"'{linked_handout_newly[0]}' — present its body verbatim "
-            "(localized_text preferred); frame the find without rewriting the "
+            f"'{linked_handout_newly[0]}' — present its registered body exactly "
+            "(active-language text preferred); frame the find without rewriting the "
             "card text"
         )
     if linkage_skipped_hidden_card:
@@ -30079,10 +30839,11 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
         run_segment_trust=str(run_binding["trust"]),
     )
     entry["authoritative_time_anchor"] = time_anchor
-    # Advisory candidate set only: opening cards materialized by setup stay
-    # undelivered until the KP hands them over right after this opening via
-    # state.deliver_handout. The tool never decides or performs that delivery.
-    opening_candidates = _opening_handout_candidates(ctx)
+    # Advisory candidate set only. Opening cards stay undelivered until the
+    # KP records the actual handoff through state.deliver_handout.
+    opening_candidates = coc_handouts.HandoutCatalog.load(ctx).opening_candidates(
+        ctx.world()
+    )
     if opening_candidates:
         entry["pending_opening_handouts"] = opening_candidates
     ctx.ledger_record(decision_id, "evidence.table_opening", entry)
@@ -30098,33 +30859,6 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
             "presents them, then render the card body verbatim"
         )
     return entry, [], hints
-
-
-def _opening_handout_candidates(ctx: Ctx) -> list[dict[str, Any]]:
-    """Compact undelivered opening-card candidates for the opening receipt.
-
-    Opening cards carry the structured ``opening_card`` flag authored when
-    the module-init L0 lift staged them. Only id, kind, title, and
-    when_to_deliver travel — never a body — so even this receipt stays
-    leak-free if misrouted.
-    """
-    candidates: list[dict[str, Any]] = []
-    for asset_id, card in sorted(_handout_cards_indexed(ctx).items()):
-        # Structured semantic flag authored at L0 lift time (never a prose
-        # keyword guess): only cards staged as opening briefing material.
-        if card.get("opening_card") is not True:
-            continue
-        if not bool(card.get("player_visible", True)):
-            continue
-        if asset_id in _delivered_handout_ids(ctx.world()):
-            continue
-        candidates.append({
-            "asset_id": asset_id,
-            "kind": card.get("kind"),
-            "title": card.get("title"),
-            "when_to_deliver": card.get("when_to_deliver"),
-        })
-    return candidates
 
 
 def _record_finalized_keeper_text(ctx: Ctx, receipt: dict[str, Any]) -> dict[str, Any]:
@@ -30356,6 +31090,17 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     if not decision_id:
         raise ToolError("invalid_param", "state.journal requires a stable decision_id")
     player_text = _required_exact_player_text(args)
+    try:
+        source_boundary = coc_turn_manifest.effective_source_boundary(
+            ctx.campaign_dir
+        )
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    if source_boundary["cursor_close_owner"] == "evidence.table_opening":
+        raise ToolError(
+            "table_opening_required",
+            "record evidence.table_opening before the first player journal",
+        )
     prior = ctx.ledger_lookup("state.journal", decision_id)
     if prior is not None:
         prior_data = prior.get("data") or {}
@@ -30396,7 +31141,6 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     run_id = str(run_binding["run_segment_id"])
     try:
         pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
-        coc_turn_manifest.load_or_create_cursor(ctx.campaign_dir)
     except coc_turn_manifest.TurnManifestError as exc:
         raise ToolError(exc.code, str(exc)) from exc
     if pending is not None and pending["journal_decision_id"] != decision_id:
@@ -30653,13 +31397,18 @@ def _resolve_bound_narration_review(
             "narration review does not bind this exact turn/source/revision/draft",
         )
     if agency_review_required:
+        if row.get("state_authority_gate") == "rewrite_required":
+            raise ToolError(
+                "state_authority_review_blocked",
+                "the bound review identifies a player-state claim without a matching current frozen effect; keep the settlement frozen, rewrite narration only, and review revision 2",
+            )
         if _review_has_agency_violation(row):
             raise ToolError(
                 "agency_review_blocked",
                 "the bound review identifies an unauthorized PC agency claim; keep the settlement frozen, rewrite narration only, and review revision 2",
             )
         if pending is not None:
-            expected_revision = _pending_agency_review_revision(ctx, current)
+            expected_revision = _pending_authority_review_revision(ctx, current)
             if revision != expected_revision:
                 raise ToolError(
                     "narration_review_mismatch",
@@ -30695,7 +31444,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     data["contract_projection_sha256"] = _canonical_digest(contract_projection)
     agency_review_required = contract_projection["agency_review_required"] is True
     agency_review_revision = (
-        _pending_agency_review_revision(ctx, data)
+        _pending_authority_review_revision(ctx, data)
         if agency_review_required else 1
     )
     if agency_review_required:
@@ -30707,10 +31456,14 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
                 "source_digest": data["source_digest"],
                 "revision": agency_review_revision,
             },
-            "missing_arguments": ["decision_id", "draft_text", "findings"],
+            "missing_arguments": [
+                "decision_id", "draft_text", "findings",
+                "state_authority_review",
+            ],
             "discovery_required": False,
-            "authority": "semantic_agency_review",
-            "hard_gate_scope": "agency_ownership_only",
+            "authority": "semantic_agency_and_player_state_review",
+            "hard_gate_scope": "agency_and_player_state_authority_only",
+            "host_state_claim_compiler_required": True,
         }
     required_obligation_ids = [
         str(obligation_id)
@@ -30751,7 +31504,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         "if narrative_opportunity actually shaped the draft, pass advisory_uptake with an exact draft excerpt to turn.finalize; only then is the Storylet ledger updated",
         *(
             [
-                "Pi play agency boundary: review this exact draft through agency_review_operation before turn.finalize; unauthorized PC inner/voluntary claims require prose-only revision 2, while all non-agency findings remain advisory",
+                "Pi play authority boundary: review this exact draft through agency_review_operation before turn.finalize; declare every player-state claim in state_authority_review and bind it to the exact current effect id; unauthorized PC agency or ungrounded state claims require prose-only revision 2, while prose-quality findings remain advisory",
                 "do not rerun rules, state writes, state.journal, coverage, or mechanics when rewriting a rejected narration revision",
             ]
             if agency_review_required else []
@@ -30821,7 +31574,7 @@ def _commit_finalized_turn_history(ctx: Ctx, receipt: dict[str, Any]) -> str:
 
 @tool(
     "turn.finalize",
-    "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, pass its review_id plus all authorized agency_claims, and rewrite only narration as revision 2 if agency ownership is rejected; never rerun rules/state/journal. Non-agency review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
+    "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, including its closed state_authority_review, then pass its review_id plus all authorized agency_claims. Rewrite only narration as revision 2 if agency ownership or player-state authority is rejected; never rerun rules/state/journal. Prose-quality review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
     {
         "draft": {
             "type": "string",
@@ -31638,6 +32391,7 @@ _MUTATING_TOOLS = frozenset({
     "state.cash_semantic",
     "state.record_clue",
     "state.deliver_handout",
+    "state.replay_handout",
     "state.move_scene",
     "state.set_flag",
     "state.clear_transient_condition",

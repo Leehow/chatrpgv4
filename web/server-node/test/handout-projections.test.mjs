@@ -7,7 +7,9 @@ import path from "node:path";
 import {
   campaignBoundAssetRootIds,
   deliveredHandoutIds,
+  deliveredHandoutPresentationsDisplay,
   deliveredHandoutsDisplay,
+  handoutCardContractErrors,
   handoutAssetCandidates,
   handoutAssetImageUrl,
   loadHandoutCards,
@@ -48,14 +50,20 @@ function readHandouts(file) {
 }
 
 /** Campaign skeleton in the exact plugin shapes. */
-function seedCampaign(ws, { delivered = [], assets = [], scenarioHandouts = null } = {}) {
+function seedCampaign(ws, {
+  delivered = [],
+  presentationRevisions = {},
+  assets = [],
+  scenarioHandouts = null,
+  playLanguage = "zh-Hans",
+} = {}) {
   const campaignDir = path.join(ws, ".coc", "campaigns", "camp-1");
   writeJson(path.join(campaignDir, "campaign.json"), {
     schema_version: 3,
     campaign_id: "camp-1",
     ruleset_id: "coc7",
     status: "active",
-    play_language: "zh-Hans",
+    play_language: playLanguage,
     active_scenario_id: "scen-1",
     // Deliberately NOT a delivery source: the authoritative set lives in
     // save/world-state.json (regression guard for the review's A2-1).
@@ -69,6 +77,9 @@ function seedCampaign(ws, { delivered = [], assets = [], scenarioHandouts = null
     scenario_id: "scen-1",
     discovered_clue_ids: [],
     ...(delivered.length ? { delivered_handout_ids: [...delivered].sort() } : {}),
+    ...(Object.keys(presentationRevisions).length
+      ? { handout_presentation_revisions: presentationRevisions }
+      : {}),
   });
   writeJson(path.join(campaignDir, "scenario", "scenario.json"), {
     schema_version: 1,
@@ -219,8 +230,9 @@ test("loadHandoutCards merges the three stores with entity > scenario > index pr
     asset_id: "entity-only",
     kind: "read_aloud",
     title: "朗读框",
-    text: null,
-    localized_text: null,
+    text: "Source read-aloud body.",
+    localized_title: { "zh-Hans": "朗读框" },
+    localized_text: { "zh-Hans": "朗读框正文。" },
     source_refs: ["pdf_index-5"],
   }));
 
@@ -251,6 +263,157 @@ test("loadHandoutCards skips non-deep and evidence-gap entity packs", () => {
   const cards = loadHandoutCards(ws, "camp-1");
   assert.equal(cards.has("stub-card"), false);
   assert.equal(cards.has("gap-card"), false);
+});
+
+test("all card stores reject the same malformed visibility, body, and asset shapes", () => {
+  const ws = makeWorkspace();
+  const malformed = [
+    {
+      asset_id: "bad-visible",
+      kind: "document",
+      text: "must stay secret",
+      source_refs: ["pdf_index-1"],
+      player_visible: "false",
+    },
+    {
+      asset_id: "bad-localized",
+      kind: "document",
+      localized_text: { "zh-Hans": ["must stay secret"] },
+    },
+    {
+      asset_id: "bad-localized-language",
+      kind: "document",
+      localized_text: { "": "must stay secret" },
+    },
+    {
+      asset_id: "bad-body",
+      kind: "document",
+      text: { body: "must stay secret" },
+      source_refs: ["pdf_index-2"],
+    },
+    {
+      asset_id: "bad-asset",
+      kind: "map",
+      image_ref: ["assets/handouts/secret.png"],
+    },
+    {
+      asset_id: 17,
+      kind: "document",
+      text: "numeric id must stay secret",
+      source_refs: ["pdf_index-3"],
+    },
+  ];
+  const delivered = [
+    "bad-visible", "bad-localized", "bad-localized-language", "bad-body", "bad-asset", "17",
+    ...malformed.slice(0, 5).map((card) => `entity-${card.asset_id}`),
+    "entity-bad-id",
+  ];
+  const campaignDir = seedCampaign(ws, {
+    delivered,
+    assets: malformed,
+    scenarioHandouts: { schema_version: 1, handouts: malformed },
+  });
+  for (const card of malformed.slice(0, 5)) {
+    const id = `entity-${card.asset_id}`;
+    putEntity(ws, "root-1", handoutPack({
+      ...card,
+      handout_id: id,
+      asset_id: id,
+    }));
+  }
+  putEntity(ws, "root-1", handoutPack({
+    handout_id: "entity-bad-id",
+    asset_id: 17,
+  }));
+  writeBytes(
+    path.join(campaignDir, "assets", "handouts", "secret.png"),
+    "must stay secret",
+  );
+
+  const cards = loadHandoutCards(ws, "camp-1");
+  for (const id of delivered) assert.equal(cards.has(id), false, id);
+  const materialsAndSseSource = JSON.stringify(deliveredHandoutsDisplay(ws, "camp-1"));
+  assert.equal(materialsAndSseSource, "[]");
+  assert.ok(!materialsAndSseSource.includes("must stay secret"));
+  assert.equal(
+    resolveHandoutAssetFile(ws, "camp-1", "assets/handouts/secret.png"),
+    null,
+  );
+});
+
+test("present invalid content_origin never defaults or reaches Materials and SSE", () => {
+  const ws = makeWorkspace();
+  const invalidOrigins = [null, 7, "", {}, [], "unknown"];
+  const scenarioCards = [];
+  const indexCards = [];
+  const delivered = [];
+
+  invalidOrigins.forEach((content_origin, index) => {
+    const scenarioId = `bad-origin-scenario-${index}`;
+    const indexId = `bad-origin-index-${index}`;
+    const entityId = `bad-origin-entity-${index}`;
+    const base = {
+      kind: "document",
+      content_origin,
+      title: "MUST NOT DISPLAY",
+      text: "MUST NOT REACH MATERIALS OR SSE",
+      source_refs: ["pdf_index-1"],
+      player_visible: true,
+    };
+    scenarioCards.push({ asset_id: scenarioId, ...base });
+    indexCards.push({ asset_id: indexId, ...base });
+    putEntity(ws, "root-1", handoutPack({
+      handout_id: entityId,
+      asset_id: entityId,
+      ...base,
+    }));
+    delivered.push(scenarioId, indexId, entityId);
+    assert.ok(handoutCardContractErrors({ asset_id: scenarioId, ...base }).length);
+    assert.equal(
+      playerHandoutCard(ws, "camp-1", { asset_id: scenarioId, ...base }),
+      null,
+    );
+  });
+
+  seedCampaign(ws, {
+    delivered,
+    assets: indexCards,
+    scenarioHandouts: { schema_version: 1, handouts: scenarioCards },
+  });
+  const cards = loadHandoutCards(ws, "camp-1");
+  for (const id of delivered) assert.equal(cards.has(id), false, id);
+  const materialsAndSseSource = JSON.stringify(
+    deliveredHandoutsDisplay(ws, "camp-1"),
+  );
+  assert.equal(materialsAndSseSource, "[]");
+  assert.ok(!materialsAndSseSource.includes("MUST NOT"));
+});
+
+test("card identities with surrounding whitespace are rejected in every Web store", () => {
+  const ws = makeWorkspace();
+  const card = {
+    asset_id: " handout-space ",
+    kind: "document",
+    title: "MUST NOT DISPLAY",
+    text: "MUST NOT REACH MATERIALS OR SSE",
+    source_refs: ["pdf_index-1"],
+  };
+  seedCampaign(ws, {
+    delivered: ["handout-space"],
+    assets: [card],
+    scenarioHandouts: { schema_version: 1, handouts: [card] },
+  });
+  putEntity(ws, "root-1", handoutPack({
+    handout_id: " handout-space ",
+    ...card,
+  }));
+
+  assert.ok(handoutCardContractErrors(card).some((error) =>
+    error.includes("surrounding whitespace")
+  ));
+  assert.equal(loadHandoutCards(ws, "camp-1").has("handout-space"), false);
+  assert.equal(playerHandoutCard(ws, "camp-1", card), null);
+  assert.deepEqual(deliveredHandoutsDisplay(ws, "camp-1"), []);
 });
 
 // ----------------------------------------------------------- player projection
@@ -324,6 +487,155 @@ test("deliveredHandoutsDisplay projects delivered cards only, localized text fir
   assert.ok(!projection.includes("Secret letter"));
   assert.ok(!projection.includes("delivered but forbidden body"));
   assert.ok(!projection.includes("Invisible"));
+});
+
+test("authored derivative uses localized player language and truthful labels without source pages", () => {
+  const ws = makeWorkspace();
+  seedCampaign(ws, {
+    delivered: ["prop-1"],
+    scenarioHandouts: {
+      schema_version: 1,
+      handouts: [{
+        asset_id: "prop-1",
+        kind: "document",
+        content_origin: "authored_derivative",
+        title: "Held city-desk copy",
+        summary: "Contributor-authored in-world prop.",
+        authored_text: "An original in-world clipping.",
+        localized_language: "zh-Hans",
+        localized_title: "城市新闻部暂缓稿",
+        localized_summary: "由项目贡献者创作的剧情资料。",
+        localized_text: "这是一份原创的战役内剪报。",
+        player_visible: true,
+      }],
+    },
+  });
+
+  const [card] = deliveredHandoutsDisplay(ws, "camp-1");
+  assert.equal(card.title, "城市新闻部暂缓稿");
+  assert.equal(card.summary, "由项目贡献者创作的剧情资料。");
+  assert.equal(card.text, "这是一份原创的战役内剪报。");
+  assert.equal(card.content_origin, "authored_derivative");
+  assert.equal(card.card_label, "剧情资料");
+  assert.equal(card.kind_label, "文献");
+  assert.deepEqual(card.source_pages, []);
+  assert.equal(card.source_label, null);
+});
+
+test("authored derivative selects the active Japanese language map", () => {
+  const ws = makeWorkspace();
+  seedCampaign(ws, {
+    delivered: ["prop-ja"],
+    playLanguage: "ja-JP",
+    scenarioHandouts: {
+      schema_version: 1,
+      handouts: [{
+        asset_id: "prop-ja",
+        kind: "document",
+        content_origin: "authored_derivative",
+        title: "Held city-desk copy",
+        summary: "Contributor-authored in-world prop.",
+        authored_text: "An original in-world clipping.",
+        localized_title: {
+          "zh-Hans": "城市新闻部暂缓稿",
+          "ja-JP": "市政部掲載保留稿",
+        },
+        localized_summary: {
+          "zh-Hans": "由项目贡献者创作的剧情资料。",
+          "ja-JP": "プロジェクト貢献者が創作した劇中資料。",
+        },
+        localized_text: {
+          "zh-Hans": "这是一份原创的战役内剪报。",
+          "ja-JP": "これはシナリオ用に創作された新聞記事である。",
+        },
+        player_visible: true,
+      }],
+    },
+  });
+
+  const [card] = deliveredHandoutsDisplay(ws, "camp-1");
+  assert.equal(card.title, "市政部掲載保留稿");
+  assert.equal(card.summary, "プロジェクト貢献者が創作した劇中資料。");
+  assert.equal(card.text, "これはシナリオ用に創作された新聞記事である。");
+  assert.equal(card.card_label, "劇中資料");
+  assert.equal(card.kind_label, "文書");
+  assert.equal(card.source_label, null);
+});
+
+test("presentation projection keeps stable material identity and advances event identity", () => {
+  const ws = makeWorkspace();
+  const campaignDir = seedCampaign(ws, {
+    delivered: ["doc-1"],
+    presentationRevisions: { "doc-1": 2 },
+  });
+  writeJson(path.join(campaignDir, "scenario", "handouts.json"), {
+    schema_version: 1,
+    handouts: [{
+      asset_id: "doc-1",
+      kind: "read_aloud",
+      title: "门后的声音",
+      text: "The hinges groan.",
+      localized_title: { "zh-Hans": "门后的声音" },
+      localized_text: { "zh-Hans": "门轴发出低沉的呻吟。" },
+      source_refs: ["pdf_index-9"],
+      player_visible: true,
+    }],
+  });
+
+  const materials = deliveredHandoutsDisplay(ws, "camp-1");
+  const presentations = deliveredHandoutPresentationsDisplay(ws, "camp-1");
+  assert.equal(materials.length, 1);
+  assert.equal("presentation_id" in materials[0], false);
+  assert.deepEqual(presentations, [{
+    ...materials[0],
+    presentation_id: "doc-1:presentation:2",
+    presentation_revision: 2,
+  }]);
+});
+
+test("read-aloud projection uses only the exact campaign play language", () => {
+  const ws = makeWorkspace();
+  const campaignDir = seedCampaign(ws, {
+    delivered: ["read-ja", "read-missing-ja"],
+    playLanguage: "ja-JP",
+  });
+  writeJson(path.join(campaignDir, "scenario", "handouts.json"), {
+    schema_version: 1,
+    handouts: [
+      {
+        asset_id: "read-ja",
+        kind: "read_aloud",
+        title: "At the door",
+        text: "The hinges groan in the dark.",
+        localized_title: { "ja-JP": "扉の前" },
+        localized_text: { "ja-JP": "暗闇で蝶番が低くきしむ。" },
+        source_refs: ["pdf_index-9"],
+        player_visible: true,
+      },
+      {
+        asset_id: "read-missing-ja",
+        kind: "read_aloud",
+        title: "Source title must not leak",
+        text: "Source body must not leak",
+        localized_title: { "zh-Hans": "门前" },
+        localized_text: { "zh-Hans": "黑暗中门轴低鸣。" },
+        source_refs: ["pdf_index-10"],
+        player_visible: true,
+      },
+    ],
+  });
+
+  assert.deepEqual(deliveredHandoutsDisplay(ws, "camp-1"), [{
+    asset_id: "read-ja",
+    kind: "read_aloud",
+    content_origin: "source_verbatim",
+    title: "扉の前",
+    text: "暗闇で蝶番が低くきしむ。",
+    source_pages: ["pdf_index-9"],
+    kind_label: "読み上げ",
+    card_label: "原文資料",
+    source_label: "出典ページ",
+  }]);
 });
 
 // --------------------------------------------------------- ref normalization

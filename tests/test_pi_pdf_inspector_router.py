@@ -89,11 +89,30 @@ export function extractPagesMarkdown(_buffer, pages) {{
     return path
 
 
-def _run_router(router: Path, request: dict, *, binding: Path) -> subprocess.CompletedProcess[str]:
+def _zero_image_pdfimages(path: Path) -> Path:
+    """Hermetic absolute executable: both pdfimages passes report zero images."""
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path.resolve()
+
+
+def _run_router(
+    router: Path,
+    request: dict,
+    *,
+    binding: Path,
+    real_images: bool = False,
+) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
         "COC_PI_PDF_INSPECTOR_BINDING": str(binding),
     }
+    if real_images:
+        env.pop("COC_PI_PDFIMAGES_COMMAND", None)
+    else:
+        fake = _zero_image_pdfimages(binding.parent / "zero-image-pdfimages")
+        assert fake.is_absolute() and os.access(fake, os.X_OK)
+        env["COC_PI_PDFIMAGES_COMMAND"] = str(fake)
     return subprocess.run(
         [str(router)],
         input=json.dumps(request, ensure_ascii=False),
@@ -388,7 +407,9 @@ def test_deployed_router_full_parse_cold_harvest_bundle_validates(
         missing_pdf_indices=[2, 3, 4],
     )
     request["source"]["file_sha256"] = digest
-    completed = _run_router(deployed_router, request, binding=DEPLOYED_BINDING)
+    completed = _run_router(
+        deployed_router, request, binding=DEPLOYED_BINDING, real_images=True,
+    )
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout)
     assert result["status"] == "ok"
@@ -449,6 +470,7 @@ def test_deployed_router_adapter_run_uses_router_not_pi_fallback(
         "PATH": f"{Path(shutil.which('node') or '/usr/local/bin/node').parent}:"
         "/usr/bin:/bin",
     }
+    env.pop("COC_PI_PDFIMAGES_COMMAND", None)
     completed = subprocess.run(
         [os.sys.executable, str(PLUGIN / "pi/bin/coc-pdf-skill-adapter.py"), "--run"],
         cwd=ROOT,
@@ -506,6 +528,7 @@ def test_deployed_router_adapter_opening_review_router_adoption(
     }
     env_backup = dict(os.environ)
     os.environ["COC_PI_PDF_INSPECTOR_COMMAND"] = str(deployed_router)
+    os.environ.pop("COC_PI_PDFIMAGES_COMMAND", None)
     try:
         adopted = adapter._try_external_pdf_router("opening_review", task)
     finally:

@@ -454,6 +454,137 @@ def validate_host_work_consumer_refs(value: Any) -> list[dict[str, Any]]:
     return [unique[key] for key in sorted(unique)]
 
 
+def handout_card_result_contract(
+    *,
+    job_id: str,
+    target_id: str,
+    cached_page_refs: list[dict[str, Any]],
+    allowed_registered_asset_refs: list[dict[str, Any]],
+    allowed_scene_refs: list[str],
+    allowed_clue_refs: list[str],
+) -> dict[str, Any]:
+    """Return the one trusted closed source-card contract shape."""
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.handout-card-pack.v1",
+        "closed": True,
+        "fixed_fields": {
+            "handout_id": target_id,
+            "asset_id": target_id,
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "origin": "source",
+            "player_visible": True,
+        },
+        "allowed_pack_fields": [
+            "handout_id", "asset_id", "kind", "title", "summary",
+            "text", "localized_text", "when_to_deliver", "image_ref",
+            "source_refs", "scene_refs", "clue_refs", "player_visible",
+            "parse_state", "evidence_gap", "origin", "provenance",
+        ],
+        "required_pack_fields": [
+            "handout_id", "asset_id", "kind", "title", "source_refs",
+            "player_visible", "parse_state", "evidence_gap", "origin",
+            "provenance",
+        ],
+        "kind_values": ["document", "read_aloud", "map"],
+        "allowed_exact_source_refs": [
+            {
+                "source_id": str(ref.get("source_id") or ""),
+                "pdf_index": int(ref["pdf_index"]),
+                "text_sha256": str(ref.get("text_sha256") or ""),
+                "card_source_ref": f"pdf_index-{int(ref['pdf_index'])}",
+            }
+            for ref in cached_page_refs
+        ],
+        "allowed_registered_asset_refs": json.loads(json.dumps(
+            allowed_registered_asset_refs
+        )),
+        "allowed_scene_refs": list(allowed_scene_refs),
+        "allowed_clue_refs": list(allowed_clue_refs),
+        "provenance": {
+            "required": {
+                "authority": "source_authored",
+                "basis": "host_pack",
+            },
+        },
+        "result_item": {
+            "fixed_fields": {"job_id": job_id},
+            "related_packs": "must_be_empty",
+        },
+        "rules": [
+            "card source_refs are a non-empty exact subset of allowed_exact_source_refs.card_source_ref",
+            "image_ref is omitted or equals one allowed_registered_asset_refs.image_ref",
+            "an image_ref asset pdf_index must be one of the card source_refs pages",
+            "scene_refs and clue_refs are unique subsets of the exact allowed request ids; when the allowed set is empty the result field is absent or empty",
+            "player_visible is true; Keeper-only material is not a handout result",
+            "when_to_deliver is semantic advice for Keeper judgment, never a machine condition",
+            "no aliases, extra fields, prose scan, keyword classification, or parent repair",
+        ],
+    }
+
+
+def handout_allowed_relation_refs(
+    workspace: Path,
+    asset_root_id: str,
+    target_id: str,
+) -> dict[str, list[str]]:
+    """Project only stub-asserted relations that already exist canonically."""
+    skeleton = get_skeleton(workspace, asset_root_id) or {}
+    handout = get_entity(workspace, asset_root_id, "handout", target_id) or {}
+
+    scene_ids: set[str] = set()
+    clue_ids: set[str] = set()
+
+    def add_id(target: set[str], value: Any) -> None:
+        try:
+            target.add(_require_id(value, "handout relation id"))
+        except ModuleAssetsError:
+            return
+
+    for row in skeleton.get("locations") or []:
+        if not isinstance(row, dict):
+            continue
+        location_id = row.get("location_id")
+        try:
+            canonical_id = _require_id(location_id, "location_id")
+        except ModuleAssetsError:
+            continue
+        scene_ids.add(canonical_id)
+        for clue_id in row.get("available_clue_ids") or []:
+            add_id(clue_ids, clue_id)
+        for clue in row.get("clues") or []:
+            if isinstance(clue, dict):
+                add_id(clue_ids, clue.get("clue_id"))
+
+    def allowed(field: str, canonical: set[str]) -> list[str]:
+        declared = handout.get(field)
+        if not isinstance(declared, list):
+            return []
+        result: set[str] = set()
+        for value in declared:
+            try:
+                relation_id = _require_id(value, f"handout.{field}")
+            except ModuleAssetsError:
+                continue
+            if relation_id in canonical:
+                result.add(relation_id)
+        return sorted(result)
+
+    return {
+        "allowed_scene_refs": allowed("scene_refs", scene_ids),
+        "allowed_clue_refs": allowed("clue_refs", clue_ids),
+    }
+
+
+def _validate_handout_registered_asset_refs(value: Any) -> list[dict[str, Any]]:
+    """Validate the closed asset rows exposed to one handout source worker."""
+    try:
+        return coc_source_media.validate_registered_asset_ref_rows(value)
+    except coc_source_media.SourceMediaError as exc:
+        raise ModuleAssetsError(str(exc)) from exc
+
+
 def validate_host_work_request_shape(request: Any) -> None:
     """Reject non-current durable rows instead of inferring contract fields."""
     if not isinstance(request, dict):
@@ -480,7 +611,19 @@ def validate_host_work_request_shape(request: Any) -> None:
     kind = str(request.get("kind") or "")
     if kind not in JOB_KINDS:
         raise ModuleAssetsError("host-work kind is invalid")
-    _require_id(request.get("target_id"), "host-work.target_id")
+    target_id = _require_id(request.get("target_id"), "host-work.target_id")
+    play_languages = request.get("play_languages")
+    if (
+        not isinstance(play_languages, list)
+        or any(
+            not isinstance(language, str) or not language.strip()
+            for language in play_languages
+        )
+        or play_languages != sorted(set(play_languages))
+    ):
+        raise ModuleAssetsError(
+            "host-work play_languages must be a sorted unique string array"
+        )
     level, dependency_ref = validate_host_work_contract(
         request.get("work_level"), request.get("dependency_ref"),
     )
@@ -500,6 +643,53 @@ def validate_host_work_request_shape(request: Any) -> None:
             raise ModuleAssetsError("host-work consumer_refs are not canonical")
         if request.get("consumer_state") not in {None, "owned"}:
             raise ModuleAssetsError("owned host-work consumer_state is invalid")
+    if kind == "deepen_handout":
+        cached_page_refs = request.get("cached_page_refs")
+        if not isinstance(cached_page_refs, list):
+            raise ModuleAssetsError(
+                "deepen_handout requires cached_page_refs and "
+                "allowed_registered_asset_refs arrays"
+            )
+        allowed_assets = _validate_handout_registered_asset_refs(
+            request.get("allowed_registered_asset_refs")
+        )
+        if allowed_assets != request.get("allowed_registered_asset_refs"):
+            raise ModuleAssetsError(
+                "allowed_registered_asset_refs are not canonical"
+            )
+        allowed_relations: dict[str, list[str]] = {}
+        for field in ("allowed_scene_refs", "allowed_clue_refs"):
+            values = request.get(field)
+            if not isinstance(values, list):
+                raise ModuleAssetsError(f"{field} must be a canonical id array")
+            try:
+                canonical_values = [
+                    _require_id(value, field) for value in values
+                ]
+            except ModuleAssetsError as exc:
+                raise ModuleAssetsError(
+                    f"{field} must be a canonical id array"
+                ) from exc
+            if values != sorted(set(canonical_values)):
+                raise ModuleAssetsError(f"{field} must be a canonical id array")
+            allowed_relations[field] = canonical_values
+        try:
+            expected_contract = handout_card_result_contract(
+                job_id=str(request["job_id"]),
+                target_id=target_id,
+                cached_page_refs=cached_page_refs,
+                allowed_registered_asset_refs=allowed_assets,
+                allowed_scene_refs=allowed_relations["allowed_scene_refs"],
+                allowed_clue_refs=allowed_relations["allowed_clue_refs"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ModuleAssetsError(
+                "deepen_handout cached page refs are invalid"
+            ) from exc
+        if request.get("result_contract") != expected_contract:
+            raise ModuleAssetsError(
+                "deepen_handout result_contract is not the canonical closed card contract"
+            )
 
 
 def _same_entity_work(row: dict[str, Any], job_kind: str, target_id: str) -> bool:
@@ -1062,7 +1252,10 @@ def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
         prefix = f"location read_aloud[{index}]"
         if not isinstance(row, dict):
             raise ModuleAssetsError(f"{prefix} must be an object")
-        extra = set(row) - {"id", "trigger", "text", "source_refs", "condition"}
+        extra = set(row) - {
+            "id", "trigger", "title", "text", "localized_title",
+            "localized_text", "localized_language", "source_refs", "condition",
+        }
         if extra:
             raise ModuleAssetsError(
                 f"{prefix} has unsupported fields: {sorted(extra)}"
@@ -1087,12 +1280,136 @@ def _validate_location_read_aloud(doc: dict[str, Any]) -> None:
             raise ModuleAssetsError(
                 f"{prefix} with trigger=on_clue requires a condition"
             )
+        for field in ("title",):
+            value = row.get(field)
+            if value is not None and (
+                not isinstance(value, str) or not value.strip()
+            ):
+                raise ModuleAssetsError(
+                    f"{prefix}.{field} must be a non-empty string when supplied"
+                )
+        for field in ("localized_title", "localized_text"):
+            value = row.get(field)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                if not value.strip():
+                    raise ModuleAssetsError(
+                        f"{prefix}.{field} must not be blank"
+                    )
+                continue
+            if not isinstance(value, dict) or not value:
+                raise ModuleAssetsError(
+                    f"{prefix}.{field} must be a non-empty locale map"
+                )
+            for language, localized_value in value.items():
+                if (
+                    not isinstance(language, str)
+                    or not language.strip()
+                    or not isinstance(localized_value, str)
+                    or not localized_value.strip()
+                ):
+                    raise ModuleAssetsError(
+                        f"{prefix}.{field} must map language tags to non-empty strings"
+                    )
         refs = row.get("source_refs")
         if not isinstance(refs, list) or not refs:
             raise ModuleAssetsError(
                 f"{prefix}.source_refs is required: read-aloud text is quoted "
                 "to players verbatim and must carry its own page evidence"
             )
+
+
+def _canonicalize_location_read_aloud_refs(
+    workspace: Path,
+    asset_root_id: str,
+    doc: dict[str, Any],
+    *,
+    allowed_request_indices: set[int] | None = None,
+) -> None:
+    parent_indices = set(doc.get("source_page_indices") or [])
+    for position, row in enumerate(doc.get("read_aloud") or []):
+        if not isinstance(row, dict):
+            continue
+        field = f"location.read_aloud[{position}]"
+        supplied_refs = row.get("source_refs")
+        if not isinstance(supplied_refs, list) or not supplied_refs:
+            raise ModuleAssetsError(f"{field}.source_refs must be a non-empty list")
+        for supplied in supplied_refs:
+            if (
+                not isinstance(supplied, dict)
+                or not isinstance(supplied.get("source_id"), str)
+                or not supplied["source_id"].strip()
+                or isinstance(supplied.get("pdf_index"), bool)
+                or not isinstance(supplied.get("pdf_index"), int)
+            ):
+                raise ModuleAssetsError(
+                    f"{field}.source_refs entries require source_id and integer pdf_index"
+                )
+        canonical_refs = _cached_source_refs(
+            workspace,
+            asset_root_id,
+            row,
+            field=field,
+        )
+        supplied_by_index = {
+            int(supplied["pdf_index"]): supplied for supplied in supplied_refs
+        }
+        if len(supplied_by_index) != len(supplied_refs):
+            raise ModuleAssetsError(f"{field}.source_refs contain duplicate pages")
+        for canonical in canonical_refs:
+            supplied = supplied_by_index[int(canonical["pdf_index"])]
+            for evidence_field in (
+                "bundle_sha256s", "review_state", "parse_confidence",
+                "grep_anchors", "structured_data", "printed_page",
+                "printed_label",
+            ):
+                if (
+                    evidence_field in supplied
+                    and supplied[evidence_field] != canonical.get(evidence_field)
+                ):
+                    raise ModuleAssetsError(
+                        f"{field}.source_refs contain stale {evidence_field} evidence"
+                    )
+        child_indices = {int(ref["pdf_index"]) for ref in canonical_refs}
+        if not child_indices.issubset(parent_indices):
+            raise ModuleAssetsError(
+                f"{field}.source_refs are outside its parent location source scope"
+            )
+        if (
+            allowed_request_indices is not None
+            and not child_indices.issubset(allowed_request_indices)
+        ):
+            raise ModuleAssetsError(
+                f"{field}.source_refs are outside the host-work request source scope"
+            )
+        row["source_refs"] = canonical_refs
+
+
+def _validate_location_read_aloud_locales(
+    doc: dict[str, Any], required_languages: set[str]
+) -> None:
+    for position, row in enumerate(doc.get("read_aloud") or []):
+        if not isinstance(row, dict):
+            continue
+        field = f"location.read_aloud[{position}]"
+        for localized_field in ("localized_title", "localized_text"):
+            value = row.get(localized_field)
+            if isinstance(value, dict):
+                missing = sorted(required_languages - set(value))
+            elif isinstance(value, str):
+                tagged = str(row.get("localized_language") or "").strip()
+                missing = sorted(
+                    language for language in required_languages
+                    if language != tagged
+                )
+            else:
+                missing = sorted(required_languages)
+            if missing:
+                raise ModuleAssetsError(
+                    f"{field}.{localized_field} lacks full active play_language "
+                    f"values: {missing}"
+                )
 
 
 def _validate_location_keeper_only(doc: dict[str, Any]) -> None:
@@ -1170,7 +1487,11 @@ def _validate_entity_pack(
                 "body_source_page_indices must contain unique ascending "
                 "non-negative integers"
             )
-        entity_source_indices = set(_source_indices(doc, field=kind))
+        entity_source_indices = set(_source_indices(
+            doc,
+            field=kind,
+            allow_string_refs=(kind == "handout"),
+        ))
         if not set(body_source_page_indices).issubset(entity_source_indices):
             raise ModuleAssetsError(
                 "body_source_page_indices must be contained in the entity source scope"
@@ -1409,6 +1730,9 @@ def _load_sibling(name: str, filename: str):
 
 coc_fileio = _load_sibling("coc_fileio_module_assets", "coc_fileio.py")
 coc_pdf_bundle = _load_sibling("coc_pdf_bundle_module_assets", "coc_pdf_bundle.py")
+coc_source_media = _load_sibling(
+    "coc_source_media_module_assets", "coc_source_media.py",
+)
 coc_state = _load_sibling("coc_state_module_assets", "coc_state.py")
 
 
@@ -3817,9 +4141,14 @@ def _canonicalize_source_bundle(bundle: Any) -> dict[str, Any]:
         canonical["grep_anchors"] = sorted(set(anchors))
         canonical_pages.append(canonical)
     result["pages"] = sorted(canonical_pages, key=lambda row: row["pdf_index"])
-    assets = result.get("assets") or []
-    if not isinstance(assets, list):
-        raise ModuleAssetsError("source bundle assets must be a list")
+    assets = result.get("assets", [])
+    try:
+        assets = coc_pdf_bundle.canonicalize_loaded_assets(
+            assets, selected_pdf_indices=seen,
+        )
+    except coc_pdf_bundle.PdfSourceBundleError as exc:
+        raise ModuleAssetsError(str(exc)) from exc
+    result["assets"] = assets
     expected_bundle_sha256 = coc_pdf_bundle._canonical_digest(
         source, result["pages"], assets,
     )
@@ -3832,6 +4161,43 @@ def _canonicalize_source_bundle(bundle: Any) -> dict[str, Any]:
     result["bundle_sha256"] = expected_bundle_sha256
     result["source"]["bundle_sha256"] = expected_bundle_sha256
     return result
+
+
+def _prepare_source_bundle_assets(
+    bundle: dict[str, Any],
+    target_module_root: Path,
+) -> list[dict[str, Any]]:
+    try:
+        return coc_source_media.prepare_bundle_assets(bundle, target_module_root)
+    except coc_source_media.SourceMediaError as exc:
+        raise ModuleAssetsError(str(exc)) from exc
+
+
+def _publish_source_bundle_assets(
+    target_module_root: Path,
+    prepared: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    try:
+        return coc_source_media.publish_prepared_assets(
+            target_module_root, prepared,
+        )
+    except coc_source_media.SourceMediaError as exc:
+        raise ModuleAssetsError(str(exc)) from exc
+
+
+def registered_source_asset_refs(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    requested_pdf_indices: list[int],
+) -> list[dict[str, Any]]:
+    try:
+        return coc_source_media.registered_asset_refs(
+            _module_dir(workspace, asset_root_id),
+            requested_pdf_indices=requested_pdf_indices,
+        )
+    except coc_source_media.SourceMediaError as exc:
+        raise ModuleAssetsError(str(exc)) from exc
 
 
 def register_source_bundle(
@@ -3923,8 +4289,12 @@ def register_source_bundle(
         # stable-id locks, then reacquire source-bundles.lock to append the
         # bundle row.  This prevents lost rows without holding one advisory
         # lock inside another.
+        target_module_root = _module_dir(workspace, target_root_id)
+        prepared_assets = _prepare_source_bundle_assets(
+            bundle, target_module_root,
+        )
         bundle_identity_lock = (
-            _module_dir(workspace, target_root_id) / "source-bundles.lock"
+            target_module_root / "source-bundles.lock"
         )
         with coc_fileio.advisory_file_lock(bundle_identity_lock):
             mod = init_module_root(
@@ -3936,6 +4306,15 @@ def register_source_bundle(
                 recovered_from_asset_root_id=recovered_from,
                 recovery_family_root_id=recovery_family_root_id,
                 publish_registry=False,
+            )
+
+        with coc_fileio.advisory_file_lock(mod / "source-assets.lock"):
+            # Revalidate collisions under the publishing lock.  The first
+            # pass above fails malformed bundles before module mutation; this
+            # second pass closes the concurrent-registration TOCTOU window.
+            prepared_assets = _prepare_source_bundle_assets(bundle, mod)
+            registered_assets = _publish_source_bundle_assets(
+                mod, prepared_assets,
             )
 
         page_results: list[dict[str, Any]] = []
@@ -4192,6 +4571,7 @@ def register_source_bundle(
                 if row.get("referenced_cached")
             ),
             "bundle_validation_and_cache_ms": elapsed_ms,
+            "registered_assets": registered_assets,
         }
 
     drifted_pdf_index = _first_cached_page_drift(
@@ -4298,14 +4678,14 @@ def register_source_bundle(
         return result
 
 
-_HANDOUT_CARD_REF = re.compile(r"pdf_index-(\d+)")
+_HANDOUT_CARD_REF = re.compile(r"pdf_index-(0|[1-9]\d*)")
 
 
-def _handout_card_ref_index(ref: str) -> int | None:
+def handout_card_ref_index(ref: str) -> int | None:
     """One handout card string ref -> its bundle page index, else None."""
     if not isinstance(ref, str):
         return None
-    match = _HANDOUT_CARD_REF.fullmatch(ref.strip())
+    match = _HANDOUT_CARD_REF.fullmatch(ref)
     return int(match.group(1)) if match is not None else None
 
 
@@ -4349,7 +4729,7 @@ def _source_indices(
                     raise ModuleAssetsError(
                         f"{field}.source_refs[{position}] must be an object"
                     )
-                derived = _handout_card_ref_index(ref)
+                derived = handout_card_ref_index(ref)
                 if derived is None:
                     continue
                 ref_indices.append(derived)
@@ -4611,6 +4991,26 @@ def _cached_source_refs(
             ref["grep_anchor"] = anchor
         refs.append(ref)
     return refs
+
+
+def cached_source_refs(
+    workspace: Path,
+    asset_root_id: str,
+    value: dict[str, Any],
+    *,
+    field: str,
+    allow_string_refs: bool = False,
+    inherited_indices: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Public source-bound ref validator for callers crossing module seams."""
+    return _cached_source_refs(
+        workspace,
+        asset_root_id,
+        value,
+        field=field,
+        allow_string_refs=allow_string_refs,
+        inherited_indices=inherited_indices,
+    )
 
 
 def canonical_campaign_source_refs(
@@ -5407,6 +5807,9 @@ def _canonicalize_entity_source_evidence(
     asset_root_id: str,
     kind: str,
     doc: dict[str, Any],
+    *,
+    allowed_read_aloud_indices: set[int] | None = None,
+    required_read_aloud_languages: set[str] | None = None,
 ) -> None:
     identity_path = _module_dir(workspace, asset_root_id) / "identity.json"
     identity = json.loads(identity_path.read_text(encoding="utf-8"))
@@ -5565,6 +5968,15 @@ def _canonicalize_entity_source_evidence(
     # and secret rows.  Give every nested source-derived object an explicit
     # evidence binding instead of relying on an implicit parent relationship.
     if kind == "location":
+        _canonicalize_location_read_aloud_refs(
+            workspace,
+            asset_root_id,
+            doc,
+            allowed_request_indices=allowed_read_aloud_indices,
+        )
+        _validate_location_read_aloud_locales(
+            doc, required_read_aloud_languages or set()
+        )
         # Scene edges in a shared source pack inherit the exact validated
         # parent page scope unless they declare a narrower exact subset.
         # Campaign-local rows are never allowed to borrow that source
@@ -6814,7 +7226,10 @@ def claim_host_work_requests(
                         "cached_scope_complete", "batch_subjects",
                         "request_purpose", "requested_source_scope",
                         "source_scope_signature", "result_contract",
+                        "allowed_registered_asset_refs",
+                        "allowed_scene_refs", "allowed_clue_refs",
                         "work_level", "consumer_refs", "consumer_state",
+                        "play_languages",
                     )
                 }
                 # Structure work carries its own evidence: the whole input is a
@@ -6882,6 +7297,7 @@ def claim_host_work_requests(
                 "consumer_refs": json.loads(json.dumps(
                     exemplar.get("consumer_refs") or []
                 )),
+                "play_languages": list(exemplar.get("play_languages") or []),
             })
     result = {
         "packets": packets,
@@ -7388,6 +7804,68 @@ def host_work_lifecycle_summary(
     }
 
 
+def _campaign_play_languages_for_asset(
+    workspace: Path, asset_root_id: str
+) -> set[str]:
+    languages: set[str] = set()
+    campaigns_dir = _coc_root(workspace) / "campaigns"
+    for campaign_id in _campaigns_referencing_asset_root(workspace, asset_root_id):
+        path = campaigns_dir / campaign_id / "campaign.json"
+        try:
+            campaign = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        language = (
+            str(campaign.get("play_language") or "").strip()
+            if isinstance(campaign, dict)
+            else ""
+        )
+        languages.add(language or "zh-Hans")
+    return languages
+
+
+def _put_entity_host_work_constraints(
+    workspace: Path,
+    asset_root_id: str,
+    kind: str,
+    entity_id: str,
+    host_work_job_id: Any,
+) -> tuple[set[int] | None, set[str]]:
+    requested_job_id = str(host_work_job_id or "").strip()
+    if not requested_job_id:
+        return None, _campaign_play_languages_for_asset(workspace, asset_root_id)
+    job_id = _require_id(requested_job_id, "host_work_job_id")
+    path = _module_dir(workspace, asset_root_id) / "host-work" / f"{job_id}.json"
+    if not path.is_file():
+        raise ModuleAssetsError(f"host_work_job_id {job_id!r} does not exist")
+    try:
+        request = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ModuleAssetsError(
+            f"host_work_job_id {job_id!r} is unreadable"
+        ) from exc
+    validate_host_work_request_shape(request)
+    if (
+        str(request.get("target_id") or "") != entity_id
+        or _job_entity_kind(str(request.get("kind") or "")) != kind
+    ):
+        raise ModuleAssetsError(
+            f"host_work_job_id {job_id!r} does not authorize this entity"
+        )
+    if str(request.get("status") or "open") in {"cancelled", "superseded"}:
+        raise ModuleAssetsError(f"host_work_job_id {job_id!r} is closed")
+    indices = request.get("requested_pdf_indices")
+    if not isinstance(indices, list) or any(
+        isinstance(index, bool) or not isinstance(index, int) or index < 0
+        for index in indices
+    ):
+        raise ModuleAssetsError(
+            f"host_work_job_id {job_id!r} has malformed requested_pdf_indices"
+        )
+    languages = {str(value) for value in request.get("play_languages") or []}
+    return set(indices), languages
+
+
 def put_entity(
     workspace: Path,
     asset_root_id: str,
@@ -7417,11 +7895,22 @@ def put_entity(
     received_at = _now_iso()
     doc["updated_at"] = received_at
     doc[_ENTITY_ID_KEY[kind]] = eid
+    allowed_read_aloud_indices, required_read_aloud_languages = (
+        _put_entity_host_work_constraints(
+            workspace,
+            asset_root_id,
+            kind,
+            eid,
+            transient_host_work_job_id,
+        )
+    )
     _canonicalize_entity_source_evidence(
         workspace,
         asset_root_id,
         kind,
         doc,
+        allowed_read_aloud_indices=allowed_read_aloud_indices,
+        required_read_aloud_languages=required_read_aloud_languages,
     )
     matched_host_work_job_id: str | None = None
     needs_host_work_boundary = (

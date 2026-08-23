@@ -332,17 +332,28 @@ Minimal manifest:
     }
   ],
   "assets": [
-    {"path": "assets/map.png", "sha256": "<lowercase sha256>"}
+    {
+      "path": "assets/map.png",
+      "sha256": "<lowercase sha256>",
+      "pdf_index": 0
+    }
   ]
 }
 ```
 
-`pdf_index` is always explicit and zero-based. `printed_page` and
+Every page and asset `pdf_index` is explicit and zero-based. An asset's
+`pdf_index` must name the selected bundle page containing it; the association
+is preserved into registered worker refs and participates in `bundle_sha256`.
+`printed_page` and
 `printed_label` are optional declarations from the host extraction. Never infer
 a printed/PDF offset. Every page and asset path is relative to the bundle and
 must stay inside it. The formatter checks producer, schema, source PDF suffix
 and hash, page bounds, unique page indices, path containment, UTF-8, non-empty
-Markdown, all declared hashes, and host review evidence. A compilable handoff
+Markdown, all declared hashes, supported PNG/JPEG/WebP signatures, non-empty
+asset bytes, the 20 MiB per-image ceiling, and host review evidence. Validated
+assets are later copied byte-for-byte into the bound module asset root with a
+structured hash manifest; do not pre-copy them into campaign state. A
+compilable handoff
 requires `review_state` to be `manual_accepted` or `auto_accepted`, a numeric
 `parse_confidence` from 0 through 1, and a string-list `grep_anchors` (which may
 be empty only when there is no reliable textual anchor). The formatter passes

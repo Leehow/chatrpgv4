@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,12 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const HOST_WEB_SEARCH_EXTENSION = resolveHostWebSearchExtension(REPO_ROOT);
+
+function canonicalTextSha256(text) {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(text), "utf8")
+    .digest("hex")}`;
+}
 
 function argsWithoutExtensions(args) {
   const out = [];
@@ -241,6 +248,152 @@ test("tableIntentFromOpeningPhase follows the projection's session_role", () => 
   assert.equal(tableIntentFromOpeningPhase({}), null);
 });
 
+test("terminal turn-processing fault maps to a typed SSE error, never narration", () => {
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "fault-campaign",
+    turn_id: "turn-1",
+    player_turn_epoch: 7,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: { provider: "xai", id: "grok-4.5", api: "openai-completions" },
+    elapsed_ms: 1234,
+    secret_extra: "must-not-leak",
+  };
+  const frames = mapRpcEventToSse({
+    type: "custom_message",
+    customType: "coc-turn-processing-fault",
+    content: JSON.stringify(fault),
+    details: fault,
+  });
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].event, "error");
+  assert.equal(frames[0].data.message, fault.message);
+  assert.equal(frames[0].data.code, fault.code);
+  assert.equal(frames[0].data.retryable, false);
+  assert.deepEqual(frames[0].data.details.requested_model, fault.requested_model);
+  assert.equal(frames[0].data.details.pending_turn_preserved, true);
+  assert.equal("secret_extra" in frames[0].data.details, false);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+});
+
+test("required-visible recovery preserves terminal typed fault instead of replacing it", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "typed-fault-recovery",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({
+    requireVisibleText: true,
+    onSse: (frame) => frames.push(frame),
+  });
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "typed-fault-recovery",
+    turn_id: "turn-retained",
+    player_turn_epoch: 4,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: null,
+    elapsed_ms: 55,
+  };
+  child.stdout.write(`${JSON.stringify({
+    type: "custom_message",
+    customType: "coc-turn-processing-fault",
+    content: JSON.stringify(fault),
+    details: fault,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.pending_turn_preserved === true,
+  );
+  assert.deepEqual(frames.map((frame) => frame.event), ["error"]);
+  assert.equal(frames[0].data.code, "state_claim_compiler_invalid");
+});
+
+test("prompt raises a terminal turn fault only after relaying its one typed SSE error", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "typed-fault-prompt",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const prompted = host.prompt("玩家行动", {
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const request = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({
+    id: request.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "typed-fault-prompt",
+    turn_id: "turn-retained",
+    player_turn_epoch: 2,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: null,
+    elapsed_ms: 8,
+  };
+  child.stdout.write(`${JSON.stringify({
+    type: "custom_message",
+    customType: "coc-turn-processing-fault",
+    content: JSON.stringify(fault),
+    details: fault,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(
+    prompted,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.pending_turn_preserved === true,
+  );
+  assert.deepEqual(frames.map((frame) => frame.event), ["error"]);
+  assert.equal(frames[0].data.message, fault.message);
+});
+
 test("buildChildEnv marks an attached UI and play workspace", () => {
   const env = buildChildEnv({
     workspace: "/tmp/coc-workspace",
@@ -257,16 +410,18 @@ test("buildChildEnv marks an attached UI and play workspace", () => {
   assert.equal(env.COC_PI_TABLE_INTENT, "character-setup");
 });
 
-test("buildChildEnv pins both Pi home variables to the explicit product home", () => {
+test("buildChildEnv pins all Pi-Coc home variables to the exact repo home", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-rpc-home-ws-"));
+  const repoRoot = path.join(workspace, "current-repo");
   const productAgentDir = path.join(workspace, "desktop-data", "pi-agent");
+  const runtimeAgentDir = path.join(repoRoot, ".pi", "coc-agent");
   try {
     // Presence of a legacy workspace home must not redirect writable runtime
     // identity, even when PI_CODING_AGENT_DIR was inherited from elsewhere.
     fs.mkdirSync(path.join(workspace, ".pi", "agent"), { recursive: true });
     const env = buildChildEnv({
       workspace,
-      repoRoot: "/tmp/missing-repo",
+      repoRoot,
       campaignId: "home-pin",
       sessionId: "web-home-pin",
       agentDir: productAgentDir,
@@ -274,17 +429,19 @@ test("buildChildEnv pins both Pi home variables to the explicit product home", (
         PATH: "/usr/bin",
         HOME: "/tmp",
         PI_AGENT_DIR: "/tmp/inherited-agent",
+        PI_COC_AGENT_DIR: "/tmp/foreign-repo/.pi/coc-agent",
         PI_CODING_AGENT_DIR: path.join(workspace, ".pi", "agent"),
       },
       userPrefs: {},
     });
-    assert.equal(env.PI_AGENT_DIR, path.resolve(productAgentDir));
-    assert.equal(env.PI_CODING_AGENT_DIR, path.resolve(productAgentDir));
+    assert.equal(env.PI_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(env.PI_CODING_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(env.PI_COC_AGENT_DIR, path.resolve(runtimeAgentDir));
 
     const inheritedProduct = path.join(workspace, "parent-product", "pi-agent");
     const inherited = buildChildEnv({
       workspace,
-      repoRoot: "/tmp/missing-repo",
+      repoRoot,
       campaignId: "home-pin-parent",
       parentEnv: {
         PATH: "/usr/bin",
@@ -294,8 +451,9 @@ test("buildChildEnv pins both Pi home variables to the explicit product home", (
       },
       userPrefs: {},
     });
-    assert.equal(inherited.PI_AGENT_DIR, path.resolve(inheritedProduct));
-    assert.equal(inherited.PI_CODING_AGENT_DIR, path.resolve(inheritedProduct));
+    assert.equal(inherited.PI_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(inherited.PI_CODING_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(inherited.PI_COC_AGENT_DIR, path.resolve(runtimeAgentDir));
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
@@ -508,9 +666,11 @@ test("PiCocRpcHost start passes existing host extension paths into spawn args", 
   assert.deepEqual(extensionPaths(captured.args).slice(0, required.length), required);
 });
 
-test("PiCocRpcHost keeps product runtime home while hydrating a legacy workspace transcript", async () => {
+test("PiCocRpcHost separates repo runtime writes from legacy transcript hydration", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-rpc-home-host-ws-"));
+  const repoRoot = path.join(workspace, "current-repo");
   const productAgentDir = path.join(workspace, "desktop-data", "pi-agent");
+  const runtimeAgentDir = path.join(repoRoot, ".pi", "coc-agent");
   const sessionId = "web-runtime-home-pin";
   try {
     const legacySessionDir = path.join(workspace, ".pi", "agent", "sessions", "cwd");
@@ -528,7 +688,7 @@ test("PiCocRpcHost keeps product runtime home while hydrating a legacy workspace
     let capturedEnv;
     const child = fakeChild();
     const host = new PiCocRpcHost({
-      repoRoot: "/tmp/missing-repo",
+      repoRoot,
       workspace,
       campaignId: "runtime-home-pin",
       sessionId,
@@ -540,9 +700,11 @@ test("PiCocRpcHost keeps product runtime home while hydrating a legacy workspace
       },
     });
     assert.equal(host.agentDir, path.resolve(productAgentDir));
+    assert.equal(host.runtimeAgentDir, path.resolve(runtimeAgentDir));
     host.start();
-    assert.equal(capturedEnv.PI_AGENT_DIR, path.resolve(productAgentDir));
-    assert.equal(capturedEnv.PI_CODING_AGENT_DIR, path.resolve(productAgentDir));
+    assert.equal(capturedEnv.PI_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(capturedEnv.PI_CODING_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(capturedEnv.PI_COC_AGENT_DIR, path.resolve(runtimeAgentDir));
     child.stderr.write(`${UI_IDLE_MARKER}\n`);
     const frames = [];
     const result = await host.attachOpening({
@@ -747,6 +909,8 @@ test("empty keeper-only message_end does not erase preceding visible narration",
 });
 
 test("finalization delivery metadata is extracted only from exact canonical receipts", () => {
+  const renderedText = "精确结算文本";
+  const renderedSha256 = canonicalTextSha256(renderedText);
   const receipt = deliveryReceiptFromToolEvent({
     type: "tool_execution_end",
     toolName: "coc_turn_finalize",
@@ -758,8 +922,8 @@ test("finalization delivery metadata is extracted only from exact canonical rece
           tool: "turn.finalize",
           data: {
             finalization_id: "finalization-1",
-            rendered_text: "精确结算文本",
-            rendered_sha256: "sha256:abc",
+            rendered_text: renderedText,
+            rendered_sha256: renderedSha256,
           },
         }),
       }],
@@ -767,9 +931,40 @@ test("finalization delivery metadata is extracted only from exact canonical rece
   });
   assert.deepEqual(receipt, {
     finalizationId: "finalization-1",
-    renderedText: "精确结算文本",
-    renderedSha256: "sha256:abc",
+    renderedText,
+    renderedSha256,
   });
+  assert.equal(deliveryReceiptFromToolEvent({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "finalization-forged-digest",
+        rendered_text: renderedText,
+        rendered_sha256: `sha256:${"0".repeat(64)}`,
+      },
+    },
+  }), null);
+  for (const [finalizationId, emptyText] of [
+    ["", renderedText],
+    ["finalization-empty-text", ""],
+  ]) {
+    assert.equal(deliveryReceiptFromToolEvent({
+      type: "tool_execution_end",
+      toolName: "coc_turn_finalize",
+      result: {
+        ok: true,
+        tool: "turn.finalize",
+        data: {
+          finalization_id: finalizationId,
+          rendered_text: emptyText,
+          rendered_sha256: canonicalTextSha256(emptyText),
+        },
+      },
+    }), null);
+  }
   assert.equal(deliveryReceiptFromToolEvent({
     type: "tool_execution_end",
     toolName: "coc_turn_finalize",
@@ -806,7 +1001,7 @@ test("host offers delivery acknowledgement only after exact finalization text re
       data: {
         finalization_id: "finalization-delivery",
         rendered_text: "精确交付",
-        rendered_sha256: "sha256:delivery",
+        rendered_sha256: canonicalTextSha256("精确交付"),
       },
     },
   })}\n`);
@@ -819,12 +1014,68 @@ test("host offers delivery acknowledgement only after exact finalization text re
   })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   await prompt;
-  assert.deepEqual(host.takeStreamedDelivery(), {
+  assert.equal(host.offerStreamedDelivery(() => false), null);
+  assert.deepEqual(host.offerStreamedDelivery(() => true), {
     finalizationId: "finalization-delivery",
     renderedText: "精确交付",
-    renderedSha256: "sha256:delivery",
+    renderedSha256: canonicalTextSha256("精确交付"),
   });
   assert.equal(host.takeStreamedDelivery(), null);
+});
+
+test("turn recovery exposes delivery only when the SSE client accepted its text", async (t) => {
+  for (const accepted of [false, true]) {
+    await t.test(`accepted=${accepted}`, async () => {
+      const child = fakeChild();
+      const written = [];
+      child.stdin.on("data", (chunk) => written.push(String(chunk)));
+      const host = new PiCocRpcHost({
+        repoRoot: "/tmp/missing-repo",
+        workspace: "/tmp/ws",
+        campaignId: `recovery-delivery-${accepted}`,
+        sessionId: `web-recovery-delivery-${accepted}`,
+        launcherPath: process.execPath,
+        spawnFn: () => child,
+      });
+      host.start();
+      const prompt = host.promptTurnRecovery({ onSse: () => accepted });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const request = JSON.parse(written[0].trim());
+      child.stdout.write(`${JSON.stringify({
+        id: request.id, type: "response", command: "prompt", success: true,
+      })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+      child.stdout.write(`${JSON.stringify({
+        type: "tool_execution_end",
+        toolName: "coc_turn_finalize",
+        result: {
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalization_id: `recovery-finalization-${accepted}`,
+            rendered_text: "恢复结算文本",
+            rendered_sha256: canonicalTextSha256("恢复结算文本"),
+          },
+        },
+      })}\n`);
+      child.stdout.write(`${JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "恢复结算文本" }],
+        },
+      })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+      await prompt;
+      const delivery = host.takeStreamedDelivery();
+      if (accepted) {
+        assert.equal(delivery?.finalizationId, "recovery-finalization-true");
+      } else {
+        assert.equal(delivery, null, "disconnected delivery stays pending for replay");
+      }
+    });
+  }
 });
 
 function fakeChild() {
@@ -837,6 +1088,7 @@ function fakeChild() {
   child.stderr = stderr;
   child.kill = () => {
     child.emit("exit", 0, null);
+    child.emit("close", 0, null);
   };
   return child;
 }
@@ -1015,7 +1267,7 @@ test("promptPlayOpening fails closed without visible player text", async () => {
   );
 });
 
-test("attachOpening returns without replaying a turn that settled before the UI attached", async () => {
+test("attachOpening replays only current-child output settled before UI attach", async () => {
   const child = fakeChild();
   const host = new PiCocRpcHost({
     repoRoot: "/tmp/missing-repo",
@@ -1042,7 +1294,7 @@ test("attachOpening returns without replaying a turn that settled before the UI 
     onSse: (frame) => frames.push(frame),
   });
   assert.deepEqual(result, { opened: true });
-  assert.deepEqual(frames, []);
+  assert.deepEqual(frames, [{ event: "delta", data: { text: "先建卡" } }]);
 });
 
 test("attachOpening replays settled session assistant text without injecting", async () => {
@@ -1162,7 +1414,9 @@ test("fresh character-setup opener resumes before source-gated contract", () => 
 test("play-table opener still resumes an already-selected generation exactly once", () => {
   assert.equal(PLAY_TABLE_OPENING_PROMPT.match(/session\.resume/g)?.length, 1);
   assert.match(PLAY_TABLE_OPENING_PROMPT, /coc_evidence_table_opening/);
-  assert.match(PLAY_TABLE_OPENING_PROMPT, /opening is already persisted/);
+  assert.match(PLAY_TABLE_OPENING_PROMPT, /pending turn/);
+  assert.match(PLAY_TABLE_OPENING_PROMPT, /awaiting_player/);
+  assert.match(PLAY_TABLE_OPENING_PROMPT, /Never replay an older assistant opening/);
 });
 
 test("attachOpening character-setup injects one hidden prompt when auto-open is silent", async () => {
@@ -1213,7 +1467,7 @@ test("attachOpening character-setup injects one hidden prompt when auto-open is 
   assert.deepEqual(again, { opened: true });
 });
 
-test("attachOpening with play intent (ready_for_table/active) never injects the setup opener", async () => {
+test("attachOpening with play intent fails closed when resume continuation never starts", async () => {
   const child = fakeChild();
   const written = [];
   child.stdin.on("data", (chunk) => written.push(String(chunk)));
@@ -1227,14 +1481,591 @@ test("attachOpening with play intent (ready_for_table/active) never injects the 
   });
   host.start();
   child.stderr.write(`${UI_IDLE_MARKER}\n`);
-  const result = await host.attachOpening();
-  // Play reopen stays a resume: no hidden setup prompt is ever written.
-  assert.deepEqual(result, { opened: false });
+  await assert.rejects(
+    host.attachOpening(),
+    (error) => error.kind === "pi_coc_play_resume_not_started",
+  );
   assert.equal(
     written.join("").split("\n").filter(Boolean)
       .some((line) => JSON.parse(line).type === "prompt"),
     false,
   );
+});
+
+test("ordinary play reopen settles silently after resume awaiting_player", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "awaiting-player",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_start",
+    toolName: "coc_session_resume",
+    toolCallId: "resume-awaiting",
+    args: {},
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    toolCallId: "resume-awaiting",
+    result: { ok: true, tool: "session.resume", data: { mode: "awaiting_player" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  assert.deepEqual(await attached, { opened: true });
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+  assert.deepEqual(frames.filter((frame) => frame.event === "tool"), [
+    { event: "tool", data: { phase: "start", tool: "coc_session_resume", tool_call_id: "resume-awaiting" } },
+    { event: "tool", data: { phase: "end", tool: "coc_session_resume", tool_call_id: "resume-awaiting" } },
+  ]);
+  assert.equal(written.join("").includes('"type":"prompt"'), false);
+});
+
+test("pending-finalization reopen requires canonical finalize and exact delivery before success", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-pi-pending-reopen-"));
+  try {
+    const sessionDir = path.join(agentDir, "sessions", "cwd");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, "2026-08-23T00-00-00Z_web-pending.jsonl"),
+      [
+        JSON.stringify({
+          type: "message",
+          message: { role: "assistant", content: [{ type: "text", text: "旧的正式开场" }] },
+        }),
+        JSON.stringify({
+          type: "message",
+          message: { role: "user", content: "要求20美元预付款" },
+        }),
+      ].join("\n") + "\n",
+    );
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "pending",
+      sessionId: "web-pending",
+      agentDir,
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+    });
+    host.start();
+    child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    const frames = [];
+    const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+    child.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_session_resume",
+      result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_narration_review",
+      result: { ok: true, tool: "narration.review", data: { review_id: "review-ok" } },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+      },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    await assert.rejects(
+      attached,
+      (error) => error.kind === "pi_coc_turn_processing_fault"
+        && error.details?.code === "turn_finalization_obligation_unmet"
+        && error.details?.pending_turn_preserved === true,
+    );
+    assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+    assert.equal(frames.some((frame) => frame.event === "delta"), false);
+    assert.equal(JSON.stringify(frames).includes("旧的正式开场"), false);
+    assert.equal(written.join("").includes("要求20美元预付款"), false);
+    assert.equal(written.join("").includes('"type":"prompt"'), false);
+
+    const recoveredChild = fakeChild();
+    const recovered = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "pending",
+      sessionId: "web-pending",
+      agentDir,
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => recoveredChild,
+    });
+    recovered.start();
+    recoveredChild.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+    recoveredChild.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    const recoveredFrames = [];
+    const reopened = recovered.attachOpening({
+      onSse: (frame) => recoveredFrames.push(frame),
+    });
+    recoveredChild.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_session_resume",
+      result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+    })}\n`);
+    recoveredChild.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_turn_finalize",
+      result: {
+        ok: true,
+        tool: "turn.finalize",
+        data: {
+          finalization_id: "pending-finalization-recovered",
+          rendered_text: "诺特把预付款和钥匙推到你面前。",
+          rendered_sha256: canonicalTextSha256("诺特把预付款和钥匙推到你面前。"),
+        },
+      },
+    })}\n`);
+    recoveredChild.stdout.write(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "诺特把预付款和钥匙推到你面前。" }],
+      },
+    })}\n`);
+    recoveredChild.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+    assert.deepEqual(await reopened, { opened: true });
+    assert.deepEqual(
+      recoveredFrames.filter((frame) => frame.event === "delta"),
+      [{ event: "delta", data: { text: "诺特把预付款和钥匙推到你面前。" } }],
+    );
+    assert.equal(recoveredFrames.filter((frame) => frame.event === "error").length, 0);
+    assert.equal(recovered.takeStreamedDelivery()?.finalizationId, "pending-finalization-recovered");
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("pre-attach open-turn recovery cannot replay an unfinalized settlement as success", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "pre-attach-open-turn-recovery",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "open_turn_recovery" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    result: { ok: true, tool: "narration.review", data: { review_id: "pre-attach-review" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const frames = [];
+  await assert.rejects(
+    host.attachOpening({ onSse: (frame) => frames.push(frame) }),
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.recovery_mode === "open_turn_recovery",
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+});
+
+test("pre-attach pending-finalization obligation survives into the live settle wait", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "pre-attach-pending-finalization-race",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    result: { ok: true, tool: "narration.review", data: { review_id: "pre-attach-race-review" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.code === "turn_finalization_obligation_unmet"
+      && error.details?.recovery_mode === "pending_finalization",
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+});
+
+test("pre-attach pending-finalization accepts one exact finalized delivery", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "pre-attach-pending-finalization-success",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const renderedText = "恢复后的唯一精确交付。";
+  const renderedSha256 = canonicalTextSha256(renderedText);
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "pre-attach-finalization-success",
+        rendered_text: renderedText,
+        rendered_sha256: renderedSha256,
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: renderedText }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  assert.deepEqual(await attached, { opened: true });
+  assert.deepEqual(
+    frames.filter((frame) => frame.event === "delta"),
+    [{ event: "delta", data: { text: renderedText } }],
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 0);
+  assert.deepEqual(host.takeStreamedDelivery(), {
+    finalizationId: "pre-attach-finalization-success",
+    renderedText,
+    renderedSha256,
+  });
+  assert.equal(host.takeStreamedDelivery(), null);
+});
+
+test("invalid finalization digest cannot satisfy a recovery obligation", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "invalid-finalization-digest",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "invalid-finalization-digest",
+        rendered_text: "摘要与文本不一致。",
+        rendered_sha256: `sha256:${"0".repeat(64)}`,
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "摘要与文本不一致。" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.code === "turn_finalization_obligation_unmet"
+      && error.details?.finalization_receipt_observed === false,
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+  assert.equal(host.takeStreamedDelivery(), null);
+});
+
+test("recovery delivery rejected by a disconnected attach stream cannot report success", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "disconnected-recovery-delivery",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => {
+      frames.push(frame);
+      return frame.event !== "delta";
+    },
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "disconnected-finalization",
+        rendered_text: "恢复后的精确文本",
+        rendered_sha256: canonicalTextSha256("恢复后的精确文本"),
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "恢复后的精确文本" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.finalization_receipt_observed === true
+      && error.details?.delivery_observed === false,
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(host.takeStreamedDelivery(), null);
+});
+
+test("RPC EOF with a pending recovery finalization obligation is a typed fault", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "recovery-eof",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    result: { ok: true, tool: "narration.review", data: { review_id: "review-before-eof" } },
+  })}\n`);
+  child.emit("exit", 1, null);
+  child.emit("close", 1, null);
+
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.code === "turn_finalization_obligation_unmet",
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+});
+
+test("explicit setup handoff may transfer an armed recovery obligation", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "recovery-handoff",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "open_turn_recovery" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "custom_message",
+    customType: "coc_setup_handoff",
+    details: {
+      type: "coc_setup_handoff",
+      campaign_id: "recovery-handoff",
+      receipt: { decision_id: "recovery-handoff" },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  assert.deepEqual(await attached, { opened: true });
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 0);
+  assert.equal(frames.filter((frame) => frame.event === "coc_setup_handoff").length, 1);
+});
+
+test("genuine table opening delivers the receipt text exactly once", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "new-table-opening",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: { ok: true, tool: "session.resume", data: { mode: "table_opening" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_evidence_table_opening",
+    result: { ok: true, tool: "evidence.table_opening" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "十月的雨落在波士顿街头。" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "十月的雨落在波士顿街头。" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  assert.deepEqual(await attached, { opened: true });
+  assert.deepEqual(frames.filter((frame) => frame.event === "delta"), [{
+    event: "delta",
+    data: { text: "十月的雨落在波士顿街头。" },
+  }]);
+  const secondFrames = [];
+  assert.deepEqual(await host.attachOpening({
+    onSse: (frame) => secondFrames.push(frame),
+  }), { opened: true });
+  assert.deepEqual(secondFrames, []);
+});
+
+test("concurrent play attaches join one continuation and do not duplicate SSE delivery", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "attach-singleflight",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const firstFrames = [];
+  const secondFrames = [];
+  const first = host.attachOpening({ onSse: (frame) => firstFrames.push(frame) });
+  const second = host.attachOpening({ onSse: (frame) => secondFrames.push(frame) });
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "仅交付一次" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "仅交付一次" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  assert.deepEqual(await Promise.all([first, second]), [
+    { opened: true },
+    { opened: true },
+  ]);
+  assert.deepEqual(firstFrames, [{ event: "delta", data: { text: "仅交付一次" } }]);
+  assert.deepEqual(secondFrames, []);
 });
 
 test("attachOpening character-setup does not inject when auto-open already has visible text", async () => {
@@ -1439,6 +2270,363 @@ test("abort unblocks prompt before agent_settled", { timeout: 2000 }, async () =
   await new Promise((r) => setTimeout(r, 20));
   await host.abort();
   await assert.rejects(promptP, (err) => err.kind === "pi_coc_rpc_aborted");
+});
+
+test("provider idle after a tool result aborts once and fences late events", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  child.kill = () => setImmediate(() => {
+    child.emit("exit", 0, null);
+    child.emit("close", 0, null);
+  });
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  let now = 0;
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "idle-after-journal",
+    sessionId: "web-idle-after-journal",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    turnIdleTimeoutMs: 100,
+    nowFn: () => now,
+  });
+  host.start();
+  const frames = [];
+  const promptP = host.prompt("我接受委托。", {
+    onSse: (frame) => frames.push(frame),
+    timeoutMs: 30_000,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  now = 90;
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_invoke",
+    args: { operation: "state.journal" },
+    result: {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          ok: true,
+          tool: "state.journal",
+          data: { journal_id: "journal-1" },
+        }),
+      }],
+    },
+  })}\n`);
+  now = 180;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    0,
+    "a tool result must reset the provider-idle deadline",
+  );
+
+  now = 191;
+  const outcome = await Promise.race([
+    promptP.then(
+      () => ({ resolved: true }),
+      (error) => ({ error }),
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ pending: true }), 200)),
+  ]);
+  if (outcome.pending) {
+    await host.abort();
+    await promptP.catch(() => {});
+    assert.fail("idle provider continuation remained attached");
+  }
+  assert.equal(outcome.error?.kind, "pi_coc_rpc_idle_timeout");
+  assert.deepEqual(outcome.error?.details, {
+    idle_classification: "post_tool_success_no_agent_settled",
+    active_tools: [],
+    last_tool_terminal: {
+      tool_call_id: "unidentified-tool-call",
+      tool: "state.journal",
+      outcome: "success",
+      error_code: null,
+    },
+    finalization_status: "absent",
+  });
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+    "the watchdog must never send repeated abort commands",
+  );
+
+  const frameCount = frames.length;
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "迟到草稿" }] },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(frames.length, frameCount, "late aborted-turn events must stay off SSE");
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await host.close({ protocolAbort: false });
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+    "recovery shutdown must not send a second abort after the watchdog abort",
+  );
+});
+
+test("attachOpening aborts a silent provider continuation after successful review", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  let now = 0;
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "attach-idle-after-review",
+    sessionId: "web-attach-idle-after-review",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    turnIdleTimeoutMs: 100,
+    nowFn: () => now,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attached = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+    timeoutMs: 30_000,
+  });
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    toolCallId: "resume-idle",
+    result: { ok: true, tool: "session.resume", data: { mode: "pending_finalization" } },
+  })}\n`);
+  now = 50;
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    toolCallId: "review-idle",
+    result: { ok: true, tool: "narration.review", data: { review_id: "review-idle" } },
+  })}\n`);
+  now = 75;
+  child.stdout.write(`${JSON.stringify({
+    type: "message_start",
+    message: { role: "assistant", content: [] },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  now = 176;
+
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_rpc_idle_timeout"
+      && error.details?.idle_classification === "post_tool_success_no_agent_settled",
+  );
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+  );
+  const frameCount = frames.length;
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "迟到恢复文本" }] },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(frames.length, frameCount, "late attach events stay behind the abort fence");
+});
+
+test("accepted prompt with no agent_start still reaches the provider-idle watchdog", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  let now = 0;
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "idle-before-agent-start",
+    sessionId: "web-idle-before-agent-start",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    turnIdleTimeoutMs: 100,
+    nowFn: () => now,
+  });
+  host.start();
+  const promptP = host.prompt("开始", { timeoutMs: 30_000 });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  now = 101;
+
+  await assert.rejects(promptP, (error) => error.kind === "pi_coc_rpc_idle_timeout");
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+  );
+});
+
+test("explicit abort rejects a new prompt until agent_settled instead of queuing followUp", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "manual-abort-boundary",
+    sessionId: "web-manual-abort-boundary",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const firstPrompt = host.prompt("第一次行动");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  await host.abort();
+  await assert.rejects(firstPrompt, (error) => error.kind === "pi_coc_rpc_aborted");
+
+  await assert.rejects(
+    host.prompt("不得成为 followUp"),
+    (error) => error.kind === "pi_coc_rpc_abort_pending",
+  );
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "prompt").length,
+    1,
+  );
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+});
+
+test("explicit abort dominates agent_settled before the next waiter tick", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "abort-before-settle-tick",
+    sessionId: "web-abort-before-settle-tick",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const promptP = host.prompt("写状态后停止");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  await host.abort();
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(promptP, (error) => error.kind === "pi_coc_rpc_aborted");
+});
+
+test("close never reports a killed child closed without observing process exit", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const signals = [];
+  child.kill = (signal) => signals.push(signal);
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "unconfirmed-close",
+    sessionId: "web-unconfirmed-close",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+
+  await assert.rejects(
+    host.close({ protocolAbort: false, termTimeoutMs: 10, killTimeoutMs: 10 }),
+    (error) => error.kind === "pi_coc_rpc_close_timeout",
+  );
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(host.closed, false);
+});
+
+test("close waits for stdio close so a buffered final handoff event is observed", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  child.kill = () => {
+    child.emit("exit", 0, null);
+    setImmediate(() => {
+      child.stdout.write(`${JSON.stringify({
+        type: "custom_message",
+        customType: "coc_setup_handoff",
+        details: {
+          type: "coc_setup_handoff",
+          campaign_id: "buffered-handoff",
+          receipt: { decision_id: "buffered-handoff" },
+        },
+      })}\n`);
+      child.emit("close", 0, null);
+    });
+  };
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "buffered-handoff",
+    sessionId: "web-buffered-handoff",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  const events = [];
+  host.onEvent((event) => events.push(event));
+  host.start();
+
+  await host.close({ protocolAbort: false, termTimeoutMs: 100, killTimeoutMs: 100 });
+  assert.equal(
+    events.some((event) => event.customType === "coc_setup_handoff"),
+    true,
+  );
+});
+
+test("close called after exit still waits for buffered stdio before releasing ownership", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  child.kill = () => assert.fail("an already-exited child must not be signalled again");
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "exit-before-close",
+    sessionId: "web-exit-before-close",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  const events = [];
+  host.onEvent((event) => events.push(event));
+  host.start();
+  child.emit("exit", 0, null);
+  const closing = host.close({ protocolAbort: false, termTimeoutMs: 100, killTimeoutMs: 100 });
+  setImmediate(() => {
+    child.stdout.write(`${JSON.stringify({
+      type: "custom_message",
+      customType: "coc_setup_handoff",
+      details: {
+        type: "coc_setup_handoff",
+        campaign_id: "exit-before-close",
+        receipt: { decision_id: "exit-before-close" },
+      },
+    })}\n`);
+    child.emit("close", 0, null);
+  });
+  await closing;
+  assert.equal(
+    events.some((event) => event.customType === "coc_setup_handoff"),
+    true,
+  );
 });
 
 test("abort unblocks attachOpening while waiting for UI intent", { timeout: 2000 }, async () => {

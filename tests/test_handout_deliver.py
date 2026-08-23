@@ -27,6 +27,9 @@ def _load(name: str, rel: str):
 
 coc_toolbox = _load("coc_toolbox_handout_deliver", SCRIPTS / "coc_toolbox.py")
 coc_starter = _load("coc_starter_handout_deliver", SCRIPTS / "coc_starter.py")
+coc_scenario_compile = _load(
+    "coc_scenario_compile_handout_deliver", SCRIPTS / "coc_scenario_compile.py"
+)
 
 
 @pytest.fixture
@@ -189,14 +192,312 @@ def test_deliver_handout_is_idempotent_by_decision_id(campaign_ws):
     assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
 
 
-def test_deliver_unknown_handout_records_with_warning(campaign_ws):
+def test_deliver_unknown_handout_fails_closed(campaign_ws):
     result = _run(campaign_ws, "state.deliver_handout", {
         "handout_id": "handout-improvised",
         "decision_id": "deliver-unknown",
     })
-    assert result["ok"] is True
-    assert any("not a registered card" in w for w in result["warnings"])
-    assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-improvised"]
+    assert result["ok"] is False
+    assert result["error"]["code"] == "unknown_handout"
+    assert "delivered_handout_ids" not in _world(campaign_ws)
+
+
+def test_padded_index_asset_id_is_rejected_by_compiler_and_runtime(campaign_ws):
+    _install_cards(campaign_ws)
+    index_path = campaign_ws["campaign_dir"] / "index" / "handout-assets.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index["assets"][0]["asset_id"] = " handout-newspaper "
+    _write_json(index_path, index)
+    _append_handout_clue(
+        campaign_ws,
+        clue_id="clue-padded-index-card",
+        handout_asset_id="handout-newspaper",
+    )
+
+    compiled = coc_scenario_compile.validate_scenario(
+        campaign_ws["campaign_dir"] / "scenario"
+    )
+    assert any(
+        "asset_id" in error and "surrounding whitespace" in error
+        for error in compiled["errors"]
+    )
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-padded-index-card",
+        "method": "inspect malformed index identity",
+        "decision_id": "reject-padded-index-card",
+    })
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert result["data"]["handout_delivery_warning"]["code"] == "unknown_handout"
+    assert "clue-padded-index-card" in _world(campaign_ws)["discovered_clue_ids"]
+
+
+def _explicit_replay_request(**overrides) -> dict:
+    evidence = {
+        "explicit_player_request": True,
+        "player_text": "请再给我看一次那张剪报。",
+        "semantic_reason": "玩家明确要求再次展示已交付的剪报",
+        "player_turn_epoch": 4,
+    }
+    evidence.update(overrides)
+    return evidence
+
+
+def test_replay_handout_requires_prior_delivery_and_explicit_request(campaign_ws):
+    _install_cards(campaign_ws)
+
+    before_delivery = _run(campaign_ws, "state.replay_handout", {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(),
+        "decision_id": "replay-before-delivery",
+    })
+    assert before_delivery["ok"] is False
+    assert before_delivery["error"]["code"] == "handout_not_delivered"
+
+    _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "handout-newspaper",
+        "decision_id": "replay-test-delivery",
+    })
+    ambiguous = _run(campaign_ws, "state.replay_handout", {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(
+            explicit_player_request=False,
+            player_text="刚才那张……",
+            semantic_reason="玩家指代不明确，应先确认",
+        ),
+        "decision_id": "replay-ambiguous",
+    })
+    assert ambiguous["ok"] is False
+    assert ambiguous["error"]["code"] == "explicit_player_request_required"
+    assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
+
+
+def test_source_read_aloud_requires_exact_active_language_title_and_body(campaign_ws):
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = "ja-JP"
+    _write_json(campaign_path, campaign)
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    card = {
+        "asset_id": "read-aloud:opening:door",
+        "kind": "read_aloud",
+        "title": "At the door",
+        "text": "The hinges groan in the dark.",
+        "localized_title": {"ja-JP": "扉の前"},
+        "localized_text": {"ja-JP": "暗闇で蝶番が低くきしむ。"},
+        "source_refs": ["pdf_index-9"],
+        "player_visible": True,
+    }
+    _write_json(store, {"schema_version": 1, "handouts": [card]})
+
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": card["asset_id"],
+        "decision_id": "deliver-ja-read-aloud",
+    })
+    assert delivered["ok"] is True, delivered
+    assert delivered["data"]["card"]["title"] == "扉の前"
+    assert delivered["data"]["card"]["text"] == "暗闇で蝶番が低くきしむ。"
+    assert "hinges" not in json.dumps(delivered["data"]["card"], ensure_ascii=False)
+
+    card["asset_id"] = "read-aloud:opening:missing-ja"
+    card["localized_title"] = {"zh-Hans": "门前"}
+    card["localized_text"] = {"zh-Hans": "黑暗中门轴低鸣。"}
+    _write_json(store, {"schema_version": 1, "handouts": [card]})
+    missing = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": card["asset_id"],
+        "decision_id": "deliver-missing-ja-read-aloud",
+    })
+    assert missing["ok"] is False
+    assert missing["error"]["code"] == "handout_locale_missing"
+
+
+def test_replay_handout_creates_new_presentation_without_second_delivery(campaign_ws):
+    _install_cards(campaign_ws)
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "handout-newspaper",
+        "decision_id": "presentation-delivery",
+    })
+    assert delivered["data"]["presentation"] == {
+        "presentation_id": "handout-newspaper:presentation:1",
+        "asset_id": "handout-newspaper",
+        "revision": 1,
+    }
+
+    args = {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(),
+        "decision_id": "presentation-replay",
+    }
+    replayed = _run(campaign_ws, "state.replay_handout", args)
+    repeated = _run(campaign_ws, "state.replay_handout", args)
+    repeated_new_decision = _run(campaign_ws, "state.replay_handout", {
+        **args,
+        "request_assertion": _explicit_replay_request(
+            semantic_reason="第二个 decision 不能重写已消费的权威断言",
+        ),
+        "decision_id": "presentation-replay-same-player-epoch",
+    })
+
+    assert replayed["ok"] is True, replayed
+    assert repeated["data"] == replayed["data"]
+    assert repeated_new_decision["data"]["presentation"] == replayed["data"]["presentation"]
+    assert repeated_new_decision["data"]["request_assertion"] == replayed["data"]["request_assertion"]
+    assert replayed["data"]["presentation"] == {
+        "presentation_id": "handout-newspaper:presentation:2",
+        "asset_id": "handout-newspaper",
+        "revision": 2,
+    }
+    assert replayed["data"]["card"]["text"] == "教堂记录被移交县档案馆。"
+    world = _world(campaign_ws)
+    assert world["delivered_handout_ids"] == ["handout-newspaper"]
+    assert world["handout_presentation_revisions"] == {"handout-newspaper": 2}
+
+    presentations = [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") in {"handout_delivered", "handout_presented"}
+    ]
+    assert [event["presentation_id"] for event in presentations] == [
+        "handout-newspaper:presentation:1",
+        "handout-newspaper:presentation:2",
+    ]
+    replay_event = presentations[1]
+    assert replay_event["source"] == "state.replay_handout"
+    assert replay_event["request_assertion"]["player_turn_epoch"] == 4
+    assert replay_event["request_assertion"]["player_text"] == "请再给我看一次那张剪报。"
+    assert replay_event["request_assertion"]["player_text_sha256"].startswith("sha256:")
+
+    later = _run(campaign_ws, "state.replay_handout", {
+        "handout_id": "handout-newspaper",
+        "request_assertion": _explicit_replay_request(
+            player_text="请把剪报再展示一遍。",
+            semantic_reason="玩家在后续回合再次明确请求剪报",
+            player_turn_epoch=5,
+        ),
+        "decision_id": "presentation-replay-later-player-epoch",
+    })
+    assert later["data"]["presentation"]["revision"] == 3
+    assert _world(campaign_ws)["handout_presentation_revisions"] == {
+        "handout-newspaper": 3,
+    }
+
+
+def test_malformed_scenario_cards_cannot_be_queried_or_delivered(campaign_ws):
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    malformed = [
+        {
+            "asset_id": "bad-visible",
+            "kind": "document",
+            "text": "must stay secret",
+            "source_refs": ["pdf_index-1"],
+            "player_visible": "false",
+        },
+        {
+            "asset_id": "bad-localized",
+            "kind": "document",
+            "localized_text": {"zh-Hans": ["must stay secret"]},
+        },
+        {
+            "asset_id": "bad-localized-language",
+            "kind": "document",
+            "localized_text": {"": "must stay secret"},
+        },
+        {
+            "asset_id": "bad-body",
+            "kind": "document",
+            "text": {"body": "must stay secret"},
+            "source_refs": ["pdf_index-2"],
+        },
+        {
+            "asset_id": "bad-asset",
+            "kind": "map",
+            "image_ref": ["assets/handouts/secret.png"],
+        },
+        {
+            "asset_id": 17,
+            "kind": "document",
+            "text": "numeric id must stay secret",
+            "source_refs": ["pdf_index-3"],
+        },
+    ]
+    _write_json(store, {"schema_version": 1, "handouts": malformed})
+
+    keeper = _run(campaign_ws, "clues.query", {})
+    player = _run(campaign_ws, "clues.query", {"handouts_projection": "player"})
+    assert keeper["data"]["handouts"]["cards"] == []
+    assert player["data"]["handouts"]["cards"] == []
+    payload = json.dumps([keeper, player], ensure_ascii=False)
+    assert "must stay secret" not in payload
+
+    for index, handout_id in enumerate(
+        [
+            "bad-visible", "bad-localized", "bad-localized-language",
+            "bad-body", "bad-asset", "17",
+        ]
+    ):
+        result = _run(campaign_ws, "state.deliver_handout", {
+            "handout_id": handout_id,
+            "decision_id": f"reject-malformed-{index}",
+        })
+        assert result["ok"] is False
+        assert result["error"]["code"] == "unknown_handout"
+    assert "delivered_handout_ids" not in _world(campaign_ws)
+    assert not [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+    ]
+
+
+def test_malformed_progressive_entities_cannot_be_queried_or_delivered(campaign_ws):
+    scenario_path = campaign_ws["campaign_dir"] / "scenario" / "scenario.json"
+    _write_json(scenario_path, {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "progressive_asset_root_id": "malformed-handouts",
+    })
+    entities = (
+        campaign_ws["coc_root"]
+        / "module-assets" / "malformed-handouts" / "entities"
+    )
+    malformed = {
+        "entity-bad-visible": {"player_visible": "false"},
+        "entity-bad-localized": {
+            "localized_text": {"zh-Hans": ["must stay secret"]}
+        },
+        "entity-bad-localized-language": {
+            "localized_text": {"": "must stay secret"}
+        },
+        "entity-bad-body": {"text": {"body": "must stay secret"}},
+        "entity-bad-asset": {"image_ref": ["assets/handouts/secret.png"]},
+        "entity-bad-id": {"asset_id": 17},
+    }
+    for handout_id, override in malformed.items():
+        pack = {
+            "handout_id": handout_id,
+            "asset_id": handout_id,
+            "kind": "document",
+            "text": "must stay secret",
+            "source_refs": ["pdf_index-1"],
+            "player_visible": True,
+            "parse_state": "deep",
+            "evidence_gap": False,
+            **override,
+        }
+        _write_json(entities / f"handout-{handout_id}.json", pack)
+
+    keeper = _run(campaign_ws, "clues.query", {})
+    assert [
+        card["asset_id"] for card in keeper["data"]["handouts"]["cards"]
+    ] == ["handout-globe-unpublished-1918"]
+    assert "must stay secret" not in json.dumps(keeper, ensure_ascii=False)
+    for index, handout_id in enumerate(malformed):
+        result = _run(campaign_ws, "state.deliver_handout", {
+            "handout_id": handout_id,
+            "decision_id": f"reject-malformed-entity-{index}",
+        })
+        assert result["ok"] is False
+        assert result["error"]["code"] == "unknown_handout"
+    assert "delivered_handout_ids" not in _world(campaign_ws)
 
 
 # --------------------------------------------------------- clue linkage
@@ -220,6 +521,55 @@ def _add_clue_with_handout(ws) -> None:
     path.write_text(
         json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
     )
+
+
+def _append_handout_clue(
+    ws,
+    *,
+    clue_id: str,
+    handout_asset_id: str | None = None,
+) -> None:
+    path = ws["campaign_dir"] / "scenario" / "clue-graph.json"
+    graph = json.loads(path.read_text(encoding="utf-8"))
+    clue = {
+        "clue_id": clue_id,
+        "delivery_kind": "handout",
+        "visibility": "player-safe",
+        "player_safe_summary": f"Player-safe summary for {clue_id}.",
+    }
+    if handout_asset_id is not None:
+        clue["handout_asset_id"] = handout_asset_id
+    graph["conclusions"].append({
+        "conclusion_id": f"conclusion-{clue_id}",
+        "importance": "supporting",
+        "minimum_routes": 1,
+        "clues": [clue],
+    })
+    _write_json(path, graph)
+
+
+def _install_deep_cards(ws, cards: list[dict]) -> None:
+    root_id = "deep-linked-handouts"
+    _write_json(ws["campaign_dir"] / "scenario" / "scenario.json", {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "progressive_asset_root_id": root_id,
+    })
+    entities = ws["coc_root"] / "module-assets" / root_id / "entities"
+    for card in cards:
+        asset_id = card["asset_id"]
+        _write_json(entities / f"handout-{asset_id}.json", {
+            "handout_id": asset_id,
+            "kind": "document",
+            "title": f"Deep card {asset_id}",
+            "text": f"Exact deep body for {asset_id}.",
+            "localized_text": f"{asset_id} 的深层卡片正文。",
+            "source_refs": ["pdf_index-0"],
+            "player_visible": True,
+            "parse_state": "deep",
+            "evidence_gap": False,
+            **card,
+        })
 
 
 def test_record_clue_delivers_linked_handout_same_transaction(campaign_ws):
@@ -256,10 +606,340 @@ def test_record_clue_delivers_linked_handout_same_transaction(campaign_ws):
     assert _world(campaign_ws)["delivered_handout_ids"] == ["handout-newspaper"]
 
 
+def _set_play_language(ws, language: str) -> None:
+    path = ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(path.read_text(encoding="utf-8"))
+    campaign["play_language"] = language
+    _write_json(path, campaign)
+
+
+def test_record_clue_missing_locale_keeps_discovery_without_handout_mutation(
+    campaign_ws,
+):
+    _set_play_language(campaign_ws, "ja-JP")
+    asset_id = "read-aloud:archive:missing-ja"
+    clue_id = "clue-missing-ja-card"
+    _append_handout_clue(
+        campaign_ws, clue_id=clue_id, handout_asset_id=asset_id,
+    )
+    _install_deep_cards(campaign_ws, [{
+        "asset_id": asset_id,
+        "kind": "read_aloud",
+        "title": "Source title",
+        "text": "Source body.",
+        "localized_title": {"zh-Hans": "资料卡"},
+        "localized_text": {"zh-Hans": "资料卡正文。"},
+    }])
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "archive research",
+        "decision_id": "missing-ja-linked-card",
+    })
+
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert result["data"]["handout_presentation"] is None
+    assert result["data"]["handout_delivery_warning"]["code"] == (
+        "handout_locale_missing"
+    )
+    world = _world(campaign_ws)
+    assert clue_id in world["discovered_clue_ids"]
+    assert "delivered_handout_ids" not in world
+    assert "handout_presentation_revisions" not in world
+    assert not [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+    ]
+    assert any(
+        "handout_locale_missing" in warning for warning in result["warnings"]
+    )
+
+
+def test_record_clue_exact_locale_linked_delivery_is_atomic_and_idempotent(
+    campaign_ws,
+):
+    _set_play_language(campaign_ws, "ja-JP")
+    asset_id = "read-aloud:archive:ja"
+    clue_id = "clue-ja-card"
+    _append_handout_clue(
+        campaign_ws, clue_id=clue_id, handout_asset_id=asset_id,
+    )
+    _install_deep_cards(campaign_ws, [{
+        "asset_id": asset_id,
+        "kind": "read_aloud",
+        "title": "Source title",
+        "text": "Source body.",
+        "localized_title": {"ja-JP": "資料カード"},
+        "localized_text": {"ja-JP": "資料カードの本文。"},
+    }])
+
+    first = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "archive research",
+        "decision_id": "ja-linked-card-first",
+    })
+    second = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "archive recheck",
+        "decision_id": "ja-linked-card-second",
+    })
+
+    assert first["ok"] is True and second["ok"] is True
+    assert first["data"]["delivered_handout_id"] == asset_id
+    assert first["data"]["handout_presentation"]["revision"] == 1
+    assert second["data"]["delivered_handout_id"] == asset_id
+    world = _world(campaign_ws)
+    assert world["delivered_handout_ids"] == [asset_id]
+    assert world["handout_presentation_revisions"] == {asset_id: 1}
+    assert len([
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+    ]) == 1
+
+
+def test_fresh_quick_start_shipped_clues_deliver_one_card_exactly_once(
+    campaign_ws,
+):
+    first = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-globe-unpublished-story",
+        "method": "newspaper research",
+        "decision_id": "fresh-handout-first",
+    })
+    second = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-macario-tragedy",
+        "method": "read the same feature",
+        "decision_id": "fresh-handout-second",
+    })
+
+    asset_id = "handout-globe-unpublished-1918"
+    assert first["ok"] is True, first
+    assert second["ok"] is True, second
+    assert first["data"]["delivered_handout_id"] == asset_id
+    assert second["data"]["delivered_handout_id"] == asset_id
+    world = _world(campaign_ws)
+    assert world["delivered_handout_ids"] == [asset_id]
+    assert world["discovered_clue_ids"].count(
+        "clue-globe-unpublished-story"
+    ) == 1
+    assert world["discovered_clue_ids"].count("clue-macario-tragedy") == 1
+    delivered = [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+        and event.get("asset_id") == asset_id
+    ]
+    assert len(delivered) == 1
+    player = _run(
+        campaign_ws, "clues.query", {"handouts_projection": "player"}
+    )
+    card = player["data"]["handouts"]["cards"][0]
+    assert card["content_origin"] == "authored_derivative"
+    assert card["title"].startswith("《波士顿环球报》")
+    assert card["summary"].startswith("由项目贡献者")
+    assert card["source_refs"] == []
+
+
+def test_authored_derivative_falls_back_to_its_english_body_for_english_play(
+    campaign_ws,
+):
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = "en"
+    _write_json(campaign_path, campaign)
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-globe-unpublished-story",
+        "method": "newspaper research",
+        "decision_id": "english-authored-prop",
+    })
+
+    assert result["ok"] is True, result
+    card = result["data"]["delivered_handout_id"]
+    assert card == "handout-globe-unpublished-1918"
+    player = _run(
+        campaign_ws, "clues.query", {"handouts_projection": "player"}
+    )["data"]["handouts"]["cards"][0]
+    assert player["title"].startswith("Boston Globe")
+    assert player["text"].startswith("BOSTON GLOBE")
+    assert "波士顿" not in json.dumps(player, ensure_ascii=False)
+
+
+def test_authored_derivative_uses_japanese_fields_for_japanese_play(campaign_ws):
+    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["play_language"] = "ja-JP"
+    _write_json(campaign_path, campaign)
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-globe-unpublished-story",
+        "method": "新聞調査",
+        "decision_id": "japanese-authored-prop",
+    })
+
+    assert result["ok"] is True, result
+    player = _run(
+        campaign_ws, "clues.query", {"handouts_projection": "player"}
+    )["data"]["handouts"]["cards"][0]
+    assert player["title"].startswith("『ボストン・グローブ』")
+    assert player["text"].startswith("『ボストン・グローブ』")
+    assert "波士顿" not in json.dumps(player, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("write_order", ["clue-first", "card-first"])
+def test_record_clue_resolves_unique_deep_card_reverse_ref_in_either_merge_order(
+    campaign_ws,
+    write_order,
+):
+    clue_id = f"clue-deep-reverse-{write_order}"
+    card = {
+        "asset_id": f"handout-deep-reverse-{write_order}",
+        "clue_refs": [clue_id],
+    }
+    if write_order == "clue-first":
+        _append_handout_clue(campaign_ws, clue_id=clue_id)
+        _install_deep_cards(campaign_ws, [card])
+    else:
+        _install_deep_cards(campaign_ws, [card])
+        _append_handout_clue(campaign_ws, clue_id=clue_id)
+
+    first = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "source-backed research",
+        "decision_id": f"discover-{write_order}",
+    })
+    replay = _run(campaign_ws, "state.record_clue", {
+        "clue_id": clue_id,
+        "method": "source-backed research",
+        "decision_id": f"discover-{write_order}",
+    })
+
+    assert first["ok"] is True, first
+    assert first["data"]["delivered_handout_id"] == card["asset_id"]
+    assert replay["data"] == first["data"]
+    world = _world(campaign_ws)
+    assert world["discovered_clue_ids"].count(clue_id) == 1
+    assert world["delivered_handout_ids"].count(card["asset_id"]) == 1
+    delivery_events = [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+        and event.get("asset_id") == card["asset_id"]
+    ]
+    assert len(delivery_events) == 1
+
+
+@pytest.mark.parametrize(
+    ("explicit_id", "cards", "error_code"),
+    [
+        (None, [], "handout_link_missing"),
+        (
+            None,
+            [{
+                "asset_id": "handout-near-match",
+                "clue_refs": ["clue-bad-link-extra"],
+                "when_to_deliver": "prose mentions clue-bad-link",
+            }],
+            "handout_link_missing",
+        ),
+        ("handout-unknown", [], "unknown_handout"),
+        (
+            "handout-explicit",
+            [
+                {"asset_id": "handout-explicit"},
+                {"asset_id": "handout-reverse", "clue_refs": ["clue-bad-link"]},
+            ],
+            "handout_link_conflict",
+        ),
+        (
+            None,
+            [
+                {"asset_id": "handout-a", "clue_refs": ["clue-bad-link"]},
+                {"asset_id": "handout-b", "clue_refs": ["clue-bad-link"]},
+            ],
+            "handout_link_ambiguous",
+        ),
+        (
+            None,
+            [{
+                "asset_id": "handout-hidden",
+                "clue_refs": ["clue-bad-link"],
+                "player_visible": False,
+            }],
+            "handout_not_player_visible",
+        ),
+    ],
+)
+def test_record_clue_invalid_handout_link_warns_but_preserves_discovery(
+    campaign_ws,
+    explicit_id,
+    cards,
+    error_code,
+):
+    _append_handout_clue(
+        campaign_ws,
+        clue_id="clue-bad-link",
+        handout_asset_id=explicit_id,
+    )
+    if cards:
+        _install_deep_cards(campaign_ws, cards)
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-bad-link",
+        "method": "invalid structured linkage",
+        "decision_id": f"reject-{error_code}",
+    })
+
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert result["data"]["handout_delivery_warning"]["code"] == error_code
+    assert any(error_code in warning for warning in result["warnings"])
+    world = _world(campaign_ws)
+    assert "clue-bad-link" in world["discovered_clue_ids"]
+    assert "delivered_handout_ids" not in world
+    assert [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "clue_discovered"
+        and event.get("clue_id") == "clue-bad-link"
+    ]
+    assert not [
+        event for event in _events(campaign_ws)
+        if event.get("event_type") == "handout_delivered"
+        and event.get("clue_id") == "clue-bad-link"
+    ]
+
+
+def test_record_clue_optional_companion_card_failure_preserves_discovery(
+    campaign_ws,
+):
+    _append_handout_clue(
+        campaign_ws,
+        clue_id="clue-optional-card",
+        handout_asset_id="handout-missing-companion",
+    )
+    path = campaign_ws["campaign_dir"] / "scenario" / "clue-graph.json"
+    graph = json.loads(path.read_text(encoding="utf-8"))
+    graph["conclusions"][-1]["clues"][0]["delivery_kind"] = "obvious"
+    _write_json(path, graph)
+
+    result = _run(campaign_ws, "state.record_clue", {
+        "clue_id": "clue-optional-card",
+        "method": "ordinary discovery with broken companion metadata",
+        "decision_id": "optional-card-failure",
+    })
+
+    assert result["ok"] is True, result
+    assert result["data"]["delivered_handout_id"] is None
+    assert "handout_delivery_warning" in result["data"], result
+    assert result["data"]["handout_delivery_warning"]["code"] == "unknown_handout"
+    world = _world(campaign_ws)
+    assert "clue-optional-card" in world["discovered_clue_ids"]
+    assert "delivered_handout_ids" not in world
+
+
 def test_record_clue_without_card_linkage_is_unchanged(campaign_ws):
     before = _run(campaign_ws, "clues.query", {})
     assert before["ok"] is True
-    assert before["data"]["handouts"]["cards"] == []
+    assert [
+        card["asset_id"] for card in before["data"]["handouts"]["cards"]
+    ] == ["handout-globe-unpublished-1918"]
 
     result = _run(campaign_ws, "state.record_clue", {
         "clue_id": "clue-house-built-1835",
@@ -301,6 +981,219 @@ def test_clues_query_keeper_projection_lists_all_cards(campaign_ws):
     by_id = {card["asset_id"]: card for card in after["data"]["handouts"]["cards"]}
     assert by_id["handout-cellar-map"]["delivered"] is True
     assert after["data"]["handouts"]["delivered_handout_ids"] == ["handout-cellar-map"]
+
+
+def test_handout_catalog_prefers_scenario_over_asset_index(campaign_ws):
+    """The campaign IR card is fresher than its imported asset-index row."""
+    _install_cards(campaign_ws)
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    _write_json(store, {
+        "schema_version": 1,
+        "handouts": [
+            {
+                "asset_id": "handout-newspaper",
+                "kind": "document",
+                "title": "Scenario-projected clipping",
+                "text": "Scenario IR replaces the older imported card body.",
+                "localized_text": "战役 IR 覆盖较旧的导入卡片正文。",
+                "source_refs": ["pdf_index-18"],
+                "player_visible": True,
+            },
+        ],
+    })
+
+    result = _run(campaign_ws, "clues.query", {})
+
+    cards = {
+        card["asset_id"]: card for card in result["data"]["handouts"]["cards"]
+    }
+    assert cards["handout-newspaper"]["title"] == "Scenario-projected clipping"
+    assert cards["handout-newspaper"]["text"] == (
+        "Scenario IR replaces the older imported card body."
+    )
+
+
+def test_deep_handout_wins_over_scenario_and_index_for_keeper_and_player(
+    campaign_ws,
+):
+    """The freshest valid deep entity wins the complete public-tool path."""
+    _install_cards(campaign_ws)
+    store = campaign_ws["campaign_dir"] / "scenario" / "handouts.json"
+    _write_json(store, {
+        "schema_version": 1,
+        "handouts": [
+            {
+                "asset_id": "handout-newspaper",
+                "kind": "document",
+                "title": "Scenario clipping",
+                "text": "Scenario IR card body.",
+                "localized_text": "战役 IR 卡片正文。",
+                "source_refs": ["pdf_index-18"],
+                "player_visible": True,
+            },
+        ],
+    })
+    scenario_path = campaign_ws["campaign_dir"] / "scenario" / "scenario.json"
+    _write_json(scenario_path, {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "progressive_asset_root_id": "deep-priority-handouts",
+    })
+    deep_card = (
+        campaign_ws["coc_root"]
+        / "module-assets"
+        / "deep-priority-handouts"
+        / "entities"
+        / "handout-handout-newspaper.json"
+    )
+    _write_json(deep_card, {
+        "handout_id": "handout-newspaper",
+        "asset_id": "handout-newspaper",
+        "kind": "document",
+        "content_origin": "source_verbatim",
+        "title": "Deep clipping",
+        "text": "Deep entity card body.",
+        "localized_text": "深层实体卡片正文。",
+        "source_refs": ["pdf_index-19"],
+        "player_visible": True,
+        "parse_state": "deep",
+        "evidence_gap": False,
+    })
+
+    keeper = _run(campaign_ws, "clues.query", {})
+    keeper_cards = {
+        card["asset_id"]: card for card in keeper["data"]["handouts"]["cards"]
+    }
+    assert keeper_cards["handout-newspaper"]["title"] == "Deep clipping"
+    assert keeper_cards["handout-newspaper"]["text"] == "Deep entity card body."
+
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "handout-newspaper",
+        "decision_id": "deliver-deep-priority-card",
+    })
+    assert delivered["ok"] is True, delivered
+    assert delivered["data"]["card"]["text"] == "深层实体卡片正文。"
+    player = _run(campaign_ws, "clues.query", {"handouts_projection": "player"})
+    assert player["data"]["handouts"]["cards"] == [
+        {
+            "asset_id": "handout-newspaper",
+            "kind": "document",
+            "content_origin": "source_verbatim",
+            "title": "Deep clipping",
+            "text": "深层实体卡片正文。",
+            "localized_text": "深层实体卡片正文。",
+            "image_ref": None,
+            "source_refs": ["pdf_index-19"],
+            "player_visible": True,
+            "delivered": True,
+            "secret": False,
+        },
+    ]
+
+
+def test_table_opening_lists_only_valid_visible_undelivered_cards(campaign_ws):
+    """Opening evidence exposes stable metadata, never bodies or hidden cards."""
+    index = campaign_ws["campaign_dir"] / "index" / "handout-assets.json"
+    _write_json(index, {
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "asset_root": "assets/handouts",
+        "assets": [
+            {
+                "asset_id": "opening-zulu",
+                "kind": "document",
+                "title": "Zulu opening card",
+                "text": "Zulu body must stay outside pending metadata.",
+                "source_refs": ["pdf_index-30"],
+                "player_visible": True,
+                "opening_card": True,
+                "when_to_deliver": "when the envelope is opened",
+            },
+            {
+                "asset_id": "opening-alpha",
+                "kind": "read_aloud",
+                "title": "Alpha opening card",
+                "text": "Alpha body must stay outside pending metadata.",
+                "source_refs": ["pdf_index-31"],
+                "player_visible": True,
+                "opening_card": True,
+                "when_to_deliver": "as the table opens",
+            },
+            {
+                "asset_id": "opening-delivered",
+                "kind": "document",
+                "title": "Already delivered",
+                "text": "Already delivered body.",
+                "source_refs": ["pdf_index-32"],
+                "player_visible": True,
+                "opening_card": True,
+            },
+            {
+                "asset_id": "opening-hidden",
+                "kind": "document",
+                "title": "Keeper opening note",
+                "text": "Hidden opening body.",
+                "source_refs": ["pdf_index-33"],
+                "player_visible": False,
+                "opening_card": True,
+            },
+            {
+                "asset_id": "opening-malformed",
+                "kind": "document",
+                "title": "Malformed opening card",
+                "text": "Malformed opening body.",
+                "source_refs": ["pdf_index-34"],
+                "player_visible": True,
+                "opening_card": "true",
+            },
+            {
+                "asset_id": "not-an-opening-card",
+                "kind": "document",
+                "title": "Later card",
+                "text": "Later card body.",
+                "source_refs": ["pdf_index-35"],
+                "player_visible": True,
+                "opening_card": False,
+            },
+        ],
+        "display": {},
+    })
+    delivered = _run(campaign_ws, "state.deliver_handout", {
+        "handout_id": "opening-delivered",
+        "decision_id": "deliver-before-opening",
+    })
+    assert delivered["ok"] is True, delivered
+
+    opening = _run(campaign_ws, "evidence.table_opening", {
+        "text": "[in_game]\n测试开场。\n[/in_game]",
+        "run_id": "handout-opening-run",
+        "presented_roll_ids": [],
+        "decision_id": "handout-opening-evidence",
+    })
+
+    assert opening["ok"] is True, opening
+    assert opening["data"]["pending_opening_handouts"] == [
+        {
+            "asset_id": "opening-alpha",
+            "kind": "read_aloud",
+            "title": "Alpha opening card",
+            "when_to_deliver": "as the table opens",
+        },
+        {
+            "asset_id": "opening-zulu",
+            "kind": "document",
+            "title": "Zulu opening card",
+            "when_to_deliver": "when the envelope is opened",
+        },
+    ]
+    pending_payload = json.dumps(
+        opening["data"]["pending_opening_handouts"], ensure_ascii=False
+    )
+    assert "body" not in pending_payload
+    assert "opening-hidden" not in pending_payload
+    assert "opening-delivered" not in pending_payload
+    assert "opening-malformed" not in pending_payload
+    assert "not-an-opening-card" not in pending_payload
 
 
 def test_player_projection_hides_undelivered_and_keeper_facing_cards(campaign_ws):
@@ -358,7 +1251,7 @@ def test_deliver_handout_refuses_keeper_facing_card(campaign_ws):
     ]
 
 
-def test_record_clue_linkage_skips_keeper_facing_card(campaign_ws):
+def test_record_clue_linkage_skips_keeper_card_but_keeps_discovery(campaign_ws):
     _install_cards(campaign_ws)
     path = campaign_ws["campaign_dir"] / "scenario" / "clue-graph.json"
     graph = json.loads(path.read_text(encoding="utf-8"))
@@ -386,9 +1279,8 @@ def test_record_clue_linkage_skips_keeper_facing_card(campaign_ws):
 
     assert result["ok"] is True, result
     assert result["data"]["delivered_handout_id"] is None
-    assert any(
-        "player_visible:false" in hint for hint in result["hints"]
-    )
+    assert result["data"]["handout_delivery_warning"]["code"] == "handout_not_player_visible"
+    assert "clue-kp-marginalia" in _world(campaign_ws)["discovered_clue_ids"]
     assert "delivered_handout_ids" not in _world(campaign_ws)
     assert not [
         e for e in _events(campaign_ws)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -482,6 +483,129 @@ def test_install_starter_the_haunting_copies_scenario_files(tmp_path):
     assert starts[0]["scene_edges"], "start scene must declare real scene_edges"
 
 
+def test_install_starter_the_haunting_copies_optional_original_handout_store(
+    tmp_path,
+):
+    root = tmp_path / ".coc"
+    import coc_state  # noqa: E402
+
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "haunt-handout", "Handout Test", era="1920s")
+
+    scenario_dir = coc_starter.install_starter(
+        root, "haunt-handout", "the-haunting"
+    )
+
+    store = json.loads((scenario_dir / "handouts.json").read_text("utf-8"))
+    assert store["schema_version"] == 1
+    assert len(store["handouts"]) == 1
+    card = store["handouts"][0]
+    assert card["asset_id"] == "handout-globe-unpublished-1918"
+    assert card["origin"] == "starter-original-derivative"
+    assert card["content_origin"] == "authored_derivative"
+    assert "source_refs" not in card
+    assert "text" not in card
+    assert card["provenance"]["authority"] == "starter_original_derivative"
+    assert isinstance(card["authored_text"], str) and card["authored_text"].strip()
+    assert "localized_language" not in card
+    for field in ("localized_title", "localized_summary", "localized_text"):
+        localized = card[field]
+        assert set(localized) == {"zh-Hans", "ja-JP"}
+        assert all(
+            isinstance(value, str) and value.strip()
+            for value in localized.values()
+        )
+    assert sorted(card["clue_refs"]) == [
+        "clue-globe-unpublished-story",
+        "clue-macario-tragedy",
+    ]
+
+    graph = json.loads((scenario_dir / "clue-graph.json").read_text("utf-8"))
+    linked = {
+        clue["clue_id"]: clue.get("handout_asset_id")
+        for conclusion in graph["conclusions"]
+        for clue in conclusion.get("clues", [])
+        if clue.get("clue_id") in set(card["clue_refs"])
+    }
+    assert linked == {
+        "clue-globe-unpublished-story": card["asset_id"],
+        "clue-macario-tragedy": card["asset_id"],
+    }
+
+
+def test_install_starter_rejects_orphan_player_handout_before_copy(
+    tmp_path,
+    monkeypatch,
+):
+    starter_root = tmp_path / "starters"
+    invalid = starter_root / "invalid-handout-starter"
+    shutil.copytree(
+        PLUGIN_ROOT / "references" / "starter-scenarios" / "the-haunting",
+        invalid,
+    )
+    graph_path = invalid / "clue-graph.json"
+    graph = json.loads(graph_path.read_text("utf-8"))
+    target = next(
+        clue
+        for conclusion in graph["conclusions"]
+        for clue in conclusion.get("clues", [])
+        if clue.get("clue_id") == "clue-globe-unpublished-story"
+    )
+    target.pop("handout_asset_id")
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    handouts_path = invalid / "handouts.json"
+    handouts = json.loads(handouts_path.read_text("utf-8"))
+    handouts["handouts"][0]["clue_refs"].remove(
+        "clue-globe-unpublished-story"
+    )
+    handouts_path.write_text(json.dumps(handouts), encoding="utf-8")
+    monkeypatch.setattr(coc_starter, "STARTER_DIR", starter_root)
+
+    root = tmp_path / ".coc"
+    coc_starter.coc_state.ensure_workspace(root)
+    coc_starter.coc_state.create_campaign(
+        root, "invalid-handout-campaign", "Invalid Handout", era="1920s"
+    )
+
+    with pytest.raises(ValueError, match="handout_link_missing"):
+        coc_starter.install_starter(
+            root,
+            "invalid-handout-campaign",
+            "invalid-handout-starter",
+        )
+
+    scenario_dir = root / "campaigns" / "invalid-handout-campaign" / "scenario"
+    assert not any(
+        (scenario_dir / filename).exists()
+        for filename in coc_starter.STARTER_SCENARIO_FILES
+    )
+
+    with pytest.raises(ValueError, match="handout_asset_id"):
+        coc_starter.quick_start(
+            root,
+            "invalid-handout-starter",
+            None,
+            campaign_id="invalid-handout-quick-start",
+        )
+    assert not (
+        root / "campaigns" / "invalid-handout-quick-start"
+    ).exists()
+
+
+def test_all_shipped_player_handout_clues_have_one_valid_visible_card():
+    import coc_scenario_compile  # noqa: E402
+
+    for starter in sorted(coc_starter.STARTER_DIR.iterdir()):
+        if not starter.is_dir():
+            continue
+        result = coc_scenario_compile.validate_scenario(starter)
+        handout_errors = [
+            error for error in result["errors"]
+            if "handout" in error
+        ]
+        assert handout_errors == [], f"{starter.name}: {handout_errors}"
+
+
 def test_the_haunting_passes_r5_validator_with_zero_errors():
     import coc_scenario_compile  # noqa: E402
 
@@ -667,6 +791,10 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     assert result["investigator_id"] == "thomas-hayes"
     campaign_id = result["campaign_id"]
     campaign_dir = root / "campaigns" / campaign_id
+    campaign = json.loads((campaign_dir / "campaign.json").read_text("utf-8"))
+    assert campaign["status"] == "setup"
+    assert campaign["active_subsystem"] == "setup"
+    assert "setup_handoff" not in campaign
 
     for fname in coc_starter.STARTER_SCENARIO_FILES:
         assert (campaign_dir / "scenario" / fname).exists()
@@ -711,12 +839,12 @@ def test_quick_start_without_pregen_ships_investigator_less_campaign(tmp_path):
     for fname in coc_starter.STARTER_SCENARIO_FILES:
         assert (campaign_dir / "scenario" / fname).exists()
 
-    # Scenario-ready, active, but no investigator anywhere: same shape the
-    # pdf/library start paths produce so play-driven character creation
-    # (coc-character + campaign.link_investigator) owns the first character.
+    # Scenario/world data is ready, but campaign lifecycle remains setup until
+    # setup.complete durably hands it to the play host.
     campaign = json.loads((campaign_dir / "campaign.json").read_text("utf-8"))
-    assert campaign["status"] == "active"
-    assert campaign["active_subsystem"] == "play"
+    assert campaign["status"] == "setup"
+    assert campaign["active_subsystem"] == "setup"
+    assert "setup_handoff" not in campaign
     assert campaign["active_scenario_id"] == "the-haunting"
     assert campaign["character_creation"]["quick_start"] is True
     assert "active_investigator_id" not in campaign["character_creation"]
@@ -1076,12 +1204,17 @@ def test_quick_start_reuses_complete_crash_survivor_and_repairs_index(tmp_path):
     )
     sheet = coc_starter.ensure_pregen_backstory_provenance(sheet)
     sheet = coc_starter.ensure_pregen_player_facing_sheet(sheet)
+    sheet = coc_starter.coc_state._with_initial_skills_snapshot(sheet)
+    sheet, creation = coc_starter._materialize_current_imported_pregen(
+        sheet, investigator_id,
+    )
     coc_starter.coc_state.ensure_workspace(root)
     investigator_dir = root / "investigators" / investigator_id
     coc_starter.coc_state._create_investigator_at(
         investigator_dir,
         investigator_id,
         sheet,
+        creation=creation,
     )
     before = {
         path.name: path.read_bytes()

@@ -280,6 +280,25 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   trigger a replacement opening pack or a blocking NPC deep scan before play.
 - Locations: nested clues use **`player_safe_summary` only** (never bare
   `summary`). Affordances use `id` (not `affordance_id`).
+- For `kind=deepen_handout`, follow the closed
+  `coc.handout-card-pack.v1` object in `request.result_contract`. Return the
+  handout entity itself with `handout_id` and `asset_id` both copied from
+  `target_id`; copy the fixed `parse_state=deep`, `evidence_gap=false`,
+  `origin=source`, and `player_visible=true` fields. Select only exact
+  `source_refs` from this request's `cached_page_refs`, and use an optional
+  `image_ref` only when it exactly matches one row in
+  `allowed_registered_asset_refs`. The verbatim text must occur in the exact cited
+  cached page bytes. `localized_text` is the complete play-language
+  translation and is not a claim that translated prose occurs verbatim in the
+  source. Use `scene_refs` and `clue_refs` only as unique subsets of the exact
+  `allowed_scene_refs` and `allowed_clue_refs`; when no justified ID is
+  allowed, omit that field or return an empty array. Choose `kind` and
+  `when_to_deliver` by
+  semantic review of the bounded source pages. Never use keywords or regex to
+  identify a card. Do not include Keeper-only notes, hidden annotations,
+  secrets, unsupported aliases, or extra fields. Keep `related_packs=[]`; if
+  the exact closed card cannot be supplied, return `status=abstain` with
+  `results=[]` rather than asking the parent to repair it.
 - **`read_aloud`**: the boxed passages the module prints for the Keeper to read
   out. Nearly every published scenario has them and none of them print them as
   a titled section, so they are only reachable here. Copy each one as authored
@@ -289,6 +308,10 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   quoted to players verbatim, per-passage page evidence is mandatory — the
   pack's own refs do not stand in for it. Omit the field when the reviewed
   pages contain no such box; never promote ordinary description into one.
+  Preserve authored source title/body separately in `title`/`text`. For every
+  language in the request's structured `play_languages`, provide the complete
+  player-facing title and body in `localized_title`/`localized_text` locale
+  maps. Never copy source prose into a missing locale or guess the language.
 - **`keeper_only`**: the Keeper-facing notes printed beside a location's public
   description (one surveyed module prints 110 of them). Each row is `id`,
   `note`, `source_refs` and nothing else — no audience, delivery, or

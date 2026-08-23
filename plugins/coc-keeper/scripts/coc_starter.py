@@ -35,9 +35,11 @@ PLUGIN_ROOT = SCRIPT_DIR.parent
 STARTER_DIR = PLUGIN_ROOT / "references" / "starter-scenarios"
 import coc_fileio
 import coc_state
+import coc_character
 import coc_character_creation_briefing
 import coc_compiled_archive
 import coc_investigator_guard
+import coc_scenario_compile
 
 # The seven story-graph JSON files the Story Director reads (see
 # coc_story_director.py:95-183).
@@ -50,6 +52,7 @@ STARTER_SCENARIO_FILES = (
     "pacing-map.json",
     "improvisation-boundaries.json",
 )
+STARTER_OPTIONAL_SCENARIO_FILES = ("handouts.json",)
 
 # Structured registry of shipped starter pregens (id → home scenario).
 # Used for provenance backfill and dossier scenario-bound filtering — lookup by
@@ -138,6 +141,37 @@ def _refresh_stale_pregen_skill_labels(skills: Any) -> list[Any] | None:
             changed = True
         refreshed.append(entry)
     return refreshed if changed else None
+
+
+def _materialize_current_imported_pregen(
+    sheet: dict[str, Any], investigator_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Seal one shipped pregen as an exact current imported investigator."""
+    normalized = json.loads(json.dumps(sheet, ensure_ascii=False))
+    characteristics = normalized.get("characteristics")
+    derived = normalized.get("derived")
+    if not isinstance(characteristics, dict) or not isinstance(derived, dict):
+        raise ValueError("starter pregen requires characteristics and derived values")
+    luck = characteristics.get("LUCK", characteristics.get("POW"))
+    canonical = coc_character.derive_values(characteristics, luck=luck)
+    for key in ("HP", "MP", "SAN", "Luck", "DB", "Build", "MOV"):
+        if key not in derived:
+            derived[key] = canonical[key]
+    creation = {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "name": normalized.get("name", investigator_id),
+        "method": "imported_character_sheet",
+        "input_mode": "import_complete_sheet",
+        "status": "complete",
+    }
+    errors = coc_character.validate_character_create_sheet(normalized, creation)
+    if errors:
+        raise ValueError(
+            "starter pregen is not an exact current imported sheet: "
+            + "; ".join(errors)
+        )
+    return normalized, creation
 
 
 def _player_facing_equipment_labels(equipment: Any) -> list[str]:
@@ -451,6 +485,12 @@ def _install_starter_at(
     src_dir = STARTER_DIR / scenario_id
     if not src_dir.is_dir():
         raise FileNotFoundError(f"unknown starter scenario: {scenario_id}")
+    validation = coc_scenario_compile.validate_scenario(src_dir)
+    if validation["errors"]:
+        raise ValueError(
+            f"starter scenario '{scenario_id}' is invalid: "
+            + "; ".join(validation["errors"])
+        )
     campaign_dir = Path(campaign_dir)
     published_campaign_dir = Path(published_campaign_dir)
     campaign_id = str(
@@ -460,14 +500,19 @@ def _install_starter_at(
 
     scenario_dir = campaign_dir / "scenario"
     # Idempotency: refuse to clobber an existing scenario.
-    for fname in STARTER_SCENARIO_FILES:
+    source_files = STARTER_SCENARIO_FILES + tuple(
+        fname
+        for fname in STARTER_OPTIONAL_SCENARIO_FILES
+        if (src_dir / fname).is_file()
+    )
+    for fname in source_files:
         if (scenario_dir / fname).exists():
             raise FileExistsError(
                 f"campaign {campaign_id} already has scenario file {fname}; "
                 " refusing to overwrite. Remove it first to re-install."
             )
 
-    for fname in STARTER_SCENARIO_FILES:
+    for fname in source_files:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
 
     _update_campaign_json(campaign_dir, scenario_id)
@@ -676,8 +721,10 @@ def _finalize_quick_start_campaign(
 ) -> None:
     campaign_path = Path(campaign_dir) / "campaign.json"
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    campaign["status"] = "active"
-    campaign["active_subsystem"] = "play"
+    # Installing scenario/world data is not the setup-to-play transition.
+    # setup.complete owns that durable handoff after character confirmation.
+    campaign["status"] = "setup"
+    campaign["active_subsystem"] = "setup"
     character_creation = {
         **(
             campaign.get("character_creation")
@@ -854,13 +901,21 @@ def _validate_quick_start_generation(
         path = campaign_dir / "scenario" / filename
         if path.is_symlink() or not path.is_file():
             raise RuntimeError(f"quick-start scenario file is incomplete: {filename}")
+    for filename in STARTER_OPTIONAL_SCENARIO_FILES:
+        if not (STARTER_DIR / scenario_id / filename).is_file():
+            continue
+        path = campaign_dir / "scenario" / filename
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(
+                f"quick-start optional scenario file is incomplete: {filename}"
+            )
     campaign = _read_json_object(campaign_dir / "campaign.json")
     world = _read_json_object(campaign_dir / "save" / "world-state.json")
     structural_ok = (
         campaign.get("campaign_id") == campaign_id
         and campaign.get("active_scenario_id") == scenario_id
-        and campaign.get("status") == "active"
-        and campaign.get("active_subsystem") == "play"
+        and campaign.get("status") == "setup"
+        and campaign.get("active_subsystem") == "setup"
         and world.get("campaign_id") == campaign_id
         and world.get("scenario_id") == scenario_id
         and world.get("status") == "active"
@@ -954,10 +1009,10 @@ def quick_start(
 ) -> dict[str, Any]:
     """Create a campaign, install a starter, and optionally bind a pregen.
 
-    With ``pregen_id`` the table is immediately playable: campaign + starter +
-    shipped pregen investigator. Without it the campaign ships scenario-ready
-    but investigator-less (``needs_investigator``), mirroring the pdf/library
-    start paths where character creation happens through play (coc-character).
+    With ``pregen_id`` the scenario and shipped investigator are ready for the
+    setup.complete handoff. Without it the campaign ships scenario-ready but
+    investigator-less (``needs_investigator``), so setup-role character
+    creation must finish before that same handoff boundary.
     """
     src_dir = STARTER_DIR / scenario_id
     if not src_dir.is_dir():
@@ -965,6 +1020,7 @@ def quick_start(
     if pregen_id is None:
         investigator_id: str | None = None
         sheet: dict[str, Any] | None = None
+        creation: dict[str, Any] | None = None
     else:
         pregen_path = _pregen_character_path(scenario_id, pregen_id)
         sheet = json.loads(pregen_path.read_text(encoding="utf-8"))
@@ -974,6 +1030,9 @@ def quick_start(
         sheet = ensure_pregen_player_facing_sheet(sheet)
         sheet = coc_state._with_initial_skills_snapshot(sheet)
         investigator_id = str(sheet.get("id") or pregen_id)
+        sheet, creation = _materialize_current_imported_pregen(
+            sheet, investigator_id,
+        )
 
     meta_path = src_dir / "module-meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
@@ -1088,6 +1147,7 @@ def quick_start(
                         investigator_stage,
                         investigator_id,
                         accepted_snapshot,
+                        creation=creation,
                     )
                     _validate_staged_investigator(
                         investigator_stage,

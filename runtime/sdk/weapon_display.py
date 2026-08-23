@@ -1,53 +1,64 @@
-"""Player-facing weapon parameter resolution for the pi-coc UI sidecar.
+"""Authoritative player-facing weapon projection for the pi-coc UI sidecar.
 
-Read-only: never writes inventory. Preset rows win; otherwise a same-class
-catalog template is copied so the items panel is never name-only.
+Read-only: never writes inventory. Mechanics come from complete explicit row
+data or an exact stable ID in the ruleset/module catalog. Display labels never
+select rules data.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
-import re
-import unicodedata
+import math
 from pathlib import Path
 from typing import Any
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_WEAPONS_JSON = (
-    _REPO_ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7" / "rules-json" / "weapons.json"
-)
-_RULESET_JSON_DIR = _REPO_ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7" / "rules-json"
-
-_CLASS_ALIASES = (
-    ("rifle", ("rifle", "步枪", "卡宾", "carcano", "enfield", "springfield", "mannlicher")),
-    ("handgun", ("handgun", "pistol", "revolver", "手枪", "左轮")),
-    ("shotgun", ("shotgun", "霰弹", "shot gun")),
-    ("smg", ("smg", "submachine", "冲锋")),
-    ("melee", ("knife", "club", "sword", "刀", "棍", "剑", "melee")),
-)
-
-_DEFAULT_TEMPLATES = {
-    "rifle": "30_06_bolt_action_rifle",
-    "handgun": "revolver_45",
-    "shotgun": "shotgun_12g",
-    "smg": "thompson",
-    "melee": "knife_large",
-}
+_MECHANICS_FIELDS = ("damage", "skill_label", "range", "ammo")
 
 
-def _fold(text: str) -> str:
-    raw = unicodedata.normalize("NFKC", text or "").casefold()
-    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", raw)
+def _nonempty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
-def _weapon_class(text: str) -> str:
-    folded = _fold(text)
-    for cls, tokens in _CLASS_ALIASES:
-        if any(token in folded or _fold(token) in folded for token in tokens):
-            return cls
-    return "rifle"
+def _safe_scalar(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
 
 
-def _row_from_catalog(weapon_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+def _mechanics_shape_valid(row: Mapping[str, Any], *, skill_key: str) -> bool:
+    if not _nonempty_string(row.get("damage")) or not _nonempty_string(
+        row.get(skill_key)
+    ):
+        return False
+    return all(
+        key not in row or row.get(key) is None or _safe_scalar(row.get(key))
+        for key in ("range", "ammo")
+    )
+
+
+def _drop_malformed_mechanics(row: dict[str, Any]) -> None:
+    for key in ("damage", "skill_label"):
+        if key in row and not _nonempty_string(row.get(key)):
+            row.pop(key, None)
+    for key in ("range", "ammo"):
+        if (
+            key in row
+            and row.get(key) is not None
+            and not _safe_scalar(row.get(key))
+        ):
+            row.pop(key, None)
+
+
+def _row_from_catalog(
+    weapon_id: str,
+    spec: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
     damage = spec.get("damage_die") or spec.get("damage")
     skill = spec.get("skill")
     ammo = spec.get("magazine") or spec.get("ammo_per_clip") or spec.get("ammo")
@@ -59,40 +70,89 @@ def _row_from_catalog(weapon_id: str, spec: dict[str, Any]) -> dict[str, Any]:
         "damage": damage,
         "range": range_yards,
         "ammo": ammo,
-        "source": "catalog",
+        "source": source,
         "malfunction": spec.get("malfunction"),
         "uses_per_round": spec.get("uses_per_round"),
     }
 
 
-def load_weapon_presets() -> dict[str, dict[str, Any]]:
+def _inherit_weapon_fields(
+    row: dict[str, Any],
+    *,
+    spec: Mapping[str, Any],
+    presets: Mapping[str, dict[str, Any]],
+) -> None:
+    extends = str(spec.get("extends") or "").strip()
+    inherited = presets.get(extends) if extends else None
+    if not inherited:
+        return
+    for key in (
+        "skill",
+        "damage",
+        "range",
+        "ammo",
+        "malfunction",
+        "uses_per_round",
+    ):
+        if row.get(key) in (None, "") and inherited.get(key) not in (None, ""):
+            row[key] = inherited[key]
+
+
+def load_weapon_presets(
+    *,
+    ruleset_data_dir: Path | None = None,
+    module_id: str | None = None,
+    module_profiles: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
     presets: dict[str, dict[str, Any]] = {}
-    if _WEAPONS_JSON.is_file():
-        payload = json.loads(_WEAPONS_JSON.read_text(encoding="utf-8"))
+    if not isinstance(ruleset_data_dir, Path) or not ruleset_data_dir.is_dir():
+        return presets
+    weapons_json = ruleset_data_dir / "weapons.json"
+    if weapons_json.is_file():
+        try:
+            payload = json.loads(weapons_json.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            payload = None
         weapons = payload.get("weapons") if isinstance(payload, dict) else None
         if isinstance(weapons, dict):
             for weapon_id, spec in weapons.items():
                 if isinstance(spec, dict):
-                    presets[str(weapon_id)] = _row_from_catalog(str(weapon_id), spec)
-    if _RULESET_JSON_DIR.is_dir():
-        for path in _RULESET_JSON_DIR.glob("*.json"):
-            if path.name == "weapons.json":
-                continue
+                    presets[str(weapon_id)] = _row_from_catalog(
+                        str(weapon_id), spec, source="ruleset_catalog"
+                    )
+    if module_id:
+        module_paths = {
+            path.stem: path
+            for path in ruleset_data_dir.glob("*.json")
+            if path.name != "weapons.json"
+        }
+        path = module_paths.get(module_id)
+        if path is not None:
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
-                continue
+                payload = None
             rows = payload.get("weapons") if isinstance(payload, dict) else None
-            if not isinstance(rows, list):
-                continue
-            for spec in rows:
+            for spec in rows if isinstance(rows, list) else []:
                 if not isinstance(spec, dict):
                     continue
                 weapon_id = str(spec.get("weapon_id") or "").strip()
                 if not weapon_id or weapon_id in presets:
                     continue
-                presets[weapon_id] = _row_from_catalog(weapon_id, spec)
-                presets[weapon_id]["source"] = "module_preset"
+                row = _row_from_catalog(weapon_id, spec, source="module_preset")
+                _inherit_weapon_fields(row, spec=spec, presets=presets)
+                presets[weapon_id] = row
+    # Imported/custom content is already validated as source-authored by the
+    # campaign projection seam. It can only enter this catalog under its exact
+    # stable weapon_id; labels never participate in resolution.
+    for weapon_id, profile in (module_profiles or {}).items():
+        stable_id = str(weapon_id).strip()
+        profile_id = str(profile.get("weapon_id") or "").strip()
+        if not stable_id or profile_id != stable_id or stable_id in presets:
+            continue
+        row = _row_from_catalog(stable_id, dict(profile), source="module_preset")
+        _inherit_weapon_fields(row, spec=profile, presets=presets)
+        presets[stable_id] = row
     return presets
 
 
@@ -105,18 +165,9 @@ def resolve_weapon_preset(
     catalog = presets if presets is not None else load_weapon_presets()
     if weapon_id and weapon_id in catalog:
         return dict(catalog[weapon_id])
-    needle = _fold(label or "")
-    if not needle:
-        return None
-    for spec in catalog.values():
-        hay = _fold(str(spec.get("label") or "")) + _fold(str(spec.get("weapon_id") or ""))
-        if needle in hay or hay in needle:
-            return dict(spec)
-        # Partial token: 卡卡诺步枪 vs Mannlicher-Carcano
-        if "carcano" in hay and "卡卡诺" in (label or ""):
-            return dict(spec)
-        if "卡卡诺" in _fold(str(spec.get("label") or "")) and "carcano" in needle:
-            return dict(spec)
+    # ``label`` remains in the signature for callers that already pass it, but
+    # it is display-only and must never select authoritative mechanics.
+    _ = label
     return None
 
 
@@ -129,44 +180,63 @@ def synthesize_weapon_params(
     catalog = presets if presets is not None else load_weapon_presets()
     hit = resolve_weapon_preset(weapon_id=weapon_id, label=label, presets=catalog)
     if hit:
-        hit["resolved"] = "preset"
+        hit["resolved"] = hit.get("source")
         if label:
             hit["label"] = label
         return hit
-    cls = _weapon_class(f"{weapon_id or ''} {label or ''}")
-    template_id = _DEFAULT_TEMPLATES.get(cls, "30_06_bolt_action_rifle")
-    template = dict(catalog.get(template_id) or {
-        "weapon_id": template_id,
-        "damage": "1D8",
-        "skill": "Firearms (rifle)",
-        "range": 50,
-        "ammo": None,
-    })
-    template["weapon_id"] = weapon_id or template.get("weapon_id")
-    template["label"] = label or weapon_id or template.get("label")
-    template["source"] = "class_template"
-    template["resolved"] = "fallback"
-    template["template_weapon_id"] = template_id
-    template["weapon_class"] = cls
-    return template
+    return {
+        "weapon_id": weapon_id,
+        "label": label or weapon_id,
+        "resolved": "unresolved",
+    }
 
 
-def enrich_weapon_row(weapon: dict[str, Any], presets: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+def enrich_weapon_row(
+    weapon: dict[str, Any],
+    presets: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     out = dict(weapon)
-    if out.get("damage") and out.get("skill_label"):
+    explicit_mechanics = any(key in out for key in _MECHANICS_FIELDS)
+    if _mechanics_shape_valid(out, skill_key="skill_label"):
+        out["params_source"] = "explicit"
+        out["mechanics_available"] = True
+        return out
+    if explicit_mechanics and any(
+        (key in out and out.get(key) is not None)
+        and (
+            (key in {"damage", "skill_label"} and not _nonempty_string(out.get(key)))
+            or (key in {"range", "ammo"} and not _safe_scalar(out.get(key)))
+        )
+        for key in _MECHANICS_FIELDS
+    ):
+        _drop_malformed_mechanics(out)
+        out["params_source"] = "unresolved"
+        out["mechanics_available"] = False
         return out
     filled = synthesize_weapon_params(
         weapon_id=str(out.get("weapon_id") or "") or None,
         label=str(out.get("label") or out.get("name") or "") or None,
         presets=presets,
     )
-    if not out.get("damage"):
-        out["damage"] = filled.get("damage")
-    if not out.get("skill_label") and filled.get("skill"):
-        out["skill_label"] = filled.get("skill")
-    if out.get("ammo") in (None, "") and filled.get("ammo") is not None:
-        out["ammo"] = filled.get("ammo")
-    if out.get("range") in (None, "") and filled.get("range") is not None:
-        out["range"] = filled.get("range")
-    out["params_source"] = filled.get("resolved")
+    source = filled.get("resolved")
+    if source != "unresolved" and _mechanics_shape_valid(filled, skill_key="skill"):
+        out["damage"] = filled["damage"]
+        out["skill_label"] = filled["skill"]
+        for key in ("ammo", "range"):
+            if filled.get(key) is not None:
+                out[key] = filled[key]
+            else:
+                out.pop(key, None)
+        out["params_source"] = source
+        out["mechanics_available"] = True
+        return out
+
+    _drop_malformed_mechanics(out)
+    for key in _MECHANICS_FIELDS:
+        if out.get(key) in (None, ""):
+            out.pop(key, None)
+    out.pop("weapon_class", None)
+    out.pop("template_weapon_id", None)
+    out["params_source"] = "unresolved"
+    out["mechanics_available"] = False
     return out

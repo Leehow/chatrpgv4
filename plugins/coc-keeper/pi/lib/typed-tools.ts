@@ -142,6 +142,16 @@ function presentedTypedToolParameters(
   operation: string,
   inputSchema: JsonSchema,
 ): JsonSchema {
+  if (operation === "narration.review") {
+    const cloned = structuredClone(inputSchema);
+    cloned.required = (cloned.required ?? []).filter(
+      (key) => key !== "state_claim_compilation",
+    );
+    if (isPlainObject(cloned.properties)) {
+      delete cloned.properties.state_claim_compilation;
+    }
+    return cloned;
+  }
   if (operation === "progressive.prepare_opening") {
     const cloned = structuredClone(inputSchema);
     cloned.required = (cloned.required ?? []).filter((key) => key !== "campaign");

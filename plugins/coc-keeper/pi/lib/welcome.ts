@@ -4,7 +4,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { campaignHasStartedTableEvidence } from "./domain-tools.ts";
 import type { McpJsonlClient } from "./runtime.ts";
 
 export const WELCOME_CUSTOM_TYPE = "coc-pi-welcome";
@@ -147,15 +146,15 @@ export function tableOpenInstruction(
       "pi-coc table open: COC mode is already active on this dedicated desktop.",
       "Do not ask the player to activate COC.",
       startupResumeInstruction(startupCampaignId, workspaceRoot),
-      "After that resume succeeds: if data.mode is awaiting_player and",
-      "evidence.table_opening already exists, do not call evidence.table_opening",
-      "or any coc_evidence_table_opening alias, and do not invent new opening prose.",
-      "If coc_evidence_table_opening is absent after resume, the persisted turn-0",
-      "opening already exists even if an older envelope still says table_opening:",
-      "do not call or replay it. Continue any current player action in this same",
-      "reply without asking the player to repeat or reconfirm it.",
-      "At most replay existing session.delivery_text / delivery.exact_text.",
-      "Wait for the player.",
+      "Branch only on that session.resume result.",
+      "For pending_finalization or open_turn_recovery, complete the retained",
+      "turn from its canonical receipts without resending the player's input,",
+      "replaying mutations, rerolling, or inventing replacement state.",
+      "For table_opening, call evidence.table_opening exactly once and deliver",
+      "only the player-visible formal opening from its receipt.",
+      "For awaiting_player, emit no new table prose and wait for the player.",
+      "For an exact pending delivery, emit only session.delivery_text or",
+      "delivery.exact_text. Never replay an older assistant opening.",
     ].join(" ");
   }
   return [
@@ -245,8 +244,16 @@ export function shouldAutoOpenTable(
   options: {
     intent?: TableOpenIntent;
     hasVisibleAssistant?: boolean;
+    startupCampaignSelected?: boolean;
   } = {},
 ): boolean {
+  // Every newly spawned attached play host must establish current lifecycle
+  // authority through session.resume. Prior Pi messages or table transcript
+  // rows prove history only; they cannot classify a pending retained turn.
+  if (
+    options.intent === "continue"
+    && options.startupCampaignSelected !== false
+  ) return true;
   if (reason !== "startup" && reason !== "new" && reason !== "reload") return false;
   if (fresh) return true;
   // Investigator-less reopen often already has hidden tool history (resume /
@@ -258,13 +265,12 @@ export function shouldAutoOpenTable(
   );
 }
 
-/** Play-role continue: skip triggerTurn when resume already awaits the player. */
+/** A selected attached campaign always needs one actual resume turn per child. */
 export function tableOpenShouldTriggerTurn(options: {
   intent?: TableOpenIntent;
   resumeSatisfied?: boolean;
 } = {}): boolean {
-  if (options.intent === "character-setup") return true;
-  if (options.resumeSatisfied === true) return false;
+  void options;
   return true;
 }
 
@@ -385,22 +391,21 @@ export function registerCocWelcome(
     const attachedUi = attachedUiEnabled();
     const mayAutoOpen = (
       (ctx.mode === "tui" || attachedUi)
-      && shouldAutoOpenTable(reason, fresh, { intent, hasVisibleAssistant })
+      && shouldAutoOpenTable(reason, fresh, {
+        intent,
+        hasVisibleAssistant,
+        startupCampaignSelected: startupCampaignId !== null,
+      })
     );
     if (attachedUi) {
       console.error(mayAutoOpen ? "[coc-pi-ui] auto-open" : "[coc-pi-ui] idle");
     }
     if (mayAutoOpen) {
-      const resumeSatisfied = (
-        intent === "continue"
-        && startupCampaignId !== null
-        && campaignHasStartedTableEvidence(ctx.cwd, startupCampaignId)
-      );
       openTable(
         startupCampaignId,
         ctx.cwd,
         intent,
-        tableOpenShouldTriggerTurn({ intent, resumeSatisfied }),
+        tableOpenShouldTriggerTurn({ intent }),
       );
     } else if (startupCampaignId !== null) {
       pi.sendMessage(
