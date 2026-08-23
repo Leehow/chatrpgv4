@@ -171,6 +171,72 @@ async function invokeReviewSurface(h, surface, id, arguments_) {
   );
 }
 
+test("output-context observation is play-only and remains fail-closed in play", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  try {
+    for (const role of [undefined, "setup"]) {
+      if (role === undefined) delete process.env.COC_PI_SESSION_ROLE;
+      else process.env.COC_PI_SESSION_ROLE = role;
+      let observations = 0;
+      const compiler = {
+        clear() {},
+        beginExternalTurn() {},
+        observeOutputContext() {
+          observations += 1;
+          throw new Error("state_claim_observer_must_not_run");
+        },
+        async compileReview() {
+          throw new Error("state_claim_compiler_must_not_run");
+        },
+      };
+      const h = harness(compiler);
+      await initialize(h);
+      if (role === undefined) {
+        const response = await invoke(
+          h, "context-unset", "turn.output_context", {},
+        );
+        assert.equal(JSON.parse(response.content[0].text).ok, true);
+      } else {
+        await assert.rejects(
+          () => invoke(h, "context-setup", "turn.output_context", {}),
+          /not allowed|unavailable/,
+        );
+      }
+      assert.equal(observations, 0, `${role ?? "unset"} role observed compiler context`);
+    }
+
+    process.env.COC_PI_SESSION_ROLE = "play";
+    let playObservations = 0;
+    const playCompiler = {
+      clear() {},
+      beginExternalTurn() {},
+      observeOutputContext() {
+        playObservations += 1;
+        throw new Error("state_claim_play_context_invalid");
+      },
+      async compileReview() {
+        throw new Error("state_claim_compiler_not_expected");
+      },
+    };
+    const play = harness(playCompiler);
+    await initialize(play);
+    await assert.rejects(
+      () => invoke(play, "context-play", "turn.output_context", {}),
+      /state_claim_play_context_invalid/,
+    );
+    assert.equal(playObservations, 1);
+    assert.equal(
+      play.clientCalls.filter(
+        (call) => call.params.operation === "turn.output_context",
+      ).length,
+      1,
+    );
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
 test("all invoke surfaces overwrite input and scrub host receipt from output", async () => {
   const previousRole = process.env.COC_PI_SESSION_ROLE;
   process.env.COC_PI_SESSION_ROLE = "play";

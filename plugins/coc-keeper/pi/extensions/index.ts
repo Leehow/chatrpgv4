@@ -9495,6 +9495,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (
         params.operation === "turn.output_context"
         && typeof params.campaign === "string"
+        && sessionRoleFromEnv() === "play"
       ) {
         stateClaimCompiler.observeOutputContext(params.campaign, value);
       }
