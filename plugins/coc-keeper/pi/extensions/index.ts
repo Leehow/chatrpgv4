@@ -5778,11 +5778,17 @@ export class OpeningTerminalContinuationGate {
     this.turnProcessingFault = null;
   }
 
+  frozenReviewRecoveryIdentity(): FrozenReviewRecoveryIdentity | null {
+    return this.turnProcessingFault?.identity ?? null;
+  }
+
   armFrozenReviewRecovery(request: {
     campaign_id: string;
-    turn_id?: string;
-    revision?: number;
-    source_digest?: string;
+    run_id: string;
+    session_id: string;
+    turn_id: string;
+    revision: number;
+    source_digest: string;
   }): boolean {
     const retained = this.turnProcessingFault;
     const identity = retained?.identity ?? null;
@@ -5791,22 +5797,17 @@ export class OpeningTerminalContinuationGate {
       || identity === null
       || !REVIEW_RECOVERY_FAILURE_CLASSES.has(identity.failure_class)
       || retained.recoveryConsumed
-      || request.campaign_id !== identity.campaign_id
-      || (request.turn_id !== undefined && request.turn_id !== identity.turn_id)
-      || (
-        request.revision !== undefined
-        && request.revision !== identity.revision
-      )
-      || (
-        request.source_digest !== undefined
-        && request.source_digest !== identity.source_digest
-      )
+      || identity.player_turn_epoch !== this.playerTurnEpoch
+      || !frozenReviewIdentitiesMatch(identity, {
+        ...request,
+        player_turn_epoch: this.playerTurnEpoch,
+      })
     ) return false;
     retained.recoveryArmed = true;
     return true;
   }
 
-  admitFrozenReviewRecovery(request: {
+  matchFrozenReviewRecovery(request: {
     campaign_id: string;
     run_id: string;
     session_id: string;
@@ -5826,8 +5827,22 @@ export class OpeningTerminalContinuationGate {
         player_turn_epoch: this.playerTurnEpoch,
       })
     ) return "reject";
-    retained.recoveryConsumed = true;
     return "allow";
+  }
+
+  consumeFrozenReviewRecovery(): boolean {
+    const retained = this.turnProcessingFault;
+    if (retained === null) return true;
+    if (!retained.recoveryArmed || retained.recoveryConsumed) return false;
+    retained.recoveryConsumed = true;
+    return true;
+  }
+
+  restoreFrozenReviewRecovery(): void {
+    const retained = this.turnProcessingFault;
+    if (retained?.recoveryConsumed === true) {
+      retained.recoveryConsumed = false;
+    }
   }
 
   takeTurnProcessingFaultForDelivery(): JsonObject | null {
@@ -9693,12 +9708,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const retainedFault = openingContinuationGate.currentTurnProcessingFault();
       const campaignId = typeof params.campaign === "string" ? params.campaign.trim() : "";
       const reviewArgs = objectOrNull(params.arguments);
+      if (retainedFault !== null && (!campaignId || reviewArgs === null)) {
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code: "state_claim_compiler_context_missing",
+            message: "call turn.output_context for this pending turn before narration.review",
+          },
+        });
+      }
       if (retainedFault !== null) {
         const sessionId = typeof ctx.sessionManager?.getSessionId === "function"
           ? String(ctx.sessionManager.getSessionId() || "")
           : "";
         const revision = Number(reviewArgs?.revision);
-        const admitted = openingContinuationGate.admitFrozenReviewRecovery({
+        const matched = openingContinuationGate.matchFrozenReviewRecovery({
           campaign_id: campaignId,
           run_id: sessionId,
           session_id: sessionId,
@@ -9708,7 +9733,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             ? reviewArgs.source_digest
             : "",
         });
-        if (admitted !== "allow") {
+        if (matched !== "allow") {
           return result({
             ok: false,
             tool: "narration.review",
@@ -9719,12 +9744,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               details: retainedFault,
             },
           });
-        }
-        if (campaignId && typeof reviewArgs?.turn_id === "string") {
-          stateClaimCompiler.releaseLatchedFailure(
-            campaignId,
-            reviewArgs.turn_id,
-          );
         }
       }
       if (!campaignId || reviewArgs === null) {
@@ -9743,6 +9762,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         [STATE_CLAIM_HOST_FIELD]: _forgedCompilation,
         ...keeperReviewArgs
       } = reviewArgs;
+      const recoveryAttempt = retainedFault !== null;
+      if (recoveryAttempt) {
+        if (!openingContinuationGate.consumeFrozenReviewRecovery()) {
+          return result({
+            ok: false,
+            tool: "narration.review",
+            error: {
+              code: "turn_processing_fault_latched",
+              retryable: false,
+              message: "this player turn has a terminal processing fault; recover the preserved turn before retrying",
+              details: retainedFault,
+            },
+          });
+        }
+        stateClaimCompiler.releaseLatchedFailure(
+          campaignId,
+          typeof keeperReviewArgs.turn_id === "string" ? keeperReviewArgs.turn_id : "",
+        );
+      }
       try {
         const compilation = await stateClaimCompiler.compileReview({
           campaignId,
@@ -9762,7 +9800,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         };
       } catch (error) {
         const failure = error instanceof Error ? error.message : "";
-        const contextMissing = failure === "state_claim_compiler_context_missing";
+        const contextMissing = failure === "state_claim_compiler_context_missing"
+          || failure === "state_claim_compiler_context_invalid";
+        if (recoveryAttempt && contextMissing) {
+          openingContinuationGate.restoreFrozenReviewRecovery();
+        }
         const typedFailure = error instanceof PiStateClaimCompilerFailure
           ? error
           : null;
@@ -10689,16 +10731,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const resumeCampaign = typeof params.campaign === "string"
         ? params.campaign
         : "";
+      const resumeSessionId = typeof ctx.sessionManager?.getSessionId === "function"
+        ? String(ctx.sessionManager.getSessionId() || "")
+        : "";
+      const recoveryIdentity = openingContinuationGate.frozenReviewRecoveryIdentity();
       const reviewRecoveryArmed = isPendingFinalizationResume(value)
+        && recoveryIdentity !== null
         && openingContinuationGate.armFrozenReviewRecovery({
           campaign_id: resumeCampaign,
+          run_id: resumeSessionId,
+          session_id: resumeSessionId,
+          turn_id: recoveryIdentity.turn_id,
+          revision: recoveryIdentity.revision,
+          source_digest: recoveryIdentity.source_digest,
         });
       const pendingGuided = applyPendingFinalizationRecoveryGuidance(value, {
         root: typeof params.root === "string" && params.root
           ? params.root
           : ctx.cwd,
         campaign: resumeCampaign,
-      }, { reviewRecoveryArmed });
+      }, {
+        reviewRecoveryArmed,
+        ...(reviewRecoveryArmed ? { revision: recoveryIdentity.revision } : {}),
+      });
       if (pendingGuided.attached) {
         value = pendingGuided.envelope as JsonObject;
         try {
