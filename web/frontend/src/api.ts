@@ -549,8 +549,9 @@ export async function streamTurn(
     });
   } catch {
     if (signal?.aborted) return;
-    handlers.onError?.("无法连接到服务器。");
-    return;
+    const message = "无法连接到服务器。";
+    handlers.onError?.(message);
+    throw new Error(message);
   }
   if (!resp.ok || !resp.body) {
     let message = `HTTP ${resp.status}`;
@@ -561,19 +562,22 @@ export async function streamTurn(
       /* keep HTTP status */
     }
     handlers.onError?.(message);
-    return;
+    throw new Error(message);
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let sawEnd = false;
+  let terminalError: string | null = null;
   for (;;) {
     let read: ReadableStreamReadResult<Uint8Array>;
     try {
       read = await reader.read();
     } catch {
       if (signal?.aborted) return;
-      handlers.onError?.("回合数据流中断。");
-      return;
+      const message = terminalError ?? "回合数据流中断。";
+      handlers.onError?.(message);
+      throw new Error(message);
     }
     const { done, value } = read;
     if (done) break;
@@ -619,7 +623,8 @@ export async function streamTurn(
           },
         );
       } else if (event === "error") {
-        handlers.onError?.(String(data.message ?? "未知错误"));
+        terminalError = String(data.message ?? "未知错误");
+        handlers.onError?.(terminalError);
       } else if (event === "handout") {
         const contentOrigin = data.content_origin === undefined
           ? "source_verbatim"
@@ -652,6 +657,8 @@ export async function streamTurn(
         });
       } else if (event === "notice") {
         handlers.onNotice?.(String(data.message ?? ""));
+      } else if (event === "end") {
+        sawEnd = true;
       } else if (event === "delivery_ack_required") {
         const finalizationId = String(data.finalization_id ?? "");
         const renderedSha256 = String(data.rendered_sha256 ?? "");
@@ -683,5 +690,12 @@ export async function streamTurn(
         return;
       }
     }
+  }
+  if (signal?.aborted) return;
+  if (terminalError !== null) throw new Error(terminalError);
+  if (!sawEnd) {
+    const message = "回合数据流在服务器终止帧前结束。";
+    handlers.onError?.(message);
+    throw new Error(message);
   }
 }

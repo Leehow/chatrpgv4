@@ -67,6 +67,36 @@ test("streamTurn sends live_id only for non-attach turns and onTurn consumes mes
   }
 });
 
+test("streamTurn rejects a clean HTTP EOF before the explicit end frame", async () => {
+  const originalFetch = globalThis.fetch;
+  const errors = [];
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.close();
+    },
+  }), { status: 200 });
+  try {
+    await assert.rejects(
+      () => streamTurn(
+        "sid-eof",
+        "",
+        "p",
+        "m",
+        "off",
+        undefined,
+        { onError: (message) => errors.push(message) },
+        undefined,
+        { attach: true },
+      ),
+      /终止帧前结束/,
+    );
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /终止帧前结束/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("generatePortrait posts campaign and investigator ids without a client prompt", async () => {
   const originalFetch = globalThis.fetch;
   let url;

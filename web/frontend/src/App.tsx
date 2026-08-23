@@ -23,6 +23,12 @@ import {
   type CampaignViewportSync,
 } from "./campaign-viewport-sync";
 import {
+  beginCampaignMessageOpen,
+  initialCampaignMessageOwner,
+  ownsCampaignMessageToken,
+  releaseCampaignMessages,
+} from "./campaign-message-owner";
+import {
   handoffCampaignId,
   initialTransitionState,
   isHandoffEvent,
@@ -251,6 +257,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const openingRef = useRef<string | null>(null);
   const openGenRef = useRef(0);
+  const messageOwnerRef = useRef(initialCampaignMessageOwner());
   const lastRefreshAtRef = useRef(0);
   const activeSessionRef = useRef<SessionInfo | null>(null);
   const campaignSyncRef = useRef<CampaignViewportSync | null>(null);
@@ -623,8 +630,16 @@ export default function App() {
       if (openingRef.current === campaignId) return null;
       turnAbortRef.current?.abort();
       const openGen = ++openGenRef.current;
+      const messageOpen = beginCampaignMessageOpen(
+        messageOwnerRef.current,
+        campaignId,
+      );
+      messageOwnerRef.current = messageOpen.owner;
+      const ownsMessages = () => (
+        openGen === openGenRef.current
+        && ownsCampaignMessageToken(messageOwnerRef.current, messageOpen.token)
+      );
       openingRef.current = campaignId;
-      const switchingCampaign = Boolean(session && session.campaign_id !== campaignId);
       // Live turn chrome belongs to one campaign/session.  Clearing it before
       // the replacement RPC host starts prevents an aborted room's thinking,
       // tool steps, usage, or streaming tail from appearing in the new room.
@@ -632,7 +647,7 @@ export default function App() {
       setKpThinking("");
       setLiveUsage(null);
       liveUsageRef.current = null;
-      if (switchingCampaign) {
+      if (messageOpen.clearMessages) {
         setMessages([]);
         setState(null);
         setTransition(initialTransitionState);
@@ -642,22 +657,31 @@ export default function App() {
       }
       setBusy(true);
       setError(null);
+      let streamController: AbortController | null = null;
       try {
         const info = await api.createSession(campaignId, {
           provider,
           model,
           thinking: effectiveThinking,
         });
-        if (openGen !== openGenRef.current) return null;
+        if (!ownsMessages()) return null;
         setSession(info);
         applyGameState(info.state);
-        const sameCampaign = !session || session.campaign_id === campaignId;
         try {
           const t = await api.fetchTranscript(info.session_id);
-          if (openGen !== openGenRef.current) return null;
-          replaceMessagesFromTranscript(setMessages, t.messages, sameCampaign);
+          if (!ownsMessages()) return null;
+          replaceMessagesFromTranscript(
+            setMessages,
+            t.messages,
+            !messageOpen.clearMessages,
+          );
         } catch {
-          replaceMessagesFromTranscript(setMessages, [], sameCampaign);
+          if (!ownsMessages()) return null;
+          replaceMessagesFromTranscript(
+            setMessages,
+            [],
+            !messageOpen.clearMessages,
+          );
         }
         // info.handouts hydrates state.materials only. Refresh is not a new
         // presentation event, so it must not append cards to the transcript.
@@ -690,6 +714,7 @@ export default function App() {
           },
         ]);
         const controller = new AbortController();
+        streamController = controller;
         turnAbortRef.current = controller;
         let settledText = "";
         await api.streamTurn(
@@ -701,7 +726,7 @@ export default function App() {
           undefined,
           {
             onTool: (phase, tool) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               if (phase === "start") {
                 setMessages(foldInterimSegment);
                 settledText = "";
@@ -725,7 +750,7 @@ export default function App() {
               }
             },
             onDelta: (delta) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -741,7 +766,7 @@ export default function App() {
               });
             },
             onDeltaReset: () => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               settledText = "";
               setMessages((prev) => {
                 const next = [...prev];
@@ -757,17 +782,17 @@ export default function App() {
               });
             },
             onThinking: (chunk) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               setKpThinking((prev) => (prev + chunk).slice(-8000));
             },
             onUsage: (usage) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               const value = { input: usage.input, output: usage.output };
               liveUsageRef.current = value;
               setLiveUsage(value);
             },
             onTurn: ({ events, state: nextState }) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               if (nextState && !nextState.error) applyGameState(nextState);
               for (const ev of events || []) {
                 if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
@@ -777,11 +802,11 @@ export default function App() {
               liveUsageRef.current = null;
             },
             onHandoff: (payload) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               noteHandoff(payload);
             },
             onError: (message) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -793,11 +818,11 @@ export default function App() {
               setError(friendlyError(message));
             },
             onHandout: (card) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               appendHandoutMessage(setMessages, card);
             },
             onNotice: (message) => {
-              if (openGen !== openGenRef.current) return;
+              if (!ownsMessages()) return;
               if (!message) return;
               setMessages((prev) => [
                 ...prev,
@@ -808,7 +833,7 @@ export default function App() {
           controller.signal,
           { attach: true },
         );
-        if (openGen !== openGenRef.current) return null;
+        if (!ownsMessages()) return null;
         const stopped = controller.signal.aborted;
         turnAbortRef.current = null;
         const finishedAt = Date.now();
@@ -851,16 +876,24 @@ export default function App() {
         // combat, and other public receipts render as structured UI cards.
         try {
           const transcript = await api.fetchTranscript(info.session_id);
-          replaceMessagesFromTranscript(setMessages, transcript.messages, true);
+          if (!ownsMessages()) return null;
+          replaceMessagesFromTranscript(
+            setMessages,
+            transcript.messages,
+            ownsCampaignMessageToken(messageOwnerRef.current, messageOpen.token),
+          );
         } catch {
           // Keep the settled stream visible; top-bar refresh retries projection.
         }
+        if (!ownsMessages()) return null;
         try {
           const opened = await api.fetchState(info.session_id);
-          if (openGen === openGenRef.current) applyGameState(opened);
+          if (!ownsMessages()) return null;
+          applyGameState(opened);
         } catch {
           /* attach already applied turn state */
         }
+        if (!ownsMessages()) return null;
         setMessages((prev) => {
           const withoutOpeningChrome = prev.filter((row) =>
             row.kind !== "note"
@@ -877,11 +910,15 @@ export default function App() {
             return !sameTranscriptMessage(rows[index - 1], row);
           });
         });
+        if (!ownsMessages()) return null;
         campaignSyncRef.current?.publish(info.campaign_id, info.session_id, true);
         setBusy(false);
         return info;
       } catch (e) {
-        if (openGen !== openGenRef.current) return null;
+        if (streamController && turnAbortRef.current === streamController) {
+          turnAbortRef.current = null;
+        }
+        if (!ownsMessages()) return null;
         setError(friendlyError(e instanceof Error ? e.message : String(e)));
         setBusy(false);
         return null;
@@ -889,7 +926,7 @@ export default function App() {
         if (openingRef.current === campaignId) openingRef.current = null;
       }
     },
-    [applyGameState, effectiveThinking, model, noteHandoff, provider, session],
+    [applyGameState, effectiveThinking, model, noteHandoff, provider],
   );
 
   // Leave the new-campaign form as soon as a session exists so the
@@ -975,6 +1012,15 @@ export default function App() {
   const refresh = useCallback(async () => {
     const active = session;
     if (!active || busy) return;
+    const messageToken = {
+      campaignId: active.campaign_id,
+      generation: messageOwnerRef.current.generation,
+    };
+    const ownsMessages = () => ownsCampaignMessageToken(
+      messageOwnerRef.current,
+      messageToken,
+    );
+    if (!ownsMessages()) return;
     setBusy(true);
     setError(null);
     try {
@@ -983,23 +1029,32 @@ export default function App() {
       try {
         nextState = await api.fetchState(sid);
       } catch {
+        if (!ownsMessages()) return;
         const reopened = await api.createSession(active.campaign_id, {
           provider,
           model,
           thinking: effectiveThinking,
         });
+        if (!ownsMessages()) return;
         setSession(reopened);
         sid = reopened.session_id;
         nextState = reopened.state;
       }
+      if (!ownsMessages()) return;
       applyGameState(nextState);
       const t = await api.fetchTranscript(sid);
-      replaceMessagesFromTranscript(setMessages, t.messages, true);
+      if (!ownsMessages()) return;
+      replaceMessagesFromTranscript(
+        setMessages,
+        t.messages,
+        ownsCampaignMessageToken(messageOwnerRef.current, messageToken),
+      );
       lastRefreshAtRef.current = Date.now();
     } catch (e) {
+      if (!ownsMessages()) return;
       setError(friendlyError(e instanceof Error ? e.message : String(e)));
     } finally {
-      setBusy(false);
+      if (ownsMessages()) setBusy(false);
     }
   }, [applyGameState, busy, effectiveThinking, model, provider, session]);
 
@@ -1091,6 +1146,15 @@ export default function App() {
     async (text: string, playerIntent?: PlayerIntent) => {
       const active = session;
       if (!active || busy || !text.trim() || transition.phase !== "idle") return;
+      const messageToken = {
+        campaignId: active.campaign_id,
+        generation: messageOwnerRef.current.generation,
+      };
+      const ownsMessages = () => ownsCampaignMessageToken(
+        messageOwnerRef.current,
+        messageToken,
+      );
+      if (!ownsMessages()) return;
       setBusy(true);
       setError(null);
       setToolSteps([]);
@@ -1114,158 +1178,180 @@ export default function App() {
       let settledText = "";
       const controller = new AbortController();
       turnAbortRef.current = controller;
-      await api.streamTurn(active.session_id, text, provider, model, effectiveThinking, playerIntent, {
-        onTool: (phase, tool) => {
-          if (phase === "start") {
-            setMessages(foldInterimSegment);
-            settledText = "";
-          }
-          const display = tool.replace(/^coc_invoke:/, "");
-          if (!display) return;
-          // Catalog probes are internal deliberation noise, not table steps.
-          if (display.startsWith("coc_discover")) return;
-          if (phase === "start") {
-            const id = ++toolStepSeq.current;
-            setToolSteps((prev) => [...prev, { id, label: display, startedAt: Date.now() }]);
-          } else if (phase === "end") {
-            setToolSteps((prev) => {
-              const next = [...prev];
-              for (let i = next.length - 1; i >= 0; i--) {
-                if (next[i].label === display && next[i].endedAt == null) {
-                  next[i] = { ...next[i], endedAt: Date.now() };
-                  break;
+      try {
+        await api.streamTurn(active.session_id, text, provider, model, effectiveThinking, playerIntent, {
+          onTool: (phase, tool) => {
+            if (!ownsMessages()) return;
+            if (phase === "start") {
+              setMessages(foldInterimSegment);
+              settledText = "";
+            }
+            const display = tool.replace(/^coc_invoke:/, "");
+            if (!display) return;
+            // Catalog probes are internal deliberation noise, not table steps.
+            if (display.startsWith("coc_discover")) return;
+            if (phase === "start") {
+              const id = ++toolStepSeq.current;
+              setToolSteps((prev) => [...prev, { id, label: display, startedAt: Date.now() }]);
+            } else if (phase === "end") {
+              setToolSteps((prev) => {
+                const next = [...prev];
+                for (let i = next.length - 1; i >= 0; i--) {
+                  if (next[i].label === display && next[i].endedAt == null) {
+                    next[i] = { ...next[i], endedAt: Date.now() };
+                    break;
+                  }
                 }
+                return next;
+              });
+            }
+          },
+          onDelta: (delta) => {
+            if (!ownsMessages()) return;
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.kind === "keeper" && last.streaming) {
+                // Never reset startedAt — elapsed is input→all-content, not drip.
+                next[next.length - 1] = {
+                  ...last,
+                  text: last.text + delta,
+                  startedAt: last.startedAt ?? inputAt,
+                };
+                settledText = last.text + delta;
               }
               return next;
             });
-          }
-        },
-        onDelta: (delta) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.kind === "keeper" && last.streaming) {
-              // Never reset startedAt — elapsed is input→all-content, not drip.
-              next[next.length - 1] = {
-                ...last,
-                text: last.text + delta,
-                startedAt: last.startedAt ?? inputAt,
-              };
-              settledText = last.text + delta;
+          },
+          onDeltaReset: () => {
+            if (!ownsMessages()) return;
+            settledText = "";
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.kind === "keeper" && last.streaming) {
+                next[next.length - 1] = {
+                  ...last,
+                  text: "",
+                  startedAt: last.startedAt ?? inputAt,
+                };
+              }
+              return next;
+            });
+          },
+          onThinking: (chunk) => {
+            if (!ownsMessages()) return;
+            setKpThinking((prev) => (prev + chunk).slice(-8000));
+          },
+          onUsage: (usage) => {
+            if (!ownsMessages()) return;
+            const value = { input: usage.input, output: usage.output };
+            liveUsageRef.current = value;
+            setLiveUsage(value);
+          },
+          onTurn: ({ events, state: nextState, usage }) => {
+            if (!ownsMessages()) return;
+            const narration = events
+              .filter(
+                (e) =>
+                  (e.type === "narration" || e.type === "speech") &&
+                  e.visibility === "player",
+              )
+              .map((e) => String(e.payload?.text ?? ""))
+              .filter((t) => t.trim())
+              .join("\n\n");
+            if (narration) settledText = narration;
+            // Update text now; duration is closed only after the SSE stream ends
+            // so we measure input → all content delivered, not mid-stream.
+            setMessages((prev) => {
+              const next = [...prev];
+              for (let i = next.length - 1; i >= 0; i--) {
+                const row = next[i];
+                if (row.kind !== "keeper") continue;
+                const live = liveUsageRef.current;
+                const settledUsage =
+                  live && (live.input != null || live.output != null)
+                    ? { input: live.input ?? undefined, output: live.output ?? undefined }
+                    : usage &&
+                        (typeof usage.input_tokens === "number" ||
+                          typeof usage.output_tokens === "number")
+                      ? {
+                          input: usage.input_tokens ?? undefined,
+                          output: usage.output_tokens ?? undefined,
+                        }
+                      : undefined;
+                next[i] = {
+                  ...row,
+                  text: narration || row.text || settledText,
+                  startedAt: row.startedAt ?? inputAt,
+                  ...(settledUsage ? { usage: settledUsage } : {}),
+                };
+                break;
+              }
+              return next;
+            });
+            if (nextState && !nextState.error) applyGameState(nextState);
+            for (const ev of events || []) {
+              if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
             }
-            return next;
-          });
+            setToolSteps([]);
+            setLiveUsage(null);
+            liveUsageRef.current = null;
+          },
+          onHandoff: (payload) => {
+            if (!ownsMessages()) return;
+            noteHandoff(payload);
+          },
+          onError: (message) => {
+            if (!ownsMessages()) return;
+            const finishedAt = Date.now();
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.kind === "keeper" && last.streaming && !last.text) {
+                next.pop();
+              } else if (last && last.kind === "keeper") {
+                const start = last.startedAt ?? inputAt;
+                next[next.length - 1] = {
+                  ...last,
+                  streaming: false,
+                  at: finishedAt,
+                  startedAt: start,
+                  durationMs: finishedAt - start,
+                };
+              }
+              return next;
+            });
+            setError(friendlyError(message));
+            setToolSteps([]);
+            setLiveUsage(null);
+            liveUsageRef.current = null;
+          },
+          onHandout: (card) => {
+            if (!ownsMessages()) return;
+            appendHandoutMessage(setMessages, card);
+          },
+          onNotice: (message) => {
+            if (!ownsMessages()) return;
+            if (!message) return;
+            setMessages((prev) => [
+              ...prev,
+              { kind: "note", text: message, tone: "info", at: Date.now() },
+            ]);
+          },
         },
-        onDeltaReset: () => {
-          settledText = "";
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.kind === "keeper" && last.streaming) {
-              next[next.length - 1] = {
-                ...last,
-                text: "",
-                startedAt: last.startedAt ?? inputAt,
-              };
-            }
-            return next;
-          });
-        },
-        onThinking: (chunk) => {
-          setKpThinking((prev) => (prev + chunk).slice(-8000));
-        },
-        onUsage: (usage) => {
-          const value = { input: usage.input, output: usage.output };
-          liveUsageRef.current = value;
-          setLiveUsage(value);
-        },
-        onTurn: ({ events, state: nextState, usage }) => {
-          const narration = events
-            .filter(
-              (e) =>
-                (e.type === "narration" || e.type === "speech") &&
-                e.visibility === "player",
-            )
-            .map((e) => String(e.payload?.text ?? ""))
-            .filter((t) => t.trim())
-            .join("\n\n");
-          if (narration) settledText = narration;
-          // Update text now; duration is closed only after the SSE stream ends
-          // so we measure input → all content delivered, not mid-stream.
-          setMessages((prev) => {
-            const next = [...prev];
-            for (let i = next.length - 1; i >= 0; i--) {
-              const row = next[i];
-              if (row.kind !== "keeper") continue;
-              const live = liveUsageRef.current;
-              const settledUsage =
-                live && (live.input != null || live.output != null)
-                  ? { input: live.input ?? undefined, output: live.output ?? undefined }
-                  : usage &&
-                      (typeof usage.input_tokens === "number" ||
-                        typeof usage.output_tokens === "number")
-                    ? {
-                        input: usage.input_tokens ?? undefined,
-                        output: usage.output_tokens ?? undefined,
-                      }
-                    : undefined;
-              next[i] = {
-                ...row,
-                text: narration || row.text || settledText,
-                startedAt: row.startedAt ?? inputAt,
-                ...(settledUsage ? { usage: settledUsage } : {}),
-              };
-              break;
-            }
-            return next;
-          });
-          if (nextState && !nextState.error) applyGameState(nextState);
-          for (const ev of events || []) {
-            if (isHandoffEvent(ev) || ev.type === "coc_setup_handoff") noteHandoff(ev);
-          }
-          setToolSteps([]);
-          setLiveUsage(null);
-          liveUsageRef.current = null;
-        },
-        onHandoff: (payload) => noteHandoff(payload),
-        onError: (message) => {
-          const finishedAt = Date.now();
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.kind === "keeper" && last.streaming && !last.text) {
-              next.pop();
-            } else if (last && last.kind === "keeper") {
-              const start = last.startedAt ?? inputAt;
-              next[next.length - 1] = {
-                ...last,
-                streaming: false,
-                at: finishedAt,
-                startedAt: start,
-                durationMs: finishedAt - start,
-              };
-            }
-            return next;
-          });
-          setError(friendlyError(message));
-          setToolSteps([]);
-          setLiveUsage(null);
-          liveUsageRef.current = null;
-        },
-        onHandout: (card) => {
-          appendHandoutMessage(setMessages, card);
-        },
-        onNotice: (message) => {
-          if (!message) return;
-          setMessages((prev) => [
-            ...prev,
-            { kind: "note", text: message, tone: "info", at: Date.now() },
-          ]);
-        },
-      },
-      controller.signal);
+        controller.signal,
+      );
+      } catch (e) {
+        if (turnAbortRef.current === controller) turnAbortRef.current = null;
+        if (!ownsMessages()) return;
+        setError(friendlyError(e instanceof Error ? e.message : String(e)));
+        setBusy(false);
+        return;
+      }
+      if (!ownsMessages()) return;
       const stopped = controller.signal.aborted;
-      turnAbortRef.current = null;
+      if (turnAbortRef.current === controller) turnAbortRef.current = null;
       // Authoritative close: stream fully finished (turn event + end).
       const finishedAt = Date.now();
       setMessages((prev) => {
@@ -1307,12 +1393,17 @@ export default function App() {
       // segments (including public dice receipts) replace the streaming text.
       try {
         const transcript = await api.fetchTranscript(active.session_id);
-        replaceMessagesFromTranscript(setMessages, transcript.messages, true);
+        if (!ownsMessages()) return;
+        replaceMessagesFromTranscript(
+          setMessages,
+          transcript.messages,
+          ownsCampaignMessageToken(messageOwnerRef.current, messageToken),
+        );
       } catch {
         // The streamed narration remains usable when transcript refresh is
         // temporarily unavailable; the top-bar refresh can retry later.
       }
-      setBusy(false);
+      if (ownsMessages()) setBusy(false);
     },
     [session, busy, provider, model, effectiveThinking, applyGameState, noteHandoff, transition.phase],
   );
@@ -1329,6 +1420,8 @@ export default function App() {
    *  在途回合在服务端照常结算，重新打开战役即可看到。已在首页时幂等。 */
   const goHome = useCallback(() => {
     turnAbortRef.current?.abort();
+    openGenRef.current += 1;
+    messageOwnerRef.current = releaseCampaignMessages(messageOwnerRef.current);
     setSession(null);
     setState(null);
     setTransition(initialTransitionState);
@@ -1337,6 +1430,7 @@ export default function App() {
     setKpThinking("");
     setLiveUsage(null);
     liveUsageRef.current = null;
+    setBusy(false);
     setError(null);
     setCreating(false);
     setPdfImportPath(null);
@@ -1368,10 +1462,13 @@ export default function App() {
           // Deleting the open campaign: drop the local view; the server
           // closed the underlying session before moving the directory.
           turnAbortRef.current?.abort();
+          openGenRef.current += 1;
+          messageOwnerRef.current = releaseCampaignMessages(messageOwnerRef.current);
           setSession(null);
           setState(null);
           setTransition(initialTransitionState);
           setMessages([]);
+          setBusy(false);
           localStorage.removeItem(LS.campaign);
         }
         const fresh = await api.fetchBootstrap();
