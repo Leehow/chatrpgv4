@@ -676,8 +676,10 @@ def _finalize_quick_start_campaign(
 ) -> None:
     campaign_path = Path(campaign_dir) / "campaign.json"
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    campaign["status"] = "active"
-    campaign["active_subsystem"] = "play"
+    # Installing scenario/world data is not the setup-to-play transition.
+    # setup.complete owns that durable handoff after character confirmation.
+    campaign["status"] = "setup"
+    campaign["active_subsystem"] = "setup"
     character_creation = {
         **(
             campaign.get("character_creation")
@@ -867,8 +869,8 @@ def _validate_quick_start_generation(
     structural_ok = (
         campaign.get("campaign_id") == campaign_id
         and campaign.get("active_scenario_id") == scenario_id
-        and campaign.get("status") == "active"
-        and campaign.get("active_subsystem") == "play"
+        and campaign.get("status") == "setup"
+        and campaign.get("active_subsystem") == "setup"
         and world.get("campaign_id") == campaign_id
         and world.get("scenario_id") == scenario_id
         and world.get("status") == "active"
@@ -962,10 +964,10 @@ def quick_start(
 ) -> dict[str, Any]:
     """Create a campaign, install a starter, and optionally bind a pregen.
 
-    With ``pregen_id`` the table is immediately playable: campaign + starter +
-    shipped pregen investigator. Without it the campaign ships scenario-ready
-    but investigator-less (``needs_investigator``), mirroring the pdf/library
-    start paths where character creation happens through play (coc-character).
+    With ``pregen_id`` the scenario and shipped investigator are ready for the
+    setup.complete handoff. Without it the campaign ships scenario-ready but
+    investigator-less (``needs_investigator``), so setup-role character
+    creation must finish before that same handoff boundary.
     """
     src_dir = STARTER_DIR / scenario_id
     if not src_dir.is_dir():

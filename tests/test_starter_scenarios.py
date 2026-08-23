@@ -742,6 +742,10 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     assert result["investigator_id"] == "thomas-hayes"
     campaign_id = result["campaign_id"]
     campaign_dir = root / "campaigns" / campaign_id
+    campaign = json.loads((campaign_dir / "campaign.json").read_text("utf-8"))
+    assert campaign["status"] == "setup"
+    assert campaign["active_subsystem"] == "setup"
+    assert "setup_handoff" not in campaign
 
     for fname in coc_starter.STARTER_SCENARIO_FILES:
         assert (campaign_dir / "scenario" / fname).exists()
@@ -786,12 +790,12 @@ def test_quick_start_without_pregen_ships_investigator_less_campaign(tmp_path):
     for fname in coc_starter.STARTER_SCENARIO_FILES:
         assert (campaign_dir / "scenario" / fname).exists()
 
-    # Scenario-ready, active, but no investigator anywhere: same shape the
-    # pdf/library start paths produce so play-driven character creation
-    # (coc-character + campaign.link_investigator) owns the first character.
+    # Scenario/world data is ready, but campaign lifecycle remains setup until
+    # setup.complete durably hands it to the play host.
     campaign = json.loads((campaign_dir / "campaign.json").read_text("utf-8"))
-    assert campaign["status"] == "active"
-    assert campaign["active_subsystem"] == "play"
+    assert campaign["status"] == "setup"
+    assert campaign["active_subsystem"] == "setup"
+    assert "setup_handoff" not in campaign
     assert campaign["active_scenario_id"] == "the-haunting"
     assert campaign["character_creation"]["quick_start"] is True
     assert "active_investigator_id" not in campaign["character_creation"]

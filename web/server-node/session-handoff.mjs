@@ -148,6 +148,10 @@ export class CampaignHostOrchestrator {
 
   #bind(campaignId, host) {
     host.onEvent((event) => {
+      // The setup child emits the primary handoff event before its delayed
+      // exit-42 fallback. Once that exact host has been replaced, neither its
+      // late exit nor any other stale signal may start a second respawn.
+      if (this.hosts.get(campaignId) !== host) return;
       const handoff = parseSetupHandoffEvent(event);
       if (handoff) {
         // Respawn immediately, but do not consume the play opening here: the

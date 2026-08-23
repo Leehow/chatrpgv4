@@ -13,6 +13,7 @@ const {
 } = await import(
   path.join(root, "plugins/coc-keeper/pi/extensions/index.ts")
 );
+process.env.COC_PI_SESSION_ROLE = "setup";
 
 assert.equal(openingHandoffOperationForSessionRole("setup"), "setup.complete");
 assert.equal(
@@ -140,8 +141,60 @@ assert.match(playerSummary.replacementText, /确认打开游戏桌/);
 assert.equal(
   gate.acceptVisibleAssistantFinal("调查员卡已写入。"),
   false,
-  "completed aggregate chargen must not re-inject investigator.create",
+  "a tool-free handoff promise must stay hidden until setup.complete succeeds",
 );
+const starterDecision = gate.openingTableDecisionContext();
+assert.ok(starterDecision, JSON.stringify(gate.takeOpeningSetupAudits()));
+assert.equal(starterDecision.player_decision_required, true);
+assert.equal(starterDecision.typed_tool, "coc_setup_complete");
+assert.equal(starterDecision.next_operation.operation, "setup.complete");
+assert.equal(starterDecision.next_operation.missing_arguments.length, 0);
+assert.equal(
+  starterDecision.next_operation.prefilled_arguments.campaign_id,
+  campaignId,
+);
+assert.match(
+  starterDecision.next_operation.prefilled_arguments.decision_id,
+  /^pi-setup-handoff-[a-f0-9]{32}$/,
+);
+assert.equal(
+  gate.requiredOpeningSetupContinuation(),
+  null,
+  "decision-pending starter must not auto-complete before semantic consent",
+);
+const completeParams = {
+  operation: "setup.complete",
+  campaign: campaignId,
+  arguments: structuredClone(starterDecision.next_operation.prefilled_arguments),
+};
+assert.equal(
+  gate.openingSetupToolError("coc_invoke", completeParams, "starter-complete"),
+  null,
+);
+assert.equal(
+  gate.observeOpeningSetupInvocation(
+    "setup.complete",
+    completeParams,
+    {
+      ok: true,
+      tool: "setup.complete",
+      data: {
+        result: {
+          campaign_id: campaignId,
+          ready_for_table: true,
+          handoff: {
+            schema_version: 1,
+            campaign_id: campaignId,
+            decision_id: completeParams.arguments.decision_id,
+          },
+        },
+      },
+    },
+    "starter-complete",
+  ).accepted,
+  true,
+);
+assert.equal(gate.hasActiveOpeningSetupFor(campaignId), false);
 
 const decisionGate = new OpeningTerminalContinuationGate();
 decisionGate.openingSetupToolError("coc_invoke", resumeParams, "selection-resume");

@@ -941,6 +941,7 @@ type OpeningSetupState = {
     | "retry"
     | "projection"
     | "ready"
+    | "handoff_decision"
     | "opening_evidence"
     | "contract_invalid";
   dispatchIdentity: string | null;
@@ -1090,14 +1091,20 @@ export class OpeningTerminalContinuationGate {
     value: unknown,
     brief?: ChargenClerkBrief,
   ): boolean {
-    const state = this.openingSetupStates.get(campaignId);
     const result = objectOrNull(value);
     if (
-      state === undefined
-      || result?.ok !== true
+      result?.ok !== true
       || typeof result.investigator_id !== "string"
       || !result.investigator_id.trim()
     ) return false;
+
+    let state = this.openingSetupStates.get(campaignId);
+    if (state === undefined) {
+      state = this.initializeSetupHandoffDecision(
+        campaignId,
+        result.investigator_id.trim(),
+      );
+    }
 
     state.characterSetupComplete = true;
     const characteristics = objectOrNull(result.characteristics) ?? {};
@@ -1140,7 +1147,14 @@ export class OpeningTerminalContinuationGate {
     if (state.phase === "reviewed") {
       this.armOpeningSelectionRoute(state);
     } else if (state.phase === "ready") {
-      this.armOpeningEvidenceRoute(state);
+      if (sessionRoleFromEnv() === "setup") {
+        this.armSetupHandoffDecisionRoute(
+          state,
+          result.investigator_id.trim(),
+        );
+      } else {
+        this.armOpeningEvidenceRoute(state);
+      }
     } else if (
       state.phase === "projection"
       && state.backgroundTerminalReceipt?.status === "fulfilled"
@@ -1156,6 +1170,104 @@ export class OpeningTerminalContinuationGate {
       revision: state.revision,
     });
     return true;
+  }
+
+  private initializeSetupHandoffDecision(
+    campaignId: string,
+    investigatorId: string,
+  ): OpeningSetupState {
+    const generationSequence = ++this.openingSetupGenerationSequence;
+    const generation = `${campaignId}:${generationSequence}`;
+    const route = this.setupHandoffDecisionRoute(
+      campaignId,
+      investigatorId,
+    );
+    const state: OpeningSetupState = {
+      route,
+      generation,
+      generationSequence,
+      revision: 1,
+      phase: "handoff_decision",
+      dispatchIdentity: null,
+      characterSetupComplete: true,
+      characterSetupInputMode: null,
+      guidedCreateReceipts: new Map<string, OpeningGuidedCreateReceipt>(),
+      projectionCard: null,
+      activationCard: null,
+      bootstrapRetryCard: null,
+      continuationReleaseOwner: null,
+      backgroundTerminalReceipt: null,
+      bindBriefing: null,
+    };
+    this.openingSetupStates.set(campaignId, state);
+    this.openingSetupLatestIssuedGeneration.set(campaignId, generationSequence);
+    this.openingSetupContinuationQueued.delete(campaignId);
+    this.noteOpeningSetupTurnCampaign(campaignId);
+    return state;
+  }
+
+  private setupHandoffDecisionId(
+    campaignId: string,
+    investigatorId: string,
+  ): string {
+    const digest = canonicalJsonValueSha256({
+      contract_id: "coc.pi-setup-handoff-decision.v1",
+      campaign_id: campaignId,
+      investigator_id: investigatorId,
+    }).slice("sha256:".length, "sha256:".length + 32);
+    return `pi-setup-handoff-${digest}`;
+  }
+
+  private setupHandoffDecisionRoute(
+    campaignId: string,
+    investigatorId: string,
+  ): OpeningSetupRoute {
+    return {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: "opening_setup_handoff_decision",
+      campaign_id: campaignId,
+      next_operation: {
+        schema_version: 1,
+        operation: "setup.complete",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {
+          campaign_id: campaignId,
+          decision_id: this.setupHandoffDecisionId(
+            campaignId,
+            investigatorId,
+          ),
+        },
+        missing_arguments: [],
+        hard_gate: true,
+        authority: "canonical_setup",
+        reason: (
+          "The confirmed investigator is ready; handoff still requires the "
+          + "player's separate semantic confirmation."
+        ),
+      },
+      instruction: (
+        "on the next player message, judge semantically whether they confirm "
+        + "opening the table or request a setup revision"
+      ),
+    };
+  }
+
+  private armSetupHandoffDecisionRoute(
+    state: OpeningSetupState,
+    investigatorId: string,
+  ): void {
+    const campaignId = state.route.campaign_id;
+    state.phase = "handoff_decision";
+    state.route = this.setupHandoffDecisionRoute(
+      campaignId,
+      investigatorId,
+    );
+    state.revision += 1;
+    state.continuationReleaseOwner = null;
+    this.openingSetupContinuationQueued.delete(campaignId);
   }
 
   private openingSetupStateForTranscript(): OpeningSetupState | null {
@@ -4165,6 +4277,7 @@ export class OpeningTerminalContinuationGate {
     if (
       state === null
       || state.route.next_operation === null
+      || state.phase === "handoff_decision"
       || (
         (state.phase === "projection" || state.phase === "selection")
         && !state.characterSetupComplete
@@ -4181,6 +4294,28 @@ export class OpeningTerminalContinuationGate {
 
   openingTableDecisionContext(): JsonObject | null {
     const state = this.openingSetupStateForTranscript();
+    if (
+      state !== null
+      && state.characterSetupComplete
+      && state.phase === "handoff_decision"
+      && state.route.next_operation?.operation === "setup.complete"
+    ) {
+      return {
+        schema_version: 1,
+        campaign_id: state.route.campaign_id,
+        phase: state.route.phase,
+        player_decision_required: true,
+        instruction: (
+          "Judge the player's latest message semantically. If they confirm "
+          + "opening the table, the first and only tool call is the exact "
+          + "model-visible typed tool named typed_tool with the prefilled "
+          + "arguments below. If they request a revision, do not invoke "
+          + "setup.complete; remain in setup and handle only that revision."
+        ),
+        typed_tool: typedToolNameForOperation("setup.complete"),
+        next_operation: structuredClone(state.route.next_operation),
+      };
+    }
     if (
       state === null
       || !state.characterSetupComplete

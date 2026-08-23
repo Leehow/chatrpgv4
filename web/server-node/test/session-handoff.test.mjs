@@ -144,6 +144,39 @@ test("handoff event path: spawn + attach + role flip", async () => {
   assert.equal(orchestrator.getHost("haunting-1"), created[1]);
 });
 
+test("delayed exit 42 from the replaced setup host cannot respawn twice", async () => {
+  const created = [];
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = fakeHost({ campaignId: opts.campaignId });
+      created.push(host);
+      return host;
+    },
+    resolveRoleFn: async () => "play",
+  });
+  await orchestrator.acquire("handoff-dedupe", {
+    tableIntent: "character-setup",
+  });
+  const setupHost = created[0];
+  setupHost.emit({
+    type: "custom_message",
+    customType: "coc_setup_handoff",
+    details: {
+      type: "coc_setup_handoff",
+      campaign_id: "handoff-dedupe",
+      receipt: { decision_id: "handoff-dedupe-1" },
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(created.length, 2);
+  assert.equal(orchestrator.getHost("handoff-dedupe"), created[1]);
+
+  setupHost.emit({ type: "process_exit", code: 42, signal: null });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(created.length, 2);
+  assert.equal(orchestrator.getHost("handoff-dedupe"), created[1]);
+});
+
 test("exit code 42 fallback starts the same handoff", async () => {
   const created = [];
   let resolveCalls = 0;

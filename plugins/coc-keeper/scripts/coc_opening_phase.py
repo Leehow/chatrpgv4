@@ -682,7 +682,11 @@ def derive_opening_phase(
         phase = PHASE_MODULE_PREPARATION
     elif status == "ready_for_table":
         phase = PHASE_READY_FOR_TABLE
-    elif status == "active" and character_setup["confirmed"]:
+    elif (
+        status == "active"
+        and character_setup["confirmed"]
+        and state.campaign_has_completed_setup_handoff(campaign, campaign_id)
+    ):
         phase = PHASE_ACTIVE
     else:
         phase = PHASE_CHARACTER_CREATION
