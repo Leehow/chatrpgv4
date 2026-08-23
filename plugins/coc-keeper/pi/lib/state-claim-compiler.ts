@@ -432,6 +432,15 @@ export class PiStateClaimCompiler {
     this.failures.clear();
   }
 
+  releaseLatchedFailure(campaignId: string, turnId: string): boolean {
+    if (!campaignId || !turnId) return false;
+    return this.failures.delete(canonicalDigest({
+      failure_generation: this.failureGeneration,
+      campaign_id: campaignId,
+      turn_id: turnId,
+    }));
+  }
+
   private rememberFailure(
     key: string,
     error: unknown,
