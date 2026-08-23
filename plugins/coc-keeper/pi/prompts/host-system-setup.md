@@ -123,10 +123,12 @@ deliver opening narration here.
   then start the bounded steward group. Do not start Skill 3 scene supply or
   opening narration in this session.
   That card calls the dedicated typed `setup.adopt_source_facts`; do not rewrite
-  its facts, read PDF pages yourself, or manufacture a replacement. The private producer validates
-  the contiguous 1–3-page playable opening and its separately bounded
-  cover/front-matter/Keeper-background fact evidence independently in the same
-  current bundle; never widen the opening to carry facts. A `source` answer cites
+  its facts, read PDF pages yourself, or manufacture a replacement. Opening source
+  review materializes the bound Markdown pages; an isolated text extractor
+  semantically selects the contiguous 1–3-page playable opening and its separately
+  bounded cover/front-matter/Keeper-background fact evidence from those pages.
+  There is no locator page-window producer for this review. Never invent pages or
+  facts, and never widen the opening to carry facts. A `source` answer cites
   `source_refs`; an `unresolved` answer cites the non-empty
   `inspected_source_refs` actually checked. The private source-review worker
   also produces the keeper-only `coc-module-init` L0 package (metadata,
