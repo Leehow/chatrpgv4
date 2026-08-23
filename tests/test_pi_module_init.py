@@ -778,6 +778,8 @@ def test_l0_soft_location_accepts_non_front_matter_fixture_without_page_rule(
     assert "actual interactive scene" in prompt
     assert "investigator-creation guidance" in prompt
     assert "use grep/find across all listed" in prompt
+    assert "opening_seed" not in prompt
+    assert "locator hint" not in prompt
     assert "post-event history" in prompt
     assert "page that merely" in prompt
     assert "variant_of is present as null" in prompt

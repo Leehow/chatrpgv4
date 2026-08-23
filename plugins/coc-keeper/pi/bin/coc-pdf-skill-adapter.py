@@ -53,8 +53,8 @@ MCP_OPERATION_CONTRACTS = (
     PLUGIN_ROOT / "references" / "mcp-operation-contracts.json"
 )
 PI_MODEL = "xai/grok-4.5"
-# Opening semantic extraction consumes only router-materialized native
-# Markdown pages and must never depend on the visual Grok/PDF-skill child.
+# Opening semantic extraction consumes only preseeded bound native Markdown
+# pages and must never depend on the visual Grok/PDF-skill child.
 # The default is a text model; COC_PI_OPENING_MODEL overrides it (Grok stays
 # a valid explicit choice for the same text-only job, but it is no longer
 # hardwired into the opening review). pi's built-in deepseek catalog ships
@@ -127,9 +127,8 @@ def _pi_model() -> str:
 def _opening_text_model() -> str:
     """Text model for the opening facts + module_init_l0 extraction child.
 
-    The extractor reads only native Markdown pages the router (or the
-    locator's bound copy) already materialized, so a vision model is never
-    required. Defaults to DeepSeek V4 Flash -- the deepseek provider's
+    The extractor reads only native Markdown pages the bound source already
+    materialized, so a vision model is never required. Defaults to DeepSeek V4 Flash -- the deepseek provider's
     shipped text model. "deepseek/deepseek-chat" is not in pi's built-in
     deepseek catalog and resolves to unauthenticated openrouter, so it is
     not a usable default on this host. COC_PI_OPENING_MODEL overrides it.
@@ -194,9 +193,9 @@ def _pdf_inspector_request(
     if missing_pdf_indices is not None:
         request["missing_pdf_indices"] = list(missing_pdf_indices)
     if mode == "opening_review":
-        # The opening producer task carries the locator window plus the bound
-        # native pages so the router can select opening/fact pages and write
-        # the schema-v1 bundle from already-materialized Markdown.
+        # Opening review no longer asks this router to pick a page window.
+        # The fields stay projectable so a leftover inspector command can
+        # still see the bound pages if some other caller invokes this mode.
         for key in (
             "opening_locator_pdf_indices",
             "max_selected_opening_pages",
@@ -382,9 +381,9 @@ def _opening_review_capabilities() -> dict[str, Any]:
     return {
         "schema_version": 1,
         "contract_id": "coc.pi-opening-source-review-transport-capabilities.v1",
-        "capability": "router_materialized_pages_text_extraction",
+        "capability": "preseeded_markdown_text_extraction",
         "producer_contract_id": "coc.pi-opening-pdf-producer-result.v1",
-        "materialization": "external_pdf_router_native_markdown_or_preseed",
+        "materialization": "preseed_bound_markdown_pages",
         "extraction_model": _opening_text_model(),
         "visual_review": False,
         "private_fulfillment": True,
@@ -1757,15 +1756,11 @@ def _module_init_l0_schema() -> dict[str, Any]:
 def _opening_text_prompt(
     task: dict[str, Any], materialized: dict[str, Any],
 ) -> str:
-    opening = set(materialized["selected_opening_pdf_indices"])
     pages = [
         {
             "pdf_index": int(page["pdf_index"]),
             "markdown_path": page["markdown_path"],
-            "role": (
-                "opening_seed" if int(page["pdf_index"]) in opening
-                else "candidate"
-            ),
+            "role": "candidate",
         }
         for page in materialized["bundle"].get("pages", [])
     ]
@@ -1779,9 +1774,6 @@ def _opening_text_prompt(
         "title": task["title"],
         "play_language": task["play_language"],
         "source_bundle_path": task["source_bundle_path"],
-        "opening_seed_pdf_indices": materialized[
-            "selected_opening_pdf_indices"
-        ],
         "fact_candidate_pdf_indices": materialized[
             "fact_evidence_pdf_indices"
         ],
@@ -1798,17 +1790,18 @@ def _opening_text_prompt(
         "task.pages markdown_path (each relative to "
         "task.source_bundle_path) and extract, from that source text only, "
         "the six opening fast facts and the private keeper-only "
-        "module_init_l0. task.pages contains cached page candidates from the "
-        "same source. The opening_seed role is only a locator hint, never an "
-        "accepted opening. Before selecting, use grep/find across all listed "
-        "candidate Markdown paths for section headings whose source meaning "
-        "is START, BEGIN PLAY, OPENING SCENE, FIRST SCENE, or an equivalent "
-        "in the document language. Treat hits only as location aids, then "
-        "read each plausible page plus its adjacent candidate pages. Locate "
-        "and semantically select the earliest actual interactive scene "
-        "intended for play. The selected page must itself frame what the "
-        "investigators can perceive or do at the table; a page that merely "
-        "mentions, summarizes, or looks back on a scene is never sufficient. "
+        "module_init_l0. task.pages contains every cached page candidate "
+        "from the same source; there is no locator seed, pre-selected "
+        "window, or preferred first-N pages. Before selecting, use "
+        "grep/find across all listed candidate Markdown paths for section "
+        "headings whose source meaning is START, BEGIN PLAY, OPENING SCENE, "
+        "FIRST SCENE, or an equivalent in the document language. Treat hits "
+        "only as location aids, then read each plausible page plus its "
+        "adjacent candidate pages. Locate and semantically select the "
+        "earliest actual interactive scene intended for play. The selected "
+        "page must itself frame what the investigators can perceive or do "
+        "at the table; a page that merely mentions, summarizes, or looks "
+        "back on a scene is never sufficient. "
         "Reject covers, contents, campaign overviews, investigator-creation "
         "guidance, character biographies, post-event history, and Keeper-only "
         "background. If an authored optional prologue is the established "
@@ -2230,6 +2223,18 @@ def _splice_retained_bound_pages(
             _fail(f"opening source manifest is missing page {pdf_index}")
         pages.append(row)
     manifest["pages"] = pages
+    retained_indices = {int(page["pdf_index"]) for page in pages}
+    raw_assets = manifest.get("assets", [])
+    if isinstance(raw_assets, list):
+        manifest["assets"] = [
+            asset for asset in raw_assets
+            if isinstance(asset, dict)
+            and isinstance(asset.get("pdf_index"), int)
+            and not isinstance(asset.get("pdf_index"), bool)
+            and int(asset["pdf_index"]) in retained_indices
+        ]
+    else:
+        manifest["assets"] = []
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -2374,15 +2379,13 @@ def _extend_opening_bundle_with_cached_fact_candidates(
     materialized: dict[str, Any],
     pdf_bundle: Any,
 ) -> dict[str, Any]:
-    """Project same-source cached front matter into the semantic fact lane.
+    """Project same-source cached pages into the extractor candidate set.
 
-    The opening locator intentionally keeps only a contiguous 1..3 page
-    playable slice.  Long campaigns commonly put era, locale, hooks, and
-    investigator guidance later in the already-ingested front matter, so that
-    slice is not a sufficient fact-retrieval corpus.  Reuse only validated
-    schema-v1 pages for the exact same source identity, cap the candidate set,
-    and let the isolated text extractor choose the final 1..8 evidence pages.
-    No PDF bytes are opened here.
+    Opening review now hands the extractor every bound Markdown page. Sibling
+    OCR windows for the same file identity may still add later pages that the
+    current bound copy does not yet hold. Cap the candidate set and let the
+    isolated text extractor choose the 1..3 opening window and the final 1..8
+    evidence pages. No PDF bytes are opened here.
     """
     workspace_value = task.get("workspace_root")
     if not isinstance(workspace_value, str) or not workspace_value.strip():
@@ -2490,45 +2493,23 @@ def _materialize_opening_bundle(
     request: dict[str, Any],
     shutdown: _ShutdownFlag,
 ) -> dict[str, Any]:
-    """Materialize the reviewed opening bundle without any model rendering.
+    """Materialize every bound Markdown page as extractor candidates.
 
-    The native Markdown pages already exist: the locator wrote the bound
-    bundle (preseeded into the output root by _opening_producer_task) and the
-    Firecrawl router can select pages + write the schema-v1 bundle from its
-    own native page cache. Only when the router is unset or unable does the
-    adapter fall back to the locator's already-materialized bound pages as
-    both the opening window and the fact-evidence set. No PDF skill, image
-    tool, or visual model is ever invoked here.
+    The bound source is already preseeded into the reviewed output root.
+    Opening review does not dispatch a locator or opening_review router to
+    pick a 1..3 page window: the isolated text extractor reads every
+    candidate page and semantically selects selected_opening_pdf_indices
+    and fact_evidence_pdf_indices. Cached sibling bundles may still widen
+    the candidate set. No PDF skill, image tool, or visual model runs here.
     """
-    routed = _try_external_pdf_router(
-        "opening_review",
-        task,
-        timeout=_opening_producer_timeout(request),
-        shutdown=shutdown,
-    )
-    _run_post_child_hook()
     _fail_if_shutdown(shutdown)
-    if routed is not None:
-        return _extend_opening_bundle_with_cached_fact_candidates(task, {
-            "selected_opening_pdf_indices": list(
-                routed["selected_opening_pdf_indices"]
-            ),
-            "fact_evidence_pdf_indices": list(
-                routed["fact_evidence_pdf_indices"]
-            ),
-            "bundle": routed["bundle"],
-            "source": "router",
-        }, pdf_bundle)
     bound_indices = list(int(index) for index in private["allowed_pdf_indices"])
     bundle = pdf_bundle.load_host_bundle(task["source_bundle_path"])
     if [int(row["pdf_index"]) for row in bundle.get("pages", [])] != bound_indices:
-        _fail("opening fallback bound source page scope drift")
-    window = _earliest_contiguous_page_run(bound_indices)
-    selected = window[: min(3, len(window))]
-    fact_evidence = window[: min(MAX_FACT_EVIDENCE_PAGES, len(window))]
+        _fail("opening bound source page scope drift")
     return _extend_opening_bundle_with_cached_fact_candidates(task, {
-        "selected_opening_pdf_indices": selected,
-        "fact_evidence_pdf_indices": fact_evidence,
+        "selected_opening_pdf_indices": [],
+        "fact_evidence_pdf_indices": bound_indices,
         "bundle": bundle,
         "source": "preseed",
     }, pdf_bundle)
@@ -2543,7 +2524,7 @@ def _run_opening_text_extractor(
 ) -> dict[str, Any]:
     """Text-model extraction of the six opening facts + module_init_l0.
 
-    Reads only the router-materialized native Markdown pages; never renders
+    Reads only the preseeded bound native Markdown pages; never renders
     the PDF and never loads the visual PDF skill. The model defaults to a
     text model (DeepSeek V4 Flash; COC_PI_OPENING_MODEL overrides it).
 
@@ -2753,10 +2734,11 @@ def _validate_opening_extractor_result(
 ) -> dict[str, Any]:
     """Validate the text extractor and assemble the producer-result envelope.
 
-    The materialization step owns the page split; the extractor supplies only
-    facts + module_init_l0. The assembled envelope then passes the canonical
-    _validate_opening_result gate so the downstream bind/fulfill seam is
-    byte-for-byte unchanged.
+    Materialization owns the candidate corpus. The extractor semantically
+    selects the 1..3 opening window and the 1..8 fact-evidence pages, then
+    supplies facts + module_init_l0. The assembled envelope still passes the
+    canonical _validate_opening_result gate so the bind/fulfill seam is
+    unchanged.
     """
     result = _object(value, "opening text extractor result")
     required_fields = {
@@ -2895,13 +2877,10 @@ def _run_opening_review() -> dict[str, Any]:
         task = _opening_producer_task(
             workspace, request, scenario, campaign, private, pdf_bundle,
         )
-        # Page materialization is router-native: the Firecrawl router selects
-        # the opening/fact pages and writes the schema-v1 bundle from its
-        # already-materialized Markdown pages; without a router the adapter
-        # reuses the locator's bound native pages. Neither path renders a PDF
-        # or needs the visual Grok/PDF-skill child. Only the semantic
-        # facts + L0 extraction runs a separate text-model child, and the
-        # bind/fulfill receipt still shares one producer-lane abort boundary.
+        # Bound Markdown pages are already preseeded. Opening review skips
+        # the locator/router page window and runs only the semantic facts +
+        # L0 text extractor over every candidate page. The bind/fulfill
+        # receipt still shares one producer-lane abort boundary.
         shutdown = _ShutdownFlag()
         handlers, old_mask = _enter_producer_lane(shutdown)
         try:

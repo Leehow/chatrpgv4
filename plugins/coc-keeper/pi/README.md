@@ -337,11 +337,11 @@ would clamp a direct `off` request to `low`. The matching
 to reduce spoiler exposure, but it does not disable provider reasoning or its
 latency.
 
-Optional external native router (locator + full-parse batch + opening
-review): the router is a thin Node subprocess over the Firecrawl
-`@firecrawl/pdf-inspector` binding (1.12.0). It is deployed **outside the
-repo** at `$HOME/.pi/coc-tools/pdf-inspector/` (the AGENTS PDF contract keeps
-parsers out of the repository); the `pi-coc` launcher exports
+Optional external native router (locator + full-parse batch): the router is
+a thin Node subprocess over the Firecrawl `@firecrawl/pdf-inspector` binding
+(1.12.0). It is deployed **outside the repo** at
+`$HOME/.pi/coc-tools/pdf-inspector/` (the AGENTS PDF contract keeps parsers
+out of the repository); the `pi-coc` launcher exports
 `COC_PI_PDF_INSPECTOR_COMMAND` pointing at
 `$HOME/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router` by default
 and a user-set value always wins. Reinstall/upgrade the binding with
@@ -353,40 +353,37 @@ tests.
 
 The adapter never opens or parses the PDF; it only subprocesses that command
 with a versioned JSON request on stdin and expects a versioned JSON result
-on stdout. The router implements three modes: `locator_first_bundle`
-(native-extract the requested window, default pages 0-4),
-`full_parse_batch` (native-extract `missing_pdf_indices`), and
-`opening_review` (native-extract the opening window, select the contiguous
-1..3 opening slice plus the ≤8 fact-evidence set, and write the bundle at
-the preseeded `source_bundle_path` while retaining preseeded bound pages
-verbatim). On `status=ok` the command must have written a legal schema-v1
-source bundle (`producer: codex-pdf-skill`) at the task's absolute
-`source_bundle_path`. Any requested page that needs OCR yields
-`status=fallback reason=needs_ocr` — the router never OCRs. The adapter
-still runs `load_host_bundle` (and the existing register/fulfill half-chain
-for full-parse) before adopting the result. Any unset/invalid command,
-non-zero exit, timeout, bad JSON, `fallback` / `needs_ocr` / `unsupported` /
-`failed`, path drift, or illegal bundle falls through to the existing Pi
-PDF-skill path (locator/full-parse) or to the locator's already-materialized
-bound pages (opening review).
+on stdout. The router implements two live modes: `locator_first_bundle`
+(native-extract the requested window, default pages 0-4) and
+`full_parse_batch` (native-extract `missing_pdf_indices`). Opening source
+review no longer calls the router's `opening_review` page-window mode. On
+`status=ok` the command must have written a legal schema-v1 source bundle
+(`producer: codex-pdf-skill`) at the task's absolute `source_bundle_path`.
+Any requested page that needs OCR yields `status=fallback reason=needs_ocr`
+— the router never OCRs. The adapter still runs `load_host_bundle` (and the
+existing register/fulfill half-chain for full-parse) before adopting the
+result. Any unset/invalid command, non-zero exit, timeout, bad JSON,
+`fallback` / `needs_ocr` / `unsupported` / `failed`, path drift, or illegal
+bundle falls through to the existing Pi PDF-skill path (locator/full-parse).
 
-Opening review is split into two child boundaries and no longer depends on
-the visual Grok/PDF-skill path: (1) page materialization goes through the
-router with mode `opening_review` — the router selects the opening window
-and the fact-evidence set and writes the schema-v1 bundle from its native
-Markdown pages; without a router the adapter reuses the locator's bound
-native pages as both sets. (2) facts + module_init_l0 extraction runs a
-separate text-model `pi -p` child that reads only the materialized Markdown
-and never renders a PDF; its model defaults to `deepseek/deepseek-v4-flash`
-(pi's built-in deepseek catalog ships only v4-flash/v4-pro, so
-`deepseek/deepseek-chat` is not resolvable and falls back to unauthenticated
-openrouter) and is overridable via `COC_PI_OPENING_MODEL` (Grok remains an
-explicit option). The adapter forwards `DEEPSEEK_API_KEY` (and
-`DEEPSEEK_BASE_URL` for a custom provider override) to that child's
-environment; the extractor tolerates fenced/prose stdout with one retry and
-fails as `extractor_invalid_output` rather than a bare JSON error. The bind
-+ `_apply_opening_source_review_fulfillment` seam and the transport
-contract `coc.pi-opening-source-review-transport-result.v1` are unchanged.
+Opening review is split into materialization plus one text-model child and
+no longer depends on the visual Grok/PDF-skill path or a locator page
+window: (1) the adapter copies the bound source's already-parsed Markdown
+pages into the reviewed output directory; (2) facts + module_init_l0
+extraction runs a separate text-model `pi -p` child that reads every
+materialized Markdown page and semantically selects
+`selected_opening_pdf_indices` (contiguous 1..3) plus
+`fact_evidence_pdf_indices` (1..8). Its model defaults to
+`deepseek/deepseek-v4-flash` (pi's built-in deepseek catalog ships only
+v4-flash/v4-pro, so `deepseek/deepseek-chat` is not resolvable and falls
+back to unauthenticated openrouter) and is overridable via
+`COC_PI_OPENING_MODEL` (Grok remains an explicit option). The adapter
+forwards `DEEPSEEK_API_KEY` (and `DEEPSEEK_BASE_URL` for a custom provider
+override) to that child's environment; the extractor tolerates fenced/prose
+stdout with one retry and fails as `extractor_invalid_output` rather than a
+bare JSON error. The bind + `_apply_opening_source_review_fulfillment` seam
+and the transport contract `coc.pi-opening-source-review-transport-result.v1`
+are unchanged.
 
 The adapter contains no PDF parser, renderer, OCR, page-text scanner, queue, or
 fulfillment engine.

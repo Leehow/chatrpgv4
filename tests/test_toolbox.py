@@ -15842,9 +15842,9 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         scenario_path.read_text(encoding="utf-8")
     )["source"]["bundle_sha256"]
 
-    # The page split now lives in _materialize_opening_bundle; with no
-    # router configured the preseed lane keeps the bound page set. Only the
-    # text extractor is mocked, so the full bind/fulfill seam stays real.
+    # Materialization now preseeds every bound page and leaves the window
+    # to the extractor. Only the text extractor is mocked, so the full
+    # bind/fulfill seam stays real.
     monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
 
     def fake_extractor(
@@ -15894,7 +15894,7 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
         assert preseeded == reusable["manifest"]
         relative = Path(preseeded["pages"][0]["markdown_path"])
         assert (output / relative).read_bytes() == cached_before
-        assert materialized["selected_opening_pdf_indices"] == [0]
+        assert materialized["selected_opening_pdf_indices"] == []
         assert materialized["fact_evidence_pdf_indices"] == [0]
         assert materialized["source"] == "preseed"
         return {
@@ -15909,6 +15909,8 @@ def test_pi_opening_review_adapter_one_shot_validates_and_fulfills_exact_new_tas
                 task["source"]["source_id"], [0],
             ),
             "module_init_l0": _pi_opening_adapter_l0(),
+            "selected_opening_pdf_indices": [0],
+            "fact_evidence_pdf_indices": [0],
         }
 
     monkeypatch.setattr(
@@ -16024,9 +16026,9 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         return {
             "selected_opening_pdf_indices": [0, 1],
-            "fact_evidence_pdf_indices": [1],
+            "fact_evidence_pdf_indices": [0, 1],
             "bundle": None,
-            "source": "router",
+            "source": "preseed",
         }
 
     def fake_extractor(
@@ -16034,7 +16036,7 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
     ) -> dict:
         assert timeout == adapter.PI_TIMEOUT_SECONDS
         assert materialized["selected_opening_pdf_indices"] == [0, 1]
-        assert materialized["fact_evidence_pdf_indices"] == [1]
+        assert materialized["fact_evidence_pdf_indices"] == [0, 1]
         return {
             "schema_version": 1,
             "contract_id": "coc.pi-opening-text-extractor-result.v1",
@@ -16047,6 +16049,8 @@ def test_pi_opening_review_adapter_mixes_reused_and_new_contiguous_pages(
                 task_arg["source"]["source_id"], [1],
             ),
             "module_init_l0": _pi_opening_adapter_l0(),
+            "selected_opening_pdf_indices": [0, 1],
+            "fact_evidence_pdf_indices": [1],
         }
 
     monkeypatch.setattr(adapter, "_materialize_opening_bundle", fake_materialize)
@@ -16306,6 +16310,8 @@ def test_pi_opening_review_adapter_accepts_untouched_normalized_raw_page_row(
                 task_arg["source"]["source_id"], [0],
             ),
             "module_init_l0": _pi_opening_adapter_l0(),
+            "selected_opening_pdf_indices": [0],
+            "fact_evidence_pdf_indices": [0],
         }
 
     monkeypatch.setattr(

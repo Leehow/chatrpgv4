@@ -4772,6 +4772,11 @@ def test_pdf_skill_adapter_opening_review_routes_router_materialization_not_pi_s
     assert "_materialize_opening_bundle" in opening_fn
     assert "_run_opening_text_extractor" in opening_fn
     assert "_validate_opening_extractor_result" in opening_fn
+    materialize_fn = source.split("def _materialize_opening_bundle", 1)[1].split(
+        "\ndef _run_opening_text_extractor", 1,
+    )[0]
+    assert "_try_external_pdf_router" not in materialize_fn
+    assert "_earliest_contiguous_page_run" not in materialize_fn
     # The text extractor is a model child but never loads the visual PDF
     # skill and never hardcodes the Grok vision model.
     extractor_fn = source.split(
@@ -5166,11 +5171,11 @@ def test_pdf_skill_adapter_opening_router_stops_at_first_image_page_gap(
     ]
 
 
-def test_pdf_skill_adapter_opening_fallback_uses_first_contiguous_run(
+def test_pdf_skill_adapter_opening_materialize_uses_all_bound_pages(
     monkeypatch,
 ):
-    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_fallback_gap_test")
-    monkeypatch.delenv("COC_PI_PDF_INSPECTOR_COMMAND", raising=False)
+    adapter = _load_pdf_adapter("coc_pdf_adapter_opening_preseed_all_pages_test")
+    monkeypatch.setenv("COC_PI_PDF_INSPECTOR_COMMAND", "/usr/bin/true")
     task = {"source_bundle_path": "/bound"}
     private = {
         "allowed_pdf_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13],
@@ -5181,6 +5186,13 @@ def test_pdf_skill_adapter_opening_fallback_uses_first_contiguous_run(
             for index in private["allowed_pdf_indices"]
         ],
     }
+    router_calls: list[object] = []
+
+    def boom_router(*args, **kwargs):
+        router_calls.append((args, kwargs))
+        raise AssertionError("opening materialize must not call the router")
+
+    monkeypatch.setattr(adapter, "_try_external_pdf_router", boom_router)
 
     class _Bundle:
         @staticmethod
@@ -5191,9 +5203,12 @@ def test_pdf_skill_adapter_opening_fallback_uses_first_contiguous_run(
         task, private, _Bundle(), {}, adapter._ShutdownFlag(),
     )
 
+    assert router_calls == []
     assert materialized["source"] == "preseed"
-    assert materialized["selected_opening_pdf_indices"] == [2, 3, 4]
-    assert materialized["fact_evidence_pdf_indices"] == [2, 3, 4, 5, 6, 7, 8, 9]
+    assert materialized["selected_opening_pdf_indices"] == []
+    assert materialized["fact_evidence_pdf_indices"] == [
+        2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13,
+    ]
 
 
 def test_pdf_skill_adapter_opening_router_rejects_invalid_split(
@@ -5331,46 +5346,46 @@ def test_pdf_skill_adapter_opening_extractor_assembly_keeps_producer_envelope(
         )
 
 
-def test_pdf_skill_adapter_opening_review_full_flow_router_text_extraction_l0(
+def test_pdf_skill_adapter_opening_review_full_flow_skips_router(
     tmp_path: Path, monkeypatch,
 ):
-    """End-to-end adapter lane: the router materializes the opening bundle,
-    the text extractor supplies facts + L0, and the canonical bind + L0
-    fulfillment seam writes module-init.json -- with _run_pi never entered."""
+    """End-to-end adapter lane: even with an inspector command set, opening
+    review preseeds every bound page and lets the extractor select the
+    window. The canonical bind + L0 fulfillment seam still writes
+    module-init.json, and _run_pi is never entered."""
     receipt, captured, workspace = _run_opening_full_flow(
-        tmp_path, monkeypatch, use_router=True,
+        tmp_path, monkeypatch, inspector_present=True,
     )
 
     assert receipt["status"] == "reviewed"
     assert receipt["opening_review_generation"] == 2
     assert receipt["facts"]["era"]["status"] == "source"
-    assert captured["materialized"]["source"] == "router"
-    assert captured["materialized"]["selected_opening_pdf_indices"] == [10, 11, 12]
-    assert captured["materialized"]["fact_evidence_pdf_indices"] == [3, 10, 11, 12]
+    assert captured["materialized"]["source"] == "preseed"
+    assert captured["materialized"]["selected_opening_pdf_indices"] == []
+    assert captured["materialized"]["fact_evidence_pdf_indices"] == [10, 11, 12]
     assert captured["task"]["source"]["source_id"] == "pdf:module"
-    _assert_opening_flow_landed(workspace, [3, 10, 11, 12])
+    _assert_opening_flow_landed(workspace, [10, 11, 12])
 
 
-def test_pdf_skill_adapter_opening_review_fallback_reuses_locator_pages(
+def test_pdf_skill_adapter_opening_review_direct_extractor_without_inspector(
     tmp_path: Path, monkeypatch,
 ):
-    """Without a router the opening lane reuses the locator's bound native
-    pages as both the opening window and the fact-evidence set; extraction
-    and the canonical L0 seam still run with no _run_pi call."""
+    """Without an inspector command the opening lane still preseeds every
+    bound page and runs extraction; no locator seed window is injected."""
     receipt, captured, workspace = _run_opening_full_flow(
-        tmp_path, monkeypatch, use_router=False,
+        tmp_path, monkeypatch, inspector_present=False,
     )
 
     assert receipt["status"] == "reviewed"
     assert receipt["facts"]["era"]["status"] == "source"
     assert captured["materialized"]["source"] == "preseed"
-    assert captured["materialized"]["selected_opening_pdf_indices"] == [10, 11, 12]
+    assert captured["materialized"]["selected_opening_pdf_indices"] == []
     assert captured["materialized"]["fact_evidence_pdf_indices"] == [10, 11, 12]
     _assert_opening_flow_landed(workspace, [10, 11, 12])
 
 
 def _run_opening_full_flow(
-    tmp_path: Path, monkeypatch, *, use_router: bool,
+    tmp_path: Path, monkeypatch, *, inspector_present: bool,
 ) -> tuple[dict, dict, Path]:
     adapter = _load_pdf_adapter("coc_pdf_adapter_opening_full_flow_test")
     workspace = tmp_path / "workspace"
@@ -5418,7 +5433,7 @@ def _run_opening_full_flow(
     })
     assert bound_result.get("status") == "PASS"
 
-    if use_router:
+    if inspector_present:
         router = _fake_pdf_inspector(
             tmp_path / "router",
             opening_selected=[10, 11, 12],
@@ -5436,10 +5451,9 @@ def _run_opening_full_flow(
 
     monkeypatch.setattr(adapter, "_run_pi", boom_run_pi)
 
-    # Router path widens fact evidence to include page 3; the preseed
-    # fallback only has the bound locator pages, so refs must stay inside
-    # the materialized set either way.
-    ref_index = 3 if use_router else 10
+    # Opening review no longer adopts a router-selected page 3. Refs must
+    # stay inside the preseeded bound page set.
+    ref_index = 10
     refs = [{"source_id": "pdf:module", "pdf_index": ref_index}]
     source = lambda value: {
         "status": "source", "value": value, "source_refs": refs,
@@ -5494,6 +5508,8 @@ def _run_opening_full_flow(
             "failure_class": None,
             "facts": facts,
             "module_init_l0": l0,
+            "selected_opening_pdf_indices": [10, 11, 12],
+            "fact_evidence_pdf_indices": [10, 11, 12],
         }
 
     monkeypatch.setattr(adapter, "_run_opening_text_extractor", fake_extractor)
@@ -5810,6 +5826,9 @@ def test_opening_extractor_uses_investigator_start_era_for_time_travel() -> None
     assert "investigators' native/start era" in prompt
     assert "1890s travelers entering a medieval town" in prompt
     assert "destination year belongs in module_meta.era" in prompt
+    assert "opening_seed" not in prompt
+    assert "locator hint" not in prompt
+    assert "no locator seed" in prompt
 
 
 def _splice_page(pdf_index, body):
@@ -5893,6 +5912,26 @@ def test_opening_manifest_splice_needs_no_row_for_a_retained_page(tmp_path):
     task = _splice_task(tmp_path, [_PRODUCED_PAGE])
     manifest = adapter._splice_retained_bound_pages(task, [0, 1], [])
     assert manifest["pages"] == [_RETAINED_PAGE, _PRODUCED_PAGE]
+
+
+def test_opening_manifest_splice_drops_assets_outside_retained_pages(tmp_path):
+    adapter = _load_pdf_adapter("coc_pdf_adapter_splice_assets_test")
+    task = _splice_task(tmp_path, [_RETAINED_PAGE, _PRODUCED_PAGE])
+    manifest_path = tmp_path / "reviewed" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["assets"] = [
+        {"path": "assets/keep.png", "sha256": "a" * 64, "pdf_index": 1},
+        {"path": "assets/drop.png", "sha256": "b" * 64, "pdf_index": 0},
+        {"path": "assets/bad.png", "sha256": "c" * 64, "pdf_index": 9},
+    ]
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8",
+    )
+    spliced = adapter._splice_retained_bound_pages(task, [1], [])
+    assert spliced["pages"] == [_PRODUCED_PAGE]
+    assert spliced["assets"] == [
+        {"path": "assets/keep.png", "sha256": "a" * 64, "pdf_index": 1},
+    ]
 
 
 def test_opening_manifest_splice_drops_unselected_preseed_rows(tmp_path):
