@@ -23343,8 +23343,6 @@ def _turn_contract_projection(
     ]
     party_subject_refs = settled_refs or [f"pc:{value}" for value in ctx.party_ids()]
     investigator_id = (ctx.party_ids() or [""])[0]
-    if not investigator_id and party_subject_refs:
-        investigator_id = party_subject_refs[0].removeprefix("pc:")
     if not run_segment_id or not session_id:
         raise ToolError("state_corrupt", "pending turn identity is incomplete")
     try:

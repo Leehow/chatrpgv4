@@ -2431,11 +2431,77 @@ def _pending_modifier_consumptions(
     return sorted(pending, key=lambda row: (row["effect_id"], row["roll_id"]))
 
 
-def _add_investigator_id(target: set[str], value: Any) -> None:
-    if isinstance(value, str):
-        investigator_id = value.strip()
-        if investigator_id:
-            target.add(investigator_id)
+def _valid_investigator_id(value: Any) -> bool:
+    return bool(
+        isinstance(value, str)
+        and value
+        and value == value.strip()
+        and value not in {".", ".."}
+        and "/" not in value
+        and "\\" not in value
+    )
+
+
+def _party_investigator_ids(campaign_dir: Path) -> set[str]:
+    party_path = Path(campaign_dir) / "party.json"
+    if not party_path.exists() and not party_path.is_symlink():
+        return set()
+    if party_path.is_symlink() or not party_path.is_file():
+        raise TurnContractError(
+            "state_corrupt", "campaign party state is missing or not a regular file"
+        )
+    try:
+        party = json.loads(party_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise TurnContractError(
+            "state_corrupt", "campaign party state is unreadable or malformed"
+        ) from exc
+    raw_ids = party.get("investigator_ids") if isinstance(party, dict) else None
+    if (
+        not isinstance(party, dict)
+        or party.get("schema_version") != 1
+        or party.get("campaign_id") != Path(campaign_dir).name
+        or not isinstance(raw_ids, list)
+        or any(not _valid_investigator_id(value) for value in raw_ids)
+        or len(set(raw_ids)) != len(raw_ids)
+    ):
+        raise TurnContractError(
+            "state_corrupt", "campaign party identity is malformed"
+        )
+    raw_active = party.get("active_investigator_ids")
+    if raw_active is not None and (
+        not isinstance(raw_active, list)
+        or any(not _valid_investigator_id(value) for value in raw_active)
+        or len(set(raw_active)) != len(raw_active)
+        or not set(raw_active).issubset(set(raw_ids))
+    ):
+        raise TurnContractError(
+            "state_corrupt", "campaign party investigator ids are malformed"
+        )
+    return {str(value) for value in raw_ids}
+
+
+def _canonical_investigator_sheet_exists(
+    campaign_dir: Path, investigator_id: str
+) -> bool:
+    if not _valid_investigator_id(investigator_id):
+        return False
+    path = Path(campaign_dir).parent.parent / "investigators" / investigator_id / "character.json"
+    return path.is_file() and not path.is_symlink()
+
+
+def _row_investigator_ids(row: Any) -> list[str]:
+    if not isinstance(row, dict):
+        return []
+    found: list[str] = []
+    for payload in (row.get("args"), row.get("data")):
+        if not isinstance(payload, dict):
+            continue
+        for key in ("investigator", "investigator_id"):
+            value = payload.get(key)
+            if _valid_investigator_id(value):
+                found.append(str(value))
+    return found
 
 
 def _pc_subject_refs(
@@ -2444,38 +2510,22 @@ def _pc_subject_refs(
     window: list[dict[str, Any]],
     journal: dict[str, Any],
 ) -> list[str]:
-    """Investigator refs from party + pending-turn provenance, not combat success."""
-    ids: set[str] = set()
-    party_path = Path(campaign_dir) / "party.json"
-    if party_path.is_file():
-        try:
-            party = json.loads(party_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            party = {}
-        if isinstance(party, dict):
-            for key in ("investigator_ids", "active_investigator_ids"):
-                for raw in party.get(key) or []:
-                    _add_investigator_id(ids, raw)
-    journal_args = journal.get("args") if isinstance(journal.get("args"), dict) else {}
-    journal_data = journal.get("data") if isinstance(journal.get("data"), dict) else {}
-    for raw in (
-        journal_args.get("investigator"),
-        journal_args.get("investigator_id"),
-        journal_data.get("investigator_id"),
-        journal_data.get("investigator"),
-    ):
-        _add_investigator_id(ids, raw)
-    for call in window:
-        args = call.get("args") if isinstance(call.get("args"), dict) else {}
-        data = call.get("data") if isinstance(call.get("data"), dict) else {}
-        for raw in (
-            args.get("investigator"),
-            args.get("investigator_id"),
-            data.get("investigator_id"),
-            data.get("investigator"),
+    """Authoritative PC refs: party ids, plus journal/window ids already proven."""
+    party_ids = _party_investigator_ids(campaign_dir)
+    proven = set(party_ids)
+
+    def keep_if_authoritative(investigator_id: str) -> None:
+        if investigator_id in party_ids or _canonical_investigator_sheet_exists(
+            campaign_dir, investigator_id
         ):
-            _add_investigator_id(ids, raw)
-    return [f"pc:{investigator_id}" for investigator_id in sorted(ids)]
+            proven.add(investigator_id)
+
+    for investigator_id in _row_investigator_ids(journal):
+        keep_if_authoritative(investigator_id)
+    for call in window:
+        for investigator_id in _row_investigator_ids(call):
+            keep_if_authoritative(investigator_id)
+    return [f"pc:{investigator_id}" for investigator_id in sorted(proven)]
 
 
 def build_output_context(campaign_dir: Path) -> dict[str, Any]:
