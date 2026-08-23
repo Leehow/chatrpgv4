@@ -1583,6 +1583,138 @@ def test_canonical_player_row_requires_exact_journal_tuple_and_bijection(tmp_pat
     )
 
 
+def _journal_call(decision_id, *, ok=True, replay=False, player_text="我说：进去", extra=None):
+    call = {
+        "tool": "state.journal",
+        "ok": ok,
+        "args": {"decision_id": decision_id, "player_text": player_text},
+        "data": {},
+    }
+    if replay:
+        call["idempotent_replay"] = True
+    if extra:
+        call.update(extra)
+    return call
+
+
+def _accepted_transcript_findings(run):
+    return _audit_completeness(run)["dimensions"]["accepted_transcript"]
+
+
+def test_identical_journal_replay_counts_as_one_write(tmp_path):
+    module = _load()
+    run = tmp_path / "journal-replay-pass"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        _journal_call("fin-1-journal"),
+        _journal_call("fin-1-journal", replay=True),
+        {"tool": "director.advise", "ok": True, "args": {"decision_id": "d1"}, "data": {}},
+    ])
+
+    report = module.export_battle_report(run)
+    dimension = _accepted_transcript_findings(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "PASS"
+    assert dimension["status"] == "PASS"
+    assert not any("duplicated" in finding for finding in dimension["findings"])
+
+
+def test_two_non_replay_journal_successes_same_id_fail(tmp_path):
+    module = _load()
+    run = tmp_path / "journal-two-writes"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        _journal_call("fin-1-journal"),
+        _journal_call("fin-1-journal", player_text="另一句玩家原文"),
+    ])
+
+    report = module.export_battle_report(run)
+    dimension = _accepted_transcript_findings(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert any(
+        "state.journal decision ids are duplicated" in finding
+        and "fin-1-journal" in finding
+        for finding in dimension["findings"]
+    )
+
+
+def test_replay_marker_cannot_hide_conflicting_payload_or_failure(tmp_path):
+    module = _load()
+    run = tmp_path / "journal-replay-conflict"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        _journal_call("fin-1-journal"),
+        _journal_call("fin-1-journal", replay=True, player_text="recovery"),
+    ])
+    report = module.export_battle_report(run)
+    dimension = _accepted_transcript_findings(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert any(
+        "replay marker hides a conflicting payload" in finding
+        and "fin-1-journal" in finding
+        for finding in dimension["findings"]
+    )
+
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        _journal_call("fin-1-journal"),
+        _journal_call(
+            "fin-1-journal", replay=True, ok=False, player_text="recovery",
+            extra={"error": {"code": "idempotency_conflict"}},
+        ),
+    ])
+    report = module.export_battle_report(run)
+    dimension = _accepted_transcript_findings(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert any(
+        "replay marker hides a failed receipt" in finding
+        and "fin-1-journal" in finding
+        for finding in dimension["findings"]
+    )
+
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        _journal_call("fin-1-journal"),
+        _journal_call("fin-1-journal", replay=True),
+        _journal_call(
+            "fin-1-journal", ok=False, player_text="recovery",
+            extra={"error": {"code": "idempotency_conflict"}},
+        ),
+    ])
+    report = module.export_battle_report(run)
+    dimension = _accepted_transcript_findings(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "PASS"
+    assert not any("duplicated" in finding for finding in dimension["findings"])
+    assert not any("replay marker hides" in finding for finding in dimension["findings"])
+
+
+def test_duplicate_canonical_player_journal_rows_still_fail(tmp_path):
+    module = _load()
+    run = tmp_path / "journal-transcript-dup"
+    data = _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    player = dict(data["transcript"][0])
+    duplicate = dict(player)
+    duplicate["turn"] = 2
+    keeper = dict(data["transcript"][1])
+    _write_jsonl(campaign / "logs" / "table-transcript.jsonl", [player, duplicate, keeper])
+    _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [
+        _journal_call("fin-1-journal"),
+        _journal_call("fin-1-journal", replay=True),
+    ])
+
+    report = module.export_battle_report(run)
+    dimension = _accepted_transcript_findings(run)
+    assert report["completeness"]["dimensions"]["accepted_transcript"]["status"] == "FAIL"
+    assert any(
+        "accepted player rows duplicate journal bindings" in finding
+        and "fin-1-journal" in finding
+        for finding in dimension["findings"]
+    )
+    assert not any("state.journal decision ids are duplicated" in finding for finding in dimension["findings"])
+
+
 def _table_opening_row(*, record_kind="table_opening"):
     """Real RPC opening shape: turn 0, table.opening provenance, no finalization."""
     row = {

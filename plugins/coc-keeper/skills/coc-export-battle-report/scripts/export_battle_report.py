@@ -1634,14 +1634,23 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     if role_counts["player"] == 0:
         transcript_findings.append("no non-empty player dialogue rows were found")
 
-    journal_decision_id_rows = [
-        str((call.get("args") or {}).get("decision_id"))
+    journal_write_calls = [
+        call
         for call in toolbox_calls or []
         if isinstance(call, dict)
         and call.get("ok") is True
         and call.get("tool") == "state.journal"
         and (call.get("args") or {}).get("decision_id")
+        and call.get("idempotent_replay") is not True
     ]
+    journal_decision_id_rows = [
+        str((call.get("args") or {}).get("decision_id"))
+        for call in journal_write_calls
+    ]
+    settled_journal_args = {}
+    for call in journal_write_calls:
+        decision_id = str((call.get("args") or {}).get("decision_id"))
+        settled_journal_args.setdefault(decision_id, call.get("args") or {})
     journal_decision_ids = set(journal_decision_id_rows)
     finalization_ids = {
         str(row.get("finalization_id"))
@@ -1679,6 +1688,34 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         if duplicate_journals:
             transcript_findings.append(
                 "state.journal decision ids are duplicated: " + ", ".join(duplicate_journals)
+            )
+        hidden_replay_conflicts = []
+        hidden_replay_failures = []
+        for call in toolbox_calls or []:
+            if not isinstance(call, dict) or call.get("tool") != "state.journal":
+                continue
+            if call.get("idempotent_replay") is not True:
+                continue
+            args = call.get("args") if isinstance(call.get("args"), dict) else {}
+            decision_id = args.get("decision_id")
+            if not decision_id:
+                continue
+            decision_id = str(decision_id)
+            if call.get("ok") is not True:
+                hidden_replay_failures.append(decision_id)
+                continue
+            prior = settled_journal_args.get(decision_id)
+            if prior is not None and prior != args:
+                hidden_replay_conflicts.append(decision_id)
+        if hidden_replay_conflicts:
+            transcript_findings.append(
+                "state.journal replay marker hides a conflicting payload: "
+                + ", ".join(sorted(set(hidden_replay_conflicts)))
+            )
+        if hidden_replay_failures:
+            transcript_findings.append(
+                "state.journal replay marker hides a failed receipt: "
+                + ", ".join(sorted(set(hidden_replay_failures)))
             )
         if duplicate_player_rows:
             transcript_findings.append(
