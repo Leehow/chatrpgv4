@@ -104,6 +104,7 @@ export class CampaignHostOrchestrator {
     this.#status = new Map();
     this.#handoffPromises = new Map();
     this.#recoveryPromises = new Map();
+    this.#retirementPromises = new Map();
     this.createHost = createHost;
     // The play child's welcome hook owns its one resume-first continuation.
     // Handoff/recovery only attaches to that turn; issuing another prompt here
@@ -117,6 +118,7 @@ export class CampaignHostOrchestrator {
   #status;
   #handoffPromises;
   #recoveryPromises;
+  #retirementPromises;
   #listeners;
 
   onTransition(listener) {
@@ -187,6 +189,14 @@ export class CampaignHostOrchestrator {
    * `exclusive: true` (default) rejects a second live child.
    */
   async acquire(campaignId, hostOpts = {}, { exclusive = true, reuse = true } = {}) {
+    const retirement = this.#retirementPromises.get(campaignId);
+    if (retirement) {
+      const retired = await retirement.promise;
+      if (!retired) throw transitioningInputError();
+      // Re-read campaign ownership after the shared close settles. Another
+      // waiter may already have installed the one replacement.
+      return this.acquire(campaignId, hostOpts, { exclusive, reuse });
+    }
     const existing = this.hosts.get(campaignId);
     if (existing && !existing.closed) {
       if (reuse) return { host: existing, spawned: false };
@@ -243,18 +253,42 @@ export class CampaignHostOrchestrator {
    * fault. A concurrently installed replacement is never closed or removed.
    */
   async retireExactHost(campaignId, expectedHost) {
+    const inflight = this.#retirementPromises.get(campaignId);
+    if (inflight) {
+      return inflight.host === expectedHost ? inflight.promise : false;
+    }
     if (!expectedHost || this.hosts.get(campaignId) !== expectedHost) {
       return false;
     }
-    this.hosts.delete(campaignId);
     expectedHost.expectedShutdown = true;
-    try {
-      await expectedHost.close?.({ protocolAbort: false });
-    } catch {
-      // The exact poisoned child is already detached. A later acquire must
-      // create a fresh resume-first child rather than reuse its event log.
-    }
-    return true;
+    this.#setStatus(campaignId, { transitioning: true });
+    this.#emitTransition(campaignId, { reason: "terminal_fault_retiring" });
+    const record = { host: expectedHost, promise: null };
+    record.promise = (async () => {
+      try {
+        await expectedHost.close?.({ protocolAbort: false });
+      } catch (error) {
+        // Keep the poisoned identity registered and the transition fence
+        // closed. Process exit plus stdio settlement was not confirmed, so a
+        // later acquire must not overlap it with a replacement child.
+        this.#emitTransition(campaignId, {
+          reason: "terminal_fault_retirement_failed",
+          error: String(error?.message || error),
+        });
+        return false;
+      }
+      if (this.hosts.get(campaignId) === expectedHost) {
+        this.hosts.delete(campaignId);
+        this.#setStatus(campaignId, { transitioning: false });
+        this.#emitTransition(campaignId, { reason: "terminal_fault_retired" });
+      }
+      if (this.#retirementPromises.get(campaignId) === record) {
+        this.#retirementPromises.delete(campaignId);
+      }
+      return true;
+    })();
+    this.#retirementPromises.set(campaignId, record);
+    return record.promise;
   }
 
   /**

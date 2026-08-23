@@ -403,6 +403,104 @@ test("terminal turn fault retires only its exact host and refresh resumes on a f
   assert.equal(orchestrator.getHost("fault-refresh"), replacement);
 });
 
+test("exact-host retirement fences replacement spawn until one shared close settles", async () => {
+  const created = [];
+  let releaseClose;
+  const closeGate = new Promise((resolve) => {
+    releaseClose = resolve;
+  });
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = fakeHost({ campaignId: opts.campaignId });
+      host.tableIntent = opts.tableIntent;
+      host.closeCalls = 0;
+      if (created.length === 0) {
+        host.close = async (options) => {
+          host.closeCalls += 1;
+          host.closeOptions = options;
+          await closeGate;
+          host.closed = true;
+        };
+      }
+      created.push(host);
+      return host;
+    },
+  });
+  const { host: poisoned } = await orchestrator.acquire(
+    "retirement-fence", { tableIntent: "continue" },
+  );
+
+  const firstRetire = orchestrator.retireExactHost("retirement-fence", poisoned);
+  const joinedRetire = orchestrator.retireExactHost("retirement-fence", poisoned);
+  const waitingAcquire = orchestrator.acquire(
+    "retirement-fence",
+    { tableIntent: "continue" },
+    { reuse: false, exclusive: true },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(poisoned.closeCalls, 1, "same-host retire callers must share one close");
+  assert.equal(orchestrator.getHost("retirement-fence"), poisoned);
+  assert.equal(orchestrator.isTransitioning("retirement-fence"), true);
+  assert.equal(created.length, 1, "acquire must not spawn while close ownership is unsettled");
+
+  releaseClose();
+  assert.equal(await firstRetire, true);
+  assert.equal(await joinedRetire, true);
+  const { host: replacement, spawned } = await waitingAcquire;
+  assert.equal(spawned, true);
+  assert.notEqual(replacement, poisoned);
+  assert.equal(created.length, 2);
+});
+
+test("failed exact-host retirement keeps the poisoned slot fenced", async () => {
+  const created = [];
+  let rejectClose;
+  const closeGate = new Promise((resolve, reject) => {
+    rejectClose = reject;
+  });
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = fakeHost({ campaignId: opts.campaignId });
+      host.closeCalls = 0;
+      if (created.length === 0) {
+        host.close = async () => {
+          host.closeCalls += 1;
+          await closeGate;
+        };
+      }
+      created.push(host);
+      return host;
+    },
+  });
+  const { host: poisoned } = await orchestrator.acquire(
+    "retirement-close-failure", { tableIntent: "continue" },
+  );
+
+  const retiring = orchestrator.retireExactHost("retirement-close-failure", poisoned);
+  const waitingAcquire = orchestrator.acquire(
+    "retirement-close-failure",
+    { tableIntent: "continue" },
+    { reuse: false, exclusive: true },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  rejectClose(new Error("process and stdio did not settle"));
+
+  assert.equal(await retiring, false);
+  await assert.rejects(
+    waitingAcquire,
+    (error) => error.code === SESSION_TRANSITIONING_CODE,
+  );
+  assert.equal(orchestrator.getHost("retirement-close-failure"), poisoned);
+  assert.equal(orchestrator.isTransitioning("retirement-close-failure"), true);
+  assert.equal(created.length, 1, "close failure must not free the child slot");
+  assert.equal(
+    await orchestrator.retireExactHost("retirement-close-failure", poisoned),
+    false,
+  );
+  assert.equal(poisoned.closeCalls, 1, "failed retirement remains the shared fence");
+});
+
 test("model catalog refresh replaces the live host with the selected model", async () => {
   const created = [];
   const orchestrator = new CampaignHostOrchestrator({
