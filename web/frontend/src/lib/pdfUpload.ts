@@ -2,8 +2,9 @@ import * as api from "../api";
 import type { PdfIngestStatus } from "../api";
 import type { PdfUploadResult } from "../types";
 import {
-  buildPdfIngestRequest,
+  continueRegisteredPdfUpload,
   pdfOcrHintForError,
+  shouldIngestUploadedPdf,
 } from "./pdf-upload-policy";
 
 export type PdfIngestApply = {
@@ -30,15 +31,54 @@ export async function applyPdfUploadResult(
   let message = result.message ?? "上传完成";
   let info = result;
   onProgress?.(message);
-
-  if (result.status === "stored_pending_ingest" || result.status === "matched_bundle") {
-    message = result.status === "matched_bundle"
-      ? "正在检查长模组解析窗口…"
-      : "正在快速解析…";
+  if (shouldIngestUploadedPdf(result.status)) {
+    message = "正在快速解析…";
     onProgress?.(message);
+  }
+
+  let continued;
+  try {
+    continued = await continueRegisteredPdfUpload(result, api.ingestPdf);
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    const ocrHint = pdfOcrHintForError(raw);
+    message = `解析失败：${raw}${ocrHint ? `；${ocrHint}` : ""}`;
+    onProgress?.(message);
+    return {
+      info: result,
+      message,
+      bundlePath: null,
+      titleHint: null,
+      fileSha256: result.file_sha256 || null,
+      backgroundStarted: false,
+    };
+  }
+
+  if (continued.action === "reject") {
+    onProgress?.(continued.message);
+    return {
+      info: result,
+      message: continued.message,
+      bundlePath: null,
+      titleHint: null,
+      fileSha256: result.file_sha256 || null,
+      backgroundStarted: false,
+    };
+  }
+  if (continued.action === "reuse") {
+    return {
+      info,
+      message,
+      bundlePath: continued.bundlePath,
+      titleHint: continued.titleHint,
+      fileSha256: continued.fileSha256 || result.file_sha256 || null,
+      backgroundStarted: false,
+    };
+  }
+
+  if (continued.action === "ingest") {
     try {
-      const ingest = await api.ingestPdf(buildPdfIngestRequest(result));
-      const ingestResult = ingest.result;
+      const ingestResult = continued.ingest.result;
       message =
         ingestResult.message ??
         (ingestResult.status === "matched_bundle" ? "解析完成，可以开局" : "解析中");
