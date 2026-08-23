@@ -662,6 +662,177 @@ def load_campaign_state(campaign_dir: Path) -> dict[str, Any]:
     )
 
 
+RUN_IDENTITY_SCHEMA_VERSION = 1
+RUN_IDENTITY_RELATIVE = Path("save") / "run-identity.json"
+RUN_IDENTITY_FIELDS = (
+    "schema_version",
+    "campaign_id",
+    "run_segment_id",
+    "session_id",
+    "plugin_version",
+    "ruleset_id",
+    "ruleset_version",
+)
+_RUN_IDENTITY_SENTINELS = frozenset({
+    "missing", "unknown", "unset", "placeholder", "none", "null", "n/a", "na",
+})
+_PLUGIN_PACKAGE_JSON = Path(__file__).resolve().parents[3] / "package.json"
+
+
+class RunIdentityConflict(ValueError):
+    """Caller identity disagrees with the frozen campaign run identity."""
+
+    code = "run_identity_conflict"
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+def run_identity_path(campaign_dir: Path) -> Path:
+    """Campaign-owned path for the frozen table-run identity record."""
+    return Path(campaign_dir) / RUN_IDENTITY_RELATIVE
+
+
+def plugin_package_version() -> str:
+    """Declared version of the loaded plugin package (``package.json``)."""
+    path = _PLUGIN_PACKAGE_JSON
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UnsupportedSaveSchema(
+            kind="run_identity", path=path, reason="plugin_version_unreadable"
+        ) from exc
+    version = payload.get("version") if isinstance(payload, dict) else None
+    if not isinstance(version, str) or not version.strip():
+        raise UnsupportedSaveSchema(
+            kind="run_identity", path=path, reason="plugin_version_missing"
+        )
+    return version.strip()
+
+
+def _run_identity_string(value: Any, field: str) -> str | None:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        return None
+    if value.casefold() in _RUN_IDENTITY_SENTINELS:
+        return None
+    return value
+
+
+def _validated_run_identity(
+    payload: dict[str, Any], *, path: Path
+) -> dict[str, Any]:
+    if payload.get("schema_version") != RUN_IDENTITY_SCHEMA_VERSION:
+        raise UnsupportedSaveSchema(
+            kind="run_identity",
+            path=path,
+            reason=(
+                "schema_version_mismatch:"
+                f"{payload.get('schema_version')!r}!={RUN_IDENTITY_SCHEMA_VERSION}"
+            ),
+        )
+    identity: dict[str, Any] = {
+        "schema_version": RUN_IDENTITY_SCHEMA_VERSION,
+    }
+    for field in RUN_IDENTITY_FIELDS:
+        if field == "schema_version":
+            continue
+        value = _run_identity_string(payload.get(field), field)
+        if value is None:
+            raise UnsupportedSaveSchema(
+                kind="run_identity", path=path, reason=f"invalid_{field}"
+            )
+        identity[field] = value
+    return identity
+
+
+def load_run_identity(campaign_dir: Path) -> dict[str, Any] | None:
+    """Typed reader for the frozen table-run identity.
+
+    Missing record returns ``None``. A present but incomplete, sentinel,
+    identity-mismatched, or non-current record fails closed.
+    Canonical consumer: battle-report exporter (via t3) and toolbox bind.
+    """
+    campaign_dir = Path(campaign_dir)
+    path = run_identity_path(campaign_dir)
+    if not path.exists():
+        return None
+    payload = load_state_object(
+        path,
+        "run_identity",
+        expected_identity={"campaign_id": campaign_dir.name},
+    )
+    return _validated_run_identity(payload, path=path)
+
+
+def bind_run_identity(
+    campaign_dir: Path,
+    *,
+    campaign_id: str,
+    run_segment_id: str,
+    session_id: str,
+) -> dict[str, Any]:
+    """Create or confirm the campaign's frozen table-run identity.
+
+    First write resolves ``plugin_version`` from the loaded package and
+    ``ruleset_id``/``ruleset_version`` from the campaign binding. Later
+    calls must repeat the same campaign/run/session or fail closed.
+    """
+    campaign_dir = Path(campaign_dir)
+    campaign_id_value = _run_identity_string(campaign_id, "campaign_id")
+    run_segment_value = _run_identity_string(run_segment_id, "run_segment_id")
+    session_value = _run_identity_string(session_id, "session_id")
+    if campaign_id_value is None:
+        raise ValueError("campaign_id must be a non-empty identity string")
+    if run_segment_value is None:
+        raise ValueError("run_segment_id must be a non-empty identity string")
+    if session_value is None:
+        raise ValueError("session_id must be a non-empty identity string")
+    if campaign_id_value != campaign_dir.name:
+        raise RunIdentityConflict(
+            "campaign_id does not match the campaign directory"
+        )
+    path = run_identity_path(campaign_dir)
+    lock_path = campaign_dir / "save" / "run-identity.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _advisory_file_lock(lock_path):
+        existing = load_run_identity(campaign_dir)
+        if existing is not None:
+            if (
+                existing["campaign_id"] != campaign_id_value
+                or existing["run_segment_id"] != run_segment_value
+                or existing["session_id"] != session_value
+            ):
+                raise RunIdentityConflict(
+                    "caller identity does not match the frozen run identity"
+                )
+            return existing
+        campaign = load_campaign_state(campaign_dir)
+        if campaign.get("campaign_id") != campaign_id_value:
+            raise RunIdentityConflict(
+                "campaign.json campaign_id does not match the caller identity"
+            )
+        ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+        manifest = coc_rulesets.load_manifest(ruleset_id)
+        ruleset_version = manifest.get("version")
+        if not isinstance(ruleset_version, str) or not ruleset_version.strip():
+            raise UnsupportedSaveSchema(
+                kind="run_identity",
+                path=path,
+                reason="ruleset_version_missing",
+            )
+        record = {
+            "schema_version": RUN_IDENTITY_SCHEMA_VERSION,
+            "campaign_id": campaign_id_value,
+            "run_segment_id": run_segment_value,
+            "session_id": session_value,
+            "plugin_version": plugin_package_version(),
+            "ruleset_id": ruleset_id,
+            "ruleset_version": ruleset_version.strip(),
+        }
+        write_json_atomic(path, record)
+        return record
+
+
 def load_world_state(campaign_dir: Path) -> dict[str, Any]:
     """Load exact-current identity-bound world state."""
     campaign_dir = Path(campaign_dir)

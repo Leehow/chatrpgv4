@@ -23279,6 +23279,21 @@ def _turn_contract_projection(
     investigator_id = (ctx.party_ids() or [""])[0]
     if not run_segment_id or not session_id:
         raise ToolError("state_corrupt", "pending turn identity is incomplete")
+    try:
+        identity = coc_state.load_run_identity(ctx.campaign_dir)
+    except coc_state.UnsupportedSaveSchema as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    if identity is None:
+        raise ToolError("state_corrupt", "canonical run identity is missing")
+    if (
+        identity["run_segment_id"] != run_segment_id
+        or identity["session_id"] != session_id
+        or identity["campaign_id"] != str(ctx.campaign_id)
+    ):
+        raise ToolError(
+            "run_identity_conflict",
+            "pending turn identity does not match the frozen run identity",
+        )
     active_id = str(ctx.world().get("active_scene_id") or "") or None
     party_subject_refs = [f"pc:{value}" for value in ctx.party_ids()]
     projection = {
@@ -30423,6 +30438,18 @@ def _run_segment_binding(
         and str(row["run_segment_id"]).strip()
     ]
     identities = {str(row["run_segment_id"]).strip() for row in bound_rows}
+    try:
+        persisted = coc_state.load_run_identity(ctx.campaign_dir)
+    except coc_state.UnsupportedSaveSchema as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    if persisted is not None:
+        persisted_id = str(persisted["run_segment_id"])
+        if identities and persisted_id not in identities:
+            raise ToolError(
+                "run_identity_conflict",
+                "persisted run identity does not match the table transcript",
+            )
+        identities.add(persisted_id)
     if len(identities) > 1:
         raise ToolError("state_corrupt", "table transcript spans multiple run segments")
     if identities:
@@ -30432,12 +30459,20 @@ def _run_segment_binding(
                 "run_segment_conflict",
                 "caller run_id does not match the frozen table run segment",
             )
-        first = bound_rows[0]
+        first = bound_rows[0] if bound_rows else {}
         return {
             "run_segment_id": run_segment_id,
             "alias": alias or None,
-            "source": str(first.get("run_segment_source") or "transcript_frozen"),
-            "trust": str(first.get("run_segment_trust") or "fallback"),
+            "source": (
+                "run_identity"
+                if persisted is not None and not bound_rows
+                else str(first.get("run_segment_source") or "transcript_frozen")
+            ),
+            "trust": (
+                "authoritative"
+                if persisted is not None and not bound_rows
+                else str(first.get("run_segment_trust") or "fallback")
+            ),
         }
     if opening:
         if not alias:
@@ -30483,14 +30518,26 @@ def _record_table_transcript_entry(
         raise ToolError("invalid_param", "table transcript text must be non-empty")
     entry_id = _table_transcript_entry_id(role, source_id)
     session_binding = _active_session_binding(ctx, run_id)
+    bound_session_id = session_id or session_binding["session_id"]
+    try:
+        identity = coc_state.bind_run_identity(
+            ctx.campaign_dir,
+            campaign_id=str(ctx.campaign_id),
+            run_segment_id=run_id,
+            session_id=bound_session_id,
+        )
+    except coc_state.RunIdentityConflict as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    except (coc_state.UnsupportedSaveSchema, ValueError) as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
     stable = {
         "schema_version": 1,
         "entry_id": entry_id,
-        "run_id": run_id,
-        "run_segment_id": run_id,
+        "run_id": identity["run_segment_id"],
+        "run_segment_id": identity["run_segment_id"],
         "run_segment_source": run_segment_source or "transcript_frozen",
         "run_segment_trust": run_segment_trust or "fallback",
-        "session_id": session_id or session_binding["session_id"],
+        "session_id": identity["session_id"],
         "session_source": session_binding["source"],
         "session_trust": session_binding["trust"],
         "turn": int(turn_number),
