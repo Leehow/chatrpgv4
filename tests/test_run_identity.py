@@ -252,6 +252,10 @@ def test_host_session_is_frozen_into_identity_and_transcript(
     assert rows
     assert {row["session_id"] for row in rows} == {"pi-host-session-1"}
     assert {row["run_segment_id"] for row in rows} == {"run-001"}
+    assert rows[0]["record_kind"] == "table_opening"
+    assert rows[0]["source_ref"].startswith("table.opening#")
+    assert rows[0]["turn"] == 0
+    assert rows[0].get("finalization_id") in (None, "")
 
 
 def test_table_opening_detects_identity_conflict(tmp_path: Path) -> None:

@@ -722,7 +722,7 @@ set separately from the development audit set.
 | Dimension | Required proof |
 | --- | --- |
 | `run_identity` | Campaign-owned `save/run-identity.json` (`schema_version: 1`) is present and current: exact `campaign_id`, `run_segment_id`, `session_id`, `plugin_version`, `ruleset_id`, `ruleset_version`. Harness `run.json` / `playtest.json` cannot override it. Missing, corrupt, sentinel, or conflicting identity fails closed. |
-| `accepted_transcript` | Every journaled player row and finalized Keeper row appears exactly once and binds the accepted revision. When the canonical identity is present, only matching run/session rows are selected. |
+| `accepted_transcript` | Every journaled player row and finalized Keeper row appears exactly once and binds the accepted revision. A canonical `table_opening` / `table.opening#` pre-turn Keeper row is counted and identity-bound but must not carry a finalization receipt. When the canonical identity is present, only matching run/session rows are selected. |
 | `dice` | Every public/consequence-public roll is well formed, source traceable, bound, and rendered exactly once; concealed rolls render zero times. Unchanged by the Git-proof work. |
 | `state` | Structured Git proof `state_integrity_proof(...).to_dict()` is `PASS`; `FAIL` and `NOT_PROVEN` stay distinct. Visible typed deltas still require a registered state receipt. Never read `save/commit-snapshots`. |
 | `settlement_uniqueness` | Session/ending/development settlement keys are unique and idempotent. |

@@ -115,8 +115,17 @@ only when every referenced schema-v2 receipt passes the canonical
 `coc_turn_finalization._valid_finalization` validator. Legacy/unbound transcript
 is partial evidence and cannot pass accepted-transcript completeness. The
 canonical player row must bind the exact run segment, session, turn, and
-`state.journal` decision, while its Keeper row binds the exact accepted
-revision and finalization receipt.
+`state.journal` decision, while its finalized Keeper row binds the exact
+accepted revision and finalization receipt.
+
+A canonical pre-turn table-opening Keeper row is not a finalized turn. The
+normal `evidence.table_opening` write marks it `record_kind=table_opening` and
+binds structured provenance `source_ref=table.opening#<decision_id>` with
+`turn=0` and the frozen run/session identity. The exporter counts and evidences
+that row without requiring a finalization receipt, and fails closed if the row
+carries finalization fields or lacks that structured kind/provenance. Any other
+unfinalized player or Keeper turn row still fails accepted-transcript
+completeness.
 
 Player evidence is schema 8; the Keeper/development audit envelope is schema 2.
 State completeness consumes
