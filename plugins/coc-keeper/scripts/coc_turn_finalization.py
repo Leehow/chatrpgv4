@@ -2431,6 +2431,53 @@ def _pending_modifier_consumptions(
     return sorted(pending, key=lambda row: (row["effect_id"], row["roll_id"]))
 
 
+def _add_investigator_id(target: set[str], value: Any) -> None:
+    if isinstance(value, str):
+        investigator_id = value.strip()
+        if investigator_id:
+            target.add(investigator_id)
+
+
+def _pc_subject_refs(
+    campaign_dir: Path,
+    *,
+    window: list[dict[str, Any]],
+    journal: dict[str, Any],
+) -> list[str]:
+    """Investigator refs from party + pending-turn provenance, not combat success."""
+    ids: set[str] = set()
+    party_path = Path(campaign_dir) / "party.json"
+    if party_path.is_file():
+        try:
+            party = json.loads(party_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            party = {}
+        if isinstance(party, dict):
+            for key in ("investigator_ids", "active_investigator_ids"):
+                for raw in party.get(key) or []:
+                    _add_investigator_id(ids, raw)
+    journal_args = journal.get("args") if isinstance(journal.get("args"), dict) else {}
+    journal_data = journal.get("data") if isinstance(journal.get("data"), dict) else {}
+    for raw in (
+        journal_args.get("investigator"),
+        journal_args.get("investigator_id"),
+        journal_data.get("investigator_id"),
+        journal_data.get("investigator"),
+    ):
+        _add_investigator_id(ids, raw)
+    for call in window:
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        data = call.get("data") if isinstance(call.get("data"), dict) else {}
+        for raw in (
+            args.get("investigator"),
+            args.get("investigator_id"),
+            data.get("investigator_id"),
+            data.get("investigator"),
+        ):
+            _add_investigator_id(ids, raw)
+    return [f"pc:{investigator_id}" for investigator_id in sorted(ids)]
+
+
 def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     ruleset_id = _campaign_ruleset_id(campaign_dir)
     try:
@@ -2529,6 +2576,9 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
             [row["obligation_id"] for row in obligations],
         ]),
     )
+    pc_subject_refs = _pc_subject_refs(
+        campaign_dir, window=window, journal=journal,
+    )
     return {
         "schema_version": 1,
         "turn_id": manifest["turn_id"],
@@ -2555,6 +2605,11 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         "pending_modifier_consumptions": pending_modifiers,
         "composition_mode": "causal_paragraph_placements",
         "placement_segment_types": sorted(MECHANIC_SEGMENT_TYPES),
+        "contract_projection": {
+            "agency_authority": {
+                "pc_subject_refs": list(pc_subject_refs),
+            },
+        },
     }
 
 
