@@ -45,6 +45,16 @@ RESTORE_SAVE_EXCLUDES: frozenset[str] = frozenset({
     "roll-operation-receipts.json",
 })
 
+# Required tracked paths that prove campaign state in HEAD. Ignore-face
+# paths are never authoritative. Receipts log is required only after a
+# finalized turn exists.
+AUTHORITATIVE_STATE_PATHS: tuple[str, ...] = (
+    "campaign.json",
+    "save/world-state.json",
+    "logs/turn-finalizations.jsonl",
+)
+AUTHORITATIVE_STATE_PREFIXES: tuple[str, ...] = ("save/",)
+
 # Used only when recovering a corrupt object database with no caller-supplied
 # generation string. Keep in sync with coc_state.CURRENT_SCHEMA_VERSIONS.
 _FALLBACK_SCHEMA_GENERATION = "campaign-3/world-2/pacing-1/investigator-1"
@@ -135,6 +145,35 @@ def worktree_path_for(root: Path | str, campaign_id: str) -> Path:
     campaigns = _coc_root(root) / "campaigns"
     campaign_dir = campaigns / campaign_id
     return _require_under(campaigns, campaign_dir, label="campaign")
+
+
+def looks_like_git_repo(repo: Path) -> bool:
+    """True when ``repo`` has the files of a git object database."""
+    return _looks_like_git_repo(repo)
+
+
+def path_is_ignored(relpath: str) -> bool:
+    """True when ``relpath`` is on the Coordinator ignore face."""
+    normalized = relpath.replace("\\", "/").lstrip("./")
+    if not normalized:
+        return False
+    for pattern in IGNORE_PATHS:
+        if pattern.endswith("/"):
+            if normalized == pattern[:-1] or normalized.startswith(pattern):
+                return True
+        elif normalized == pattern:
+            return True
+    return False
+
+
+def is_authoritative_state_path(relpath: str) -> bool:
+    """True when ``relpath`` is tracked campaign state (not ignore-face)."""
+    normalized = relpath.replace("\\", "/").lstrip("./")
+    if not normalized or path_is_ignored(normalized):
+        return False
+    if normalized in AUTHORITATIVE_STATE_PATHS:
+        return True
+    return any(normalized.startswith(prefix) for prefix in AUTHORITATIVE_STATE_PREFIXES)
 
 
 def _isolated_git_env() -> dict[str, str]:
