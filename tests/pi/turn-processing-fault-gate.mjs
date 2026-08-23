@@ -98,11 +98,53 @@ test("gate latches one fault, clears pending follow-up, suppresses prose, and re
   });
   assert.equal(gate.currentTurnProcessingFault(), first.fault);
   assert.equal(
-    gate.armFrozenReviewRecovery({ campaign_id: "missing" }),
+    gate.armFrozenReviewRecovery({
+      campaign_id: "missing",
+      run_id: "run",
+      session_id: "session",
+      turn_id: "turn",
+      revision: 1,
+      source_digest: "sha256:source",
+    }),
     false,
   );
   gate.reset();
   assert.equal(gate.currentTurnProcessingFault(), null);
+});
+
+test("late player epoch cannot arm frozen review recovery", () => {
+  const gate = new extension.OpeningTerminalContinuationGate();
+  gate.observeMessageStart({
+    role: "user",
+    content: [{ type: "text", text: "询问报酬。" }],
+  });
+  const identity = {
+    campaign_id: campaign,
+    run_id: "turn-processing-fault-gate",
+    session_id: "turn-processing-fault-gate",
+    turn_id: baseReview.turn_id,
+    revision: 1,
+    source_digest: baseReview.source_digest,
+    failure_class: "result_invalid",
+  };
+  const first = gate.armTurnProcessingFault({
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    ...identity,
+  });
+  assert.equal(first.first, true);
+  assert.equal(gate.armFrozenReviewRecovery(identity), true);
+  gate.observeMessageStart({
+    role: "user",
+    content: [{ type: "text", text: "新的玩家行动。" }],
+  });
+  assert.equal(gate.armFrozenReviewRecovery(identity), false);
+  assert.equal(
+    gate.matchFrozenReviewRecovery(identity),
+    "reject",
+  );
 });
 
 test("extension emits one safe fault, latches changed args, retries failed delivery without follow-up", async () => {
@@ -462,6 +504,7 @@ async function recoveryHarness(options = {}) {
     );
   });
   const compiler = options.compiler ?? new PiStateClaimCompiler(infer);
+  const contextEnvelope = options.outputContext ?? outputContext;
   const tools = new Map();
   const handlers = new Map();
   const clientCalls = [];
@@ -497,7 +540,7 @@ async function recoveryHarness(options = {}) {
         },
       };
     }
-    if (params.operation === "turn.output_context") return outputContext;
+    if (params.operation === "turn.output_context") return contextEnvelope;
     if (params.operation === "narration.review") {
       return {
         ok: true,
@@ -637,6 +680,11 @@ test("resume-armed recovery retries compiler once and finalizes with host receip
       resumed.data.host_recovery_guidance.review_recovery.exact_card_path,
       "coc_turn_output_context.data.agency_review_operation",
     );
+    assert.equal(resumed.data.host_recovery_guidance.review_recovery.revision, 1);
+    assert.equal(
+      resumed.data.host_recovery_guidance.review_recovery.instruction.includes("revision-1"),
+      false,
+    );
 
     const mismatched = await h.parse("review-mismatch", "narration.review", {
       ...baseReview,
@@ -750,6 +798,42 @@ test("second final invalid stays latched and timeout is not recovery-armed", asy
       decision_id: "review-timeout-2",
     });
     assert.equal(timeoutRetry.error.code, "turn_processing_fault_latched");
+
+    for (const [label, failureClass, message] of [
+      ["provider", "provider_unavailable", "state_claim_compiler_unavailable"],
+      ["capability", "capability_unsupported", "state_claim_model_api_unsupported"],
+    ]) {
+      const blocked = await recoveryHarness({
+        sessionId: `turn-processing-fault-${label}`,
+        infer: async () => {
+          throw new PiStateClaimCompilerFailure(
+            message,
+            failureClass,
+            { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+            4,
+          );
+        },
+      });
+      await blocked.parse("resume", "session.resume", {});
+      await blocked.player("询问报酬。");
+      await blocked.parse("context", "turn.output_context", {});
+      const failed = await blocked.parse(`review-${label}`, "narration.review", baseReview);
+      assert.equal(failed.error.code, "state_claim_compiler_unavailable", label);
+      assert.equal(failed.error.details.failure_class, failureClass, label);
+      blocked.setResumeMode("pending_finalization");
+      const blockedResume = await blocked.parse(`${label}-resume`, "session.resume", {});
+      assert.equal(
+        blockedResume.data.host_recovery_guidance.review_recovery.armed,
+        false,
+        label,
+      );
+      const blockedRetry = await blocked.parse(`review-${label}-2`, "narration.review", {
+        ...baseReview,
+        draft_text: `${label} 后不能恢复。`,
+        decision_id: `review-${label}-2`,
+      });
+      assert.equal(blockedRetry.error.code, "turn_processing_fault_latched", label);
+    }
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;
@@ -786,7 +870,11 @@ test("new player action and restart-style pending resume stay fail-closed", asyn
     assert.equal(afterPlayer.error.code, "turn_processing_fault_latched");
     assert.equal(inferCalls, 2);
     h.setResumeMode("pending_finalization");
-    await h.parse("late-resume", "session.resume", {});
+    const lateResume = await h.parse("late-resume", "session.resume", {});
+    assert.equal(
+      lateResume.data.host_recovery_guidance.review_recovery.armed,
+      false,
+    );
     const afterLateResume = await h.parse("review-late", "narration.review", {
       ...baseReview,
       draft_text: "新的地下室叙述。",
@@ -838,6 +926,126 @@ test("new player action and restart-style pending resume stay fail-closed", asyn
       agency_claims: [],
     });
     assert.equal(restartFinalize.ok, true, JSON.stringify(restartFinalize));
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("context missing does not consume the resume-armed recovery", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    let inferCalls = 0;
+    const h = await recoveryHarness({
+      infer: async (input) => {
+        inferCalls += 1;
+        if (inferCalls <= 2) {
+          throw new PiStateClaimCompilerFailure(
+            "state_claim_coverage_incomplete",
+            "result_invalid",
+            { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+            4,
+          );
+        }
+        return {
+          result: validCompilerResult(input),
+          responseModel: { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+        };
+      },
+    });
+    await h.parse("resume", "session.resume", {});
+    await h.player("询问报酬。");
+    await h.parse("context", "turn.output_context", {});
+    await h.parse("review-1", "narration.review", baseReview);
+    assert.equal(inferCalls, 2);
+    h.setResumeMode("pending_finalization");
+    const armed = await h.parse("recover-resume", "session.resume", {});
+    assert.equal(armed.data.host_recovery_guidance.review_recovery.armed, true);
+    h.compiler.clear();
+    const missing = await h.parse("review-missing", "narration.review", {
+      ...baseReview,
+      draft_text: "缺上下文的草稿。",
+      decision_id: "review-missing",
+    });
+    assert.equal(missing.error.code, "state_claim_compiler_context_missing");
+    assert.equal(inferCalls, 2);
+    const stillArmed = await h.parse("recover-resume-2", "session.resume", {});
+    assert.equal(
+      stillArmed.data.host_recovery_guidance.review_recovery.armed,
+      true,
+    );
+    await h.parse("context-2", "turn.output_context", {});
+    const recovered = await h.parse("review-recover", "narration.review", {
+      ...baseReview,
+      draft_text: "补上下文后的草稿。",
+      decision_id: "review-after-missing",
+    });
+    assert.equal(recovered.ok, true, JSON.stringify(recovered));
+    assert.equal(inferCalls, 3);
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("frozen revision 2 recovery uses the host card revision", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    const revisionTwoContext = {
+      ...outputContext,
+      data: {
+        ...outputContext.data,
+        agency_review_operation: {
+          prefilled_arguments: { revision: 2 },
+        },
+      },
+    };
+    let inferCalls = 0;
+    const h = await recoveryHarness({
+      outputContext: revisionTwoContext,
+      infer: async (input) => {
+        inferCalls += 1;
+        if (inferCalls <= 2) {
+          throw new PiStateClaimCompilerFailure(
+            "state_claim_coverage_incomplete",
+            "result_invalid",
+            { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+            4,
+          );
+        }
+        return {
+          result: validCompilerResult(input),
+          responseModel: { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+        };
+      },
+    });
+    const reviewTwo = { ...baseReview, revision: 2, decision_id: "review-rev-2" };
+    await h.parse("resume", "session.resume", {});
+    await h.player("询问报酬。");
+    await h.parse("context", "turn.output_context", {});
+    const first = await h.parse("review-1", "narration.review", reviewTwo);
+    assert.equal(first.error.code, "state_claim_compiler_invalid");
+    h.setResumeMode("pending_finalization");
+    const resumed = await h.parse("recover-resume", "session.resume", {});
+    assert.equal(resumed.data.host_recovery_guidance.review_recovery.armed, true);
+    assert.equal(resumed.data.host_recovery_guidance.review_recovery.revision, 2);
+    const wrongRevision = await h.parse("review-wrong-rev", "narration.review", {
+      ...reviewTwo,
+      revision: 1,
+      draft_text: "错误地写成 revision 1。",
+      decision_id: "review-wrong-rev",
+    });
+    assert.equal(wrongRevision.error.code, "turn_processing_fault_latched");
+    assert.equal(inferCalls, 2);
+    const recovered = await h.parse("review-recover", "narration.review", {
+      ...reviewTwo,
+      draft_text: "按冻结 revision 2 重写。",
+      decision_id: "review-rev-2-recover",
+    });
+    assert.equal(recovered.ok, true, JSON.stringify(recovered));
+    assert.equal(inferCalls, 3);
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;

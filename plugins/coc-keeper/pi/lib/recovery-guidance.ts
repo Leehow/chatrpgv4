@@ -74,7 +74,7 @@ export function isPendingFinalizationResume(value: unknown): boolean {
 export function applyPendingFinalizationRecoveryGuidance(
   value: unknown,
   invocation: { root: string; campaign: string },
-  options?: { reviewRecoveryArmed?: boolean },
+  options?: { reviewRecoveryArmed?: boolean; revision?: number },
 ): {
   attached: boolean;
   envelope: unknown;
@@ -110,14 +110,16 @@ export function applyPendingFinalizationRecoveryGuidance(
       tool: "coc_narration_review",
       exact_card_path: "coc_turn_output_context.data.agency_review_operation",
       armed: options?.reviewRecoveryArmed === true,
+      revision: Number.isInteger(options?.revision) ? options.revision : null,
       instruction: (
         "If agency_review_operation is present, use its prefilled_arguments "
-        + "exactly (turn_id, source_digest, revision). For a missing or "
-        + "compiler-failed review, draft new revision-1 player-visible prose "
-        + "over the same output context. Never supply state_claim_compilation "
-        + "or any host compiler receipt field. Do not rerun rules, state "
-        + "writes, or state.journal. Revision 2 remains only for an "
-        + "accepted-undelivered draft repair."
+        + "exactly, including the host-provided revision on this card and on "
+        + "the operation. Draft new player-visible prose over the same output "
+        + "context using only that frozen revision. Never invent or assume a "
+        + "revision number. Never supply state_claim_compilation or any host "
+        + "compiler receipt field. Do not rerun rules, state writes, or "
+        + "state.journal. Revision 2 remains only for an accepted-undelivered "
+        + "draft repair."
       ),
     },
     then: {

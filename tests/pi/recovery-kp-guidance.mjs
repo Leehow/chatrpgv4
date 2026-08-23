@@ -165,6 +165,35 @@ assert.equal(
   false,
 );
 assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.review_recovery.revision,
+  null,
+);
+assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.review_recovery.instruction.includes(
+    "revision-1",
+  ),
+  false,
+);
+assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.review_recovery.instruction.includes(
+    "host-provided revision",
+  ),
+  true,
+);
+const pendingRevisionTwo = applyPendingFinalizationRecoveryGuidance(
+  pendingDirectEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+  { reviewRecoveryArmed: true, revision: 2 },
+);
+assert.equal(
+  pendingRevisionTwo.envelope.data.host_recovery_guidance.review_recovery.revision,
+  2,
+);
+assert.equal(
+  pendingRevisionTwo.envelope.data.host_recovery_guidance.review_recovery.armed,
+  true,
+);
+assert.equal(
   pendingDirect.envelope.data.host_recovery_guidance.then.exact_card_path,
   "coc_turn_output_context.data.finalize_operation",
 );
