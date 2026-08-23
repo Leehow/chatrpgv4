@@ -108,9 +108,11 @@ test("lastVisibleAssistantText finds the newest matching session file", () => {
   }
 });
 
-test("hostedSessionMessages finds workspace .pi/agent when product dir is empty", () => {
+test("hostedSessionMessages searches repo, app, and workspace roots by newest evidence", () => {
   const product = fs.mkdtempSync(path.join(os.tmpdir(), "coc-product-agent-"));
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-ws-"));
+  const repoRoot = path.join(workspace, "repo");
+  const runtime = path.join(repoRoot, ".pi", "coc-agent");
   const sessionId = "web-the-white-war-qs-mt0c8rdz";
   try {
     const local = path.join(workspace, ".pi", "agent");
@@ -131,12 +133,23 @@ test("hostedSessionMessages finds workspace .pi/agent when product dir is empty"
       }),
       path.resolve(local),
     );
+    const repoFile = writeSession(runtime, sessionId, [
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "仓库本地的较新记录。" }],
+        },
+      },
+    ]);
+    const legacyFile = path.join(local, "sessions", "cwd-key", `2026-08-17T04-46-20Z_${sessionId}.jsonl`);
+    fs.utimesSync(legacyFile, new Date(1_000), new Date(1_000));
+    fs.utimesSync(repoFile, new Date(2_000), new Date(2_000));
     const messages = hostedSessionMessages({
-      workspace,
-      agentDir: product,
+      agentDirs: [runtime, product, local],
       sessionId,
     });
-    assert.equal(messages.at(-1)?.text, "这就是你的调查员。确认吗？");
+    assert.equal(messages.at(-1)?.text, "仓库本地的较新记录。");
   } finally {
     fs.rmSync(product, { recursive: true, force: true });
     fs.rmSync(workspace, { recursive: true, force: true });

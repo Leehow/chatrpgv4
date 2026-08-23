@@ -65,7 +65,11 @@ import {
   attachPortraitToDisplayCharacter,
 } from "./projections.mjs";
 import { getModelEditorState, saveApiKeyProvider, saveModelEditorList } from "./model-editor.mjs";
-import { armProductAgentEnv, resolveProductAgentDir } from "./agent-dir.mjs";
+import {
+  armProductAgentEnv,
+  resolveHostedSessionAgentDirs,
+  resolveProductAgentDir,
+} from "./agent-dir.mjs";
 import { loadUserPrefs, resolveUserPrefsPath, saveUserPrefs } from "./user-prefs.mjs";
 import { loadWebSearchKeysView, saveWebSearchApiKeys } from "./web-search-keys.mjs";
 import { loadOcrTokenView, saveOcrToken } from "./ocr-secrets.mjs";
@@ -382,7 +386,11 @@ async function transcriptPayload(info) {
   if (timed !== null) return timed;
   const hosted = hostedSessionMessages({
     workspace: WORKSPACE,
-    agentDir: resolveProductAgentDir(),
+    agentDirs: resolveHostedSessionAgentDirs({
+      repoRoot: REPO_ROOT,
+      workspace: WORKSPACE,
+      agentDir: resolveProductAgentDir(),
+    }),
     sessionId: info.session_id || webSessionId(info.campaign_id),
   });
   if (hosted.length) return hosted;

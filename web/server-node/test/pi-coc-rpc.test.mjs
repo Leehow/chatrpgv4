@@ -346,16 +346,18 @@ test("buildChildEnv marks an attached UI and play workspace", () => {
   assert.equal(env.COC_PI_TABLE_INTENT, "character-setup");
 });
 
-test("buildChildEnv pins both Pi home variables to the explicit product home", () => {
+test("buildChildEnv pins all Pi-Coc home variables to the exact repo home", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-rpc-home-ws-"));
+  const repoRoot = path.join(workspace, "current-repo");
   const productAgentDir = path.join(workspace, "desktop-data", "pi-agent");
+  const runtimeAgentDir = path.join(repoRoot, ".pi", "coc-agent");
   try {
     // Presence of a legacy workspace home must not redirect writable runtime
     // identity, even when PI_CODING_AGENT_DIR was inherited from elsewhere.
     fs.mkdirSync(path.join(workspace, ".pi", "agent"), { recursive: true });
     const env = buildChildEnv({
       workspace,
-      repoRoot: "/tmp/missing-repo",
+      repoRoot,
       campaignId: "home-pin",
       sessionId: "web-home-pin",
       agentDir: productAgentDir,
@@ -363,17 +365,19 @@ test("buildChildEnv pins both Pi home variables to the explicit product home", (
         PATH: "/usr/bin",
         HOME: "/tmp",
         PI_AGENT_DIR: "/tmp/inherited-agent",
+        PI_COC_AGENT_DIR: "/tmp/foreign-repo/.pi/coc-agent",
         PI_CODING_AGENT_DIR: path.join(workspace, ".pi", "agent"),
       },
       userPrefs: {},
     });
-    assert.equal(env.PI_AGENT_DIR, path.resolve(productAgentDir));
-    assert.equal(env.PI_CODING_AGENT_DIR, path.resolve(productAgentDir));
+    assert.equal(env.PI_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(env.PI_CODING_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(env.PI_COC_AGENT_DIR, path.resolve(runtimeAgentDir));
 
     const inheritedProduct = path.join(workspace, "parent-product", "pi-agent");
     const inherited = buildChildEnv({
       workspace,
-      repoRoot: "/tmp/missing-repo",
+      repoRoot,
       campaignId: "home-pin-parent",
       parentEnv: {
         PATH: "/usr/bin",
@@ -383,8 +387,9 @@ test("buildChildEnv pins both Pi home variables to the explicit product home", (
       },
       userPrefs: {},
     });
-    assert.equal(inherited.PI_AGENT_DIR, path.resolve(inheritedProduct));
-    assert.equal(inherited.PI_CODING_AGENT_DIR, path.resolve(inheritedProduct));
+    assert.equal(inherited.PI_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(inherited.PI_CODING_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(inherited.PI_COC_AGENT_DIR, path.resolve(runtimeAgentDir));
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
@@ -597,9 +602,11 @@ test("PiCocRpcHost start passes existing host extension paths into spawn args", 
   assert.deepEqual(extensionPaths(captured.args).slice(0, required.length), required);
 });
 
-test("PiCocRpcHost keeps product runtime home while hydrating a legacy workspace transcript", async () => {
+test("PiCocRpcHost separates repo runtime writes from legacy transcript hydration", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "coc-rpc-home-host-ws-"));
+  const repoRoot = path.join(workspace, "current-repo");
   const productAgentDir = path.join(workspace, "desktop-data", "pi-agent");
+  const runtimeAgentDir = path.join(repoRoot, ".pi", "coc-agent");
   const sessionId = "web-runtime-home-pin";
   try {
     const legacySessionDir = path.join(workspace, ".pi", "agent", "sessions", "cwd");
@@ -617,7 +624,7 @@ test("PiCocRpcHost keeps product runtime home while hydrating a legacy workspace
     let capturedEnv;
     const child = fakeChild();
     const host = new PiCocRpcHost({
-      repoRoot: "/tmp/missing-repo",
+      repoRoot,
       workspace,
       campaignId: "runtime-home-pin",
       sessionId,
@@ -629,9 +636,11 @@ test("PiCocRpcHost keeps product runtime home while hydrating a legacy workspace
       },
     });
     assert.equal(host.agentDir, path.resolve(productAgentDir));
+    assert.equal(host.runtimeAgentDir, path.resolve(runtimeAgentDir));
     host.start();
-    assert.equal(capturedEnv.PI_AGENT_DIR, path.resolve(productAgentDir));
-    assert.equal(capturedEnv.PI_CODING_AGENT_DIR, path.resolve(productAgentDir));
+    assert.equal(capturedEnv.PI_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(capturedEnv.PI_CODING_AGENT_DIR, path.resolve(runtimeAgentDir));
+    assert.equal(capturedEnv.PI_COC_AGENT_DIR, path.resolve(runtimeAgentDir));
     child.stderr.write(`${UI_IDLE_MARKER}\n`);
     const frames = [];
     const result = await host.attachOpening({

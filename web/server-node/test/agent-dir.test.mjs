@@ -7,6 +7,7 @@ import {
   DESKTOP_APP_DIR_NAME,
   armProductAgentEnv,
   defaultDesktopUserData,
+  resolvePiCocAgentDir,
   resolveProductAgentDir,
   resolveHostedSessionAgentDirs,
   resolveProductSettingsPath,
@@ -53,34 +54,52 @@ test("explicit PI_AGENT_DIR and userData still win", () => {
   );
 });
 
+test("Pi-Coc runtime home is pinned inside the exact repository root", () => {
+  assert.equal(
+    resolvePiCocAgentDir({ repoRoot: "/tmp/repo" }),
+    path.resolve("/tmp/repo/.pi/coc-agent"),
+  );
+  assert.equal(
+    resolvePiCocAgentDir({ repoRoot: "/tmp/repo-foreign" }),
+    path.resolve("/tmp/repo-foreign/.pi/coc-agent"),
+  );
+  assert.throws(() => resolvePiCocAgentDir({ repoRoot: "" }), /repoRoot is required/);
+});
+
 test("a terminal ~/.pi/agent override is not a settings write target", () => {
   assert.equal(resolveProductSettingsPath({ agentDir: terminalAgent, userData: "" }), null);
 });
 
-test("hosted session dirs include product agent dir and workspace .pi/agent", () => {
+test("hosted session dirs prefer repo Pi-Coc then app and workspace legacy roots", () => {
   const dirs = resolveHostedSessionAgentDirs({
+    repoRoot: "/tmp/current-repo",
     workspace: "/tmp/repo-ws",
     agentDir: "",
     userData: "",
   });
   assert.deepEqual(dirs, [
+    path.resolve("/tmp/current-repo/.pi/coc-agent"),
     path.resolve(desktopAgent),
     path.resolve("/tmp/repo-ws/.pi/agent"),
   ]);
-  assert.equal(dirs[0], path.resolve(resolveProductAgentDir({ agentDir: "", userData: "" })));
+  assert.equal(dirs[1], path.resolve(resolveProductAgentDir({ agentDir: "", userData: "" })));
 });
 
-test("armProductAgentEnv fills only missing keys", () => {
+test("armProductAgentEnv never claims the Pi coding home", () => {
   const env = {};
   const armed = armProductAgentEnv(env);
   assert.equal(armed.agentDir, desktopAgent);
   assert.equal(env.PI_AGENT_DIR, desktopAgent);
-  assert.equal(env.PI_CODING_AGENT_DIR, desktopAgent);
+  assert.equal(env.PI_CODING_AGENT_DIR, undefined);
   assert.equal(env.COC_DESKTOP_USER_DATA, desktopUserData);
 
-  const kept = { PI_AGENT_DIR: "/tmp/keep/pi-agent", COC_DESKTOP_USER_DATA: "/tmp/keep" };
+  const kept = {
+    PI_AGENT_DIR: "/tmp/keep/pi-agent",
+    PI_CODING_AGENT_DIR: "/tmp/foreign/.pi/coc-agent",
+    COC_DESKTOP_USER_DATA: "/tmp/keep",
+  };
   armProductAgentEnv(kept);
   assert.equal(kept.PI_AGENT_DIR, "/tmp/keep/pi-agent");
-  assert.equal(kept.PI_CODING_AGENT_DIR, "/tmp/keep/pi-agent");
+  assert.equal(kept.PI_CODING_AGENT_DIR, "/tmp/foreign/.pi/coc-agent");
   assert.equal(kept.COC_DESKTOP_USER_DATA, "/tmp/keep");
 });

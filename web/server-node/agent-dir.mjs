@@ -1,9 +1,9 @@
 import os from "node:os";
 import path from "node:path";
 
-// One agent home for the web UI and the Electron shell. Matches
-// desktop/electron/env.mjs: <userData>/pi-agent. Never falls back to the
-// terminal coding-agent home ~/.pi/agent.
+// Desktop app data and the writable Pi-Coc runtime home are intentionally
+// separate. The former may live under App Support; source/dev Pi-Coc always
+// writes under the selected repository.
 
 export const DESKTOP_APP_DIR_NAME = "coc-keeper-desktop";
 
@@ -41,11 +41,18 @@ export function resolveProductAgentDir({
   return path.join(resolveProductUserData({ userData, ...rest }), "pi-agent");
 }
 
+export function resolvePiCocAgentDir({ repoRoot } = {}) {
+  const root = String(repoRoot || "").trim();
+  if (!root) throw new Error("repoRoot is required to resolve the Pi-Coc agent home");
+  return path.join(path.resolve(root), ".pi", "coc-agent");
+}
+
 /** Dirs where a pi-coc host may have written sessions.
- *  Product PI_AGENT_DIR / desktop pi-agent first, then `{workspace}/.pi/agent`
+ *  Repo-local Pi-Coc first, then legacy desktop and `{workspace}/.pi/agent`
  *  (repo-root `node server.mjs --workspace .` historically wrote there because
  *  Pi defaults to cwd/.pi/agent when the child env is not pinned). */
 export function resolveHostedSessionAgentDirs({
+  repoRoot,
   workspace,
   agentDir = process.env.PI_AGENT_DIR,
   userData,
@@ -58,6 +65,9 @@ export function resolveHostedSessionAgentDirs({
     const resolved = path.resolve(raw);
     if (!dirs.includes(resolved)) dirs.push(resolved);
   };
+  if (String(repoRoot || "").trim()) {
+    push(resolvePiCocAgentDir({ repoRoot }));
+  }
   push(resolveProductAgentDir({ agentDir, userData, ...rest }));
   const ws = String(workspace || "").trim();
   if (ws) push(path.join(path.resolve(ws), ".pi", "agent"));
@@ -86,7 +96,7 @@ export function resolveProductSettingsPath({
   return path.join(resolveProductUserData({ ...rest }), "coc-desktop-settings.json");
 }
 
-/** Arm the process env so pi-coc children inherit the same agent home. */
+/** Arm app-owned data only. Pi-Coc children pin their repo-local home. */
 export function armProductAgentEnv(env = process.env) {
   const userData = resolveProductUserData({
     userData: env.COC_DESKTOP_USER_DATA,
@@ -97,6 +107,5 @@ export function armProductAgentEnv(env = process.env) {
   });
   if (!(env.COC_DESKTOP_USER_DATA || "").trim()) env.COC_DESKTOP_USER_DATA = userData;
   if (!(env.PI_AGENT_DIR || "").trim()) env.PI_AGENT_DIR = agentDir;
-  if (!(env.PI_CODING_AGENT_DIR || "").trim()) env.PI_CODING_AGENT_DIR = env.PI_AGENT_DIR;
   return { userData: env.COC_DESKTOP_USER_DATA, agentDir: env.PI_AGENT_DIR };
 }

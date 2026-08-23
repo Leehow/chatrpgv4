@@ -15,7 +15,11 @@ import {
   SETUP_CHARACTER_OPENING_MARKER,
   TURN_RECOVERY_MARKER,
 } from "./pi-session-text.mjs";
-import { resolveProductAgentDir } from "./agent-dir.mjs";
+import {
+  resolveHostedSessionAgentDirs,
+  resolvePiCocAgentDir,
+  resolveProductAgentDir,
+} from "./agent-dir.mjs";
 import { loadUserPrefs, pickUiPrefs, resolveUserPrefsPath } from "./user-prefs.mjs";
 import {
   applyGrokBuildExtensionSettingsEnv,
@@ -365,17 +369,22 @@ export function buildChildEnv({
 }) {
   const env = { ...parentEnv };
   env.COC_WORKSPACE = path.resolve(workspace);
-  // Runtime identity is the explicitly selected product home. Historical
-  // workspace homes are transcript hydration sources only; they must never
-  // become a writable Pi home merely because an old session exists there.
-  const productAgentDir = path.resolve(resolveProductAgentDir({
-    agentDir: agentDir || env.PI_AGENT_DIR || "",
-    userData: env.COC_DESKTOP_USER_DATA,
-  }));
-  env.PI_AGENT_DIR = productAgentDir;
-  env.PI_CODING_AGENT_DIR = productAgentDir;
+  // Source/dev Pi-Coc has one canonical writable identity. App-owned,
+  // inherited, coding-track, and historical workspace homes remain read-only
+  // configuration/evidence sources and can never redirect this child.
+  const runtimeAgentDir = resolvePiCocAgentDir({ repoRoot });
+  env.PI_COC_AGENT_DIR = runtimeAgentDir;
+  env.PI_CODING_AGENT_DIR = runtimeAgentDir;
+  env.PI_AGENT_DIR = runtimeAgentDir;
   const keyDirs = [];
-  pushUniqueDir(keyDirs, productAgentDir);
+  pushUniqueDir(keyDirs, runtimeAgentDir);
+  // App-owned search configuration is a read-only legacy input during the
+  // transition. It may populate ephemeral child env keys, but it never owns
+  // the child's Pi home or any write path.
+  pushUniqueDir(keyDirs, resolveProductAgentDir({
+    agentDir: agentDir || "",
+    userData: parentEnv.COC_DESKTOP_USER_DATA,
+  }));
   injectWebSearchKeysIntoEnv(env, { keyDirs });
   // Extension settings snapshot (non-secret only): the grok-build-oauth
   // agent half reads PIPIUI_EXT_SETTINGS_GROK_BUILD_OAUTH; tokens never
@@ -759,6 +768,13 @@ export class PiCocRpcHost {
       agentDir: agentDir || process.env.PI_AGENT_DIR || "",
       userData: process.env.COC_DESKTOP_USER_DATA,
     }));
+    this.runtimeAgentDir = resolvePiCocAgentDir({ repoRoot });
+    this.sessionAgentDirs = resolveHostedSessionAgentDirs({
+      repoRoot,
+      workspace: this.workspace,
+      agentDir: this.agentDir,
+      userData: process.env.COC_DESKTOP_USER_DATA,
+    });
     this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
     this.tableIntent = tableIntent || null;
     this.provider = provider || "";
@@ -847,7 +863,7 @@ export class PiCocRpcHost {
 
   #replaySessionAssistant(onSse) {
     const text = stripPlayerEnvelopeMarkers(lastVisibleAssistantText({
-      agentDir: this.agentDir,
+      agentDirs: this.sessionAgentDirs,
       workspace: this.workspace,
       sessionId: this.sessionId,
     })).trim();
@@ -867,7 +883,7 @@ export class PiCocRpcHost {
     }
     if (visibleText.trim()) return true;
     return Boolean(lastVisibleAssistantText({
-      agentDir: this.agentDir,
+      agentDirs: this.sessionAgentDirs,
       workspace: this.workspace,
       sessionId: this.sessionId,
     }));
