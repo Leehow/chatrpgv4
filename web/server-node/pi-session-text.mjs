@@ -11,10 +11,17 @@ import { resolveHostedSessionAgentDirs } from "./agent-dir.mjs";
 /** Prefix of the server-owned character-setup opener (see pi-coc-rpc.mjs). */
 export const SETUP_CHARACTER_OPENING_MARKER =
   "Host continuation: character-setup opening.";
+export const TURN_RECOVERY_MARKER =
+  "Host continuation: interrupted-turn recovery.";
 
 export function isHiddenSetupOpeningPrompt(text) {
   const body = String(text || "").trim();
   return Boolean(body) && body.includes(SETUP_CHARACTER_OPENING_MARKER);
+}
+
+export function isHiddenHostPrompt(text) {
+  const body = String(text || "").trim();
+  return isHiddenSetupOpeningPrompt(body) || body.includes(TURN_RECOVERY_MARKER);
 }
 
 export function assistantTextFromContent(content) {
@@ -54,7 +61,7 @@ export function visibleMessagesFromSessionFile(file) {
     if (role !== "assistant" && role !== "user") continue;
     const body = assistantTextFromContent(row.message.content);
     if (!body) continue;
-    if (role === "user" && isHiddenSetupOpeningPrompt(body)) continue;
+    if (role === "user" && isHiddenHostPrompt(body)) continue;
     const at = typeof row.timestamp === "string" ? Date.parse(row.timestamp) : Number.NaN;
     const entry = {
       role: role === "user" ? "player" : "keeper",

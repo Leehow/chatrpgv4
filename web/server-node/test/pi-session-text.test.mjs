@@ -9,6 +9,7 @@ import {
   lastVisibleAssistantText,
   pickHostedSessionAgentDir,
   SETUP_CHARACTER_OPENING_MARKER,
+  TURN_RECOVERY_MARKER,
   visibleMessagesFromSessionFile,
 } from "../pi-session-text.mjs";
 
@@ -43,6 +44,13 @@ test("visibleMessagesFromSessionFile keeps only player-visible text", () => {
         message: {
           role: "user",
           content: [{ type: "text", text: `${SETUP_CHARACTER_OPENING_MARKER} first resume then contract` }],
+        },
+      },
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: `${TURN_RECOVERY_MARKER} call session.resume` }],
         },
       },
       {

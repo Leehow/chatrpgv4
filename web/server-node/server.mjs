@@ -32,7 +32,12 @@ import {
 } from "./session-handoff.mjs";
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
-import { finishPromptTurn } from "./turn-flow.mjs";
+import {
+  finishPromptTurn,
+  promptWithStallRecovery,
+  recoverAbortedTurn,
+  finishRecoveredTurn,
+} from "./turn-flow.mjs";
 import { HandoutSessionDelivery } from "./handout-delivery.mjs";
 import {
   campaignDir,
@@ -1202,15 +1207,20 @@ async function handleTurn(req, res, sid) {
     if (attach) {
       if (!handoffOpeningCompleted) await host.attachOpening({ onSse });
     } else {
-      promptResult = (await host.prompt(playerInput, { onSse })) || {};
+      ({ host, promptResult } = await promptWithStallRecovery({
+        host,
+        message: playerInput,
+        campaignId: info.campaign_id,
+        orchestrator,
+        onSse,
+      }));
     }
-    const delivery = host.takeStreamedDelivery();
-    if (delivery !== null) {
+    host.offerStreamedDelivery((delivery) => (
       safeWrite("delivery_ack_required", {
         finalization_id: delivery.finalizationId,
         rendered_sha256: delivery.renderedSha256,
-      });
-    }
+      })
+    ));
     host = await finishPromptTurn({
       host,
       promptResult,
@@ -1221,7 +1231,38 @@ async function handleTurn(req, res, sid) {
     });
   } catch (err) {
     if (err?.kind === "pi_coc_rpc_aborted") {
-      safeWrite("end", { aborted: true });
+      const interruptedHost = HOSTS.get(info.campaign_id);
+      if (interruptedHost) {
+        try {
+          const recovery = await recoverAbortedTurn({
+            campaignId: info.campaign_id,
+            orchestrator,
+            onSse,
+          });
+          await finishRecoveredTurn({
+            recovery,
+            campaignId: info.campaign_id,
+            orchestrator,
+            onSse,
+            onDelivery: (delivery) => safeWrite("delivery_ack_required", {
+              finalization_id: delivery.finalizationId,
+              rendered_sha256: delivery.renderedSha256,
+            }),
+            finalize,
+          });
+        } catch (recoveryError) {
+          safeWrite("status", { phase: "recovery_failed" });
+          safeWrite("end", { aborted: true, recovered: false });
+        }
+      } else {
+        safeWrite("end", { aborted: true, recovered: false });
+      }
+    } else if (
+      err?.kind === "pi_coc_rpc_recovery_failed"
+      || err?.kind === "pi_coc_recovery_not_visible"
+    ) {
+      safeWrite("status", { phase: "recovery_failed" });
+      safeWrite("end", { recovered: false });
     } else if (err?.kind === "pi_coc_rpc_handoff") {
       try {
         await finishPromptTurn({

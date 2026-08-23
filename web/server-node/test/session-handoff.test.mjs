@@ -9,6 +9,7 @@ import {
   parseSetupHandoffEvent,
   PiCocRpcHost,
   PLAY_TABLE_OPENING_PROMPT,
+  PLAY_TURN_RECOVERY_PROMPT,
 } from "../pi-coc-rpc.mjs";
 import {
   CampaignHostOrchestrator,
@@ -36,6 +37,7 @@ function fakeHost({ campaignId = "c1" } = {}) {
     spawnFn: null,
     attached: 0,
     prompted: 0,
+    recoveryPrompted: 0,
     lastPrompt: null,
     readyCalls: 0,
     onEvent(fn) {
@@ -58,7 +60,18 @@ function fakeHost({ campaignId = "c1" } = {}) {
       onSse?.({ event: "delta", data: { text: "雾中的宅邸在你面前显出轮廓。" } });
       return { opened: true };
     },
-    async close() {
+    async waitForAbortSettlement() {
+      this.waitedForIdleAbort = true;
+      return true;
+    },
+    async promptTurnRecovery({ onSse } = {}) {
+      this.recoveryPrompted += 1;
+      this.lastPrompt = PLAY_TURN_RECOVERY_PROMPT;
+      onSse?.({ event: "delta", data: { text: "已从保留的回合结算继续。" } });
+      return { recovered: true };
+    },
+    async close(options) {
+      this.closeOptions = options;
       this.closed = true;
       this.emit({ type: "process_exit", code: 0, signal: "SIGTERM" });
     },
@@ -330,6 +343,231 @@ test("model catalog refresh replaces the live host with the selected model", asy
   });
 });
 
+test("provider stall recovery respawns the same session and resumes without player resend", async () => {
+  const created = [];
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
+      created.push(host);
+      return host;
+    },
+    resolveRoleFn: async () => "play",
+  });
+  const { host: stalled } = await orchestrator.acquire("stall-recovery", {
+    tableIntent: "continue",
+    provider: "grok-relay",
+    model: "grok-4.5",
+    turnIdleTimeoutMs: 3210,
+    nowFn: () => 123,
+  });
+  const frames = [];
+  const [recovered, concurrent] = await Promise.all([
+    orchestrator.recoverStalledTurn("stall-recovery", {
+      onSse: (frame) => frames.push(frame),
+    }),
+    orchestrator.recoverStalledTurn("stall-recovery", {
+      onSse: (frame) => frames.push(frame),
+    }),
+  ]);
+
+  assert.equal(stalled.waitedForIdleAbort, true);
+  assert.equal(stalled.closed, true);
+  assert.deepEqual(stalled.closeOptions, { protocolAbort: false });
+  assert.equal(created.length, 2);
+  assert.equal(recovered.host, created[1]);
+  assert.equal(concurrent.host, recovered.host, "concurrent recovery must join one replacement");
+  assert.equal(recovered.host.sessionId, stalled.sessionId);
+  assert.equal(recovered.host.turnIdleTimeoutMs, stalled.turnIdleTimeoutMs);
+  assert.equal(recovered.host.nowFn, stalled.nowFn);
+  assert.equal(recovered.host.recoveryPrompted, 1);
+  assert.equal(recovered.host.lastPrompt, PLAY_TURN_RECOVERY_PROMPT);
+  assert.equal(recovered.promptResult.recovered, true);
+  assert.deepEqual(frames, [
+    { event: "delta", data: { text: "已从保留的回合结算继续。" } },
+  ]);
+  assert.deepEqual(orchestrator.statusOf("stall-recovery"), {
+    session_role: "play",
+    transitioning: false,
+  });
+});
+
+test("provider stall recovery drains an exited host before replacing it", async () => {
+  const created = [];
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
+      created.push(host);
+      return host;
+    },
+    resolveRoleFn: async () => "play",
+  });
+  const { host: exited } = await orchestrator.acquire("exited-stall-recovery", {
+    tableIntent: "continue",
+  });
+  exited.closed = true;
+  let drained = false;
+  exited.close = async (options) => {
+    exited.closeOptions = options;
+    drained = true;
+  };
+
+  const recovered = await orchestrator.recoverStalledTurn("exited-stall-recovery");
+
+  assert.equal(drained, true, "replacement must wait for the old host's stdio drain");
+  assert.deepEqual(exited.closeOptions, { protocolAbort: false });
+  assert.equal(created.length, 2);
+  assert.equal(recovered.host, created[1]);
+});
+
+test("failed provider-stall recovery retires the replacement before accepting another input", async () => {
+  const created = [];
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
+      if (created.length === 1) {
+        host.promptTurnRecovery = async () => {
+          host.streaming = true;
+          const error = new Error("recovery provider stalled");
+          error.kind = "pi_coc_rpc_idle_timeout";
+          throw error;
+        };
+      }
+      created.push(host);
+      return host;
+    },
+    resolveRoleFn: async () => "play",
+  });
+  await orchestrator.acquire("failed-stall-recovery", { tableIntent: "continue" });
+
+  await assert.rejects(
+    orchestrator.recoverStalledTurn("failed-stall-recovery"),
+    (error) => error.kind === "pi_coc_rpc_recovery_failed",
+  );
+  assert.equal(created.length, 2, "recovery must not recurse into another host");
+  assert.equal(created[1].closed, true, "the possibly-streaming replacement must be fenced");
+  assert.equal(orchestrator.getHost("failed-stall-recovery"), null);
+  assert.deepEqual(orchestrator.statusOf("failed-stall-recovery"), {
+    session_role: "play",
+    transitioning: false,
+  });
+});
+
+test("setup handoff during stall recovery cedes to one play replacement", async () => {
+  const created = [];
+  let releaseAbortWait;
+  const abortWait = new Promise((resolve) => {
+    releaseAbortWait = resolve;
+  });
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
+      if (created.length === 0) {
+        host.waitForAbortSettlement = () => abortWait;
+      }
+      created.push(host);
+      return host;
+    },
+    resolveRoleFn: async () => "play",
+  });
+  const { host: setupHost } = await orchestrator.acquire("handoff-during-recovery", {
+    tableIntent: "character-setup",
+  });
+  const recovery = orchestrator.recoverStalledTurn("handoff-during-recovery");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  setupHost.emit({
+    type: "custom_message",
+    customType: "coc_setup_handoff",
+    details: {
+      type: "coc_setup_handoff",
+      campaign_id: "handoff-during-recovery",
+      receipt: { decision_id: "handoff-during-recovery" },
+    },
+  });
+  releaseAbortWait(true);
+
+  const recovered = await recovery;
+  assert.equal(created.length, 2);
+  assert.equal(recovered.host, created[1]);
+  assert.equal(recovered.host.tableIntent, "continue");
+  assert.equal(recovered.host.recoveryPrompted, 0);
+  assert.deepEqual(recovered.promptResult, { handoff: true });
+  assert.equal(orchestrator.getHost("handoff-during-recovery"), recovered.host);
+  assert.deepEqual(orchestrator.statusOf("handoff-during-recovery"), {
+    session_role: "play",
+    transitioning: true,
+  });
+});
+
+test("stall recovery joins a setup handoff that already owns the campaign transition", async () => {
+  const created = [];
+  let releaseRole;
+  const roleBarrier = new Promise((resolve) => {
+    releaseRole = resolve;
+  });
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
+      created.push(host);
+      return host;
+    },
+    resolveRoleFn: async () => {
+      await roleBarrier;
+      return "play";
+    },
+  });
+  await orchestrator.acquire("handoff-before-recovery", {
+    tableIntent: "character-setup",
+  });
+  const handoff = orchestrator.beginHandoff("handoff-before-recovery", {
+    reason: "coc_setup_handoff",
+    handoff: { decision_id: "handoff-before-recovery" },
+  });
+  const recovery = orchestrator.recoverStalledTurn("handoff-before-recovery");
+  releaseRole();
+
+  const [playHost, recovered] = await Promise.all([handoff, recovery]);
+
+  assert.equal(created.length, 2, "handoff and recovery must share one replacement");
+  assert.equal(recovered.host, playHost);
+  assert.deepEqual(recovered.promptResult, { handoff: true });
+  assert.equal(orchestrator.getHost("handoff-before-recovery"), playHost);
+});
+
+test("setup handoff drains an exited host before spawning play", async () => {
+  const created = [];
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = Object.assign(fakeHost({ campaignId: opts.campaignId }), opts);
+      created.push(host);
+      return host;
+    },
+    resolveRoleFn: async () => "play",
+  });
+  const { host: exitedSetup } = await orchestrator.acquire("exited-setup-handoff", {
+    tableIntent: "character-setup",
+  });
+  exitedSetup.closed = true;
+  let drained = false;
+  exitedSetup.close = async () => {
+    drained = true;
+  };
+  exitedSetup.emit({
+    type: "custom_message",
+    customType: "coc_setup_handoff",
+    details: {
+      type: "coc_setup_handoff",
+      campaign_id: "exited-setup-handoff",
+      receipt: { decision_id: "exited-setup-handoff" },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(drained, true, "handoff must wait for the old host's stdio drain");
+  assert.equal(created.length, 2);
+  assert.equal(created[1].tableIntent, "continue");
+});
+
 test("parseSessionRoleStdout reads play or setup from JSON or token", () => {
   assert.equal(parseSessionRoleStdout('{"role":"play","status":"ready_for_table"}'), "play");
   assert.equal(parseSessionRoleStdout("play"), "play");
@@ -345,7 +583,10 @@ function fakeRpcChild({ prompts } = {}) {
   child.stdin = stdin;
   child.stdout = stdout;
   child.stderr = stderr;
-  child.kill = () => child.emit("exit", 0, null);
+  child.kill = () => {
+    child.emit("exit", 0, null);
+    child.emit("close", 0, null);
+  };
   stdin.on("data", (chunk) => {
     for (const line of String(chunk).split("\n")) {
       if (!line.trim()) continue;
@@ -409,6 +650,7 @@ test("respawned play child receives opening prompt and agent_start", async () =>
   await orchestrator.acquire("rpc-order", { tableIntent: "character-setup" });
   assert.equal(children.length, 1);
   orchestrator.getHost("rpc-order").child.emit("exit", 42, null);
+  orchestrator.getHost("rpc-order").child.emit("close", 42, null);
 
   const frames = [];
   await orchestrator.completeHandoffOpening("rpc-order", {

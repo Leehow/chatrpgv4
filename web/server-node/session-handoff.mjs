@@ -8,6 +8,7 @@ import path from "node:path";
 import {
   HANDOFF_EXIT_CODE,
   parseSetupHandoffEvent,
+  PiCocRpcError,
   PiCocRpcHost,
   webSessionId,
 } from "./pi-coc-rpc.mjs";
@@ -86,6 +87,7 @@ export class CampaignHostOrchestrator {
     this.hosts = new Map();
     this.#status = new Map();
     this.#handoffPromises = new Map();
+    this.#recoveryPromises = new Map();
     this.createHost = createHost;
     this.attachFn = attachFn || ((host, opts) => {
       if (typeof host.promptPlayOpening === "function") {
@@ -100,6 +102,7 @@ export class CampaignHostOrchestrator {
 
   #status;
   #handoffPromises;
+  #recoveryPromises;
   #listeners;
 
   onTransition(listener) {
@@ -273,7 +276,137 @@ export class CampaignHostOrchestrator {
     }
   }
 
+  /**
+   * Replace one stalled child while preserving its exact session id, then let
+   * the new process recover the durable pending turn through session.resume.
+   * The original player input is never accepted as an argument here.
+   */
+  async recoverStalledTurn(campaignId, { onSse, recoveryDiagnostic = null } = {}) {
+    const handoff = this.#handoffPromises.get(campaignId);
+    if (handoff) {
+      const host = await handoff;
+      return { host, promptResult: { handoff: true } };
+    }
+    const inflight = this.#recoveryPromises.get(campaignId);
+    if (inflight) return inflight.promise;
+    const record = { promise: null, handoffRequest: null };
+    const run = this.#runStalledTurnRecovery(
+      campaignId,
+      { onSse, recoveryDiagnostic },
+      record,
+    );
+    record.promise = run;
+    this.#recoveryPromises.set(campaignId, record);
+    try {
+      return await run;
+    } finally {
+      if (this.#recoveryPromises.get(campaignId) === record) {
+        this.#recoveryPromises.delete(campaignId);
+      }
+    }
+  }
+
+  async #runStalledTurnRecovery(
+    campaignId,
+    { onSse, recoveryDiagnostic = null } = {},
+    record,
+  ) {
+    const old = this.hosts.get(campaignId);
+    if (!old) {
+      throw new PiCocRpcError(`campaign ${campaignId} has no recoverable host`, {
+        kind: "pi_coc_rpc_recovery_failed",
+      });
+    }
+    const currentRole = this.statusOf(campaignId).session_role;
+    const tableIntent = currentRole === "setup" ? "character-setup" : "continue";
+    let replacement = null;
+    this.#setStatus(campaignId, { transitioning: true });
+    this.#emitTransition(campaignId, {
+      reason: "provider_idle_recovery",
+      diagnostic: recoveryDiagnostic,
+    });
+    try {
+      await old.waitForAbortSettlement?.(2_000);
+      if (record.handoffRequest) {
+        const host = await this.#runHandoff(campaignId, record.handoffRequest);
+        return { host, promptResult: { handoff: true } };
+      }
+      const opts = {
+        repoRoot: old.repoRoot,
+        workspace: old.workspace,
+        campaignId,
+        sessionId: old.sessionId,
+        agentDir: old.agentDir,
+        launcherPath: old.launcherPath,
+        tableIntent,
+        provider: old.provider,
+        model: old.model,
+        thinking: old.thinking,
+        spawnFn: old.spawnFn,
+        turnIdleTimeoutMs: old.turnIdleTimeoutMs,
+        nowFn: old.nowFn,
+      };
+      old.expectedShutdown = true;
+      await old.close({ protocolAbort: false });
+      if (record.handoffRequest) {
+        const host = await this.#runHandoff(campaignId, record.handoffRequest);
+        return { host, promptResult: { handoff: true } };
+      }
+      this.hosts.delete(campaignId);
+      const { host } = await this.acquire(
+        campaignId,
+        opts,
+        { exclusive: true, reuse: false },
+      );
+      replacement = host;
+      this.#setStatus(campaignId, {
+        session_role: currentRole || inferSessionRole({ tableIntent }),
+        transitioning: true,
+      });
+      const promptResult = await host.promptTurnRecovery({ onSse });
+      this.#setStatus(campaignId, {
+        session_role: currentRole || inferSessionRole({ tableIntent }),
+        transitioning: false,
+      });
+      this.#emitTransition(campaignId, { reason: "provider_idle_recovered" });
+      return { host, promptResult };
+    } catch (error) {
+      if (replacement && this.hosts.get(campaignId) === replacement) {
+        replacement.expectedShutdown = true;
+        try {
+          await replacement.close();
+        } catch {
+          /* keep the exact unconfirmed child registered and non-accepting */
+        }
+        if (replacement.closed && this.hosts.get(campaignId) === replacement) {
+          this.hosts.delete(campaignId);
+        }
+      }
+      const current = this.hosts.get(campaignId);
+      this.#setStatus(campaignId, {
+        transitioning: Boolean(current && !current.closed),
+      });
+      this.#emitTransition(campaignId, {
+        reason: "provider_idle_recovery_failed",
+        error: String(error?.message || error),
+      });
+      if (error instanceof PiCocRpcError) throw error;
+      throw new PiCocRpcError(
+        `pi-coc stalled-turn recovery failed: ${error?.message || error}`,
+        { kind: "pi_coc_rpc_recovery_failed" },
+      );
+    }
+  }
+
   async beginHandoff(campaignId, { reason, handoff } = {}) {
+    const recovery = this.#recoveryPromises.get(campaignId);
+    if (recovery) {
+      if (!recovery.handoffRequest) {
+        recovery.handoffRequest = { reason, handoff };
+      }
+      if (handoff) this.lastHandoff.set(campaignId, handoff);
+      return recovery.promise.then((result) => result.host);
+    }
     const inflight = this.#handoffPromises.get(campaignId);
     if (inflight) return inflight;
     const existing = this.hosts.get(campaignId);
@@ -368,11 +501,13 @@ export class CampaignHostOrchestrator {
             model: old.model,
             thinking: old.thinking,
             spawnFn: old.spawnFn,
+            turnIdleTimeoutMs: old.turnIdleTimeoutMs,
+            nowFn: old.nowFn,
           }
         : { campaignId, tableIntent: sessionRole === "play" ? "continue" : "character-setup" };
       if (old) {
         old.expectedShutdown = true;
-        if (!old.closed) await old.close();
+        await old.close();
       }
       this.hosts.delete(campaignId);
       const { host } = await this.acquire(campaignId, opts, { exclusive: true, reuse: false });

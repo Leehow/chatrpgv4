@@ -1,7 +1,95 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { finishPromptTurn } from "../turn-flow.mjs";
+import {
+  finishPromptTurn,
+  finishRecoveredTurn,
+  promptWithStallRecovery,
+  recoverAbortedTurn,
+} from "../turn-flow.mjs";
+
+test("idle provider recovery never resends the original player input", async () => {
+  const prompts = [];
+  const stalled = {
+    async prompt(message) {
+      prompts.push(message);
+      const error = new Error("provider idle");
+      error.kind = "pi_coc_rpc_idle_timeout";
+      error.details = { idle_classification: "post_tool_success_no_agent_settled" };
+      throw error;
+    },
+  };
+  const recoveredHost = { id: "recovered" };
+  const orchestrator = {
+    async recoverStalledTurn(campaignId, options) {
+      assert.equal(campaignId, "turn-stall");
+      assert.deepEqual(options.recoveryDiagnostic, {
+        idle_classification: "post_tool_success_no_agent_settled",
+      });
+      return { host: recoveredHost, promptResult: { recovered: true } };
+    },
+  };
+  const frames = [];
+  const result = await promptWithStallRecovery({
+    host: stalled,
+    message: "玩家原始行动",
+    campaignId: "turn-stall",
+    orchestrator,
+    onSse: (frame) => frames.push(frame),
+  });
+  assert.deepEqual(prompts, ["玩家原始行动"]);
+  assert.equal(result.host, recoveredHost);
+  assert.deepEqual(result.promptResult, { recovered: true });
+  assert.deepEqual(frames, [{
+    event: "status",
+    data: {
+      phase: "recovering",
+      diagnostic: { idle_classification: "post_tool_success_no_agent_settled" },
+    },
+  }]);
+});
+
+test("abort after an authoritative write resumes the retained turn without player resend", async () => {
+  const calls = [];
+  const orchestrator = {
+    async recoverStalledTurn(campaignId) {
+      calls.push(`resume:${campaignId}`);
+      return { host: { id: "recovered" }, promptResult: { recovered: true } };
+    },
+  };
+
+  const result = await recoverAbortedTurn({
+    campaignId: "journal-before-abort",
+    orchestrator,
+  });
+  assert.deepEqual(calls, ["resume:journal-before-abort"]);
+  assert.equal(result.promptResult.recovered, true);
+});
+
+test("aborted-turn recovery preserves delivery acknowledgement and finalization", async () => {
+  const delivery = {
+    finalizationId: "final-1",
+    renderedSha256: "a".repeat(64),
+  };
+  const recoveredHost = {
+    offerStreamedDelivery(offer) {
+      return offer(delivery) === false ? null : delivery;
+    },
+  };
+  const deliveries = [];
+  const finalized = [];
+  const result = await finishRecoveredTurn({
+    recovery: { host: recoveredHost, promptResult: { recovered: true } },
+    campaignId: "journal-before-abort",
+    orchestrator: { isTransitioning: () => false },
+    onDelivery: (value) => deliveries.push(value),
+    finalize: async (host) => finalized.push(host),
+  });
+
+  assert.equal(result, recoveredHost);
+  assert.deepEqual(deliveries, [delivery]);
+  assert.deepEqual(finalized, [recoveredHost]);
+});
 
 test("setup exit keeps the turn pending through play opening before final done", async () => {
   const order = [];

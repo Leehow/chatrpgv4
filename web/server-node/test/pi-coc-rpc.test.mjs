@@ -819,12 +819,68 @@ test("host offers delivery acknowledgement only after exact finalization text re
   })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
   await prompt;
-  assert.deepEqual(host.takeStreamedDelivery(), {
+  assert.equal(host.offerStreamedDelivery(() => false), null);
+  assert.deepEqual(host.offerStreamedDelivery(() => true), {
     finalizationId: "finalization-delivery",
     renderedText: "精确交付",
     renderedSha256: "sha256:delivery",
   });
   assert.equal(host.takeStreamedDelivery(), null);
+});
+
+test("turn recovery exposes delivery only when the SSE client accepted its text", async (t) => {
+  for (const accepted of [false, true]) {
+    await t.test(`accepted=${accepted}`, async () => {
+      const child = fakeChild();
+      const written = [];
+      child.stdin.on("data", (chunk) => written.push(String(chunk)));
+      const host = new PiCocRpcHost({
+        repoRoot: "/tmp/missing-repo",
+        workspace: "/tmp/ws",
+        campaignId: `recovery-delivery-${accepted}`,
+        sessionId: `web-recovery-delivery-${accepted}`,
+        launcherPath: process.execPath,
+        spawnFn: () => child,
+      });
+      host.start();
+      const prompt = host.promptTurnRecovery({ onSse: () => accepted });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const request = JSON.parse(written[0].trim());
+      child.stdout.write(`${JSON.stringify({
+        id: request.id, type: "response", command: "prompt", success: true,
+      })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+      child.stdout.write(`${JSON.stringify({
+        type: "tool_execution_end",
+        toolName: "coc_turn_finalize",
+        result: {
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalization_id: `recovery-finalization-${accepted}`,
+            rendered_text: "恢复结算文本",
+            rendered_sha256: `sha256:recovery-${accepted}`,
+          },
+        },
+      })}\n`);
+      child.stdout.write(`${JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "恢复结算文本" }],
+        },
+      })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+      await prompt;
+      const delivery = host.takeStreamedDelivery();
+      if (accepted) {
+        assert.equal(delivery?.finalizationId, "recovery-finalization-true");
+      } else {
+        assert.equal(delivery, null, "disconnected delivery stays pending for replay");
+      }
+    });
+  }
 });
 
 function fakeChild() {
@@ -837,6 +893,7 @@ function fakeChild() {
   child.stderr = stderr;
   child.kill = () => {
     child.emit("exit", 0, null);
+    child.emit("close", 0, null);
   };
   return child;
 }
@@ -1439,6 +1496,300 @@ test("abort unblocks prompt before agent_settled", { timeout: 2000 }, async () =
   await new Promise((r) => setTimeout(r, 20));
   await host.abort();
   await assert.rejects(promptP, (err) => err.kind === "pi_coc_rpc_aborted");
+});
+
+test("provider idle after a tool result aborts once and fences late events", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  child.kill = () => setImmediate(() => {
+    child.emit("exit", 0, null);
+    child.emit("close", 0, null);
+  });
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  let now = 0;
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "idle-after-journal",
+    sessionId: "web-idle-after-journal",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    turnIdleTimeoutMs: 100,
+    nowFn: () => now,
+  });
+  host.start();
+  const frames = [];
+  const promptP = host.prompt("我接受委托。", {
+    onSse: (frame) => frames.push(frame),
+    timeoutMs: 30_000,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  now = 90;
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_invoke",
+    args: { operation: "state.journal" },
+    result: {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          ok: true,
+          tool: "state.journal",
+          data: { journal_id: "journal-1" },
+        }),
+      }],
+    },
+  })}\n`);
+  now = 180;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    0,
+    "a tool result must reset the provider-idle deadline",
+  );
+
+  now = 191;
+  const outcome = await Promise.race([
+    promptP.then(
+      () => ({ resolved: true }),
+      (error) => ({ error }),
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ pending: true }), 200)),
+  ]);
+  if (outcome.pending) {
+    await host.abort();
+    await promptP.catch(() => {});
+    assert.fail("idle provider continuation remained attached");
+  }
+  assert.equal(outcome.error?.kind, "pi_coc_rpc_idle_timeout");
+  assert.deepEqual(outcome.error?.details, {
+    idle_classification: "post_tool_success_no_agent_settled",
+    active_tools: [],
+    last_tool_terminal: {
+      tool_call_id: "unidentified-tool-call",
+      tool: "state.journal",
+      outcome: "success",
+      error_code: null,
+    },
+    finalization_status: "absent",
+  });
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+    "the watchdog must never send repeated abort commands",
+  );
+
+  const frameCount = frames.length;
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "迟到草稿" }] },
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(frames.length, frameCount, "late aborted-turn events must stay off SSE");
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await host.close({ protocolAbort: false });
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+    "recovery shutdown must not send a second abort after the watchdog abort",
+  );
+});
+
+test("accepted prompt with no agent_start still reaches the provider-idle watchdog", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  let now = 0;
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "idle-before-agent-start",
+    sessionId: "web-idle-before-agent-start",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    turnIdleTimeoutMs: 100,
+    nowFn: () => now,
+  });
+  host.start();
+  const promptP = host.prompt("开始", { timeoutMs: 30_000 });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  now = 101;
+
+  await assert.rejects(promptP, (error) => error.kind === "pi_coc_rpc_idle_timeout");
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "abort").length,
+    1,
+  );
+});
+
+test("explicit abort rejects a new prompt until agent_settled instead of queuing followUp", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "manual-abort-boundary",
+    sessionId: "web-manual-abort-boundary",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const firstPrompt = host.prompt("第一次行动");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  await host.abort();
+  await assert.rejects(firstPrompt, (error) => error.kind === "pi_coc_rpc_aborted");
+
+  await assert.rejects(
+    host.prompt("不得成为 followUp"),
+    (error) => error.kind === "pi_coc_rpc_abort_pending",
+  );
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "prompt").length,
+    1,
+  );
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+});
+
+test("explicit abort dominates agent_settled before the next waiter tick", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "abort-before-settle-tick",
+    sessionId: "web-abort-before-settle-tick",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const promptP = host.prompt("写状态后停止");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  await host.abort();
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(promptP, (error) => error.kind === "pi_coc_rpc_aborted");
+});
+
+test("close never reports a killed child closed without observing process exit", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  const signals = [];
+  child.kill = (signal) => signals.push(signal);
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "unconfirmed-close",
+    sessionId: "web-unconfirmed-close",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+
+  await assert.rejects(
+    host.close({ protocolAbort: false, termTimeoutMs: 10, killTimeoutMs: 10 }),
+    (error) => error.kind === "pi_coc_rpc_close_timeout",
+  );
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(host.closed, false);
+});
+
+test("close waits for stdio close so a buffered final handoff event is observed", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  child.kill = () => {
+    child.emit("exit", 0, null);
+    setImmediate(() => {
+      child.stdout.write(`${JSON.stringify({
+        type: "custom_message",
+        customType: "coc_setup_handoff",
+        details: {
+          type: "coc_setup_handoff",
+          campaign_id: "buffered-handoff",
+          receipt: { decision_id: "buffered-handoff" },
+        },
+      })}\n`);
+      child.emit("close", 0, null);
+    });
+  };
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "buffered-handoff",
+    sessionId: "web-buffered-handoff",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  const events = [];
+  host.onEvent((event) => events.push(event));
+  host.start();
+
+  await host.close({ protocolAbort: false, termTimeoutMs: 100, killTimeoutMs: 100 });
+  assert.equal(
+    events.some((event) => event.customType === "coc_setup_handoff"),
+    true,
+  );
+});
+
+test("close called after exit still waits for buffered stdio before releasing ownership", { timeout: 2000 }, async () => {
+  const child = fakeChild();
+  child.kill = () => assert.fail("an already-exited child must not be signalled again");
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "exit-before-close",
+    sessionId: "web-exit-before-close",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  const events = [];
+  host.onEvent((event) => events.push(event));
+  host.start();
+  child.emit("exit", 0, null);
+  const closing = host.close({ protocolAbort: false, termTimeoutMs: 100, killTimeoutMs: 100 });
+  setImmediate(() => {
+    child.stdout.write(`${JSON.stringify({
+      type: "custom_message",
+      customType: "coc_setup_handoff",
+      details: {
+        type: "coc_setup_handoff",
+        campaign_id: "exit-before-close",
+        receipt: { decision_id: "exit-before-close" },
+      },
+    })}\n`);
+    child.emit("close", 0, null);
+  });
+  await closing;
+  assert.equal(
+    events.some((event) => event.customType === "coc_setup_handoff"),
+    true,
+  );
 });
 
 test("abort unblocks attachOpening while waiting for UI intent", { timeout: 2000 }, async () => {

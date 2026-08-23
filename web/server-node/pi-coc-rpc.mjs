@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import {
   lastVisibleAssistantText,
   SETUP_CHARACTER_OPENING_MARKER,
+  TURN_RECOVERY_MARKER,
 } from "./pi-session-text.mjs";
 import { resolveProductAgentDir } from "./agent-dir.mjs";
 import { loadUserPrefs, pickUiPrefs, resolveUserPrefsPath } from "./user-prefs.mjs";
@@ -20,8 +21,16 @@ import {
   applyGrokBuildExtensionSettingsEnv,
   grokBuildExtensionMountArgs,
 } from "./grok-build-extension.mjs";
+import {
+  DEFAULT_RPC_TURN_IDLE_TIMEOUT_MS,
+  PiRpcTurnIdleWatchdog,
+} from "./pi-rpc-turn-watchdog.mjs";
 
-export { SETUP_CHARACTER_OPENING_MARKER, isHiddenSetupOpeningPrompt } from "./pi-session-text.mjs";
+export {
+  SETUP_CHARACTER_OPENING_MARKER,
+  TURN_RECOVERY_MARKER,
+  isHiddenSetupOpeningPrompt,
+} from "./pi-session-text.mjs";
 
 export const UI_AUTO_OPEN_MARKER = "[coc-pi-ui] auto-open";
 export const UI_IDLE_MARKER = "[coc-pi-ui] idle";
@@ -46,6 +55,19 @@ export const PLAY_TABLE_OPENING_PROMPT = [
   "If that typed tool is absent, the opening is already persisted: do not call",
   "or replay it; wait for the player or continue the buffered player action.",
   "Do not invent opening text. Do not ask the player to choose a campaign.",
+].join(" ");
+
+/** Host-owned recovery after a provider continuation lost all RPC progress. */
+export const PLAY_TURN_RECOVERY_PROMPT = [
+  TURN_RECOVERY_MARKER,
+  "Host recovery after an interrupted pi-coc provider continuation.",
+  "This is not a new player action and does not repeat the player's prior input.",
+  "First call session.resume for this already-selected campaign.",
+  "Follow its exact pending_finalization or open_turn_recovery contract.",
+  "Preserve all already-written rules and state effects and their decision ids;",
+  "do not replay mutations, reroll, or invent replacement state.",
+  "Complete only the retained turn's missing review/finalization/delivery work,",
+  "then deliver the exact player-visible result from canonical receipts.",
 ].join(" ");
 
 /**
@@ -637,10 +659,11 @@ function stripPlayerEnvelopeMarkers(text) {
 }
 
 export class PiCocRpcError extends Error {
-  constructor(message, { kind = "pi_coc_rpc_failed" } = {}) {
+  constructor(message, { kind = "pi_coc_rpc_failed", details = null } = {}) {
     super(message);
     this.name = "PiCocRpcError";
     this.kind = kind;
+    this.details = details;
   }
 }
 
@@ -657,6 +680,8 @@ export class PiCocRpcHost {
     model,
     thinking,
     spawnFn = spawn,
+    turnIdleTimeoutMs = DEFAULT_RPC_TURN_IDLE_TIMEOUT_MS,
+    nowFn = Date.now,
   }) {
     this.repoRoot = repoRoot;
     this.workspace = path.resolve(workspace);
@@ -672,6 +697,8 @@ export class PiCocRpcHost {
     this.model = model || "";
     this.thinking = thinking || "";
     this.spawnFn = spawnFn;
+    this.turnIdleTimeoutMs = turnIdleTimeoutMs;
+    this.nowFn = nowFn;
     this.child = null;
     this.ready = false;
     this.closed = false;
@@ -691,6 +718,11 @@ export class PiCocRpcHost {
     this.#setupOpeningPrompted = false;
     this.#pendingFinalizedDelivery = null;
     this.#streamedFinalizedDelivery = null;
+    this.#abortBoundary = null;
+    this.#abortCommandPending = false;
+    this.#activePromptCount = 0;
+    this.#processExitObserved = false;
+    this.#processCloseObserved = false;
   }
 
   isHandoffShutdown() {
@@ -704,6 +736,11 @@ export class PiCocRpcHost {
   #setupOpeningPrompted;
   #pendingFinalizedDelivery;
   #streamedFinalizedDelivery;
+  #abortBoundary;
+  #abortCommandPending;
+  #activePromptCount;
+  #processExitObserved;
+  #processCloseObserved;
 
   #noteStreamedText(text, accepted) {
     const pending = this.#pendingFinalizedDelivery;
@@ -795,11 +832,19 @@ export class PiCocRpcHost {
     if (event?.type === "agent_start") {
       this.streaming = true;
       this.lastSettledAt = 0;
+      if (this.#abortBoundary === null) this.#abortCommandPending = false;
     }
     if (event?.type === "agent_settled") {
       this.streaming = false;
       this.settleGeneration += 1;
       this.lastSettledAt = Date.now();
+      if (
+        this.#abortBoundary !== null
+        && this.settleGeneration > this.#abortBoundary.settleGeneration
+      ) {
+        this.#abortBoundary = null;
+      }
+      this.#abortCommandPending = false;
     }
     if (event?.type === "message_update" && event.usage) {
       this.lastUsage = event.usage;
@@ -883,6 +928,7 @@ export class PiCocRpcHost {
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => this.#noteStderr(chunk));
     child.on("exit", (code, signal) => {
+      this.#processExitObserved = true;
       this.closed = true;
       this.streaming = false;
       this.lastExitCode = code;
@@ -896,6 +942,9 @@ export class PiCocRpcHost {
       );
       for (const pending of this.#pending.values()) pending.reject(err);
       this.#pending.clear();
+    });
+    child.on("close", () => {
+      this.#processCloseObserved = true;
     });
   }
 
@@ -1005,9 +1054,48 @@ export class PiCocRpcHost {
     return new PiCocRpcError("pi-coc turn aborted", { kind: "pi_coc_rpc_aborted" });
   }
 
-  #waitSettleAfter(startGen, onSse, timeoutMs, { suppressSilentNotice = false } = {}) {
+  async #sendAbortOnce() {
+    if (this.#abortCommandPending) return false;
+    this.#abortCommandPending = true;
+    try {
+      await this.#write({ type: "abort" });
+    } catch {
+      // The generation fence still unblocks callers. Recovery will close an
+      // unresponsive child before reusing the persisted session.
+    }
+    return true;
+  }
+
+  #beginAbort() {
+    if (this.#abortBoundary !== null) return Promise.resolve(false);
+    this.#abortBoundary = { settleGeneration: this.settleGeneration };
+    this.abortGeneration += 1;
+    return this.#sendAbortOnce();
+  }
+
+  async waitForAbortSettlement(timeoutMs = 2_000) {
+    const boundary = this.#abortBoundary;
+    if (boundary === null) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (this.#abortBoundary === boundary && !this.closed) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return this.#abortBoundary !== boundary;
+  }
+
+  #waitSettleAfter(
+    startGen,
+    onSse,
+    timeoutMs,
+    { suppressSilentNotice = false, turnActivity = null } = {},
+  ) {
     const deadline = Date.now() + timeoutMs;
     const abortAt = this.abortGeneration;
+    const idleWatchdog = new PiRpcTurnIdleWatchdog({
+      timeoutMs: this.turnIdleTimeoutMs,
+      now: this.nowFn,
+    });
     return new Promise((resolve, reject) => {
       // Transparency only (never blocks): a settled turn that produced neither
       // player-visible text nor an error frame is a silent no-op for the
@@ -1017,6 +1105,7 @@ export class PiCocRpcHost {
       let sawPlayerText = false;
       let sawError = false;
       let sawHandoff = false;
+      let acceptedObserved = false;
       let timer = null;
       const notifyIfSilent = () => {
         if (
@@ -1044,6 +1133,10 @@ export class PiCocRpcHost {
         finish(null, result);
       };
       const off = this.onEvent((event) => {
+        idleWatchdog.observe(event, {
+          finalizationReceipt: deliveryReceiptFromToolEvent(event) !== null,
+          canonicalToolEnvelope: canonicalEnvelope(event?.result ?? event?.details),
+        });
         for (const frame of mapRpcEventToSse(event)) {
           if (frame.event === "delta" && String(frame.data?.text || "").trim()) {
             sawPlayerText = true;
@@ -1064,17 +1157,34 @@ export class PiCocRpcHost {
         // follow-up may be queued by the extension in the same lifecycle turn.
       });
       timer = setInterval(() => {
+        if (turnActivity?.accepted && !acceptedObserved) {
+          acceptedObserved = true;
+          idleWatchdog.progress();
+        }
         const quietFor = this.lastSettledAt > 0
           ? Date.now() - this.lastSettledAt
           : 0;
-        if (
+        if (this.abortGeneration > abortAt) {
+          if (sawHandoff || this.isHandoffShutdown()) {
+            settle({ handoff: true });
+          } else {
+            finish(this.#abortedError());
+          }
+        } else if (
           this.settleGeneration > startGen
           && !this.streaming
           && quietFor >= AGENT_SETTLE_QUIESCENCE_MS
         ) {
           settle({ handoff: sawHandoff });
-        } else if (this.abortGeneration > abortAt) {
-          finish(this.#abortedError());
+        } else if ((this.streaming || acceptedObserved) && idleWatchdog.expired()) {
+          void this.#beginAbort();
+          finish(new PiCocRpcError(
+            "pi-coc provider continuation lost RPC progress",
+            {
+              kind: "pi_coc_rpc_idle_timeout",
+              details: idleWatchdog.diagnostics(),
+            },
+          ));
         } else if (this.closed) {
           if (this.isHandoffShutdown()) {
             settle({ handoff: true });
@@ -1219,21 +1329,34 @@ export class PiCocRpcHost {
   }
 
   async prompt(message, { onSse, timeoutMs = 900_000 } = {}) {
-    const startGen = this.settleGeneration;
-    const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs);
-    const payload = {
-      type: "prompt",
-      message: String(message ?? ""),
-    };
-    if (this.streaming) payload.streamingBehavior = "followUp";
-    try {
-      await this.#request(payload, 15_000);
-    } catch (err) {
-      if (err?.kind !== "pi_coc_rpc_handoff") throw err;
-      const result = await settled;
-      return { ...result, handoff: true };
+    if (this.#abortBoundary !== null) {
+      throw new PiCocRpcError(
+        "pi-coc abort is awaiting agent_settled",
+        { kind: "pi_coc_rpc_abort_pending" },
+      );
     }
-    return await settled;
+    this.#activePromptCount += 1;
+    try {
+      const startGen = this.settleGeneration;
+      const turnActivity = { accepted: false };
+      const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs, { turnActivity });
+      const payload = {
+        type: "prompt",
+        message: String(message ?? ""),
+      };
+      if (this.streaming) payload.streamingBehavior = "followUp";
+      try {
+        await this.#request(payload, 15_000);
+        turnActivity.accepted = true;
+      } catch (err) {
+        if (err?.kind !== "pi_coc_rpc_handoff") throw err;
+        const result = await settled;
+        return { ...result, handoff: true };
+      }
+      return await settled;
+    } finally {
+      this.#activePromptCount -= 1;
+    }
   }
 
   async promptPlayOpening({ onSse, timeoutMs = 900_000 } = {}) {
@@ -1244,7 +1367,7 @@ export class PiCocRpcHost {
         if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
           sawVisibleText = true;
         }
-        onSse?.(frame);
+        return onSse?.(frame);
       },
     });
     if (!sawVisibleText) {
@@ -1255,8 +1378,36 @@ export class PiCocRpcHost {
     return { ...result, opened: true };
   }
 
+  async promptTurnRecovery({ onSse, timeoutMs = 900_000 } = {}) {
+    let sawVisibleText = false;
+    const result = await this.prompt(PLAY_TURN_RECOVERY_PROMPT, {
+      timeoutMs,
+      onSse: (frame) => {
+        if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
+          sawVisibleText = true;
+        }
+        return onSse?.(frame);
+      },
+    });
+    if (!sawVisibleText) {
+      throw new PiCocRpcError("pi-coc recovery produced no visible output", {
+        kind: "pi_coc_recovery_not_visible",
+      });
+    }
+    return { ...result, recovered: true };
+  }
+
   takeStreamedDelivery() {
     const delivery = this.#streamedFinalizedDelivery;
+    this.#streamedFinalizedDelivery = null;
+    return delivery;
+  }
+
+  offerStreamedDelivery(offer) {
+    const delivery = this.#streamedFinalizedDelivery;
+    if (delivery === null) return null;
+    const accepted = offer?.(delivery);
+    if (accepted === false) return null;
     this.#streamedFinalizedDelivery = null;
     return delivery;
   }
@@ -1312,42 +1463,84 @@ export class PiCocRpcHost {
   }
 
   async abort() {
-    this.abortGeneration += 1;
     if (!this.child || this.closed) return;
-    try {
-      await this.#write({ type: "abort" });
-    } catch {
-      /* best effort: waiters already unblocked */
+    if (this.streaming || this.#activePromptCount > 0) {
+      await this.#beginAbort();
+      return;
     }
+    this.abortGeneration += 1;
+    await this.#sendAbortOnce();
+    this.#abortCommandPending = false;
   }
 
-  async close() {
+  async close({
+    protocolAbort = true,
+    termTimeoutMs = 2_000,
+    killTimeoutMs = 2_000,
+  } = {}) {
     this.expectedShutdown = true;
-    if (!this.child || this.closed) return;
-    this.abortGeneration += 1;
-    try {
-      await this.#write({ type: "abort" });
-    } catch {
-      /* best effort */
+    if (!this.child) return;
+    if (this.#processExitObserved && this.#processCloseObserved) {
+      this.child = null;
+      return;
     }
-    this.child.kill("SIGTERM");
+    this.abortGeneration += 1;
+    if (protocolAbort && !this.#processExitObserved) await this.#sendAbortOnce();
     const child = this.child;
-    await new Promise((resolve) => {
-      const timer = setTimeout(() => {
+    const signalAndWait = (signal, timeoutMs) => new Promise((resolve) => {
+      if (this.#processExitObserved && this.#processCloseObserved) {
+        resolve(true);
+        return;
+      }
+      let done = false;
+      let timer = null;
+      const finish = (released) => {
+        if (done) return;
+        done = true;
+        if (timer !== null) clearTimeout(timer);
+        child.off("exit", onExit);
+        child.off("close", onClose);
+        resolve(released);
+      };
+      const maybeFinish = () => {
+        if (this.#processExitObserved && this.#processCloseObserved) finish(true);
+      };
+      const onExit = () => maybeFinish();
+      const onClose = () => maybeFinish();
+      child.once("exit", onExit);
+      child.once("close", onClose);
+      timer = setTimeout(() => finish(false), timeoutMs);
+      if (signal) {
         try {
-          child.kill("SIGKILL");
+          child.kill(signal);
         } catch {
-          /* already gone */
+          maybeFinish();
         }
-        resolve();
-      }, 2_000);
-      child.once("exit", () => {
-        clearTimeout(timer);
-        resolve();
-      });
+      }
     });
+    let exited = await signalAndWait(
+      this.#processExitObserved ? null : "SIGTERM",
+      termTimeoutMs,
+    );
+    if (!exited) {
+      exited = await signalAndWait(
+        this.#processExitObserved ? null : "SIGKILL",
+        killTimeoutMs,
+      );
+    }
+    if (!exited) {
+      throw new PiCocRpcError(
+        "pi-coc child did not exit after SIGTERM/SIGKILL",
+        { kind: "pi_coc_rpc_close_timeout" },
+      );
+    }
+    if (!this.#processExitObserved || !this.#processCloseObserved) {
+      throw new PiCocRpcError(
+        "pi-coc child exit/stdio close was not observed by its host",
+        { kind: "pi_coc_rpc_close_timeout" },
+      );
+    }
     this.child = null;
-    this.closed = true;
   }
 }
 
