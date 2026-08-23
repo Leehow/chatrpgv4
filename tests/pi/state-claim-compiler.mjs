@@ -12,6 +12,7 @@ const moduleUrl = pathToFileURL(path.join(
 const {
   PiStateClaimCompiler, canonicalDigest, draftParagraphs,
   STATE_CLAIM_COMPILER_TIMEOUT_MS,
+  STATE_CLAIM_COMPILER_TRANSIENT_RETRIES,
 } = await import(moduleUrl);
 const { resolveJsonSchemaStrictSampling } = await import(pathToFileURL(
   embeddedPiFile(root, "pi-ai", "dist/api/constrained-sampling.js"),
@@ -171,10 +172,10 @@ test("malformed paragraph coverage is latched until the next external turn", asy
   const options = { ...runtime, arguments: reviewArguments("One paragraph.") };
   await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
   await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
-  assert.equal(calls, 1);
+  assert.equal(calls, 1 + STATE_CLAIM_COMPILER_TRANSIENT_RETRIES);
   compiler.beginExternalTurn();
   await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
-  assert.equal(calls, 2);
+  assert.equal(calls, 2 * (1 + STATE_CLAIM_COMPILER_TRANSIENT_RETRIES));
 });
 
 test("stale turn identity fails before inference", async () => {
@@ -188,8 +189,9 @@ test("stale turn identity fails before inference", async () => {
   assert.equal(calls, 0);
 });
 
-test("production compiler deadline is a single-shot budget larger than the old 20s cap", () => {
+test("production compiler deadline is a per-attempt budget larger than the old 20s cap", () => {
   assert.equal(STATE_CLAIM_COMPILER_TIMEOUT_MS, 120_000);
+  assert.equal(STATE_CLAIM_COMPILER_TRANSIENT_RETRIES, 1);
   assert.ok(STATE_CLAIM_COMPILER_TIMEOUT_MS > 20_000);
 });
 
@@ -575,4 +577,191 @@ test("direct inference prefers strict sampling without rejecting grok-4.5 capabi
   assert.deepEqual(receipt.requested_model, {
     provider: "xai", id: "grok-4.5", api: "openai-responses",
   });
+});
+
+test("first malformed compiler result then valid result succeeds once", async () => {
+  const observed = [];
+  const compiler = new PiStateClaimCompiler(async (input, _schema, runtime) => {
+    observed.push({
+      input,
+      correction: runtime.correction ?? null,
+    });
+    if (observed.length === 1) {
+      const malformed = resultFor(input, []);
+      malformed.paragraph_coverage = [];
+      return {
+        result: malformed,
+        responseModel: { provider: "p", id: "m", api: "a" },
+      };
+    }
+    return noClaimsOutcome(input);
+  });
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const options = {
+    ...runtime,
+    arguments: reviewArguments("No state change.", [{
+      claim_id: "kp-injury",
+      subject_ref: subjectRef,
+      claim_kind: "condition",
+      exact_excerpt: "No state change.",
+      source_effect_id: "hp-critical-injury",
+      reason: "Unknown effect must stay fail-closed outside the compiler.",
+    }]),
+  };
+  const receipt = await compiler.compileReview(options);
+  assert.equal(observed.length, 2);
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.result.disposition, "no_claims_detected");
+  assert.equal(observed[0].correction, null);
+  assert.match(observed[1].correction, /state_claim_coverage_incomplete/);
+  assert.match(observed[1].correction, /Do not invent claims, receipts, subject refs, excerpts, or effect IDs/);
+  for (const row of observed) {
+    assert.equal(JSON.stringify(row.input).includes("source_effect_id"), false);
+    assert.equal(JSON.stringify(row.input).includes("hp-critical-injury"), false);
+    assert.equal(String(row.correction ?? "").includes("hp-critical-injury"), false);
+    assert.equal(String(row.correction ?? "").includes("source_effect_id"), false);
+  }
+  const replay = await compiler.compileReview(options);
+  assert.equal(observed.length, 2);
+  assert.equal(replay.binding_digest, receipt.binding_digest);
+});
+
+test("two invalid compiler results latch and stay fail-closed", async () => {
+  let calls = 0;
+  const compiler = new PiStateClaimCompiler(async (input) => {
+    calls += 1;
+    return {
+      result: {
+        ...resultFor(input, []),
+        contract_id: "coc.forged-compiler-result.v0",
+      },
+      responseModel: { provider: "p", id: "m", api: "a" },
+    };
+  });
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const options = { ...runtime, arguments: reviewArguments("No state change.") };
+  await assert.rejects(
+    () => compiler.compileReview(options),
+    (error) => {
+      assert.match(error.message, /state_claim_result_identity_invalid/);
+      assert.equal(error.failureClass, "result_invalid");
+      return true;
+    },
+  );
+  await assert.rejects(() => compiler.compileReview(options), /state_claim_result_identity_invalid/);
+  assert.equal(calls, 2);
+});
+
+test("canonical authority unknown source_effect_id is never retried or normalized", async () => {
+  let calls = 0;
+  const compiler = new PiStateClaimCompiler(async (input, _schema, runtime) => {
+    calls += 1;
+    assert.equal(JSON.stringify(input).includes("source_effect_id"), false);
+    assert.equal(JSON.stringify(input).includes("hp-critical-injury"), false);
+    assert.equal(runtime.correction, undefined);
+    return noClaimsOutcome(input);
+  });
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const receipt = await compiler.compileReview({
+    ...runtime,
+    arguments: reviewArguments("The wound is only described.", [{
+      claim_id: "kp-unknown-effect",
+      subject_ref: subjectRef,
+      claim_kind: "condition",
+      exact_excerpt: "The wound is only described.",
+      source_effect_id: "hp-critical-injury",
+      reason: "KP bound an unknown effect id.",
+    }]),
+  });
+  assert.equal(calls, 1);
+  assert.equal(receipt.status, "completed");
+  assert.equal(JSON.stringify(receipt).includes("hp-critical-injury"), false);
+  assert.equal(JSON.stringify(receipt.result).includes("source_effect_id"), false);
+});
+
+test("identity coverage and subject constraints stay strict after a retry", async () => {
+  const cases = [
+    {
+      name: "foreign_subject",
+      mutate(result) {
+        result.disposition = "claims_detected";
+        result.claims = [{
+          subject_ref: "pc:someone-else",
+          claim_kind: "item",
+          exact_excerpt: "key is now yours",
+          matched_review_claim_id: null,
+          reason: "Invented a non-PC subject.",
+        }];
+        return result;
+      },
+      pattern: /state_claim_result_value_invalid/,
+    },
+    {
+      name: "excerpt_not_in_draft",
+      mutate(result) {
+        result.disposition = "claims_detected";
+        result.claims = [{
+          subject_ref: subjectRef,
+          claim_kind: "item",
+          exact_excerpt: "forged excerpt absent from draft",
+          matched_review_claim_id: null,
+          reason: "Invented an excerpt.",
+        }];
+        return result;
+      },
+      pattern: /state_claim_result_value_invalid/,
+    },
+    {
+      name: "coverage_identity",
+      mutate(result) {
+        result.paragraph_coverage[0].paragraph_sha256 = "sha256:not-the-paragraph-digest";
+        return result;
+      },
+      pattern: /state_claim_coverage_invalid/,
+    },
+  ];
+  for (const fixture of cases) {
+    let calls = 0;
+    const compiler = new PiStateClaimCompiler(async (input) => {
+      calls += 1;
+      return {
+        result: fixture.mutate(resultFor(input, [])),
+        responseModel: { provider: "p", id: "m", api: "a" },
+      };
+    });
+    compiler.observeOutputContext(campaignId, contextEnvelope());
+    await assert.rejects(
+      () => compiler.compileReview({
+        ...runtime,
+        arguments: reviewArguments("The key is now yours."),
+      }),
+      fixture.pattern,
+      fixture.name,
+    );
+    assert.equal(calls, 2, fixture.name);
+  }
+});
+
+test("timeout stays a single bounded attempt and is not retried", async () => {
+  let calls = 0;
+  const compiler = new PiStateClaimCompiler(async () => {
+    calls += 1;
+    return await new Promise(() => {});
+  }, 8);
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  const startedAt = Date.now();
+  await assert.rejects(
+    () => compiler.compileReview({
+      ...runtime,
+      arguments: reviewArguments("No state change."),
+    }),
+    (error) => {
+      assert.match(error.message, /state_claim_compiler_timeout/);
+      assert.equal(error.failureClass, "timeout");
+      return true;
+    },
+  );
+  const elapsed = Date.now() - startedAt;
+  assert.equal(calls, 1);
+  assert.ok(elapsed < 80, `timeout retried or unbounded: ${elapsed}ms`);
 });

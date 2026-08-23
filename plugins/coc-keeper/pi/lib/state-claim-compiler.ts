@@ -5,9 +5,13 @@ import type { JsonObject } from "./runtime.ts";
 
 export const STATE_CLAIM_HOST_FIELD = "state_claim_compilation";
 export const STATE_CLAIM_FUNCTION = "emit_state_claim_compilation";
-// Single-shot semantic compilation deadline. Slow providers such as
-// xai/grok-4.5 routinely exceed the previous 20s hard cap; do not retry.
+// Per-attempt semantic compilation deadline. Slow providers such as
+// xai/grok-4.5 routinely exceed the previous 20s hard cap.
+// Transient protocol/result-invalid output may retry once with a fresh
+// deadline and typed validator feedback. Timeout, capability, provider,
+// and canonical-authority rejections stay fail-closed without retry.
 export const STATE_CLAIM_COMPILER_TIMEOUT_MS = 120_000;
+export const STATE_CLAIM_COMPILER_TRANSIENT_RETRIES = 1;
 export const STATE_CLAIM_KINDS = [
   "assets_liquidate", "cash", "condition", "item", "loaded_ammunition",
   "purchase", "rest", "scalar", "time", "time_appearance",
@@ -62,10 +66,16 @@ type InflightEntry = {
   controller: AbortController;
   promise: Promise<InferenceOutcome>;
 };
+type InferenceRuntime = {
+  ctx: ExtensionContext;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  correction?: string;
+};
 type Inference = (
   input: JsonObject,
   schema: JsonObject,
-  runtime: { ctx: ExtensionContext; signal?: AbortSignal; timeoutMs?: number },
+  runtime: InferenceRuntime,
 ) => Promise<InferenceOutcome>;
 
 function stableJson(value: unknown): string {
@@ -134,6 +144,31 @@ function failureClass(message: string): StateClaimCompilerFailureClass {
     || message.startsWith("state_claim_coverage_")
   ) return "result_invalid";
   return "provider_unavailable";
+}
+
+function classifiedFailure(error: unknown): StateClaimCompilerFailureClass {
+  if (error instanceof PiStateClaimCompilerFailure) return error.failureClass;
+  const message = error instanceof Error && error.message
+    ? error.message
+    : "state_claim_compiler_unavailable";
+  return failureClass(message);
+}
+
+function isTransientCompilerOutputFailure(error: unknown): boolean {
+  const classified = classifiedFailure(error);
+  return classified === "protocol_invalid" || classified === "result_invalid";
+}
+
+function correctionPrompt(error: unknown): string {
+  const message = error instanceof Error && error.message
+    ? error.message
+    : "state_claim_compiler_unavailable";
+  return [
+    `Previous compilation was rejected by the host validator: ${message}.`,
+    "Re-emit only the forced structured function call.",
+    "Do not invent claims, receipts, subject refs, excerpts, or effect IDs.",
+    "Satisfy the closed schema, identity, subject, excerpt, and coverage contract exactly.",
+  ].join(" ");
 }
 
 function waiterOutcome(
@@ -299,7 +334,11 @@ function validateResult(raw: unknown, input: JsonObject): JsonObject {
   return { ...result, claims: normalizedClaims, paragraph_coverage: coverage };
 }
 
-async function directInference(input: JsonObject, schema: JsonObject, runtime: { ctx: ExtensionContext; signal?: AbortSignal; timeoutMs?: number }): Promise<InferenceOutcome> {
+async function directInference(
+  input: JsonObject,
+  schema: JsonObject,
+  runtime: InferenceRuntime,
+): Promise<InferenceOutcome> {
   const model = runtime.ctx.model;
   if (!model) throw new Error("state_claim_model_unavailable");
   const tool: Tool = {
@@ -308,11 +347,25 @@ async function directInference(input: JsonObject, schema: JsonObject, runtime: {
     parameters: schema as Tool["parameters"],
     constrainedSampling: { type: "json_schema", strict: "prefer" },
   };
+  const messages: Array<{
+    role: "user";
+    content: Array<{ type: "text"; text: string }>;
+    timestamp: number;
+  }> = [
+    { role: "user", content: [{ type: "text", text: stableJson(input) }], timestamp: Date.now() },
+  ];
+  if (runtime.correction) {
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: runtime.correction }],
+      timestamp: Date.now(),
+    });
+  }
   const response = await runtime.ctx.modelRegistry.complete(
     model,
     {
       systemPrompt: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: [{ type: "text", text: stableJson(input) }], timestamp: Date.now() }],
+      messages,
       tools: [tool],
     },
     {
@@ -403,6 +456,61 @@ export class PiStateClaimCompiler {
     throw failure;
   }
 
+  private async runInferenceAttempts(
+    input: JsonObject,
+    entry: InflightEntry,
+    ctx: ExtensionContext,
+    failureGeneration: number,
+  ): Promise<InferenceOutcome> {
+    let correction: string | undefined;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= STATE_CLAIM_COMPILER_TRANSIENT_RETRIES; attempt++) {
+      if (attempt > 0 && failureGeneration !== this.failureGeneration) {
+        throw lastError instanceof Error
+          ? lastError
+          : new Error("state_claim_compiler_session_cleared");
+      }
+      const controller = new AbortController();
+      entry.controller = controller;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const timeoutFailure = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort("state_claim_compiler_timeout");
+          reject(new Error("state_claim_compiler_timeout"));
+        }, this.timeoutMs);
+      });
+      try {
+        return await Promise.race([
+          this.infer(input, resultSchema(input), {
+            ctx,
+            signal: controller.signal,
+            timeoutMs: this.timeoutMs,
+            correction,
+          }).then((outcome) => ({
+            result: validateResult(outcome.result, input),
+            responseModel: responseModel(outcome.responseModel),
+          })),
+          timeoutFailure,
+        ]);
+      } catch (error) {
+        lastError = error;
+        if (
+          attempt >= STATE_CLAIM_COMPILER_TRANSIENT_RETRIES
+          || failureGeneration !== this.failureGeneration
+          || !isTransientCompilerOutputFailure(error)
+        ) {
+          throw error;
+        }
+        correction = correctionPrompt(error);
+      } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("state_claim_compiler_unavailable");
+  }
+
   async compileReview(options: {
     campaignId: string;
     arguments: JsonObject;
@@ -440,30 +548,16 @@ export class PiStateClaimCompiler {
       if (!entry) {
         const startedAt = Date.now();
         const requestedModel = requestedModelIdentity(options.ctx);
-        const controller = new AbortController();
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        const timeoutFailure = new Promise<never>((_resolve, reject) => {
-          timeout = setTimeout(() => {
-            controller.abort("state_claim_compiler_timeout");
-            reject(new Error("state_claim_compiler_timeout"));
-          }, this.timeoutMs);
-        });
-        entry = { controller, promise: Promise.resolve({} as InferenceOutcome) };
+        entry = {
+          controller: new AbortController(),
+          promise: Promise.resolve({} as InferenceOutcome),
+        };
         const ownedEntry = entry;
-        entry.promise = Promise.race([
-          this.infer(input, resultSchema(input), {
-            ctx: options.ctx,
-            signal: controller.signal,
-            timeoutMs: this.timeoutMs,
-          }).then((outcome) => ({
-            result: validateResult(outcome.result, input),
-            responseModel: responseModel(outcome.responseModel),
-          })),
-          timeoutFailure,
-        ]).catch((error) => this.rememberFailure(
+        entry.promise = this.runInferenceAttempts(
+          input, ownedEntry, options.ctx, failureGeneration,
+        ).catch((error) => this.rememberFailure(
           failureKey, error, failureGeneration, requestedModel, startedAt,
         )).finally(() => {
-          if (timeout !== undefined) clearTimeout(timeout);
           if (this.inflight.get(inputDigest) === ownedEntry) {
             this.inflight.delete(inputDigest);
           }

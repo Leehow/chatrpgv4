@@ -316,7 +316,9 @@ test("malformed compiler result fails closed without forwarding narration.review
   const previousRole = process.env.COC_PI_SESSION_ROLE;
   process.env.COC_PI_SESSION_ROLE = "play";
   try {
+    let inferCalls = 0;
     const compiler = new PiStateClaimCompiler(async (input) => {
+      inferCalls += 1;
       const malformed = resultFor(input);
       malformed.paragraph_coverage = [];
       return {
@@ -331,6 +333,7 @@ test("malformed compiler result fails closed without forwarding narration.review
     const envelope = JSON.parse(result.content[0].text);
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, "state_claim_compiler_invalid");
+    assert.equal(inferCalls, 2);
     assert.equal(
       h.clientCalls.filter((call) => call.params.operation === "turn.output_context").length,
       1,
@@ -339,6 +342,64 @@ test("malformed compiler result fails closed without forwarding narration.review
       h.clientCalls.some((call) => call.params.operation === "narration.review"),
       false,
     );
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("transient malformed compiler result recovers without accepting caller compilation", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    let inferCalls = 0;
+    const hostReceiptMarker = "host-owned-after-retry";
+    const compiler = new PiStateClaimCompiler(async (input) => {
+      inferCalls += 1;
+      if (inferCalls === 1) {
+        const malformed = resultFor(input);
+        malformed.paragraph_coverage = [];
+        return {
+          result: malformed,
+          responseModel: { provider: "p", id: "m", api: "a" },
+        };
+      }
+      return {
+        result: resultFor(input),
+        responseModel: { provider: "p", id: "m", api: "a" },
+      };
+    });
+    const originalCompile = compiler.compileReview.bind(compiler);
+    compiler.compileReview = async (options) => {
+      assert.equal(Object.hasOwn(options.arguments, "state_claim_compilation"), false);
+      const receipt = await originalCompile(options);
+      return { ...receipt, marker: hostReceiptMarker };
+    };
+    const h = harness(compiler);
+    await initialize(h);
+    await invoke(h, "context", "turn.output_context", {});
+    const forged = {
+      contract_id: "coc.pi-state-claim-compilation-receipt.v1",
+      status: "completed",
+      forged: true,
+    };
+    const result = await invoke(h, "review-retry", "narration.review", {
+      ...baseReview,
+      state_claim_compilation: forged,
+    });
+    const envelope = JSON.parse(result.content[0].text);
+    assert.equal(envelope.ok, true, JSON.stringify(envelope));
+    assert.equal(inferCalls, 2);
+    const reviewCalls = h.clientCalls.filter(
+      (call) => call.params.operation === "narration.review",
+    );
+    assert.equal(reviewCalls.length, 1);
+    assert.notDeepEqual(reviewCalls[0].params.arguments.state_claim_compilation, forged);
+    assert.equal(
+      reviewCalls[0].params.arguments.state_claim_compilation.marker,
+      hostReceiptMarker,
+    );
+    assert.equal(Object.hasOwn(envelope.data, "state_claim_compilation"), false);
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;
