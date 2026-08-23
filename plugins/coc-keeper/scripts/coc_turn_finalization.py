@@ -23,6 +23,7 @@ import coc_fileio
 import coc_language
 import coc_roll
 import coc_exceptional_effects
+import coc_operation_policy
 import coc_rulesets
 import coc_turn_manifest
 
@@ -63,6 +64,24 @@ MECHANIC_SEGMENT_TYPES = frozenset({
     "public_check", "state_delta", "asset_delta", "exceptional_effect",
 })
 ASSET_EFFECT_KINDS = frozenset({"cash", "item", "purchase", "assets_liquidate"})
+# Structured registry identities that may prove a projected effect_kind.
+# Unknown kinds fail closed unless a registered state.* mutation matches.
+_STATE_KIND_OPERATION_NAMES = {
+    "item": frozenset({
+        "state.item_grant", "state.item_remove", "state.item_use",
+    }),
+    "cash": frozenset({"state.cash_grant", "state.cash_spend"}),
+    "time": frozenset({"state.advance_time"}),
+    "time_appearance": frozenset({"state.time_appearance"}),
+    "rest": frozenset({"state.mark_safe_rest"}),
+    "purchase": frozenset({"state.purchase"}),
+    "assets_liquidate": frozenset({"state.assets_liquidate"}),
+    "condition": frozenset({"state.clear_transient_condition"}),
+}
+_RULES_OWNED_EFFECT_KINDS = frozenset({
+    "scalar", "condition", "loaded_ammunition",
+})
+_TIME_EFFECT_KINDS = frozenset({"time", "time_appearance"})
 SEGMENT_TYPE_ORDER = {
     "public_check": 0,
     "state_delta": 1,
@@ -3464,6 +3483,136 @@ def _collect_roll_after_violations(
     return violations
 
 
+def _is_typed_state_delta(effect: Any) -> bool:
+    """Recognize typed before/after or delta payloads; never infer from prose."""
+    if not isinstance(effect, dict):
+        return False
+    keys = {str(key) for key in effect}
+    if "before" in keys and "after" in keys:
+        return True
+    if keys & {"delta", "applied_delta", "state_delta", "change"}:
+        return True
+    if (
+        effect.get("category") in {"state_delta", "asset_delta"}
+        and effect.get("effect_id")
+        and effect.get("action")
+    ):
+        return True
+    before_stems = {key[:-7] for key in keys if key.endswith("_before")}
+    after_stems = {key[:-6] for key in keys if key.endswith("_after")}
+    return bool(before_stems & after_stems)
+
+
+def _toolbox_registry() -> dict[str, Any]:
+    import coc_toolbox
+
+    return coc_toolbox.TOOLS
+
+
+def _operation_is_advisory(name: str, spec: dict[str, Any]) -> bool:
+    if spec.get("access") == "query":
+        return True
+    try:
+        return bool(coc_operation_policy.policy_for_operation(name)["advisory"])
+    except KeyError:
+        return False
+
+
+def _call_proves_effect(
+    call: dict[str, Any],
+    effect: dict[str, Any],
+    registry: dict[str, Any],
+) -> str | None:
+    """Return a rejection token, or None when this call proves the effect."""
+    tool = str(call.get("tool") or "")
+    spec = registry.get(tool)
+    if not isinstance(spec, dict):
+        return "unknown"
+    if spec.get("access", "mutation") != "mutation" or _operation_is_advisory(tool, spec):
+        return "advisory"
+    if call.get("ok") is not True:
+        return "failed"
+    kind = str(effect.get("effect_kind") or "")
+    allowed_state = _STATE_KIND_OPERATION_NAMES.get(kind)
+    if kind in _RULES_OWNED_EFFECT_KINDS:
+        # HP/SAN/Luck/ammo/condition projections are owned by the registered
+        # mutation that wrote player_state_receipt (rules.*, combat.*, or a
+        # matching state.clear_transient_condition). Do not require a second
+        # state.* wrapper.
+        pass
+    elif allowed_state is not None:
+        if tool not in allowed_state:
+            return "mismatch"
+    elif not tool.startswith("state."):
+        return "mismatch"
+    subject = str(effect.get("investigator_id") or "").strip()
+    if subject:
+        found = _row_investigator_ids(call)
+        if found:
+            if subject not in found:
+                return "mismatch"
+        elif kind not in _TIME_EFFECT_KINDS:
+            return "mismatch"
+    return None
+
+
+def _state_delta_proof_reason(
+    effect: dict[str, Any],
+    window: list[dict[str, Any]],
+    registry: dict[str, Any],
+) -> str | None:
+    decision_id = str(effect.get("source_decision_id") or "").strip()
+    if not decision_id:
+        return "missing"
+    reasons: list[str] = []
+    for call in window:
+        if not isinstance(call, dict):
+            continue
+        if _call_decision_id(call) != decision_id:
+            continue
+        reason = _call_proves_effect(call, effect, registry)
+        if reason is None:
+            return None
+        reasons.append(reason)
+    if not reasons:
+        return "missing"
+    for token in ("mismatch", "advisory", "unknown", "failed"):
+        if token in reasons:
+            return token
+    return "missing"
+
+
+def _state_delta_proof_violations(
+    window: list[dict[str, Any]],
+    effects: Any,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    """Fail closed when a typed visible delta lacks a registered write receipt."""
+    tools = registry if registry is not None else _toolbox_registry()
+    violations: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for effect in effects or []:
+        if not _is_typed_state_delta(effect):
+            continue
+        effect_id = str(effect.get("effect_id") or "").strip() or "unknown"
+        if effect_id in seen:
+            continue
+        seen.add(effect_id)
+        reason = _state_delta_proof_reason(effect, window, tools)
+        if reason is None:
+            continue
+        violations.append({
+            "stage": "state_proof",
+            "code": "unproven_state_delta",
+            "message": (
+                f"{effect_id}: typed state effect lacks a successful registered "
+                f"canonical state operation ({reason})"
+            ),
+        })
+    return violations
+
+
 def collect_finalize_violations(
     campaign_dir: Path,
     *,
@@ -3514,6 +3663,18 @@ def collect_finalize_violations(
                 f"source-bound to its roll: {pending}"
             ),
         })
+    try:
+        _manifest, source_window, _journal = (
+            coc_turn_manifest.refresh_pending_window(campaign_dir)
+        )
+    except coc_turn_manifest.TurnManifestError:
+        source_window = []
+    violations.extend(
+        _state_delta_proof_violations(
+            source_window,
+            context["mechanics_bundle"].get("state_delta") or [],
+        )
+    )
     coverage_violations, coverage_rows = _collect_coverage_violations(
         context["obligations"], coverage, draft
     )
