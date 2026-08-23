@@ -166,7 +166,11 @@ visible `coc_session_resume` tool, then call visible
   `state.item_grant` succeeds. In the later `state_authority_review`, list
   every such draft claim and bind its `source_effect_id` to the exact current
   frozen effect. An ungrounded claim requires prose-only revision 2; never add
-  a late state write after the journal.
+  a late state write after the journal. Pi host independently compiles every
+  exact draft paragraph for PC state claims and compares it with this
+  declaration. The compiler receipt is private and host-owned; do not invent
+  or pass it. Compiler failure or disagreement keeps the frozen turn pending
+  for narration-only repair.
 - Clue discovery is not real until `state.record_clue` writes. When an authored
   route's `grants_clue_ids` (or a campaign-local improvised clue) is earned by
   a successful check or obvious observation, call `coc_state_record_clue`

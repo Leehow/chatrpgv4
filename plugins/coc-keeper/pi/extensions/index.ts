@@ -121,6 +121,10 @@ import {
   registerPlayerPdfBindInstruction,
   userMessageText,
 } from "../lib/player-pdf-bind.ts";
+import {
+  PiStateClaimCompiler,
+  STATE_CLAIM_HOST_FIELD,
+} from "../lib/state-claim-compiler.ts";
 export {
   PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE,
   detectPlayerPdfBindRequest,
@@ -7497,6 +7501,7 @@ interface MainExtensionOverrides {
     context: PrivateLaunchContext,
     signal?: AbortSignal,
   ) => ChildRun;
+  createStateClaimCompiler?: () => PiStateClaimCompiler;
 }
 
 export function explicitPiStartupCampaignId(
@@ -7645,6 +7650,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let startupResumeGate: StartupResumeGate | null = null;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const nonRetryableFailureCircuit = new NonRetryableFailureCircuit();
+  const stateClaimCompiler = (
+    overrides.createStateClaimCompiler?.() ?? new PiStateClaimCompiler()
+  );
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
@@ -7950,6 +7958,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = false;
     openingContinuationGate.reset();
     nonRetryableFailureCircuit.reset();
+    stateClaimCompiler.clear();
     startSemanticSupply(ctx, sessionEpoch);
     sourceProducerStates = new Map<string, JsonObject>();
     sourceProducerControllers = new Map<string, AbortController>();
@@ -8939,6 +8948,83 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         return result(blocked);
       }
     }
+    if (
+      isCanonicalInvokeSurface(name)
+      && params.operation === "narration.review"
+      && sessionRoleFromEnv() === "play"
+    ) {
+      const campaignId = typeof params.campaign === "string" ? params.campaign.trim() : "";
+      const reviewArgs = objectOrNull(params.arguments);
+      if (!campaignId || reviewArgs === null) {
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code: "state_claim_compiler_context_missing",
+            message: "call turn.output_context for this pending turn before narration.review",
+          },
+        });
+      }
+      // The field is host-owned on typed, domain, and compatibility paths.
+      // Never preserve a caller-supplied value, even when it happens to be valid.
+      const {
+        [STATE_CLAIM_HOST_FIELD]: _forgedCompilation,
+        ...keeperReviewArgs
+      } = reviewArgs;
+      try {
+        const compilation = await stateClaimCompiler.compileReview({
+          campaignId,
+          arguments: keeperReviewArgs,
+          ctx,
+          signal,
+          sessionEpoch: epoch,
+          isCurrent,
+        });
+        params = {
+          ...params,
+          arguments: {
+            ...keeperReviewArgs,
+            [STATE_CLAIM_HOST_FIELD]: compilation,
+          },
+        };
+      } catch (error) {
+        const failure = error instanceof Error ? error.message : "";
+        const contextMissing = failure === "state_claim_compiler_context_missing";
+        const invalid = failure.startsWith("state_claim_result_")
+          || failure.startsWith("state_claim_coverage_")
+          || failure.startsWith("state_claim_response_")
+          || failure.startsWith("state_claim_model_protocol_")
+          || failure.startsWith("state_claim_model_arguments_");
+        const code = contextMissing
+          ? "state_claim_compiler_context_missing"
+          : invalid
+            ? "state_claim_compiler_invalid"
+            : "state_claim_compiler_unavailable";
+        try {
+          pi.appendEntry("coc-state-claim-compiler", {
+            schema_version: 1,
+            status: "failed",
+            code,
+            campaign_id: campaignId,
+            turn_id: keeperReviewArgs.turn_id,
+            draft_sha256: typeof keeperReviewArgs.draft_text === "string"
+              ? createHash("sha256").update(JSON.stringify(keeperReviewArgs.draft_text), "utf8").digest("hex")
+              : null,
+          });
+        } catch { /* compiler failure audit is best effort */ }
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code,
+            retryable: !contextMissing,
+            message: contextMissing
+              ? "call turn.output_context for this pending turn before narration.review"
+              : "player-state claim compilation did not complete; narration review was not recorded",
+          },
+        });
+      }
+    }
     let preparedSceneSupply: JsonObject | null = null;
     if (isCanonicalInvokeSurface(name) && params.operation === "state.move_scene") {
       const preflight = await sceneSupplyPreflight(params, signal, ctx);
@@ -8965,6 +9051,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       value = call.value;
       transportMeta = call.transport;
       turnTelemetry?.recordTransportMeta(_id, transportMeta);
+      if (
+        params.operation === "turn.output_context"
+        && typeof params.campaign === "string"
+      ) {
+        stateClaimCompiler.observeOutputContext(params.campaign, value);
+      }
       if (
         process.env.COC_PI_SCENE_SUPPLY === "1"
         && params.operation === "steward.scene_supply"
@@ -10170,6 +10262,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     startupResumeGate = null;
     sceneSupplyDispatches.clear();
     openingContinuationGate.reset();
+    stateClaimCompiler.clear();
     await supplyCoordinator.shutdown();
     for (const controller of sourceProducerControllers.values()) {
       controller.abort("session_shutdown");

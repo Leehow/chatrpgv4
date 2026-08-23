@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b4f398b51d59ce9b9798e5333aa9d4d223662918b8ed1f48b0f1955c90639027",
+  "content_sha256": "sha256:16ca733d3096ec5a82563211e6302d11c2f452fa2638a8533bf9426671e860fb",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1224,6 +1224,11 @@
             ],
             "type": "object"
           },
+          "state_claim_compilation": {
+            "additionalProperties": true,
+            "description": "Pi-host-owned independent semantic claim receipt. The Pi adapter injects it for the exact draft; the Keeper must not author or modify it.",
+            "type": "object"
+          },
           "turn_id": {
             "type": "string"
           }
@@ -1235,7 +1240,8 @@
           "source_digest",
           "revision",
           "draft_text",
-          "state_authority_review"
+          "state_authority_review",
+          "state_claim_compilation"
         ],
         "type": "object"
       },

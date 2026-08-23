@@ -78,6 +78,8 @@ test("live play exposes the agency review then finalize contract", () => {
   assert.match(review.description, /state_authority_review/);
   assert.match(review.description, /current frozen mechanics effect/);
   assert.ok(review.parameters.required.includes("state_authority_review"));
+  assert.ok(!review.parameters.required.includes("state_claim_compilation"));
+  assert.ok(!Object.hasOwn(review.parameters.properties, "state_claim_compilation"));
   const stateReview = review.parameters.properties.state_authority_review;
   assert.equal(stateReview.additionalProperties, false);
   assert.deepEqual(
