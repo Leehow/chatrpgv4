@@ -2682,6 +2682,29 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     "turn finalization is durable, but post-finalization cursor/checkpoint publication will recover on the next campaign call: "
                     + str(exc)
                 )
+        if (
+            ctx is not None
+            and envelope.get("ok") is True
+            and name == "turn.finalize"
+        ):
+            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
+            if (
+                isinstance(data.get("finalization_id"), str)
+                and data["finalization_id"].strip()
+            ):
+                try:
+                    _commit_finalized_turn_history(ctx, data)
+                except ToolError as exc:
+                    error = {"code": exc.code, "message": exc.message}
+                    if exc.violations:
+                        error["violations"] = exc.violations
+                    if exc.details is not None:
+                        error["details"] = deepcopy(exc.details)
+                    envelope["ok"] = False
+                    envelope["error"] = error
+                    envelope["hints"] = _error_recovery_hints(exc.code)
+                    envelope.pop("data", None)
+                    envelope.pop("continuation", None)
         if not retryable or attempt >= max_attempts:
             return envelope
         time.sleep(_TOOL_TRANSIENT_RETRY_DELAY_SECONDS * attempt)
@@ -31593,6 +31616,7 @@ def _finalization_turn_number(ctx: Ctx, receipt: dict[str, Any]) -> int:
 
 
 def _commit_finalized_turn_history(ctx: Ctx, receipt: dict[str, Any]) -> str:
+    """Commit one settled turn after every authoritative post-finalization write."""
     campaign_id = ctx.campaign_id
     if not isinstance(campaign_id, str) or not campaign_id:
         raise ToolError("missing_campaign", "turn history commit requires a campaign")
@@ -31804,7 +31828,6 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
                 f"decision_id '{decision_id}' already owns a different narration revision or draft",
             )
         _record_finalized_keeper_text(ctx, existing)
-        _commit_finalized_turn_history(ctx, existing)
         uptake_warnings, uptake_hints = record_uptake(existing)
         return deepcopy(existing), [
             "duplicate decision_id: returning the immutable final turn output",
@@ -31891,7 +31914,6 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
             source_receipt=finalizations[-1],
             replacement_receipt=receipt,
         )
-        _commit_finalized_turn_history(ctx, receipt)
         uptake_warnings, uptake_hints = record_uptake(receipt)
         return receipt, [*checkpoint_warnings, *uptake_warnings], [
             "undelivered narration repaired without rerunning rules, state, or the journal",
@@ -31915,7 +31937,6 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
         )
         coc_turn_finalization.append_finalization(ctx.campaign_dir, receipt)
         _record_finalized_keeper_text(ctx, receipt)
-        _commit_finalized_turn_history(ctx, receipt)
     except coc_turn_finalization.TurnContractError as exc:
         raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
     uptake_warnings, uptake_hints = record_uptake(receipt)

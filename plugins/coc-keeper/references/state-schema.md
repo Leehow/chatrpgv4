@@ -401,8 +401,10 @@ Coordinator). Other agents and scripts must not invoke git against a campaign
 repo. Formal decisions live in `docs/specs/campaign-git-history.md` and
 `docs/adr/0001-campaign-git-history.md`.
 
-`turn.finalize` commits after every canonical write and before delivery. A
-failed commit fails finalize. Campaign creation lands one
+`turn.finalize` commits after every canonical write and before delivery,
+including pending-turn cleanup, source-cursor/manifest completion, and the
+continuation checkpoint. The Git commit is the last step of the
+`turn.finalize` wrapper. A failed commit fails finalize. Campaign creation lands one
 `COC-Commit-Type: baseline` commit and does not backfill older turns. Each
 finalized turn is `COC-Commit-Type: turn`. In-flight leftover
 `save/commit-snapshots/` directories are neither imported, read, nor deleted.
@@ -423,7 +425,8 @@ The ignore face is the Coordinator constant `IGNORE_PATHS`, written only to
 the bare repo `info/exclude` (never a campaign-tree `.gitignore`):
 `logs/pending-turns/`, `save/session-state.json`, `save/toolbox-ledger.json`,
 `save/commit-snapshots/`, `save/development-settlements/`,
-`save/roll-operation-receipts.json`, `memory/index.json`.
+`save/roll-operation-receipts.json`, `save/run-identity.lock`,
+`memory/index.json`.
 
 Crash recovery checks out only HEAD's turn-scoped `save/` subset — the same
 paths the retired copytree snapshot captured. It never restores

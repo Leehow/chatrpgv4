@@ -37,7 +37,10 @@ DB、或异步提交留下「已结算未提交」窗口。
 subprocess 调 git 二进制；任何 Agent / 其它脚本不得直接写战役仓库。
 
 `turn.finalize` 在全部 canonical 写入完成之后、交付之前**同步**调用
-Coordinator 提交。commit 失败 = finalize 失败（与旧 copytree 失败语义对等，
+Coordinator 提交。Those writes include the wrapper's pending-turn cleanup,
+source-cursor/manifest completion, and continuation checkpoint; the Git
+commit is the last step of the `turn.finalize` wrapper, not an inner step of
+the receipt builder. commit 失败 = finalize 失败（与旧 copytree 失败语义对等，
 fail-closed）。git 历史**替代** `commit-snapshots` 目录复制，成为崩溃恢复与
 取证的唯一读取路径（single reader，无双读）。
 
@@ -87,6 +90,7 @@ canonical JSONL、`memory/`、scenario 绑定清单。
 - `save/commit-snapshots/`
 - `save/development-settlements/`
 - `save/roll-operation-receipts.json`
+- `save/run-identity.lock`
 - `memory/index.json`
 
 ### 3.4 恢复子集（独立于忽略面）

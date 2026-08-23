@@ -276,6 +276,7 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
     snapshots.mkdir(parents=True)
     (snapshots / "world-state.json").write_text("{}\n", encoding="utf-8")
     (worktree / "memory" / "index.json").write_text('{"cards": []}\n', encoding="utf-8")
+    (worktree / "save" / "run-identity.lock").write_text("held\n", encoding="utf-8")
     (worktree / "save" / "world-state.json").write_text('{"ok": true}\n', encoding="utf-8")
 
     _commit_turn(tmp_path, 1, "fin-ignore")
@@ -283,6 +284,7 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
     assert "save/session-state.json" not in names
     assert "save/toolbox-ledger.json" not in names
     assert "save/roll-operation-receipts.json" not in names
+    assert "save/run-identity.lock" not in names
     assert "memory/index.json" not in names
     assert not any(name.startswith("logs/pending-turns/") for name in names)
     assert not any(name.startswith("save/commit-snapshots/") for name in names)
@@ -291,6 +293,7 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
     assert {
         "save/development-settlements/",
         "save/roll-operation-receipts.json",
+        "save/run-identity.lock",
         "save/commit-snapshots/",
         "save/session-state.json",
         "save/toolbox-ledger.json",
@@ -474,10 +477,14 @@ def test_legacy_commit_snapshots_are_ignored_not_imported(tmp_path):
 def test_authoritative_state_path_helpers():
     assert hist.path_is_ignored("save/commit-snapshots/fin-x/world-state.json")
     assert hist.path_is_ignored("save/session-state.json")
+    assert hist.path_is_ignored("save/run-identity.lock")
     assert not hist.path_is_ignored("save/world-state.json")
+    assert not hist.path_is_ignored("save/run-identity.json")
     assert hist.is_authoritative_state_path("campaign.json")
     assert hist.is_authoritative_state_path("save/world-state.json")
     assert hist.is_authoritative_state_path("save/flags.json")
+    assert hist.is_authoritative_state_path("save/run-identity.json")
+    assert not hist.is_authoritative_state_path("save/run-identity.lock")
     assert not hist.is_authoritative_state_path("save/commit-snapshots/fin-x/world-state.json")
     assert not hist.is_authoritative_state_path("memory/index.json")
     assert hist.AUTHORITATIVE_STATE_PATHS == (
