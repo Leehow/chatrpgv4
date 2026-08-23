@@ -472,8 +472,10 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
     const rearmed = await invoke(
       h, "review-timeout-next-player", "narration.review", changedReview,
     );
-    assert.equal(JSON.parse(rearmed.content[0].text).error.retryable, false);
-    assert.equal(compilerCalls, 2);
+    const rearmedEnvelope = JSON.parse(rearmed.content[0].text);
+    assert.equal(rearmedEnvelope.error.retryable, false);
+    assert.equal(rearmedEnvelope.error.code, "turn_processing_fault_latched");
+    assert.equal(compilerCalls, 1);
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;

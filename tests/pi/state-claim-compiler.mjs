@@ -176,6 +176,12 @@ test("malformed paragraph coverage is latched until the next external turn", asy
   compiler.beginExternalTurn();
   await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
   assert.equal(calls, 2 * (1 + STATE_CLAIM_COMPILER_TRANSIENT_RETRIES));
+  assert.equal(
+    compiler.releaseLatchedFailure(campaignId, reviewArguments("One paragraph.").turn_id),
+    true,
+  );
+  await assert.rejects(() => compiler.compileReview(options), /state_claim_coverage_incomplete/);
+  assert.equal(calls, 3 * (1 + STATE_CLAIM_COMPILER_TRANSIENT_RETRIES));
 });
 
 test("stale turn identity fails before inference", async () => {

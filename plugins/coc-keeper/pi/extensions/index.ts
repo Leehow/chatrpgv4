@@ -113,6 +113,7 @@ import { NonRetryableFailureCircuit } from "../lib/nonretry-circuit.ts";
 import {
   applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
+  isPendingFinalizationResume,
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
   PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
 } from "../lib/recovery-guidance.ts";
@@ -1007,6 +1008,79 @@ type CurrentDependencySuppression = {
 };
 const MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN = 32;
 const OPENING_START_LOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const REVIEW_RECOVERY_FAILURE_CLASSES = new Set([
+  "protocol_invalid",
+  "result_invalid",
+]);
+
+type FrozenReviewRecoveryIdentity = {
+  campaign_id: string;
+  run_id: string;
+  session_id: string;
+  player_turn_epoch: number;
+  turn_id: string;
+  revision: number;
+  source_digest: string;
+  failure_class: string;
+};
+
+function frozenReviewIdentityFromFault(
+  base: JsonObject,
+  playerTurnEpoch: number,
+): FrozenReviewRecoveryIdentity | null {
+  const campaignId = typeof base.campaign_id === "string" ? base.campaign_id : "";
+  const runId = typeof base.run_id === "string" ? base.run_id : "";
+  const sessionId = typeof base.session_id === "string" ? base.session_id : "";
+  const turnId = typeof base.turn_id === "string" ? base.turn_id : "";
+  const sourceDigest = typeof base.source_digest === "string"
+    ? base.source_digest
+    : "";
+  const failureClass = typeof base.failure_class === "string"
+    ? base.failure_class
+    : "";
+  const revision = Number(base.revision);
+  if (
+    !campaignId
+    || !runId
+    || !sessionId
+    || !turnId
+    || !sourceDigest
+    || !failureClass
+    || !Number.isInteger(revision)
+    || revision < 1
+  ) return null;
+  return {
+    campaign_id: campaignId,
+    run_id: runId,
+    session_id: sessionId,
+    player_turn_epoch: playerTurnEpoch,
+    turn_id: turnId,
+    revision,
+    source_digest: sourceDigest,
+    failure_class: failureClass,
+  };
+}
+
+function frozenReviewIdentitiesMatch(
+  latched: FrozenReviewRecoveryIdentity,
+  request: {
+    campaign_id: string;
+    run_id: string;
+    session_id: string;
+    player_turn_epoch: number;
+    turn_id: string;
+    revision: number;
+    source_digest: string;
+  },
+): boolean {
+  return latched.campaign_id === request.campaign_id
+    && latched.run_id === request.run_id
+    && latched.session_id === request.session_id
+    && latched.player_turn_epoch === request.player_turn_epoch
+    && latched.turn_id === request.turn_id
+    && latched.revision === request.revision
+    && latched.source_digest === request.source_digest;
+}
 
 export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
@@ -1048,6 +1122,9 @@ export class OpeningTerminalContinuationGate {
     epoch: number;
     fault: JsonObject;
     deliveryTaken: boolean;
+    identity: FrozenReviewRecoveryIdentity | null;
+    recoveryArmed: boolean;
+    recoveryConsumed: boolean;
   } | null = null;
   private preInferenceFinalizationSteerEpoch = 0;
   private nonblockingContinuation: {
@@ -5674,10 +5751,9 @@ export class OpeningTerminalContinuationGate {
   }
 
   armTurnProcessingFault(base: JsonObject): { fault: JsonObject; first: boolean } {
-    if (
-      this.turnProcessingFault !== null
-      && this.turnProcessingFault.epoch === this.playerTurnEpoch
-    ) return { fault: this.turnProcessingFault.fault, first: false };
+    if (this.turnProcessingFault !== null) {
+      return { fault: this.turnProcessingFault.fault, first: false };
+    }
     const fault: JsonObject = {
       ...base,
       player_turn_epoch: this.playerTurnEpoch,
@@ -5686,15 +5762,72 @@ export class OpeningTerminalContinuationGate {
       epoch: this.playerTurnEpoch,
       fault,
       deliveryTaken: false,
+      identity: frozenReviewIdentityFromFault(fault, this.playerTurnEpoch),
+      recoveryArmed: false,
+      recoveryConsumed: false,
     };
     this.pendingMechanicalOutputGateEnvelope = null;
     return { fault, first: true };
   }
 
   currentTurnProcessingFault(): JsonObject | null {
-    return this.turnProcessingFault?.epoch === this.playerTurnEpoch
-      ? this.turnProcessingFault.fault
-      : null;
+    return this.turnProcessingFault?.fault ?? null;
+  }
+
+  clearTurnProcessingFault(): void {
+    this.turnProcessingFault = null;
+  }
+
+  armFrozenReviewRecovery(request: {
+    campaign_id: string;
+    turn_id?: string;
+    revision?: number;
+    source_digest?: string;
+  }): boolean {
+    const retained = this.turnProcessingFault;
+    const identity = retained?.identity ?? null;
+    if (
+      retained === null
+      || identity === null
+      || !REVIEW_RECOVERY_FAILURE_CLASSES.has(identity.failure_class)
+      || retained.recoveryConsumed
+      || request.campaign_id !== identity.campaign_id
+      || (request.turn_id !== undefined && request.turn_id !== identity.turn_id)
+      || (
+        request.revision !== undefined
+        && request.revision !== identity.revision
+      )
+      || (
+        request.source_digest !== undefined
+        && request.source_digest !== identity.source_digest
+      )
+    ) return false;
+    retained.recoveryArmed = true;
+    return true;
+  }
+
+  admitFrozenReviewRecovery(request: {
+    campaign_id: string;
+    run_id: string;
+    session_id: string;
+    turn_id: string;
+    revision: number;
+    source_digest: string;
+  }): "allow" | "reject" {
+    const retained = this.turnProcessingFault;
+    if (retained === null) return "allow";
+    const identity = retained.identity;
+    if (
+      identity === null
+      || !retained.recoveryArmed
+      || retained.recoveryConsumed
+      || !frozenReviewIdentitiesMatch(identity, {
+        ...request,
+        player_turn_epoch: this.playerTurnEpoch,
+      })
+    ) return "reject";
+    retained.recoveryConsumed = true;
+    return "allow";
   }
 
   takeTurnProcessingFaultForDelivery(): JsonObject | null {
@@ -5725,7 +5858,6 @@ export class OpeningTerminalContinuationGate {
     this.currentDependencySuppression = null;
     this.currentVisibleCampaignId = null;
     this.pendingMechanicalOutputGateEnvelope = null;
-    this.turnProcessingFault = null;
   }
 
   bindHandoutReplayRequest(params: JsonObject): JsonObject {
@@ -9559,20 +9691,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && sessionRoleFromEnv() === "play"
     ) {
       const retainedFault = openingContinuationGate.currentTurnProcessingFault();
-      if (retainedFault !== null) {
-        return result({
-          ok: false,
-          tool: "narration.review",
-          error: {
-            code: "turn_processing_fault_latched",
-            retryable: false,
-            message: "this player turn has a terminal processing fault; recover the preserved turn before retrying",
-            details: retainedFault,
-          },
-        });
-      }
       const campaignId = typeof params.campaign === "string" ? params.campaign.trim() : "";
       const reviewArgs = objectOrNull(params.arguments);
+      if (retainedFault !== null) {
+        const sessionId = typeof ctx.sessionManager?.getSessionId === "function"
+          ? String(ctx.sessionManager.getSessionId() || "")
+          : "";
+        const revision = Number(reviewArgs?.revision);
+        const admitted = openingContinuationGate.admitFrozenReviewRecovery({
+          campaign_id: campaignId,
+          run_id: sessionId,
+          session_id: sessionId,
+          turn_id: typeof reviewArgs?.turn_id === "string" ? reviewArgs.turn_id : "",
+          revision: Number.isInteger(revision) ? revision : 0,
+          source_digest: typeof reviewArgs?.source_digest === "string"
+            ? reviewArgs.source_digest
+            : "",
+        });
+        if (admitted !== "allow") {
+          return result({
+            ok: false,
+            tool: "narration.review",
+            error: {
+              code: "turn_processing_fault_latched",
+              retryable: false,
+              message: "this player turn has a terminal processing fault; recover the preserved turn before retrying",
+              details: retainedFault,
+            },
+          });
+        }
+        if (campaignId && typeof reviewArgs?.turn_id === "string") {
+          stateClaimCompiler.releaseLatchedFailure(
+            campaignId,
+            reviewArgs.turn_id,
+          );
+        }
+      }
       if (!campaignId || reviewArgs === null) {
         return result({
           ok: false,
@@ -9598,6 +9752,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           sessionEpoch: epoch,
           isCurrent,
         });
+        openingContinuationGate.clearTurnProcessingFault();
         params = {
           ...params,
           arguments: {
@@ -9624,6 +9779,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : invalid
             ? "state_claim_compiler_invalid"
             : "state_claim_compiler_unavailable";
+        const sessionId = typeof ctx.sessionManager?.getSessionId === "function"
+          ? String(ctx.sessionManager.getSessionId() || "")
+          : "";
+        const revision = Number(keeperReviewArgs.revision);
         const armed = typedFailure === null
           ? null
           : openingContinuationGate.armTurnProcessingFault({
@@ -9633,8 +9792,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             status: "terminal",
             stage: "state_claim_compilation",
             campaign_id: campaignId,
+            run_id: sessionId,
+            session_id: sessionId,
             turn_id: typeof keeperReviewArgs.turn_id === "string"
               ? keeperReviewArgs.turn_id
+              : null,
+            revision: Number.isInteger(revision) ? revision : null,
+            source_digest: typeof keeperReviewArgs.source_digest === "string"
+              ? keeperReviewArgs.source_digest
               : null,
             code,
             message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
@@ -10521,12 +10686,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (isCanonicalInvokeSurface(name) && params.operation === "session.resume") {
+      const resumeCampaign = typeof params.campaign === "string"
+        ? params.campaign
+        : "";
+      const reviewRecoveryArmed = isPendingFinalizationResume(value)
+        && openingContinuationGate.armFrozenReviewRecovery({
+          campaign_id: resumeCampaign,
+        });
       const pendingGuided = applyPendingFinalizationRecoveryGuidance(value, {
         root: typeof params.root === "string" && params.root
           ? params.root
           : ctx.cwd,
-        campaign: typeof params.campaign === "string" ? params.campaign : "",
-      });
+        campaign: resumeCampaign,
+      }, { reviewRecoveryArmed });
       if (pendingGuided.attached) {
         value = pendingGuided.envelope as JsonObject;
         try {

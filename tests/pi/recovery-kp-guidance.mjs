@@ -153,6 +153,18 @@ assert.deepEqual(
   },
 );
 assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.review_recovery.exact_card_path,
+  "coc_turn_output_context.data.agency_review_operation",
+);
+assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.review_recovery.tool,
+  "coc_narration_review",
+);
+assert.equal(
+  pendingDirect.envelope.data.host_recovery_guidance.review_recovery.armed,
+  false,
+);
+assert.equal(
   pendingDirect.envelope.data.host_recovery_guidance.then.exact_card_path,
   "coc_turn_output_context.data.finalize_operation",
 );
@@ -468,6 +480,14 @@ assert.deepEqual(
 assert.equal(
   pendingResumed.data.host_recovery_guidance.then.tool,
   "coc_turn_finalize",
+);
+assert.equal(
+  pendingResumed.data.host_recovery_guidance.review_recovery.tool,
+  "coc_narration_review",
+);
+assert.equal(
+  pendingResumed.data.host_recovery_guidance.review_recovery.armed,
+  false,
 );
 assert.ok(
   pending.audits.some((entry) => (
