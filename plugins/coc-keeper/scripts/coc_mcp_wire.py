@@ -1524,6 +1524,55 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
     return projected
 
 
+_OUTPUT_CONTEXT_TIGHT_DROP = (
+    "obligations",
+    "source_roll_ids",
+    "npc_performance_constraints",
+    "candidate_factors",
+    "missing_substantive_effects",
+    "pending_modifier_consumptions",
+    "composition_mode",
+    "placement_segment_types",
+    "mechanics_summary",
+    "narrative_opportunity",
+    "full_projection_operation",
+    "manifest_revision",
+)
+
+
+def _project_output_context_review_card(value: Any) -> Any:
+    """Keep the Pi observe card when ordinary compact exceeds the budget.
+
+    ``observeOutputContext`` needs ``agency_review_operation``,
+    ``contract_projection.agency_authority`` (including supplied
+    ``pc_subject_refs``), and turn/source/revision identity. Do not invent
+    those fields, and do not copy drafting bulk or secrets onto the wire.
+    """
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    projected = _compact_output_context(value, tight=True)
+    for key in _OUTPUT_CONTEXT_TIGHT_DROP:
+        projected.pop(key, None)
+    contract = value.get("contract_projection")
+    if isinstance(contract, dict):
+        slim_contract: dict[str, Any] = {}
+        authority = contract.get("agency_authority")
+        if isinstance(authority, dict):
+            slim_contract["agency_authority"] = deepcopy(authority)
+        projected["contract_projection"] = slim_contract
+    else:
+        projected.pop("contract_projection", None)
+    finalize = projected.get("finalize_operation")
+    if isinstance(finalize, dict):
+        argument_contract = finalize.get("argument_contract")
+        if isinstance(argument_contract, dict):
+            argument_contract.pop("instruction", None)
+        coverage_contract = finalize.get("coverage_contract")
+        if isinstance(coverage_contract, dict):
+            coverage_contract.pop("instruction", None)
+    return projected
+
+
 def _compact_current_turn(value: Any, *, tight: bool) -> Any:
     if not isinstance(value, dict) or not tight:
         return deepcopy(value)
@@ -2811,11 +2860,34 @@ def project_envelope(
         ]
         result["hints"] = []
 
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "turn.output_context"
+    ):
+        result["data"] = _decorate_cards(
+            _project_output_context_review_card(data),
+            contract_digest=contract_digest,
+            argument_schemas=argument_schemas,
+        )
+        result["wire"]["payload_projected"] = True
+        result["wire"]["tight_projection"] = True
+        result["hints"] = [
+            "the output context exceeded the transport budget; continue from "
+            "the returned agency_review_operation and agency_authority",
+            *result["hints"][:2],
+        ]
+        result["warnings"] = result["warnings"][:3]
+
     if transport_bytes(result) > MAX_INLINE_BYTES:
         result["hints"] = result["hints"][:3]
         result["warnings"] = result["warnings"][:3]
 
-    if transport_bytes(result) > MAX_INLINE_BYTES:
+    # turn.output_context must not collapse to a cardless identity stub.
+    # If the review card itself cannot fit, fail closed below.
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation != "turn.output_context"
+    ):
         result["data"] = _decorate_cards(
             _minimal_identity(operation, data),
             contract_digest=contract_digest,
