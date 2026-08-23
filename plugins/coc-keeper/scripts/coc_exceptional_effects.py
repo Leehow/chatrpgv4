@@ -118,6 +118,8 @@ def _valid_source_roll(value: Any) -> bool:
         and value.get("tool") in {
             "rules.roll", "rules.push", "rules.opposed", "rules.sanity_check",
             "sanity.execute", "npc.reaction", "combat.resolve",
+            "rules.first_aid", "rules.medicine", "rules.dying_check",
+            "rules.weekly_recovery",
         }
         and isinstance(value.get("decision_id"), str)
         and value["decision_id"]

@@ -28947,6 +28947,58 @@ def _exceptional_roll_source(
                         logged_roll
                     ),
                 }
+        # Healing percentile evidence (First Aid / Medicine / dying CON /
+        # weekly care) is written to logs/rolls.jsonl by the subsystem
+        # executor as {command_id}:roll.  It is not a rules.roll receipt.
+        # Resolve only when that exact roll_id is owned by one canonical
+        # healing ledger entry — never by stripping suffixes or matching
+        # free-form IDs.
+        if roll_role == "percentile_check":
+            owner = _ledger_roll_owner(
+                ctx,
+                frozenset({
+                    "rules.first_aid",
+                    "rules.medicine",
+                    "rules.dying_check",
+                    "rules.weekly_recovery",
+                }),
+                roll_id,
+            )
+            if owner is not None:
+                data = {
+                    key: deepcopy(value)
+                    for key, value in logged_roll.items()
+                    if key != "payload"
+                }
+                for key, value in payload.items():
+                    data.setdefault(key, deepcopy(value))
+                owner_data = owner.get("data") if isinstance(owner.get("data"), dict) else {}
+                patient_id = owner_data.get("investigator_id")
+                if isinstance(patient_id, str) and patient_id:
+                    data["investigator_id"] = patient_id
+                else:
+                    actor_id = data.get("actor") or data.get("actor_id")
+                    if isinstance(actor_id, str) and actor_id in set(ctx.party_ids()):
+                        data.setdefault("investigator_id", actor_id)
+                data.setdefault("pushed", bool(payload.get("pushed") is True))
+                data.setdefault(
+                    "visibility",
+                    str(
+                        logged_roll.get("visibility")
+                        or payload.get("visibility")
+                        or "public"
+                    ),
+                )
+                return {
+                    "tool": str(owner["tool"]),
+                    "decision_id": str(owner["decision_id"]),
+                    "roll_id": roll_id,
+                    "roll_record": deepcopy(logged_roll),
+                    "data": data,
+                    _SOURCE_RECEIPT_INTEGRITY_KEY: coc_exceptional_effects.canonical_digest(
+                        logged_roll
+                    ),
+                }
         if roll_role == "percentile_check" and source_command_id.startswith("combat-"):
             data = {
                 key: deepcopy(value)
