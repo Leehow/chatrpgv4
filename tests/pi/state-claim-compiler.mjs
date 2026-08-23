@@ -383,12 +383,23 @@ test("provider failure is latched only until the next external player turn", asy
     throw new Error("provider_refused");
   });
   compiler.observeOutputContext(campaignId, contextEnvelope());
-  const options = { ...runtime, arguments: reviewArguments("No state change.") };
-  await assert.rejects(() => compiler.compileReview(options), /provider_refused/);
-  await assert.rejects(() => compiler.compileReview(options), /provider_refused/);
+  const first = { ...runtime, arguments: reviewArguments("Draft A has no state change.") };
+  const changed = {
+    ...runtime,
+    arguments: reviewArguments("Draft B says the key is now yours.", [{
+      claim_id: "kp-key-b",
+      subject_ref: subjectRef,
+      claim_kind: "item",
+      exact_excerpt: "key is now yours",
+      source_effect_id: "turn-effect-v1:key-b",
+      reason: "Changed candidate fixture.",
+    }]),
+  };
+  await assert.rejects(() => compiler.compileReview(first), /provider_refused/);
+  await assert.rejects(() => compiler.compileReview(changed), /provider_refused/);
   assert.equal(calls, 1);
   compiler.beginExternalTurn();
-  await assert.rejects(() => compiler.compileReview(options), /provider_refused/);
+  await assert.rejects(() => compiler.compileReview(changed), /provider_refused/);
   assert.equal(calls, 2);
 });
 

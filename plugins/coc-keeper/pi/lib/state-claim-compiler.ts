@@ -357,12 +357,11 @@ export class PiStateClaimCompiler {
       candidate_claims: candidates, paragraphs,
     };
     const inputDigest = canonicalDigest(input);
+    const failureGeneration = this.failureGeneration;
     const failureKey = canonicalDigest({
+      failure_generation: failureGeneration,
       campaign_id: retained.campaignId,
       turn_id: retained.turnId,
-      source_digest: retained.sourceDigest,
-      revision,
-      semantic_input_digest: inputDigest,
     });
     const latchedFailure = this.failures.get(failureKey);
     if (latchedFailure) throw new Error(latchedFailure);
@@ -380,7 +379,6 @@ export class PiStateClaimCompiler {
         });
         entry = { controller, promise: Promise.resolve({} as InferenceOutcome) };
         const ownedEntry = entry;
-        const failureGeneration = this.failureGeneration;
         entry.promise = Promise.race([
           this.infer(input, resultSchema(input), {
             ctx: options.ctx,
