@@ -315,6 +315,171 @@ assert.equal(
   false,
 );
 
+const quickStartCampaignId = "fresh-terminal-quick-start";
+const quickStartParams = {
+  operation: "setup.quick_start",
+  arguments: {
+    scenario_id: "the-haunting",
+    campaign_id: quickStartCampaignId,
+  },
+};
+const quickStartEnvelope = (overrides = {}) => ({
+  ok: true,
+  tool: "setup.quick_start",
+  data: {
+    schema_version: 1,
+    status: "PASS",
+    kind: "campaign.quick_start",
+    result: {
+      campaign_id: quickStartCampaignId,
+      investigator_id: null,
+      needs_investigator: true,
+      scenario_id: "the-haunting",
+      pregen_id: null,
+      character_path: null,
+      campaign_dir: `/tmp/.coc/campaigns/${quickStartCampaignId}`,
+    },
+    state_refs: [`.coc/campaigns/${quickStartCampaignId}`],
+  },
+  ...overrides,
+});
+const quickStartGate = new OpeningTerminalContinuationGate();
+assert.equal(
+  quickStartGate.openingSetupToolError(
+    "coc_invoke", quickStartParams, "fresh-quick-start",
+  ),
+  null,
+);
+assert.equal(
+  quickStartGate.observeOpeningSetupInvocation(
+    "setup.quick_start",
+    quickStartParams,
+    quickStartEnvelope(),
+    "fresh-quick-start",
+  ).accepted,
+  true,
+  "exact canonical investigator-less quick_start must hydrate character setup",
+);
+assert.equal(quickStartGate.hasActiveOpeningSetupFor(quickStartCampaignId), true);
+assert.equal(
+  quickStartGate.observeChargenDelegateCompletion(
+    quickStartCampaignId,
+    {
+      ok: true,
+      investigator_id: "inv-quick-start",
+      characteristics: {},
+      derived: {},
+      skill_top: [],
+    },
+  ),
+  true,
+);
+assert.equal(
+  quickStartGate.openingTableDecisionContext().next_operation.operation,
+  "setup.complete",
+);
+
+const linkedPregenCampaignId = `${quickStartCampaignId}-linked-pregen`;
+const linkedPregenParams = {
+  ...quickStartParams,
+  arguments: {
+    ...quickStartParams.arguments,
+    campaign_id: linkedPregenCampaignId,
+    pregen_id: "thomas-hayes",
+  },
+};
+const linkedPregenEnvelope = quickStartEnvelope();
+linkedPregenEnvelope.data.result.campaign_id = linkedPregenCampaignId;
+linkedPregenEnvelope.data.result.investigator_id = "thomas-hayes";
+linkedPregenEnvelope.data.result.needs_investigator = false;
+linkedPregenEnvelope.data.result.pregen_id = "thomas-hayes";
+linkedPregenEnvelope.data.result.character_path = (
+  "/tmp/.coc/investigators/thomas-hayes/character.json"
+);
+linkedPregenEnvelope.data.result.campaign_dir = (
+  `/tmp/.coc/campaigns/${linkedPregenCampaignId}`
+);
+linkedPregenEnvelope.data.state_refs = [
+  `.coc/campaigns/${linkedPregenCampaignId}`,
+  ".coc/investigators/thomas-hayes/character.json",
+];
+const linkedPregenGate = new OpeningTerminalContinuationGate();
+assert.equal(
+  linkedPregenGate.openingSetupToolError(
+    "coc_invoke", linkedPregenParams, "fresh-quick-start-linked-pregen",
+  ),
+  null,
+);
+assert.equal(
+  linkedPregenGate.observeOpeningSetupInvocation(
+    "setup.quick_start",
+    linkedPregenParams,
+    linkedPregenEnvelope,
+    "fresh-quick-start-linked-pregen",
+  ).accepted,
+  true,
+  "canonical linked pregen must hydrate the separate handoff decision",
+);
+assert.equal(
+  linkedPregenGate.openingTableDecisionContext().next_operation.operation,
+  "setup.complete",
+);
+assert.equal(
+  linkedPregenGate.requiredOpeningSetupContinuation(),
+  null,
+  "linked pregen still requires the player's semantic table-open confirmation",
+);
+
+for (const [label, mutate] of [
+  ["wrong-campaign", (envelope) => {
+    envelope.data.result.campaign_id = "other-campaign";
+  }],
+  ["inconsistent-pregen", (envelope) => {
+    envelope.data.result.needs_investigator = false;
+    envelope.data.result.investigator_id = "pregen-investigator";
+    envelope.data.result.pregen_id = "starter-pregen";
+    envelope.data.result.character_path = "/tmp/investigator.json";
+  }],
+  ["source-like", (envelope) => {
+    envelope.data.result.source = { source_id: "pdf:source-bound" };
+  }],
+  ["malformed", (envelope) => {
+    delete envelope.data.status;
+  }],
+]) {
+  const campaignIdForCase = `${quickStartCampaignId}-${label}`;
+  const params = {
+    ...quickStartParams,
+    arguments: {
+      ...quickStartParams.arguments,
+      campaign_id: campaignIdForCase,
+    },
+  };
+  const envelope = quickStartEnvelope();
+  envelope.data.result.campaign_id = campaignIdForCase;
+  envelope.data.result.campaign_dir = `/tmp/.coc/campaigns/${campaignIdForCase}`;
+  envelope.data.state_refs = [`.coc/campaigns/${campaignIdForCase}`];
+  mutate(envelope);
+  const rejectedGate = new OpeningTerminalContinuationGate();
+  assert.equal(
+    rejectedGate.openingSetupToolError(
+      "coc_invoke", params, `fresh-quick-start-${label}`,
+    ),
+    null,
+  );
+  assert.equal(
+    rejectedGate.observeOpeningSetupInvocation(
+      "setup.quick_start",
+      params,
+      envelope,
+      `fresh-quick-start-${label}`,
+    ).accepted,
+    false,
+    `${label} quick_start must not hydrate character setup`,
+  );
+  assert.equal(rejectedGate.hasActiveOpeningSetupFor(campaignIdForCase), false);
+}
+
 const freshStarterCampaignId = "fresh-fixed-starter";
 const freshStarterGate = new OpeningTerminalContinuationGate();
 const freshStarterResumeParams = {

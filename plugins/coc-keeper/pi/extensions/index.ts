@@ -2875,8 +2875,16 @@ export class OpeningTerminalContinuationGate {
     if (typeof params.campaign === "string" && params.campaign.length > 0) {
       return params.campaign;
     }
-    if (params.operation !== "setup.invoke") return null;
     const args = objectOrNull(params.arguments);
+    if (params.operation === "setup.quick_start") {
+      return (
+        typeof args?.campaign_id === "string"
+        && args.campaign_id.length > 0
+      )
+        ? args.campaign_id
+        : null;
+    }
+    if (params.operation !== "setup.invoke") return null;
     if (args?.kind !== "campaign.create") return null;
     const payload = objectOrNull(args.payload);
     return (
@@ -3466,6 +3474,81 @@ export class OpeningTerminalContinuationGate {
       && !freshBriefingPath.includes("/../")
       && !freshBriefingPath.endsWith("/..")
     );
+    const quickStartArguments = objectOrNull(params.arguments);
+    const quickStartResult = objectOrNull(data?.result);
+    const quickStartStateRefs = data?.state_refs;
+    const quickStartResultKeys = new Set([
+      "campaign_id", "investigator_id", "needs_investigator",
+      "scenario_id", "pregen_id", "character_path", "campaign_dir",
+    ]);
+    const quickStartWarnings = quickStartResult?.warnings;
+    const quickStartInvestigatorId = typeof quickStartResult?.investigator_id === "string"
+      ? quickStartResult.investigator_id
+      : "";
+    const quickStartInvestigatorLess = (
+      quickStartResult?.needs_investigator === true
+      && (
+        quickStartArguments?.pregen_id === undefined
+        || quickStartArguments.pregen_id === null
+      )
+      && quickStartResult.investigator_id === null
+      && quickStartResult.pregen_id === null
+      && quickStartResult.character_path === null
+      && Array.isArray(quickStartStateRefs)
+      && quickStartStateRefs.length === 1
+      && quickStartStateRefs[0]
+        === `.coc/campaigns/${attempt.campaignId}`
+    );
+    const quickStartLinkedPregen = (
+      quickStartResult?.needs_investigator === false
+      && Boolean(quickStartInvestigatorId.trim())
+      && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(quickStartInvestigatorId)
+      && typeof quickStartResult?.pregen_id === "string"
+      && Boolean(quickStartResult.pregen_id.trim())
+      && quickStartArguments?.pregen_id === quickStartResult.pregen_id
+      && typeof quickStartResult?.character_path === "string"
+      && Boolean(quickStartResult.character_path.trim())
+      && Array.isArray(quickStartStateRefs)
+      && quickStartStateRefs.length === 2
+      && quickStartStateRefs[0]
+        === `.coc/campaigns/${attempt.campaignId}`
+      && quickStartStateRefs[1]
+        === `.coc/investigators/${quickStartInvestigatorId}/character.json`
+    );
+    const canonicalFreshQuickStartProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "setup.quick_start"
+      && attempt.agentTurn === this.openingSetupAgentTurn
+      && this.unboundAttemptIsFresh(attempt)
+      && envelope?.ok === true
+      && envelope.tool === "setup.quick_start"
+      && data?.schema_version === 1
+      && data.status === "PASS"
+      && data.kind === "campaign.quick_start"
+      && quickStartArguments !== null
+      && typeof quickStartArguments.scenario_id === "string"
+      && Boolean(quickStartArguments.scenario_id.trim())
+      && quickStartArguments.campaign_id === attempt.campaignId
+      && quickStartResult !== null
+      && [...quickStartResultKeys].every((key) => key in quickStartResult)
+      && Object.keys(quickStartResult).every((key) => (
+        quickStartResultKeys.has(key) || key === "warnings"
+      ))
+      && (
+        quickStartWarnings === undefined
+        || (
+          Array.isArray(quickStartWarnings)
+          && quickStartWarnings.every((warning) => (
+            typeof warning === "string" && Boolean(warning.trim())
+          ))
+        )
+      )
+      && quickStartResult.campaign_id === attempt.campaignId
+      && quickStartResult.scenario_id === quickStartArguments.scenario_id
+      && typeof quickStartResult.campaign_dir === "string"
+      && Boolean(quickStartResult.campaign_dir.trim())
+      && (quickStartInvestigatorLess || quickStartLinkedPregen)
+    );
     const canonicalMaterializationProbe = (
       attempt.attemptClass === "probe"
       && operation === "session.resume"
@@ -3624,6 +3707,67 @@ export class OpeningTerminalContinuationGate {
         accepted: true,
         dispatchAllowed: false,
         reason: "prebound_opening_source_review_required",
+      };
+    }
+    if (state === undefined && canonicalFreshQuickStartProbe) {
+      const route = this.recoveredCurrentCharacterSetupRoute(
+        attempt.campaignId,
+      );
+      const initialized = this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "ready",
+        attempt,
+      );
+      if (quickStartLinkedPregen) {
+        initialized.characterSetupComplete = true;
+        this.armSetupHandoffDecisionRoute(
+          initialized,
+          quickStartInvestigatorId,
+        );
+      }
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: quickStartLinkedPregen
+          ? "canonical_fresh_quick_start_pregen_handoff_hydrated"
+          : "canonical_fresh_quick_start_character_setup_hydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: quickStartLinkedPregen
+          ? "fresh_quick_start_pregen_handoff_decision"
+          : "fresh_quick_start_character_setup",
+        ...(quickStartLinkedPregen
+          ? {}
+          : {
+              modelProjection: this.safeRecoveredCharacterSetupProjection(
+                attempt.campaignId,
+                route,
+              ),
+            }),
+      };
+    }
+    if (
+      state === undefined
+      && attempt.attemptClass === "probe"
+      && operation === "setup.quick_start"
+    ) {
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "fresh_quick_start_result_invalid",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "fresh_quick_start_result_invalid",
       };
     }
     if (state === undefined && canonicalFreshStarterCharacterSetupProbe) {
@@ -9622,6 +9766,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           && freshEnvelope.tool === "setup.quick_start"
           && freshData?.kind === "campaign.quick_start"
           && freshResult?.campaign_id === selectedCampaignId
+          && openingObservation.accepted
+          && (
+            openingObservation.reason === "fresh_quick_start_character_setup"
+            || openingObservation.reason
+              === "fresh_quick_start_pregen_handoff_decision"
+          )
         ) {
           startupResumeGate = null;
           applyKpActiveTools();

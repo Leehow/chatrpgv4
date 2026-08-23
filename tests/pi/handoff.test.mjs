@@ -90,6 +90,12 @@ test("missing receipt is null", async () => {
   const envelope = successEnvelope();
   delete envelope.data.result.handoff;
   assert.equal(mod.handoffFromEnvelope(envelope), null);
+  envelope.data.result.receipt = structuredClone(receipt);
+  assert.equal(
+    mod.handoffFromEnvelope(envelope, expected),
+    null,
+    "generic receipt is not a canonical setup handoff alias",
+  );
 });
 
 test("setup.complete receipt is bound to the exact campaign and decision", async () => {
