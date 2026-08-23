@@ -504,6 +504,49 @@ export function deliveryReceiptFromToolEvent(event) {
   };
 }
 
+function recoveryFinalizationModeFromToolEvent(event) {
+  if (!event || event.type !== "tool_execution_end") return null;
+  const envelope = canonicalEnvelope(event.result ?? event.details);
+  if (envelope?.ok !== true || envelope.tool !== "session.resume") return null;
+  const mode = typeof envelope.data?.mode === "string" ? envelope.data.mode : "";
+  return mode === "pending_finalization" || mode === "open_turn_recovery"
+    ? mode
+    : null;
+}
+
+function recoveryFinalizationFault(campaignId, obligation) {
+  const details = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "turn_finalization",
+    campaign_id: campaignId || null,
+    turn_id: null,
+    player_turn_epoch: null,
+    code: "turn_finalization_obligation_unmet",
+    message: "回合处理失败：保留回合未完成权威结算与交付。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "finalization_obligation_unmet",
+    requested_model: null,
+    elapsed_ms: null,
+    recovery_mode: obligation.mode,
+    finalization_receipt_observed: obligation.delivery !== null,
+    delivery_observed: obligation.delivered,
+  };
+  return {
+    event: "error",
+    data: {
+      message: details.message,
+      code: details.code,
+      retryable: false,
+      details,
+    },
+  };
+}
+
 export function parseSetupHandoffEvent(event) {
   if (!event || typeof event !== "object") return null;
   const blobs = [];
@@ -848,15 +891,64 @@ export class PiCocRpcHost {
 
   #replaySse(onSse) {
     let opened = false;
+    let recoveryFinalization = null;
+    let terminalFaultObserved = false;
+    let handoffObserved = false;
     for (const event of this.#eventLog) {
+      const recoveryMode = recoveryFinalizationModeFromToolEvent(event);
+      if (recoveryMode !== null) {
+        recoveryFinalization = {
+          mode: recoveryMode,
+          delivery: null,
+          delivered: false,
+        };
+      }
+      const delivery = deliveryReceiptFromToolEvent(event);
+      if (recoveryFinalization !== null && delivery !== null) {
+        recoveryFinalization.delivery = delivery;
+      }
       for (const frame of mapRpcEventToSse(event)) {
+        if (
+          frame?.event === "error"
+          && frame.data?.details?.kind === "turn_processing_fault"
+          && frame.data?.details?.status === "terminal"
+        ) terminalFaultObserved = true;
+        if (frame?.event === "coc_setup_handoff") handoffObserved = true;
+        if (frame?.event === "delta" && recoveryFinalization !== null) {
+          if (
+            recoveryFinalization.delivered
+            || recoveryFinalization.delivery === null
+            || String(frame.data?.text || "")
+              !== recoveryFinalization.delivery.renderedText
+          ) continue;
+        }
         const accepted = onSse?.(frame);
         if (frame?.event === "delta") {
           this.#noteStreamedText(frame.data?.text, accepted);
+          if (recoveryFinalization !== null && accepted !== false) {
+            recoveryFinalization.delivered = true;
+          }
         }
         opened = true;
       }
       if (event?.type === "agent_settled") opened = true;
+    }
+    if (
+      recoveryFinalization !== null
+      && (!recoveryFinalization.delivery || !recoveryFinalization.delivered)
+      && !terminalFaultObserved
+      && !handoffObserved
+      && this.settleGeneration > 0
+    ) {
+      const frame = recoveryFinalizationFault(
+        this.campaignId,
+        recoveryFinalization,
+      );
+      onSse?.(frame);
+      throw new PiCocRpcError(frame.data.message, {
+        kind: "pi_coc_turn_processing_fault",
+        details: frame.data.details,
+      });
     }
     return opened;
   }
@@ -1194,6 +1286,7 @@ export class PiCocRpcHost {
       let sawError = false;
       let sawHandoff = false;
       let terminalTurnFault = null;
+      let recoveryFinalization = null;
       let acceptedObserved = false;
       let timer = null;
       const notifyIfSilent = () => {
@@ -1225,12 +1318,43 @@ export class PiCocRpcHost {
           }));
           return;
         }
-        if (!result.handoff) notifyIfSilent();
+        if (result.handoff) {
+          finish(null, result);
+          return;
+        }
+        if (
+          recoveryFinalization !== null
+          && (!recoveryFinalization.delivery || !recoveryFinalization.delivered)
+        ) {
+          const frame = recoveryFinalizationFault(
+            this.campaignId,
+            recoveryFinalization,
+          );
+          onSse?.(frame);
+          finish(new PiCocRpcError(frame.data.message, {
+            kind: "pi_coc_turn_processing_fault",
+            details: frame.data.details,
+          }));
+          return;
+        }
+        notifyIfSilent();
         finish(null, result);
       };
       const off = this.onEvent((event) => {
+        const recoveryMode = recoveryFinalizationModeFromToolEvent(event);
+        if (recoveryMode !== null) {
+          recoveryFinalization = {
+            mode: recoveryMode,
+            delivery: null,
+            delivered: false,
+          };
+        }
+        const eventDelivery = deliveryReceiptFromToolEvent(event);
+        if (recoveryFinalization !== null && eventDelivery !== null) {
+          recoveryFinalization.delivery = eventDelivery;
+        }
         idleWatchdog.observe(event, {
-          finalizationReceipt: deliveryReceiptFromToolEvent(event) !== null,
+          finalizationReceipt: eventDelivery !== null,
           canonicalToolEnvelope: canonicalEnvelope(event?.result ?? event?.details),
         });
         for (const frame of mapRpcEventToSse(event)) {
@@ -1251,9 +1375,20 @@ export class PiCocRpcHost {
             if (sawHandoff) continue;
             sawHandoff = true;
           }
+          if (frame.event === "delta" && recoveryFinalization !== null) {
+            const exactDelivery = recoveryFinalization.delivery;
+            if (
+              recoveryFinalization.delivered
+              || exactDelivery === null
+              || String(frame.data?.text || "") !== exactDelivery.renderedText
+            ) continue;
+          }
           const accepted = onSse?.(frame);
           if (frame.event === "delta") {
             this.#noteStreamedText(frame.data?.text, accepted);
+            if (recoveryFinalization !== null && accepted !== false) {
+              recoveryFinalization.delivered = true;
+            }
           }
         }
         // Do not resolve directly from the `agent_settled` listener. A hidden
@@ -1291,6 +1426,8 @@ export class PiCocRpcHost {
         } else if (this.closed) {
           if (this.isHandoffShutdown()) {
             settle({ handoff: true });
+          } else if (recoveryFinalization !== null) {
+            settle();
           } else {
             finish(new PiCocRpcError("pi-coc RPC exited during turn"));
           }
@@ -1342,7 +1479,7 @@ export class PiCocRpcHost {
       ) {
         terminalFault = frame.data;
       }
-      onSse?.(frame);
+      return onSse?.(frame);
     };
     const finish = (opened) => {
       if (terminalFault) {

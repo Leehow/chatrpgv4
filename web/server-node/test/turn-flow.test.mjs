@@ -2,11 +2,56 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  attachWithStallRecovery,
   finishPromptTurn,
   finishRecoveredTurn,
   promptWithStallRecovery,
   recoverAbortedTurn,
 } from "../turn-flow.mjs";
+
+test("attach provider idle resumes on a replacement host without player input", async () => {
+  const attached = [];
+  const stalled = {
+    async attachOpening() {
+      attached.push("stalled");
+      const error = new Error("provider idle during resume");
+      error.kind = "pi_coc_rpc_idle_timeout";
+      error.details = { idle_classification: "post_tool_success_no_agent_settled" };
+      throw error;
+    },
+  };
+  const recoveredHost = { id: "recovered" };
+  const orchestrator = {
+    async recoverStalledTurn(campaignId, options) {
+      assert.equal(campaignId, "attach-stall");
+      assert.deepEqual(options.recoveryDiagnostic, {
+        idle_classification: "post_tool_success_no_agent_settled",
+      });
+      return { host: recoveredHost, promptResult: { recovered: true } };
+    },
+  };
+  const frames = [];
+
+  const result = await attachWithStallRecovery({
+    host: stalled,
+    campaignId: "attach-stall",
+    orchestrator,
+    onSse: (frame) => frames.push(frame),
+  });
+
+  assert.deepEqual(attached, ["stalled"]);
+  assert.deepEqual(result, {
+    host: recoveredHost,
+    promptResult: { recovered: true },
+  });
+  assert.deepEqual(frames, [{
+    event: "status",
+    data: {
+      phase: "recovering",
+      diagnostic: { idle_classification: "post_tool_success_no_agent_settled" },
+    },
+  }]);
+});
 
 test("idle provider recovery never resends the original player input", async () => {
   const prompts = [];

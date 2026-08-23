@@ -10,6 +10,37 @@ export function needsSetupHandoff({ host, promptResult, transitioning = false } 
   );
 }
 
+function reportStallRecovery(onSse, error) {
+  onSse?.({
+    event: "status",
+    data: {
+      phase: "recovering",
+      diagnostic: error.details ?? null,
+    },
+  });
+}
+
+export async function attachWithStallRecovery({
+  host,
+  campaignId,
+  orchestrator,
+  onSse,
+}) {
+  try {
+    return {
+      host,
+      promptResult: (await host.attachOpening({ onSse })) || {},
+    };
+  } catch (error) {
+    if (error?.kind !== "pi_coc_rpc_idle_timeout") throw error;
+    reportStallRecovery(onSse, error);
+    return orchestrator.recoverStalledTurn(campaignId, {
+      onSse,
+      recoveryDiagnostic: error.details ?? null,
+    });
+  }
+}
+
 export async function promptWithStallRecovery({
   host,
   message,
@@ -24,13 +55,7 @@ export async function promptWithStallRecovery({
     };
   } catch (error) {
     if (error?.kind !== "pi_coc_rpc_idle_timeout") throw error;
-    onSse?.({
-      event: "status",
-      data: {
-        phase: "recovering",
-        diagnostic: error.details ?? null,
-      },
-    });
+    reportStallRecovery(onSse, error);
     return orchestrator.recoverStalledTurn(campaignId, {
       onSse,
       recoveryDiagnostic: error.details ?? null,

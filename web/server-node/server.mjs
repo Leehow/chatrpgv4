@@ -34,6 +34,7 @@ import {
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
 import { hostedSessionMessages } from "./pi-session-text.mjs";
 import {
+  attachWithStallRecovery,
   finishPromptTurn,
   promptWithStallRecovery,
   recoverAbortedTurn,
@@ -1214,7 +1215,14 @@ async function handleTurn(req, res, sid) {
     if (thinking) await host.setThinking(thinking);
     let promptResult = {};
     if (attach) {
-      if (!handoffOpeningCompleted) await host.attachOpening({ onSse });
+      if (!handoffOpeningCompleted) {
+        ({ host, promptResult } = await attachWithStallRecovery({
+          host,
+          campaignId: info.campaign_id,
+          orchestrator,
+          onSse,
+        }));
+      }
     } else {
       ({ host, promptResult } = await promptWithStallRecovery({
         host,
