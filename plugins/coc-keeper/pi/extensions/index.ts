@@ -1100,10 +1100,10 @@ export class OpeningTerminalContinuationGate {
 
     let state = this.openingSetupStates.get(campaignId);
     if (state === undefined) {
-      state = this.initializeSetupHandoffDecision(
-        campaignId,
-        result.investigator_id.trim(),
-      );
+      // The aggregate chargen receipt proves character persistence only. It
+      // cannot prove whether a missing volatile opening route was a non-source
+      // starter or a source-bound campaign, so never synthesize a handoff path.
+      return false;
     }
 
     state.characterSetupComplete = true;
@@ -1170,40 +1170,6 @@ export class OpeningTerminalContinuationGate {
       revision: state.revision,
     });
     return true;
-  }
-
-  private initializeSetupHandoffDecision(
-    campaignId: string,
-    investigatorId: string,
-  ): OpeningSetupState {
-    const generationSequence = ++this.openingSetupGenerationSequence;
-    const generation = `${campaignId}:${generationSequence}`;
-    const route = this.setupHandoffDecisionRoute(
-      campaignId,
-      investigatorId,
-    );
-    const state: OpeningSetupState = {
-      route,
-      generation,
-      generationSequence,
-      revision: 1,
-      phase: "handoff_decision",
-      dispatchIdentity: null,
-      characterSetupComplete: true,
-      characterSetupInputMode: null,
-      guidedCreateReceipts: new Map<string, OpeningGuidedCreateReceipt>(),
-      projectionCard: null,
-      activationCard: null,
-      bootstrapRetryCard: null,
-      continuationReleaseOwner: null,
-      backgroundTerminalReceipt: null,
-      bindBriefing: null,
-    };
-    this.openingSetupStates.set(campaignId, state);
-    this.openingSetupLatestIssuedGeneration.set(campaignId, generationSequence);
-    this.openingSetupContinuationQueued.delete(campaignId);
-    this.noteOpeningSetupTurnCampaign(campaignId);
-    return state;
   }
 
   private setupHandoffDecisionId(
@@ -3467,6 +3433,39 @@ export class OpeningTerminalContinuationGate {
       && returnedGate.campaign_id === attempt.campaignId
       && returnedGate.next_operation === null
     );
+    const freshCharacterCreation = objectOrNull(data?.character_creation);
+    const freshBriefingPath = typeof freshCharacterCreation?.briefing_path === "string"
+      ? freshCharacterCreation.briefing_path
+      : "";
+    const canonicalFreshStarterCharacterSetupProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "session.resume"
+      && this.unboundAttemptIsFresh(attempt)
+      && envelope?.ok === true
+      && envelope.tool === "session.resume"
+      && data?.schema_version === 1
+      && data.campaign_id === attempt.campaignId
+      && data.mode === "awaiting_player"
+      && freshCharacterCreation !== null
+      && hasRequiredKeys(freshCharacterCreation, [
+        "status", "campaign_id", "era", "play_language", "title",
+        "briefing_path", "language",
+      ])
+      && freshCharacterCreation.status === "incomplete"
+      && freshCharacterCreation.campaign_id === attempt.campaignId
+      && typeof freshCharacterCreation.era === "string"
+      && Boolean(freshCharacterCreation.era.trim())
+      && typeof freshCharacterCreation.play_language === "string"
+      && Boolean(freshCharacterCreation.play_language.trim())
+      && freshCharacterCreation.language === freshCharacterCreation.play_language
+      && typeof freshCharacterCreation.title === "string"
+      && Boolean(freshCharacterCreation.title.trim())
+      && freshBriefingPath.startsWith(
+        `.coc/campaigns/${attempt.campaignId}/assets/character-creation/`,
+      )
+      && !freshBriefingPath.includes("/../")
+      && !freshBriefingPath.endsWith("/..")
+    );
     const canonicalMaterializationProbe = (
       attempt.attemptClass === "probe"
       && operation === "session.resume"
@@ -3625,6 +3624,34 @@ export class OpeningTerminalContinuationGate {
         accepted: true,
         dispatchAllowed: false,
         reason: "prebound_opening_source_review_required",
+      };
+    }
+    if (state === undefined && canonicalFreshStarterCharacterSetupProbe) {
+      const route = this.recoveredCurrentCharacterSetupRoute(
+        attempt.campaignId,
+      );
+      this.initializeOpeningSetupState(
+        attempt.campaignId,
+        route,
+        "ready",
+        attempt,
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: "canonical_fresh_starter_character_setup_rehydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "fresh_starter_character_setup",
+        modelProjection: this.safeRecoveredCharacterSetupProjection(
+          attempt.campaignId,
+          route,
+        ),
       };
     }
     if (state === undefined && canonicalCharacterSetupProbe) {
@@ -3983,7 +4010,39 @@ export class OpeningTerminalContinuationGate {
     }
     if (operation === "setup.complete") {
       this.finalizeOpeningSetupAttempt(invocationId);
-      if (envelope?.ok === true) {
+      if (attempt.agentTurn !== this.openingSetupAgentTurn) {
+        const hasCurrentAttempt = [...this.openingSetupAttempts.values()].some(
+          (candidate) => (
+            candidate.campaignId === attempt.campaignId
+            && candidate.agentTurn === this.openingSetupAgentTurn
+          ),
+        );
+        if (!hasCurrentAttempt) {
+          this.openingSetupContinuationQueued.delete(attempt.campaignId);
+        }
+        this.recordOpeningSetupAudit({
+          status: "ignored",
+          reason: "opening_setup_handoff_late_agent_turn",
+          campaign_id: attempt.campaignId,
+          invocation_id: invocationId,
+          attempt_agent_turn: attempt.agentTurn,
+          current_agent_turn: this.openingSetupAgentTurn,
+        });
+        return {
+          accepted: false,
+          dispatchAllowed: false,
+          reason: "opening_setup_handoff_late_agent_turn",
+        };
+      }
+      const argumentsObject = objectOrNull(params.arguments);
+      const decisionId = typeof argumentsObject?.decision_id === "string"
+        ? argumentsObject.decision_id
+        : "";
+      const handoff = handoffFromEnvelope(envelope, {
+        campaignId: attempt.campaignId,
+        decisionId,
+      });
+      if (handoff !== null) {
         this.clearOpeningSetupRoute(
           attempt.campaignId,
           state.generation,
@@ -3994,10 +4053,17 @@ export class OpeningTerminalContinuationGate {
           reason: "opening_setup_handoff_complete",
         };
       }
+      this.openingSetupContinuationQueued.delete(attempt.campaignId);
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "opening_setup_handoff_invalid",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
       return {
         accepted: false,
         dispatchAllowed: false,
-        reason: "opening_setup_handoff_failed",
+        reason: "opening_setup_handoff_invalid",
       };
     }
     if (operation === "progressive.prepare_opening") {
@@ -7846,10 +7912,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     };
     setImmediate(leave);
   };
-  const emitSetupHandoff = (envelope: JsonObject | null, operation: string) => {
+  const emitSetupHandoff = (
+    envelope: JsonObject | null,
+    operation: string,
+    params: JsonObject,
+  ) => {
+    const argumentsObject = objectOrNull(params.arguments);
+    const campaignId = typeof params.campaign === "string"
+      ? params.campaign
+      : "";
+    const decisionId = typeof argumentsObject?.decision_id === "string"
+      ? argumentsObject.decision_id
+      : "";
     const handoff = handoffFromEnvelope({
       ...(envelope ?? {}),
       operation,
+    }, {
+      campaignId,
+      decisionId,
     });
     if (handoff === null) return;
     const payload = {
@@ -9814,7 +9894,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const data = objectOrNull(envelope?.data);
       const operation = String(params.operation);
       openingContinuationGate.observeCanonicalReceipt(operation, envelope);
-      emitSetupHandoff(envelope, operation);
+      if (
+        operation !== "setup.complete"
+        || (
+          openingObservation.accepted
+          && openingObservation.reason === "opening_setup_handoff_complete"
+        )
+      ) {
+        emitSetupHandoff(envelope, operation, params);
+      }
       const nextPhase = inferPhaseFromEnvelope(operation, value, kpPlayPhase, {
         workspaceRoot: typeof params.root === "string" ? params.root : ctx.cwd,
         campaignId: typeof params.campaign === "string" ? params.campaign : undefined,

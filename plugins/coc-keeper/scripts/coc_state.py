@@ -1603,40 +1603,13 @@ def campaign_has_confirmed_investigator(
     return False
 
 
-def campaign_has_completed_setup_handoff(
-    campaign: dict[str, Any], campaign_id: str,
-) -> bool:
-    """True only for the campaign-bound receipt written by setup.complete."""
-    receipt = campaign.get("setup_handoff")
-    investigator_ids = (
-        receipt.get("investigator_ids") if isinstance(receipt, dict) else None
-    )
-    return (
-        isinstance(receipt, dict)
-        and receipt.get("schema_version") == 1
-        and receipt.get("campaign_id") == campaign_id
-        and isinstance(receipt.get("decision_id"), str)
-        and bool(receipt["decision_id"].strip())
-        and isinstance(investigator_ids, list)
-        and bool(investigator_ids)
-        and all(isinstance(value, str) and value for value in investigator_ids)
-        and isinstance(receipt.get("completed_at"), str)
-        and bool(receipt["completed_at"].strip())
-        and (
-            receipt.get("opening_projection_ref") is None
-            or isinstance(receipt.get("opening_projection_ref"), dict)
-        )
-        and isinstance(receipt.get("lane_interrupted_at_handoff"), bool)
-    )
-
-
 def infer_pi_session_role(root: Path, campaign_id: str) -> str:
     """Return ``setup`` or ``play`` from status plus chargen completion.
 
     Missing campaign → setup. Workspace that is not a directory is a hard
     error. Incomplete chargen (empty or placeholder party) stays setup even
-    when status is ``active``. ``ready_for_table``, or ``active`` with both a
-    confirmed investigator and the durable ``setup.complete`` handoff, is play.
+    when status is ``active``. ``ready_for_table``, or ``active`` with a
+    confirmed investigator, is play.
     """
     workspace = Path(root)
     if not workspace.is_dir():
@@ -1657,12 +1630,8 @@ def infer_pi_session_role(root: Path, campaign_id: str) -> str:
         return SESSION_ROLE_PLAY
     if not campaign_has_confirmed_investigator(campaign_dir, campaign_id):
         return SESSION_ROLE_SETUP
-    if status == "active" and campaign_has_completed_setup_handoff(
-        campaign, campaign_id,
-    ):
-        return SESSION_ROLE_PLAY
     if status == "active":
-        return SESSION_ROLE_SETUP
+        return SESSION_ROLE_PLAY
     return CAMPAIGN_STATUS_TO_SESSION_ROLE.get(status, SESSION_ROLE_PLAY)
 
 

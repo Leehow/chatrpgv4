@@ -83,37 +83,15 @@ def test_status_maps_to_role(tmp_path: Path, status: str, expected: str) -> None
     assert result.stdout.strip() == expected
 
 
-def test_active_with_confirmed_investigator_without_handoff_is_setup(
-    tmp_path: Path,
-) -> None:
+def test_active_with_confirmed_investigator_is_play(tmp_path: Path) -> None:
     campaign_id = "role-active-confirmed"
     coc_state.create_campaign(tmp_path, campaign_id, "Role Fixture", era="1920s")
     _set_status(tmp_path, campaign_id, "active")
     _link_confirmed_investigator(tmp_path, campaign_id, "inv-ok")
-    assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "setup"
+    assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "play"
     result = _run_cli(str(tmp_path), campaign_id)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "setup"
-
-
-def test_active_with_completed_handoff_is_play(tmp_path: Path) -> None:
-    campaign_id = "role-active-handed-off"
-    coc_state.create_campaign(tmp_path, campaign_id, "Role Fixture", era="1920s")
-    _set_status(tmp_path, campaign_id, "active")
-    _link_confirmed_investigator(tmp_path, campaign_id, "inv-ok")
-    campaign_path = tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json"
-    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    campaign["setup_handoff"] = {
-        "schema_version": 1,
-        "campaign_id": campaign_id,
-        "decision_id": "handoff-role-active",
-        "investigator_ids": ["inv-ok"],
-        "completed_at": "2026-08-22T00:00:00Z",
-        "opening_projection_ref": None,
-        "lane_interrupted_at_handoff": False,
-    }
-    campaign_path.write_text(json.dumps(campaign, indent=2) + "\n", encoding="utf-8")
-    assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "play"
+    assert result.stdout.strip() == "play"
 
 
 def test_active_with_empty_party_is_setup(tmp_path: Path) -> None:

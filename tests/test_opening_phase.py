@@ -209,40 +209,11 @@ def test_ready_for_table_points_at_table_opening(tmp_path: Path):
     assert derived["detail"]["session_role"] == "play"
 
 
-def test_active_preplay_with_confirmed_investigator_still_points_at_handoff(
-    tmp_path: Path,
-):
-    """Quick-start/link may stamp active before setup.complete owns handoff."""
+def test_active_with_confirmed_investigator_is_active(tmp_path: Path):
     campaign_dir = _campaign(tmp_path, "active-a")
     _link(tmp_path, "active-a")
     _set_status(campaign_dir, "active")
     derived = coc_opening_phase.derive_opening_phase(tmp_path, "active-a")
-    assert derived["phase"] == coc_opening_phase.PHASE_CHARACTER_CREATION
-    assert derived["next_operation"] == {
-        "operation": "setup.complete",
-        "invoke_via": "coc_invoke",
-        "campaign": "active-a",
-    }
-    assert derived["detail"]["session_role"] == "setup"
-
-
-def test_active_with_completed_handoff_is_active(tmp_path: Path):
-    campaign_dir = _campaign(tmp_path, "active-played")
-    _link(tmp_path, "active-played")
-    _set_status(campaign_dir, "active")
-    campaign_path = campaign_dir / "campaign.json"
-    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    campaign["setup_handoff"] = {
-        "schema_version": 1,
-        "campaign_id": "active-played",
-        "decision_id": "handoff-active-played",
-        "investigator_ids": ["inv-ok"],
-        "completed_at": "2026-08-22T00:00:00Z",
-        "opening_projection_ref": None,
-        "lane_interrupted_at_handoff": False,
-    }
-    campaign_path.write_text(json.dumps(campaign, indent=2) + "\n", encoding="utf-8")
-    derived = coc_opening_phase.derive_opening_phase(tmp_path, "active-played")
     assert derived["phase"] == coc_opening_phase.PHASE_ACTIVE
     assert derived["next_operation"] is None
     assert derived["detail"]["session_role"] == "play"

@@ -167,6 +167,33 @@ const completeParams = {
   campaign: campaignId,
   arguments: structuredClone(starterDecision.next_operation.prefilled_arguments),
 };
+const completeEnvelope = ({
+  resultCampaignId = campaignId,
+  receiptCampaignId = campaignId,
+  decisionId = completeParams.arguments.decision_id,
+} = {}) => ({
+  ok: true,
+  tool: "setup.complete",
+  data: {
+    schema_version: 1,
+    status: "PASS",
+    kind: "campaign.complete",
+    result: {
+      campaign_id: resultCampaignId,
+      ready_for_table: true,
+      next: "table_opening",
+      handoff: {
+        schema_version: 1,
+        campaign_id: receiptCampaignId,
+        decision_id: decisionId,
+        investigator_ids: ["inv-delegate"],
+        completed_at: "2026-08-22T00:00:00Z",
+        opening_projection_ref: null,
+        lane_interrupted_at_handoff: false,
+      },
+    },
+  },
+});
 assert.equal(
   gate.openingSetupToolError("coc_invoke", completeParams, "starter-complete"),
   null,
@@ -175,26 +202,182 @@ assert.equal(
   gate.observeOpeningSetupInvocation(
     "setup.complete",
     completeParams,
-    {
-      ok: true,
-      tool: "setup.complete",
-      data: {
-        result: {
-          campaign_id: campaignId,
-          ready_for_table: true,
-          handoff: {
-            schema_version: 1,
-            campaign_id: campaignId,
-            decision_id: completeParams.arguments.decision_id,
-          },
-        },
-      },
-    },
+    { ok: true, tool: "setup.complete", data: {} },
     "starter-complete",
+  ).accepted,
+  false,
+  "an ok wrapper without the exact completion result must retain the route",
+);
+assert.equal(gate.hasActiveOpeningSetupFor(campaignId), true);
+assert.ok(gate.openingTableDecisionContext());
+assert.equal(
+  gate.acceptVisibleAssistantFinal("正席已交接，现在开始游戏。"),
+  false,
+  "an invalid completion envelope must not release a verbal handoff",
+);
+
+assert.equal(
+  gate.openingSetupToolError(
+    "coc_invoke",
+    completeParams,
+    "starter-complete-wrong-campaign",
+  ),
+  null,
+);
+assert.equal(
+  gate.observeOpeningSetupInvocation(
+    "setup.complete",
+    completeParams,
+    completeEnvelope({ resultCampaignId: "other-campaign" }),
+    "starter-complete-wrong-campaign",
+  ).accepted,
+  false,
+);
+assert.equal(gate.hasActiveOpeningSetupFor(campaignId), true);
+
+assert.equal(
+  gate.openingSetupToolError(
+    "coc_invoke",
+    completeParams,
+    "starter-complete-late",
+  ),
+  null,
+);
+gate.markAgentStart();
+assert.equal(
+  gate.observeOpeningSetupInvocation(
+    "setup.complete",
+    completeParams,
+    completeEnvelope(),
+    "starter-complete-late",
+  ).accepted,
+  false,
+  "an old agent-turn completion result must not clear the current route",
+);
+assert.equal(gate.hasActiveOpeningSetupFor(campaignId), true);
+
+assert.equal(
+  gate.openingSetupToolError(
+    "coc_invoke",
+    completeParams,
+    "starter-complete-wrong-decision",
+  ),
+  null,
+);
+assert.equal(
+  gate.observeOpeningSetupInvocation(
+    "setup.complete",
+    completeParams,
+    completeEnvelope({ decisionId: "other-decision" }),
+    "starter-complete-wrong-decision",
+  ).accepted,
+  false,
+);
+assert.equal(gate.hasActiveOpeningSetupFor(campaignId), true);
+
+assert.equal(
+  gate.openingSetupToolError(
+    "coc_invoke",
+    completeParams,
+    "starter-complete-exact",
+  ),
+  null,
+);
+assert.equal(
+  gate.observeOpeningSetupInvocation(
+    "setup.complete",
+    completeParams,
+    completeEnvelope(),
+    "starter-complete-exact",
   ).accepted,
   true,
 );
 assert.equal(gate.hasActiveOpeningSetupFor(campaignId), false);
+
+const unownedDelegateGate = new OpeningTerminalContinuationGate();
+assert.equal(
+  unownedDelegateGate.observeChargenDelegateCompletion(
+    "source-bound-route-not-hydrated",
+    {
+      ok: true,
+      investigator_id: "inv-source-bound",
+      characteristics: {},
+      derived: {},
+      skill_top: [],
+    },
+  ),
+  false,
+  "missing volatile route state cannot prove a campaign is a non-source starter",
+);
+assert.equal(unownedDelegateGate.openingTableDecisionContext(), null);
+assert.equal(
+  unownedDelegateGate.hasActiveOpeningSetupFor("source-bound-route-not-hydrated"),
+  false,
+);
+
+const freshStarterCampaignId = "fresh-fixed-starter";
+const freshStarterGate = new OpeningTerminalContinuationGate();
+const freshStarterResumeParams = {
+  operation: "session.resume",
+  campaign: freshStarterCampaignId,
+  arguments: {},
+};
+assert.equal(
+  freshStarterGate.openingSetupToolError(
+    "coc_invoke",
+    freshStarterResumeParams,
+    "fresh-starter-resume",
+  ),
+  null,
+);
+assert.equal(
+  freshStarterGate.observeOpeningSetupInvocation(
+    "session.resume",
+    freshStarterResumeParams,
+    {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: freshStarterCampaignId,
+        mode: "awaiting_player",
+        character_creation: {
+          status: "incomplete",
+          campaign_id: freshStarterCampaignId,
+          era: "1920s",
+          play_language: "zh-Hans",
+          title: "The Haunting",
+          briefing_path: (
+            ".coc/campaigns/fresh-fixed-starter/assets/character-creation/"
+            + "the-haunting-briefing.md"
+          ),
+          language: "zh-Hans",
+        },
+      },
+    },
+    "fresh-starter-resume",
+  ).accepted,
+  true,
+  "the canonical fresh-starter resume receipt must hydrate character setup",
+);
+assert.equal(freshStarterGate.hasActiveOpeningSetupFor(freshStarterCampaignId), true);
+assert.equal(
+  freshStarterGate.observeChargenDelegateCompletion(
+    freshStarterCampaignId,
+    {
+      ok: true,
+      investigator_id: "inv-fresh-starter",
+      characteristics: {},
+      derived: {},
+      skill_top: [],
+    },
+  ),
+  true,
+);
+assert.equal(
+  freshStarterGate.openingTableDecisionContext().next_operation.operation,
+  "setup.complete",
+);
 
 const decisionGate = new OpeningTerminalContinuationGate();
 decisionGate.openingSetupToolError("coc_invoke", resumeParams, "selection-resume");
