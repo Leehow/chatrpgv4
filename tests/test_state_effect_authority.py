@@ -182,7 +182,9 @@ def _exceptional_effect(decision_id: str = "exc-1") -> dict:
 
 def _both_reasons(effect, window):
     helper = authority.state_delta_proof_reason(effect, window)
-    finalize = authority.state_delta_proof_reason(effect, window)
+    finalize = coc_turn_finalization._state_delta_proof_reason(
+        effect, list(window), authority.default_registry(),
+    )
     export_module = _export()
     export = export_module._state_effect_authority().state_delta_proof_reason(
         effect, window, registry=export_module._toolbox_registry(),
@@ -333,3 +335,94 @@ def test_rules_damage_without_structured_hp_does_not_prove() -> None:
     assert _both_reasons(effect, [bare]) == "mismatch"
     proven = _call("rules.damage", "hp-1", data={"hp_before": 10, "hp_after": 8})
     assert _both_reasons(effect, [proven]) is None
+
+
+def _combat_hp_luck_call() -> dict:
+    return _call(
+        "combat.resolve",
+        "hp-1",
+        data={
+            "player_state_receipt": {
+                "schema_version": 1,
+                "investigator_id": "hero",
+                "hp": {"before": 10, "after": 9},
+                "luck": {"before": 40, "after": 30},
+                "conditions_before": [],
+                "conditions_after": [],
+                "loaded_ammunition": [],
+            },
+        },
+    )
+
+
+def _luck_effect(decision_id: str = "hp-1") -> dict:
+    return {
+        "schema_version": 1,
+        "category": "state_delta",
+        "effect_id": f"effect:{decision_id}:Luck",
+        "effect_kind": "scalar",
+        "resource": "Luck",
+        "investigator_id": "hero",
+        "before": 40,
+        "delta": -10,
+        "after": 30,
+        "source_decision_id": decision_id,
+    }
+
+
+def test_combat_resolve_same_receipt_proves_hp_and_luck() -> None:
+    call = _combat_hp_luck_call()
+    hp = {
+        **_hp_effect(),
+        "before": 10,
+        "delta": -1,
+        "after": 9,
+    }
+    luck = _luck_effect()
+    assert _both_reasons(hp, [call]) is None
+    assert _both_reasons(luck, [call]) is None
+    projected = coc_turn_finalization._project_state_deltas([call])
+    kinds = {(row["effect_kind"], row.get("resource")) for row in projected}
+    assert ("scalar", "HP") in kinds
+    assert ("scalar", "Luck") in kinds
+    assert coc_turn_finalization._state_delta_proof_violations([call], projected) == []
+    rows = _export()._state_diff_rows([call], [{
+        "finalization_id": "fin-combat",
+        "bundle": {"state_delta": projected, "asset_delta": []},
+    }])
+    assert {row["effect"].get("resource") for row in rows} == {"HP", "Luck"}
+    assert {row["source_tool"] for row in rows} == {"combat.resolve"}
+
+
+def test_empty_or_unknown_kind_never_proves() -> None:
+    typed_shape = {
+        "schema_version": 1,
+        "category": "state_delta",
+        "effect_id": "effect:hp-1:blank",
+        "investigator_id": "hero",
+        "before": 10,
+        "after": 8,
+        "source_decision_id": "hp-1",
+    }
+    journal = _call(
+        "state.journal",
+        "hp-1",
+        data={"player_state_receipt": _hp_receipt()},
+    )
+    empty = {**typed_shape, "effect_kind": ""}
+    missing = dict(typed_shape)
+    unknown = {**typed_shape, "effect_kind": "not_a_kind"}
+    assert _both_reasons(empty, [journal]) == "mismatch"
+    assert _both_reasons(missing, [journal]) == "mismatch"
+    assert _both_reasons(unknown, [journal]) == "mismatch"
+    assert authority.receipt_proves_effect(journal, empty) == "mismatch"
+    unknown_op = _call(
+        "state.not_a_registered_op",
+        "hp-1",
+        data={"player_state_receipt": _hp_receipt()},
+    )
+    assert _both_reasons({**typed_shape, "effect_kind": "scalar", **{
+        "resource": "HP",
+        "delta": -2,
+    }}, [unknown_op]) == "unknown"
+    assert _both_reasons(unknown, [unknown_op]) == "unknown"
