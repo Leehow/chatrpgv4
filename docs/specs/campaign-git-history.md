@@ -1,8 +1,8 @@
 # 战役历史 Git 化（slice1：finalize 即 commit）
 
-> **Status:** Spec — slice1 正式规格，对应已授权计划 `coc-git-history-slice1`。
+> **Status:** Implemented — sidecar git history is the sole campaign history store.
 > **ID:** `campaign-git-history`
-> **Scope:** 共享内核战役历史与崩溃恢复（`plugins/coc-keeper`）。
+> **Scope:** 共享内核战役历史、崩溃恢复、以及战报 state 完整性证明（`plugins/coc-keeper`）。
 > **Tracks:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc` — Codex 轨 off-limits。共享内核改动已获该计划的跨轨显式授权，范围仅限本 spec。
 > **Decision record:** [ADR 0001](../adr/0001-campaign-git-history.md)
 > **Template:** Problem / Solution / Implementation Decisions / Testing / Out of Scope
@@ -11,7 +11,7 @@
 
 ## 1. Problem
 
-每次 `turn.finalize` 用 `copytree` 把 `save/` 复制到
+Historical: 每次 `turn.finalize` 用 `copytree` 把 `save/` 复制到
 `save/commit-snapshots/<finalization-id>/`：无去重、无 rotation、无提交图。
 历史与 receipt 只有命名约定绑定，崩溃恢复与取证没有单一读取路径。
 
@@ -117,7 +117,41 @@ git 调用不得依赖用户全局 config：固定
 ### 3.6 退役
 
 删除 finalize copytree 与目录型恢复。`commit-snapshots/` 的运行时写/读/
-恢复路径迁到 Coordinator。战报导出器本切片**不**改读 git。
+恢复路径迁到 Coordinator。遗留 `save/commit-snapshots/` 仍是 ignore-face：
+不导入、不读取、不删除，也不得作为战报 state 证明。
+
+Historical (slice1): 导出器暂不改读 git。That deferral is closed. The
+canonical exporter now consumes the structured proof below and never the
+retired snapshot directory.
+
+### 3.7 Structured state integrity proof
+
+Read-only library API:
+`coc_git_history_verify.state_integrity_proof(root, campaign_id, expected_finalization_id=..., valid_finalization_ids=...).to_dict()`.
+Do not parse CLI prose. Status is exactly `PASS` | `FAIL` | `NOT_PROVEN`.
+
+Major `to_dict()` fields: `status`, `campaign_id`, `history_enabled`,
+`history_valid`, `repo_present`, `repo_healthy`, `git_available`, `fsck_ok`,
+`repo_path`, `worktree_path`, `head` (sha / commit_type / finalization_id /
+turn_number / trailers), `latest_receipt` (finalization_id / commit_sha /
+paired), `expected_head_sha`, `head_matches_latest_receipt`,
+`later_non_turn_commit`, `counts`, `tree` (clean / canonical_paths_present /
+dirty_paths / missing_paths / drifted_paths), `history_reset`, `findings`
+(`code`, `detail`, optional sha / finalization_id / path).
+
+`PASS` requires a healthy sidecar, `fsck --strict`, HEAD as the turn commit
+for the latest valid receipt, 1:1 receipt/commit pairing, and a clean tracked
+tree matching the campaign worktree. `FAIL` is a contradiction or corruption
+(wrong HEAD, unpaired receipts, hash drift, dirty authoritative paths,
+`repo_not_git`, `fsck_failed`). `NOT_PROVEN` is missing evidence: no sidecar,
+unsafe/missing campaign path, git unavailable, baseline-only, or a later
+`COC-History-Reset` trailer. A reset-explained later non-turn commit is
+permitted as the reset explanation and still `NOT_PROVEN`; it never upgrades
+to `PASS`. An unexplained later non-turn commit is `FAIL`.
+
+The battle-report exporter maps that status 1:1 onto the `state` dimension.
+Player evidence schema 8 carries only the bounded `state_integrity`
+projection; audit schema 2 carries the full `git_history` proof.
 
 ---
 
@@ -137,9 +171,11 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_git_history_verify.py --ro
   `logs/turn-finalizations.jsonl` 的 1:1。只报告不修复。零 turn commit 且零
   receipt 时显式失败（exit 2），拒绝空通过。
 
-验收（t6，非本文件任务）：pi-coc RPC 真实跑团 → verify 通过 →
-`coc-export-battle-report` 导出 → 抽查第 N 回合 `save/` 子集哈希与
-settlement snapshot 吻合 → 证据保留。
+验收：pi-coc RPC 真实跑团必须使用 exact-current-schema 新战役。
+`state_integrity_proof` 为 `PASS`，导出器 `state` 维度为 `PASS`，且不得把
+遗留 `commit-snapshots` 或 harness `run.json` 当作证明。`NOT_PROVEN` 与
+`FAIL` 必须保持可区分并令战报 `INCOMPLETE`。历史战报只读；无迁移、无双读。
+证据保留。
 
 ---
 
@@ -147,5 +183,4 @@ settlement snapshot 吻合 → 证据保留。
 
 玩家 / KP 可见的任何变化；回档 / 分支 / 比较 UI；memory 与 commit 绑定；
 语义索引；proposal branch / CAS / delivered ref；双仓库投影；Codex 轨与
-pi-coc host 适配（`pi/`、launcher、session-roles）；LFS / 资产存储；
-战报导出器改读 git。
+pi-coc host 适配（`pi/`、launcher、session-roles）；LFS / 资产存储。

@@ -35,3 +35,8 @@ worktree，树内不放 `.git`）。`coc_git_history.py`（Commit Coordinator）
 - 无 rotation 压力：对象去重替代按回合整树复制。
 - 崩溃恢复读取路径唯一；遗留 `save/commit-snapshots/` 不导入、不读取、不删除。
 - 新增 git 二进制硬依赖：缺失则战役创建与 finalize 明确硬失败，无降级。
+- 战报 state 完整性只消费结构化证明
+  `coc_git_history_verify.state_integrity_proof(...).to_dict()`（`PASS` /
+  `FAIL` / `NOT_PROVEN`）。导出器不再读取 `commit-snapshots`，也不把目录
+  存在当作证明。后续 `COC-History-Reset` 使证明保持 `NOT_PROVEN`，不得
+  升格为 `PASS`。

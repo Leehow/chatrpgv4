@@ -61,6 +61,7 @@ Campaigns store temporary and scenario-specific state:
 ├── campaign.json
 ├── party.json
 ├── save/
+│   ├── run-identity.json           # frozen table-run identity (schema_version 1)
 │   ├── world-state.json            # active scene, discovered clue ids, decisions, refs
 │   ├── active-scene.json           # current player-safe scene pointer / next-turn contract
 │   ├── flags.json                  # clue, decision, and spoiler-reveal flags
@@ -368,6 +369,28 @@ session identity rather than the most recently updated marker. User prompt text
 retained there remains explicitly
 `unclassified_host_input` until semantic Keeper judgment and `state.journal`.
 
+## Campaign Run Identity
+
+`save/run-identity.json` is the campaign-owned table-run identity. Exact
+current schema (`schema_version: 1`) is:
+
+```text
+schema_version, campaign_id, run_segment_id, session_id,
+plugin_version, ruleset_id, ruleset_version
+```
+
+`coc_state.bind_run_identity` creates or confirms it on the ordinary
+`evidence.table_opening` / table-transcript write path. First write resolves
+`plugin_version` from the loaded plugin `package.json` and `ruleset_id` /
+`ruleset_version` from the campaign binding. Later calls must repeat the same
+campaign / run / session or raise `RunIdentityConflict` (`run_identity_conflict`)
+without rewriting the file. `coc_state.load_run_identity` returns `None` when
+the file is absent. A present but incomplete, sentinel, campaign-id-mismatched,
+or non-`schema_version: 1` record raises `UnsupportedSaveSchema` — clean-slate,
+no migration, no dual reader, no harness fallback. This record is the
+authoritative identity for battle-report export. External `run.json` /
+`playtest.json` stay harness-only and must not override it.
+
 ## Campaign Git History
 
 Per-campaign history is a sidecar bare git repository at
@@ -383,6 +406,18 @@ failed commit fails finalize. Campaign creation lands one
 `COC-Commit-Type: baseline` commit and does not backfill older turns. Each
 finalized turn is `COC-Commit-Type: turn`. In-flight leftover
 `save/commit-snapshots/` directories are neither imported, read, nor deleted.
+They are ignore-face only and never prove state.
+
+Read-only structured proof for report completeness is
+`coc_git_history_verify.state_integrity_proof(...).to_dict()`. Status is
+`PASS`, `FAIL`, or `NOT_PROVEN`. Consumers must read `status` plus
+`findings[].code`; they must not parse CLI prose. The proof binds HEAD (sha,
+commit type, finalization trailer), the latest valid receipt, the tracked
+tree, and the campaign worktree. A later `COC-History-Reset` trailer makes
+the proof `NOT_PROVEN` even when that later non-turn commit is the permitted
+reset explanation. Missing sidecar, baseline-only, or unavailable git is
+also `NOT_PROVEN`. Hash drift, dirty authoritative paths, unpaired receipts,
+or a wrong HEAD are `FAIL`.
 
 The ignore face is the Coordinator constant `IGNORE_PATHS`, written only to
 the bare repo `info/exclude` (never a campaign-tree `.gitignore`):

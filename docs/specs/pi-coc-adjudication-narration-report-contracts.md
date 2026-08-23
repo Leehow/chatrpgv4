@@ -7,7 +7,7 @@ Implementation track: **`ACTIVE_IMPLEMENTATION_TRACK=pi-coc`**
 Scope owner: Pi-Coc host plus the canonical `plugins/coc-keeper/` product
 
 Ruleset: CoC 7e through the existing ruleset resolver seam
-Last updated: 2026-08-21
+Last updated: 2026-08-23
 
 This document is an implementation specification, not implementation authority.
 It authorizes no edits to shared kernel, state, registry, contract, skill, Codex
@@ -721,10 +721,10 @@ set separately from the development audit set.
 
 | Dimension | Required proof |
 | --- | --- |
-| `run_identity` | Nonempty exact `run_segment_id`, campaign, session, plugin/ruleset version, host/model identity where available. |
-| `accepted_transcript` | Every journaled player row and finalized Keeper row appears exactly once and binds the accepted revision. |
-| `dice` | Every public/consequence-public roll is well formed, source traceable, bound, and rendered exactly once; concealed rolls render zero times. |
-| `state` | Every visible state change has a receipt; final state hash matches the canonical fold/snapshot contract. |
+| `run_identity` | Campaign-owned `save/run-identity.json` (`schema_version: 1`) is present and current: exact `campaign_id`, `run_segment_id`, `session_id`, `plugin_version`, `ruleset_id`, `ruleset_version`. Harness `run.json` / `playtest.json` cannot override it. Missing, corrupt, sentinel, or conflicting identity fails closed. |
+| `accepted_transcript` | Every journaled player row and finalized Keeper row appears exactly once and binds the accepted revision. When the canonical identity is present, only matching run/session rows are selected. |
+| `dice` | Every public/consequence-public roll is well formed, source traceable, bound, and rendered exactly once; concealed rolls render zero times. Unchanged by the Git-proof work. |
+| `state` | Structured Git proof `state_integrity_proof(...).to_dict()` is `PASS`; `FAIL` and `NOT_PROVEN` stay distinct. Visible typed deltas still require a registered state receipt. Never read `save/commit-snapshots`. |
 | `settlement_uniqueness` | Session/ending/development settlement keys are unique and idempotent. |
 | `scene_scope` | No unpromoted hard acceptance drift or improvised authored-milestone unlock. |
 | `agency` | No accepted prose-level voluntary PC claim lacking source; every override is current and scoped. |
@@ -734,6 +734,19 @@ set separately from the development audit set.
 `--allow-partial` may emit an explicitly **UNVERIFIED / INCOMPLETE** report for
 diagnosis. It cannot mark the run complete, serve as the formal evaluation
 baseline, or reconstruct missing facts from prose.
+
+Player evidence is schema 8; the Keeper/development audit envelope is schema 2.
+Player `state_integrity` is bounded (`status`, `reason_codes`, `repo_present`,
+`history_valid`, `fsck_ok`, `tree_clean`, `history_reset`, counts). The full
+Git proof lives only in audit `finalization_binding.git_history`. The retired
+`commit_snapshot_id` / `latest_commit_snapshot_present` fields are gone.
+
+Current-schema law: only an exact-current-schema campaign is acceptable.
+There is no identity or snapshot fallback, no dual reader, and no migration.
+Historical reports stay read-only. A later `COC-History-Reset` is
+`NOT_PROVEN`, never `PASS`. Acceptance that treats harness `run.json` as
+identity, leftover `commit-snapshots` as state proof, or a reset history as
+complete is `invalid-for-acceptance`.
 
 ## 11. Error model
 
