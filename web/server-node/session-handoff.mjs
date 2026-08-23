@@ -35,6 +35,22 @@ export function isStaleModelCatalogError(error) {
   return /\bModel not found:\s*\S+\/\S+/i.test(String(error?.message || error || ""));
 }
 
+/**
+ * Consume a terminal turn-processing fault whose typed SSE frame was already
+ * delivered by PiCocRpcHost. Returning true tells the HTTP boundary not to
+ * write a second generic error frame.
+ */
+export async function consumeDeliveredTurnProcessingFault({
+  error,
+  campaignId,
+  expectedHost,
+  orchestrator,
+} = {}) {
+  if (error?.kind !== "pi_coc_turn_processing_fault") return false;
+  await orchestrator.retireExactHost(campaignId, expectedHost);
+  return true;
+}
+
 export function inferSessionRole({ tableIntent, afterHandoff } = {}) {
   if (afterHandoff) return "play";
   if (tableIntent === "character-setup") return "setup";
@@ -220,6 +236,25 @@ export class CampaignHostOrchestrator {
     } catch {
       /* already gone */
     }
+  }
+
+  /**
+   * Retire only the poisoned child that raised a terminal turn-processing
+   * fault. A concurrently installed replacement is never closed or removed.
+   */
+  async retireExactHost(campaignId, expectedHost) {
+    if (!expectedHost || this.hosts.get(campaignId) !== expectedHost) {
+      return false;
+    }
+    this.hosts.delete(campaignId);
+    expectedHost.expectedShutdown = true;
+    try {
+      await expectedHost.close?.({ protocolAbort: false });
+    } catch {
+      // The exact poisoned child is already detached. A later acquire must
+      // create a fresh resume-first child rather than reuse its event log.
+    }
+    return true;
   }
 
   /**

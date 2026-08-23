@@ -26,6 +26,7 @@ import {
 } from "./pi-coc-rpc.mjs";
 import {
   CampaignHostOrchestrator,
+  consumeDeliveredTurnProcessingFault,
   defaultResolveSessionRole,
   isStaleModelCatalogError,
   SESSION_TRANSITIONING_CODE,
@@ -1171,8 +1172,8 @@ async function handleTurn(req, res, sid) {
     safeWrite("end", {});
   };
 
+  let host = HOSTS.get(info.campaign_id);
   try {
-    let host = HOSTS.get(info.campaign_id);
     let handoffOpeningCompleted = false;
     if (
       host?.isHandoffShutdown?.()
@@ -1238,7 +1239,16 @@ async function handleTurn(req, res, sid) {
       finalize,
     });
   } catch (err) {
-    if (err?.kind === "pi_coc_rpc_aborted") {
+    if (await consumeDeliveredTurnProcessingFault({
+      error: err,
+      campaignId: info.campaign_id,
+      expectedHost: host,
+      orchestrator,
+    })) {
+      // The typed terminal fault was already sent by the host's SSE relay.
+      // Suppress a generic duplicate and detach only that exact poisoned
+      // child so refresh starts a fresh resume-first RPC process.
+    } else if (err?.kind === "pi_coc_rpc_aborted") {
       const interruptedHost = HOSTS.get(info.campaign_id);
       if (interruptedHost) {
         try {

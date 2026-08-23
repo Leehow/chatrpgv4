@@ -1193,6 +1193,7 @@ export class PiCocRpcHost {
       let sawPlayerText = false;
       let sawError = false;
       let sawHandoff = false;
+      let terminalTurnFault = null;
       let acceptedObserved = false;
       let timer = null;
       const notifyIfSilent = () => {
@@ -1217,6 +1218,13 @@ export class PiCocRpcHost {
         else resolve({ sawPlayerText, sawError, sawHandoff, ...result });
       };
       const settle = (result = {}) => {
+        if (terminalTurnFault !== null) {
+          finish(new PiCocRpcError(terminalTurnFault.message, {
+            kind: "pi_coc_turn_processing_fault",
+            details: terminalTurnFault.details,
+          }));
+          return;
+        }
         if (!result.handoff) notifyIfSilent();
         finish(null, result);
       };
@@ -1232,6 +1240,13 @@ export class PiCocRpcHost {
             sawPlayerText = false;
           } else if (frame.event === "error") {
             sawError = true;
+            if (
+              terminalTurnFault === null
+              && frame.data?.details?.kind === "turn_processing_fault"
+              && frame.data?.details?.status === "terminal"
+            ) {
+              terminalTurnFault = frame.data;
+            }
           } else if (frame.event === "coc_setup_handoff") {
             if (sawHandoff) continue;
             sawHandoff = true;

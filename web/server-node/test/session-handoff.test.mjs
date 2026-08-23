@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import {
   mapRpcEventToSse,
   parseSetupHandoffEvent,
+  PiCocRpcError,
   PiCocRpcHost,
   PLAY_TABLE_OPENING_PROMPT,
   PLAY_TURN_RECOVERY_PROMPT,
@@ -14,6 +15,7 @@ import {
 } from "../pi-coc-rpc.mjs";
 import {
   CampaignHostOrchestrator,
+  consumeDeliveredTurnProcessingFault,
   parseSessionRoleStdout,
   SESSION_BUSY_CODE,
   SESSION_TRANSITIONING_CODE,
@@ -312,6 +314,95 @@ test("same campaign refuses a second live child", async () => {
   assert.equal(orchestrator.hosts.size, 1);
 });
 
+test("terminal turn fault retires only its exact host and refresh resumes on a fresh child", async () => {
+  const created = [];
+  const fault = {
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    code: "state_claim_compiler_invalid",
+    details: {
+      kind: "turn_processing_fault",
+      status: "terminal",
+      pending_turn_preserved: true,
+    },
+  };
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => {
+      const host = fakeHost({ campaignId: opts.campaignId });
+      host.tableIntent = opts.tableIntent;
+      if (created.length === 0) {
+        host.attachOpening = async ({ onSse } = {}) => {
+          onSse?.({ event: "error", data: fault });
+          throw new PiCocRpcError(fault.message, {
+            kind: "pi_coc_turn_processing_fault",
+            details: fault.details,
+          });
+        };
+      } else {
+        host.attachOpening = async ({ onSse } = {}) => {
+          onSse?.({ event: "tool", data: {
+            phase: "start", tool: "coc_session_resume",
+            tool_call_id: "resume-after-refresh",
+          } });
+          onSse?.({ event: "tool", data: {
+            phase: "end", tool: "coc_session_resume",
+            tool_call_id: "resume-after-refresh",
+          } });
+          onSse?.({ event: "delta", data: { text: "已从保留回合恢复。" } });
+          return { opened: true };
+        };
+      }
+      created.push(host);
+      return host;
+    },
+  });
+
+  const { host: poisoned } = await orchestrator.acquire(
+    "fault-refresh", { tableIntent: "continue" },
+  );
+  const firstFrames = [];
+  await assert.rejects(
+    poisoned.attachOpening({ onSse: (frame) => firstFrames.push(frame) }),
+    (error) => error.kind === "pi_coc_turn_processing_fault",
+  );
+  assert.deepEqual(firstFrames, [{ event: "error", data: fault }]);
+  let genericHttpErrors = 0;
+  const consumed = await consumeDeliveredTurnProcessingFault({
+    error: new PiCocRpcError(fault.message, {
+      kind: "pi_coc_turn_processing_fault",
+      details: fault.details,
+    }),
+    campaignId: "fault-refresh",
+    expectedHost: poisoned,
+    orchestrator,
+  });
+  if (!consumed) genericHttpErrors += 1;
+  assert.equal(consumed, true);
+  assert.equal(genericHttpErrors, 0, "HTTP catch must not append a generic second error");
+  assert.equal(poisoned.closed, true);
+  assert.equal(orchestrator.getHost("fault-refresh"), null);
+
+  const { host: refreshed, spawned } = await orchestrator.acquire(
+    "fault-refresh", { tableIntent: "continue" },
+  );
+  assert.equal(spawned, true);
+  assert.notEqual(refreshed, poisoned);
+  const refreshedFrames = [];
+  await refreshed.attachOpening({ onSse: (frame) => refreshedFrames.push(frame) });
+  assert.deepEqual(refreshedFrames.map((frame) => [
+    frame.event, frame.data?.phase ?? null, frame.data?.tool ?? null,
+  ]), [
+    ["tool", "start", "coc_session_resume"],
+    ["tool", "end", "coc_session_resume"],
+    ["delta", null, null],
+  ]);
+
+  const replacement = fakeHost({ campaignId: "fault-refresh" });
+  orchestrator.hosts.set("fault-refresh", replacement);
+  assert.equal(await orchestrator.retireExactHost("fault-refresh", refreshed), false);
+  assert.equal(refreshed.closed, false);
+  assert.equal(orchestrator.getHost("fault-refresh"), replacement);
+});
+
 test("model catalog refresh replaces the live host with the selected model", async () => {
   const created = [];
   const orchestrator = new CampaignHostOrchestrator({
@@ -607,6 +698,21 @@ function fakeRpcChild({ prompts, autoOpen = false } = {}) {
             stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
             stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
             stdout.write(`${JSON.stringify({
+              type: "tool_execution_start",
+              toolName: "coc_session_resume",
+              toolCallId: "resume-on-attach",
+            })}\n`);
+            stdout.write(`${JSON.stringify({
+              type: "tool_execution_end",
+              toolName: "coc_session_resume",
+              toolCallId: "resume-on-attach",
+              result: {
+                ok: true,
+                tool: "session.resume",
+                data: { mode: "table_opening" },
+              },
+            })}\n`);
+            stdout.write(`${JSON.stringify({
               type: "message_update",
               assistantMessageEvent: {
                 type: "text_delta",
@@ -690,6 +796,8 @@ test("respawned play child attaches to its one extension-owned continuation", as
   assert.equal(setupPrompts.length, 0);
   assert.equal(playPrompts.length, 0);
   assert.deepEqual(frames, [
+    { event: "tool", data: { phase: "start", tool: "coc_session_resume", tool_call_id: "resume-on-attach" } },
+    { event: "tool", data: { phase: "end", tool: "coc_session_resume", tool_call_id: "resume-on-attach" } },
     { event: "delta", data: { text: "宅邸的门缝里漏出一丝冷光。" } },
   ]);
   assert.deepEqual(orchestrator.statusOf("rpc-order"), {

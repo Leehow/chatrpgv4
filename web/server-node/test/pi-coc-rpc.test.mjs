@@ -330,6 +330,63 @@ test("required-visible recovery preserves terminal typed fault instead of replac
   assert.equal(frames[0].data.code, "state_claim_compiler_invalid");
 });
 
+test("prompt raises a terminal turn fault only after relaying its one typed SSE error", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "typed-fault-prompt",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const prompted = host.prompt("玩家行动", {
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const request = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({
+    id: request.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "typed-fault-prompt",
+    turn_id: "turn-retained",
+    player_turn_epoch: 2,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: null,
+    elapsed_ms: 8,
+  };
+  child.stdout.write(`${JSON.stringify({
+    type: "custom_message",
+    customType: "coc-turn-processing-fault",
+    content: JSON.stringify(fault),
+    details: fault,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+
+  await assert.rejects(
+    prompted,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.pending_turn_preserved === true,
+  );
+  assert.deepEqual(frames.map((frame) => frame.event), ["error"]);
+  assert.equal(frames[0].data.message, fault.message);
+});
+
 test("buildChildEnv marks an attached UI and play workspace", () => {
   const env = buildChildEnv({
     workspace: "/tmp/coc-workspace",
