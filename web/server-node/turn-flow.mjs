@@ -1,3 +1,24 @@
+import {
+  EMPTY_PLAYER_TURN_KIND,
+  EMPTY_PLAYER_TURN_MESSAGE,
+  PiCocRpcError,
+} from "./pi-coc-rpc.mjs";
+
+/** Ordinary non-attach prompt must not settle as a successful empty turn. */
+export function assertOrdinaryPlayerTurnOutput(promptResult = {}) {
+  if (
+    promptResult.sawPlayerText
+    || promptResult.sawError
+    || promptResult.handoff
+    || promptResult.sawHandoff
+  ) {
+    return promptResult;
+  }
+  throw new PiCocRpcError(EMPTY_PLAYER_TURN_MESSAGE, {
+    kind: EMPTY_PLAYER_TURN_KIND,
+  });
+}
+
 /**
  * Keep one player turn open while setup exit-42 becomes the play opening.
  * This is transport sequencing only; Keeper decisions remain inside pi-coc.
@@ -51,7 +72,9 @@ export async function promptWithStallRecovery({
   try {
     return {
       host,
-      promptResult: (await host.prompt(message, { onSse })) || {},
+      promptResult: assertOrdinaryPlayerTurnOutput(
+        (await host.prompt(message, { onSse, failIfSilent: true })) || {},
+      ),
     };
   } catch (error) {
     if (error?.kind !== "pi_coc_rpc_idle_timeout") throw error;

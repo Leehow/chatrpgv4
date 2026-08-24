@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 
 import { Sidecar, SidecarError } from "./sidecar.mjs";
 import {
+  EMPTY_PLAYER_TURN_KIND,
+  EMPTY_PLAYER_TURN_MESSAGE,
   PiCocRpcError,
   PiCocRpcHost,
   sessionOpeningFlags,
@@ -426,6 +428,9 @@ function playerVisibleTurnError(err) {
   }
   if (kind === "pi_coc_rpc_aborted") {
     return "已停止本回合。";
+  }
+  if (kind === EMPTY_PLAYER_TURN_KIND) {
+    return text || EMPTY_PLAYER_TURN_MESSAGE;
   }
   if (text && text !== name) return `${name}: ${text}`;
   return text || name || "未知错误";

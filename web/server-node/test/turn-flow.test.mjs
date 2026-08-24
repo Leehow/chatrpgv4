@@ -2,12 +2,110 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  EMPTY_PLAYER_TURN_KIND,
+  EMPTY_PLAYER_TURN_MESSAGE,
+} from "../pi-coc-rpc.mjs";
+import {
+  assertOrdinaryPlayerTurnOutput,
   attachWithStallRecovery,
   finishPromptTurn,
   finishRecoveredTurn,
   promptWithStallRecovery,
   recoverAbortedTurn,
 } from "../turn-flow.mjs";
+
+test("ordinary silent settle fails before finalize and emits no success frames", async () => {
+  const frames = [];
+  const finalized = [];
+  const host = {
+    async prompt() {
+      return { sawPlayerText: false, sawError: false, sawHandoff: false };
+    },
+  };
+  await assert.rejects(
+    async () => {
+      const { host: next, promptResult } = await promptWithStallRecovery({
+        host,
+        message: "我推开门",
+        campaignId: "empty-turn",
+        orchestrator: {},
+        onSse: (frame) => frames.push(frame),
+      });
+      await finishPromptTurn({
+        host: next,
+        promptResult,
+        campaignId: "empty-turn",
+        orchestrator: { isTransitioning: () => false },
+        onSse: (frame) => frames.push(frame),
+        finalize: async () => {
+          finalized.push("turn");
+          finalized.push("end");
+        },
+      });
+    },
+    (err) => err.kind === EMPTY_PLAYER_TURN_KIND
+      && err.message === EMPTY_PLAYER_TURN_MESSAGE,
+  );
+  assert.deepEqual(finalized, []);
+  assert.equal(frames.some((frame) => frame.event === "turn" || frame.event === "end"), false);
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 0);
+});
+
+test("visible player settle still finalizes exactly once", async () => {
+  const frames = [];
+  const finalized = [];
+  const host = {
+    async prompt() {
+      return { sawPlayerText: true, sawError: false };
+    },
+  };
+  const { host: next, promptResult } = await promptWithStallRecovery({
+    host,
+    message: "我推开门",
+    campaignId: "visible-turn",
+    orchestrator: {},
+    onSse: (frame) => frames.push(frame),
+  });
+  await finishPromptTurn({
+    host: next,
+    promptResult,
+    campaignId: "visible-turn",
+    orchestrator: { isTransitioning: () => false },
+    onSse: (frame) => frames.push(frame),
+    finalize: async () => {
+      finalized.push("turn");
+      finalized.push("end");
+    },
+  });
+  assert.deepEqual(promptResult, { sawPlayerText: true, sawError: false });
+  assert.deepEqual(finalized, ["turn", "end"]);
+  assert.equal(frames.some((frame) => frame.event === "error"), false);
+});
+
+test("attach opening may settle without player-visible text", async () => {
+  const host = {
+    async attachOpening() {
+      return { opened: true, sawPlayerText: false };
+    },
+  };
+  const result = await attachWithStallRecovery({
+    host,
+    campaignId: "awaiting-player",
+    orchestrator: {},
+  });
+  assert.deepEqual(result.promptResult, { opened: true, sawPlayerText: false });
+});
+
+test("handoff result is a legitimate silent prompt outcome", () => {
+  assert.deepEqual(
+    assertOrdinaryPlayerTurnOutput({ handoff: true, sawPlayerText: false }),
+    { handoff: true, sawPlayerText: false },
+  );
+  assert.throws(
+    () => assertOrdinaryPlayerTurnOutput({ sawPlayerText: false, sawError: false }),
+    (err) => err.kind === EMPTY_PLAYER_TURN_KIND,
+  );
+});
 
 test("attach provider idle resumes on a replacement host without player input", async () => {
   const attached = [];

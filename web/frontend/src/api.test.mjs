@@ -182,6 +182,44 @@ test("streamTurn uses a zh-Hans fallback when a non-2xx body has no error", asyn
   }
 });
 
+test("streamTurn rejects a terminal error when the stream closes without an end frame", async () => {
+  const originalFetch = globalThis.fetch;
+  const errors = [];
+  const turns = [];
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      const enc = new TextEncoder();
+      controller.enqueue(enc.encode(sseFrame("error", {
+        message: "本回合未产出玩家可见文本（模型可能把叙事写进了思考频道或回合未结算）；请重试同一行动。",
+      })));
+      controller.close();
+    },
+  }), { status: 200 });
+  try {
+    await assert.rejects(
+      () => streamTurn(
+        "sid-empty-turn",
+        "我推开门",
+        "p",
+        "m",
+        "off",
+        undefined,
+        {
+          onError: (message) => errors.push(message),
+          onTurn: (payload) => turns.push(payload),
+        },
+      ),
+      /未产出玩家可见文本/,
+    );
+    assert.deepEqual(errors, [
+      "本回合未产出玩家可见文本（模型可能把叙事写进了思考频道或回合未结算）；请重试同一行动。",
+    ]);
+    assert.deepEqual(turns, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("streamTurn rejects a typed error observed before the explicit end frame", async () => {
   const originalFetch = globalThis.fetch;
   const errors = [];

@@ -10,6 +10,8 @@ import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import {
+  EMPTY_PLAYER_TURN_KIND,
+  EMPTY_PLAYER_TURN_MESSAGE,
   HANDOFF_EXIT_CODE,
   HOST_PI_EXTENSION_RELS,
   HOST_WEB_SEARCH_EXTENSION_REL,
@@ -846,7 +848,7 @@ test("mapRpcEventToSse surfaces a settled model error, but not a retry", () => {
   );
 });
 
-test("prompt emits a notice when a turn settles with no visible text", async () => {
+test("prompt fails a silent settle without inventing text or emitting notice", async () => {
   const child = fakeChild();
   const written = [];
   child.stdin.on("data", (chunk) => written.push(String(chunk)));
@@ -872,16 +874,51 @@ test("prompt emits a notice when a turn settles with no visible text", async () 
     assistantMessageEvent: { type: "thinking_delta", delta: "叙事进了思考频道" },
   })}\n`);
   child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
-  await promptP;
+  await assert.rejects(
+    promptP,
+    (err) => err.kind === EMPTY_PLAYER_TURN_KIND
+      && err.message === EMPTY_PLAYER_TURN_MESSAGE,
+  );
   assert.deepEqual(frames, [
     { event: "thinking", data: { text: "叙事进了思考频道" } },
-    {
-      event: "notice",
-      data: {
-        message:
-          "本回合未产出玩家可见文本（模型可能把叙事写进了思考频道或回合未结算）；请重试同一行动。",
-      },
-    },
+  ]);
+});
+
+test("prompt resolves unchanged when a visible delta arrives", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "c-visible",
+    sessionId: "web-c-visible",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const promptP = host.prompt("我推开门", {
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  const first = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({ id: first.id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "门轴发出一声干涩的吱呀。" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "门轴发出一声干涩的吱呀。" }] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await promptP;
+  assert.equal(result.sawPlayerText, true);
+  assert.equal(result.sawError, false);
+  assert.deepEqual(frames, [
+    { event: "delta", data: { text: "门轴发出一声干涩的吱呀。" } },
   ]);
 });
 

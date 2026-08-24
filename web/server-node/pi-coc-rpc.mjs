@@ -787,6 +787,11 @@ function stripPlayerEnvelopeMarkers(text) {
   return String(text || "").replace(/\[\/?in_game\]/gi, "");
 }
 
+/** Ordinary player prompt settled with no visible assistant text and no RPC error. */
+export const EMPTY_PLAYER_TURN_KIND = "pi_coc_turn_empty";
+export const EMPTY_PLAYER_TURN_MESSAGE =
+  "本回合未产出玩家可见文本（模型可能把叙事写进了思考频道或回合未结算）；请重试同一行动。";
+
 export class PiCocRpcError extends Error {
   constructor(message, { kind = "pi_coc_rpc_failed", details = null } = {}) {
     super(message);
@@ -999,7 +1004,11 @@ export class PiCocRpcHost {
       campaignId: this.campaignId,
       workspace: this.workspace,
     });
-    const result = await this.prompt(message, { onSse, timeoutMs });
+    const result = await this.prompt(message, {
+      onSse,
+      timeoutMs,
+      failIfSilent: false,
+    });
     if (requireVisibleText && !sawVisibleText) {
       // prompt() already streamed via onSse; caller tracks sawVisibleText.
     }
@@ -1279,6 +1288,7 @@ export class PiCocRpcHost {
     timeoutMs,
     {
       suppressSilentNotice = false,
+      failIfSilent = false,
       turnActivity = null,
       initialRecoveryFinalization = null,
     } = {},
@@ -1290,11 +1300,11 @@ export class PiCocRpcHost {
       now: this.nowFn,
     });
     return new Promise((resolve, reject) => {
-      // Transparency only (never blocks): a settled turn that produced neither
-      // player-visible text nor an error frame is a silent no-op for the
-      // player (E2E findings F6/F14 — e.g. narration trapped in the model's
-      // thinking channel). A setup exit-42 is not settled player output: its
-      // play-session continuation owns the still-open turn instead.
+      // Ordinary player prompts fail closed when they settle with neither
+      // player-visible text nor an error (E2E findings F6/F14). Attach,
+      // opening, recovery, and setup-handoff keep failIfSilent off. A setup
+      // exit-42 is not settled player output: its play-session continuation
+      // owns the still-open turn instead.
       let sawPlayerText = false;
       let sawError = false;
       let sawHandoff = false;
@@ -1317,10 +1327,7 @@ export class PiCocRpcHost {
         ) return;
         onSse?.({
           event: "notice",
-          data: {
-            message:
-              "本回合未产出玩家可见文本（模型可能把叙事写进了思考频道或回合未结算）；请重试同一行动。",
-          },
+          data: { message: EMPTY_PLAYER_TURN_MESSAGE },
         });
       };
       const finish = (err, result = {}) => {
@@ -1353,6 +1360,12 @@ export class PiCocRpcHost {
           finish(new PiCocRpcError(frame.data.message, {
             kind: "pi_coc_turn_processing_fault",
             details: frame.data.details,
+          }));
+          return;
+        }
+        if (failIfSilent && !sawPlayerText && !sawError) {
+          finish(new PiCocRpcError(EMPTY_PLAYER_TURN_MESSAGE, {
+            kind: EMPTY_PLAYER_TURN_KIND,
           }));
           return;
         }
@@ -1625,7 +1638,7 @@ export class PiCocRpcHost {
     }
   }
 
-  async prompt(message, { onSse, timeoutMs = 900_000 } = {}) {
+  async prompt(message, { onSse, timeoutMs = 900_000, failIfSilent = true } = {}) {
     if (this.#abortBoundary !== null) {
       throw new PiCocRpcError(
         "pi-coc abort is awaiting agent_settled",
@@ -1636,7 +1649,10 @@ export class PiCocRpcHost {
     try {
       const startGen = this.settleGeneration;
       const turnActivity = { accepted: false };
-      const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs, { turnActivity });
+      const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs, {
+        turnActivity,
+        failIfSilent,
+      });
       const payload = {
         type: "prompt",
         message: String(message ?? ""),
@@ -1660,6 +1676,7 @@ export class PiCocRpcHost {
     let sawVisibleText = false;
     const result = await this.prompt(PLAY_TABLE_OPENING_PROMPT, {
       timeoutMs,
+      failIfSilent: false,
       onSse: (frame) => {
         if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
           sawVisibleText = true;
@@ -1679,6 +1696,7 @@ export class PiCocRpcHost {
     let sawVisibleText = false;
     const result = await this.prompt(PLAY_TURN_RECOVERY_PROMPT, {
       timeoutMs,
+      failIfSilent: false,
       onSse: (frame) => {
         if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
           sawVisibleText = true;
