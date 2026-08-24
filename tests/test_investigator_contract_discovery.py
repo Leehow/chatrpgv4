@@ -489,8 +489,14 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         "derived",
         "skills",
     ]
-    assert defs["skills"]["required"] == ["Credit Rating"]
-    assert "standard 1920s sheet classification" in defs["skills"]["description"]
+    skills = defs["skills"]
+    assert skills["type"] == "object"
+    assert skills["required"] == ["Credit Rating"]
+    assert skills["additionalProperties"] == {
+        "type": "integer",
+        "minimum": 0,
+    }
+    assert skills["propertyNames"]["pattern"]
     assert defs["skill_budget_account"]["required"] == [
         "budget", "spent", "allocations",
     ]
@@ -1264,15 +1270,26 @@ def _project_investigator_contract_envelope(
     )
 
 
+_INVESTIGATOR_CONTRACT_INLINE_HEADROOM_BYTES = 512
+
+
 def _assert_payload_schema_core(projected: dict, *, input_mode: str) -> None:
     wire = projected["wire"]
     assert wire["profile"] == "keeper_hot_v1"
     assert wire["canonical_operation"] == "setup.investigator_contract"
-    assert wire["measured_inline_bytes"] < wire["max_inline_bytes"]
+    assert wire["payload_projected"] is True
+    assert wire["measured_inline_bytes"] <= (
+        wire["max_inline_bytes"] - _INVESTIGATOR_CONTRACT_INLINE_HEADROOM_BYTES
+    )
     assert wire.get("identity_only") is not True
     assert projected["ok"] is True
 
     result = projected["data"]["result"]
+    assert isinstance(result.get("runtime_authority"), dict)
+    assert result["runtime_authority"].get("authoritative_validator")
+    assert isinstance(result.get("campaign_binding"), dict)
+    assert result["campaign_binding"].get("campaign_id")
+    assert result["campaign_binding"].get("era")
     schema = result["payload_schema"]
     assert isinstance(schema, dict)
     definitions = schema["$defs"]
@@ -1367,14 +1384,12 @@ def test_keeper_hot_projection_keeps_quick_fire_payload_schema_under_budget(
         era="1920s",
     )
     wire = projected["wire"]
-    # Pre-fix baseline: 1920s Quick Fire fits without identity collapse.
-    assert wire["full_result_bytes"] < wire["max_inline_bytes"]
+    assert wire["full_result_bytes"] > wire["max_inline_bytes"]
     _assert_payload_schema_core(
         projected,
         input_mode="guided_quick_fire",
     )
     result = projected["data"]["result"]
-    # Quick Fire stays archive-equivalent on the wire when already in budget.
     assert [
         branch["title"] for branch in result["payload_schema"]["oneOf"]
     ] == [
@@ -1382,7 +1397,64 @@ def test_keeper_hot_projection_keeps_quick_fire_payload_schema_under_budget(
         "Explicit complete-sheet import",
     ]
     assert "rows" in result["guided_quick_fire_skill_catalog"]
-    assert "quick_fire_sheet" in result["payload_schema"]["$defs"]
+    definitions = result["payload_schema"]["$defs"]
+    assert "quick_fire_sheet" in definitions
+    assert "quick_fire_creation" in definitions
+    assert "complete_sheet" in definitions
+    assert "kp_guided_era_adaptive_sheet" not in definitions
+    assert "description" not in definitions["skills"]
+    assert definitions["quick_fire_creation"]["properties"][
+        "luck_roll_total"
+    ] == {"type": "integer", "minimum": 3, "maximum": 18}
+    assert result["campaign_binding"] == {
+        "campaign_id": "quick-fire-wire",
+        "era": "1920s",
+    }
+    canonical = coc_toolbox.run_tool(
+        "setup.investigator_contract",
+        tmp_path,
+        None,
+        {"campaign_id": "quick-fire-wire"},
+    )["data"]["result"]
+    assert "description" in canonical["payload_schema"]["$defs"]["skills"]
+    assert canonical["payload_schema"]["$defs"]["quick_fire_creation"][
+        "properties"
+    ]["luck_roll_total"]["minimum"] == 3
+    Draft202012Validator.check_schema(result["payload_schema"])
+    Draft202012Validator(result["payload_schema"]).validate(
+        _quick_fire_payload()
+    )
+
+
+def test_investigator_contract_identity_only_only_when_unprojectable() -> None:
+    envelope = {
+        "ok": True,
+        "tool": "setup.investigator_contract",
+        "data": {
+            "schema_version": 1,
+            "campaign_id": "unprojectable-contract",
+            "result": {
+                "payload_schema": {"oneOf": [], "$defs": {}},
+                "bulk": "x" * 20_000,
+            },
+        },
+        "warnings": [],
+        "hints": ["keep this hint only if the schema projects"],
+    }
+    assert coc_mcp_wire.transport_bytes(envelope) > coc_mcp_wire.MAX_INLINE_BYTES
+    projected = coc_mcp_wire.project_envelope(
+        "setup.investigator_contract",
+        envelope,
+        contract_digest="sha256:" + ("ab" * 32),
+    )
+    assert projected["ok"] is True
+    assert projected["wire"]["identity_only"] is True
+    assert projected["data"]["campaign_id"] == "unprojectable-contract"
+    assert "result" not in projected["data"]
+    assert "payload_schema" not in projected["data"]
+    assert coc_mcp_wire.transport_bytes(projected) <= (
+        coc_mcp_wire.MAX_INLINE_BYTES
+    )
 
 
 def test_ruleset_without_contract_capability_fails_closed(
