@@ -544,7 +544,10 @@ def test_grok_mcp_uses_canonical_launcher_and_capabilities(monkeypatch):
     }
     assert set(inspect_card["arguments_schema"]["properties"]) == set()
     assert cold_start["built_in_quick_start"]["missing_arguments"] == [
-        "scenario_id", "pregen_id",
+        "scenario_id",
+    ]
+    assert cold_start["built_in_quick_start"]["optional_arguments"] == [
+        "campaign_id", "title", "pregen_id",
     ]
     assert cold_start["built_in_quick_start"]["discovery_required"] is False
     custom_setup = cold_start["custom_campaign_setup"]
@@ -1816,11 +1819,42 @@ def test_coc_invoke_long_tail_and_structured_errors(monkeypatch, tmp_path):
     )
     assert started["ok"] is True, started
     assert started["data"]["result"]["campaign_id"] == "mcp-typed-setup"
+    assert started["data"]["result"]["needs_investigator"] is False
+    white_war = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "setup.quick_start",
+            "root": os.fspath(tmp_path),
+            "arguments": {
+                "scenario_id": "the-white-war",
+                "campaign_id": "mcp-white-war",
+            },
+        },
+    )
+    assert white_war["ok"] is True, white_war
+    assert white_war["data"]["result"]["campaign_id"] == "mcp-white-war"
+    assert white_war["data"]["result"]["needs_investigator"] is True
+    assert white_war["data"]["result"]["pregen_id"] is None
+    empty_pregen = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "setup.quick_start",
+            "root": os.fspath(tmp_path),
+            "arguments": {
+                "scenario_id": "the-white-war",
+                "campaign_id": "mcp-white-war-empty",
+                "pregen_id": "",
+            },
+        },
+    )
+    assert empty_pregen["ok"] is False, empty_pregen
+    assert empty_pregen["error"]["code"] == "invalid_param"
     discovered_setup = server._call_tool(
         "coc_discover", {"operation": "setup.quick_start"}
     )
     schema = discovered_setup["data"]["operation"]["inputSchema"]
-    assert schema["required"] == ["scenario_id", "pregen_id"]
+    assert schema["required"] == ["scenario_id"]
+    assert "pregen_id" in schema["properties"]
     assert "play_language" not in schema["properties"]
 
     unknown = server._call_tool(

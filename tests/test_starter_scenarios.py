@@ -872,6 +872,66 @@ def test_quick_start_without_pregen_via_operation(tmp_path):
     assert receipt["state_refs"] == [".coc/campaigns/the-haunting-qs"]
 
 
+def test_white_war_quick_start_without_pregen_binds_explicit_campaign(tmp_path):
+    receipt = coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1,
+            "kind": "campaign.quick_start",
+            "payload": {
+                "scenario_id": "the-white-war",
+                "campaign_id": "memory-white-war-schema",
+            },
+        },
+    )
+    result = receipt["result"]
+    assert result["campaign_id"] == "memory-white-war-schema"
+    assert result["scenario_id"] == "the-white-war"
+    assert result["needs_investigator"] is True
+    assert result["investigator_id"] is None
+    assert result["pregen_id"] is None
+    assert receipt["state_refs"] == [".coc/campaigns/memory-white-war-schema"]
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "memory-white-war-schema" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign["status"] == "setup"
+    assert campaign["active_scenario_id"] == "the-white-war"
+    assert "active_investigator_id" not in campaign.get("character_creation", {})
+
+    with pytest.raises(coc_runtime_ops.RuntimeOperationError) as empty:
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "campaign.quick_start",
+                "payload": {
+                    "scenario_id": "the-white-war",
+                    "campaign_id": "memory-white-war-empty",
+                    "pregen_id": "",
+                },
+            },
+        )
+    assert "omit the field" in str(empty.value)
+
+    with pytest.raises(
+        (FileNotFoundError, coc_runtime_ops.RuntimeOperationError)
+    ) as unknown:
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "campaign.quick_start",
+                "payload": {
+                    "scenario_id": "the-white-war",
+                    "campaign_id": "memory-white-war-unknown",
+                    "pregen_id": "not-a-real-pregen",
+                },
+            },
+        )
+    assert "unknown pregen" in str(unknown.value)
+
+
 def test_starter_campaign_passes_character_creation_fact_gate(tmp_path):
     import coc_state
 

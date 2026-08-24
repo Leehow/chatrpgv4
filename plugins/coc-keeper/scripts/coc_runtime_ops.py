@@ -5985,14 +5985,21 @@ def execute_setup_operation(
         allowed = {"scenario_id", "pregen_id", "campaign_id", "title"}
         if set(payload) - allowed or "scenario_id" not in payload:
             raise RuntimeOperationError("campaign.quick_start has unsupported or missing fields")
+        pregen_value = payload.get("pregen_id")
+        if pregen_value is None:
+            pregen_id = None
+        elif not str(pregen_value).strip():
+            raise RuntimeOperationError(
+                "pregen_id is empty; omit the field for an investigator-less "
+                "starter, or pass an exact public pregen_id",
+                code="invalid_param",
+            )
+        else:
+            pregen_id = _id(pregen_value, "pregen_id")
         result = coc_starter.quick_start(
             root,
             _id(payload.get("scenario_id"), "scenario_id"),
-            (
-                _id(payload["pregen_id"], "pregen_id")
-                if payload.get("pregen_id") is not None
-                else None
-            ),
+            pregen_id,
             campaign_id=(
                 _id(payload["campaign_id"], "campaign_id")
                 if payload.get("campaign_id") is not None else None

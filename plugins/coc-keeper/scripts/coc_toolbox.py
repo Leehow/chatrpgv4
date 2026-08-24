@@ -8402,7 +8402,7 @@ def _tool_setup_inspect(ctx: Ctx, args: dict[str, Any]):
     except coc_runtime_ops.RuntimeOperationError as exc:
         raise ToolError("setup_failed", str(exc)) from exc
     return receipt, [], [
-        "use the returned exact scenario_id and pregen_id with setup.quick_start; do not search plugin or campaign files",
+        "use the returned exact scenario_id with setup.quick_start; include pregen_id only when that starter listed one; omit pregen_id when the public pregen list is empty, then continue existing character creation; do not search plugin or campaign files",
     ]
 
 
@@ -8456,7 +8456,7 @@ def _tool_setup_phase(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "setup.quick_start",
-    "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans.",
+    "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans.",
     {
         "scenario_id": {
             "type": "string",
@@ -8465,8 +8465,7 @@ def _tool_setup_phase(ctx: Ctx, args: dict[str, Any]):
         },
         "pregen_id": {
             "type": "string",
-            "required": True,
-            "desc": "exact pregen_id returned by setup.inspect for that scenario",
+            "desc": "optional exact public pregen_id from setup.inspect; omit when that starter listed none. Omitted is investigator-less; an empty string or unknown id is invalid",
         },
         "campaign_id": {
             "type": "string",
@@ -8489,6 +8488,13 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
             "invalid_param",
             "setup.quick_start has unsupported fields: "
             + ", ".join(unsupported),
+        )
+    pregen_raw = args.get("pregen_id")
+    if pregen_raw is not None and not str(pregen_raw).strip():
+        raise ToolError(
+            "invalid_param",
+            "pregen_id is empty; omit the field for an investigator-less "
+            "starter, or pass an exact public pregen_id",
         )
     payload = {
         key: args[key]
@@ -8521,13 +8527,22 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
             + ". Mid-setup duplicate campaigns split durable state; "
             "continue the intended campaign instead of creating another."
         )
-    return receipt, warnings, [
+    hints = [
         "this campaign was created in the current host setup context; retain "
         "this receipt and continue setup/opening directly without session.resume",
         "use session.resume only when continuing a campaign generation that "
         "predates the current host context",
         "do not pass play_language to setup.quick_start; the canonical built-in starter already defaults to zh-Hans",
     ] if campaign_id else []
+    result = receipt.get("result") or {}
+    if campaign_id and result.get("needs_investigator") is True:
+        hints.append(
+            "this starter is bound without an investigator; continue the "
+            "existing character-creation card/workflow (setup.chargen_run). "
+            "setup.complete stays blocked until a confirmed investigator is "
+            "linked — this is not a missing campaign_id"
+        )
+    return receipt, warnings, hints
 
 
 @tool(

@@ -91,14 +91,22 @@ deliver opening narration here.
   new/load route only; it does not replace the KP's semantic judgment). Do not skip or reorder it.
   - **Built-in starter, one mutation:** a selected campaign id that does not
     exist yet (`--campaign` / `PI_COC_CAMPAIGN_ID`) is a selector only — it is
-    not an existing setup campaign. When the built-in starter and pregen are
-    known, call `setup.quick_start` as the **first mutation** with that exact
-    `campaign_id`, `scenario_id`, and `pregen_id`. Do **not** call
+    not an existing setup campaign. When the built-in starter is known, call
+    `setup.quick_start` as the **first mutation** with that exact
+    `campaign_id` and `scenario_id`. Include `pregen_id` only when that
+    starter's public pregen list has a chosen id (The Haunting
+    `thomas-hayes`). If the list is empty or the player will create their own
+    investigator, omit `pregen_id`; the receipt returns `needs_investigator`
+    and you continue the existing `kp_guided_era_adaptive` /
+    `coc_chargen_delegate` / `setup.chargen_run` card for that bound campaign.
+    Do **not** call
     `setup.inspect` first on a fresh selected id (the fresh_setup gate forbids
     it) and do **not** call `campaign.create` first; an empty create makes
     `setup.quick_start` on that id illegal. Use `setup.inspect` only when no
     starter choice or card is known and the gate allows it. Do not call
-    `setup.quick_start` again after it succeeds.
+    `setup.quick_start` again after it succeeds. A missing investigator is not
+    a missing campaign_id; `setup.complete` stays blocked until the
+    investigator is confirmed.
   - **Custom / raw-PDF campaign, 1 → 2 → 3:** (1) `campaign.create` with the
     selected id (required on this lane); for a raw PDF, wait
     for the hidden first-bundle `located` notification, then bind exactly its

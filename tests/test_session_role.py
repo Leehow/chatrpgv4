@@ -13,6 +13,7 @@ LAUNCHER = REPO / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"
 CLI = SCRIPTS / "coc_session_role.py"
 
 sys.path.insert(0, str(SCRIPTS))
+import coc_starter  # noqa: E402
 import coc_state  # noqa: E402
 
 
@@ -81,6 +82,21 @@ def test_status_maps_to_role(tmp_path: Path, status: str, expected: str) -> None
     result = _run_cli(str(tmp_path), campaign_id)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == expected
+
+
+def test_white_war_quick_start_without_pregen_stays_setup(tmp_path: Path) -> None:
+    campaign_id = "white-war-role"
+    result = coc_starter.quick_start(
+        tmp_path / ".coc",
+        "the-white-war",
+        None,
+        campaign_id=campaign_id,
+    )
+    assert result["needs_investigator"] is True
+    assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "setup"
+    cli = _run_cli(str(tmp_path), campaign_id)
+    assert cli.returncode == 0, cli.stderr
+    assert cli.stdout.strip() == "setup"
 
 
 def test_active_with_confirmed_investigator_is_play(tmp_path: Path) -> None:

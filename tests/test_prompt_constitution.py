@@ -46,6 +46,9 @@ def test_setup_prompt_uses_quick_start_as_first_builtin_mutation() -> None:
     assert "setup.quick_start` as the **first mutation**" in setup
     assert "Do **not** call\n    `setup.inspect` first on a fresh selected id" in setup
     assert "do **not** call `campaign.create` first" in setup
+    assert "omit `pregen_id`" in setup
+    assert "needs_investigator" in setup
+    assert "A missing investigator is not" in setup
     assert "Custom / raw-PDF campaign, 1 → 2 → 3" in setup
     assert "A campaign with no `active_scenario_id` is not ready" in setup
     assert "After `setup.inspect`" not in setup
