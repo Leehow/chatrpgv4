@@ -397,8 +397,13 @@ def test_pending_watch_is_materialization(
     )
     assert preparation["watch_status"] == watch_status
     assert preparation["blocking_reason"]["code"] == expected_code
-    # The live host-work lifecycle card is owned by the host gate.
-    assert derived["next_operation"] is None
+    if watch_status == "pending":
+        assert derived["next_operation"]["operation"] == "progressive.status"
+        assert derived["next_operation"]["arguments"]["asset_root_id"] == (
+            "asset-root-src"
+        )
+    else:
+        assert derived["next_operation"] is None
 
 
 def test_pending_coordinator_review_is_review_required(
@@ -528,6 +533,155 @@ def test_ui_projection_stays_player_safe(tmp_path: Path, monkeypatch):
     encoded = json.dumps(projection, ensure_ascii=False)
     for secret in ("asset-root-src", "src-mod", "bundle-src", "pdf:src"):
         assert secret not in encoded
+
+
+def _aged_pending_watch(*, age_seconds: float) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    created = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    return {
+        "schema_version": 1,
+        "status": "pending",
+        "asset_root_id": "asset-root-src",
+        "start_location_id": "opening",
+        "source_scope": {"pdf_indices": [0]},
+        "created_at": created.isoformat(),
+    }
+
+
+def _write_materialization_campaign(
+    root: Path,
+    campaign_id: str,
+    watch: dict,
+    *,
+    skeleton: dict | None = None,
+    host_work: dict | None = None,
+) -> Path:
+    campaign_dir = _campaign(root, campaign_id)
+    _write_json(
+        campaign_dir / "scenario" / "scenario.json",
+        {
+            "schema_version": 1,
+            "scenario_id": "src-mod",
+            "progressive_asset_root_id": "asset-root-src",
+            "opening_projection_watch": watch,
+        },
+    )
+    module_dir = root / ".coc" / "module-assets" / "asset-root-src"
+    if skeleton is not None:
+        _write_json(module_dir / "skeleton.json", skeleton)
+    if host_work is not None:
+        _write_json(module_dir / "host-work" / "job-live.json", host_work)
+    return campaign_dir
+
+
+def test_young_pending_watch_projects_status_card(tmp_path: Path, monkeypatch):
+    """Live materialization must expose progressive.status, never null."""
+    _write_materialization_campaign(
+        tmp_path, "pdf-live", _aged_pending_watch(age_seconds=5),
+    )
+    _resolvable_root(monkeypatch)
+    derived = coc_opening_phase.derive_opening_phase(tmp_path, "pdf-live")
+    next_operation = derived["next_operation"]
+    assert isinstance(next_operation, dict)
+    assert next_operation["operation"] == "progressive.status"
+    assert next_operation["invoke_via"] == "coc_invoke"
+    assert next_operation["arguments"]["asset_root_id"] == "asset-root-src"
+    projection = coc_opening_phase.opening_phase_projection(tmp_path, "pdf-live")
+    assert projection["module_preparation_sub_phase"] == (
+        coc_opening_phase.SUB_PHASE_MATERIALIZATION
+    )
+    assert projection["next_operation"] == "progressive.status"
+    assert projection["blocking_reason_code"] == "opening_source_pending"
+    encoded = json.dumps(projection, ensure_ascii=False)
+    assert "asset-root-src" not in encoded
+
+
+def test_dispatch_lost_watch_projects_retained_bootstrap(
+    tmp_path: Path, monkeypatch,
+):
+    """Stale never-leased watches re-arm the retained opening_bootstrap card."""
+    skeleton = {
+        "schema_version": 1,
+        "locations": [
+            {"location_id": "opening", "title": "The Foyer"},
+        ],
+    }
+    _write_materialization_campaign(
+        tmp_path,
+        "pdf-lost",
+        _aged_pending_watch(age_seconds=6000),
+        skeleton=skeleton,
+    )
+    _resolvable_root(monkeypatch)
+    derived = coc_opening_phase.derive_opening_phase(tmp_path, "pdf-lost")
+    next_operation = derived["next_operation"]
+    assert isinstance(next_operation, dict)
+    assert next_operation["operation"] == "progressive.opening_bootstrap"
+    assert next_operation["arguments"]["opening_pdf_indices"] == [0]
+    assert next_operation["arguments"]["start_location"] == {
+        "location_id": "opening",
+        "title": "The Foyer",
+    }
+    assert next_operation["missing_arguments"] == []
+    projection = coc_opening_phase.opening_phase_projection(tmp_path, "pdf-lost")
+    assert projection["next_operation"] == "progressive.opening_bootstrap"
+    assert projection["blocking_reason_code"] == "opening_source_pending"
+    encoded = json.dumps(projection, ensure_ascii=False)
+    assert "asset-root-src" not in encoded
+    assert "The Foyer" not in encoded
+
+
+def test_once_leased_watch_inside_resolver_grace_stays_status(
+    tmp_path: Path, monkeypatch,
+):
+    """Queued/coalesced once-claimed work stays live pending inside 900s."""
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    _write_materialization_campaign(
+        tmp_path,
+        "pdf-leased",
+        _aged_pending_watch(age_seconds=180),
+        host_work={
+            "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+            "job_id": "job-live",
+            "kind": "partial_opening",
+            "target_id": "opening",
+            "work_level": "bounded_warm",
+            "play_languages": ["zh-Hans"],
+            "dispatch_state": "ready",
+            "dispatch_attempts": 1,
+            "requested_pdf_indices": [0],
+            "cached_scope_complete": True,
+        },
+    )
+    _resolvable_root(monkeypatch)
+    derived = coc_opening_phase.derive_opening_phase(tmp_path, "pdf-leased")
+    next_operation = derived["next_operation"]
+    assert isinstance(next_operation, dict)
+    assert next_operation["operation"] == "progressive.status"
+    projection = coc_opening_phase.opening_phase_projection(
+        tmp_path, "pdf-leased",
+    )
+    assert projection["next_operation"] == "progressive.status"
+
+
+def test_lost_watch_after_play_does_not_rearm_bootstrap(
+    tmp_path: Path, monkeypatch,
+):
+    campaign_dir = _write_materialization_campaign(
+        tmp_path, "pdf-played", _aged_pending_watch(age_seconds=6000),
+    )
+    world_path = campaign_dir / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "opening"
+    _write_json(world_path, world)
+    _resolvable_root(monkeypatch)
+    derived = coc_opening_phase.derive_opening_phase(tmp_path, "pdf-played")
+    assert derived["next_operation"] is None
+    projection = coc_opening_phase.opening_phase_projection(
+        tmp_path, "pdf-played",
+    )
+    assert projection["next_operation"] is None
 
 
 # --------------------------------------------------------------------------- #

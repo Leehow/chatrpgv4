@@ -118,6 +118,17 @@ def _coc_runtime_ops():
     )
 
 
+def _coc_toolbox():
+    # Lazy: toolbox already imports this module. Runtime calls only, after
+    # both modules have finished loading, so we can reuse the host-lifecycle
+    # recovery helpers instead of inventing a second classifier.
+    return _load_sibling(
+        ("coc_toolbox",),
+        "coc_toolbox_opening_phase",
+        "coc_toolbox.py",
+    )
+
+
 def _contract_error(
     code: str, message: str, asset_root_id: str | None = None,
 ) -> dict[str, Any]:
@@ -730,18 +741,86 @@ def _character_setup(
     }
 
 
+def _materialization_next_operation(
+    root: Path,
+    campaign_dir: Path,
+    campaign_id: str,
+    module_preparation: dict[str, Any],
+    *,
+    host_work_mode: str = "mutating",
+) -> dict[str, Any] | None:
+    """Compose the existing host-lifecycle recovery card for a pending watch.
+
+    Same classifier as the Pi opening gate: a young or still-leased watch is
+    an actionable ``progressive.status`` poll; dispatch-lost / resolver-lost
+    on a pristine campaign re-arms the retained ``progressive.opening_bootstrap``;
+    a completed watch whose projection is no longer fresh asks for an explicit
+    ``progressive.project_opening``. Live queued/coalesced work stays pending.
+    """
+    toolbox = _coc_toolbox()
+    module_project = _coc_module_project()
+    watch = module_preparation.get("watch") or {}
+    if not isinstance(watch, dict):
+        watch = {}
+    watch_status = str(module_preparation.get("watch_status") or "pending")
+    asset_root_id = str(module_preparation.get("asset_root_id") or "")
+    if watch_status == "complete":
+        return {
+            "operation": "progressive.project_opening",
+            "invoke_via": "coc_invoke",
+            "campaign": str(campaign_id),
+            "arguments": {
+                "asset_root_id": asset_root_id,
+                "source_file_sha256": str(watch.get("source_file_sha256") or ""),
+                "start_location_id": str(watch.get("start_location_id") or ""),
+            },
+        }
+    if watch_status != "pending":
+        return None
+    lost_kind = toolbox._opening_watch_lost_kind(
+        root,
+        asset_root_id,
+        watch,
+        pure_read=(host_work_mode == "pure_read"),
+    )
+    if lost_kind is not None and (
+        module_project.campaign_is_pristine_for_opening(campaign_dir)
+    ):
+        rearm = toolbox._opening_watch_rearm_bootstrap_card(
+            root, asset_root_id, watch,
+        )
+        return {
+            "operation": str(rearm.get("operation") or "progressive.opening_bootstrap"),
+            "invoke_via": str(rearm.get("invoke_via") or "coc_invoke"),
+            "campaign": str(campaign_id),
+            "arguments": deepcopy(rearm.get("prefilled_arguments") or {}),
+            "missing_arguments": list(rearm.get("missing_arguments") or []),
+        }
+    if lost_kind is not None:
+        return None
+    return {
+        "operation": "progressive.status",
+        "invoke_via": "coc_invoke",
+        "campaign": str(campaign_id),
+        "arguments": {"asset_root_id": asset_root_id},
+    }
+
+
 def _next_operation(
     phase: str,
     campaign_id: str,
     module_preparation: dict[str, Any],
     character_setup: dict[str, Any],
+    *,
+    root: Path | None = None,
+    campaign_dir: Path | None = None,
+    host_work_mode: str = "mutating",
 ) -> dict[str, Any] | None:
     """Canonical next operation pointer for the current phase.
 
-    Only fully derivable cards are returned as complete invoke cards. The
-    source materialization lifecycle card depends on live host-work leases and
-    stays owned by the host gate, so it is reported as ``None`` here with the
-    lifecycle facts in ``detail``.
+    Recoverable source materialization reuses the host-lifecycle recovery
+    classifier already owned by the opening gate: it never leaves a pending
+    watch as ``None`` unless the campaign is no longer pristine.
     """
     if phase == PHASE_MODULE_PREPARATION:
         sub_phase = module_preparation.get("sub_phase")
@@ -762,6 +841,18 @@ def _next_operation(
                 "invoke_via": "coc_invoke",
                 "campaign": str(campaign_id),
             }
+        if (
+            sub_phase == SUB_PHASE_MATERIALIZATION
+            and root is not None
+            and campaign_dir is not None
+        ):
+            return _materialization_next_operation(
+                root,
+                campaign_dir,
+                campaign_id,
+                module_preparation,
+                host_work_mode=host_work_mode,
+            )
         return None
     if phase == PHASE_CHARACTER_CREATION:
         if (
@@ -899,7 +990,13 @@ def derive_opening_phase(
             "character_setup": character_setup,
         },
         "next_operation": _next_operation(
-            phase, campaign_id, module_preparation, character_setup,
+            phase,
+            campaign_id,
+            module_preparation,
+            character_setup,
+            root=root,
+            campaign_dir=campaign_dir,
+            host_work_mode=host_work_mode,
         ),
         "blocking_reason": blocking_reason,
     }
