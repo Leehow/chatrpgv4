@@ -1245,7 +1245,7 @@
         },
         {
           "id": "study-liber-ivonis",
-          "cue": "至少花三小时初读残损的拉丁文《Liber Ivonis》；拉丁文低于 50 时必须检定，读懂后获得 2 点 Cthulhu Mythos，最大 SAN 降低 2。",
+          "cue": "至少花三小时研读或试译先前见过的残损拉丁文手抄本；拉丁文低于 50 时必须检定。",
           "target_entities": [
             "liber-ivonis"
           ],
