@@ -6,9 +6,14 @@ import path from "node:path";
 
 import {
   hostedSessionMessages,
+  hostedSetupHistory,
   lastVisibleAssistantText,
+  listSessionFiles,
   pickHostedSessionAgentDir,
+  PLAY_TABLE_OPENING_MARKER,
   SETUP_CHARACTER_OPENING_MARKER,
+  SETUP_HANDOFF_CUSTOM_TYPE,
+  setupHistoryFromSessionFiles,
   TURN_RECOVERY_MARKER,
   visibleMessagesFromSessionFile,
 } from "../pi-session-text.mjs";
@@ -189,6 +194,151 @@ test("hostedSessionMessages falls back to the first legacy root with a matching 
       sessionId,
     });
     assert.equal(messages.at(-1)?.text, "App Support 回退记录。");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+function writeNamedSession(agentDir, fileName, rows) {
+  const dir = path.join(agentDir, "sessions", "cwd-key");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, fileName);
+  fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+  return file;
+}
+
+const setupAssistant = {
+  type: "message",
+  timestamp: "2026-08-17T04:47:15.624Z",
+  message: {
+    role: "assistant",
+    content: [{ type: "text", text: "先告诉我：这个人是谁？" }],
+  },
+};
+const setupPlayer = {
+  type: "message",
+  timestamp: "2026-08-17T04:48:00.000Z",
+  message: {
+    role: "user",
+    content: [{ type: "text", text: "我叫艾伦。" }],
+  },
+};
+const playAssistant = {
+  type: "message",
+  timestamp: "2026-08-17T05:10:00.000Z",
+  message: {
+    role: "assistant",
+    content: [{ type: "text", text: "波士顿的雾比记忆中更湿。" }],
+  },
+};
+
+test("setup history cuts at persisted coc_setup_handoff and hides host prompts", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "coc-setup-history-"));
+  try {
+    const file = writeSession(tmp, "web-camp-handoff", [
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: `${SETUP_CHARACTER_OPENING_MARKER} open` }],
+        },
+      },
+      setupAssistant,
+      setupPlayer,
+      {
+        type: "custom_message",
+        customType: SETUP_HANDOFF_CUSTOM_TYPE,
+        details: { type: SETUP_HANDOFF_CUSTOM_TYPE, campaign_id: "camp" },
+      },
+      playAssistant,
+    ]);
+    const extracted = setupHistoryFromSessionFiles([file]);
+    assert.equal(extracted.scope, "setup");
+    assert.equal(extracted.boundary, "handoff");
+    assert.deepEqual(extracted.messages.map((row) => row.text), [
+      "先告诉我：这个人是谁？",
+      "我叫艾伦。",
+    ]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("setup history cuts at the exact play opening host prompt across files", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "coc-setup-history-files-"));
+  try {
+    const older = writeNamedSession(tmp, "2026-08-17T04-46-20Z_web-camp-join.jsonl", [
+      setupAssistant,
+      setupPlayer,
+    ]);
+    const newer = writeNamedSession(tmp, "2026-08-17T05-00-00Z_web-camp-join.jsonl", [
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: `${PLAY_TABLE_OPENING_MARKER} resume` }],
+        },
+      },
+      playAssistant,
+    ]);
+    const listed = listSessionFiles(tmp, "web-camp-join");
+    assert.deepEqual(listed, [older, newer]);
+    const extracted = setupHistoryFromSessionFiles(listed);
+    assert.equal(extracted.scope, "setup");
+    assert.equal(extracted.boundary, "play_opening");
+    assert.deepEqual(extracted.messages.map((row) => row.text), [
+      "先告诉我：这个人是谁？",
+      "我叫艾伦。",
+    ]);
+    const hosted = hostedSetupHistory({ agentDir: tmp, sessionId: "web-camp-join" });
+    assert.equal(hosted.source, "pi-host-session");
+    assert.equal(hosted.session_id, "web-camp-join");
+    assert.equal(hosted.scope, "setup");
+    assert.equal(hosted.messages.at(-1)?.text, "我叫艾伦。");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("setup history stays conservative when no machine boundary exists", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "coc-setup-history-join-"));
+  try {
+    const file = writeSession(tmp, "web-camp-plain", [
+      setupAssistant,
+      setupPlayer,
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: `${TURN_RECOVERY_MARKER} recover` }],
+        },
+      },
+      playAssistant,
+    ]);
+    const extracted = setupHistoryFromSessionFiles([file]);
+    assert.equal(extracted.scope, "setup_and_table_join");
+    assert.equal(extracted.boundary, null);
+    assert.deepEqual(extracted.messages.map((row) => row.text), [
+      "先告诉我：这个人是谁？",
+      "我叫艾伦。",
+      "波士顿的雾比记忆中更湿。",
+    ]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("hostedSetupHistory does not invent messages for an unknown session", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "coc-setup-history-empty-"));
+  try {
+    const hosted = hostedSetupHistory({ agentDir: tmp, sessionId: "web-missing" });
+    assert.deepEqual(hosted, {
+      messages: [],
+      source: "pi-host-session",
+      session_id: "web-missing",
+      scope: "setup",
+      boundary: null,
+    });
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

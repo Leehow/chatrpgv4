@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { AlertTriangle, Loader2, Menu, PanelRightOpen, RefreshCw, Settings } from "lucide-react";
+import { AlertTriangle, Loader2, Menu, PanelRightOpen, RefreshCw, ScrollText, Settings } from "lucide-react";
 import * as api from "./api";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -8,6 +8,7 @@ import { CampaignSidebar } from "./components/CampaignSidebar";
 import { AppearanceMenu, type Appearance } from "./components/AppearanceMenu";
 import { Chat, type QuickStartAction } from "./components/Chat";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { SetupHistorySheet } from "./components/SetupHistorySheet";
 import { CombatOverlay } from "./components/CombatOverlay";
 import { GuidedStart } from "./components/GuidedStart";
 import { NEW_INVESTIGATOR, NewCampaignFlow } from "./components/NewCampaignFlow";
@@ -35,6 +36,7 @@ import {
   isHandoffEvent,
   reduceTransition,
 } from "./session-transition";
+import { canViewSetupHistory } from "./setup-history";
 import {
   SIDEBAR_LEFT_BOUNDS,
   SIDEBAR_RIGHT_BOUNDS,
@@ -335,6 +337,7 @@ export default function App() {
   // the model dropdown. Desktop IPC is preferred; HTTP covers the in-app overlay.
   const [hiddenProviders, setHiddenProviders] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [setupHistoryOpen, setSetupHistoryOpen] = useState(false);
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [visionProvider, setVisionProvider] = useState("");
   const [visionModel, setVisionModel] = useState("");
@@ -1517,6 +1520,12 @@ export default function App() {
   // Character creation still pending: the linked investigator is the setup
   // draft shell — its placeholder numbers are not a real character sheet.
   const setupPending = state?.character_setup_pending === true;
+  const showSetupHistory = canViewSetupHistory({
+    hasSession: Boolean(session),
+    sessionRole: state?.session_role ?? null,
+    setupPending,
+    transitioning: Boolean(state?.transitioning) || transition.phase !== "idle",
+  });
 
   // 候场一键开局：预置剧本 + 自建调查员（开局后 KP 引导建卡），直接进游戏。
   const quickStartStarter = bootstrap?.starters?.[0] ?? null;
@@ -1690,6 +1699,19 @@ export default function App() {
               <RefreshCw className={cn("size-4", busy && "animate-spin")} />
             </Button>
           )}
+          {showSetupHistory && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 px-2"
+              onClick={() => setSetupHistoryOpen(true)}
+              title="查看创建角色阶段与守秘人的对话"
+              aria-label="建卡记录"
+            >
+              <ScrollText className="size-4" />
+              <span className="hidden sm:inline">建卡记录</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -1712,6 +1734,11 @@ export default function App() {
         </div>
       </header>
 
+      <SetupHistorySheet
+        open={setupHistoryOpen}
+        sessionId={session?.session_id ?? null}
+        onClose={() => setSetupHistoryOpen(false)}
+      />
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

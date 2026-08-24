@@ -443,6 +443,18 @@ export interface SessionInfo {
   state: GameState;
 }
 
+export type SetupHistoryScope = "setup" | "setup_and_table_join";
+
+export type SetupHistoryBoundary = "handoff" | "play_opening" | null;
+
+export interface SetupTranscriptPayload {
+  messages: TranscriptMessage[];
+  source: "pi-host-session";
+  session_id: string;
+  scope: SetupHistoryScope;
+  boundary: SetupHistoryBoundary;
+}
+
 export interface TranscriptMessage {
   role: string;
   text: string;

@@ -6,6 +6,7 @@ import type {
   ModelsResponse,
   RuntimeEvent,
   SessionInfo,
+  SetupTranscriptPayload,
   TrashEntry,
   TranscriptMessage,
   PlayerIntent,
@@ -478,6 +479,15 @@ export function fetchTranscript(
   sessionId: string,
 ): Promise<{ messages: TranscriptMessage[] }> {
   return request(`/api/sessions/${sessionId}/transcript`);
+}
+
+/** Read-only Pi host-session projection of character-setup chat.
+ *  Independent of `/transcript` (which prefers campaign table-transcript). */
+export function fetchSetupTranscript(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SetupTranscriptPayload> {
+  return request(`/api/sessions/${sessionId}/setup-transcript`, { signal });
 }
 
 /** Abort the in-flight pi-coc turn for this session (host-side, not just the SSE). */

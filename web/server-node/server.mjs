@@ -34,7 +34,7 @@ import {
   SESSION_TRANSITIONING_CODE,
 } from "./session-handoff.mjs";
 import { resolveRequestedModelSettings } from "./model-thinking.mjs";
-import { hostedSessionMessages } from "./pi-session-text.mjs";
+import { hostedSessionMessages, hostedSetupHistory } from "./pi-session-text.mjs";
 import {
   attachWithStallRecovery,
   finishPromptTurn,
@@ -1091,6 +1091,24 @@ async function handleTranscript(req, res, sid) {
   sendJson(res, 200, { messages: await transcriptPayload(info) });
 }
 
+function setupTranscriptPayload(info) {
+  return hostedSetupHistory({
+    workspace: WORKSPACE,
+    agentDirs: resolveHostedSessionAgentDirs({
+      repoRoot: REPO_ROOT,
+      workspace: WORKSPACE,
+      agentDir: resolveProductAgentDir(),
+    }),
+    sessionId: info.session_id || webSessionId(info.campaign_id),
+  });
+}
+
+async function handleSetupTranscript(req, res, sid) {
+  const info = SESSIONS.get(sid);
+  if (!info) throw httpError(404, "unknown session");
+  sendJson(res, 200, setupTranscriptPayload(info));
+}
+
 // ---------------------------------------------------------------------------
 // Turn SSE
 
@@ -2117,6 +2135,14 @@ async function route(req, res) {
       parts[3] === "transcript"
     ) {
       return handleTranscript(req, res, parts[2]);
+    }
+    if (
+      parts.length === 4 &&
+      parts[0] === "api" &&
+      parts[1] === "sessions" &&
+      parts[3] === "setup-transcript"
+    ) {
+      return handleSetupTranscript(req, res, parts[2]);
     }
     if (urlPath === "/api/trash") return handleListTrash(req, res);
     if (
