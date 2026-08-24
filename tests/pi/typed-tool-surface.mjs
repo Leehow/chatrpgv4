@@ -53,6 +53,25 @@ test("spotlight tool schemas deep-equal archive inputSchema", () => {
   }
 });
 
+test("setup.quick_start typed schema makes pregen_id optional", () => {
+  const tool = catalog.byOperation.get("setup.quick_start");
+  assert.ok(tool);
+  assert.deepEqual(tool.parameters, archive.operations["setup.quick_start"].inputSchema);
+  assert.deepEqual(tool.parameters.required, ["scenario_id"]);
+  assert.ok(tool.parameters.properties.pregen_id);
+  assert.ok(!tool.parameters.required.includes("pregen_id"));
+  const wrapped = typed.wrapTypedToolInvokeParams("coc_setup_quick_start", {
+    campaign_id: "memory-white-war-20260824-02",
+    scenario_id: "the-white-war",
+  });
+  assert.equal(wrapped.operation, "setup.quick_start");
+  assert.deepEqual(wrapped.arguments, {
+    campaign_id: "memory-white-war-20260824-02",
+    scenario_id: "the-white-war",
+  });
+  assert.ok(!Object.hasOwn(wrapped.arguments, "pregen_id"));
+});
+
 test("live play exposes the concealed Psychology window contract as an exact tool", () => {
   const play = domain.activeToolsForPhase("live_turn", "play");
   const psychology = catalog.byOperation.get("rules.psychology_observe");

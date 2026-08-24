@@ -234,6 +234,62 @@ def test_setup_complete_rejects_empty_stub_ir_as_not_ready(tmp_path: Path):
     assert envelope["error"]["code"] == "scenario_not_ready"
 
 
+def test_setup_complete_white_war_waits_for_confirmed_investigator(
+    tmp_path: Path,
+):
+    campaign_id = "white-war-complete"
+    started = coc_starter.quick_start(
+        tmp_path / ".coc",
+        "the-white-war",
+        None,
+        campaign_id=campaign_id,
+    )
+    assert started["needs_investigator"] is True
+    too_soon = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-ww-early"},
+    )
+    assert too_soon["ok"] is False
+    assert too_soon["error"]["code"] == "character_setup_incomplete"
+    created = coc_toolbox.run_tool(
+        "setup.chargen_run",
+        tmp_path,
+        None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": "ww-alpine",
+            "name": "Marco Bellini",
+            "occupation_name": "Journalist",
+            "occupation_label": "随军记者",
+            "own_language": "意大利语",
+            "assignment_priority": [
+                "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
+            ],
+            "occupation_skill_names": ["Spot Hidden", "Listen"],
+            "interest_skill_names": ["Occult", "First Aid"],
+            "luck": {"mode": "auto_roll"},
+        },
+    )
+    assert created["ok"] is True, created
+    finished = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {"campaign_id": campaign_id, "decision_id": "handoff-ww-ready"},
+    )
+    assert finished["ok"] is True, finished
+    assert finished["data"]["result"]["ready_for_table"] is True
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / campaign_id / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign["status"] == "ready_for_table"
+    assert campaign["active_scenario_id"] == "the-white-war"
+    assert campaign["setup_handoff"]["investigator_ids"] == ["ww-alpine"]
+
+
 def test_setup_complete_builtin_confirmed_is_idempotent(tmp_path: Path):
     campaign_id = "builtin-ready"
     quick = coc_starter.quick_start(

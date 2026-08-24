@@ -68,9 +68,16 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    > - **《白色战争》The White War** — 1916 年意大利阿尔卑斯前线，一支山地巡逻队调查冰川上传来的怪响，唤醒冰封万年的远古存在。开箱即玩。
    > - **《闹鬼》The Haunting** — 1920 年波士顿，房东委托调查恶名昭彰的 Corbitt 宅；报馆/档案/街坊多线调查后对峙地下室不死术士。开箱即玩。
    >
-   > One-call MCP quick start (pregen investigator, The Haunting): invoke the
-   > `setup.quick_start` operation card with explicit
+   > One-call MCP quick start: invoke the `setup.quick_start` operation card
+   > with explicit `campaign_id` and `scenario_id`. Include `pregen_id` only
+   > when that starter listed a chosen public pregen (The Haunting
+   > `thomas-hayes`). Omit `pregen_id` for a starter with an empty public
+   > pregen list (The White War); the receipt returns `needs_investigator`
+   > and you continue the existing `coc-character` / `setup.chargen_run` path.
+   > Example with a pregen:
    > `{"campaign_id":"<selected-or-new-id>","scenario_id":"the-haunting","pregen_id":"thomas-hayes"}`.
+   > Example without a pregen:
+   > `{"campaign_id":"<selected-or-new-id>","scenario_id":"the-white-war"}`.
    > A host without MCP may use the same canonical setup gateway:
    > ```bash
    > uv run --frozen python ../../scripts/coc_runtime_ops.py --setup --workspace . \
@@ -79,7 +86,7 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    > Ordinary non-Pi/MCP onboarding may omit `campaign_id` and creates
    > `{scenario_id}-qs`. A selected nonexistent id must be passed through as
    > `campaign_id`; do not `campaign.create` first, and do not require
-   > `setup.inspect` first when the starter and pregen are already known.
+   > `setup.inspect` first when the starter is already known.
 
    For the one-step starter path use the shared `campaign.quick_start` setup
    operation as the first mutation when the built-in starter is known. For a custom table, use `campaign.create`, bind the accepted
@@ -139,8 +146,10 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    `result.payload_schema` for the creation flow and use it to construct the
    final `investigator.create` payload; do not guess coc7 fields from the
    kernel `setup.invoke` shell or requery the contract before creation.
-   Built-in `setup.quick_start` already supplies its pregen and does not need
-   this query.
+   When `setup.quick_start` linked a chosen public pregen, skip this query.
+   When it returned `needs_investigator=true` (no public pregen, or omitted),
+   continue the existing `coc-character` workflow and `setup.chargen_run`
+   for that already-bound campaign; do not `campaign.create` again.
 
    For a fresh PDF on Codex, prefer the experimental document-lane capability
    when `coc_opening_source_coordinator_v1=true`. The main KP establishes only

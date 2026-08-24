@@ -324,8 +324,8 @@ def _capabilities() -> dict[str, Any]:
         ),
         "built_in_quick_start": setup_card(
             "setup.quick_start",
-            missing_arguments=["scenario_id", "pregen_id"],
-            optional_arguments=["campaign_id", "title"],
+            missing_arguments=["scenario_id"],
+            optional_arguments=["campaign_id", "title", "pregen_id"],
         ),
         "custom_campaign_setup": setup_card(
             "setup.invoke",

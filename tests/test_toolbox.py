@@ -1073,6 +1073,65 @@ def test_setup_tools_reuse_canonical_pre_session_gateway(tmp_path):
     assert "play_language" in unsupported["error"]["message"]
 
 
+def test_setup_quick_start_omits_pregen_for_white_war(tmp_path):
+    started = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            "scenario_id": "the-white-war",
+            "campaign_id": "white-war-no-pregen",
+        },
+    )
+    assert started["ok"] is True, started
+    result = started["data"]["result"]
+    assert result["campaign_id"] == "white-war-no-pregen"
+    assert result["needs_investigator"] is True
+    assert result["pregen_id"] is None
+    assert any("without an investigator" in hint for hint in started["hints"])
+    assert any("not a missing campaign_id" in hint for hint in started["hints"])
+
+    empty = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            "scenario_id": "the-white-war",
+            "campaign_id": "white-war-empty-pregen",
+            "pregen_id": "",
+        },
+    )
+    assert empty["ok"] is False
+    assert empty["error"]["code"] == "invalid_param"
+    assert "omit the field" in empty["error"]["message"]
+
+    unknown = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            "scenario_id": "the-white-war",
+            "campaign_id": "white-war-unknown-pregen",
+            "pregen_id": "not-a-real-pregen",
+        },
+    )
+    assert unknown["ok"] is False
+    assert "unknown pregen" in unknown["error"]["message"]
+
+    complete = coc_toolbox.run_tool(
+        "setup.complete",
+        tmp_path,
+        None,
+        {
+            "campaign_id": "white-war-no-pregen",
+            "decision_id": "handoff-too-soon",
+        },
+    )
+    assert complete["ok"] is False
+    assert complete["error"]["code"] == "character_setup_incomplete"
+    assert "investigator" in complete["error"]["message"]
+
+
 def test_describe_rules_roll_exposes_context_and_push_binding_contract():
     roll = coc_toolbox._describe("rules.roll")
     push = coc_toolbox._describe("rules.push")

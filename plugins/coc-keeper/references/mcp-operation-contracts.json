@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:f904468756adf123ff56eb146d6c922832fef381335999229b0591d4abb8b507",
+  "content_sha256": "sha256:9338cb30f8147deb032ef556a218016f704962979ea83ccf9f5f3f2fa4110f30",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -5073,7 +5073,7 @@
     "setup.quick_start": {
       "access": "mutation",
       "canonical_operation": "setup.quick_start",
-      "description": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
+      "description": "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5086,7 +5086,7 @@
             "type": "string"
           },
           "pregen_id": {
-            "description": "exact pregen_id returned by setup.inspect for that scenario",
+            "description": "optional exact public pregen_id from setup.inspect; omit when that starter listed none. Omitted is investigator-less; an empty string or unknown id is invalid",
             "type": "string"
           },
           "root": {
@@ -5103,8 +5103,7 @@
           }
         },
         "required": [
-          "scenario_id",
-          "pregen_id"
+          "scenario_id"
         ],
         "type": "object"
       },
@@ -5120,7 +5119,7 @@
           "live_turn"
         ]
       },
-      "summary": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans."
+      "summary": "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans."
     },
     "state.advance_time": {
       "access": "mutation",
