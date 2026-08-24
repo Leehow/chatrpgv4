@@ -4144,6 +4144,7 @@ def build_finalization_receipt(
 def replay_matches(
     receipt: dict[str, Any], *, draft: Any, coverage: Any, mechanics_placements: Any,
     revision: Any, narration_review: Any, agency_claims: Any,
+    campaign_dir: Path | None = None,
 ) -> bool:
     if not isinstance(draft, str) or not isinstance(coverage, list):
         return False
@@ -4155,8 +4156,12 @@ def replay_matches(
     except (TypeError, AttributeError):
         return False
     try:
-        play_language = _infer_play_language_from_rendered(
-            str(receipt.get("rendered_text") or "")
+        play_language = (
+            _campaign_play_language(campaign_dir)
+            if campaign_dir is not None
+            else _infer_play_language_from_rendered(
+                str(receipt.get("rendered_text") or "")
+            )
         )
         _segments, rendered, _placements = compose_segments(
             draft,
@@ -4168,6 +4173,7 @@ def replay_matches(
             ),
             coverage=normalized,
             play_language=play_language,
+            campaign_dir=campaign_dir,
         )
     except TurnContractError:
         return False

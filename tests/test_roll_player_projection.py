@@ -444,6 +444,133 @@ def test_campaign_override_matches_validation_and_final_render(tmp_path):
     assert "Bout Duration" not in block["text"]
 
 
+def test_replay_matches_uses_campaign_override_like_first_compose(tmp_path):
+    campaign_dir = tmp_path / "override-camp"
+    campaign_dir.mkdir()
+    (campaign_dir / "campaign.json").write_text(
+        json.dumps({
+            "campaign_id": "override-camp",
+            "play_language": "zh-Hans",
+            "localized_terms": {"zh-Hans": {"Bout Duration": "自定义时长"}},
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    draft = "调查员撑住桌子，等这阵发作过去。"
+    bundle = {
+        "public_check": [{
+            "roll_id": "bout-replay",
+            "skill": "Bout Duration",
+            "kind": "bout_duration_hours",
+            "die_expression": "1D10",
+            "individual_faces": [3],
+            "final_total": 3,
+            "roll": 3,
+            "outcome": "rolled",
+            "visibility": "consequence_public",
+        }],
+        "state_delta": [],
+        "exceptional_effect": [],
+    }
+    placements = [{
+        "after_paragraph": 0,
+        "segment_type": "public_check",
+        "source_ids": ["bout-replay"],
+    }]
+    segments, rendered, _ = coc_turn.compose_segments(
+        draft, bundle, placements, coverage=[],
+        play_language="zh-Hans", campaign_dir=campaign_dir,
+    )
+    assert "自定义时长" in rendered
+    assert "Bout Duration" not in rendered
+    receipt = {
+        "accepted_revision": 1,
+        "accepted_draft_sha256": coc_turn.canonical_digest(
+            "\n\n".join(
+                segment["text"]
+                for segment in segments
+                if segment["segment_type"] == "fiction"
+            )
+        ),
+        "coverage_sha256": coc_turn.canonical_digest([]),
+        "rendered_text_sha256": coc_turn.canonical_digest(rendered),
+        "narration_review": None,
+        "agency_claims": [],
+        "bundle": bundle,
+        "rendered_text": rendered,
+        "segments": segments,
+    }
+    assert coc_turn.replay_matches(
+        receipt,
+        draft=draft,
+        coverage=[],
+        mechanics_placements=placements,
+        revision=1,
+        narration_review=None,
+        agency_claims=[],
+        campaign_dir=campaign_dir,
+    )
+    assert not coc_turn.replay_matches(
+        receipt,
+        draft=draft,
+        coverage=[],
+        mechanics_placements=placements,
+        revision=1,
+        narration_review=None,
+        agency_claims=[],
+    )
+
+    default_dir = tmp_path / "default-camp"
+    default_dir.mkdir()
+    (default_dir / "campaign.json").write_text(
+        json.dumps({
+            "campaign_id": "default-camp",
+            "play_language": "zh-Hans",
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    default_segments, default_rendered, _ = coc_turn.compose_segments(
+        draft, bundle, placements, coverage=[],
+        play_language="zh-Hans", campaign_dir=default_dir,
+    )
+    assert "自定义时长" not in default_rendered
+    default_receipt = {
+        "accepted_revision": 1,
+        "accepted_draft_sha256": coc_turn.canonical_digest(
+            "\n\n".join(
+                segment["text"]
+                for segment in default_segments
+                if segment["segment_type"] == "fiction"
+            )
+        ),
+        "coverage_sha256": coc_turn.canonical_digest([]),
+        "rendered_text_sha256": coc_turn.canonical_digest(default_rendered),
+        "narration_review": None,
+        "agency_claims": [],
+        "bundle": bundle,
+        "rendered_text": default_rendered,
+        "segments": default_segments,
+    }
+    assert coc_turn.replay_matches(
+        default_receipt,
+        draft=draft,
+        coverage=[],
+        mechanics_placements=placements,
+        revision=1,
+        narration_review=None,
+        agency_claims=[],
+        campaign_dir=default_dir,
+    )
+    assert coc_turn.replay_matches(
+        default_receipt,
+        draft=draft,
+        coverage=[],
+        mechanics_placements=placements,
+        revision=1,
+        narration_review=None,
+        agency_claims=[],
+    )
+
+
 def test_exporter_empty_run_metadata_uses_campaign_safe_fields(tmp_path):
     module = _load_export()
     run = tmp_path / "meta-run"
