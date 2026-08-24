@@ -217,10 +217,10 @@
           "difficulty": "regular",
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Beside the cult journal lies a huge, worm-eaten handwritten Latin volume: a damaged copy of the Liber Ivonis dealing with occult matters.",
+          "player_safe_summary": "Beside the cult journal lies a huge, damaged, worm-eaten handwritten Latin manuscript; many passages are unreadable.",
           "localized_text": {
             "zh-Hans": {
-              "player_safe_summary": "教团日志旁还有一本巨大的拉丁文手抄本，腐烂虫蛀，许多段落无法辨读；这是一本残损的《伊波恩之书》，内容涉及神秘学。"
+              "player_safe_summary": "教团日志旁还有一本巨大的拉丁文手抄本，残损虫蛀，许多段落无法辨读。"
             }
           },
           "source_refs": [
