@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { generatePortrait, streamTurn } from "./api.ts";
+import { fetchSetupTranscript, generatePortrait, streamTurn } from "./api.ts";
 import { applySettledKeeperMessage } from "./transcript-merge.ts";
 
 function sseFrame(event, data) {
@@ -352,6 +352,33 @@ test("streamTurn parses handout SSE events into sanitized player-safe cards", as
     assert.equal(cards[2].image_url, null);
     assert.deepEqual(cards[2].source_pages, []);
     assert.ok(!JSON.stringify(cards).includes("MUST NOT"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("fetchSetupTranscript reads the dedicated host-session endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let url;
+  let method;
+  globalThis.fetch = async (nextUrl, init) => {
+    url = String(nextUrl);
+    method = init?.method || "GET";
+    return new Response(JSON.stringify({
+      messages: [{ role: "keeper", text: "先告诉我：这个人是谁？" }],
+      source: "pi-host-session",
+      session_id: "sid-1",
+      scope: "setup",
+      boundary: "handoff",
+    }), { status: 200 });
+  };
+  try {
+    const payload = await fetchSetupTranscript("sid-1");
+    assert.equal(url, "/api/sessions/sid-1/setup-transcript");
+    assert.equal(method, "GET");
+    assert.equal(payload.source, "pi-host-session");
+    assert.equal(payload.scope, "setup");
+    assert.equal(payload.messages[0].text, "先告诉我：这个人是谁？");
   } finally {
     globalThis.fetch = originalFetch;
   }
