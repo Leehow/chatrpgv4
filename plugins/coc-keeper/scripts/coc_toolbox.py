@@ -144,6 +144,9 @@ coc_operation_policy = _load_sibling(
     "coc_operation_policy_toolbox", "coc_operation_policy.py"
 )
 coc_opening_phase = _load_sibling("coc_opening_phase", "coc_opening_phase.py")
+coc_opening_recovery = _load_sibling(
+    "coc_opening_recovery", "coc_opening_recovery.py"
+)
 coc_memory = _load_sibling("coc_memory", "coc_memory.py")
 coc_scenario = _load_sibling("coc_scenario_toolbox", "coc_scenario.py")
 coc_handouts = _load_sibling("coc_handouts_toolbox", "coc_handouts.py")
@@ -1724,7 +1727,18 @@ def _pi_opening_setup_gate(
     asset_root_id = str(preparation["asset_root_id"] or "")
     if sub_phase == coc_opening_phase.SUB_PHASE_MATERIALIZATION:
         watch = preparation["watch"] or {}
+        if not isinstance(watch, dict):
+            watch = {}
         watch_status = str(preparation["watch_status"] or "pending")
+        decision = coc_opening_recovery.recover_materialization_watch(
+            root,
+            campaign_dir,
+            watch_status=watch_status,
+            watch=watch,
+            asset_root_id=asset_root_id,
+            host_work_mode=host_work_mode,
+            module_project=coc_module_project,
+        )
         gate = {
             "schema_version": 1,
             "status": "blocked",
@@ -1734,7 +1748,8 @@ def _pi_opening_setup_gate(
             "opening_phase": opening_phase,
             "campaign_id": campaign_id,
             "asset_root_id": asset_root_id,
-            "source_lifecycle_status": watch_status,
+            "source_lifecycle_status": decision["source_lifecycle_status"]
+            or watch_status,
             "next_operation": None,
             "instruction": (
                 "retain the accepted opening_bootstrap receipt and wait for its "
@@ -1742,7 +1757,8 @@ def _pi_opening_setup_gate(
                 "move a scene, or narrate an opening"
             ),
         }
-        if watch_status == "complete":
+        action = decision["action"]
+        if action == coc_opening_recovery.ACTION_REFRESH_PROJECTION:
             # A completed watch whose projection no longer recomputes against
             # current repository evidence (e.g. background deepen rewrote the
             # durable packs) must never leave the Keeper with a null
@@ -1750,17 +1766,9 @@ def _pi_opening_setup_gate(
             # Post-delivery the delivered receipt is pinned and this branch is
             # unreachable for legitimate deepen drift.
             refresh = _opening_card(
-                "progressive.project_opening",
-                {
-                    "asset_root_id": asset_root_id,
-                    "source_file_sha256": str(
-                        watch.get("source_file_sha256") or ""
-                    ),
-                    "start_location_id": str(
-                        watch.get("start_location_id") or ""
-                    ),
-                },
-                [],
+                str(decision["operation"]),
+                dict(decision["prefilled_arguments"]),
+                list(decision["missing_arguments"]),
             )
             refresh.update({
                 "hard_gate": True,
@@ -1777,75 +1785,68 @@ def _pi_opening_setup_gate(
                 "the opening projection; do not rebind, rediscover, resume, "
                 "move a scene, or narrate an opening first"
             )
-        elif watch_status == "pending":
-            lost_kind = _opening_watch_lost_kind(
-                root,
-                asset_root_id,
-                watch,
-                pure_read=(host_work_mode == "pure_read"),
+        elif action == coc_opening_recovery.ACTION_REARM_BOOTSTRAP:
+            rearm = _opening_card(
+                str(decision["operation"]),
+                dict(decision["prefilled_arguments"]),
+                list(decision["missing_arguments"]),
             )
-            if lost_kind is not None and (
-                coc_module_project.campaign_is_pristine_for_opening(campaign_dir)
-            ):
-                # dispatch_lost: never-leased ready work past the short grace.
-                # resolver_lost: once-leased (or long grace) work with no live
-                # lease left. Both re-arm bootstrap only while no scene has
-                # played; a re-bootstrap must never overwrite live state.
-                rearm = _opening_watch_rearm_bootstrap_card(
-                    root, asset_root_id, watch,
-                )
-                gate["source_lifecycle_status"] = lost_kind
-                gate["retained_start_location_id"] = str(
-                    watch.get("start_location_id") or ""
-                )
-                gate["next_operation"] = rearm
-                if lost_kind == "dispatch_lost":
-                    gate["instruction"] = (
-                        "the opening host-work was never claimed; invoke this "
-                        "exact progressive.opening_bootstrap card for the same "
-                        "retained opening to re-issue dispatch; do not rebind, "
-                        "rediscover, or narrate an opening"
-                    )
-                else:
-                    gate["instruction"] = (
-                        "the opening source lifecycle owner is gone; invoke this "
-                        "exact progressive.opening_bootstrap card for the same "
-                        "retained opening; do not rebind, rediscover, or narrate "
-                        "an opening"
-                    )
-            elif lost_kind is not None:
-                gate["source_lifecycle_status"] = "lost_after_play"
+            rearm.update({
+                "hard_gate": True,
+                "authority": "canonical_setup",
+                "reason": (
+                    "the retained opening source lifecycle has no live owner; "
+                    "re-issue the bootstrap for the same retained opening "
+                    "instead of waiting for a terminal event that can no "
+                    "longer arrive"
+                ),
+            })
+            gate["retained_start_location_id"] = decision[
+                "retained_start_location_id"
+            ]
+            gate["next_operation"] = rearm
+            if decision["lost_kind"] == "dispatch_lost":
                 gate["instruction"] = (
-                    "opening source work was lost after scene evidence began; "
-                    "do not re-bootstrap over played state"
+                    "the opening host-work was never claimed; invoke this "
+                    "exact progressive.opening_bootstrap card for the same "
+                    "retained opening to re-issue dispatch; do not rebind, "
+                    "rediscover, or narrate an opening"
                 )
             else:
-                # Still pending with a plausible live owner. Never leave
-                # next_operation=null: hand back an honest lifecycle poll card
-                # so the Keeper can re-enter the gate without inventing a path.
-                wait = _opening_card(
-                    "progressive.status",
-                    {"asset_root_id": asset_root_id},
-                    [],
-                )
-                wait.update({
-                    "hard_gate": True,
-                    "authority": "canonical_setup",
-                    "reason": (
-                        "opening source materialization is still pending host "
-                        "coordinator fulfillment; poll this exact status card "
-                        "and retain the accepted bootstrap receipt rather than "
-                        "rebinding, rediscovering, or narrating an opening"
-                    ),
-                })
-                gate["source_lifecycle_status"] = "pending"
-                gate["next_operation"] = wait
                 gate["instruction"] = (
-                    "opening source materialization is pending; invoke this exact "
-                    "progressive.status card to re-check lifecycle progress; do "
-                    "not rebind, rediscover, resume, move a scene, or narrate an "
-                    "opening"
+                    "the opening source lifecycle owner is gone; invoke this "
+                    "exact progressive.opening_bootstrap card for the same "
+                    "retained opening; do not rebind, rediscover, or narrate "
+                    "an opening"
                 )
+        elif action == coc_opening_recovery.ACTION_LOST_AFTER_PLAY:
+            gate["instruction"] = (
+                "opening source work was lost after scene evidence began; "
+                "do not re-bootstrap over played state"
+            )
+        elif action == coc_opening_recovery.ACTION_POLL_STATUS:
+            wait = _opening_card(
+                str(decision["operation"]),
+                dict(decision["prefilled_arguments"]),
+                list(decision["missing_arguments"]),
+            )
+            wait.update({
+                "hard_gate": True,
+                "authority": "canonical_setup",
+                "reason": (
+                    "opening source materialization is still pending host "
+                    "coordinator fulfillment; poll this exact status card "
+                    "and retain the accepted bootstrap receipt rather than "
+                    "rebinding, rediscovering, or narrating an opening"
+                ),
+            })
+            gate["next_operation"] = wait
+            gate["instruction"] = (
+                "opening source materialization is pending; invoke this exact "
+                "progressive.status card to re-check lifecycle progress; do "
+                "not rebind, rediscover, resume, move a scene, or narrate an "
+                "opening"
+            )
         return gate
     next_operation = _opening_card("progressive.prepare_opening", {}, [])
     next_operation.update({
@@ -13595,19 +13596,6 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 # --------------------------------------------------------------------------- #
 
 _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS = 2
-# How long a pending opening projection watch may sit with host-work that was
-# never leased (dispatch_attempts=0, no current lease) before the gate treats
-# the auto-dispatch owner as lost. A live Pi coordinator claims inside one
-# parent turn after bootstrap; 150s is far above that RTT while still short
-# enough that a wedged "ready forever" job is recoverable without waiting out
-# the full lease window. This is NOT the once-leased-then-gone path.
-_OPENING_WATCH_NEVER_LEASED_GRACE_SECONDS = 150.0
-# How long a pending opening projection watch may go without any currently
-# leased host work after work was at least once claimed (or after the longer
-# grace when lease history is unknown). Deliberately well above the default
-# 600s lease so an in-flight batch is never mistaken for a corpse. Distinct
-# from the never-leased early dispatch_lost path above.
-_OPENING_WATCH_RESOLVER_GRACE_SECONDS = 900.0
 # An adapter that spawns one child per claimed group must not claim a batch it
 # would fan out over all at once.
 _CONSERVATIVE_CLAIM_CEILING = 4
@@ -16419,182 +16407,6 @@ def _opening_page_list(
             "invalid_param", f"{field} must not contain duplicates"
         )
     return list(value)
-
-
-def _retained_location_title(
-    root: Path,
-    asset_root_id: str,
-    location_id: str,
-) -> str:
-    """Return the authored title for a retained skeleton location, if known."""
-    if not location_id:
-        return ""
-    try:
-        skeleton = coc_module_project.coc_module_assets.get_skeleton(
-            root, asset_root_id,
-        )
-    except Exception:
-        return ""
-    rows = skeleton.get("locations") if isinstance(skeleton, dict) else None
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        if str(row.get("location_id") or "") != location_id:
-            continue
-        title = str(row.get("title") or "").strip()
-        if title:
-            return title
-    return ""
-
-
-def _opening_watch_age_seconds(watch: dict[str, Any]) -> float | None:
-    created = str(watch.get("created_at") or "").strip()
-    if not created:
-        return None
-    try:
-        created_at = datetime.fromisoformat(created)
-    except ValueError:
-        return None
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - created_at).total_seconds()
-
-
-def _opening_watch_open_host_work(
-    root: Path,
-    asset_root_id: str,
-    *,
-    pure_read: bool = False,
-) -> list[dict[str, Any]] | None:
-    assets_module = coc_module_project.coc_module_assets
-    try:
-        if pure_read:
-            rows = assets_module.inspect_host_work_requests_pure(
-                root, asset_root_id, include_closed=False, limit=None,
-            )
-            # An incomplete pure snapshot is never evidence that the opening
-            # lifecycle owner is gone. Keep the existing gate blocked instead.
-            if rows is None:
-                return None
-        else:
-            rows = assets_module.list_host_work_requests(
-                root, asset_root_id, include_closed=False, limit=None,
-            )
-    except Exception:
-        return None
-    return [row for row in rows if isinstance(row, dict)]
-
-
-def _opening_watch_lost_kind(
-    root: Path,
-    asset_root_id: str,
-    watch: dict[str, Any],
-    *,
-    pure_read: bool = False,
-) -> str | None:
-    """Classify a stuck pending opening watch, or None while waiting is honest.
-
-    Two distinct loss modes share the "no currently leased host work" signal
-    but must not share one grace window:
-
-    - ``dispatch_lost`` (short grace, default 150s): host-work for this root was
-      never leased (every open row has ``dispatch_attempts == 0``). Observed when
-      bootstrap queued a ready job but the Pi observer never spawned the
-      coordinator. Waiting longer cannot help; re-arm bootstrap.
-    - ``resolver_lost`` (long grace, default 900s): work was leased at least once
-      (``dispatch_attempts > 0``) or the long grace alone has elapsed with no
-      live lease. Covers the session-death-after-claim case without mistaking an
-      in-flight batch for a corpse during the short window.
-
-    Returns the lifecycle status label to stamp on the gate, or None when the
-    watch is still inside a live wait window.
-    """
-    age = _opening_watch_age_seconds(watch)
-    if age is None:
-        return None
-    rows = _opening_watch_open_host_work(
-        root, asset_root_id, pure_read=pure_read,
-    )
-    if rows is None:
-        return None
-    assets_module = coc_module_project.coc_module_assets
-    any_leased = any(
-        assets_module.host_work_operational_class(row) == "leased"
-        for row in rows
-    )
-    if any_leased:
-        return None
-    ever_leased = any(
-        int(row.get("dispatch_attempts") or 0) > 0
-        for row in rows
-    )
-    if not ever_leased and age >= _OPENING_WATCH_NEVER_LEASED_GRACE_SECONDS:
-        return "dispatch_lost"
-    if age >= _OPENING_WATCH_RESOLVER_GRACE_SECONDS:
-        return "resolver_lost"
-    return None
-
-
-def _opening_watch_resolver_lost(
-    root: Path,
-    asset_root_id: str,
-    watch: dict[str, Any],
-) -> bool:
-    """Compatibility wrapper: true when any lost kind applies."""
-    return _opening_watch_lost_kind(root, asset_root_id, watch) is not None
-
-
-def _opening_watch_rearm_bootstrap_card(
-    root: Path,
-    asset_root_id: str,
-    watch: dict[str, Any],
-) -> dict[str, Any]:
-    """Build the exact retained-opening bootstrap card for a lost watch."""
-    source_scope = (
-        watch.get("source_scope")
-        if isinstance(watch.get("source_scope"), dict)
-        else {}
-    )
-    indices = source_scope.get("pdf_indices")
-    prefilled: dict[str, Any] = {}
-    if (
-        isinstance(indices, list)
-        and indices
-        and all(
-            isinstance(value, int) and not isinstance(value, bool)
-            for value in indices
-        )
-    ):
-        prefilled["opening_pdf_indices"] = list(indices)
-    # Prefill the whole start_location. Handing back only the id makes the
-    # Keeper synthesize the object, and a live KP sent the bare string 55 times
-    # in one turn against a contract that requires {location_id, title}.
-    retained_location_id = str(watch.get("start_location_id") or "").strip()
-    retained_title = _retained_location_title(
-        root, asset_root_id, retained_location_id,
-    )
-    if retained_location_id and retained_title:
-        prefilled["start_location"] = {
-            "location_id": retained_location_id,
-            "title": retained_title,
-        }
-    missing = [] if "start_location" in prefilled else ["start_location"]
-    if "opening_pdf_indices" not in prefilled:
-        missing.append("opening_pdf_indices")
-    rearm = _opening_card(
-        "progressive.opening_bootstrap", prefilled, missing,
-    )
-    rearm.update({
-        "hard_gate": True,
-        "authority": "canonical_setup",
-        "reason": (
-            "the retained opening source lifecycle has no live owner; "
-            "re-issue the bootstrap for the same retained opening "
-            "instead of waiting for a terminal event that can no "
-            "longer arrive"
-        ),
-    })
-    return rearm
 
 
 def _opening_card(

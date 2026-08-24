@@ -118,14 +118,11 @@ def _coc_runtime_ops():
     )
 
 
-def _coc_toolbox():
-    # Lazy: toolbox already imports this module. Runtime calls only, after
-    # both modules have finished loading, so we can reuse the host-lifecycle
-    # recovery helpers instead of inventing a second classifier.
+def _coc_opening_recovery():
     return _load_sibling(
-        ("coc_toolbox",),
-        "coc_toolbox_opening_phase",
-        "coc_toolbox.py",
+        ("coc_opening_recovery",),
+        "coc_opening_recovery",
+        "coc_opening_recovery.py",
     )
 
 
@@ -749,61 +746,25 @@ def _materialization_next_operation(
     *,
     host_work_mode: str = "mutating",
 ) -> dict[str, Any] | None:
-    """Compose the existing host-lifecycle recovery card for a pending watch.
+    """Project the canonical materialization-watch recovery decision.
 
-    Same classifier as the Pi opening gate: a young or still-leased watch is
-    an actionable ``progressive.status`` poll; dispatch-lost / resolver-lost
-    on a pristine campaign re-arms the retained ``progressive.opening_bootstrap``;
-    a completed watch whose projection is no longer fresh asks for an explicit
-    ``progressive.project_opening``. Live queued/coalesced work stays pending.
+    Recovery itself is owned by ``coc_opening_recovery``; this only formats
+    the derive/browser card and never reclassifies the watch.
     """
-    toolbox = _coc_toolbox()
-    module_project = _coc_module_project()
+    recovery = _coc_opening_recovery()
     watch = module_preparation.get("watch") or {}
     if not isinstance(watch, dict):
         watch = {}
-    watch_status = str(module_preparation.get("watch_status") or "pending")
-    asset_root_id = str(module_preparation.get("asset_root_id") or "")
-    if watch_status == "complete":
-        return {
-            "operation": "progressive.project_opening",
-            "invoke_via": "coc_invoke",
-            "campaign": str(campaign_id),
-            "arguments": {
-                "asset_root_id": asset_root_id,
-                "source_file_sha256": str(watch.get("source_file_sha256") or ""),
-                "start_location_id": str(watch.get("start_location_id") or ""),
-            },
-        }
-    if watch_status != "pending":
-        return None
-    lost_kind = toolbox._opening_watch_lost_kind(
+    decision = recovery.recover_materialization_watch(
         root,
-        asset_root_id,
-        watch,
-        pure_read=(host_work_mode == "pure_read"),
+        campaign_dir,
+        watch_status=str(module_preparation.get("watch_status") or "pending"),
+        watch=watch,
+        asset_root_id=str(module_preparation.get("asset_root_id") or ""),
+        host_work_mode=host_work_mode,
+        module_project=_coc_module_project(),
     )
-    if lost_kind is not None and (
-        module_project.campaign_is_pristine_for_opening(campaign_dir)
-    ):
-        rearm = toolbox._opening_watch_rearm_bootstrap_card(
-            root, asset_root_id, watch,
-        )
-        return {
-            "operation": str(rearm.get("operation") or "progressive.opening_bootstrap"),
-            "invoke_via": str(rearm.get("invoke_via") or "coc_invoke"),
-            "campaign": str(campaign_id),
-            "arguments": deepcopy(rearm.get("prefilled_arguments") or {}),
-            "missing_arguments": list(rearm.get("missing_arguments") or []),
-        }
-    if lost_kind is not None:
-        return None
-    return {
-        "operation": "progressive.status",
-        "invoke_via": "coc_invoke",
-        "campaign": str(campaign_id),
-        "arguments": {"asset_root_id": asset_root_id},
-    }
+    return recovery.projection_next_operation(decision, campaign_id)
 
 
 def _next_operation(
@@ -818,9 +779,9 @@ def _next_operation(
 ) -> dict[str, Any] | None:
     """Canonical next operation pointer for the current phase.
 
-    Recoverable source materialization reuses the host-lifecycle recovery
-    classifier already owned by the opening gate: it never leaves a pending
-    watch as ``None`` unless the campaign is no longer pristine.
+    Recoverable source materialization uses the one
+    ``coc_opening_recovery`` decision: it never leaves a pending watch as
+    ``None`` unless recovery is explicitly unsafe or terminal.
     """
     if phase == PHASE_MODULE_PREPARATION:
         sub_phase = module_preparation.get("sub_phase")

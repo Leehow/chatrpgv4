@@ -20,6 +20,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import coc_opening_phase  # noqa: E402
+import coc_opening_recovery  # noqa: E402
 import coc_runtime_ops  # noqa: E402
 import coc_state  # noqa: E402
 import coc_toolbox  # noqa: E402
@@ -682,6 +683,292 @@ def test_lost_watch_after_play_does_not_rearm_bootstrap(
         tmp_path, "pdf-played",
     )
     assert projection["next_operation"] is None
+
+
+def _host_work_class(row: dict) -> str:
+    if str(row.get("dispatch_state") or "") == "leased":
+        return "leased"
+    return "runnable"
+
+
+def _decide(**overrides) -> dict:
+    watch = overrides.pop("watch", _aged_pending_watch(age_seconds=5))
+    payload = {
+        "watch_status": "pending",
+        "watch": watch,
+        "asset_root_id": "asset-root-src",
+        "host_work_rows": [],
+        "campaign_pristine": True,
+        "retained_start_location_title": "The Foyer",
+        "host_work_operational_class": _host_work_class,
+    }
+    payload.update(overrides)
+    return coc_opening_recovery.decide_materialization_watch_recovery(**payload)
+
+
+@pytest.mark.parametrize(
+    "label,kwargs,action,operation",
+    [
+        ("young", {}, "poll_status", "progressive.status"),
+        (
+            "queued_never_leased",
+            {
+                "watch": _aged_pending_watch(age_seconds=5),
+                "host_work_rows": [{"dispatch_attempts": 0}],
+            },
+            "poll_status",
+            "progressive.status",
+        ),
+        (
+            "coalesced_ready",
+            {
+                "watch": _aged_pending_watch(age_seconds=20),
+                "host_work_rows": [
+                    {"dispatch_state": "ready", "dispatch_attempts": 0},
+                ],
+            },
+            "poll_status",
+            "progressive.status",
+        ),
+        (
+            "once_leased_in_grace",
+            {
+                "watch": _aged_pending_watch(age_seconds=180),
+                "host_work_rows": [{"dispatch_attempts": 1}],
+            },
+            "poll_status",
+            "progressive.status",
+        ),
+        (
+            "live_lease",
+            {
+                "watch": _aged_pending_watch(age_seconds=6000),
+                "host_work_rows": [{"dispatch_state": "leased"}],
+            },
+            "poll_status",
+            "progressive.status",
+        ),
+        (
+            "incomplete_snapshot",
+            {"host_work_rows": None},
+            "poll_status",
+            "progressive.status",
+        ),
+        (
+            "dispatch_lost",
+            {"watch": _aged_pending_watch(age_seconds=180)},
+            "rearm_bootstrap",
+            "progressive.opening_bootstrap",
+        ),
+        (
+            "stale_resolver",
+            {
+                "watch": _aged_pending_watch(age_seconds=6000),
+                "host_work_rows": [{"dispatch_attempts": 1}],
+            },
+            "rearm_bootstrap",
+            "progressive.opening_bootstrap",
+        ),
+        (
+            "complete",
+            {"watch_status": "complete"},
+            "refresh_projection",
+            "progressive.project_opening",
+        ),
+    ],
+)
+def test_recoverable_materialization_decision_is_never_null(
+    label, kwargs, action, operation,
+):
+    decision = _decide(**kwargs)
+    assert decision["action"] == action, label
+    assert decision["operation"] == operation, label
+    assert decision["recoverable"] is True, label
+    assert decision["operation"] is not None, label
+
+
+def test_null_decision_only_for_unsafe_or_terminal_watches():
+    lost = _decide(
+        watch=_aged_pending_watch(age_seconds=6000),
+        campaign_pristine=False,
+    )
+    assert lost["action"] == "lost_after_play"
+    assert lost["operation"] is None
+    assert lost["recoverable"] is False
+    terminal = _decide(watch_status="refused_terminal")
+    assert terminal["action"] == "none"
+    assert terminal["operation"] is None
+    assert terminal["recoverable"] is False
+
+
+def test_recoverable_blocked_materialization_cannot_project_null(
+    tmp_path: Path, monkeypatch,
+):
+    _resolvable_root(monkeypatch)
+    monkeypatch.setenv("COC_HOST", "pi")
+    cases = (
+        ("pdf-inv-live", _aged_pending_watch(age_seconds=5), None),
+        ("pdf-inv-lost", _aged_pending_watch(age_seconds=6000), {
+            "schema_version": 1,
+            "locations": [{"location_id": "opening", "title": "The Foyer"}],
+        }),
+    )
+    for campaign_id, watch, skeleton in cases:
+        _write_materialization_campaign(
+            tmp_path, campaign_id, watch, skeleton=skeleton,
+        )
+        derived = coc_opening_phase.derive_opening_phase(tmp_path, campaign_id)
+        projection = coc_opening_phase.opening_phase_projection(
+            tmp_path, campaign_id,
+        )
+        gate = coc_toolbox._pi_opening_setup_gate(tmp_path, campaign_id)
+        assert derived["next_operation"] is not None, campaign_id
+        assert projection["next_operation"] is not None, campaign_id
+        assert gate is not None, campaign_id
+        assert gate["next_operation"] is not None, campaign_id
+
+
+def test_host_and_browser_share_canonical_recovery_decision(
+    tmp_path: Path, monkeypatch,
+):
+    _resolvable_root(monkeypatch)
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    fixtures = (
+        {
+            "campaign_id": "parity-young",
+            "watch": _aged_pending_watch(age_seconds=5),
+            "operation": "progressive.status",
+            "status": "pending",
+        },
+        {
+            "campaign_id": "parity-queued",
+            "watch": _aged_pending_watch(age_seconds=20),
+            "host_work": {
+                "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+                "job_id": "job-queued",
+                "kind": "partial_opening",
+                "target_id": "opening",
+                "work_level": "bounded_warm",
+                "play_languages": ["zh-Hans"],
+                "dispatch_state": "ready",
+                "dispatch_attempts": 0,
+                "requested_pdf_indices": [0],
+                "cached_scope_complete": True,
+            },
+            "operation": "progressive.status",
+            "status": "pending",
+        },
+        {
+            "campaign_id": "parity-leased",
+            "watch": _aged_pending_watch(age_seconds=180),
+            "host_work": {
+                "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+                "job_id": "job-live",
+                "kind": "partial_opening",
+                "target_id": "opening",
+                "work_level": "bounded_warm",
+                "play_languages": ["zh-Hans"],
+                "dispatch_state": "ready",
+                "dispatch_attempts": 1,
+                "requested_pdf_indices": [0],
+                "cached_scope_complete": True,
+            },
+            "operation": "progressive.status",
+            "status": "pending",
+        },
+        {
+            "campaign_id": "parity-lost",
+            "watch": _aged_pending_watch(age_seconds=6000),
+            "skeleton": {
+                "schema_version": 1,
+                "locations": [
+                    {"location_id": "opening", "title": "The Foyer"},
+                ],
+            },
+            "operation": "progressive.opening_bootstrap",
+            "status": "dispatch_lost",
+        },
+        {
+            "campaign_id": "parity-played",
+            "watch": _aged_pending_watch(age_seconds=6000),
+            "played": True,
+            "operation": None,
+            "status": "lost_after_play",
+        },
+    )
+    for fixture in fixtures:
+        workspace = tmp_path / fixture["campaign_id"]
+        campaign_dir = _write_materialization_campaign(
+            workspace,
+            fixture["campaign_id"],
+            fixture["watch"],
+            skeleton=fixture.get("skeleton"),
+            host_work=fixture.get("host_work"),
+        )
+        if fixture.get("played"):
+            world_path = campaign_dir / "save" / "world-state.json"
+            world = json.loads(world_path.read_text(encoding="utf-8"))
+            world["active_scene_id"] = "opening"
+            _write_json(world_path, world)
+        decision = coc_opening_recovery.recover_materialization_watch(
+            workspace,
+            campaign_dir,
+            watch_status="pending",
+            watch=fixture["watch"],
+            asset_root_id="asset-root-src",
+            module_project=coc_toolbox.coc_module_project,
+        )
+        derived = coc_opening_phase.derive_opening_phase(
+            workspace, fixture["campaign_id"],
+        )
+        projection = coc_opening_phase.opening_phase_projection(
+            workspace, fixture["campaign_id"],
+        )
+        gate = coc_toolbox._pi_opening_setup_gate(
+            workspace, fixture["campaign_id"],
+        )
+        assert decision["operation"] == fixture["operation"], fixture[
+            "campaign_id"
+        ]
+        assert decision["source_lifecycle_status"] == fixture["status"]
+        derived_op = (derived["next_operation"] or {}).get("operation")
+        if derived["next_operation"] is None:
+            derived_op = None
+        assert derived_op == decision["operation"]
+        assert projection["next_operation"] == decision["operation"]
+        assert gate is not None
+        assert gate["source_lifecycle_status"] == decision[
+            "source_lifecycle_status"
+        ]
+        gate_card = gate["next_operation"]
+        if decision["operation"] is None:
+            assert gate_card is None
+            continue
+        assert gate_card["operation"] == decision["operation"]
+        assert gate_card["prefilled_arguments"] == (
+            derived["next_operation"]["arguments"]
+        )
+        encoded = json.dumps(projection, ensure_ascii=False)
+        assert "asset-root-src" not in encoded
+        assert "The Foyer" not in encoded
+        assert "opening_pdf_indices" not in encoded
+
+
+def test_opening_phase_does_not_own_recovery_classification():
+    source = (
+        ROOT / "plugins" / "coc-keeper" / "scripts" / "coc_opening_phase.py"
+    ).read_text(encoding="utf-8")
+    assert "decide_materialization_watch_recovery" in source or (
+        "recover_materialization_watch" in source
+    )
+    assert "_opening_watch_lost_kind" not in source
+    assert "_opening_watch_rearm_bootstrap_card" not in source
+    toolbox = (
+        ROOT / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py"
+    ).read_text(encoding="utf-8")
+    assert "def _opening_watch_lost_kind" not in toolbox
+    assert "recover_materialization_watch" in toolbox
 
 
 # --------------------------------------------------------------------------- #
