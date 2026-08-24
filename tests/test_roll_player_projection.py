@@ -298,6 +298,8 @@ def test_export_hides_npc_target_and_localizes_bout_but_audit_keeps_numbers(tmp_
     assert "- 骰点: 18" in public
     assert "- 骰点: 22" in public
     assert "- 目标值: 50" in public
+    assert "- 对抗: 调查员胜" in public
+    assert public.count("- 对抗:") == 3
     assert "自定义发作" in public
     assert "Bout of Madness" not in public
     audit_rolls = (run / "artifacts" / "audit" / "rolls.jsonl").read_text(encoding="utf-8")
@@ -313,3 +315,221 @@ def test_export_hides_npc_target_and_localizes_bout_but_audit_keeps_numbers(tmp_
     raw_npc = next(row for row in player_records if _payload_roll(row) == 71)
     assert "90" not in json.dumps(npc, ensure_ascii=False)
     assert "99" not in json.dumps(raw_npc, ensure_ascii=False)
+
+
+def test_narration_renders_contest_winner_once_and_hides_npc_target():
+    npc = {
+        **_pc_check(roll=37, target=90, outcome="hard"),
+        "roll_id": "opp-win",
+        "visibility": "public",
+        "opposed_side": "opponent",
+        "subject": {"kind": "opponent"},
+        "contest_winner": "investigator",
+        "skill": "a will that is not his own",
+        "kind": "opposed_check",
+    }
+    npc["player_projection"] = coc_roll.build_player_projection(npc, include_target=False)
+    block = coc_narration.build_rules_owned_public_roll_block(
+        [npc], decision_id="contest-render", play_language="zh-Hans",
+    )
+    assert block["text"].count("对抗：调查员胜") == 1
+    assert block["entries"][0]["contest_winner"] == "investigator"
+    assert "90" not in block["text"]
+    assert "target" not in block["entries"][0]
+
+
+def test_combat_npc_kind_hides_target_pc_shows_target():
+    npc = {
+        **_pc_check(roll=44, target=70, outcome="regular"),
+        "actor_id": "ghoul",
+        "subject": {"kind": "monster", "id": "ghoul"},
+        "skill": "Fighting",
+        "kind": "combat_check",
+        "visibility": "public",
+        "marker": "[roll]ghoul Fighting70:(d100->44)->regular[/roll]",
+    }
+    npc["player_projection"] = coc_roll.build_player_projection(npc)
+    assert npc["player_projection"]["roll"] == 44
+    assert "target" not in npc["player_projection"]
+    assert "marker" not in npc["player_projection"]
+    line = coc_turn._render_public_roll(npc, play_language="zh-Hans")
+    assert "44" in line
+    assert "70" not in line
+    assert "[roll]" not in line
+
+    pc = {
+        **_pc_check(roll=12, target=55, outcome="hard"),
+        "actor_id": "hero",
+        "subject": {"kind": "investigator", "id": "hero"},
+        "skill": "Dodge",
+        "kind": "combat_check",
+        "visibility": "public",
+    }
+    pc["player_projection"] = coc_roll.build_player_projection(pc)
+    pc_line = coc_turn._render_public_roll(pc, play_language="zh-Hans")
+    assert "12" in pc_line
+    assert "55" in pc_line
+
+
+def test_player_view_strips_marker_but_audit_raw_keeps_it():
+    raw = {
+        "skill": "Bout Duration",
+        "kind": "bout_duration_hours",
+        "die_expression": "1D10",
+        "individual_faces": [6],
+        "final_total": 6,
+        "roll": 6,
+        "outcome": "rolled",
+        "subject": {"kind": "investigator", "id": "ada"},
+        "marker": "[die]Bout Duration 1D10:(roll->6)->hours[/die]",
+        "visibility": "consequence_public",
+    }
+    raw["player_projection"] = coc_roll.build_player_projection(raw)
+    view = coc_roll.player_facing_roll_view(raw)
+    assert "marker" not in view
+    assert "marker" not in raw["player_projection"]
+    assert raw["marker"].startswith("[die]Bout Duration")
+    rendered = coc_turn._render_public_roll(raw, play_language="zh-Hans")
+    assert "Bout Duration" not in rendered
+    assert "[die]" not in rendered
+    view["skill"] = "mutated"
+    assert raw["skill"] == "Bout Duration"
+
+
+def test_campaign_override_matches_validation_and_final_render(tmp_path):
+    campaign_dir = tmp_path / "camp"
+    campaign_dir.mkdir()
+    (campaign_dir / "campaign.json").write_text(
+        json.dumps({
+            "campaign_id": "case-1",
+            "play_language": "zh-Hans",
+            "localized_terms": {"zh-Hans": {"Bout Duration": "自定义时长"}},
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    raw = {
+        "roll_id": "bout-override",
+        "skill": "Bout Duration",
+        "kind": "bout_duration_hours",
+        "die_expression": "1D10",
+        "individual_faces": [3],
+        "final_total": 3,
+        "roll": 3,
+        "outcome": "rolled",
+        "visibility": "consequence_public",
+    }
+    bundle = {"public_check": [raw], "state_delta": [], "exceptional_effect": []}
+    validate = coc_turn._campaign_mechanic_source_lines(
+        campaign_dir, bundle, play_language="zh-Hans",
+    )
+    compose = coc_turn._campaign_mechanic_source_lines(
+        campaign_dir, bundle, play_language="zh-Hans",
+    )
+    assert validate == compose
+    line = validate["public_check"]["bout-override"]
+    assert "自定义时长" in line
+    assert "Bout Duration" not in line
+    block = coc_narration.build_rules_owned_public_roll_block(
+        [{
+            **raw,
+            "roll_role": "amount",
+            "rolled_total": 3,
+            "dice": {"expression": "1D10", "raw": [3], "total": 3},
+        }],
+        decision_id="override-narration",
+        play_language="zh-Hans",
+        campaign_dir=campaign_dir,
+    )
+    assert "自定义时长" in block["text"]
+    assert "Bout Duration" not in block["text"]
+
+
+def test_exporter_empty_run_metadata_uses_campaign_safe_fields(tmp_path):
+    module = _load_export()
+    run = tmp_path / "meta-run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_json(run / "run.json", {"note": "not-an-allowed-field"})
+    _write_json(
+        campaign / "campaign.json",
+        {
+            "campaign_id": "case-1",
+            "play_language": "zh-Hans",
+            "keeper_secret": "do-not-project",
+            "status": "active",
+        },
+    )
+    report = module.export_battle_report(run)
+    metadata = report["run_metadata"]
+    assert metadata["campaign_id"] == "case-1"
+    assert metadata["play_language"] == "zh-Hans"
+    assert metadata["status"] == "active"
+    assert "keeper_secret" not in metadata
+    assert "note" not in metadata
+    identity = report.get("source_identity") or {}
+    source = str(identity.get("metadata_source") or "")
+    assert source.endswith("campaign.json") or metadata["campaign_id"] == "case-1"
+
+
+def test_export_player_records_drop_english_marker_audit_keeps_it(tmp_path):
+    module = _load_export()
+    run = tmp_path / "marker-run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    rolls = [
+        {
+            "roll_id": "bout-mark",
+            "actor": "ada",
+            "visibility": "consequence_public",
+            "kind": "bout_duration_hours",
+            "marker": "[die]Bout Duration 1D10:(roll->6)->hours[/die]",
+            "payload": {
+                "roll_id": "bout-mark",
+                "skill": "Bout Duration",
+                "die_expression": "1D10",
+                "roll": 6,
+                "outcome": "rolled",
+                "marker": "[die]Bout Duration 1D10:(roll->6)->hours[/die]",
+                "player_projection": {
+                    "visibility": "consequence_public",
+                    "roll": 6,
+                    "outcome": "rolled",
+                    "skill": "Bout Duration",
+                    "kind": "bout_duration_hours",
+                },
+            },
+        }
+    ]
+    _write_jsonl(campaign / "logs" / "rolls.jsonl", rolls)
+    _bind_rolls(run, "fin-mark", ["bout-mark"])
+    report = module.export_battle_report(run)
+    player = report["public_rolls"]["records"][0]
+    assert "marker" not in player
+    assert "marker" not in (player.get("payload") or {})
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "[die]Bout Duration" not in markdown
+    assert "疯狂发作时长" in markdown or "Bout Duration" in markdown
+    if "## 公开规则与骰点" in markdown:
+        public = markdown.split("## 公开规则与骰点", 1)[1]
+        assert "[die]" not in public.split("## ", 1)[0]
+    audit = (run / "artifacts" / "audit" / "rolls.jsonl").read_text(encoding="utf-8")
+    assert "[die]Bout Duration" in audit
+
+
+def test_first_contact_kind_not_skill_name_controls_public_app():
+    named_only = {
+        **_pc_check(roll=20, target=60, outcome="hard"),
+        "skill": "First Impression",
+        "app": 60,
+        "credit_rating": 40,
+        "governing_attribute": "app",
+        "governing_value": 60,
+    }
+    assert coc_roll.is_first_contact_roll(named_only) is False
+    projection = coc_roll.build_player_projection(named_only)
+    assert "app" not in projection
+    typed = {**named_only, "kind": "npc_first_impression"}
+    assert coc_roll.is_first_contact_roll(typed) is True
+    line = coc_turn._render_public_roll(typed, play_language="zh-Hans")
+    assert "60" in line
+    assert "40" in line

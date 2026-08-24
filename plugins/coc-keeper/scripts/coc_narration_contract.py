@@ -755,11 +755,28 @@ _ZH_ROLL_OUTCOME_LABELS = {
 }
 
 
+def _narration_skill_label(
+    skill: str,
+    play_language: str,
+    vocabulary: dict[str, str],
+) -> str:
+    localized = coc_language.player_facing_skill_label(
+        skill, play_language, terms=vocabulary,
+    )
+    if localized != skill:
+        return localized
+    if play_language == "zh-Hans":
+        return _ZH_ROLL_SKILL_LABELS.get(skill, skill)
+    return skill
+
+
 def build_rules_owned_public_roll_block(
     rule_results: Any,
     *,
     decision_id: str,
     play_language: str = "zh-Hans",
+    terms: dict[str, str] | None = None,
+    campaign_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Render authoritative public dice independently of narrator prose.
 
@@ -767,6 +784,16 @@ def build_rules_owned_public_roll_block(
     outcome semantics but never owns numeric dice rendering, so a raw model
     cannot omit, alter, or duplicate the rules-owned marker.
     """
+    campaign_doc = None
+    if terms is None and campaign_dir is not None:
+        campaign_path = Path(campaign_dir) / "campaign.json"
+        if campaign_path.is_file():
+            campaign_doc = json.loads(campaign_path.read_text(encoding="utf-8"))
+    vocabulary = (
+        terms
+        if terms is not None
+        else coc_language.resolved_localized_terms(play_language, campaign_doc)
+    )
     entries: list[dict[str, Any]] = []
     lines: list[str] = []
     seen_roll_ids: set[str] = set()
@@ -844,8 +871,8 @@ def build_rules_owned_public_roll_block(
                 entry["target_actor_id"] = raw["target_actor_id"]
             raw_faces = "+".join(str(value) for value in dice["raw"]) or "—"
             if play_language == "zh-Hans":
-                display_skill = _ZH_ROLL_SKILL_LABELS.get(skill) or (
-                    coc_language.player_facing_skill_label(skill, play_language)
+                display_skill = _narration_skill_label(
+                    skill, play_language, vocabulary,
                 )
                 lines.append(
                     f"【明骰】{display_skill} ({dice['expression']})："
@@ -893,9 +920,16 @@ def build_rules_owned_public_roll_block(
                     else f"bonus/penalty dice {raw.get('bonus_penalty_dice')}"
                 )
             )
+        contest_winner = view.get("contest_winner", raw.get("contest_winner"))
+        contest_label = coc_roll.player_facing_contest_label(
+            contest_winner, play_language,
+        )
+        if contest_winner not in (None, ""):
+            entry["contest_winner"] = contest_winner
         if play_language == "zh-Hans":
-            display_skill = _ZH_ROLL_SKILL_LABELS.get(skill) or (
-                coc_language.player_facing_skill_label(skill, play_language)
+            contest_text = f"；对抗：{contest_label}" if contest_label else ""
+            display_skill = _narration_skill_label(
+                skill, play_language, vocabulary,
             )
             display_skill_or_die = (
                 f"{display_skill} ({die})" if die and die != skill else display_skill
@@ -924,17 +958,18 @@ def build_rules_owned_public_roll_block(
                 lines.append(
                     f"【明骰】{display_skill_or_die}：原始 {raw['original_roll']} "
                     f"→ 幸运-{raw['luck_spent']} → 调整 {raw['adjusted_roll']}"
-                    f"{target_text}{difficulty_text} → {display_outcome}。"
+                    f"{target_text}{difficulty_text} → {display_outcome}{contest_text}。"
                     f"【来源：{entry['source_ref']}】"
                 )
             else:
                 lines.append(
                     f"【明骰】{pushed_text}{display_skill_or_die}：{raw.get('roll')}"
                     f"{target_text}{difficulty_text} → {display_outcome}{detail_text}"
-                    f"{consequence_text}。"
+                    f"{consequence_text}{contest_text}。"
                     f"【来源：{entry['source_ref']}】"
                 )
         else:
+            contest_text = f"; contest: {contest_label}" if contest_label else ""
             target_text = f" / target {target}" if target is not None else ""
             difficulty_text = f" ({difficulty})" if difficulty is not None else ""
             detail_text = f"; {'; '.join(dice_details)}" if dice_details else ""
@@ -957,13 +992,13 @@ def build_rules_owned_public_roll_block(
                 lines.append(
                     f"[Public roll] {skill_or_die}: raw {raw['original_roll']} "
                     f"-> Luck -{raw['luck_spent']} -> adjusted {raw['adjusted_roll']}"
-                    f"{target_text}{difficulty_text} -> {outcome}. "
+                    f"{target_text}{difficulty_text} -> {outcome}{contest_text}. "
                     f"[Source: {entry['source_ref']}]"
                 )
             else:
                 lines.append(
                     f"[Public roll]{pushed_text} {skill_or_die}: {raw.get('roll')}{target_text}{difficulty_text} "
-                    f"-> {outcome}{detail_text}{consequence_text}. "
+                    f"-> {outcome}{detail_text}{consequence_text}{contest_text}. "
                     f"[Source: {entry['source_ref']}]"
                 )
         if fumble_summary:

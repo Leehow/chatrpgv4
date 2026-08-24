@@ -2936,6 +2936,20 @@ def _mechanic_source_lines(
     return sources
 
 
+def _campaign_mechanic_source_lines(
+    campaign_dir: Path,
+    bundle: dict[str, Any],
+    *,
+    play_language: str | None = None,
+) -> dict[str, dict[str, str]]:
+    language = play_language or _campaign_play_language(campaign_dir)
+    return _mechanic_source_lines(
+        bundle,
+        play_language=language,
+        terms=_campaign_player_terms(campaign_dir, language),
+    )
+
+
 def _reject_mechanics_in_draft(
     draft: str,
     sources: dict[str, dict[str, str]],
@@ -3597,7 +3611,9 @@ def collect_finalize_violations(
         violations.append({"stage": "draft", "code": exc.code, "message": str(exc)})
     play_language = _campaign_play_language(campaign_dir)
     bundle = context["mechanics_bundle"]
-    sources = _mechanic_source_lines(bundle, play_language=play_language)
+    sources = _campaign_mechanic_source_lines(
+        campaign_dir, bundle, play_language=play_language,
+    )
     violations.extend(_collect_mechanics_in_draft(draft, sources))
     normalized_placements: list[dict[str, Any]] = []
     if paragraphs is not None:
@@ -3633,14 +3649,18 @@ def compose_segments(
     campaign_dir: Path | None = None,
 ) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
     paragraphs = _draft_paragraphs(draft)
-    language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
+    language = play_language or (
+        _campaign_play_language(campaign_dir)
+        if campaign_dir is not None
+        else coc_language.DEFAULT_PLAY_LANGUAGE
+    )
     terms = (
         _campaign_player_terms(campaign_dir, language)
         if campaign_dir is not None
         else coc_language.resolved_localized_terms(language)
     )
     sources = _mechanic_source_lines(
-        bundle, play_language=language, terms=terms
+        bundle, play_language=language, terms=terms,
     )
     _reject_mechanics_in_draft(draft, sources)
     requested_placements = mechanics_placements

@@ -119,6 +119,32 @@ def test_combat_bonus_metadata_materializes_00_before_candidate_selection(
     assert record["surplus_levels"] == 0
 
 
+def test_combat_percentile_stamps_subject_and_player_projection(monkeypatch):
+    session = _make_session()
+
+    def percentile_check(target, difficulty="regular", **_kwargs):
+        return {
+            **coc_combat.coc_roll.resolve_percentile_roll(40, target, difficulty),
+            "roll": 40,
+            "bonus": 0,
+            "penalty": 0,
+            "tens_values": [],
+            "units": None,
+        }
+
+    monkeypatch.setattr(coc_combat.coc_roll, "percentile_check", percentile_check)
+    _, hero = session._percentile("hero", "Dodge", 55, "avoid", bonus=0)
+    _, ghoul = session._percentile("ghoul", "Fighting", 70, "claw", bonus=0)
+    assert hero["subject"] == {"kind": "investigator", "id": "hero"}
+    assert hero["player_projection"]["target"] == 55
+    assert "marker" not in hero["player_projection"]
+    assert "[roll]" in hero["marker"]
+    assert ghoul["subject"] == {"kind": "monster", "id": "ghoul"}
+    assert "target" not in ghoul["player_projection"]
+    assert ghoul["base_target"] == 70
+    assert "70" not in json.dumps(ghoul["player_projection"])
+
+
 @pytest.mark.parametrize(
     ("roll", "required_level", "achieved_level", "passed", "outcome"),
     [
