@@ -2607,9 +2607,11 @@ def _project_investigator_contract(data: Any) -> Any:
     """Keep the create payload schema core under the hot transport budget.
 
     The full investigator contract is archived via ``full_result_sha256``.
-    Adaptive results also carry the unused Quick Fire sheet/catalog bulk that
-    pushes the complete envelope past 16 KiB; without a typed projector the
-    host collapses to identity-only and the KP loses ``payload_schema``.
+    Both Quick Fire and adaptive full envelopes can exceed 16 KiB; without a
+    typed projector the host collapses to identity-only and the KP loses
+    ``payload_schema``. Only this hot copy may drop unused opposite-branch
+    defs, catalog rows the active route does not use, and schema
+    description/examples/default prose already represented structurally.
     """
     if not isinstance(data, dict):
         return {}
@@ -2629,17 +2631,9 @@ def _project_investigator_contract(data: Any) -> Any:
     ):
         return projected
 
-    # 1920s Quick Fire already fits the hot budget with the full archive shape
-    # (both create branches + skill catalog rows). Keep that byte-stable and
-    # only slim the adaptive route that otherwise identity-collapses.
-    if input_mode == _GUIDED_QUICK_FIRE_INPUT_MODE:
-        return projected
-
-    # The adaptive branch owns custom era creation, while the pre-existing
-    # complete-sheet branch owns source-backed L0 preset investigators. Keep
-    # both typed routes visible: a preset must never be coerced into an
-    # invented KP-guided Luck roll merely because the campaign era lacks the
-    # package's standard Quick Fire sheet.
+    # Keep the applicable guided branch plus complete-sheet import. A preset
+    # must never be coerced into an invented guided Luck roll merely because
+    # the campaign era lacks the package's standard Quick Fire sheet.
     selected_modes = {input_mode, "import_complete_sheet"}
     selected = [
         deepcopy(branch)
@@ -2658,17 +2652,17 @@ def _project_investigator_contract(data: Any) -> Any:
     for key in drop_keys:
         definitions.pop(key, None)
 
-    # Quick Fire skill rows are construction data only for that route. Adaptive
-    # create uses base skills + provenance; keep catalog metadata only.
-    catalog = result.get("guided_quick_fire_skill_catalog")
-    if isinstance(catalog, dict):
-        result["guided_quick_fire_skill_catalog"] = {
-            key: deepcopy(value)
-            for key, value in catalog.items()
-            if key != "rows"
-        }
+    # Quick Fire skill rows are the only actionable catalog. Adaptive create
+    # uses base skills + provenance, so drop the unused 1920s row dump.
+    if input_mode != _GUIDED_QUICK_FIRE_INPUT_MODE:
+        catalog = result.get("guided_quick_fire_skill_catalog")
+        if isinstance(catalog, dict):
+            result["guided_quick_fire_skill_catalog"] = {
+                key: deepcopy(value)
+                for key, value in catalog.items()
+                if key != "rows"
+            }
 
-    # Drop prose annotations from the remaining structural schema.
     result["payload_schema"] = _without_schema_annotations(schema)
     return projected
 

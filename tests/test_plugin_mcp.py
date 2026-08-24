@@ -1047,8 +1047,15 @@ def test_investigator_contract_discovery_exposes_only_campaign_identity(tmp_path
         },
     )
     assert queried["ok"] is True, queried
-    assert queried["data"]["result"]["ruleset_id"] == "coc7"
-    assert queried["data"]["result"]["payload_schema"]["oneOf"]
+    assert queried["wire"].get("identity_only") is not True
+    assert queried["wire"]["measured_inline_bytes"] <= queried["wire"][
+        "max_inline_bytes"
+    ]
+    result = queried["data"]["result"]
+    assert result["ruleset_id"] == "coc7"
+    assert result["campaign_binding"]["campaign_id"] == "contract-discovery"
+    assert result["payload_schema"]["oneOf"]
+    assert "quick_fire_sheet" in result["payload_schema"]["$defs"]
 
 
 def test_source_facts_discovery_is_closed_typed_and_delegates_canonically(
