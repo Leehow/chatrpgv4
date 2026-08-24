@@ -1729,7 +1729,23 @@ def test_finalize_collects_all_violations_and_validate_only_preflight(
         revision=1,
         narration_review=None,
         agency_claims=[],
+        campaign_dir=campaign_dir,
     )
+    replayed = call(
+        "turn.finalize",
+        {
+            "draft": draft,
+            "coverage": good_coverage,
+            "mechanics_placements": valid_placements,
+            "revision": 1,
+            "decision_id": "collect-final",
+        },
+    )
+    assert replayed["data"]["finalization_id"] == finalized["data"]["finalization_id"]
+    assert replayed["data"]["rendered_text"] == finalized["data"]["rendered_text"]
+    assert replayed["data"]["rendered_text_sha256"] == finalized["data"][
+        "rendered_text_sha256"
+    ]
 
 
 def test_first_impression_line_and_fiction_localize_english_names() -> None:

@@ -31945,6 +31945,7 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
             revision=revision,
             narration_review=narration_review,
             agency_claims=agency_claims,
+            campaign_dir=ctx.campaign_dir,
         ):
             raise ToolError(
                 "revision_conflict",
