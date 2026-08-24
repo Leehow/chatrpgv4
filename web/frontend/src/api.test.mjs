@@ -125,6 +125,63 @@ test("streamTurn resolves at the explicit end frame before a later reader failur
   }
 });
 
+test("streamTurn surfaces a non-2xx transition conflict without streaming", async () => {
+  const originalFetch = globalThis.fetch;
+  const errors = [];
+  const deltas = [];
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    error: "战役正在从建卡会话切换到开桌会话，请稍候。",
+    code: "session_transitioning",
+  }), { status: 409, headers: { "Content-Type": "application/json" } });
+  try {
+    await assert.rejects(
+      () => streamTurn(
+        "sid-409",
+        "我叫艾伦",
+        "p",
+        "m",
+        "off",
+        undefined,
+        {
+          onError: (message) => errors.push(message),
+          onDelta: (delta) => deltas.push(delta),
+          onTurn: () => {
+            throw new Error("should not settle a rejected turn");
+          },
+        },
+      ),
+      /战役正在从建卡会话切换到开桌会话/,
+    );
+    assert.deepEqual(errors, ["战役正在从建卡会话切换到开桌会话，请稍候。"]);
+    assert.deepEqual(deltas, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamTurn uses a zh-Hans fallback when a non-2xx body has no error", async () => {
+  const originalFetch = globalThis.fetch;
+  const errors = [];
+  globalThis.fetch = async () => new Response("", { status: 500 });
+  try {
+    await assert.rejects(
+      () => streamTurn(
+        "sid-500",
+        "我叫艾伦",
+        "p",
+        "m",
+        "off",
+        undefined,
+        { onError: (message) => errors.push(message) },
+      ),
+      /发送失败（HTTP 500）/,
+    );
+    assert.deepEqual(errors, ["发送失败（HTTP 500）"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("streamTurn rejects a typed error observed before the explicit end frame", async () => {
   const originalFetch = globalThis.fetch;
   const errors = [];

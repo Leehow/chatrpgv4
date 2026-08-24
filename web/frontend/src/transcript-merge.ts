@@ -212,3 +212,43 @@ export function applySettledKeeperMessage(
   }
   return next;
 }
+
+function normalizedText(value: string): string {
+  return value.replace(/\r\n/g, "\n");
+}
+
+function isOptimisticSubmittedRow(
+  row: ChatMessage | undefined,
+  submittedText: string,
+): boolean {
+  if (!row) return false;
+  if (row.kind === "player") {
+    return (
+      normalizedText(row.text) === normalizedText(submittedText)
+      && row.entryId == null
+      && row.turn == null
+    );
+  }
+  return row.kind === "note" && submittedText.startsWith("【建卡构想提交】");
+}
+
+/** Drop an optimistic player/empty-keeper pair that never became a canonical turn. */
+export function rejectUnsentTurn(
+  messages: ChatMessage[],
+  submittedText: string,
+): { messages: ChatMessage[]; recovered: boolean } {
+  if (messages.length === 0) return { messages, recovered: false };
+  const next = messages.slice();
+  const last = next[next.length - 1];
+  if (last?.kind === "keeper") {
+    const hasBody = Boolean((last.text || "").trim() || last.contentBlocks?.length);
+    if (hasBody) return { messages, recovered: false };
+    next.pop();
+  }
+  const pending = next[next.length - 1];
+  if (isOptimisticSubmittedRow(pending, submittedText)) {
+    next.pop();
+    return { messages: next, recovered: true };
+  }
+  return { messages: next, recovered: false };
+}

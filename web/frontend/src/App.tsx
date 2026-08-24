@@ -45,6 +45,7 @@ import {
   shouldUploadLayoutFallback,
 } from "./sidebar-layout";
 import { appendHandoutPresentation } from "./handout-presentation";
+import { rejectUnsentTurn } from "./transcript-merge";
 import type {
   BootstrapResult,
   ChatMessage,
@@ -1147,9 +1148,9 @@ export default function App() {
   }, [applyGameState, session, transition.phase]);
 
   const send = useCallback(
-    async (text: string, playerIntent?: PlayerIntent) => {
+    async (text: string, playerIntent?: PlayerIntent): Promise<boolean | void> => {
       const active = session;
-      if (!active || busy || !text.trim() || transition.phase !== "idle") return;
+      if (!active || busy || !text.trim() || transition.phase !== "idle") return false;
       const messageToken = {
         campaignId: active.campaign_id,
         generation: messageOwnerRef.current.generation,
@@ -1158,7 +1159,7 @@ export default function App() {
         messageOwnerRef.current,
         messageToken,
       );
-      if (!ownsMessages()) return;
+      if (!ownsMessages()) return false;
       setBusy(true);
       setError(null);
       setToolSteps([]);
@@ -1350,12 +1351,18 @@ export default function App() {
       );
       if (streamError !== null) {
         if (turnAbortRef.current === controller) turnAbortRef.current = null;
-        if (!ownsMessages()) return;
+        if (!ownsMessages()) return false;
+        let recovered = false;
+        setMessages((prev) => {
+          const result = rejectUnsentTurn(prev, text);
+          recovered = result.recovered;
+          return result.messages;
+        });
         setError(friendlyError(
           streamError instanceof Error ? streamError.message : String(streamError),
         ));
         setBusy(false);
-        return;
+        return recovered ? false : undefined;
       }
       if (!ownsMessages()) return;
       const stopped = controller.signal.aborted;

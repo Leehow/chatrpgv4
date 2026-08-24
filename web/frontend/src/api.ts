@@ -554,12 +554,12 @@ export async function streamTurn(
     throw new Error(message);
   }
   if (!resp.ok || !resp.body) {
-    let message = `HTTP ${resp.status}`;
+    let message = `发送失败（HTTP ${resp.status}）`;
     try {
       const data = await resp.json();
       if (data && data.error) message = String(data.error);
     } catch {
-      /* keep HTTP status */
+      /* keep localized HTTP status */
     }
     handlers.onError?.(message);
     throw new Error(message);

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   applySettledKeeperMessage,
   mergeTranscriptMessages,
+  rejectUnsentTurn,
   shouldAttachHostOpening,
 } from "./transcript-merge.ts";
 
@@ -378,4 +379,53 @@ test("empty or chrome first hydrate applies and skips opening attach", () => {
     shouldAttachHostOpening(true, true, [{ role: "player", text: "你好" }]),
     true,
   );
+});
+
+test("rejectUnsentTurn rolls back an optimistic player and empty keeper", () => {
+  const history = [
+    { kind: "keeper", text: "请先自报姓名。" },
+    { kind: "player", text: "我叫艾伦" },
+    { kind: "keeper", text: "", streaming: true },
+  ];
+  const result = rejectUnsentTurn(history, "我叫艾伦");
+  assert.equal(result.recovered, true);
+  assert.deepEqual(result.messages, [{ kind: "keeper", text: "请先自报姓名。" }]);
+});
+
+test("rejectUnsentTurn recovers after onError already dropped the empty keeper", () => {
+  const history = [
+    { kind: "keeper", text: "请先自报姓名。" },
+    { kind: "player", text: "我叫艾伦" },
+  ];
+  const result = rejectUnsentTurn(history, "我叫艾伦");
+  assert.equal(result.recovered, true);
+  assert.deepEqual(result.messages, [{ kind: "keeper", text: "请先自报姓名。" }]);
+});
+
+test("rejectUnsentTurn keeps a partial streamed turn and does not recover the composer", () => {
+  const history = [
+    { kind: "player", text: "我检查门锁" },
+    { kind: "keeper", text: "你走近门边", streaming: true },
+  ];
+  const result = rejectUnsentTurn(history, "我检查门锁");
+  assert.equal(result.recovered, false);
+  assert.equal(result.messages, history);
+});
+
+test("rejectUnsentTurn does not drop a canonical player or a different draft", () => {
+  const canonical = [
+    { kind: "player", text: "我叫艾伦", turn: 2, entryId: "p-2" },
+    { kind: "keeper", text: "", streaming: true },
+  ];
+  const keptCanonical = rejectUnsentTurn(canonical, "我叫艾伦");
+  assert.equal(keptCanonical.recovered, false);
+  assert.deepEqual(keptCanonical.messages, [{ kind: "player", text: "我叫艾伦", turn: 2, entryId: "p-2" }]);
+
+  const otherDraft = [
+    { kind: "player", text: "先问" },
+    { kind: "keeper", text: "", streaming: true },
+  ];
+  const keptOther = rejectUnsentTurn(otherDraft, "我叫艾伦");
+  assert.equal(keptOther.recovered, false);
+  assert.deepEqual(keptOther.messages, [{ kind: "player", text: "先问" }]);
 });

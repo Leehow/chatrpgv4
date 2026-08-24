@@ -77,7 +77,7 @@ interface Props {
   onImportPdf?: (file: File) => void;
   /** Opens the in-app 编辑模型 overlay. */
   onConfigureModels?: () => void;
-  onSend: (text: string, playerIntent?: PlayerIntent) => void;
+  onSend: (text: string, playerIntent?: PlayerIntent) => void | boolean | Promise<void | boolean>;
   /** Abort the in-flight turn stream (the turn still settles server-side). */
   onStop: () => void;
   /** Composer toolbar pickers (live in App so the topbar and composer agree). */
@@ -1321,7 +1321,11 @@ export function Chat({
     if (!text || busy || !connected || handoffLocked) return;
     setDraft("");
     nearBottomRef.current = true;
-    onSend(text);
+    void Promise.resolve(onSend(text)).then((accepted) => {
+      if (accepted === false) {
+        setDraft((current) => current || text);
+      }
+    });
   };
 
   const choices = pendingChoice?.options ?? [];
