@@ -90,6 +90,38 @@ def test_every_exact_weapon_catalog_skill_has_a_localized_table_label(
         ) != skill
 
 
+@pytest.mark.parametrize(
+    "language,key,expected",
+    (
+        ("zh-Hans", "Bout Duration", "疯狂发作时长"),
+        ("zh-Hans", "Bout of Madness", "疯狂发作"),
+        ("zh-Hans", "Bout Duration (rounds)", "疯狂发作时长（轮）"),
+        ("zh-Hans", "Luck", "幸运"),
+        ("ja-JP", "Bout Duration", "狂気発作の持続"),
+        ("ja-JP", "Bout of Madness", "狂気発作"),
+        ("ja-JP", "Bout Duration (rounds)", "狂気発作の持続（ラウンド）"),
+        ("ja-JP", "Luck", "幸運"),
+        ("en-US", "Bout Duration", "Bout Duration"),
+        ("en-US", "Bout of Madness", "Bout of Madness"),
+        ("en-US", "Bout Duration (rounds)", "Bout Duration (rounds)"),
+        ("en-US", "Luck", "Luck"),
+    ),
+)
+def test_bout_and_luck_labels_follow_play_language(language, key, expected):
+    terms = coc_language.resolved_localized_terms(language)
+    assert coc_language.player_facing_skill_label(key, language, terms=terms) == expected
+
+
+def test_campaign_override_wins_for_bout_label():
+    terms = coc_language.resolved_localized_terms(
+        "zh-Hans",
+        {"localized_terms": {"zh-Hans": {"Bout of Madness": "自定义发作"}}},
+    )
+    assert coc_language.player_facing_skill_label(
+        "Bout of Madness", "zh-Hans", terms=terms
+    ) == "自定义发作"
+
+
 def test_five_band_thresholds_match_rulebook():
     assert coc_language.LANGUAGE_ABILITY_THRESHOLDS == {
         "identify": 5,

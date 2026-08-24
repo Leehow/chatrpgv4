@@ -10042,7 +10042,17 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
         "opponent_roll": theirs,
         "winner": winner,
     }
-    mine_payload = {**mine, "skill": label, "reason": args.get("reason"), "opposed_side": "investigator"}
+    mine_payload = {
+        **mine,
+        "skill": label,
+        "reason": args.get("reason"),
+        "opposed_side": "investigator",
+        "subject": {"kind": "investigator", "id": investigator_id},
+        "contest_winner": winner,
+    }
+    mine_payload["player_projection"] = coc_roll.build_player_projection(
+        mine_payload, include_target=True
+    )
     mine_record = ctx.log_roll({
         "event_type": "roll", "kind": "opposed_check", "actor": investigator_id,
         "visibility": "public", "payload": mine_payload, **mine_payload,
@@ -10053,7 +10063,12 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
         "skill": opponent_label,
         "reason": args.get("reason"),
         "opposed_side": "opponent",
+        "subject": {"kind": "opponent"},
+        "contest_winner": winner,
     }
+    their_payload["player_projection"] = coc_roll.build_player_projection(
+        their_payload, include_target=False
+    )
     their_record = ctx.log_roll({
         "event_type": "roll", "kind": "opposed_check", "actor": opponent_label,
         "visibility": "public", "payload": their_payload, **their_payload,

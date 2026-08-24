@@ -66,6 +66,10 @@
     "EDU": "教育",
     "SAN": "理智",
     "LUCK": "幸运",
+    "Luck": "幸运",
+    "Bout Duration": "疯狂发作时长",
+    "Bout of Madness": "疯狂发作",
+    "Bout Duration (rounds)": "疯狂发作时长（轮）",
     "Thomas Hayes": "托马斯·海斯",
     "Eleanor Reed": "埃莉诺·里德",
     "Steven Knott": "史蒂文·诺特",
@@ -120,6 +124,10 @@
     "Firearms (Submachine Gun)": "射撃（サブマシンガン）",
     "Firearms (handgun)": "射撃（拳銃）",
     "Firearms (rifle)": "射撃（ライフル）",
-    "Throw": "投擲"
+    "Throw": "投擲",
+    "Luck": "幸運",
+    "Bout Duration": "狂気発作の持続",
+    "Bout of Madness": "狂気発作",
+    "Bout Duration (rounds)": "狂気発作の持続（ラウンド）"
   }
 }
