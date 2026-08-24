@@ -1314,6 +1314,7 @@ def _run_one_turn(
         rule_results,
         decision_id=decision_id,
         play_language=play_language,
+        campaign_dir=campaign_dir,
     )
     # R-2 / envelope grounding: player-safe clue bodies, settled rule results,
     # scene sensory anchors, and NPC dialogue seeds — never keeper secret prose.
@@ -2006,6 +2007,7 @@ def _run_pending_choice_response(
         rule_results,
         decision_id=decision_id,
         play_language=play_language,
+        campaign_dir=campaign,
     )
     narration_envelope = narration_contract.build_narration_envelope(
         resolved_plan,

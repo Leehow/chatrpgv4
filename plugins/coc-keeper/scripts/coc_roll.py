@@ -495,9 +495,9 @@ def format_percentile_result(
 
 PLAYER_PROJECTION_KEY = "player_projection"
 _FIRST_CONTACT_KINDS = frozenset({"npc_first_impression"})
-_FIRST_CONTACT_SKILLS = frozenset({"First Impression", "初印象"})
-_NPC_SUBJECT_KINDS = frozenset({"opponent", "npc", "threat"})
+_NPC_SUBJECT_KINDS = frozenset({"opponent", "npc", "threat", "monster"})
 _PC_SUBJECT_KINDS = frozenset({"investigator", "pc"})
+AUDIT_ONLY_KEYS = frozenset({"marker"})
 SECRET_TARGET_KEYS = frozenset({
     "base_target",
     "required_target",
@@ -572,9 +572,11 @@ def _exact_projection_int(value: Any) -> bool:
 def is_first_contact_roll(raw: dict[str, Any] | None) -> bool:
     if not isinstance(raw, dict):
         return False
-    kind = str(raw.get("kind") or "")
-    skill = str(raw.get("skill") or raw.get("display_skill") or "")
-    return kind in _FIRST_CONTACT_KINDS or skill in _FIRST_CONTACT_SKILLS
+    return str(raw.get("kind") or "") in _FIRST_CONTACT_KINDS
+
+
+def _without_audit_blobs(data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if key not in AUDIT_ONLY_KEYS}
 
 
 def roll_subject_kind(raw: dict[str, Any] | None) -> str | None:
@@ -644,7 +646,7 @@ def build_player_projection(
         for key, value in extra.items():
             if value is not None:
                 view[key] = value
-    return view
+    return _without_audit_blobs(view)
 
 
 def player_facing_roll_view(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -658,7 +660,7 @@ def player_facing_roll_view(raw: dict[str, Any] | None) -> dict[str, Any]:
         return {}
     projection = raw.get(PLAYER_PROJECTION_KEY)
     if isinstance(projection, dict) and projection:
-        view = dict(projection)
+        view = _without_audit_blobs(dict(projection))
         for key in (
             "display_skill",
             "skill",
@@ -674,23 +676,32 @@ def player_facing_roll_view(raw: dict[str, Any] | None) -> dict[str, Any]:
             for key in _FIRST_CONTACT_PUBLIC_KEYS:
                 if key not in view and key in raw:
                     view[key] = raw[key]
-        return view
+        return _without_audit_blobs(view)
     if hides_secret_characteristic_target(raw):
         return {
             key: value
             for key, value in raw.items()
-            if key not in SECRET_TARGET_KEYS
+            if key not in SECRET_TARGET_KEYS and key not in AUDIT_ONLY_KEYS
         }
-    return raw
+    return _without_audit_blobs(dict(raw))
 
 
-def _contest_clause(winner: Any, language: str) -> str:
+def player_facing_contest_label(winner: Any, language: str) -> str:
     if winner in (None, ""):
         return ""
     key = str(winner)
-    if language == "zh-Hans":
-        return f"；对抗：{_CONTEST_LABELS_ZH.get(key, key)}"
-    return f"; contest: {_CONTEST_LABELS_EN.get(key, key)}"
+    if language == "zh-Hans" or str(language).startswith("zh"):
+        return _CONTEST_LABELS_ZH.get(key, key)
+    return _CONTEST_LABELS_EN.get(key, key)
+
+
+def _contest_clause(winner: Any, language: str) -> str:
+    label = player_facing_contest_label(winner, language)
+    if not label:
+        return ""
+    if language == "zh-Hans" or str(language).startswith("zh"):
+        return f"；对抗：{label}"
+    return f"; contest: {label}"
 
 
 def format_player_facing_percentile(

@@ -930,7 +930,12 @@ class CombatSession:
             "ranged": ranged,
             "marker": f"[roll]{actor_id} {skill}{target}{mod_str}:(d100->{res['roll']})->{res['outcome']}[/roll]",
         }
+        participant = self.participants.get(actor_id)
+        side = participant.get("side") if isinstance(participant, dict) else None
+        if side in VALID_SIDES:
+            record["subject"] = {"kind": side, "id": actor_id}
         self._stamp_skill_ownership(record, actor_id=actor_id, weapon=None)
+        record["player_projection"] = coc_roll.build_player_projection(record)
         self.pending_rolls.append(record)
         return res["outcome"], record
 
@@ -1017,6 +1022,7 @@ class CombatSession:
             record[field] = adjusted[field]
         record["improvement_tick_eligible"] = False
         record["rule_ref"] = "core.optional.spending_luck"
+        record["player_projection"] = coc_roll.build_player_projection(record)
         record["marker"] = (
             f"[roll]{record['actor_id']} {record['skill']}{record['target']}:"
             f"(d100->{original_roll}; Luck-{points}->{record['adjusted_roll']})"

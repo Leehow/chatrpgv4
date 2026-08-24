@@ -777,6 +777,15 @@ def _project_public_roll_record(row: dict[str, Any]) -> dict[str, Any]:
     for key in roll_api.SECRET_TARGET_KEYS:
         if key not in view:
             projected.pop(key, None)
+    for key in roll_api.AUDIT_ONLY_KEYS:
+        projected.pop(key, None)
+        if isinstance(projected.get("payload"), dict):
+            projected["payload"].pop(key, None)
+        projection = projected.get("payload", {}).get("player_projection") if isinstance(projected.get("payload"), dict) else None
+        if isinstance(projection, dict):
+            projection.pop(key, None)
+        if isinstance(projected.get("player_projection"), dict):
+            projected["player_projection"].pop(key, None)
     return projected
 
 
@@ -1261,14 +1270,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             extra_terms = campaign_json.get("localized_terms")
             if isinstance(extra_terms, dict):
                 campaign_localized_terms = extra_terms
-            if not metadata.get("play_language"):
-                play_language = campaign_json.get("play_language")
-                if isinstance(play_language, str) and play_language.strip():
-                    metadata["play_language"] = play_language
             if not metadata:
                 metadata_source = campaign_json_relative
                 raw_metadata = campaign_json
                 metadata = _safe_metadata(campaign_json)
+            if not metadata.get("play_language"):
+                play_language = campaign_json.get("play_language")
+                if isinstance(play_language, str) and play_language.strip():
+                    metadata["play_language"] = play_language
 
     canonical_identity, run_identity_findings, identity_evidence = (
         _resolve_canonical_run_identity(run_dir, campaign_relative, metadata)
@@ -3062,6 +3071,7 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "- Target:": "- 目标值:",
         "- Difficulty:": "- 难度:",
         "- Outcome:": "- 结果:",
+        "- Contest:": "- 对抗:",
         "- Visibility:": "- 可见性:",
         "- Source:": "- 来源:",
         "- Dialogue turns:": "- 对话轮次:",
@@ -3603,6 +3613,17 @@ def _markdown(report: dict[str, Any]) -> str:
                     _first(payload, ("outcome", "success_level")),
                     _first(roll, ("outcome", "success_level")),
                 ),
+            ),
+            (
+                "Contest",
+                _roll_api().player_facing_contest_label(
+                    _first_not_none(
+                        _first(roll_view, ("contest_winner",)),
+                        _first(payload, ("contest_winner",)),
+                        _first(roll, ("contest_winner",)),
+                    ),
+                    play_language,
+                ) or None,
             ),
             ("Visibility", _roll_visibility(roll)),
         )
