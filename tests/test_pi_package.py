@@ -184,6 +184,18 @@ console.log(JSON.stringify({
     }
 
 
+def test_operation_policy_handwritten_adapter_contains_no_operation_facts():
+    adapter = (PLUGIN / "pi/lib/operation-policy.ts").read_text(encoding="utf-8")
+    generated = (
+        PLUGIN / "pi/lib/operation-policy.generated.ts"
+    ).read_text(encoding="utf-8")
+    assert 'from "./operation-policy.generated.ts"' in adapter
+    assert '"actions.advise"' not in adapter
+    assert '"turn.finalize"' not in adapter
+    assert '"actions.advise"' in generated
+    assert '"turn.finalize"' in generated
+
+
 def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "@chatrpg/coc-keeper-pi"

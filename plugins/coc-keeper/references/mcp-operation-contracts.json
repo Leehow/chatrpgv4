@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:9338cb30f8147deb032ef556a218016f704962979ea83ccf9f5f3f2fa4110f30",
+  "content_sha256": "sha256:5f4916fb3b22a9656c0ae0f99c910872eee968b8f38aa22138d21e5c651ceed5",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -21,6 +21,7 @@
       "access": "mutation",
       "canonical_operation": "actions.advise",
       "description": "Contextual authored-route and roll advice for one KP-interpreted player action. Read-only; direct delivery, Push, retry, and narrative suggestions are all soft and never force or block play. Canonical operation `actions.advise`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -139,6 +140,7 @@
       "access": "mutation",
       "canonical_operation": "actions.list",
       "description": "Authored affordances of the current scene with roll gates and precondition status (informational, not blocking). Canonical operation `actions.list`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -174,6 +176,7 @@
       "access": "mutation",
       "canonical_operation": "chase.context",
       "description": "Read the current canonical ChaseSession snapshot and unresolved subsystem choices. Canonical operation `chase.context`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -208,6 +211,7 @@
       "access": "mutation",
       "canonical_operation": "chase.execute",
       "description": "Execute one exact command through the existing full ChaseSession subsystem. No fixed chase workflow is imposed by the toolbox. Canonical operation `chase.execute`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -260,6 +264,7 @@
       "access": "query",
       "canonical_operation": "clues.query",
       "description": "Clue graph with discovery state, plus the campaign's registered handout cards with delivery state. Filter clues by scene_id or clue_id. Undiscovered clues are keeper secrets; undelivered card bodies are keeper-only until state.deliver_handout. Canonical operation `clues.query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -319,6 +324,7 @@
       "access": "mutation",
       "canonical_operation": "combat.context",
       "description": "Read the canonical combat snapshot, initiative cursor, and pending defense choice. Canonical operation `combat.context`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -353,6 +359,7 @@
       "access": "mutation",
       "canonical_operation": "combat.end",
       "description": "Finalize the current CombatSession and emit the canonical combat_ended receipt. Canonical operation `combat.end`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -400,6 +407,7 @@
       "access": "mutation",
       "canonical_operation": "combat.resolve",
       "description": "Execute one authored or KP-selected combat beat. Required for every player attack, shot, Dodge, or Fight Back. Never substitute rules.roll or unrolled hit/damage prose. weapon_id may be catalog id or inventory item_id; skill is taken from the owned weapon + sheet. Without a present target_npc_id or combat affordance, fail closed — do not narrate a hit. Canonical operation `combat.resolve`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -470,6 +478,7 @@
       "access": "mutation",
       "canonical_operation": "development.settle",
       "description": "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine. Canonical operation `development.settle`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -520,6 +529,7 @@
       "access": "mutation",
       "canonical_operation": "director.advise",
       "description": "Build the existing rich Director context and candidate plan from structured KP intent evidence. Advice only; never applies state or forces narration. Canonical operation `director.advise`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -576,6 +586,7 @@
       "access": "mutation",
       "canonical_operation": "epistemic.query",
       "description": "Read compiled open questions, belief state, and structured lifecycle suggestions from current evidence. Canonical operation `epistemic.query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -611,6 +622,7 @@
       "access": "mutation",
       "canonical_operation": "evidence.record_adoption",
       "description": "Record which advisory candidates the KP adopted, modified, or ignored. Keeper-internal audit evidence only. Canonical operation `evidence.record_adoption`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -689,6 +701,7 @@
       "access": "mutation",
       "canonical_operation": "evidence.table_opening",
       "description": "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix. Canonical operation `evidence.table_opening`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -750,6 +763,7 @@
       "access": "mutation",
       "canonical_operation": "mechanics.ensure",
       "description": "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused. Canonical operation `mechanics.ensure`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -815,6 +829,7 @@
       "access": "mutation",
       "canonical_operation": "memory.resolve_hook",
       "description": "Transition an unresolved_hook/foreshadowing card's lifecycle status (resolved/paid_off/abandoned) with resolved_at evidence. Idempotent via decision_id. Canonical operation `memory.resolve_hook`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -876,6 +891,7 @@
       "access": "query",
       "canonical_operation": "memory.search",
       "description": "Retrieve campaign memory cards by structured kind/status/entity/cue overlap. Data for KP semantic judgment; memory is never authoritative truth. Canonical operation `memory.search`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -958,6 +974,7 @@
       "access": "mutation",
       "canonical_operation": "memory.write",
       "description": "Write one typed campaign memory card (fact/event/npc_relationship/unresolved_hook/foreshadowing/player_preference/keeper_correction). Idempotent via decision_id. Canonical operation `memory.write`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1065,6 +1082,7 @@
       "access": "mutation",
       "canonical_operation": "narration.brief",
       "description": "Build a minimum-privilege player-safe narration envelope plus the active campaign play_language style contract. Canonical operation `narration.brief`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1113,6 +1131,7 @@
       "access": "mutation",
       "canonical_operation": "narration.review",
       "description": "Semantically review the exact pending narration before Pi-play finalization. Declare every player-state change claim in state_authority_review and bind it to the exact current frozen mechanics effect; an unbound claim or agency_violation requires narration-only revision 2 with the same frozen settlement. Then finalize only a clean review and bind authorized PC propositions through agency_claims. Length, repetition, scope, and style findings remain advisory; no keyword matcher, second Keeper, or prose-quality hard gate. Canonical operation `narration.review`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1262,6 +1281,7 @@
       "access": "mutation",
       "canonical_operation": "npc.advise",
       "description": "Build existing persona cards and optional NPC agency moves for NPCs in the active scene. Advice only. Canonical operation `npc.advise`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1305,6 +1325,7 @@
       "access": "query",
       "canonical_operation": "npc.query",
       "description": "NPC agendas, live psych state, and compact first-contact readiness for one requested NPC. 'secret'-marked fields are keeper-only reference — never reveal verbatim. Canonical operation `npc.query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1352,6 +1373,7 @@
       "access": "mutation",
       "canonical_operation": "npc.reaction",
       "description": "Settle exactly one public first-impression D100 for an investigator/NPC pair against max(APP, Credit Rating). Returns the frozen achieved level and reaction tier; the KP supplies the context-sensitive causal realization when recording the first engagement. Canonical operation `npc.reaction`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1416,6 +1438,7 @@
       "access": "mutation",
       "canonical_operation": "personal_horror.query",
       "description": "Read structured personal-horror hooks and accepted backstory corruptions without scanning character prose. Canonical operation `personal_horror.query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1455,6 +1478,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.claim_host_work",
       "description": "Atomically lease up to four contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context. Canonical operation `progressive.claim_host_work`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1541,6 +1565,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.follow_mentions",
       "description": "Enqueue deepen jobs from a structured mentions list [{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, or dig yields explicit entity refs. Never pass free prose to scan. Canonical operation `progressive.follow_mentions`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1583,6 +1608,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.fulfill_host_work",
       "description": "Submit one exact source-worker result for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work. Canonical operation `progressive.fulfill_host_work`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1687,6 +1713,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.on_enter_scene",
       "description": "Materialize only the canonical active progressive scene: merge a ready location pack and enqueue exact source-bound location/opening section extraction through the existing queue. Returns status and host-work projection, never section prose. Canonical operation `progressive.on_enter_scene`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1729,6 +1756,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.opening_bootstrap",
       "description": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, and records a campaign-owned auto-projection watch. With a source-reviewed module-init L0 present it direct-writes the opening scene from the L0 hooks (player hooks -> read_aloud, keeper hooks -> keeper_only) with zero host-work/coordinator dependency; without L0 it enqueues the exact foreground partial_opening request. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap. Canonical operation `progressive.opening_bootstrap`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1795,6 +1823,7 @@
       "access": "query",
       "canonical_operation": "progressive.prepare_opening",
       "description": "Experimental campaign-serial planner for one source-authored opening. With no real opening selector, its first call returns the existing bounded complete opening_page_candidates catalog when source selection is needed; semantically select from that catalog and never guess page indices. It validates an accepted contiguous 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query. Canonical operation `progressive.prepare_opening`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1881,6 +1910,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.project_opening",
       "description": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun. While an exact opening source lease has an active owner, even an incomplete or repeated call is a read-only deferred no-op; released/runnable work exposes its normal recovery action. Canonical operation `progressive.project_opening`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1943,6 +1973,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.publish_skeleton",
       "description": "Experimental canonical publication of one structured source-bound skeleton. Stores validated shared module truth, then projects sparse campaign IR as a separate non-atomic phase; it never parses free prose or source pages. Canonical operation `progressive.publish_skeleton`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1993,6 +2024,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.register_source_bundle",
       "description": "Validate and register one later host-PDF page window for the campaign's existing progressive asset root. This caches reviewed pages only; it does not parse PDF bytes or compile semantic entity packs. Canonical operation `progressive.register_source_bundle`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2032,6 +2064,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.release_host_work_leases",
       "description": "Host-lifecycle operation that gracefully releases only exact leases owned by one executor. Abrupt crashes still recover through bounded TTL. Canonical operation `progressive.release_host_work_leases`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2087,6 +2120,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.renew_host_work_leases",
       "description": "Host-lifecycle operation that renews only exact leases owned by one executor. It is not a Keeper source-reading operation. Canonical operation `progressive.renew_host_work_leases`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2143,6 +2177,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.request_locator_pass",
       "description": "Enqueue one nonblocking mechanics-locator pass over an exact host-selected contiguous 1..3-page accepted window. It never selects pages, scans the bundle, blocks opening readiness, or extracts mechanics profiles. Canonical operation `progressive.request_locator_pass`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2206,6 +2241,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.request_mechanics",
       "description": "Request one source-first NPC/item mechanics lookup without reparsing its narrative body. Exact appendix/chapter pages are cached and same-page subjects are batched. Canonical operation `progressive.request_mechanics`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2257,6 +2293,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.request_opening_pack",
       "description": "Experimental mutation that enqueues exactly one selected-start partial opening slice over a validated 1..3-page accepted window. The queue kick only materializes host work; it does not perform semantic extraction. Canonical operation `progressive.request_opening_pack`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2333,6 +2370,7 @@
       "access": "mutation",
       "canonical_operation": "progressive.retry_full_parse",
       "description": "Retry a terminally failed whole-book parse by enqueuing one fresh full_parse job for the campaign asset root (baiduocr lane). Only meaningful when progressive.status reports full_parse.status=failed with next_operation progressive.retry_full_parse; a queued/in-flight parse dedupes instead. The background worker re-runs the OCR bridge (reusing the sha-keyed corpus when complete) and registers corpus pages into module-assets. Keeper-only source lane operation; never blocks the opening projection or play. Canonical operation `progressive.retry_full_parse`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2375,6 +2413,7 @@
       "access": "query",
       "canonical_operation": "progressive.status",
       "description": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only diagnostic for a concrete later dig/entity decision. It is not a Pi private-coordinator completion signal: while that lifecycle is open, await its terminal notice without polling, reassurance queries, repeat preparation/bootstrap, or manual claim/fulfillment. Canonical operation `progressive.status`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2418,6 +2457,7 @@
       "access": "mutation",
       "canonical_operation": "rules.build_scale",
       "description": "Comparative build scale and lift/throw capability (Table XV, p.279). Read-only lookup; use when size shapes the fiction — who can lift, carry, or throw whom, and how big something reads. Canonical operation `rules.build_scale`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2461,6 +2501,7 @@
       "access": "mutation",
       "canonical_operation": "rules.cash_assets",
       "description": "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter. Canonical operation `rules.cash_assets`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2504,6 +2545,7 @@
       "access": "query",
       "canonical_operation": "rules.catalog_search",
       "description": "Keeper-only advisory catalog candidate recall for weapons, spells, creatures, and other table entities. Returns candidates with match reasons; never auto-selects entity_id. Secret rows stay secret:true and must not be dumped to players. Canonical operation `rules.catalog_search`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2555,6 +2597,7 @@
       "access": "mutation",
       "canonical_operation": "rules.check",
       "description": "Low-level ruleset-package integration primitive, not an investigator skill or characteristic check. Live Keepers use rules.roll for ordinary investigator checks and rules.psychology_observe for concealed Psychology observation; rules.skill_check does not exist. This primitive persists canonical public roll evidence from an exact package-native request signature. Canonical operation `rules.check`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2608,6 +2651,7 @@
       "access": "mutation",
       "canonical_operation": "rules.damage",
       "description": "Apply damage or healing to an investigator's HP. Amount may be an integer or a dice expression. Canonical operation `rules.damage`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2667,6 +2711,7 @@
       "access": "mutation",
       "canonical_operation": "rules.dying_check",
       "description": "Resolve the canonical CON death clock for a dying or temporarily stabilized investigator. Canonical operation `rules.dying_check`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2718,6 +2763,7 @@
       "access": "mutation",
       "canonical_operation": "rules.first_aid",
       "description": "Resolve canonical First Aid, including stabilization at 0 HP, through the transactional healing engine. Canonical operation `rules.first_aid`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2785,6 +2831,7 @@
       "access": "mutation",
       "canonical_operation": "rules.luck_spend",
       "description": "Bind Luck spending to one existing canonical public rules.roll receipt; adjusts its settlement without creating another dice row. Canonical operation `rules.luck_spend`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2837,6 +2884,7 @@
       "access": "mutation",
       "canonical_operation": "rules.medicine",
       "description": "Resolve canonical Medicine treatment, including clearing a stabilized dying state and its 1D3 healing. Canonical operation `rules.medicine`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2892,6 +2940,7 @@
       "access": "mutation",
       "canonical_operation": "rules.opposed",
       "description": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve. Canonical operation `rules.opposed`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2968,6 +3017,7 @@
       "access": "mutation",
       "canonical_operation": "rules.psychology_observe",
       "description": "Keeper-concealed Psychology observation. Order: (1) call npc.query for the exact target; (2) action=settle with a typed grounding ref such as npc_fact:<npc_id>/<fact_id> copied from returned facts[], or a previously established clue:<clue_id>/event:<event_id>; (3) action=realize with a player-safe realization containing only external behavior. Bare ids are invalid. Settle once per explicit observer/NPC/conversation/revision window and reuse it; Keeper truth is stored only as audit digest and never directly revealed. Ordinary NPC state deltas never reopen the window. Canonical operation `rules.psychology_observe`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3062,6 +3112,7 @@
       "access": "mutation",
       "canonical_operation": "rules.push",
       "description": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them. Canonical operation `rules.push`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3123,6 +3174,7 @@
       "access": "mutation",
       "canonical_operation": "rules.resource_delta",
       "description": "Apply the active ruleset's generic resource arithmetic to canonical actor state. Current state is kernel-owned; callers provide only the requested change. Canonical operation `rules.resource_delta`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3176,6 +3228,7 @@
       "access": "mutation",
       "canonical_operation": "rules.roll",
       "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3315,6 +3368,7 @@
       "access": "mutation",
       "canonical_operation": "rules.roll_dice",
       "description": "Roll an arbitrary dice expression (e.g. '1D6+1') for damage, SAN loss amounts, or randomization. Canonical operation `rules.roll_dice`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3376,6 +3430,7 @@
       "access": "mutation",
       "canonical_operation": "rules.sanity_check",
       "description": "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory. Canonical operation `rules.sanity_check`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3440,6 +3495,7 @@
       "access": "query",
       "canonical_operation": "rules.skill_describe",
       "description": "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll. Canonical operation `rules.skill_describe`; the result envelope is authoritative.",
+      "execution_class": "parallel_read",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3483,6 +3539,7 @@
       "access": "mutation",
       "canonical_operation": "rules.social_adjudicate",
       "description": "Derive the authoritative difficulty for one social attempt (7e social resolution): feasibility first, base from NPC defense, motive and leverage adjustments, bonus/penalty dice last. The KP then rolls the approach skill with the returned difficulty; the same goal without new leverage or motive replays the original adjudication. Canonical operation `rules.social_adjudicate`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3597,6 +3654,7 @@
       "access": "mutation",
       "canonical_operation": "rules.weekly_recovery",
       "description": "Resolve one due major-wound recovery week from authoritative game time, with optional weekly medical care and complete dice evidence. Canonical operation `rules.weekly_recovery`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3661,6 +3719,7 @@
       "access": "mutation",
       "canonical_operation": "sanity.context",
       "description": "Read the full persisted SanitySession snapshot and unresolved subsystem choices. Canonical operation `sanity.context`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3699,6 +3758,7 @@
       "access": "mutation",
       "canonical_operation": "sanity.execute",
       "description": "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem. Canonical operation `sanity.execute`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3751,6 +3811,7 @@
       "access": "query",
       "canonical_operation": "scene.context",
       "description": "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time. Canonical operation `scene.context`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3794,6 +3855,7 @@
       "access": "mutation",
       "canonical_operation": "scene.map",
       "description": "The whole scene graph with unlock/visit status — where the story can go and what gates each edge. Canonical operation `scene.map`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3829,6 +3891,7 @@
       "access": "query",
       "canonical_operation": "secrets.briefing",
       "description": "Keeper-only briefing scoped to the active scene by default. Pass scope=whole_module_audit for explicit cold-path full-module dump. Canonical operation `secrets.briefing`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3880,6 +3943,7 @@
       "access": "mutation",
       "canonical_operation": "session.begin",
       "description": "Open a new table session: advances the durable session cursor that scopes development settlement (skill development / Luck recovery) idempotency. Call when a fresh sitting begins; never on crash resume. Canonical operation `session.begin`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3920,6 +3984,7 @@
       "access": "query",
       "canonical_operation": "session.continuation_detail",
       "description": "Read one exact paged section omitted from the compact session.resume working set. Use only a returned detail_operation card; never scan save files or logs. Canonical operation `session.continuation_detail`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3988,6 +4053,7 @@
       "access": "mutation",
       "canonical_operation": "session.delivery_ack",
       "description": "Confirm that the latest immutable Keeper rendered_text was displayed or replayed. This never changes campaign fiction or mechanics. Canonical operation `session.delivery_ack`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4052,6 +4118,7 @@
       "access": "query",
       "canonical_operation": "session.delivery_text",
       "description": "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget. Canonical operation `session.delivery_text`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4097,6 +4164,7 @@
       "access": "query",
       "canonical_operation": "session.resume",
       "description": "Load one bounded, hash-bound Keeper recovery bundle when continuing a campaign generation that predates this host startup, process restart, switch, or context compaction. It is the first campaign call only for that continuation case; do not call it after creating, quick-starting, binding, or setting up the campaign in the current initial request. Canonical operation `session.resume`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4147,6 +4215,7 @@
       "access": "mutation",
       "canonical_operation": "setup.adopt_source_facts",
       "description": "Adopt the six source-grounded opening facts after scenario.bind_pdf and before investigator construction. Every source or unresolved answer must cite accepted pages inspected in the campaign's current bound bundle. Canonical operation `setup.adopt_source_facts`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4610,6 +4679,7 @@
       "access": "mutation",
       "canonical_operation": "setup.chargen_run",
       "description": "In-process deterministic Quick Fire investigator: occupation table + assignment_priority → create → link → render_card under the session lock. Do not hand-assemble investigator.create. Do not call setup.quick_start when a setup campaign already exists. Canonical operation `setup.chargen_run`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4799,6 +4869,7 @@
       "access": "mutation",
       "canonical_operation": "setup.complete",
       "description": "Handoff a finished setup campaign to play: require a bound current-schema scenario (active_scenario_id plus compiled built-in or source-module readiness), a confirmed investigator, and (when source-bound) a terminal opening projection; persist ready_for_table and emit the setup-session exit receipt. Canonical operation `setup.complete`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4844,6 +4915,7 @@
       "access": "query",
       "canonical_operation": "setup.inspect",
       "description": "Inspect canonical pre-session onboarding state: campaigns, investigators, built-in starters/pregens, and setup operation ids. Use in an empty or unknown workspace instead of searching files. Canonical operation `setup.inspect`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4877,6 +4949,7 @@
       "access": "query",
       "canonical_operation": "setup.investigator_contract",
       "description": "Return the active campaign ruleset's package-owned, versioned construction contract for the complete investigator.create payload. Query this once after campaign creation instead of guessing ruleset-specific sheet fields. Canonical operation `setup.investigator_contract`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -4917,6 +4990,7 @@
       "access": "mutation",
       "canonical_operation": "setup.invoke",
       "description": "Invoke one existing canonical custom-campaign setup operation. This thin MCP-facing gateway delegates schema, source-bundle, path, and state validation to the shared pre-session setup runtime. Canonical operation `setup.invoke`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5036,6 +5110,7 @@
       "access": "query",
       "canonical_operation": "setup.phase",
       "description": "Read the single derived opening lifecycle phase for one campaign: module_preparation, character_creation, ready_for_table, or active, with the source sub-phase detail, the canonical next operation, and any blocking reason. Use this instead of inferring setup progress from files, party listings, or failed-call envelopes. Canonical operation `setup.phase`; the result envelope is authoritative.",
+      "execution_class": "parallel_read",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5074,6 +5149,7 @@
       "access": "mutation",
       "canonical_operation": "setup.quick_start",
       "description": "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5125,6 +5201,7 @@
       "access": "mutation",
       "canonical_operation": "state.advance_time",
       "description": "Advance the in-fiction clock (monotonic). Fires due triggers; an imprecise civil clock may also record a source- or fiction-established broad phase reached after the elapsed interval. Canonical operation `state.advance_time`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5187,6 +5264,7 @@
       "access": "mutation",
       "canonical_operation": "state.assets_liquidate",
       "description": "Convert runtime Assets into cash after a linked state.advance_time decision. One investigator-state write; no FX and no Credit Rating change. Canonical operation `state.assets_liquidate`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5263,6 +5341,7 @@
       "access": "mutation",
       "canonical_operation": "state.backstory_corruption_add",
       "description": "Persist an accepted SanitySession backstory amendment using structured fields only. Canonical operation `state.backstory_corruption_add`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5320,6 +5399,7 @@
       "access": "mutation",
       "canonical_operation": "state.belief_apply",
       "description": "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger. Canonical operation `state.belief_apply`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5372,6 +5452,7 @@
       "access": "mutation",
       "canonical_operation": "state.cash_grant",
       "description": "Credit the investigator runtime cash ledger before narrating. Idempotent on decision_id. Do not treat sheet cash as this purse. Canonical operation `state.cash_grant`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5443,6 +5524,7 @@
       "access": "query",
       "canonical_operation": "state.cash_query",
       "description": "Read the investigator's runtime cash ledger (schema v2 balances + recent rows). Not the chargen sheet snapshot. Canonical operation `state.cash_query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5484,6 +5566,7 @@
       "access": "mutation",
       "canonical_operation": "state.cash_semantic",
       "description": "Record one KP-guided, campaign-local starting-cash/assets disposition when the campaign era has no authoritative cash-assets table. This never calculates, replaces, or changes rules-table values. Canonical operation `state.cash_semantic`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5551,6 +5634,7 @@
       "access": "mutation",
       "canonical_operation": "state.cash_spend",
       "description": "Debit the investigator runtime cash ledger before narrating. Fails closed on insufficient funds. Idempotent on decision_id. Canonical operation `state.cash_spend`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5622,6 +5706,7 @@
       "access": "mutation",
       "canonical_operation": "state.clear_transient_condition",
       "description": "Clear one combat-only positional condition after the fiction ends it; injury, dying, and death conditions are intentionally unsupported. Canonical operation `state.clear_transient_condition`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5674,6 +5759,7 @@
       "access": "mutation",
       "canonical_operation": "state.clock_discontinuity",
       "description": "Replace the in-fiction civil-calendar anchor for an explicit time shift, loop reset, dream transition, or correction while preserving monotonic elapsed time and relative deadlines. Canonical operation `state.clock_discontinuity`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5791,6 +5877,7 @@
       "access": "mutation",
       "canonical_operation": "state.deliver_handout",
       "description": "Deliver an exact registered info card (handout) to the players. Source cards preserve verbatim excerpts; authored-derivative cards preserve their registered in-world prop text. Idempotent via decision_id. This only writes delivery state — judging WHEN a card is delivered stays with the Keeper; narration frames the find, the card registered body is presented exactly, never paraphrased. Canonical operation `state.deliver_handout`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5842,6 +5929,7 @@
       "access": "mutation",
       "canonical_operation": "state.end_session",
       "description": "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration. Canonical operation `state.end_session`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5892,6 +5980,7 @@
       "access": "mutation",
       "canonical_operation": "state.exceptional_effect",
       "description": "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice. Canonical operation `state.exceptional_effect`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6038,6 +6127,7 @@
       "access": "query",
       "canonical_operation": "state.finance_query",
       "description": "Read current runtime cash, Assets, living standard, and inclusive Spending Level. Not the chargen sheet snapshot. Canonical operation `state.finance_query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6079,6 +6169,7 @@
       "access": "query",
       "canonical_operation": "state.inventory_list",
       "description": "Show an investigator's effective items and weapons (character sheet minus recorded losses plus runtime gains), or an NPC's runtime items. Canonical operation `state.inventory_list`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6122,6 +6213,7 @@
       "access": "mutation",
       "canonical_operation": "state.item_grant",
       "description": "Grant an item or weapon earned in play before narrating. Search catalog first, then pass a KP-chosen weapon_id. kind=weapon requires a canonical id, legal mechanics_ref, or a complete custom weapon schema; unknown ids fail closed and write nothing. Label-only or kind=gear is not a weapon. Canonical operation `state.item_grant`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6207,6 +6299,7 @@
       "access": "mutation",
       "canonical_operation": "state.item_remove",
       "description": "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing character-sheet equipment or a weapon records a campaign-local loss; removing an NPC weapon updates its runtime override. Canonical operation `state.item_remove`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6262,6 +6355,7 @@
       "access": "mutation",
       "canonical_operation": "state.item_use",
       "description": "Use charges of an investigator's consumable item (bandage, laudanum, torch). Decrements quantity; at zero the item leaves the inventory for good. Non-consumables are rejected: use state.item_remove when one is lost or spent. Canonical operation `state.item_use`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6316,6 +6410,7 @@
       "access": "mutation",
       "canonical_operation": "state.journal",
       "description": "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts. Canonical operation `state.journal`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6485,6 +6580,7 @@
       "access": "mutation",
       "canonical_operation": "state.mark_safe_rest",
       "description": "Record that one investigator completed a full sleep in a safe place after its elapsed time was advanced. Resets the canonical rest anchor read by Director continuity; never inferred from prose. Canonical operation `state.mark_safe_rest`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6535,6 +6631,7 @@
       "access": "mutation",
       "canonical_operation": "state.move_scene",
       "description": "Move the party to a scene. Off-graph or locked moves warn but succeed — you own the fiction. Canonical operation `state.move_scene`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6595,6 +6692,7 @@
       "access": "mutation",
       "canonical_operation": "state.npc_presence",
       "description": "Explicitly place or remove one stable authored/improvised NPC in a scene. This is live scene state; engagement history never implies continued presence. Canonical operation `state.npc_presence`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6657,6 +6755,7 @@
       "access": "mutation",
       "canonical_operation": "state.npc_update",
       "description": "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises made or resolved, availability, and a bounded investigator-specific textual impression authored by the KP. Canonical operation `state.npc_update`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6750,6 +6849,7 @@
       "access": "mutation",
       "canonical_operation": "state.personal_horror_add",
       "description": "Persist one structured personal-horror hook after the KP has accepted it. Canonical operation `state.personal_horror_add`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6807,6 +6907,7 @@
       "access": "mutation",
       "canonical_operation": "state.personal_horror_mark_woven",
       "description": "Mark a structured personal-horror hook as actually woven after it appears in delivered play. Canonical operation `state.personal_horror_mark_woven`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6854,6 +6955,7 @@
       "access": "mutation",
       "canonical_operation": "state.promote_scene",
       "description": "Record a formal scene-role promotion (e.g. transit → side_investigation) with module_divergence evidence. Advisory bookkeeping: it changes how later scene.context reads the scene, never forces a transition. Canonical operation `state.promote_scene`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -6920,6 +7022,7 @@
       "access": "mutation",
       "canonical_operation": "state.purchase",
       "description": "Atomically grant a purchased item. spending_level is inclusive and writes no cash row; cash debits this price; aggregate_cash debits prior same-day spending_level prices plus this price. Fails closed before any write on duplicate items or insufficient funds. Canonical operation `state.purchase`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7051,6 +7154,7 @@
       "access": "mutation",
       "canonical_operation": "state.record_clue",
       "description": "Record a clue as discovered. Idempotent; unlocks any scenes gated on it. Off-design discoveries warn, not block. Canonical operation `state.record_clue`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7103,6 +7207,7 @@
       "access": "mutation",
       "canonical_operation": "state.record_npc_engagement",
       "description": "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements. Canonical operation `state.record_npc_engagement`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7197,6 +7302,7 @@
       "access": "mutation",
       "canonical_operation": "state.record_route_completion",
       "description": "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth. Canonical operation `state.record_route_completion`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7255,6 +7361,7 @@
       "access": "mutation",
       "canonical_operation": "state.replay_handout",
       "description": "Present an already-delivered player-visible card again only after the Keeper semantically confirms an explicit request in the current player message. This creates a new presentation identity without changing delivery/material state. Ambiguous references require a clarifying question and no tool call; code never keyword-classifies player prose. Canonical operation `state.replay_handout`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7324,6 +7431,7 @@
       "access": "mutation",
       "canonical_operation": "state.set_flag",
       "description": "Set or clear a structured world flag (feeds flag_set unlock conditions). Canonical operation `state.set_flag`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7375,6 +7483,7 @@
       "access": "mutation",
       "canonical_operation": "state.supersede_settlement",
       "description": "Correct a prior public settlement and hide the voided dice/HP from player-facing final output while keeping the audit trail. Canonical operation `state.supersede_settlement`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7433,6 +7542,7 @@
       "access": "mutation",
       "canonical_operation": "state.threat_tick",
       "description": "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated. Canonical operation `state.threat_tick`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7476,6 +7586,7 @@
       "access": "mutation",
       "canonical_operation": "state.time_appearance",
       "description": "Set the broad player-perceived light/time appearance without changing the authoritative elapsed or civil clock. Use for polar day/night, inverted cycles, or source-/fiction-established supernatural distortion. Canonical operation `state.time_appearance`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7538,6 +7649,7 @@
       "access": "mutation",
       "canonical_operation": "state.time_marker",
       "description": "Set, reset, or clear a persistent in-fiction deadline marker. Bookkeeping only; it never auto-fires narrative effects. Canonical operation `state.time_marker`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7598,6 +7710,7 @@
       "access": "mutation",
       "canonical_operation": "steward.deliver",
       "description": "Write one steward delivery: module text segments the KP needs now, with why_now, expected scene annotation, and a keeper_only/player_safe secrecy label. Optionally pays linked notebook entries (即付). The KP reads it through steward.deliveries; this record is canon-candidate feed, never rules/state authority. Canonical operation `steward.deliver`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7700,6 +7813,7 @@
       "access": "query",
       "canonical_operation": "steward.deliveries",
       "description": "Read steward deliveries: module text the steward judged the KP needs now, with why_now, expected scene annotation, secrecy labels, page and source refs. projection=keeper returns full records; projection=player returns only player_safe segments (never keeper_only text or KP reasoning) and is the only surface from which module text may reach players verbatim. Canonical operation `steward.deliveries`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7751,6 +7865,7 @@
       "access": "mutation",
       "canonical_operation": "steward.domain_put",
       "description": "Atomically replace one asynchronous steward parser domain snapshot and append any chunk failures. Domains are init, npc, scene, clue, and rule; content is a thin, extensible JSON object, while status is explicit. This writes only save/steward-state.json and never campaign core state. Canonical operation `steward.domain_put`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7848,6 +7963,7 @@
       "access": "mutation",
       "canonical_operation": "steward.mark_consumed",
       "description": "Mark one delivery as consumed once the scene it served has passed, so steward.deliveries can separate current deliveries from history. Canonical operation `steward.mark_consumed`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7891,6 +8007,7 @@
       "access": "query",
       "canonical_operation": "steward.notebook",
       "description": "Read the steward notebook: pre-cut module segments per expected scene with paid status and steward notes. KP-only surface; notebook content is never player-projected. Canonical operation `steward.notebook`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7938,6 +8055,7 @@
       "access": "mutation",
       "canonical_operation": "steward.notebook_pay",
       "description": "Mark notebook entries for an expected scene as paid when the scene truly arrives (flag only; deliver the text through steward.deliver). Already-paid entries are left unchanged. Canonical operation `steward.notebook_pay`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -7984,6 +8102,7 @@
       "access": "mutation",
       "canonical_operation": "steward.notebook_put",
       "description": "Add or refine one notebook entry: pre-cut module segments for an expected scene, paid when the scene truly arrives. Unpaid entries may be replaced to refine pre-cuts; paid entries are immutable. Canonical operation `steward.notebook_put`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8066,6 +8185,7 @@
       "access": "mutation",
       "canonical_operation": "steward.scene_bundle_put",
       "description": "Merge source-bound SceneBundle records into the steward scene cache. Each bundle has current plus source-traceable neighboring SceneEdge records, so a later arrival can consume a prefetched current bundle without re-parsing. Canonical operation `steward.scene_bundle_put`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8113,6 +8233,7 @@
       "access": "query",
       "canonical_operation": "steward.scene_supply",
       "description": "Read one Pi scene-supply readiness snapshot. A ready bundle is the only full scene material surface; an optional minimal fallback is limited to source-bound indexed name/clue references after the Pi retry policy is exhausted. Canonical operation `steward.scene_supply`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8157,6 +8278,7 @@
       "access": "mutation",
       "canonical_operation": "storylets.suggest",
       "description": "Run the existing rich storylet scheduler against a Director candidate plan. Advisory only; selection never applies itself. Canonical operation `storylets.suggest`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8219,6 +8341,7 @@
       "access": "mutation",
       "canonical_operation": "threat.query",
       "description": "Read authored threat fronts with verified live current_segments projected onto them. Canonical operation `threat.query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8254,6 +8377,7 @@
       "access": "mutation",
       "canonical_operation": "turn.finalize",
       "description": "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, including its closed state_authority_review, then pass its review_id plus all authorized agency_claims. Rewrite only narration as revision 2 if agency ownership or player-state authority is rejected; never rerun rules/state/journal. Prose-quality review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -8536,6 +8660,7 @@
       "access": "query",
       "canonical_operation": "turn.output_context",
       "description": "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal. Canonical operation `turn.output_context`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

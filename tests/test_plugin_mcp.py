@@ -1543,6 +1543,93 @@ def test_mcp_contract_archive_check_detects_drift(tmp_path):
     assert payload["error"]["code"] in {"archive_stale", "archive_hash"}
 
 
+def test_operation_projections_share_registry_and_build_outside_tracked_paths(
+    tmp_path,
+):
+    archive_mod = _load_archive_module()
+    server = _load_server()
+    projection = archive_mod.build_policy_projection(server.toolbox)
+    registry = server.toolbox.OPERATION_REGISTRY
+
+    assert set(projection["operation_policy"]) == set(registry.specs)
+    assert projection["operation_policy"]["setup.phase"]["execution_class"] == (
+        "parallel_read"
+    )
+    assert projection["operation_policy"]["turn.finalize"]["contract"] == (
+        "finalize"
+    )
+
+    output_root = tmp_path / "projection-root"
+    built = subprocess.run(
+        [
+            sys.executable,
+            os.fspath(ARCHIVE_SCRIPT),
+            "build",
+            "--output-root",
+            os.fspath(output_root),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert built.returncode == 0, built.stderr
+    assert (
+        output_root / "references" / "mcp-operation-contracts.json"
+    ).read_bytes() == ARCHIVE_PATH.read_bytes()
+    policy_path = PLUGIN_ROOT / "pi" / "lib" / "operation-policy.generated.ts"
+    assert (
+        output_root / "pi" / "lib" / "operation-policy.generated.ts"
+    ).read_bytes() == policy_path.read_bytes()
+
+    checked = subprocess.run(
+        [
+            sys.executable,
+            os.fspath(ARCHIVE_SCRIPT),
+            "check",
+            "--output-root",
+            os.fspath(output_root),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+
+def test_operation_policy_projection_check_detects_machine_diff(tmp_path):
+    archive_mod = _load_archive_module()
+    server = _load_server()
+    archive_path = tmp_path / "mcp-operation-contracts.json"
+    policy_path = tmp_path / "operation-policy.generated.ts"
+    archive_mod.write_projections(archive_path, policy_path, server.toolbox)
+    policy_path.write_text(
+        policy_path.read_text(encoding="utf-8") + "// stale\n",
+        encoding="utf-8",
+    )
+
+    checked = subprocess.run(
+        [
+            sys.executable,
+            os.fspath(ARCHIVE_SCRIPT),
+            "check",
+            "--path",
+            os.fspath(archive_path),
+            "--policy-path",
+            os.fspath(policy_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode != 0
+    assert json.loads(checked.stdout)["error"]["code"] == (
+        "policy_projection_stale"
+    )
+
+
 def test_mcp_contract_archive_hash_binds_listed_hotset(tmp_path):
     """Mutating only listed_hotset must fail as archive_hash, not hotset drift."""
     archive_mod = _load_archive_module()

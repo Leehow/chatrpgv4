@@ -143,6 +143,9 @@ coc_compiled_archive = _load_sibling(
 coc_operation_policy = _load_sibling(
     "coc_operation_policy_toolbox", "coc_operation_policy.py"
 )
+coc_operation_kernel = _load_sibling(
+    "coc_operation_kernel_toolbox", "coc_operation_kernel.py"
+)
 coc_opening_phase = _load_sibling("coc_opening_phase", "coc_opening_phase.py")
 coc_opening_recovery = _load_sibling(
     "coc_opening_recovery", "coc_opening_recovery.py"
@@ -747,7 +750,10 @@ _RULE_TOOL_RESOURCE_REQUIREMENTS = {
 # Registry
 # --------------------------------------------------------------------------- #
 
-TOOLS: dict[str, dict[str, Any]] = {}
+OPERATION_REGISTRY = coc_operation_kernel.OperationRegistry(
+    policy_resolver=coc_operation_policy.policy_for_operation,
+)
+TOOLS: dict[str, dict[str, Any]] = OPERATION_REGISTRY.legacy_tools
 
 
 def _working_set_domain_paths(
@@ -1085,62 +1091,7 @@ def _query_cache_contract(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def tool(
-    name: str,
-    summary: str,
-    params: dict[str, dict[str, Any]],
-    *,
-    needs_campaign: bool = True,
-    access: str = "mutation",
-    read_domains: tuple[str, ...] = (),
-    write_domains: tuple[str, ...] = (),
-    recovery_domains: tuple[str, ...] | None = None,
-    response_mode: str = "full",
-    audit_mode: str = "full",
-    strict_read_only: bool = False,
-    execution_class: str = "serial_campaign",
-):
-    if access not in {"query", "mutation"}:
-        raise ValueError(f"invalid tool access mode: {access}")
-    if strict_read_only and not (
-        access == "query"
-        and not write_domains
-        and recovery_domains == ()
-        and response_mode == "full"
-        and audit_mode == "reference"
-    ):
-        raise ValueError(
-            "strict_read_only requires query access, empty write/recovery "
-            "domains, full response mode, and reference audit mode"
-        )
-    # Scheduling is fail-closed: only a reviewed read may opt into parallel
-    # execution; absent or unrecognized declarations remain campaign-serial.
-    if execution_class not in {
-        "parallel_read", "serial_campaign", "serial_global",
-    }:
-        execution_class = "serial_campaign"
-    if execution_class == "parallel_read" and not strict_read_only:
-        raise ValueError("parallel_read requires strict_read_only")
-    def deco(fn: Callable[[Ctx, dict[str, Any]], tuple[Any, list[str], list[str]]]):
-        TOOLS[name] = {
-            "name": name,
-            "summary": summary,
-            "params": params,
-            "needs_campaign": needs_campaign,
-            "access": access,
-            "read_domains": tuple(read_domains),
-            "write_domains": tuple(write_domains),
-            "recovery_domains": (
-                None if recovery_domains is None else tuple(recovery_domains)
-            ),
-            "response_mode": response_mode,
-            "audit_mode": audit_mode,
-            "strict_read_only": bool(strict_read_only),
-            "execution_class": execution_class,
-            "handler": fn,
-        }
-        return fn
-    return deco
+tool = OPERATION_REGISTRY.tool
 
 
 def _log_tool_call(
@@ -32458,28 +32409,19 @@ _MUTATING_TOOLS = frozenset({
     "steward.mark_consumed",
     "turn.finalize",
 })
-for _mutating_tool_name in _MUTATING_TOOLS:
-    _decision_spec = TOOLS[_mutating_tool_name]["params"].get("decision_id")
-    if not isinstance(_decision_spec, dict):
-        raise RuntimeError(
-            f"mutating toolbox tool lacks decision_id: {_mutating_tool_name}"
-        )
-    _decision_spec["required"] = True
-
-
-def _attach_operation_policies() -> None:
-    policies = coc_operation_policy.policies_for_operations(TOOLS)
-    for name, policy in policies.items():
-        TOOLS[name]["policy"] = policy
-
-
-_attach_operation_policies()
+OPERATION_REGISTRY.require_decision_ids(_MUTATING_TOOLS)
+OPERATION_REGISTRY.validate_policies(
+    coc_operation_policy.policies_for_operations(TOOLS)
+)
 
 
 def operation_policy(name: str) -> dict[str, Any]:
     spec = TOOLS.get(name)
     if spec is None:
         raise KeyError(name)
+    canonical = OPERATION_REGISTRY.specs.get(name)
+    if canonical is not None:
+        return canonical.policy.public()
     policy = spec.get("policy")
     if not isinstance(policy, dict):
         policy = coc_operation_policy.policy_for_operation(name)
@@ -32493,6 +32435,13 @@ def query_operations(
     kp_surface: str | None = None,
     contract: str | None = None,
 ) -> list[str]:
+    if set(TOOLS) == set(OPERATION_REGISTRY.specs):
+        return OPERATION_REGISTRY.query(
+            audience=audience,
+            phase=phase,
+            kp_surface=kp_surface,
+            contract=contract,
+        )
     policies = {
         name: spec.get("policy") or coc_operation_policy.policy_for_operation(name)
         for name, spec in TOOLS.items()
@@ -32507,6 +32456,8 @@ def query_operations(
 
 
 def _describe(name: str) -> dict[str, Any]:
+    if name in OPERATION_REGISTRY.specs:
+        return OPERATION_REGISTRY.describe(name)
     spec = TOOLS[name]
     return {
         "name": spec["name"],
