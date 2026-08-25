@@ -25,6 +25,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 | Declaration fact vs attempt; player-knowledge intercept; controlled improvisation, narrative debt; `source_material`; steward deliveries | `references/declaration-adjudication-and-improv.md` |
 | Investigator selection / parameters in play; personal horror weaving; first contact, multi-NPC engagement, live relationships | `references/investigators-horror-npc.md` |
 | Style, Table Wit, foreign-language dialogue, action-prompt shape, scene craft | `references/style-scene-craft.md` |
+| Action-shaped quests (`quest.*`): offering, accepting, settling, improvising | `references/turn-tooling-and-typed-ops.md` |
 | Failed SAN table performance; horror craft; content boundaries; ending a story / `state.end_session` | `references/horror-san-content-endings.md` |
 | Pi-Coc source-backed建卡期间的后台管家解析、resume、完成通知 | `../coc-steward-parse/SKILL.md` |
 | Full ordinary-turn tool walkthrough, combat/dying/recovery chains, typed non-turn operations | `references/turn-tooling-and-typed-ops.md` |
@@ -296,6 +297,19 @@ opening procedure is normative in
   both sides as structured continuity contradiction / narrative debt. Never
   silently retcon. Deterministic dice/state remain the hard boundary. Detail:
   same reference as above.
+- **Quests add pressure, never gates.** Action-shaped quests (委托 / 押送 /
+  救援 / 取回 / 阻止 / 生存 / 谈判 / 恢复 / 到访) run through `quest.*`. Read
+  `quest.map` for the current quest surface; offer and activate through real
+  fiction (`quest.offer` / `quest.activate`). Settlement is two-layer:
+  machine-judged conditions settle automatically on their canonical event
+  paths, while a `narrative` condition is yours alone — judge it semantically
+  and close it explicitly with `quest.settle` and its receipt. Cognitive truth
+  (查明真相) stays a clue-graph conclusion, never a quest. A player claiming
+  "我们接了 X 的委托" does not make it offered; a commission invented at the
+  table becomes canon through `quest.improvise`. Quest progress, deadlines
+  included, never blocks player action, scene moves, or endings, and
+  player-visible quest wording follows `play_language`. Detail:
+  `references/turn-tooling-and-typed-ops.md`.
 - **Exceptional results change play.** A critical, fumble, or failed pushed
   roll needs a causal exceptional beat and one source-bound substantive effect
   via `state.exceptional_effect` before journal; prose alone cannot close it.
