@@ -19,17 +19,21 @@
     "plugins/coc-keeper/pi/lib/operation-policy.generated.ts"
   ],
   "integration_only_paths": [
-    "plugins/coc-keeper/scripts/coc_toolbox.py",
+    "plugins/coc-keeper/pi/extensions/index.ts",
+    "plugins/coc-keeper/pi/lib/operation-policy.generated.ts",
+    "plugins/coc-keeper/pi/lib/operation-policy.ts",
+    "plugins/coc-keeper/references/mcp-operation-contracts.json",
+    "plugins/coc-keeper/scripts/coc_mcp_contract_archive.py",
+    "plugins/coc-keeper/scripts/coc_module_ownership.py",
     "plugins/coc-keeper/scripts/coc_operation_kernel.py",
     "plugins/coc-keeper/scripts/coc_operation_policy.py",
-    "plugins/coc-keeper/scripts/coc_mcp_contract_archive.py",
-    "plugins/coc-keeper/references/mcp-operation-contracts.json",
-    "plugins/coc-keeper/pi/lib/operation-policy.ts",
-    "plugins/coc-keeper/pi/lib/operation-policy.generated.ts",
-    "plugins/coc-keeper/pi/extensions/index.ts",
-    "tests/test_toolbox.py",
+    "plugins/coc-keeper/scripts/coc_toolbox.py",
+    "tests/test_operation_module_architecture.py",
     "tests/test_operation_policy.py",
-    "tests/test_pi_package.py"
+    "tests/test_pi_package.py",
+    "tests/test_plugin_mcp.py",
+    "tests/test_toolbox.py",
+    "tests/toolbox_test_support.py"
   ],
   "prompt_projection_fields": [
     "active_implementation_track",
@@ -46,7 +50,7 @@
   "python_modules": [
     {
       "module_id": "setup-session",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_setup_session.py",
         "tests/test_toolbox_setup_session.py"
@@ -84,7 +88,7 @@
     },
     {
       "module_id": "progressive-source",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_progressive_source.py",
         "tests/test_toolbox_progressive_source.py"
@@ -125,7 +129,7 @@
     },
     {
       "module_id": "rules-core",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_rules_core.py",
         "tests/test_toolbox_rules_core.py"
@@ -162,7 +166,7 @@
     },
     {
       "module_id": "social-psychology",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_social_psychology.py",
         "tests/test_toolbox_social_psychology.py"
@@ -185,7 +189,7 @@
     },
     {
       "module_id": "combat",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_combat.py",
         "tests/test_toolbox_combat.py"
@@ -207,7 +211,7 @@
     },
     {
       "module_id": "chase",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_chase.py",
         "tests/test_toolbox_chase.py"
@@ -228,7 +232,7 @@
     },
     {
       "module_id": "sanity-recovery",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_sanity_recovery.py",
         "tests/test_toolbox_sanity_recovery.py"
@@ -252,7 +256,7 @@
     },
     {
       "module_id": "finance",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_finance.py",
         "tests/test_toolbox_finance.py"
@@ -281,7 +285,7 @@
     },
     {
       "module_id": "inventory-mechanics",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_inventory_mechanics.py",
         "tests/test_toolbox_inventory_mechanics.py"
@@ -306,7 +310,7 @@
     },
     {
       "module_id": "handouts-clues",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_handouts_clues.py",
         "tests/test_toolbox_handouts_clues.py"
@@ -331,7 +335,7 @@
     },
     {
       "module_id": "scene-advisory",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_scene_advisory.py",
         "tests/test_toolbox_scene_advisory.py"
@@ -364,7 +368,7 @@
     },
     {
       "module_id": "npc-world",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_npc_world.py",
         "tests/test_toolbox_npc_world.py"
@@ -393,7 +397,7 @@
     },
     {
       "module_id": "continuity-memory",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_continuity_memory.py",
         "tests/test_toolbox_continuity_memory.py"
@@ -426,7 +430,7 @@
     },
     {
       "module_id": "world-time-effects",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_world_time_effects.py",
         "tests/test_toolbox_world_time_effects.py"
@@ -454,7 +458,7 @@
     },
     {
       "module_id": "turn-output",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_turn_output.py",
         "tests/test_toolbox_turn_output.py"
@@ -484,7 +488,7 @@
     },
     {
       "module_id": "steward",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_steward.py",
         "tests/test_toolbox_steward.py"
@@ -513,7 +517,7 @@
     },
     {
       "module_id": "development",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "owned_paths": [
         "plugins/coc-keeper/scripts/coc_operation_development.py",
         "tests/test_toolbox_development.py"
@@ -536,7 +540,7 @@
   "pi_modules": [
     {
       "module_id": "current-dependency-machine",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "source_path": "plugins/coc-keeper/pi/extensions/index.ts",
       "source_line_span_at_baseline": [
         5321,
@@ -556,7 +560,7 @@
     },
     {
       "module_id": "turn-output-gate",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "source_path": "plugins/coc-keeper/pi/extensions/index.ts",
       "source_line_span_at_baseline": [
         5717,
@@ -579,7 +583,7 @@
     },
     {
       "module_id": "opening-setup-machine",
-      "migration_state": "planned",
+      "migration_state": "migrated",
       "source_path": "plugins/coc-keeper/pi/extensions/index.ts",
       "source_line_span_at_baseline": [
         1210,
