@@ -58,6 +58,9 @@ REQUIRED_FILES = [
     "npc-agendas.json", "threat-fronts.json", "pacing-map.json",
     "improvisation-boundaries.json",
 ]
+# Optional eighth IR file (quest v1). A missing file is legal — that is a
+# module without quests — and a present file is hard-validated.
+QUESTS_FILE = "quests.json"
 NON_FRAGILE_DELIVERY_KINDS = {
     "obvious",
     "handout",
@@ -1984,6 +1987,138 @@ def doctor(*, rules_dir: Path | None = None) -> list[dict[str, Any]]:
     return results
 
 
+def _validate_quests_ir(
+    quests_doc: Any,
+    *,
+    story: dict[str, Any],
+    clue_graph: dict[str, Any],
+    npcs: dict[str, Any],
+    fronts: dict[str, Any],
+) -> list[str]:
+    """Hard assertions for the optional scenario/quests.json IR file.
+
+    Shape and enum checks come from the single shared contract authority
+    (``coc_module_assets.validate_quest_pack_contract``); this pass adds the
+    cross-file reference integrity the scenario IR can prove: giver npc,
+    npc/clue/scene target refs, destination scene, deadline clock, and
+    mainline links must resolve inside the compiled IR. location/item targets
+    live in the module-assets entity store, not the scenario IR, so they are
+    shape-checked only (put_entity owns their store-side checks).
+    """
+    if not isinstance(quests_doc, dict):
+        return ["quests.json must be an object with schema_version and quests"]
+    errors: list[str] = []
+    if quests_doc.get("schema_version") != 1:
+        errors.append("quests.json schema_version must be 1")
+    quests = quests_doc.get("quests")
+    if not isinstance(quests, list):
+        errors.append("quests.json quests must be a list")
+        return errors
+    scene_ids = {
+        str(scene.get("scene_id") or "")
+        for scene in story.get("scenes", []) or []
+        if isinstance(scene, dict)
+    }
+    npc_ids = {
+        str(npc.get("npc_id") or "")
+        for npc in npcs.get("npcs", []) or []
+        if isinstance(npc, dict)
+    }
+    conclusion_ids: set[str] = set()
+    clue_ids: set[str] = set()
+    for conclusion in clue_graph.get("conclusions", []) or []:
+        if not isinstance(conclusion, dict):
+            continue
+        conclusion_ids.add(str(conclusion.get("conclusion_id") or ""))
+        for clue in conclusion.get("clues", []) or []:
+            if isinstance(clue, dict):
+                clue_ids.add(str(clue.get("clue_id") or ""))
+    clock_ids = {
+        str(clock.get("clock_id") or "")
+        for front in fronts.get("fronts", []) or []
+        if isinstance(front, dict)
+        for clock in front.get("clocks", []) or []
+        if isinstance(clock, dict)
+    }
+    seen_ids: set[str] = set()
+    for index, quest in enumerate(quests):
+        if not isinstance(quest, dict):
+            errors.append(f"quests[{index}] must be an object")
+            continue
+        quest_id = str(quest.get("quest_id") or "")
+        label = f"quests[{index}] ({quest_id or 'missing id'})"
+        errors.extend(
+            _quest_contract_errors(quest, prefix=label)
+        )
+        if quest_id:
+            if quest_id in seen_ids:
+                errors.append(f"duplicate quest_id {quest_id!r} in quests.json")
+            seen_ids.add(quest_id)
+        giver = quest.get("giver")
+        if (
+            isinstance(giver, dict)
+            and giver.get("kind") == "npc"
+            and str(giver.get("ref_id") or "") not in npc_ids
+        ):
+            errors.append(
+                f"quest {quest_id!r} giver npc {giver.get('ref_id')!r} is not "
+                "in npc-agendas.json"
+            )
+        for position, ref in enumerate(quest.get("target_refs") or []):
+            if not isinstance(ref, dict):
+                continue
+            ref_id = str(ref.get("ref_id") or "")
+            kind = ref.get("kind")
+            if kind == "npc" and ref_id not in npc_ids:
+                errors.append(
+                    f"quest {quest_id!r} target_refs[{position}] npc {ref_id!r} "
+                    "is not in npc-agendas.json"
+                )
+            elif kind == "clue" and ref_id not in clue_ids:
+                errors.append(
+                    f"quest {quest_id!r} target_refs[{position}] clue {ref_id!r} "
+                    "is not in clue-graph.json"
+                )
+            elif kind == "scene" and ref_id not in scene_ids:
+                errors.append(
+                    f"quest {quest_id!r} target_refs[{position}] scene "
+                    f"{ref_id!r} is not in story-graph.json"
+                )
+        destination = quest.get("destination_scene_id")
+        if destination is not None and str(destination) not in scene_ids:
+            errors.append(
+                f"quest {quest_id!r} destination_scene_id {destination!r} is "
+                "not in story-graph.json"
+            )
+        deadline = quest.get("deadline")
+        if (
+            isinstance(deadline, dict)
+            and deadline.get("kind") == "clock"
+            and str(deadline.get("clock_id") or "") not in clock_ids
+        ):
+            errors.append(
+                f"quest {quest_id!r} deadline clock {deadline.get('clock_id')!r} "
+                "is not in threat-fronts.json"
+            )
+        for link in quest.get("mainline_links") or []:
+            if link not in conclusion_ids and link not in clue_ids:
+                errors.append(
+                    f"quest {quest_id!r} mainline_link {link!r} is neither a "
+                    "conclusion id nor a clue id in clue-graph.json"
+                )
+    return errors
+
+
+def _quest_contract_errors(
+    quest: dict[str, Any], *, prefix: str,
+) -> list[str]:
+    """Delegate quest shape/enum checks to the single contract authority."""
+    module_assets = _load_sibling(
+        "coc_module_assets_quests_ir", "coc_module_assets.py",
+    )
+    return module_assets.validate_quest_pack_contract(quest, prefix=prefix)
+
+
 def _load_compiled_handouts(scenario_dir: Path) -> dict[str, Any]:
     """Load every static card row so validation sees duplicates and errors."""
     cards: list[Any] = []
@@ -2252,6 +2387,19 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
         for clue in concl.get("clues", []):
             if clue.get("visibility") == "player-safe" and clue.get("clue_id") in secrets:
                 errors.append(f"clue '{clue.get('clue_id')}' marked player-safe but is a keeper_secret")
+
+    # Optional eighth IR file: action-shaped quests. Absent file is legal
+    # (a module without quests); a present file is hard-validated against
+    # the frozen quest v1 contract plus scenario-IR reference integrity.
+    quests_path = scenario_dir / QUESTS_FILE
+    if quests_path.exists():
+        errors.extend(_validate_quests_ir(
+            _read(quests_path),
+            story=story,
+            clue_graph=clue_graph,
+            npcs=npcs,
+            fronts=fronts_data,
+        ))
 
     # --- Structured delivery field warnings (clue-graph) ---
     # These are warnings (not errors) so old clue-graphs without the new

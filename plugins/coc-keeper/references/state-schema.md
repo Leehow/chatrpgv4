@@ -76,6 +76,11 @@ Campaigns store temporary and scenario-specific state:
 │   ├── storylet-ledger.json        # storylet anti-repeat signatures + usage ledger
 │   ├── time-state.json             # in-fiction world clock
 │   ├── time-triggers.json          # scheduled time-based triggers
+│   ├── quest-state.json            # quest runtime states (schema_version 1:
+│   │                               #   authored→offered→active→
+│   │                               #   completed|failed|abandoned, all writes
+│   │                               #   decision_id-idempotent; quests never
+│   │                               #   appear player-safe before offered)
 │   ├── sanity-state/               # canonical per-investigator SAN sessions
 │   │   └── <investigator-id>.json  # bouts, episodes, caps, current/max SAN
 │   ├── sanity.json                 # legacy single-investigator compatibility mirror
@@ -320,6 +325,44 @@ creation, explicit rules subsystems, or player-requested option summaries.
 玩家可见的行动暗示必须来自编译后场景的 `affordances`（见 story-graph-schema），由 narrator 转成
 diegetic cue，并由 `choice_frame.is_real_fork` 决定是否在真分叉时停下交选择。`pending_choices`
 只承载 Keeper 续跑所需的状态连续性，绝不承载玩家菜单。
+
+## Quest State
+
+`save/quest-state.json` (schema_version 1) is the runtime state for
+action-shaped quests authored in module-assets `entities/quest-<slug>.json`
+packs and the optional `scenario/quests.json` IR file (contract:
+`skills/coc-scenario-import/references/quest-schema.md`). Exact shape:
+
+```json
+{
+  "schema_version": 1,
+  "quests": {
+    "quest-escort-macario": {
+      "status": "active",
+      "offered_at": "<decision_id>",
+      "closed_at": null,
+      "close_receipt": null,
+      "decision_history": ["<decision_id>", "..."]
+    }
+  }
+}
+```
+
+- Per-quest state machine: `authored` (keeper-known stub, not yet offered) →
+  `offered` → `active` → terminal `completed` | `failed` | `abandoned`.
+  Quests that are `authored` (or absent) never appear in any player-safe
+  projection; the `offered` transition is what first makes a quest
+  player-visible, and a `secret: true` quest carries no player-safe text
+  before that moment at all.
+- All writes follow `state.*` discipline: transactional, idempotent by
+  `decision_id`, one recorded transition per decision id; replay never
+  applies the same decision twice. Machine-checkable conditions
+  (`clue_discovered` / `flag_set` / `clock_reaches` from the shared
+  `coc_exit_conditions` vocabulary) settle automatically on the settled-event
+  path and produce a `close_receipt`; `narrative` conditions are always
+  machine-False and close only by an explicit Keeper decision receipt.
+- Quest progress is advisory pressure, never a gate: it never blocks
+  `move_scene`, player actions, scene transitions, or endings.
 
 ## Continuation And Context Epochs
 

@@ -38,7 +38,9 @@ EDGE_CONFIDENCE = frozenset({"low", "med", "high"})
 EDGE_EVIDENCE = frozenset({
     "toc_adjacency", "map", "body_mention", "clue", "handout", "npc_dialogue",
 })
-ENTITY_KINDS = frozenset({"location", "npc", "item", "clue", "handout", "threat"})
+ENTITY_KINDS = frozenset({
+    "location", "npc", "item", "clue", "handout", "threat", "quest",
+})
 JOB_KINDS = frozenset({
     "deepen_location", "deepen_npc", "deepen_clue", "deepen_handout",
     "deepen_threat", "deepen_item",
@@ -161,8 +163,24 @@ _ENTITY_ID_KEY = {
     "clue": "clue_id",
     "handout": "handout_id",
     "threat": "threat_id",
+    "quest": "quest_id",
 }
+# Quest v1 frozen contract (reference:
+# skills/coc-scenario-import/references/quest-schema.md). Action-shaped
+# quest taxonomy from corpus research; cognitive goals (find the truth) stay
+# in clue-graph conclusions and never become quests. ``timed`` is a deadline
+# attribute, not a kind.
+QUEST_ENTITY_KIND = "quest"
+QUEST_KINDS = frozenset({
+    "commission", "escort-deliver", "rescue-protect", "retrieve-collect",
+    "prevent-disrupt", "survive-escape", "negotiate", "restore",
+    "visit-explore",
+})
+QUEST_IMPORTANCE = frozenset({"core", "supporting", "optional"})
+QUEST_PROVENANCE = frozenset({"source", "campaign-improvised"})
+QUEST_REF_KINDS = frozenset({"npc", "location", "item", "clue", "scene"})
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_QUEST_ID = re.compile(r"^quest-[a-z0-9-]+$")
 _CACHED_PAGE_DRIFT_RE = re.compile(r"^cached (?:structured )?page (\d+) content drift")
 _HTML_TAG_RE = re.compile(r"<[^>]*>")
 _HEX = frozenset("0123456789abcdef")
@@ -1600,6 +1618,17 @@ def _validate_entity_pack(
         )
         if parse_state not in {"named_only", "toc_only"} or claims_delivery:
             _validate_clue_discovery(doc, prefix="clue")
+    if kind == QUEST_ENTITY_KIND and str(doc.get("parse_state") or "") not in {
+        "named_only", "toc_only",
+    }:
+        # Quest packs are authored whole; stub tiers are page-scope
+        # placeholders without quest semantics yet (same exemption shape as
+        # clue discovery). parse_state never bypasses the frozen contract.
+        errors = validate_quest_pack_contract(
+            doc, prefix=f"quest {entity_id or '<missing id>'}",
+        )
+        if errors:
+            raise ModuleAssetsError("; ".join(errors))
     if kind == "location":
         for index, clue in enumerate(doc.get("clues") or []):
             if not isinstance(clue, dict):
@@ -1777,6 +1806,9 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_fileio = _load_sibling("coc_fileio_module_assets", "coc_fileio.py")
+coc_exit_conditions = _load_sibling(
+    "coc_exit_conditions_module_assets", "coc_exit_conditions.py",
+)
 coc_pdf_bundle = _load_sibling("coc_pdf_bundle_module_assets", "coc_pdf_bundle.py")
 coc_source_media = _load_sibling(
     "coc_source_media_module_assets", "coc_source_media.py",
@@ -5040,6 +5072,253 @@ def _validate_handout_entity_pack(doc: dict[str, Any]) -> None:
         raise ModuleAssetsError("; ".join(errors))
 
 
+def validate_quest_pack_contract(
+    doc: dict[str, Any],
+    *,
+    prefix: str = "quest",
+) -> list[str]:
+    """Validate the frozen quest v1 contract (structured fields only).
+
+    Single shared shape authority for module-assets ``put_entity`` quest packs
+    and compiled scenario IR ``scenario/quests.json`` rows. Returns
+    human-readable error strings; an empty list means the contract holds.
+    Completion/failure condition kinds reuse the ``coc_exit_conditions``
+    vocabulary at its single choke point — quest validation never invents
+    kind words and never scans free text.
+    """
+    exit_kinds = coc_exit_conditions.EXIT_CONDITION_KINDS
+    errors: list[str] = []
+
+    def err(message: str) -> None:
+        errors.append(f"{prefix}: {message}")
+
+    quest_id = str(doc.get("quest_id") or "")
+    if not _QUEST_ID.fullmatch(quest_id):
+        err(
+            f"quest_id {quest_id!r} must match quest-[a-z0-9-]+ "
+            "(the store key is the slug without the quest- prefix)"
+        )
+    title = doc.get("title")
+    if not isinstance(title, str) or not title.strip():
+        err("title must be a non-empty string")
+    for field in ("localized_title", "localized_text"):
+        value = doc.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, dict) or not all(
+            isinstance(language, str) and language.strip()
+            and isinstance(text, str) and text.strip()
+            for language, text in value.items()
+        ):
+            err(f"{field} must map non-empty language tags to non-empty text")
+    summary = doc.get("player_safe_summary")
+    if summary is not None and (
+        not isinstance(summary, str) or not summary.strip()
+    ):
+        err("player_safe_summary must be a non-empty string when present")
+    kinds = doc.get("quest_kinds")
+    if (
+        not isinstance(kinds, list)
+        or not kinds
+        or any(not isinstance(kind, str) for kind in kinds)
+        or len(set(kinds)) != len(kinds)
+        or any(kind not in QUEST_KINDS for kind in kinds)
+    ):
+        allowed = ", ".join(sorted(QUEST_KINDS))
+        err(f"quest_kinds must be a non-empty unique list of: {allowed}")
+    if doc.get("importance") not in QUEST_IMPORTANCE:
+        allowed = ", ".join(sorted(QUEST_IMPORTANCE))
+        err(f"importance must be one of: {allowed}")
+    if type(doc.get("secret")) is not bool:
+        err("secret must be an explicit boolean")
+    elif doc["secret"] and isinstance(summary, str) and summary.strip():
+        # Physical isolation, mirroring the keeper_secrets discipline: a
+        # keeper-only quest never carries a player-safe copy in the same pack.
+        err(
+            "secret=true quest must not carry player_safe_summary; "
+            "player-safe text exists only after the quest is offered"
+        )
+    if doc.get("provenance") not in QUEST_PROVENANCE:
+        allowed = ", ".join(sorted(QUEST_PROVENANCE))
+        err(f"provenance must be one of: {allowed}")
+    brief = doc.get("brief")
+    if not isinstance(brief, str) or not brief.strip():
+        err("brief must be a non-empty keeper-side string")
+    giver = doc.get("giver")
+    if giver is not None:
+        if not isinstance(giver, dict):
+            err("giver must be null or an object")
+        elif giver.get("kind") == "npc":
+            ref_id = giver.get("ref_id")
+            if (
+                set(giver) != {"kind", "ref_id"}
+                or not isinstance(ref_id, str)
+                or not ref_id.strip()
+            ):
+                err(
+                    'giver kind=npc must be exactly {"kind","ref_id"} with a '
+                    "non-empty npc ref_id"
+                )
+        elif giver.get("kind") == "organization":
+            label = giver.get("label")
+            if (
+                set(giver) != {"kind", "label"}
+                or not isinstance(label, str)
+                or not label.strip()
+            ):
+                err(
+                    'giver kind=organization must be exactly {"kind","label"} '
+                    "with a non-empty label"
+                )
+        else:
+            err("giver.kind must be npc or organization")
+    target_refs = doc.get("target_refs")
+    if target_refs is not None:
+        if not isinstance(target_refs, list):
+            err("target_refs must be a list")
+        else:
+            for index, ref in enumerate(target_refs):
+                if (
+                    not isinstance(ref, dict)
+                    or set(ref) != {"kind", "ref_id"}
+                    or ref.get("kind") not in QUEST_REF_KINDS
+                    or not isinstance(ref.get("ref_id"), str)
+                    or not ref["ref_id"].strip()
+                ):
+                    allowed = ", ".join(sorted(QUEST_REF_KINDS))
+                    err(
+                        f"target_refs[{index}] must be an object with kind in "
+                        f"({allowed}) and a non-empty ref_id"
+                    )
+    destination = doc.get("destination_scene_id")
+    if destination is not None and (
+        not isinstance(destination, str) or not destination.strip()
+    ):
+        err("destination_scene_id must be a non-empty string when present")
+    deadline = doc.get("deadline")
+    if deadline is not None:
+        if not isinstance(deadline, dict):
+            err("deadline must be null or an object")
+        elif deadline.get("kind") == "clock":
+            clock_id = deadline.get("clock_id")
+            if (
+                set(deadline) != {"kind", "clock_id"}
+                or not isinstance(clock_id, str)
+                or not clock_id.strip()
+            ):
+                err(
+                    'deadline kind=clock must be exactly {"kind","clock_id"} '
+                    "with a non-empty clock_id"
+                )
+        elif deadline.get("kind") == "game_time":
+            at = deadline.get("at")
+            display = deadline.get("display")
+            if (
+                set(deadline) != {"kind", "at", "display"}
+                or not isinstance(at, str)
+                or not at.strip()
+                or not isinstance(display, str)
+                or not display.strip()
+            ):
+                err(
+                    'deadline kind=game_time must be exactly '
+                    '{"kind","at","display"} with non-empty at and display'
+                )
+        else:
+            err("deadline.kind must be clock or game_time")
+    if doc.get("evidence_gap") is not None and type(
+        doc.get("evidence_gap")
+    ) is not bool:
+        err("evidence_gap must be a boolean when present")
+    links = doc.get("mainline_links")
+    if links is not None and (
+        not isinstance(links, list)
+        or any(not isinstance(link, str) or not link.strip() for link in links)
+        or len(set(links)) != len(links)
+    ):
+        err("mainline_links must be a list of unique non-empty conclusion/clue ids")
+
+    def check_condition(field: str, condition: Any, position: str) -> None:
+        if not isinstance(condition, dict):
+            err(
+                f"{field}{position} must be a structured condition object; "
+                "legacy free-text strings are not accepted in quest v1"
+            )
+            return
+        kind = condition.get("kind")
+        if kind not in exit_kinds:
+            allowed = ", ".join(sorted(exit_kinds))
+            err(f"{field}{position}.kind {kind!r} must be one of: {allowed}")
+            return
+        allowed_keys = {"kind", "description"}
+        if kind == "clue_discovered":
+            allowed_keys.add("clue_id")
+        elif kind == "clock_reaches":
+            allowed_keys.update({"clock_id", "threshold"})
+        elif kind == "flag_set":
+            allowed_keys.add("flag_id")
+        unknown = sorted(set(condition) - allowed_keys)
+        if unknown:
+            err(f"{field}{position} has unsupported fields: {', '.join(unknown)}")
+        if kind == "clue_discovered" and not str(
+            condition.get("clue_id") or ""
+        ).strip():
+            err(f"{field}{position}.clue_id is required for clue_discovered")
+        if kind == "clock_reaches":
+            threshold = condition.get("threshold")
+            if isinstance(threshold, bool) or not isinstance(threshold, int):
+                err(
+                    f"{field}{position}.threshold must be an integer for "
+                    "clock_reaches"
+                )
+            clock_id = condition.get("clock_id")
+            if clock_id is not None and (
+                not isinstance(clock_id, str) or not clock_id.strip()
+            ):
+                err(
+                    f"{field}{position}.clock_id must be a non-empty string "
+                    "when present"
+                )
+        if kind == "flag_set" and not str(condition.get("flag_id") or "").strip():
+            err(f"{field}{position}.flag_id is required for flag_set")
+
+    def check_condition_group(field: str, *, required: bool) -> None:
+        group = doc.get(field)
+        if group is None:
+            if required:
+                err(f"{field} is required (a quest must declare how it settles)")
+            return
+        if not isinstance(group, dict):
+            err(f"{field} must be an object")
+            return
+        unknown = sorted(set(group) - {"all", "any", "narrative"})
+        if unknown:
+            err(f"{field} has unsupported fields: {', '.join(unknown)}")
+        if not any(key in group for key in ("all", "any", "narrative")):
+            err(f"{field} must declare at least one of all/any/narrative")
+        for key in ("all", "any"):
+            conditions = group.get(key)
+            if conditions is None:
+                continue
+            if not isinstance(conditions, list):
+                err(f"{field}.{key} must be a list of condition objects")
+                continue
+            for index, condition in enumerate(conditions):
+                check_condition(f"{field}.{key}", condition, f"[{index}]")
+        narrative = group.get("narrative")
+        if narrative is not None and (
+            not isinstance(narrative, str) or not narrative.strip()
+        ):
+            err(
+                f"{field}.narrative must be a non-empty string when present "
+                "(it marks the quest as closed semantically by the Keeper)"
+            )
+
+    check_condition_group("completion", required=True)
+    check_condition_group("failure", required=False)
+    return errors
+
+
 def _source_indices(
     value: dict[str, Any], *, field: str, allow_string_refs: bool = False,
 ) -> list[int]:
@@ -6152,6 +6431,13 @@ def _canonicalize_entity_source_evidence(
     campaign_authority = fact_authority in {
         "campaign_improvised", "campaign_generated",
     }
+    if kind == QUEST_ENTITY_KIND:
+        # Quest provenance is the frozen flat string enum (source |
+        # campaign-improvised); improvised quests never carry source evidence,
+        # exactly like dict-form campaign authority rows.
+        campaign_authority = (
+            str(doc.get("provenance") or "") == "campaign-improvised"
+        )
     requires_evidence = (
         source_bound
         and parse_state in {"partial", "body_parsed", "deep"}
@@ -8298,6 +8584,10 @@ def put_entity(
     received_at = _now_iso()
     doc["updated_at"] = received_at
     doc[_ENTITY_ID_KEY[kind]] = eid
+    if kind == QUEST_ENTITY_KIND:
+        # Quest ids are frozen semantic ids ``quest-<slug>``; the store key is
+        # the bare slug and the durable file is ``entities/quest-<slug>.json``.
+        doc["quest_id"] = f"quest-{eid}"
     allowed_read_aloud_indices, required_read_aloud_languages = (
         _put_entity_host_work_constraints(
             workspace,
@@ -8440,7 +8730,15 @@ def put_entity(
     # When a deep pack lands, re-enqueue high-priority merge and kick workers
     # so campaigns update without blocking the host put path.
     parse_state = str(doc.get("parse_state") or "")
-    if parse_state == "deep" and not doc.get("evidence_gap"):
+    # Quest packs are authored whole and have no queue deepen lane in v1, so
+    # the post-put merge kick and host-request supersede only fire for kinds
+    # that own one.
+    deep_without_gap = (
+        parse_state == "deep"
+        and not doc.get("evidence_gap")
+        and kind in JOB_KIND_FOR_ENTITY
+    )
+    if deep_without_gap:
         try:
             worker = _load_sibling(
                 "coc_module_queue_worker_put_entity", "coc_module_queue_worker.py",
@@ -8455,7 +8753,7 @@ def put_entity(
         except Exception:  # noqa: BLE001
             out["worker"] = {"error": "reenqueue_kick_failed"}
     out["repository_put_ms"] = repository_put_ms
-    if parse_state == "deep" and not doc.get("evidence_gap"):
+    if deep_without_gap:
         fulfillment = current_ingest_fulfillment_receipt(doc) or {}
         out["superseded_host_job_ids"] = _supersede_covered_entity_host_requests(
             workspace,
