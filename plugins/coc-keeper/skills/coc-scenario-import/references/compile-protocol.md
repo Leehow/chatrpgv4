@@ -128,7 +128,7 @@ coc-scenario-import 的"剧情图编译"流程，由 LLM 驱动（利用宿主�
    - 检查是否依赖前作/跨模组状态 → campaign_sequel
    - 多原型核心特征同时强满足 → hybrid_mega
    - 资料书/无场景结构 → 排除，不编译
-4. 按下列顺序产出 7 个 JSON 到 campaigns/<id>/scenario/：
+4. 按下列顺序产出 7 个 JSON + 可选 quests.json 到 campaigns/<id>/scenario/：
    a. module-meta.json        （含 module_identity；先定 structure_type）
    b. story-graph.json        （场景图）
    c. clue-graph.json         （线索图，critical 结论 ≥ 3 路径）
@@ -136,6 +136,9 @@ coc-scenario-import 的"剧情图编译"流程，由 LLM 驱动（利用宿主�
    e. threat-fronts.json      （威胁前沿 + 压力钟）
    f. pacing-map.json         （节奏曲线，horror_stage 单调递进）
    g. improvisation-boundaries.json （即兴边界 + keeper_secrets 物理隔离）
+   h. quests.json             （可选第八文件：行动型任务，缺省 = 无任务模组。字段、九类
+                               quest_kinds 枚举与硬断言见 references/quest-schema.md；
+                               存在时并入 --validate 校验）
 5. 对 `npc-agendas.json` 跑 `coc_npc_roles.expand_from_dir <dir>`，按 `relationship_to_investigators` 注入 `social_role`（确定性 transform，详见下方「NPC social_role 注入」）。
 6. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
 7. 校验报告的缺漏逐个补，直到 errors 为空（见下方硬断言）。
@@ -169,6 +172,14 @@ coc-scenario-import 的"剧情图编译"流程，由 LLM 驱动（利用宿主�
 5. 校验器会对缺 affordances 的 social/investigation 场景发 warning（非 error）——补上即可；这引导 LLM 主动铺多路线，但不阻塞编译。
 6. **场景真图 `scene_edges`（R-3）：** 新编译剧本应显式产出 `scene_edges`（`to` + 结构化 `when` + `kind`），不要依赖 `scenes` 数组顺序当线性轨道。可达性/死节点校验优先读 `scene_edges`；未声明时仍可用 `exit_targets` / clue `leads_to` 作编译期邻接提示。`when` 复用 `coc_exit_conditions` 词汇（`clue_discovered` / `clock_reaches` / `flag_set` / `always` / `narrative`）。
 
+## 渐进路径的 quest 处理（Tier 1B 索引 / Tier 2–3 深化）
+
+渐进（skeleton-first + on-demand）模组不要求一次性产出 quests.json；quest 与其他实体一样走渐进解析，仍是 LLM 语义编译，不写硬解析代码：
+
+- **Tier 1B（骨架 enrichment）**：在有界索引窗口里识别行动型任务，存为命名 quest stub（`named_only` / `toc_only`：标题、可能的 giver 名、页范围占位），此时不要求完整冻结契约字段。
+- **Tier 2/3（深化触发）**：进入 `destination_scene_id` / `target_refs` 指向的场景、玩家物质性接触 giver NPC、或结构化线索/场景 mention 指向该任务时，深化对应 quest pack（`put_entity`；`partial` / `deep` 档必须满足完整冻结契约，bundle-backed 深包带源溯源）。深化是后台解析记账，永不阻塞开场、游玩与转场。
+- "这段源文是不是一个委托/押送/…"是编译 LLM 的语义判断；仓库代码只消费结构化字段与枚举做校验/记账，绝不关键词扫描 quest 语义。
+
 ## 编译期硬断言（Layer 2 — 脚本校验）
 
 `coc_scenario_compile.py --validate` 检查项（不通过则报告具体缺漏，让 LLM 补）：
@@ -179,10 +190,12 @@ coc-scenario-import 的"剧情图编译"流程，由 LLM 驱动（利用宿主�
 - `module-meta.structure_type` ∈ 7 合法值
 - `improvisation-boundaries.keeper_secrets` 与 player-safe 内容物理隔离
 - `pacing-map` 的 horror_stage 序列在场景访问顺序上大体单调递进（ordinary→wrongness→pattern→revelation）
+- `quests.json` 存在时：quest_id 唯一且匹配 `^quest-[a-z0-9-]+$`、quest_kinds / importance / provenance 枚举合法、completion/failure 的 cond kind 走 `coc_exit_conditions` 同一词汇、giver / target / destination_scene / deadline clock / mainline_links 跨文件引用可解析、`secret:true` 与非空 `player_safe_summary` 互斥（详见 references/quest-schema.md §5）
 
 ## 关键约束
 
 - 每个 critical conclusion 至少 3 条线索路径（避免玩家卡死）。
+- 行动型目标（委托/押送/救援/取回/阻止/生存/谈判/恢复/到访九类）建 quest；认知型结论仍写 clue-graph conclusion，两层互补不混用。
 - `keeper_secrets` 与 player-safe 物理隔离（绝不混入玩家可见的 recap/scene/clue）。
 - schema 是"提示"不是"约束代码"：参考 `references/story-graph-schema.md` 的字段名 + 说明 + 完整示例。
 - 剧情图质量直接决定 director 的"灵魂"——Layer 2 校验不绿不交付。

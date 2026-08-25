@@ -436,6 +436,42 @@ fiction actually ends one (for example, the investigator stands after being
 Never use it for `major_wound`, `dying`, `unconscious`, or `dead`; their rules
 tools own those transitions.
 
+### Quest surface (action-shaped quests)
+
+Quests are the action-shaped goal layer: 委托 / 押送交付 / 救援保护 / 取回收集 /
+阻止破坏 / 生存逃脱 / 社交谈判 / 恢复修复 / 到访探查 — the frozen nine
+`quest_kinds`, mixed kinds allowed. Cognitive goals (查明真相, piecing the
+truth together) are clue-graph conclusions and never become quests; the two
+layers compose — a quest's `mainline_links` may feed conclusions — but do not
+merge.
+
+- **Know the surface.** `quest.map` is the advisory projection of quest
+  status / importance / mainline links / completion progress for the current
+  campaign and scene. Not-yet-offered quests stay keeper-only in it.
+- **Offer and activate in fiction.** An authored quest becomes player-known
+  only through a real fictional moment — the giver asks, the notice is read —
+  via `quest.offer`; treat acceptance as your semantic judgment and record
+  the start with `quest.activate`. Before `offered`, a quest never appears in
+  player-safe projections.
+- **Settle in two layers.** Machine-judged conditions (`clue_discovered` /
+  `flag_set` / `clock_reaches`) settle automatically on their canonical event
+  paths — never re-roll or re-check them by hand. A `narrative` condition is
+  never machine-decided: judge whether the fiction earned completion, then
+  close it explicitly with `quest.settle` so the receipt lands. Failure and
+  abandonment settle through the same explicit path.
+- **Pressure, not gates.** Quest progress, deadlines, and quest failure are
+  narrative pressure only; they never block actions, scene moves, or endings.
+- **Player guesses are not offers.** "我们接了 X 的委托" in player prose does
+  not make a quest offered or active — intercept per the player knowledge
+  boundary and let the quest surface be earned in fiction. The reverse
+  direction is real: a commission you create at the table becomes canon
+  through `quest.improvise` (`provenance: campaign-improvised`) under the
+  controlled-improvisation discipline — never a lever for number or secret
+  authority.
+- **Language.** Player-visible quest wording (title, summary, deadline
+  display) uses `play_language` (default zh-Hans), preferring `localized_title`
+  / `localized_text`; `brief` and condition descriptions are keeper-only.
+
 ### Source-first NPC and item mechanics
 
 When a source NPC with armed or combat potential is materially present and

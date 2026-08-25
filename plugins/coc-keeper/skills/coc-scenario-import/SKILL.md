@@ -474,6 +474,7 @@ replay are owned by the live handout delivery path, not import.
    module-meta（含 `module_identity`）/ story-graph / clue-graph / npc-agendas / threat-fronts / pacing-map / improvisation-boundaries
    - **story-graph.json 的 social/investigation 场景必须带 ≥2 条 `affordances`（含语义 `route_type`）；开场场景带 `storylet_tags`。** 详见 references/compile-protocol.md「场景多路线与 storylet 标签」。这让玩家在每个调查/社交场景都有选择权、不被线性推向单一出口。
    - **新编译剧本应显式产出 `scene_edges`（`to` + 结构化 `when` + `kind`）**，不要依赖 `scenes` 数组顺序当线性轨道。详见 story-graph-schema.md 的 unlock 模型。
+   - **可选第八文件 `quests.json`（行动型任务）**：quest 是行动型目标实体（委托/押送/救援/取回/阻止/生存/谈判/恢复/到访九类；schema 见 references/quest-schema.md），模组含这类目标时与七文件同一遍语义编译；“查明真相”类认知型结论仍写 clue-graph，不建 quest。缺省合法 = 无任务模组。渐进路径的 quest 索引与深化时机见 references/compile-protocol.md。
 4. 对 npc-agendas.json 跑 `coc_npc_roles.expand_from_dir`（按 relationship_to_investigators 注入 social_role，详见 references/compile-protocol.md）。
 5. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
 6. 校验报告的缺漏逐个补，直到 errors 为空。
