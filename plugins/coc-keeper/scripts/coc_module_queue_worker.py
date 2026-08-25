@@ -218,6 +218,45 @@ def _full_parse_render_result_contract() -> dict[str, Any]:
     }
 
 
+def _image_annotation_result_contract(
+    *,
+    image_assets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Closed contract for one image annotation pack.
+
+    Each annotation must bind an exact ``asset_key`` from the request's
+    ``image_assets`` and carry a semantic reading of that image from its
+    page context.  The repository, never the worker, writes the file.
+    """
+    asset_keys = sorted({
+        str(row.get("asset_key") or "").strip()
+        for row in image_assets
+        if isinstance(row, dict) and str(row.get("asset_key") or "").strip()
+    })
+    return {
+        "contract_id": "coc.image-annotation-pack.v1",
+        "allowed_pack_fields": [
+            "annotations",
+        ],
+        "required_pack_fields": ["annotations"],
+        "annotation_fields": [
+            "asset_key", "pdf_index", "description", "kind",
+            "player_visible", "linked_scene_hint", "when_to_show",
+        ],
+        "allowed_kinds": sorted(coc_module_assets.IMAGE_ANNOTATION_KINDS),
+        "exact_asset_keys": asset_keys,
+        "rules": [
+            "every asset_key in image_assets gets exactly one annotation",
+            "pdf_index must be a non-negative integer from the request",
+            "description is a 1-2 sentence semantic reading of the image from its page text",
+            "kind must be one of allowed_kinds",
+            "player_visible is true only for player-safe images with no keeper secrets",
+            "linked_scene_hint is a short semantic slug or empty",
+            "when_to_show is a brief narrative-moment hint or empty",
+        ],
+    }
+
+
 def _foreground_opening_result_contract() -> dict[str, Any]:
     """Return the compact closed result shape carried by opening host work."""
     return {
@@ -1558,6 +1597,37 @@ def _write_host_work_request(
             "page_count": len(requested_indices),
             "pdf_indices": list(requested_indices),
         }
+    elif job_kind == coc_module_assets.ANNOTATE_IMAGES_KIND:
+        # The annotation pass covers every page that has at least one
+        # extracted image; it reads the surrounding text, not the PDF.
+        asset_refs = coc_module_assets.registered_source_asset_refs(
+            workspace, asset_root_id,
+        )
+        requested_indices = sorted({
+            int(ref["pdf_index"]) for ref in asset_refs
+            if isinstance(ref.get("pdf_index"), int)
+        })
+        if not requested_indices:
+            raise QueueWorkerError(
+                "annotate_images job has no extracted images to annotate"
+            )
+        payload["image_assets"] = [
+            {
+                "asset_key": ref.get("image_ref"),
+                "pdf_index": ref.get("pdf_index"),
+                "media_type": ref.get("media_type"),
+                "size_bytes": ref.get("size_bytes"),
+            }
+            for ref in asset_refs
+            if ref.get("pdf_index") is not None
+        ]
+        requested_scope = {
+            "scope_kind": "image_annotation",
+            "source_file_sha256": (
+                source.get("file_sha256") or identity.get("file_sha256")
+            ),
+            "pdf_indices": list(requested_indices),
+        }
     else:
         requested_scope = _target_source_scope(
             workspace,
@@ -1888,7 +1958,10 @@ def _write_host_work_request(
     if dependency_ref is not None:
         payload["dependency_ref"] = dependency_ref
     if job_kind == "deepen_handout":
-        allowed_assets = coc_module_assets.registered_source_asset_refs(
+        # Annotated refs carry the image annotation lane's semantic layer
+        # (description, kind, player_visible, when_to_show) alongside the
+        # raw hash binding, so the deepen worker knows what each image is.
+        allowed_assets = coc_module_assets.annotated_asset_refs(
             workspace,
             asset_root_id,
             requested_pdf_indices=requested_indices,
@@ -1987,6 +2060,30 @@ def _write_host_work_request(
             ],
             allowed_scene_refs=payload["allowed_scene_refs"],
             allowed_clue_refs=payload["allowed_clue_refs"],
+        )
+    elif job_kind == coc_module_assets.ANNOTATE_IMAGES_KIND:
+        payload["result_contract"] = _image_annotation_result_contract(
+            image_assets=payload.get("image_assets") or [],
+        )
+        payload["instruction"] = (
+            "Image annotation pass: for each entry in image_assets, read "
+            "the cached_page_refs for that image's pdf_index and produce a "
+            "semantic annotation. Each annotation in results[].pack."
+            "annotations must carry: the exact asset_key from image_assets, "
+            "the pdf_index, a one-to-two sentence description of what the "
+            "image depicts based on the surrounding page text, a kind from "
+            "result_contract (illustration, map, portrait, diagram, other), "
+            "player_visible (true only if the image is safe for the player "
+            "to see — no keeper-only secrets, no spoiler content), "
+            "linked_scene_hint (a short slug naming the location or scene "
+            "the image is associated with, or empty if book-wide), and "
+            "when_to_show (a brief semantic hint for the Keeper about the "
+            "narrative moment this image should be presented, or empty). "
+            "Judge each image from its page context: a landscape drawing "
+            "next to a location heading is an illustration of that place; "
+            "a face next to an NPC name is a portrait; a floor plan is a "
+            "map. Never guess at content the page text does not support. "
+            "Return all annotations in one pack."
         )
     coc_module_assets.validate_host_work_request_shape(payload)
     pending_supersedes = sorted({

@@ -19499,6 +19499,18 @@ def _fulfill_host_work_for_asset_unlocked(
                     ),
                     "coverage": stored["coverage"],
                 }
+            elif job_kind == assets_mod.ANNOTATE_IMAGES_KIND:
+                doc = assets_mod.merge_image_annotation_pack(
+                    ctx.root, root_id, pack,
+                )
+                stored = assets_mod.fulfill_and_close_host_work(
+                    ctx.root, root_id, host_work_job_id=job_id,
+                )
+                data = {
+                    "annotation_count": len(
+                        (doc.get("annotations") or [])
+                    ),
+                }
             else:
                 stored = assets_mod.put_section_pack_and_fulfill_host_work(
                     ctx.root, root_id, host_work_job_id=job_id, pack=pack,
