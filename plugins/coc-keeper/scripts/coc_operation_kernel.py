@@ -9010,6 +9010,43 @@ def _fulfill_host_work_for_asset_unlocked(
                 doc = assets_mod.merge_image_annotation_pack(
                     ctx.root, root_id, pack,
                 )
+                created_stubs = assets_mod.create_handout_stubs_from_annotations(
+                    ctx.root, root_id,
+                )
+                # Project newly created stubs into every campaign bound to
+                # this asset root, so the KP can see and deliver them.
+                projected: list[str] = []
+                if created_stubs:
+                    camps_root = (
+                        coc_state.coc_root(ctx.root.resolve()) / "campaigns"
+                    )
+                    if camps_root.is_dir():
+                        for camp in sorted(camps_root.iterdir()):
+                            sc = camp / "scenario" / "scenario.json"
+                            if not sc.is_file() or not camp.is_dir():
+                                continue
+                            try:
+                                sc_data = json.loads(sc.read_text(encoding="utf-8"))
+                            except (OSError, ValueError):
+                                continue
+                            if str(sc_data.get("asset_root_id") or "") != root_id:
+                                continue
+                            try:
+                                ir = coc_module_project.load_campaign_ir(camp)
+                                for stub_id in created_stubs:
+                                    stub = assets_mod.get_entity(
+                                        ctx.root, root_id, "handout", stub_id,
+                                    )
+                                    if stub is not None:
+                                        ir = coc_module_project.merge_deep_entity_into_ir(
+                                            ir, "handout", stub,
+                                        )
+                                coc_module_project.write_ir_to_campaign(
+                                    camp, ir, asset_root_id=root_id,
+                                )
+                                projected.append(camp.name)
+                            except Exception:
+                                pass
                 stored = assets_mod.fulfill_and_close_host_work(
                     ctx.root, root_id, host_work_job_id=job_id,
                 )
@@ -9017,6 +9054,8 @@ def _fulfill_host_work_for_asset_unlocked(
                     "annotation_count": len(
                         (doc.get("annotations") or [])
                     ),
+                    "handout_stubs_created": created_stubs,
+                    "projected_campaigns": projected,
                 }
             else:
                 stored = assets_mod.put_section_pack_and_fulfill_host_work(

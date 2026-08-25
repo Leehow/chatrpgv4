@@ -2474,6 +2474,87 @@ def fulfill_and_close_host_work(
     return request
 
 
+def create_handout_stubs_from_annotations(
+    workspace: Path,
+    asset_root_id: str,
+) -> list[str]:
+    """Create handout stubs for every player-visible annotated image.
+
+    After the annotation pass completes, each image the model judged
+    player-safe becomes a canonical handout card automatically.  The card
+    carries the annotation's semantic description, kind, delivery hint, and
+    the image_ref binding, so the KP sees a fully described illustration in
+    the card store and can deliver it at the right narrative moment.
+
+    Returns the list of handout ids created (empty when all stubs already
+    exist or no player-visible annotations are present).
+    """
+    annotations = read_image_annotations(workspace, asset_root_id)
+    if annotations is None:
+        return []
+    mod = _module_dir(workspace, asset_root_id)
+    identity = json.loads(
+        (mod / "identity.json").read_text(encoding="utf-8"),
+    )
+    source_id = str(
+        (identity.get("source") or {}).get("source_id")
+        or f"pdf:{asset_root_id}",
+    )
+    created: list[str] = []
+    per_page_index: dict[int, int] = {}
+    for row in (annotations.get("annotations") or []):
+        if not isinstance(row, dict) or not row.get("player_visible"):
+            continue
+        pdf_index = row.get("pdf_index")
+        if not isinstance(pdf_index, int) or isinstance(pdf_index, bool):
+            continue
+        per_page_index[pdf_index] = per_page_index.get(pdf_index, 0) + 1
+        suffix = (
+            "" if per_page_index[pdf_index] == 1
+            else f"-{per_page_index[pdf_index]}"
+        )
+        handout_id = f"annotated-{row.get('kind')}-p{pdf_index}{suffix}"
+        try:
+            page = mod / "pages" / f"{pdf_index:04d}.md"
+            page_text = page.read_text(encoding="utf-8")
+            text_sha = hashlib.sha256(
+                _normalized_page_text(page_text).encode("utf-8"),
+            ).hexdigest()
+        except OSError:
+            text_sha = hashlib.sha256(b"").hexdigest()
+        card = {
+            "handout_id": handout_id,
+            "asset_id": handout_id,
+            "kind": (
+                "map" if row.get("kind") == "map"
+                else "document"
+            ),
+            "title": str(row.get("description") or "")[:120]
+            or f"第 {pdf_index} 页插图",
+            "when_to_deliver": str(row.get("when_to_show") or "").strip()
+            or "到达相关场景时交给玩家",
+            "image_ref": str(row.get("asset_key") or "").strip() or None,
+            "source_refs": [f"pdf_index-{pdf_index}"],
+            "player_visible": True,
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "origin": "source",
+            "provenance": {"authority": "source_authored", "basis": "host_pack"},
+        }
+        if card["image_ref"] is None:
+            continue
+        try:
+            stored = put_entity(
+                workspace, asset_root_id, "handout", handout_id, card,
+            )
+            if stored is not None:
+                created.append(handout_id)
+        except ModuleAssetsError:
+            # An existing stub for the same id is a no-op, not a failure.
+            continue
+    return created
+
+
 def annotated_asset_refs(
     workspace: Path,
     asset_root_id: str,
