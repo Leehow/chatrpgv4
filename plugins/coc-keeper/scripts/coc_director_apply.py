@@ -74,6 +74,7 @@ coc_toolbox_continuity = _load_sibling(
     "coc_toolbox.py",
 )
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
+coc_quest_state = _load_sibling("coc_quest_state_apply", "coc_quest_state.py")
 coc_epistemic_resolve = _load_sibling("coc_epistemic_resolve", "coc_epistemic_resolve.py")
 coc_epistemic_lifecycle = _load_sibling("coc_epistemic_lifecycle", "coc_epistemic_lifecycle.py")
 
@@ -3906,6 +3907,20 @@ def _apply_plan_impl(
         events=events,
         logs=logs,
     )
+    # Quest machine settlement rides the same settled-event seam as the
+    # unlock pass above: clues, flags, and clocks have all landed by here, so
+    # machine-checkable quest conditions are re-evaluated at this point.
+    # Advisory by construction — the pass reports quest_settled events and
+    # never blocks or rewrites any action, scene, or ending.
+    for ev in coc_quest_state.settle_machine_settled_quests(
+        campaign_dir,
+        world=world,
+        decision_id=decision_id,
+        investigator_id=investigator_id,
+        ts=ts,
+    ):
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     _write_json(world_path, world)
 
     # 1b. spoiler reveals — warning-gated Keeper-only disclosures.

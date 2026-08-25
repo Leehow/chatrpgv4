@@ -25,6 +25,8 @@ coc_epistemic_lifecycle = _load_sibling(
 
 coc_memory = _load_sibling("coc_memory", "coc_memory.py")
 
+coc_quest_state = _load_sibling("coc_quest_state_toolbox", "coc_quest_state.py")
+
 def _tool_personal_horror_query(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
     state = coc_state.load_investigator_state(ctx.campaign_dir, investigator_id)
@@ -332,6 +334,162 @@ def _tool_state_belief_apply(ctx: Ctx, args: dict[str, Any]):
     ctx.ledger_record(args["decision_id"], "state.belief_apply", data)
     return data, [], ["belief state now reflects only the adopted plan and already-committed evidence"]
 
+def _quest_definition(ctx: Ctx, quest_id: str) -> dict[str, Any]:
+    definitions = coc_quest_state.read_quest_definitions(
+        ctx.campaign_dir, root=ctx.root,
+    )
+    definition = definitions.get(quest_id)
+    if definition is None:
+        raise ToolError(
+            "invalid_param",
+            f"unknown quest {quest_id!r}; quest.map lists every known quest id",
+        )
+    return definition
+
+def _tool_quest_map(ctx: Ctx, args: dict[str, Any]):
+    projection = coc_quest_state.quest_projection(
+        ctx.campaign_dir, world=ctx.world(), root=ctx.root,
+    )
+    return projection, [], [
+        "advisory pressure only: quests never block actions, scenes, or "
+        "endings; nothing here is player-safe before the quest is offered",
+    ]
+
+def _tool_quest_offer(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "quest.offer"
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    decision_id = str(args["decision_id"])
+    quest_id = str(args["quest_id"])
+    _quest_definition(ctx, quest_id)
+    try:
+        receipt = coc_quest_state.transition_quest(
+            ctx.campaign_dir, quest_id, "offer", decision_id,
+        )
+    except coc_quest_state.QuestStateError as exc:
+        raise ToolError("invalid_state", str(exc)) from exc
+    data = {"quest_id": quest_id, "status": "offered", "receipt": receipt}
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "the quest is player-visible from this transition; render the offer "
+        "diegetically in play_language",
+    ]
+
+def _tool_quest_activate(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "quest.activate"
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    decision_id = str(args["decision_id"])
+    quest_id = str(args["quest_id"])
+    _quest_definition(ctx, quest_id)
+    try:
+        receipt = coc_quest_state.transition_quest(
+            ctx.campaign_dir, quest_id, "activate", decision_id,
+        )
+    except coc_quest_state.QuestStateError as exc:
+        raise ToolError("invalid_state", str(exc)) from exc
+    data = {"quest_id": quest_id, "status": "active", "receipt": receipt}
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "acceptance is your semantic call; this only records the state move",
+    ]
+
+def _tool_quest_settle(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "quest.settle"
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    decision_id = str(args["decision_id"])
+    quest_id = str(args["quest_id"])
+    outcome = str(args["outcome"])
+    basis = str(args["basis"]) if args.get("basis") is not None else None
+    _quest_definition(ctx, quest_id)
+    try:
+        receipt = coc_quest_state.transition_quest(
+            ctx.campaign_dir,
+            quest_id,
+            f"settle-{outcome}",
+            decision_id,
+            settled_by="keeper",
+            basis=basis,
+            ts=_now_iso(),
+        )
+    except coc_quest_state.QuestStateError as exc:
+        message = str(exc)
+        code = "idempotency_conflict" if "already applied" in message else "invalid_state"
+        raise ToolError(code, message) from exc
+    data = {
+        "quest_id": quest_id,
+        "outcome": outcome,
+        "receipt": receipt,
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "narrative conditions close only here; the close receipt is the "
+        "audit trail for what ended the quest and why",
+    ]
+
+def _tool_quest_improvise(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "quest.improvise"
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    decision_id = str(args["decision_id"])
+    quest = args.get("quest")
+    if not isinstance(quest, dict):
+        raise ToolError("invalid_param", "quest must be a quest definition object")
+    quest_id = str(quest.get("quest_id") or "").strip()
+    if not quest_id.startswith("quest-"):
+        raise ToolError(
+            "invalid_param",
+            "quest_id must be a semantic id matching quest-<slug>",
+        )
+    slug = quest_id[len("quest-"):]
+    asset_root_id = coc_quest_state.campaign_quest_asset_root_id(ctx.campaign_dir)
+    if not asset_root_id:
+        raise ToolError(
+            "invalid_state",
+            "campaign has no module asset root bound; improvised quests are "
+            "authored as campaign-improvised entity packs and need a root "
+            "(scenario.json progressive/source_cache asset root id)",
+        )
+    payload = dict(quest)
+    # Controlled improvisation: the campaign, not a source module, is the
+    # authority for this quest, so provenance is forced and the pack enters
+    # the store fully parsed. put_entity revalidates the whole frozen shape.
+    payload["provenance"] = "campaign-improvised"
+    payload["parse_state"] = "deep"
+    payload["evidence_gap"] = False
+    payload.pop("schema_version", None)
+    payload.pop("updated_at", None)
+    payload.pop("source_span", None)
+    payload.pop("page_text_sha256", None)
+    payload.pop("source_refs", None)
+    payload.pop("source_evidence", None)
+    payload.pop("origin", None)
+    try:
+        stored = coc_quest_state.coc_module_assets.put_entity(
+            ctx.root, asset_root_id, "quest", slug, payload,
+        )
+    except coc_quest_state.coc_module_assets.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    data = {
+        "quest_id": quest_id,
+        "status": "authored",
+        "definition_source": "entity_pack",
+        "asset_root_id": asset_root_id,
+        "pack_path": stored.get("path"),
+        "provenance": "campaign-improvised",
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "the improvised quest is campaign canon with provenance "
+        "campaign-improvised; offer it with quest.offer when the fiction is "
+        "ready",
+    ]
+
 def register_operations(registry) -> None:
     global TOOLS
     TOOLS = registry.legacy_tools
@@ -443,6 +601,46 @@ def register_operations(registry) -> None:
         "decision_id": {"type": "string", "desc": "idempotency key; must match plan decision_id when present"},
     },
 )(_tool_state_belief_apply)
+    registry.tool(
+    "quest.map",
+    "Read the campaign quest projection: every known quest with status, machine condition progress, and player-safe faces. Keeper-only advisory; quests never gate play.",
+    {},
+    access="query",
+)(_tool_quest_map)
+    registry.tool(
+    "quest.offer",
+    "Move a quest authored->offered (decision_id idempotent). The offered transition is what first makes a quest player-visible.",
+    {
+        "quest_id": {"type": "string", "required": True, "desc": "quest id from quest.map (quest-<slug>)"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)(_tool_quest_offer)
+    registry.tool(
+    "quest.activate",
+    "Move a quest offered->active after the players accept it (decision_id idempotent). Acceptance itself is a KP semantic judgment.",
+    {
+        "quest_id": {"type": "string", "required": True, "desc": "quest id currently offered"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)(_tool_quest_activate)
+    registry.tool(
+    "quest.settle",
+    "Close a quest active->completed|failed|abandoned (or drop an unaccepted quest to abandoned) with a close receipt. Narrative conditions close only through this operation.",
+    {
+        "quest_id": {"type": "string", "required": True, "desc": "quest id to close"},
+        "outcome": {"type": "string", "required": True, "enum": ["completed", "failed", "abandoned"], "desc": "terminal status"},
+        "basis": {"type": "string", "desc": "keeper semantic note recorded in the close receipt (required in spirit for narrative closures)"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)(_tool_quest_settle)
+    registry.tool(
+    "quest.improvise",
+    "Author a campaign-improvised quest at runtime as an entity pack (provenance forced to campaign-improvised; the frozen contract is revalidated on write). Idempotent via decision_id.",
+    {
+        "quest": {"type": "object", "required": True, "additionalProperties": True, "desc": "quest definition per the frozen quest v1 contract (quest_id, title, quest_kinds, importance, brief, completion, secret, ...)"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)(_tool_quest_improvise)
 
 
 OPERATION_EXPORTS = (
@@ -453,6 +651,11 @@ OPERATION_EXPORTS = (
     '_tool_memory_search',
     '_tool_memory_write',
     '_tool_personal_horror_query',
+    '_tool_quest_activate',
+    '_tool_quest_improvise',
+    '_tool_quest_map',
+    '_tool_quest_offer',
+    '_tool_quest_settle',
     '_tool_state_backstory_corruption_add',
     '_tool_state_belief_apply',
     '_tool_state_personal_horror_add',

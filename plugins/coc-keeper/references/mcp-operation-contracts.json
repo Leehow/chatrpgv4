@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:5f4916fb3b22a9656c0ae0f99c910872eee968b8f38aa22138d21e5c651ceed5",
+  "content_sha256": "sha256:5c0618e9ad2827eae64347614f8eea001a3f21472637fbc933c03519c016acf5",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 125,
+  "operation_count": 130,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -2452,6 +2452,241 @@
         ]
       },
       "summary": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only diagnostic for a concrete later dig/entity decision. It is not a Pi private-coordinator completion signal: while that lifecycle is open, await its terminal notice without polling, reassurance queries, repeat preparation/bootstrap, or manual claim/fulfillment."
+    },
+    "quest.activate": {
+      "access": "mutation",
+      "canonical_operation": "quest.activate",
+      "description": "Move a quest offered->active after the players accept it (decision_id idempotent). Acceptance itself is a KP semantic judgment. Canonical operation `quest.activate`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "quest_id": {
+            "description": "quest id currently offered",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "quest_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Move a quest offered->active after the players accept it (decision_id idempotent). Acceptance itself is a KP semantic judgment."
+    },
+    "quest.improvise": {
+      "access": "mutation",
+      "canonical_operation": "quest.improvise",
+      "description": "Author a campaign-improvised quest at runtime as an entity pack (provenance forced to campaign-improvised; the frozen contract is revalidated on write). Idempotent via decision_id. Canonical operation `quest.improvise`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "quest": {
+            "additionalProperties": true,
+            "description": "quest definition per the frozen quest v1 contract (quest_id, title, quest_kinds, importance, brief, completion, secret, ...)",
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "quest",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Author a campaign-improvised quest at runtime as an entity pack (provenance forced to campaign-improvised; the frozen contract is revalidated on write). Idempotent via decision_id."
+    },
+    "quest.map": {
+      "access": "query",
+      "canonical_operation": "quest.map",
+      "description": "Read the campaign quest projection: every known quest with status, machine condition progress, and player-safe faces. Keeper-only advisory; quests never gate play. Canonical operation `quest.map`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Read the campaign quest projection: every known quest with status, machine condition progress, and player-safe faces. Keeper-only advisory; quests never gate play."
+    },
+    "quest.offer": {
+      "access": "mutation",
+      "canonical_operation": "quest.offer",
+      "description": "Move a quest authored->offered (decision_id idempotent). The offered transition is what first makes a quest player-visible. Canonical operation `quest.offer`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "quest_id": {
+            "description": "quest id from quest.map (quest-<slug>)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "quest_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Move a quest authored->offered (decision_id idempotent). The offered transition is what first makes a quest player-visible."
+    },
+    "quest.settle": {
+      "access": "mutation",
+      "canonical_operation": "quest.settle",
+      "description": "Close a quest active->completed|failed|abandoned (or drop an unaccepted quest to abandoned) with a close receipt. Narrative conditions close only through this operation. Canonical operation `quest.settle`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "description": "keeper semantic note recorded in the close receipt (required in spirit for narrative closures)",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "terminal status",
+            "enum": [
+              "completed",
+              "failed",
+              "abandoned"
+            ],
+            "type": "string"
+          },
+          "quest_id": {
+            "description": "quest id to close",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "quest_id",
+          "outcome",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Close a quest active->completed|failed|abandoned (or drop an unaccepted quest to abandoned) with a close receipt. Narrative conditions close only through this operation."
     },
     "rules.build_scale": {
       "access": "mutation",

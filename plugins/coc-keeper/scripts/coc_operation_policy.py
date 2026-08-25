@@ -165,6 +165,18 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "state",
     },
+    # quest.* is the action-quest lifecycle surface: offer/activate/settle are
+    # state-contract transitions and quest.map/improvise share the domain.
+    # Opening included because commissions are typically offered in the
+    # opening; pending_finalization because a settle can land while closing a
+    # turn. Quest pressure itself is advisory and never gates play.
+    "quest": {
+        "audience": "keeper",
+        "phases": ("opening", "live_turn", "pending_finalization"),
+        "contract": "state",
+        "advisory": False,
+        "kp_surface": "state",
+    },
     "threat": {
         "audience": "keeper",
         "phases": ("opening", "live_turn", "pending_finalization"),

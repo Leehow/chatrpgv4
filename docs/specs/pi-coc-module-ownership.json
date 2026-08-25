@@ -8,7 +8,7 @@
     "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
-    "canonical_operation_count": 125
+    "canonical_operation_count": 130
   },
   "migration_states": {
     "planned": "Handlers or tests still occupy shared files; no parallel implementation edit is allowed.",
@@ -409,6 +409,11 @@
         "memory.search",
         "memory.write",
         "personal_horror.query",
+        "quest.activate",
+        "quest.improvise",
+        "quest.map",
+        "quest.offer",
+        "quest.settle",
         "state.backstory_corruption_add",
         "state.belief_apply",
         "state.personal_horror_add",
@@ -419,6 +424,7 @@
       "implementation_dependencies": [
         "plugins/coc-keeper/scripts/coc_epistemic_resolve.py",
         "plugins/coc-keeper/scripts/coc_memory.py",
+        "plugins/coc-keeper/scripts/coc_quest_state.py",
         "plugins/coc-keeper/scripts/coc_threat_state.py"
       ],
       "may_depend_on": [
