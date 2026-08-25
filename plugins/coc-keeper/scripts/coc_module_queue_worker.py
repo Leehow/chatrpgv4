@@ -1600,8 +1600,24 @@ def _write_host_work_request(
     elif job_kind == coc_module_assets.ANNOTATE_IMAGES_KIND:
         # The annotation pass covers every page that has at least one
         # extracted image; it reads the surrounding text, not the PDF.
+        # Resolve the image pages from the module's source-assets registry.
+        mod = coc_module_assets._module_dir(workspace, asset_root_id)
+        source_assets_path = mod / "source-assets.json"
+        try:
+            source_assets_doc = json.loads(
+                source_assets_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise QueueWorkerError(
+                f"annotate_images cannot read source-assets: {exc}"
+            ) from exc
         asset_refs = coc_module_assets.registered_source_asset_refs(
             workspace, asset_root_id,
+            requested_pdf_indices=sorted({
+                int(row["pdf_index"])
+                for row in (source_assets_doc.get("assets") or [])
+                if isinstance(row.get("pdf_index"), int)
+            }),
         )
         requested_indices = sorted({
             int(ref["pdf_index"]) for ref in asset_refs
@@ -1611,7 +1627,7 @@ def _write_host_work_request(
             raise QueueWorkerError(
                 "annotate_images job has no extracted images to annotate"
             )
-        payload["image_assets"] = [
+        annotate_image_assets = [
             {
                 "asset_key": ref.get("image_ref"),
                 "pdf_index": ref.get("pdf_index"),
@@ -1739,6 +1755,11 @@ def _write_host_work_request(
         "reason": job.get("reason"),
         "created_at": _now_iso(),
         "source_pdf": source.get("path") or (identity.get("source") or {}).get("path"),
+        **(
+            {"image_assets": annotate_image_assets}
+            if job_kind == coc_module_assets.ANNOTATE_IMAGES_KIND
+            else {}
+        ),
         "source_id": source.get("source_id") or (identity.get("source") or {}).get("source_id"),
         "file_sha256": source.get("file_sha256") or identity.get("file_sha256"),
         "pages_cached": [f"{pdf_index:04d}.md" for pdf_index in sorted(cached_indices)],
@@ -2477,6 +2498,7 @@ def process_claimed_job(
         if kind in {
             coc_module_assets.CLASSIFY_SECTIONS_KIND,
             coc_module_assets.EXTRACT_SECTION_KIND,
+            coc_module_assets.ANNOTATE_IMAGES_KIND,
         }:
             # Structure work publishes a host-work request like any other
             # bounded read; it is the coordinator that resolves it. Without

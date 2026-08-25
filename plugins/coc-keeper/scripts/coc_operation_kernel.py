@@ -8982,6 +8982,7 @@ def _fulfill_host_work_for_asset_unlocked(
     job_kind = str(request.get("kind") or "")
     if job_kind in {
         assets_mod.CLASSIFY_SECTIONS_KIND, assets_mod.EXTRACT_SECTION_KIND,
+        assets_mod.ANNOTATE_IMAGES_KIND,
     }:
         # Structure results are not entity packs: one produces the whole-book
         # index, the other a section document. Both validate against the exact
